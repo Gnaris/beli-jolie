@@ -22,6 +22,8 @@ import { PFS_COLORS } from "@/lib/marketplace-excel/pfs-taxonomy";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker from "@/components/admin/EfashionMappingPicker";
 import TranslateButton from "@/components/admin/TranslateButton";
+import TranslatingInput from "@/components/admin/TranslatingInput";
+import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 import PfsSuggestions, { type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
 
 const QUICK_PALETTE: string[] = [
@@ -80,6 +82,8 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
   const patternInputRef = useRef<HTMLInputElement | null>(null);
 
   const [pfsColorOptions, setPfsColorOptions] = useState<PfsRefOption[] | null>(null);
+
+  const { handleFrBlur, isTranslating } = useAutoTranslateOnBlur({ names, setNames });
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -311,7 +315,7 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
                     <span aria-hidden className="w-[3px] h-[14px] rounded-full bg-rose-500" />
                     1 · Identité
                   </span>
-                  {autoTranslateEnabled && !isEdit && (
+                  {autoTranslateEnabled && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -329,6 +333,7 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
                     type="text"
                     value={names["fr"] ?? ""}
                     onChange={(e) => setNames((prev) => ({ ...prev, fr: e.target.value }))}
+                    onBlur={handleFrBlur}
                     autoFocus
                     placeholder="Ex : Or rose, Argent, Noir…"
                     className="field-input w-full text-sm"
@@ -354,7 +359,8 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
                     <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-bg-tertiary text-text-secondary text-[10.5px] font-semibold">
                       🇬🇧 EN
                     </span>
-                    <input
+                    <TranslatingInput
+                      translating={isTranslating("en")}
                       type="text"
                       value={names["en"] ?? ""}
                       onChange={(e) => setNames((prev) => ({ ...prev, en: e.target.value }))}
@@ -364,7 +370,7 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
                   </div>
                   <p className="text-[11px] text-text-muted mt-1.5">
                     {autoTranslateEnabled
-                      ? "Traduite automatiquement à l'enregistrement — tu peux la corriger à la main."
+                      ? "Traduite automatiquement quand tu quittes le champ français — tu peux la corriger à la main."
                       : "Utilisée pour les visiteurs anglophones du site."}
                   </p>
                 </div>

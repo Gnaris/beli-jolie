@@ -22,6 +22,8 @@ import { createCompositionQuick } from "@/app/actions/admin/quick-create";
 import { fetchPfsMappingOptions, type PfsMappingOptions } from "@/app/actions/admin/pfs-annexes";
 import { PFS_COMPOSITIONS } from "@/lib/marketplace-excel/pfs-taxonomy";
 import TranslateButton from "@/components/admin/TranslateButton";
+import TranslatingInput from "@/components/admin/TranslatingInput";
+import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker from "@/components/admin/EfashionMappingPicker";
 import PfsSuggestions, { type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
@@ -70,6 +72,8 @@ export default function CompositionEditorModal({
   const [error, setError] = useState("");
 
   const [pfsAnnexes, setPfsAnnexes] = useState<PfsMappingOptions | null>(null);
+
+  const { handleFrBlur, isTranslating } = useAutoTranslateOnBlur({ names, setNames });
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -241,7 +245,7 @@ export default function CompositionEditorModal({
                     <span aria-hidden className="w-[3px] h-[14px] rounded-full bg-amber-500" />
                     1 · Identité
                   </span>
-                  {autoTranslateEnabled && !isEdit && (
+                  {autoTranslateEnabled && (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5} aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -259,6 +263,7 @@ export default function CompositionEditorModal({
                     type="text"
                     value={names["fr"] ?? ""}
                     onChange={(e) => setNames((prev) => ({ ...prev, fr: e.target.value }))}
+                    onBlur={handleFrBlur}
                     autoFocus
                     placeholder="Ex : Acier inoxydable, Coton biologique, Laiton…"
                     className="field-input w-full text-sm"
@@ -284,7 +289,8 @@ export default function CompositionEditorModal({
                     <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-bg-tertiary text-text-secondary text-[10.5px] font-semibold">
                       🇬🇧 EN
                     </span>
-                    <input
+                    <TranslatingInput
+                      translating={isTranslating("en")}
                       type="text"
                       value={names["en"] ?? ""}
                       onChange={(e) => setNames((prev) => ({ ...prev, en: e.target.value }))}
@@ -294,7 +300,7 @@ export default function CompositionEditorModal({
                   </div>
                   <p className="text-[11px] text-text-muted mt-1.5">
                     {autoTranslateEnabled
-                      ? "Traduite automatiquement à l'enregistrement — tu peux la corriger à la main."
+                      ? "Traduite automatiquement quand tu quittes le champ français — tu peux la corriger à la main."
                       : "Utilisée pour les visiteurs anglophones du site."}
                   </p>
                 </div>

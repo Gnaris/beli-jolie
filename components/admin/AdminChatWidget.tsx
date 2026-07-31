@@ -387,8 +387,10 @@ export default function AdminChatWidget() {
       {/* ── Chat panel ── */}
       {isOpen && (
         <div className="fixed z-[9000] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
-          /* Desktop + tablette ≥ md : panneau flottant 400 × 620 px au-dessus du FAB */
-          md:bottom-24 md:right-6 md:w-[400px] md:h-[620px] md:max-h-[calc(100vh-8rem)] md:rounded-3xl md:border md:border-border
+          /* Desktop + tablette ≥ md : panneau flottant 400 × 620 px ancré au coin
+             bas-droit (le FAB étoile est masqué quand un tiroir est ouvert
+             depuis le 2026-07-31) */
+          md:bottom-6 md:right-6 md:w-[400px] md:h-[620px] md:max-h-[calc(100vh-3rem)] md:rounded-3xl md:border md:border-border
           /* Mobile < md : plein écran */
           max-md:inset-0">
           {/* ── Header ── */}

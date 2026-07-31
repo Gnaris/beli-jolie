@@ -47,6 +47,14 @@ export interface MarketplaceRefreshItem {
   /** ISO date. Présent quand le job attend une heure de départ future (étalement). */
   scheduledFor?: string;
   completedAt?: string;
+  /**
+   * Intention du push (client-side uniquement, tracké dans le context).
+   * "create" = première publication chez le marketplace (aucun ID connu),
+   * "update" ou absent = mise à jour / re-sync d'une fiche existante.
+   * Sert au drawer marketplaces pour router vers la colonne « Publication »
+   * (create) ou « Modifications » (update).
+   */
+  intent?: "create" | "update";
 }
 
 export interface MarketplaceRefreshEnqueueInput {
@@ -59,6 +67,11 @@ export interface MarketplaceRefreshEnqueueInput {
   mode?: QueueItemMode;
   /** Marketplace cible — défaut "pfs". */
   marketplace?: MarketplaceTarget;
+  /** Intention client — "create" = première publication (fiche non existante
+   *  chez le marketplace), sinon "update" par défaut. Ne franchit pas la
+   *  frontière serveur : mémorisé dans une map locale du context et
+   *  ré-appliqué à chaque item polled. */
+  intent?: "create" | "update";
   /**
    * Optionnel : actions ciblées produites par le tooltip « PFS Verify » (envoi
    * granulaire par champ). Quand présent, le worker exécute
@@ -177,6 +190,19 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
   const lastDoneCountRef = useRef<number>(0);
   const inFlightFetchRef = useRef<boolean>(false);
 
+  // Mémoire des intents "create" (première publication). Clé =
+  // `${productId}:${marketplace}:${mode}`. Alimentée par enqueue() quand
+  // l'appelant précise intent === "create" (ex : MarketplaceStatusButtons
+  // clique « Publier » sur un produit sans ID marketplace connu). Consommée
+  // au moment du build des items côté drawer pour router la carte vers la
+  // colonne « Publication » plutôt que « Modifications ». Purgée quand
+  // l'item est retiré ou terminé + dismiss.
+  const [intentMap, setIntentMap] = useState<Map<string, "create">>(
+    () => new Map(),
+  );
+  const intentKey = (productId: string, marketplace: MarketplaceTarget, mode: QueueItemMode) =>
+    `${productId}:${marketplace}:${mode}`;
+
   // Mémoire client-side des dernières sync réussies. Clé = `${productId}:${marketplace}`,
   // valeur = timestamp CLIENT (Date.now) au moment où on a détecté la transition
   // vers done+ok. Immuable au niveau id de la Map — on remplace l'instance à
@@ -286,6 +312,24 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
         meta?.intervalMs && Number.isFinite(meta.intervalMs) && meta.intervalMs > 0
           ? meta.intervalMs
           : 0;
+
+      // Enregistre les intents "create" AVANT le POST — comme ça, si des
+      // items reviennent en optimiste avant même le prochain poll, ils
+      // porteront déjà la bonne intention.
+      const createEntries: [string, "create"][] = [];
+      for (const inp of inputs) {
+        if (inp.intent !== "create") continue;
+        const mode = inp.mode ?? "refresh";
+        const marketplace = inp.marketplace ?? "pfs";
+        createEntries.push([intentKey(inp.productId, marketplace, mode), "create"]);
+      }
+      if (createEntries.length > 0) {
+        setIntentMap((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of createEntries) next.set(k, v);
+          return next;
+        });
+      }
       void (async () => {
         try {
           const res = await fetch("/api/admin/marketplace-queue", {
@@ -417,20 +461,34 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     };
   }, []);
 
+  // Items enrichis avec l'intent "create" hérité du dernier enqueue.
+  // Recomputé quand items OU intentMap change. Purge côté "cleanup" : quand
+  // un item terminé disparaît des items (dismiss), sa clé peut rester dans
+  // intentMap ; on la laisse là — la Map est petite et repartitionnée à
+  // chaque enqueue "create", pas de risque de fuite mémoire critique.
+  const itemsWithIntent = useMemo(() => {
+    if (intentMap.size === 0) return items;
+    return items.map((it) => {
+      const k = intentKey(it.productId, it.marketplace, it.mode);
+      const intent = intentMap.get(k);
+      return intent ? { ...it, intent } : it;
+    });
+  }, [items, intentMap]);
+
   // ── Valeurs dérivées exposées au widget et aux pages admin ────────
-  const runningCount = items.filter((i) => i.status === "in_progress").length;
-  const awaitingCount = items.filter((i) => i.status === "awaiting_callback").length;
-  const queuedCount = items.filter((i) => i.status === "queued").length;
+  const runningCount = itemsWithIntent.filter((i) => i.status === "in_progress").length;
+  const awaitingCount = itemsWithIntent.filter((i) => i.status === "awaiting_callback").length;
+  const queuedCount = itemsWithIntent.filter((i) => i.status === "queued").length;
   const isAllFinished =
-    items.length > 0 && runningCount === 0 && queuedCount === 0 && awaitingCount === 0;
+    itemsWithIntent.length > 0 && runningCount === 0 && queuedCount === 0 && awaitingCount === 0;
 
   const inFlightProductIds = useMemo(() => {
     const set = new Set<string>();
-    for (const item of items) {
+    for (const item of itemsWithIntent) {
       if (isItemActive(item)) set.add(item.productId);
     }
     return set;
-  }, [items]);
+  }, [itemsWithIntent]);
 
   const getRecentClientSuccessAt = useCallback(
     (productId: string, marketplace: MarketplaceTarget): number | null => {
@@ -443,7 +501,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
   );
 
   const value: MarketplaceRefreshContextValue = {
-    items,
+    items: itemsWithIntent,
     enqueue,
     clear,
     stop,

@@ -366,18 +366,18 @@ function MarketplaceCard({
         {!state.loading && !disabledForProduct && (
           awaitingShooting ? (
             <span className="relative inline-flex">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#EAB308] animate-pulse" />
-              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#EAB308] opacity-60 animate-ping" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EAB308] animate-pulse pointer-coarse:animate-none" />
+              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#EAB308] opacity-60 animate-ping pointer-coarse:animate-none" />
             </span>
           ) : state.syncRequired ? (
             <span className="relative inline-flex">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
-              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse pointer-coarse:animate-none" />
+              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping pointer-coarse:animate-none" />
             </span>
           ) : (
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                state.online ? "bg-[#22C55E] animate-pulse" : "bg-border-dark"
+                state.online ? "bg-[#22C55E] animate-pulse pointer-coarse:animate-none" : "bg-border-dark"
               }`}
             />
           )
@@ -698,6 +698,7 @@ export function MarketplaceStatusButtons({
         options: { local: false, pfs: true },
         mode: "publish",
         marketplace: "pfs",
+        intent: pfsProductId ? "update" : "create",
       },
     ]);
     setConfirmPfsOpen(false);
@@ -754,6 +755,7 @@ export function MarketplaceStatusButtons({
         options: { local: false, pfs: false, ankorstore: true },
         mode: "publish",
         marketplace: "ankorstore",
+        intent: ankorsProductId ? "update" : "create",
       },
     ]);
     setConfirmAkOpen(false);
@@ -826,6 +828,7 @@ export function MarketplaceStatusButtons({
           options: { local: false, pfs: false, ankorstore: false, efashion: true },
           mode: "publish",
           marketplace: "efashion",
+          intent: "update",
         },
       ]);
     } else {
@@ -844,6 +847,7 @@ export function MarketplaceStatusButtons({
         options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
         mode: "publish",
         marketplace: "faire",
+        intent: faireProductId ? "update" : "create",
       },
     ]);
     setConfirmFaireOpen(false);

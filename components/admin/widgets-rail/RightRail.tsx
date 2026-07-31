@@ -212,13 +212,15 @@ export function RightRail() {
           </div>
         )}
 
-        {/* Bouton principal FAB */}
+        {/* Bouton principal FAB — masqué dès qu'un tiroir est ouvert
+            (demande cliente 2026-07-31 : plus de croix flottante par-dessus,
+            la fermeture passe par le bouton « Fermer » du header du tiroir
+            ou par la touche Échap). */}
+        {!somethingOpen && (
         <button
           type="button"
           aria-label={
-            somethingOpen
-              ? "Fermer le panneau"
-              : menuOpen
+            menuOpen
               ? "Fermer le menu"
               : "Ouvrir le menu widgets"
           }
@@ -262,6 +264,7 @@ export function RightRail() {
             </span>
           )}
         </button>
+        )}
       </div>
 
       <style jsx global>{`

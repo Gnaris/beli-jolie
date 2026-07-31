@@ -416,6 +416,25 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* Produit avec au moins une variante modifiée depuis le tiroir (desktop) ou
+   l'overlay (mobile) mais pas encore validée par « Appliquer les modifications ».
+   Ambre pâle (#fef3c7 = amber-100) pour rappeler la famille du badge orange
+   « Synchro nécessaire » — ici c'est l'étape d'avant : modifs saisies mais
+   pas encore enregistrées côté boutique. Appliqué par <td> comme
+   product-row-selected (compat mobile). La sélection prime visuellement quand
+   les deux états coexistent, via la double-classe (specificity 0,2,1). */
+.product-row-dirty > td {
+  background-color: #fef3c7 !important;
+}
+.product-row-selected.product-row-dirty > td {
+  background-color: #cbd5e1 !important;
+}
+@media (min-width: 768px) {
+  .product-row-selected.product-row-dirty > td {
+    background-color: #EEF2FF !important;
+  }
+}
+
 /* ─── Empty state ────────────────────────── */
 .empty-state {
   display: flex;

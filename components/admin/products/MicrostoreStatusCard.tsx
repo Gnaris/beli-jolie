@@ -209,13 +209,13 @@ export function MicrostoreStatusCard({
         {!busy && !disabled && (
           syncRequired ? (
             <span className="relative inline-flex">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
-              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse pointer-coarse:animate-none" />
+              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping pointer-coarse:animate-none" />
             </span>
           ) : (
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                online ? "bg-[#22C55E] animate-pulse" : "bg-border-dark"
+                online ? "bg-[#22C55E] animate-pulse pointer-coarse:animate-none" : "bg-border-dark"
               }`}
             />
           )

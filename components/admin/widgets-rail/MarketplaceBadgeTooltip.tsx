@@ -229,6 +229,9 @@ export interface MarketplaceBadgeProps {
   /** Si fourni, un bouton « Copier le message » apparaît dans le tooltip. */
   copyable?: string;
   tooltipHandle: React.MutableRefObject<TooltipHandle | null>;
+  /** "sm" (défaut) = pilule 10.5px pour drawer compact. "md" = pilule
+   *  12px pour drawer plein écran (marketplaces / import commandes). */
+  size?: "sm" | "md";
 }
 
 export function MarketplaceBadge({
@@ -241,6 +244,7 @@ export function MarketplaceBadge({
   tooltipBody,
   copyable,
   tooltipHandle,
+  size = "sm",
 }: MarketplaceBadgeProps) {
   const ref = useRef<HTMLSpanElement | null>(null);
 
@@ -259,6 +263,12 @@ export function MarketplaceBadge({
     tooltipHandle.current?.scheduleHide();
   };
 
+  const sizeCls =
+    size === "md"
+      ? "gap-1.5 pl-2 pr-2.5 py-1 text-xs"
+      : "gap-1 pl-1.5 pr-2 py-[3px] text-[10.5px]";
+  const dotSize = size === "md" ? "w-2 h-2" : "w-1.5 h-1.5";
+
   return (
     <span
       ref={ref}
@@ -267,9 +277,9 @@ export function MarketplaceBadge({
       onMouseLeave={handleLeave}
       onFocus={handleEnter}
       onBlur={handleLeave}
-      className={`inline-flex items-center gap-1 pl-1.5 pr-2 py-[3px] rounded-full text-[10.5px] font-bold tracking-wide leading-none cursor-default focus:outline-none focus:ring-2 focus:ring-sky-300 ${className}`}
+      className={`inline-flex items-center rounded-full font-bold tracking-wide leading-none cursor-default focus:outline-none focus:ring-2 focus:ring-sky-300 ${sizeCls} ${className}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${dotClassName}`} />
+      <span className={`rounded-full ${dotSize} ${dotClassName}`} />
       {label}
       {suffix}
     </span>

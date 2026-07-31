@@ -18,6 +18,8 @@ import { fetchPfsColorOptions } from "@/app/actions/admin/colors";
 import { fetchPfsMappingOptions, type PfsMappingOptions } from "@/app/actions/admin/pfs-annexes";
 import { VALID_LOCALES, LOCALE_FULL_NAMES } from "@/i18n/locales";
 import TranslateButton from "@/components/admin/TranslateButton";
+import TranslatingInput from "@/components/admin/TranslatingInput";
+import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker, { type EmbeddedPickerKind } from "@/components/admin/EfashionMappingPicker";
@@ -199,6 +201,16 @@ export default function QuickCreateModal({
   // ISO2 (country-only): code pays normalisé pour usage marketplace
   const [isoCode, setIsoCode] = useState<string>("");
   const [isoTouched, setIsoTouched] = useState(false);
+
+  // Auto-traduction FR → autres langues au blur du champ français.
+  // Coupée pour type="country" : le nom est un libellé pays canonique déjà géré
+  // par les mappings (PFS_COUNTRIES, ISO2 → nom FR).
+  const { handleFrBlur, isTranslating } = useAutoTranslateOnBlur({
+    names,
+    setNames,
+    targetLocales: VALID_LOCALES.filter((l) => l !== "fr"),
+    disabled: type === "country",
+  });
 
   // Live PFS colors (referential), fetched once when the modal opens for a color.
   const [pfsColorOptions, setPfsColorOptions] = useState<
@@ -599,7 +611,7 @@ export default function QuickCreateModal({
                     <p className="text-[11px] text-text-muted font-body mt-1">Nom en français et traductions.</p>
                   </div>
                 </div>
-                {autoTranslateEnabled && !isEdit ? (
+                {autoTranslateEnabled && type !== "country" ? (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-medium font-body text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -625,6 +637,7 @@ export default function QuickCreateModal({
                     type="text"
                     value={names["fr"] ?? ""}
                     onChange={(e) => setName("fr", e.target.value)}
+                    onBlur={handleFrBlur}
                     autoFocus
                     placeholder={PLACEHOLDERS[type]}
                     className="field-input w-full text-sm"
@@ -645,7 +658,9 @@ export default function QuickCreateModal({
                         <label className="block text-[10px] font-semibold text-text-muted font-body mb-0.5 uppercase">
                           {LOCALE_FULL_NAMES[locale]}
                         </label>
-                        <input
+                        <TranslatingInput
+                          translating={isTranslating(locale)}
+                          wrapperClassName="relative w-full"
                           type="text"
                           value={names[locale] ?? ""}
                           onChange={(e) => setName(locale, e.target.value)}

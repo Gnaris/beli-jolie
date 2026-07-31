@@ -45,6 +45,9 @@ export interface ProductGroup {
    *  Sert au regroupement de haut niveau dans le tiroir (Modifications /
    *  Rafraîchissements / Synchronisations). */
   dominantMode: QueueItemMode;
+  /** Colonne dominante du produit — même logique que `dominantMode` mais avec
+   *  application du split intent="create" → colonne « publication ». */
+  dominantColumn: ColumnKey;
 }
 
 export const MARKETPLACE_ORDER: MarketplaceTarget[] = [
@@ -127,19 +130,28 @@ export function groupItemsByProduct(
   return buildGroups(items, now, (item) => item.productId);
 }
 
+/** Résout la colonne finale d'un item. Un push mode="publish" avec
+ *  intent="create" atterrit dans la colonne « publication » ; sinon on
+ *  utilise directement le mode comme clé de colonne (refresh/resync/publish).
+ */
+export function columnKeyFromItem(item: MarketplaceRefreshItem): ColumnKey {
+  if (item.mode === "publish" && item.intent === "create") return "publication";
+  return item.mode;
+}
+
 /**
  * Variante utilisée par le tiroir marketplaces pour la vue en catégories :
  * un produit qui a subi plusieurs actions (par ex. une modification puis un
  * rafraîchissement) donne lieu à autant de cartes distinctes. Ainsi les
  * erreurs d'une action ne se retrouvent jamais mélangées avec celles d'une
  * autre — chaque carte n'expose que les cellules pilotées par des items du
- * même mode.
+ * même mode/colonne.
  */
 export function groupItemsByProductAndMode(
   items: ReadonlyArray<MarketplaceRefreshItem>,
   now: number = Date.now(),
 ): ProductGroup[] {
-  return buildGroups(items, now, (item) => `${item.productId}::${item.mode}`);
+  return buildGroups(items, now, (item) => `${item.productId}::${columnKeyFromItem(item)}`);
 }
 
 function buildGroups(
@@ -208,7 +220,10 @@ function buildGroups(
 
     // Mode dominant : l'item actif l'emporte sur les items terminés, sinon
     // on prend le dernier complété. Fallback : le premier item du produit.
-    const dominantMode = pickDominantMode(productItems);
+    const { mode: dominantMode, item: dominantItem } = pickDominant(productItems);
+    const dominantColumn: ColumnKey = dominantItem
+      ? columnKeyFromItem(dominantItem)
+      : dominantMode;
 
     return {
       productId: pid,
@@ -221,18 +236,22 @@ function buildGroups(
       section,
       earliestScheduledFor,
       dominantMode,
+      dominantColumn,
     };
   });
 }
 
-function pickDominantMode(items: MarketplaceRefreshItem[]): QueueItemMode {
-  if (items.length === 0) return "refresh";
+function pickDominant(items: MarketplaceRefreshItem[]): {
+  mode: QueueItemMode;
+  item: MarketplaceRefreshItem | null;
+} {
+  if (items.length === 0) return { mode: "refresh", item: null };
   const active = items.filter(isItemActive);
   const pool = active.length > 0 ? active : items;
   const chosen = pool.reduce((best, cur) =>
     itemRecency(cur) >= itemRecency(best) ? cur : best,
   );
-  return chosen.mode;
+  return { mode: chosen.mode, item: chosen };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -304,11 +323,16 @@ export const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
 // contexte MarketplaceLinkContext. On modélise ça avec une clef commune.
 // ────────────────────────────────────────────────────────────────
 
-export type ColumnKey = "publish" | "refresh" | "resync" | "link";
+export type ColumnKey = "publication" | "publish" | "refresh" | "resync" | "link";
 
-export const COLUMN_ORDER: ColumnKey[] = ["publish", "refresh", "resync", "link"];
+export const COLUMN_ORDER: ColumnKey[] = ["publication", "publish", "refresh", "resync", "link"];
 
 export const COLUMN_LABEL: Record<ColumnKey, { title: string; subtitle: string; short: string }> = {
+  publication: {
+    title: "Publication",
+    subtitle: "Créer la fiche chez le marketplace",
+    short: "publication",
+  },
   publish: {
     title: "Modifications",
     subtitle: "Fiche modifiée → renvoi",
@@ -381,11 +405,11 @@ export function bucketColumns(
   groups: ProductGroup[],
   linkJobs: ReadonlyArray<LinkJobLike>,
 ): ColumnBucket[] {
-  const byMode = new Map<QueueItemMode, ProductGroup[]>();
+  const byColumn = new Map<ColumnKey, ProductGroup[]>();
   for (const g of groups) {
-    const arr = byMode.get(g.dominantMode);
+    const arr = byColumn.get(g.dominantColumn);
     if (arr) arr.push(g);
-    else byMode.set(g.dominantMode, [g]);
+    else byColumn.set(g.dominantColumn, [g]);
   }
 
   return COLUMN_ORDER.map<ColumnBucket>((key) => {
@@ -409,7 +433,7 @@ export function bucketColumns(
       };
     }
 
-    const modeGroups = byMode.get(key) ?? [];
+    const modeGroups = byColumn.get(key) ?? [];
     let errors = 0;
     let active = 0;
     let queued = 0;

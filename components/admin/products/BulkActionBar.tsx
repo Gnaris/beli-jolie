@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import MarketplaceExportButton from "./MarketplaceExportButton";
 import {
   isItemActive,
@@ -375,11 +376,14 @@ export default function BulkActionBar({
       {/* Sentinelle 1px pour détecter l'état « collé en haut » via IntersectionObserver. */}
       <div ref={sentinelRef} aria-hidden className="h-px -mb-px" />
     <div
-      aria-hidden={!someSelected}
+      aria-hidden={!someSelected || actionsOpen}
       // Mobile : barre fixée en bas de l'écran (fixed bottom-3) — plus confortable
       // au pouce que le haut. Desktop : sticky top-4 comme avant. z-40 la garde
       // au-dessus du tableau mais sous les modales (z-50) et le widget flottant (z-9001).
-      className={`fixed left-3 right-3 bottom-[max(12px,env(safe-area-inset-bottom))] md:sticky md:top-4 md:bottom-auto md:left-auto md:right-auto z-[9002] md:z-40 grid transition-all duration-300 ease-out ${
+      // Quand l'overlay Actions est ouvert sur mobile, on masque totalement la barre
+      // (hidden md:grid) : ça évite toute guerre de z-index avec l'overlay et rend
+      // l'écran plus lisible (l'overlay a déjà son propre header avec compteur + croix).
+      className={`fixed left-3 right-3 bottom-[max(12px,env(safe-area-inset-bottom))] md:sticky md:top-4 md:bottom-auto md:left-auto md:right-auto z-[9002] md:z-40 ${actionsOpen ? "hidden md:grid" : "grid"} transition-all duration-300 ease-out ${
         someSelected
           ? "grid-rows-[1fr] opacity-100 mb-3"
           : "grid-rows-[0fr] opacity-0 mb-0 pointer-events-none"
@@ -797,13 +801,19 @@ export default function BulkActionBar({
       </div>
     </div>
 
-    {/* Overlay plein écran mobile — regroupe toutes les actions bulk (masqué sur desktop). */}
-    {actionsOpen && (
+    {/* Overlay plein écran mobile — regroupe toutes les actions bulk (masqué sur desktop).
+        Rendu via createPortal(document.body) pour échapper à tout stacking context
+        parent. Le z-index max int32 en style inline garantit qu'il passe au-dessus
+        de TOUT (header admin, badges produits, widget flottant, tooltips…) sans
+        dépendance sur la config Tailwind. isolation:isolate force la création
+        d'un nouveau stacking context racine. */}
+    {actionsOpen && typeof document !== "undefined" && createPortal(
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Actions sur la sélection"
-        className="md:hidden fixed inset-0 z-50 flex flex-col bg-white"
+        style={{ zIndex: 2147483647, isolation: "isolate" }}
+        className="md:hidden fixed inset-0 flex flex-col bg-white"
       >
         {/* Header sticky : sélection + fermer */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
@@ -823,10 +833,10 @@ export default function BulkActionBar({
           <button
             type="button"
             onClick={() => setActionsOpen(false)}
-            className="w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary flex items-center justify-center shrink-0"
+            className="w-11 h-11 rounded-full bg-slate-900 text-white shadow-lg ring-2 ring-white flex items-center justify-center shrink-0 active:scale-95 transition-transform"
             aria-label="Fermer"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -1007,7 +1017,8 @@ export default function BulkActionBar({
             onClick={() => { setActionsOpen(false); onDelete(); }}
           />
         </div>
-      </div>
+      </div>,
+      document.body,
     )}
     </>
   );
@@ -1116,7 +1127,7 @@ function MarketplacePanel({
   }, 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[720px] md:max-w-[calc(100vw-1.5rem)] md:bg-white/98 md:backdrop-blur-xl md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden md:flex-none">
+    <div className="fixed inset-0 z-[9010] flex flex-col bg-white md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[720px] md:max-w-[calc(100vw-1.5rem)] md:bg-white/98 md:backdrop-blur-xl md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden md:flex-none">
       <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3.5 border-b border-border-light shrink-0 pt-[max(env(safe-area-inset-top),12px)] md:pt-3.5">
         <div>
           <div className="text-[10px] uppercase tracking-wider font-semibold text-fuchsia-700 mb-0.5">

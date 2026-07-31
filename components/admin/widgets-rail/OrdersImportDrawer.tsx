@@ -76,10 +76,11 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 const POLL_ACTIVE_MS = 1500;
 const POLL_IDLE_MS = 30_000;
 const EVENT_DRIP_MS = 250;
-// Bas volume par colonne : le widget doit tenir dans la fenêtre sans scroll
-// (5 colonnes côte à côte). On plafonne à 3 events + 2 commandes en cours.
-const DISPLAYED_EVENTS_MAX = 3;
-const CURRENT_ORDERS_MAX = 2;
+// En plein écran (2026-07-31), chaque colonne dispose d'une hauteur bien plus
+// généreuse : on affiche davantage d'events + commandes en cours pour que la
+// cliente voie la file avancer sans avoir à attendre des rotations.
+const DISPLAYED_EVENTS_MAX = 8;
+const CURRENT_ORDERS_MAX = 4;
 
 const LEGACY_ALIASES: RailWidgetId[] = ["pfs-import", "efashion-import", "ankorstore-import"];
 
@@ -114,10 +115,19 @@ function formatRelative(at: number, now: number): string {
   return `il y a ${h}h`;
 }
 
+type OrdersImportPage = "orders" | "clients";
+const WHEEL_LOCK_MS = 700;
+const WHEEL_DELTA_THRESHOLD = 15;
+
 export function OrdersImportDrawer() {
   const { openWidget, open, close, setBadge, manualSyncs, clearManualSync } = useRightRail();
   const { confirm } = useConfirm();
   const [clearing, setClearing] = useState(false);
+  // Carousel 2 pages : « Commandes » (défaut) ⇄ « Clients ». Basculé à la
+  // molette ou via les onglets sticky en haut du body. Les 2 pages restent
+  // montées (pollers actifs pour les 2 côtés → mise à jour temps réel).
+  const [activePage, setActivePage] = useState<OrdersImportPage>("orders");
+  const wheelLockRef = useRef(false);
   const isOpen =
     openWidget === "orders-import" ||
     openWidget === "pfs-import" ||
@@ -363,6 +373,39 @@ export function OrdersImportDrawer() {
     }
   }, [anyRunning, confirm]);
 
+  // Handler molette : 1 cran > seuil = 1 bascule de page, verrouillé pendant
+  // WHEEL_LOCK_MS pour ne pas enchaîner 2 bascules sur le même swipe.
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (wheelLockRef.current) return;
+      const delta = e.deltaY;
+      if (Math.abs(delta) < WHEEL_DELTA_THRESHOLD) return;
+      if (delta > 0 && activePage === "orders") {
+        setActivePage("clients");
+      } else if (delta < 0 && activePage === "clients") {
+        setActivePage("orders");
+      } else {
+        return;
+      }
+      wheelLockRef.current = true;
+      setTimeout(() => {
+        wheelLockRef.current = false;
+      }, WHEEL_LOCK_MS);
+    },
+    [activePage],
+  );
+
+  // Compteurs pour les onglets — reflètent l'activité en temps réel côté
+  // Commandes (imports en cours) et côté Clients (imports en cours = ceux
+  // qui créent des fiches).
+  const ordersRunningCount = [
+    pfsState,
+    efState,
+    ankorState,
+    faireState,
+    microstoreState,
+  ].filter((s) => s?.status === "RUNNING").length;
+
   if (!isOpen) return null;
 
   return (
@@ -373,10 +416,10 @@ export function OrdersImportDrawer() {
       eyebrow="Marketplaces"
       title={title}
       icon={ICON}
-      size="wide"
+      size="fullscreen"
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-slate-500">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-slate-500">
             Vider l'historique ne supprime aucune commande ni fiche client déjà importée — seul l'affichage (journal, compteurs, récaps) est remis à zéro.
           </p>
           <button
@@ -388,9 +431,9 @@ export function OrdersImportDrawer() {
                 ? "Impossible pendant qu'un import tourne"
                 : "Réinitialise l'affichage des 5 marketplaces"
             }
-            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="shrink-0 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
             </svg>
             {clearing ? "Nettoyage…" : "Vider tout l'historique"}
@@ -398,86 +441,207 @@ export function OrdersImportDrawer() {
         </div>
       }
     >
-      {/* Grille responsive — hauteur du body du DrawerShell entière (pas de
-       *  scroll), chaque colonne prend la même hauteur et cape ses propres
-       *  enfants pour ne pas déborder. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 p-3 h-full min-h-0">
-        <MarketplaceColumn accentBar="bg-indigo-500">
-          <PfsSection
-            state={pfsState}
-            onStateChange={setPfsState}
-            now={now}
-            manualSync={manualSyncs.PFS}
-            onDismissManualSync={() => clearManualSync("PFS", "orders")}
-          />
-          <ClientsRow
-            source="PFS"
-            refreshTick={pfsState?.processedOrders ?? 0}
-            isImporting={pfsState?.status === "RUNNING"}
-          />
-        </MarketplaceColumn>
+      {/* Onglets Commandes/Clients + carousel 2 pages qui glisse à la molette
+       *  ou au clic sur l'onglet. Les 2 pages restent montées → les pollers
+       *  restent actifs et la page cachée reçoit les updates en direct. */}
+      <div className="h-full flex flex-col min-h-0" onWheel={handleWheel}>
+        <PageTabs
+          activePage={activePage}
+          onChange={setActivePage}
+          ordersRunning={ordersRunningCount}
+        />
+        <div className="flex-1 min-h-0 overflow-hidden relative">
+          <div
+            className={`flex h-full w-[200%] transition-transform duration-500 ease-out will-change-transform ${
+              activePage === "orders" ? "translate-x-0" : "-translate-x-1/2"
+            }`}
+            aria-live="polite"
+          >
+            {/* Page 1 — Commandes */}
+            <div
+              className="w-1/2 h-full min-h-0 overflow-hidden"
+              aria-hidden={activePage !== "orders"}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 p-5 h-full min-h-0">
+                <MarketplaceColumn accentBar="bg-indigo-500">
+                  <PfsSection
+                    state={pfsState}
+                    onStateChange={setPfsState}
+                    now={now}
+                    manualSync={manualSyncs.PFS?.target === "orders" ? manualSyncs.PFS : null}
+                    onDismissManualSync={() => clearManualSync("PFS", "orders")}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-rose-500">
+                  <EfashionSection
+                    state={efState}
+                    onStateChange={setEfState}
+                    now={now}
+                    manualSync={manualSyncs.EFASHION?.target === "orders" ? manualSyncs.EFASHION : null}
+                    onDismissManualSync={() => clearManualSync("EFASHION", "orders")}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-sky-500">
+                  <AnkorstoreSection
+                    state={ankorState}
+                    onStateChange={setAnkorState}
+                    now={now}
+                    manualSync={manualSyncs.ANKORSTORE?.target === "orders" ? manualSyncs.ANKORSTORE : null}
+                    onDismissManualSync={() => clearManualSync("ANKORSTORE", "orders")}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-amber-500">
+                  <FaireSection
+                    state={faireState}
+                    onStateChange={setFaireState}
+                    now={now}
+                    manualSync={manualSyncs.FAIRE?.target === "orders" ? manualSyncs.FAIRE : null}
+                    onDismissManualSync={() => clearManualSync("FAIRE", "orders")}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-cyan-500">
+                  <MicrostoreSection
+                    state={microstoreState}
+                    onStateChange={setMicrostoreState}
+                    now={now}
+                    manualSync={manualSyncs.MICROSTORE?.target === "orders" ? manualSyncs.MICROSTORE : null}
+                    onDismissManualSync={() => clearManualSync("MICROSTORE", "orders")}
+                  />
+                </MarketplaceColumn>
+              </div>
+            </div>
 
-        <MarketplaceColumn accentBar="bg-rose-500">
-          <EfashionSection
-            state={efState}
-            onStateChange={setEfState}
-            now={now}
-            manualSync={manualSyncs.EFASHION}
-            onDismissManualSync={() => clearManualSync("EFASHION", "orders")}
-          />
-          <ClientsRow
-            source="EFASHION"
-            refreshTick={efState?.processedOrders ?? 0}
-            isImporting={efState?.status === "RUNNING"}
-          />
-        </MarketplaceColumn>
-
-        <MarketplaceColumn accentBar="bg-sky-500">
-          <AnkorstoreSection
-            state={ankorState}
-            onStateChange={setAnkorState}
-            now={now}
-            manualSync={manualSyncs.ANKORSTORE}
-            onDismissManualSync={() => clearManualSync("ANKORSTORE", "orders")}
-          />
-          <ClientsRow
-            source="ANKORSTORE"
-            refreshTick={ankorState?.processedOrders ?? 0}
-            isImporting={ankorState?.status === "RUNNING"}
-          />
-        </MarketplaceColumn>
-
-        <MarketplaceColumn accentBar="bg-amber-500">
-          <FaireSection
-            state={faireState}
-            onStateChange={setFaireState}
-            now={now}
-            manualSync={manualSyncs.FAIRE}
-            onDismissManualSync={() => clearManualSync("FAIRE", "orders")}
-          />
-          <ClientsRow
-            source="FAIRE"
-            refreshTick={faireState?.processedOrders ?? 0}
-            isImporting={faireState?.status === "RUNNING"}
-          />
-        </MarketplaceColumn>
-
-        <MarketplaceColumn accentBar="bg-cyan-500">
-          <MicrostoreSection
-            state={microstoreState}
-            onStateChange={setMicrostoreState}
-            now={now}
-            manualSync={manualSyncs.MICROSTORE}
-            onDismissManualSync={() => clearManualSync("MICROSTORE", "orders")}
-          />
-          <ClientsRow
-            source="MICROSTORE"
-            refreshTick={microstoreState?.processedOrders ?? 0}
-            isImporting={microstoreState?.status === "RUNNING"}
-          />
-        </MarketplaceColumn>
+            {/* Page 2 — Clients */}
+            <div
+              className="w-1/2 h-full min-h-0 overflow-hidden"
+              aria-hidden={activePage !== "clients"}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 p-5 h-full min-h-0">
+                <MarketplaceColumn accentBar="bg-indigo-500">
+                  <ClientsFullSection
+                    source="PFS"
+                    refreshTick={pfsState?.processedOrders ?? 0}
+                    isImporting={pfsState?.status === "RUNNING"}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-rose-500">
+                  <ClientsFullSection
+                    source="EFASHION"
+                    refreshTick={efState?.processedOrders ?? 0}
+                    isImporting={efState?.status === "RUNNING"}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-sky-500">
+                  <ClientsFullSection
+                    source="ANKORSTORE"
+                    refreshTick={ankorState?.processedOrders ?? 0}
+                    isImporting={ankorState?.status === "RUNNING"}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-amber-500">
+                  <ClientsFullSection
+                    source="FAIRE"
+                    refreshTick={faireState?.processedOrders ?? 0}
+                    isImporting={faireState?.status === "RUNNING"}
+                  />
+                </MarketplaceColumn>
+                <MarketplaceColumn accentBar="bg-cyan-500">
+                  <ClientsFullSection
+                    source="MICROSTORE"
+                    refreshTick={microstoreState?.processedOrders ?? 0}
+                    isImporting={microstoreState?.status === "RUNNING"}
+                  />
+                </MarketplaceColumn>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </DrawerShell>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Onglets Commandes/Clients — sticky en haut du body du drawer.
+// ─────────────────────────────────────────────
+function PageTabs({
+  activePage,
+  onChange,
+  ordersRunning,
+}: {
+  activePage: OrdersImportPage;
+  onChange: (p: OrdersImportPage) => void;
+  ordersRunning: number;
+}) {
+  return (
+    <div className="flex-shrink-0 bg-white border-b border-slate-200 px-5 pt-3 pb-0 flex items-center justify-center gap-8">
+      <PageTab
+        active={activePage === "orders"}
+        onClick={() => onChange("orders")}
+        label="Commandes"
+        badge={ordersRunning > 0 ? `${ordersRunning} en cours` : null}
+        color="indigo"
+      />
+      <PageTab
+        active={activePage === "clients"}
+        onClick={() => onChange("clients")}
+        label="Clients"
+        badge={null}
+        color="emerald"
+      />
+      <span className="ml-auto text-[11px] text-slate-400 hidden md:inline-flex items-center gap-1.5">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+        </svg>
+        Molette pour changer de page
+      </span>
+    </div>
+  );
+}
+
+function PageTab({
+  active,
+  onClick,
+  label,
+  badge,
+  color,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  badge: string | null;
+  color: "indigo" | "emerald";
+}) {
+  const activeText = color === "indigo" ? "text-indigo-700" : "text-emerald-700";
+  const activeBar = color === "indigo" ? "bg-indigo-500" : "bg-emerald-500";
+  const badgeCls =
+    color === "indigo"
+      ? "bg-indigo-100 text-indigo-700 ring-indigo-200"
+      : "bg-emerald-100 text-emerald-700 ring-emerald-200";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`relative pb-3 flex items-center gap-2 text-sm font-semibold transition-colors ${
+        active ? activeText : "text-slate-400 hover:text-slate-600"
+      }`}
+    >
+      {label}
+      {badge && (
+        <span
+          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ring-1 ${badgeCls}`}
+        >
+          {badge}
+        </span>
+      )}
+      {active && (
+        <span
+          className={`absolute -bottom-px left-0 right-0 h-0.5 rounded-full ${activeBar}`}
+          aria-hidden="true"
+        />
+      )}
+    </button>
   );
 }
 
@@ -493,9 +657,9 @@ function MarketplaceColumn({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-sm min-h-0 h-full">
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col shadow-sm min-h-0 h-full">
       {/* Fine barre colorée en haut pour identifier le marketplace au coup d'œil */}
-      <div className={`h-1 ${accentBar} flex-shrink-0`} />
+      <div className={`h-1.5 ${accentBar} flex-shrink-0`} />
       <div className="flex flex-col divide-y divide-slate-100 flex-1 min-h-0 overflow-hidden">
         {children}
       </div>
@@ -1230,16 +1394,16 @@ function SourceSection({
     // en cours + récap + journal).
     <div className="flex-[3] basis-0 min-h-0 flex flex-col overflow-hidden">
       {/* Header source */}
-      <div className="px-4 py-3 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
+      <div className="px-5 py-4 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
         <span
-          className="w-8 h-8 rounded-lg text-white font-heading font-bold text-sm flex items-center justify-center shadow-sm shrink-0"
+          className="w-11 h-11 rounded-xl text-white font-heading font-bold text-lg flex items-center justify-center shadow-sm shrink-0"
           style={{ background: meta.gradient }}
         >
           {meta.letter}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 truncate">{meta.name}</p>
-          <p className="text-[11px] text-slate-500 truncate">
+          <p className="text-base font-semibold text-slate-900 truncate">{meta.name}</p>
+          <p className="text-xs text-slate-500 truncate mt-0.5">
             {isRunning
               ? hasTotalPages
                 ? `Page ${state?.currentPage ?? "?"} / ${(state as { totalPages?: number }).totalPages ?? "?"}`
@@ -1258,7 +1422,7 @@ function SourceSection({
             type="button"
             onClick={onStop}
             disabled={stopping}
-            className="text-xs font-semibold rounded-lg px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50 shrink-0"
+            className="text-sm font-semibold rounded-lg px-3.5 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50 shrink-0"
           >
             {stopping ? "Annulation…" : "Annuler"}
           </button>
@@ -1266,7 +1430,7 @@ function SourceSection({
           <button
             type="button"
             onClick={onAck}
-            className={`text-xs font-semibold rounded-lg px-3 py-1.5 text-white shrink-0 ${meta.actionBtn}`}
+            className={`text-sm font-semibold rounded-lg px-3.5 py-2 text-white shrink-0 ${meta.actionBtn}`}
           >
             Fermer récap
           </button>
@@ -1297,8 +1461,8 @@ function SourceSection({
         <>
           {/* Progression */}
           {isRunning && (
-            <div className="px-4 py-3 bg-white border-b border-slate-100">
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="px-5 py-4 bg-white border-b border-slate-100">
+              <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                 {totalOrders != null ? (
                   <div
                     className="h-full transition-all duration-300"
@@ -1315,7 +1479,7 @@ function SourceSection({
                   />
                 )}
               </div>
-              <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 tabular-nums">
+              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 tabular-nums">
                 <span>{totalOrders != null ? `${percent} %` : "en cours…"}</span>
                 <span>
                   {state.processedOrders}
@@ -1337,37 +1501,37 @@ function SourceSection({
 
           {/* Commandes en cours */}
           {isRunning && currentOrders.length > 0 && (
-            <div className={`px-4 py-3 ${meta.chipBg} border-b border-slate-100`}>
+            <div className={`px-5 py-4 ${meta.chipBg} border-b border-slate-100`}>
               <div className="flex items-center justify-between">
                 <p
-                  className={`text-[10px] uppercase tracking-[0.18em] font-semibold ${meta.chipText}`}
+                  className={`text-[11px] uppercase tracking-[0.18em] font-semibold ${meta.chipText}`}
                 >
                   En cours d'import
                 </p>
-                <span className={`text-[10px] font-medium ${meta.chipText}`}>
+                <span className={`text-[11px] font-medium ${meta.chipText}`}>
                   {currentOrders.length} en parallèle
                 </span>
               </div>
-              <div className="mt-2 space-y-1.5">
+              <div className="mt-2.5 space-y-2">
                 {currentOrders.slice(0, CURRENT_ORDERS_MAX).map((c) => (
                   <div
                     key={c.key}
-                    className={`rounded-lg border bg-white px-2.5 py-1.5 flex items-center gap-2 ${meta.chipRing}`}
+                    className={`rounded-lg border bg-white px-3 py-2 flex items-center gap-2.5 ${meta.chipRing}`}
                   >
                     <span
-                      className={`w-2 h-2 rounded-full animate-pulse flex-shrink-0 ${meta.chipDot}`}
+                      className={`w-2.5 h-2.5 rounded-full animate-pulse flex-shrink-0 ${meta.chipDot}`}
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-slate-900 truncate">
+                      <p className="text-sm font-semibold text-slate-900 truncate">
                         {c.orderNumber}
                       </p>
-                      <p className="text-[11px] text-slate-600 truncate">
+                      <p className="text-xs text-slate-600 truncate mt-0.5">
                         {c.customerName}
                         {c.country ? ` · ${c.country}` : ""}
                       </p>
                     </div>
                     {c.amount != null && (
-                      <p className="text-[11px] font-medium text-slate-700 tabular-nums flex-shrink-0">
+                      <p className="text-xs font-medium text-slate-700 tabular-nums flex-shrink-0">
                         {formatMoney(c.amount)}
                       </p>
                     )}
@@ -1379,11 +1543,11 @@ function SourceSection({
 
           {/* Récap final */}
           {showFinal && (
-            <div className="px-4 py-3 border-b border-slate-100 bg-white">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
+            <div className="px-5 py-4 border-b border-slate-100 bg-white">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
                 Résultat
               </p>
-              <div className="mt-2 grid grid-cols-3 gap-2">
+              <div className="mt-2.5 grid grid-cols-3 gap-2.5">
                 <StatCard
                   color="emerald"
                   value={state.imported}
@@ -1404,12 +1568,12 @@ function SourceSection({
                 />
               </div>
               {isError && state.errorMessage && (
-                <p className="mt-3 text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                <p className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
                   {state.errorMessage}
                 </p>
               )}
               {isStopped && (
-                <p className="mt-3 text-xs text-slate-600">
+                <p className="mt-3 text-sm text-slate-600">
                   Import interrompu. Les commandes déjà importées ont été conservées.
                 </p>
               )}
@@ -1418,7 +1582,7 @@ function SourceSection({
                   type="button"
                   onClick={onStart}
                   disabled={starting}
-                  className={`text-xs font-medium underline underline-offset-2 ${meta.actionLink}`}
+                  className={`text-sm font-medium underline underline-offset-2 ${meta.actionLink}`}
                 >
                   Relancer un import
                 </button>
@@ -1429,23 +1593,23 @@ function SourceSection({
           {/* Journal — capé à DISPLAYED_EVENTS_MAX pour rester compact.
               Pas de min-h-0/overflow ici : le parent gère déjà le scroll de
               tout le contenu de la moitié haute. */}
-          <div className="px-4 py-3 flex flex-col flex-shrink-0">
+          <div className="px-5 py-4 flex flex-col flex-shrink-0">
             <div className="flex items-center justify-between flex-shrink-0">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">
                 Journal
               </p>
               {pending > 0 && (
-                <span className="text-[10px] text-slate-400">
+                <span className="text-xs text-slate-400">
                   {pending} en attente
                 </span>
               )}
             </div>
             {events.length === 0 ? (
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-sm text-slate-500">
                 Aucune commande traitée pour le moment.
               </p>
             ) : (
-              <ul className="mt-2 space-y-1.5">
+              <ul className="mt-2 space-y-2">
                 {events.slice(0, DISPLAYED_EVENTS_MAX).map((ev) => (
                   <EventRow key={ev.key} event={ev} now={now} />
                 ))}
@@ -1473,22 +1637,22 @@ function IdleView({
   starting: boolean;
 }) {
   return (
-    <div className="p-6 text-center">
+    <div className="p-8 text-center">
       <div
-        className="mx-auto w-12 h-12 rounded-full flex items-center justify-center text-white font-heading font-bold text-lg shadow-lg"
+        className="mx-auto w-20 h-20 rounded-full flex items-center justify-center text-white font-heading font-bold text-3xl shadow-lg"
         style={{ background: meta.gradient }}
       >
         {meta.letter}
       </div>
-      <p className="mt-3 text-sm font-semibold text-slate-900">Aucun import en cours</p>
-      <p className="mt-1 text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+      <p className="mt-4 text-lg font-semibold text-slate-900">Aucun import en cours</p>
+      <p className="mt-2 text-sm text-slate-500 max-w-sm mx-auto leading-relaxed">
         Rattrapage historique complet {meta.name} — commandes et fiches clients importées ensemble. Vous pouvez continuer à travailler pendant l'import.
       </p>
       <button
         type="button"
         onClick={onStart}
         disabled={starting}
-        className={`mt-4 inline-flex items-center gap-1.5 px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:opacity-50 ${meta.actionBtn}`}
+        className={`mt-5 inline-flex items-center gap-2 px-5 py-2.5 text-white text-sm font-semibold rounded-xl shadow-sm disabled:opacity-50 ${meta.actionBtn}`}
       >
         {starting ? "Démarrage…" : `Importer commandes + clients ${meta.name}`}
       </button>
@@ -1525,9 +1689,9 @@ function StatCard({
     },
   }[color];
   return (
-    <div className={`rounded-xl border ${styles.border} ${styles.bg} px-2.5 py-2`}>
-      <p className={`text-lg font-heading font-bold tabular-nums ${styles.text}`}>{value}</p>
-      <p className="text-[10px] text-slate-600 leading-tight mt-0.5">
+    <div className={`rounded-xl border ${styles.border} ${styles.bg} px-3 py-2.5`}>
+      <p className={`text-2xl font-heading font-bold tabular-nums leading-tight ${styles.text}`}>{value}</p>
+      <p className="text-[11px] text-slate-600 leading-tight mt-1">
         {value > 1 ? labelPlural : label}
       </p>
     </div>
@@ -1543,28 +1707,28 @@ function EventRow({ event, now }: { event: EventItem; now: number }) {
       : { text: "Erreur", cls: "bg-rose-100 text-rose-700 ring-rose-200" };
   return (
     <li
-      className="rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 flex items-center gap-2"
+      className="rounded-lg border border-slate-100 bg-white px-3 py-2 flex items-center gap-2.5"
       style={{ animation: "ordersEventIn 260ms cubic-bezier(.16,1,.3,1) both" }}
     >
       <span
-        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ring-1 ${badge.cls} flex-shrink-0`}
+        className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ring-1 ${badge.cls} flex-shrink-0`}
       >
         {badge.text}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-slate-900 truncate">{event.orderNumber}</p>
-        <p className="text-[11px] text-slate-500 truncate">{event.customerName}</p>
+        <p className="text-sm font-medium text-slate-900 truncate">{event.orderNumber}</p>
+        <p className="text-xs text-slate-500 truncate mt-0.5">{event.customerName}</p>
         {event.result === "error" && event.errorMessage && (
-          <p className="text-[10px] text-rose-600 truncate mt-0.5">{event.errorMessage}</p>
+          <p className="text-[11px] text-rose-600 truncate mt-0.5">{event.errorMessage}</p>
         )}
       </div>
       <div className="text-right flex-shrink-0">
         {event.amount != null && (
-          <p className="text-[11px] font-medium text-slate-700 tabular-nums">
+          <p className="text-xs font-medium text-slate-700 tabular-nums">
             {formatMoney(event.amount)}
           </p>
         )}
-        <p className="text-[10px] text-slate-400 tabular-nums">{formatRelative(event.at, now)}</p>
+        <p className="text-[11px] text-slate-400 tabular-nums mt-0.5">{formatRelative(event.at, now)}</p>
       </div>
       <style jsx>{`
         @keyframes ordersEventIn {
@@ -1634,13 +1798,15 @@ const CLIENTS_META: Record<
   },
 };
 
-function ClientsRow({
+const CLIENTS_FULL_LIMIT = 12;
+
+function ClientsFullSection({
   source,
   refreshTick = 0,
   isImporting = false,
 }: {
   source: MarketplaceClientSource;
-  /** Compteur qui grimpe pendant un import historique — ClientsRow se
+  /** Compteur qui grimpe pendant un import historique — la section se
    *  rafraîchit automatiquement à chaque tick pour montrer les fiches
    *  créées en live. */
   refreshTick?: number;
@@ -1652,19 +1818,33 @@ function ClientsRow({
   const [recent, setRecent] = useState<RecentClientCard[]>([]);
   const meta = CLIENTS_META[source];
   const manualSync = manualSyncs[source as ManualSyncSource];
-  // Recharge sur : (a) fin d'une synchro manuelle "orders"
-  //                (b) progression de l'import historique (refreshTick)
-  const ordersEndedAt =
-    manualSync?.target === "orders" && manualSync.phase !== "starting"
-      ? manualSync.endedAt
-      : null;
+
+  // Rechargement UNIQUEMENT sur événement manuel (clic « Synchro » ou
+  // « Rattrapage ») — les workers auto toutes les 5 min ne doivent RIEN
+  // afficher ici (demande cliente 2026-07-31). Trois sources d'événement
+  // manuel :
+  //   (a) fin d'une synchro manuelle (banner "Synchro terminée") → endedAt
+  //   (b) démarrage / fin d'un Rattrapage historique → isImporting change
+  //   (c) progression d'un Rattrapage en cours                → refreshTick augmente
+  const manualEndedAt =
+    manualSync && manualSync.phase !== "starting" ? manualSync.endedAt : null;
+  const triggerKey = `${manualEndedAt ?? "none"}|${isImporting ? "run" : "idle"}|${refreshTick}`;
+
+  // À l'ouverture du widget, on capture le trigger « figé » — le 1er fire du
+  // useEffect ne déclenche PAS de fetch (sinon on montrerait les fiches
+  // auto-importées entre deux sessions). Le fetch ne part qu'à partir du
+  // moment où la cliente déclenche une vraie action manuelle qui change la clé.
+  const initialTriggerRef = useRef(triggerKey);
+  const [hasManualTrigger, setHasManualTrigger] = useState(false);
 
   useEffect(() => {
+    if (triggerKey === initialTriggerRef.current) return;
+    setHasManualTrigger(true);
     let cancelled = false;
     (async () => {
       const [c, r] = await Promise.all([
         countMarketplaceClientCards(source),
-        getRecentMarketplaceClientCards(source, 3),
+        getRecentMarketplaceClientCards(source, CLIENTS_FULL_LIMIT),
       ]);
       if (!cancelled) {
         setCount(c);
@@ -1674,58 +1854,103 @@ function ClientsRow({
     return () => {
       cancelled = true;
     };
-  }, [source, ordersEndedAt, refreshTick]);
+  }, [source, triggerKey]);
 
   const isSyncing =
     isImporting ||
     (manualSync?.target === "orders" && manualSync.phase === "starting");
 
   return (
-    <div className="px-3 py-2.5 bg-slate-50/70 flex-[2] basis-0 min-h-0 border-t border-slate-100 flex flex-col overflow-hidden">
-      {/* Header carte : eyebrow + compteur — sticky en haut de la moitié
-          basse pour que « Clients » soit toujours affiché juste sous la ligne
-          du milieu, même si peu / pas de fiches à afficher. */}
-      <div className="flex items-center justify-between mb-2 flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            className="w-5 h-5 rounded-md text-white font-bold text-[10px] flex items-center justify-center shrink-0"
-            style={{ background: meta.gradient }}
-          >
-            {meta.letter}
-          </span>
-          <p className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${meta.accent}`}>
-            Clients
-          </p>
-          {isSyncing && (
-            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />
-          )}
-        </div>
-        <span className="text-[11px] font-bold text-slate-800 tabular-nums">
-          {count !== null ? `${count} fiche${count > 1 ? "s" : ""}` : "…"}
+    <div className="flex-1 basis-0 min-h-0 flex flex-col overflow-hidden">
+      {/* Header source pleine largeur — même grammaire que la page Commandes
+          pour que la cliente retrouve la lettre marketplace + compteur au même
+          endroit après la bascule. */}
+      <div className="px-5 py-4 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
+        <span
+          className="w-11 h-11 rounded-xl text-white font-heading font-bold text-lg flex items-center justify-center shadow-sm shrink-0"
+          style={{ background: meta.gradient }}
+        >
+          {meta.letter}
         </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-semibold text-slate-900 truncate">{meta.name}</p>
+          <p className={`text-xs font-medium truncate mt-0.5 ${meta.accent}`}>
+            {isSyncing
+              ? "Synchro en cours…"
+              : hasManualTrigger
+                ? "Fiches clients importées"
+                : "En attente d'une action"}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-semibold">
+            {hasManualTrigger ? "Total" : ""}
+          </p>
+          <p className="text-xl font-heading font-bold tabular-nums leading-tight text-slate-900">
+            {hasManualTrigger ? (count !== null ? count : "…") : "—"}
+          </p>
+        </div>
+        {isSyncing && (
+          <span className="inline-block w-4 h-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
+        )}
       </div>
 
-      {/* 3 dernières fiches touchées — preuve visible que la synchro passe.
-          La zone est scrollable pour tenir dans la moitié basse fixe. */}
-      {recent.length === 0 ? (
-        <p className="text-[10.5px] text-slate-500 leading-snug italic flex-1 min-h-0">
-          Aucune fiche pour l'instant — se remplit à la 1ʳᵉ synchro.
-        </p>
+      {/* Liste des fiches — n'apparaît QUE si une action manuelle a été
+          déclenchée dans cette session (Synchro ou Rattrapage). Les workers
+          auto tous les 5 min ne remplissent pas cette liste. */}
+      {!hasManualTrigger ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+          <div className="text-center max-w-xs">
+            <div className="mx-auto w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+            </div>
+            <p className="text-sm text-slate-500 leading-snug">
+              Aucune fiche affichée.
+              <br />
+              Clique sur <b className="text-slate-700">Synchro</b> ou{" "}
+              <b className="text-slate-700">Rattrapage</b> pour voir les clients
+              importés en direct.
+            </p>
+            <p className="text-[11px] text-slate-400 italic mt-2">
+              La synchro automatique en fond ne s'affiche pas ici.
+            </p>
+          </div>
+        </div>
+      ) : recent.length === 0 ? (
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+          <p className="text-sm text-slate-500 leading-snug italic text-center max-w-xs">
+            Aucune nouvelle fiche sur cette synchro.
+          </p>
+        </div>
       ) : (
-        <ul className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-0.5">
-          {recent.map((c) => {
+        <ul className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+          {recent.map((c, idx) => {
             const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || c.company || "—";
             const line2 = [c.email, [c.city, c.countryCode].filter(Boolean).join(", ")]
               .filter(Boolean)
               .join(" · ");
+            const isFresh = isSyncing && idx < 3;
             return (
               <li
                 key={c.id}
-                className="rounded-md bg-white border border-slate-100 px-2 py-1.5"
+                className={`rounded-lg border px-3 py-2.5 transition-colors ${
+                  isFresh
+                    ? "border-emerald-200 bg-emerald-50/40"
+                    : "border-slate-100 bg-white"
+                }`}
               >
-                <p className="text-[11px] font-semibold text-slate-900 truncate">{name}</p>
+                <div className="flex items-center gap-2">
+                  {isFresh && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
+                  )}
+                  <p className="text-sm font-semibold text-slate-900 truncate flex-1">
+                    {name}
+                  </p>
+                </div>
                 {line2 && (
-                  <p className="text-[10px] text-slate-500 truncate">{line2}</p>
+                  <p className="text-[11.5px] text-slate-500 truncate mt-1">{line2}</p>
                 )}
               </li>
             );
@@ -1771,15 +1996,15 @@ function ManualSyncBanner({
   const relative = event.endedAt ? formatRelative(event.endedAt, now) : null;
 
   return (
-    <div className={`px-4 py-2.5 ${tone} flex items-start gap-2.5`}>
+    <div className={`px-5 py-3 ${tone} flex items-start gap-3`}>
       <span className="shrink-0 mt-0.5">
         {isStarting ? (
           <span
-            className={`inline-block w-3.5 h-3.5 rounded-full border-2 ${meta.chipDot.replace("bg-", "border-")} border-t-transparent animate-spin`}
+            className={`inline-block w-4 h-4 rounded-full border-2 ${meta.chipDot.replace("bg-", "border-")} border-t-transparent animate-spin`}
           />
         ) : isSuccess ? (
           <svg
-            className="w-4 h-4"
+            className="w-5 h-5"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -1791,7 +2016,7 @@ function ManualSyncBanner({
           </svg>
         ) : (
           <svg
-            className="w-4 h-4"
+            className="w-5 h-5"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -1805,7 +2030,7 @@ function ManualSyncBanner({
         )}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em]">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em]">
           {isStarting
             ? `Synchro ${targetLabel}…`
             : isSuccess
@@ -1815,20 +2040,20 @@ function ManualSyncBanner({
             : `Synchro ${targetLabel} échouée`}
         </p>
         {summary && (
-          <p className="text-xs mt-0.5">
+          <p className="text-sm mt-1">
             {summary}
             {relative && <span className="text-slate-500"> · {relative}</span>}
           </p>
         )}
         {isError && event.errorMessage && (
-          <p className="text-xs mt-0.5 break-words">{event.errorMessage}</p>
+          <p className="text-sm mt-1 break-words">{event.errorMessage}</p>
         )}
       </div>
       {!isStarting && (
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 text-[11px] font-semibold underline underline-offset-2 opacity-70 hover:opacity-100"
+          className="shrink-0 text-xs font-semibold underline underline-offset-2 opacity-70 hover:opacity-100"
         >
           Fermer
         </button>

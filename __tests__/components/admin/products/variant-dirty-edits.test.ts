@@ -3,6 +3,7 @@ import {
   commitVariantCell,
   countVariantDirtyEdits,
   isVariantCellDirty,
+  productHasDirtyVariants,
   type VariantDirtyEdits,
 } from "@/components/admin/products/AdminProductsTable";
 
@@ -108,6 +109,24 @@ describe("variant dirty edits", () => {
     it("est compté par countVariantDirtyEdits comme n'importe quel champ", () => {
       const state: VariantDirtyEdits = { v1: { price: 5.2, disabled: true } };
       expect(countVariantDirtyEdits(state)).toBe(2);
+    });
+  });
+
+  describe("productHasDirtyVariants", () => {
+    const product = { colors: [{ id: "v1" }, { id: "v2" }] } as const;
+
+    it("retourne false si aucune variante du produit n'est dirty", () => {
+      expect(productHasDirtyVariants(product, {})).toBe(false);
+      expect(productHasDirtyVariants(product, { vAutre: { price: 5 } })).toBe(false);
+    });
+
+    it("retourne true dès qu'une variante du produit a une modif", () => {
+      expect(productHasDirtyVariants(product, { v1: { price: 5.2 } })).toBe(true);
+      expect(productHasDirtyVariants(product, { v2: { stock: 3 } })).toBe(true);
+    });
+
+    it("gère un produit sans variante", () => {
+      expect(productHasDirtyVariants({ colors: [] }, { v1: { price: 5 } })).toBe(false);
     });
   });
 

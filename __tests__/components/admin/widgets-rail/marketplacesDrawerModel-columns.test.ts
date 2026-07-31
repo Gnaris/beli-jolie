@@ -58,10 +58,10 @@ function mkLink(overrides: Partial<LinkJobLike>): LinkJobLike {
 const ok: TargetOutcome = { ok: true };
 const err = (message: string): TargetOutcome => ({ ok: false, kind: "error", message });
 
-describe("bucketColumns — refonte 4 colonnes 2026-07-28", () => {
-  it("retourne toujours 4 buckets dans l'ordre publish/refresh/resync/link", () => {
+describe("bucketColumns — refonte 4 colonnes 2026-07-28 (+ publication 2026-07-31)", () => {
+  it("retourne toujours 5 buckets dans l'ordre publication/publish/refresh/resync/link", () => {
     const buckets = bucketColumns([], []);
-    expect(buckets).toHaveLength(4);
+    expect(buckets).toHaveLength(5);
     expect(buckets.map((b) => b.key)).toEqual(COLUMN_ORDER);
     for (const b of buckets) {
       expect(b.kpi).toEqual({ errors: 0, active: 0, queued: 0, done: 0 });

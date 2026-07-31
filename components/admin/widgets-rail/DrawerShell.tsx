@@ -101,19 +101,36 @@ export function DrawerShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // Verrouille le scroll de la page en arrière-plan tant que le tiroir est
+  // ouvert (demande cliente 2026-07-31). La page reste cliquable — seul le
+  // scroll est bloqué. Restaure la valeur précédente à la fermeture pour ne
+  // pas écraser un overflow déjà posé par un autre composant.
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+    const previousBody = document.body.style.overflow;
+    const previousHtml = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBody;
+      document.documentElement.style.overflow = previousHtml;
+    };
+  }, [open]);
+
   const acc = ACCENT_CLASSES[accent];
   const visible = open && mounted;
   // "wide" : jusqu'à 1500 px (5 colonnes marketplace) — la hauteur suit la
   // fenêtre pour ne jamais forcer de scroll (cliente : « pas de scroll »).
   // "fullscreen" : viewport entier, sans radius ni marges (audit PFS).
-  // Ancré juste au-dessus du FAB (étoile) + décalé vers la gauche pour que
-  // le bouton étoile reste visible/cliquable dans son coin en bas à droite.
+  // Depuis le 2026-07-31, quand un tiroir est ouvert le FAB étoile est
+  // masqué : les tiroirs "default" et "wide" collent donc au coin bas-droit
+  // (1.5 rem de marge) au lieu de laisser un vide de 96 px pour le FAB.
   const wideClasses =
     size === "fullscreen"
       ? "md:inset-0"
       : size === "wide"
-        ? "md:bottom-24 md:right-24 md:w-[min(1500px,calc(100vw-8rem))] md:h-[calc(100vh-8rem)]"
-        : "md:bottom-24 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-8rem)]";
+        ? "md:bottom-6 md:right-6 md:w-[min(1500px,calc(100vw-3rem))] md:h-[calc(100vh-3rem)]"
+        : "md:bottom-6 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-3rem)]";
   const isFullscreen = size === "fullscreen";
 
   return (
@@ -183,11 +200,12 @@ export function DrawerShell({
           </div>
         </div>
 
-        {/* Body — pour size="wide" on empêche tout scroll interne, les
-            enfants doivent se caper eux-mêmes (widget import commandes/clients).
-            Pour "default", scroll auto comme avant. */}
+        {/* Body — pour size="wide" et "fullscreen" on empêche tout scroll
+            interne, les enfants doivent se caper eux-mêmes (widget import
+            commandes/clients, audit PFS, marketplaces). Pour "default", scroll
+            auto comme avant. */}
         <div
-          className={`flex-1 bg-slate-50/60 ${size === "wide" ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
+          className={`flex-1 bg-slate-50/60 ${size === "wide" || size === "fullscreen" ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
         >
           {children}
         </div>

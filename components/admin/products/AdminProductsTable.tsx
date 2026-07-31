@@ -372,8 +372,8 @@ function MarketplaceBadge({
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
         >
           <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
           </span>
           PFS
         </button>
@@ -485,8 +485,8 @@ function AnkorstoreBadge({
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
         >
           <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
           </span>
           ANKOR
         </button>
@@ -628,8 +628,8 @@ function EfashionBadge({
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
         >
           <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
           </span>
           EF
         </button>
@@ -741,8 +741,8 @@ function FaireBadge({
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
         >
           <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
           </span>
           Faire
         </button>
@@ -837,8 +837,8 @@ function MicrostoreBadge({
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Microstore"
         >
           <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping" />
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
           </span>
           MC
         </button>
@@ -1121,6 +1121,19 @@ export function countVariantDirtyEdits(edits: VariantDirtyEdits): number {
   let n = 0;
   for (const id in edits) n += Object.keys(edits[id]).length;
   return n;
+}
+
+/**
+ * Vrai dès qu'au moins une variante du produit a une modification en attente
+ * dans `dirtyEdits`. Utilisé pour teinter la ligne/carte produit en ambre pâle
+ * (`product-row-dirty`) tant que la cliente n'a pas cliqué « Appliquer les
+ * modifications ». Exporté pour les tests.
+ */
+export function productHasDirtyVariants(
+  product: { colors: readonly { id: string }[] },
+  edits: VariantDirtyEdits,
+): boolean {
+  return product.colors.some((c) => edits[c.id] !== undefined);
 }
 
 // ─── Helpers Prix HT unitaire vs total ─────────────────────────────────────
@@ -2037,6 +2050,147 @@ function StatusOption({
   );
 }
 
+// ─── Mobile-only : modale centrée pour changer le statut ────────────────────
+// Ouverte au tap sur le badge du coin haut-droit d'une ligne produit. Réutilise
+// la même logique d'éligibilité que StatusBadge (desktop) et appelle le même
+// handler onRowStatus → passe donc par la confirmation + OTP archive.
+function MobileStatusChangeModal({
+  open,
+  status,
+  productName,
+  productReference,
+  canPutOnline,
+  canPutOffline,
+  canArchive,
+  putOnlineReason,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED";
+  productName: string;
+  productReference: string;
+  canPutOnline: boolean;
+  canPutOffline: boolean;
+  canArchive: boolean;
+  putOnlineReason?: string;
+  onSelect: (next: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const pick = (next: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
+    onClose();
+    onSelect(next);
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fadeIn"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative w-full max-w-sm bg-bg-primary rounded-2xl shadow-2xl border border-border overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 pt-5 pb-3 border-b border-border">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted mb-1">
+            Changer le statut
+          </div>
+          <div className="font-heading text-lg font-bold text-text-primary leading-tight truncate">
+            {productName}
+          </div>
+          <div className="text-[11px] font-mono text-text-muted mt-0.5">
+            {productReference}
+          </div>
+        </div>
+        <div className="p-3 flex flex-col gap-2">
+          <MobileStatusOption
+            label="En ligne"
+            dotColor="#22C55E"
+            selected={status === "ONLINE"}
+            disabled={!canPutOnline}
+            disabledReason={putOnlineReason}
+            onClick={() => pick("ONLINE")}
+          />
+          <MobileStatusOption
+            label="Hors ligne"
+            dotColor="#9CA3AF"
+            selected={status === "OFFLINE"}
+            disabled={!canPutOffline}
+            onClick={() => pick("OFFLINE")}
+          />
+          <MobileStatusOption
+            label="Archivé"
+            dotColor="#F59E0B"
+            selected={status === "ARCHIVED"}
+            disabled={!canArchive}
+            onClick={() => pick("ARCHIVED")}
+          />
+        </div>
+        <div className="p-3 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 rounded-xl bg-bg-secondary text-text-primary font-semibold text-sm hover:bg-bg-tertiary transition-colors"
+          >
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function MobileStatusOption({
+  label, dotColor, selected, disabled, disabledReason, onClick,
+}: {
+  label: string;
+  dotColor: string;
+  selected: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || selected}
+      onClick={onClick}
+      title={disabled ? disabledReason : undefined}
+      className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-[15px] font-semibold transition-colors border ${
+        disabled
+          ? "text-text-muted bg-bg-secondary/50 border-border opacity-60 cursor-not-allowed"
+          : selected
+          ? "text-text-primary bg-bg-tertiary border-border cursor-default"
+          : "text-text-primary bg-bg-primary border-border hover:bg-bg-tertiary active:bg-bg-tertiary cursor-pointer"
+      }`}
+    >
+      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+      <span className="flex-1 text-left">{label}</span>
+      {selected && (
+        <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+        </svg>
+      )}
+      {disabled && disabledReason && !selected && (
+        <span className="text-[10px] font-normal text-text-muted italic max-w-[140px] text-right leading-tight">
+          {disabledReason}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // ─── Actions Dropdown (portal) ────────────────────────────────────────────────
 
 function ActionsDropdown({
@@ -2511,6 +2665,7 @@ function ProductRow({
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [mobileStatusOpen, setMobileStatusOpen] = useState(false);
   const [linkPfsOpen, setLinkPfsOpen] = useState(false);
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
@@ -2999,6 +3154,8 @@ function ProductRow({
     },
   );
 
+  const hasDirtyVariants = productHasDirtyVariants(product, dirtyEdits);
+
   return (
     <>
       <tr
@@ -3042,7 +3199,7 @@ function ProductRow({
         style={{ touchAction: "manipulation" }}
         className={`group table-row cursor-pointer md:transition-colors md:duration-150 ${
           selected ? "product-row-selected" : ""
-        } ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
+        } ${hasDirtyVariants ? "product-row-dirty" : ""} ${expanded ? "border-b-0" : ""} ${isDeleting ? "opacity-50 pointer-events-none" : ""}`}
       >
         {/* Checkbox (desktop only) */}
         <td className="hidden md:table-cell px-2 md:px-4 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
@@ -3447,22 +3604,22 @@ function ProductRow({
         <td className="relative p-0 md:px-3 md:py-3.5 text-right align-top md:align-middle" onClick={(e) => e.stopPropagation()}>
           {/* Badge statut collé au coin haut-droit de la ligne (mobile only).
               Positionné dans le td Actions car c'est la dernière colonne visible
-              → vraiment aligné sur le bord droit de la ligne, au niveau du ⋮. */}
-          <span
-            className="md:hidden absolute top-0 right-0 z-20 inline-flex items-center px-2.5 py-1 rounded-bl-md text-[11px] font-bold uppercase tracking-wide text-white shadow-md whitespace-nowrap"
-            style={{
-              backgroundColor: product.isIncomplete
-                ? "#7C3AED"
-                : product.status === "ONLINE"
-                  ? "#059669"
-                  : product.status === "SYNCING"
-                    ? "#2563EB"
-                    : product.status === "ARCHIVED"
-                      ? "#EA580C"
-                      : "#64748B",
-            }}
-          >
-            {product.isIncomplete
+              → vraiment aligné sur le bord droit de la ligne, au niveau du ⋮.
+              Cliquable (bouton) uniquement pour ONLINE/OFFLINE/ARCHIVED → ouvre
+              une modale centrée pour changer le statut. Brouillon et SYNCING
+              restent des badges décoratifs non-cliquables. */}
+          {(() => {
+            const statusLocked = product.isIncomplete || product.status === "SYNCING";
+            const bg = product.isIncomplete
+              ? "#7C3AED"
+              : product.status === "ONLINE"
+                ? "#059669"
+                : product.status === "SYNCING"
+                  ? "#2563EB"
+                  : product.status === "ARCHIVED"
+                    ? "#EA580C"
+                    : "#64748B";
+            const label = product.isIncomplete
               ? "Brouillon"
               : product.status === "ONLINE"
                 ? "En ligne"
@@ -3470,8 +3627,26 @@ function ProductRow({
                   ? "En sync"
                   : product.status === "ARCHIVED"
                     ? "Archivé"
-                    : "Hors ligne"}
-          </span>
+                    : "Hors ligne";
+            const baseCls = "md:hidden absolute top-0 right-0 z-20 inline-flex items-center px-2.5 py-1 rounded-bl-md text-[11px] font-bold uppercase tracking-wide text-white shadow-md whitespace-nowrap";
+            if (statusLocked) {
+              return <span className={baseCls} style={{ backgroundColor: bg }}>{label}</span>;
+            }
+            return (
+              <button
+                type="button"
+                onClick={() => setMobileStatusOpen(true)}
+                aria-label={`Statut actuel : ${label}. Toucher pour changer.`}
+                className={`${baseCls} cursor-pointer active:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-white/60`}
+                style={{ backgroundColor: bg }}
+              >
+                {label}
+                <svg className="w-2.5 h-2.5 ml-1 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            );
+          })()}
           {/* Bouton ⋮ : sur mobile poussé en bas de la cellule pour laisser la
               place au badge en haut. Sur desktop centré verticalement (align-middle). */}
           <div ref={actionsRef} className="relative inline-block mt-10 mr-1.5 md:mt-0 md:mr-0">
@@ -4006,6 +4181,22 @@ function ProductRow({
         onClose={() => setPublishConfirmFor(null)}
         onConfirm={doPublishFaire}
       />
+
+      {/* Modale mobile de changement de statut (ouverte au tap sur le badge du coin) */}
+      {!product.isIncomplete && product.status !== "SYNCING" && (
+        <MobileStatusChangeModal
+          open={mobileStatusOpen}
+          status={product.status as "ONLINE" | "OFFLINE" | "ARCHIVED"}
+          productName={product.name}
+          productReference={product.reference}
+          canPutOnline={eligibility.canPutOnline}
+          canPutOffline={eligibility.canPutOffline}
+          canArchive={eligibility.canArchive}
+          putOnlineReason={eligibility.putOnlineReason}
+          onSelect={(next) => onRowStatus(product.id, next)}
+          onClose={() => setMobileStatusOpen(false)}
+        />
+      )}
     </>
   );
 }
