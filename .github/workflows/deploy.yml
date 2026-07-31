@@ -50,12 +50,21 @@ jobs:
       - name: Prepare SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           # On skip ssh-keyscan : `StrictHostKeyChecking=no` + `UserKnownHostsFile=/dev/null`
           # sont passés à chaque ssh/rsync ci-dessous, donc known_hosts est inutile.
+
+          # Debug reachability : ping + traceroute IPv4 pour diagnostiquer si le
+          # runner peut atteindre le VPS. Le || true évite de faire échouer le step.
+          echo "=== DEBUG NETWORK ==="
+          echo "Host longueur=${#VPS_HOST}"
+          ping -4 -c 3 -W 5 "$VPS_HOST" || echo "ping IPv4 KO"
+          nc -zv -w 10 "$VPS_HOST" 22 || echo "nc port 22 KO"
+          echo "=== END DEBUG ==="
 
       - name: Rsync repo + build to VPS
         env:
@@ -70,7 +79,7 @@ jobs:
           # Rsync est incrémental : après le 1er run (~500 Mo à uploader),
           # seuls les fichiers modifiés transitent (~5-50 Mo selon les changements).
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
+            -e "ssh -4 -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=30" \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.env' \
@@ -88,10 +97,11 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -4 -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
+            -o ConnectTimeout=30 \
             "$VPS_USER@$VPS_HOST" \
             "cd $VPS_APP_DIR && bash scripts/deploy/vps-receive.sh"
 
