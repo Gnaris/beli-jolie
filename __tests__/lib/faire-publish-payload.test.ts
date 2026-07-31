@@ -22,7 +22,7 @@ function makeProduct(overrides: Partial<Record<string, unknown>> = {}) {
     status: "ONLINE",
     primaryColorId: "c-or",
     hsCode: { code: "7117.19.00" },
-    category: { id: "cat", faireTaxonomyId: "tt_czw8pmzjrc" },
+    category: { id: "cat", name: "Bracelet", faireTaxonomyId: "tt_czw8pmzjrc" },
     colors: [
       {
         id: "v-or",

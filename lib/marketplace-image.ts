@@ -147,26 +147,33 @@ export async function ensureMinWidth(
  * exception, mais on coupe ici en amont avec une 400 explicite plutôt
  * que de s'appuyer sur le 404 fallback du try/catch.
  *
- * Règles :
+ * Stratégie « liste noire » : on autorise tout caractère que `slugify()`
+ * (lib/storage.ts) laisse passer, et on refuse strictement ceux qu'elle
+ * strippe (`\ : * ? " < > |`), plus le null byte, les caractères de
+ * contrôle et le `%` (anti URL-encoding trompeur, déjà filtré en amont).
+ * Alignement 1:1 avec `slugify()` : si un nom de couleur ou une référence
+ * atterrit sur disque, il DOIT pouvoir être servi par ce proxy. Sinon
+ * Ankorstore/PFS/eFashion voient 0 image et refusent la publication.
+ *
+ * Historique de bugs qui ont motivé cet élargissement :
+ *  - 31/05 : « A11 Doré » → l'accent `é` rejeté par une regex ASCII →
+ *    Ankorstore refusait la publication.
+ *  - 06/06 : « G212(2) » (duplication de fiche) → parenthèses rejetées.
+ *  - 31/07 : « Vert d'Eau » sur Issyma / 50322 → apostrophe rejetée →
+ *    Ankorstore refusait avec « At least 1 image is required ».
+ * Passage en liste noire pour éviter la boucle « nouveau caractère
+ * autorisé par slugify → nouveau bug marketplace ».
+ *
+ * Règles finales :
  *  - commence par `/uploads/`
  *  - extension d'image classique (webp/jpg/jpeg/png/gif/avif)
- *  - aucun `..`, antislash, null byte ou caractère `%` (anti-encodage trompeur)
- *  - lettres Unicode (\p{L}), chiffres (\p{N}), point, tiret, underscore, slash
- *  - parenthèses `(` `)` (suffixe de duplication, ex. G212 → G212(2))
- *
- * Pourquoi les lettres Unicode : `slugify()` côté storage conserve les
- * accents (a11-doré-1.webp). Si on limitait à l'ASCII, le proxy renverrait
- * une 400 sur toutes les images dont le nom de couleur contient un accent,
- * et Ankorstore ignorerait silencieusement ces variantes (bug constaté sur
- * A11 / Doré le 31/05).
- *
- * Pourquoi les parenthèses : la duplication d'un produit ajoute `(n)` à la
- * référence. `slugify()` ne les retire pas, donc le dossier devient
- * `uploads/produits/g212(2)/` et toutes les images d'une fiche dupliquée
- * étaient rejetées par ce proxy → Ankorstore voyait 0 image et refusait la
- * publication (bug constaté sur G212(2) le 06/06).
+ *  - aucun caractère filesystem-illégal : `\ : * ? " < > |` + ctrl + null
+ *  - aucun `%` (redondant avec l'`includes("%")` en amont, garde-fou)
+ *  - le `..` est bloqué par l'`includes("..")` en amont (le point seul
+ *    reste nécessaire pour l'extension et les séparateurs).
  */
-const SAFE_MARKETPLACE_PATH = /^\/uploads\/[\p{L}\p{N}._()\-/]+\.(webp|jpe?g|png|gif|avif)$/iu;
+// eslint-disable-next-line no-control-regex
+const SAFE_MARKETPLACE_PATH = /^\/uploads\/[^\\:*?"<>|\x00-\x1F%]+\.(webp|jpe?g|png|gif|avif)$/iu;
 
 export function isSafeMarketplaceImagePath(rawPath: string | null): rawPath is string {
   if (!rawPath) return false;

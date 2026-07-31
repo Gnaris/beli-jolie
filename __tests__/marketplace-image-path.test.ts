@@ -50,6 +50,49 @@ describe("isSafeMarketplaceImagePath — chemins valides", () => {
       isSafeMarketplaceImagePath("/uploads/produits/abc(10)/abc(10)-bleu-thumb.webp"),
     ).toBe(true);
   });
+
+  it("accepte l'apostrophe ASCII et typographique dans le nom de couleur (Vert d'Eau)", () => {
+    expect(
+      isSafeMarketplaceImagePath("/uploads/issyma/produits/50322/50322-vert-d'eau-1.webp"),
+    ).toBe(true);
+    expect(
+      isSafeMarketplaceImagePath("/uploads/produits/abc/abc-vert-d’eau-2.webp"),
+    ).toBe(true);
+  });
+
+  it("accepte tous les autres caractères que slugify() laisse passer", () => {
+    // Caractères qui apparaissent naturellement dans une ref ou un nom de couleur
+    // saisi par l'admin — tous doivent survivre le proxy.
+    expect(isSafeMarketplaceImagePath("/uploads/produits/,a2380/,a2380-doré-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab&c/ab&c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab+c/ab+c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab@c/ab@c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab!c/ab!c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab#c/ab#c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab;c/ab;c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab=c/ab=c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab~c/ab~c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab^c/ab^c-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab[c]/ab[c]-noir-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab{c}/ab{c}-noir-1.webp")).toBe(true);
+    // Cyrillique / arabe / chinois (au cas où une boutique multi-locale les utilise)
+    expect(isSafeMarketplaceImagePath("/uploads/produits/абв/абв-1.webp")).toBe(true);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/中文/中文-1.webp")).toBe(true);
+  });
+});
+
+describe("isSafeMarketplaceImagePath — caractères filesystem-illégaux refusés", () => {
+  it("refuse les caractères que slugify() strippe (Windows/SSHFS interdits)", () => {
+    // Ces caractères ne devraient JAMAIS apparaître sur disque car slugify
+    // les retire — le proxy doit les rejeter pour couvrir tout appel forgé.
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab:cd/ab:cd-1.webp")).toBe(false);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab*cd/ab*cd-1.webp")).toBe(false);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab?cd/ab?cd-1.webp")).toBe(false);
+    expect(isSafeMarketplaceImagePath('/uploads/produits/ab"cd/ab"cd-1.webp')).toBe(false);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab<cd/ab<cd-1.webp")).toBe(false);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab>cd/ab>cd-1.webp")).toBe(false);
+    expect(isSafeMarketplaceImagePath("/uploads/produits/ab|cd/ab|cd-1.webp")).toBe(false);
+  });
 });
 
 describe("isSafeMarketplaceImagePath — path traversal bloqué", () => {

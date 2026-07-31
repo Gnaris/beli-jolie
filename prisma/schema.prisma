@@ -1310,6 +1310,7 @@ model Product {
   marketplaceRefreshJobs MarketplaceRefreshJob[]
   efashionShootingBatch  EfashionShootingBatchItem?
   imageProcessingJobs    ImageProcessingJob[]
+  microstoreUploadJobs   MicrostoreUploadJob[]
 
   // eFashion Paris — chaque couleur du produit BJ correspond à 1 "produit-couleur"
   // chez eFashion (cf. docs/efashion-api.md). On stocke ici la référence partagée
@@ -1606,6 +1607,53 @@ model ImageProcessingJob {
   @@index([tenantId])
   @@index([status, createdAt]) // worker : pick PENDING par ordre d'arrivée
   @@index([productId, status]) // UI : compteur de jobs en cours pour un produit
+  @@index([createdAt]) // purge des vieux DONE/FAILED
+}
+
+// ─────────────────────────────────────────────
+// Microstore — file d'affichage de l'upload d'images
+// ─────────────────────────────────────────────
+// L'envoi de photos vers Microstore (Station de Transfert) est un flux long :
+// par produit on lit N photos locales, upload OSS puis 1 PATCH `/api/goods/{id}`.
+// Ces jobs ne sont PAS traités par un worker — ils sont créés et mis à jour au
+// fil de l'eau par `sendProductPhotosToMicrostore` / `bulkSendPhotosToMicrostore`
+// pour donner un feedback X/N dans le widget flottant.
+enum MicrostoreUploadJobStatus {
+  PENDING // enqueue, envoi pas encore démarré
+  UPLOADING // upload OSS des photos en cours
+  PATCHING // upload OSS terminé, PATCH /api/goods en cours
+  DONE // succès
+  FAILED // échec — voir errorMessage
+}
+
+model MicrostoreUploadJob {
+  id             String                    @id @default(cuid())
+  productId      String?
+  product        Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  // Référence produit figée à l'enqueue (survit à un rename côté BJ).
+  reference      String
+  // Nom produit figé pour affichage widget (null si absent).
+  productName    String?
+  status         MicrostoreUploadJobStatus @default(PENDING)
+  // Total de photos à envoyer (posé au démarrage effectif). 0 = pas encore connu.
+  totalImages    Int                       @default(0)
+  // Photos envoyées avec succès sur OSS Microstore.
+  uploadedImages Int                       @default(0)
+  // Photos qui ont échoué à l'upload OSS.
+  failedImages   Int                       @default(0)
+  errorMessage   String?                   @db.Text
+  createdAt      DateTime                  @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([productId])
+  @@index([status, createdAt])
   @@index([createdAt]) // purge des vieux DONE/FAILED
 }
 
@@ -3300,6 +3348,7 @@ model Tenant {
   marketplaceRefreshJobs     MarketplaceRefreshJob[]
   efashionShootingBatchItems EfashionShootingBatchItem[]
   imageProcessingJobs        ImageProcessingJob[]
+  microstoreUploadJobs       MicrostoreUploadJob[]
   translationJobs            TranslationJob[]
   stockMovements             StockMovement[]
   legalDocuments             LegalDocument[]

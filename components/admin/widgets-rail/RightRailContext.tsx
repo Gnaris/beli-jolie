@@ -22,6 +22,7 @@ export type RailWidgetId =
   | "emails"
   | "orders-import"
   | "pfs-audit"
+  | "microstore-upload"
   // Alias legacy — les 3 clés précédentes redirigent vers orders-import
   // pour ne pas casser les liens existants (widget key dans MarketplacesOrdersView).
   | "pfs-import"

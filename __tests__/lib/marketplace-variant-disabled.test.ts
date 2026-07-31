@@ -84,7 +84,7 @@ function makeFaireProduct(colors: Array<{ id: string; stock: number; disabled: b
     status: "ONLINE",
     primaryColorId: colors[0]?.colorId ?? null,
     hsCode: { code: "7117.19.00" },
-    category: { id: "cat", faireTaxonomyId: "tt_test" },
+    category: { id: "cat", name: "Bracelet", faireTaxonomyId: "tt_test" },
     colors: colors.map((c) => ({
       id: c.id,
       faireVariantId: null,

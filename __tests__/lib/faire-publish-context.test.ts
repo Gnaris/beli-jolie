@@ -25,7 +25,7 @@ type Product = Parameters<typeof buildPublishContext>[0];
 
 function makeProduct(overrides: Partial<Product> = {}): Product {
   const base: Product = {
-    category: { id: "cat", faireTaxonomyId: "tt_test" },
+    category: { id: "cat", name: "Bracelet", faireTaxonomyId: "tt_test" },
     hsCode: { code: "7117.19.00" },
     countryIsoCode: "CN",
     compositions: [{ percentage: 100, composition: { name: "Acier" } }],
@@ -164,6 +164,22 @@ describe("buildPublishContext — description enrichie (taille + made in)", () =
       "Taille Unique (38-42)\n\n" +
       "Made in China",
     );
+  });
+});
+
+describe("buildPublishContext — catégorie non mappée sur Faire", () => {
+  it("renvoie un message court avec le nom de la catégorie", () => {
+    const ctx = buildPublishContext(
+      makeProduct({ category: { id: "cat", name: "Boucles d'oreilles", faireTaxonomyId: null } }),
+    );
+    expect(ctx.ok).toBe(false);
+    expect(ctx.reason).toBe("La catégorie Boucles d'oreilles n'a pas été mappée sur Faire.");
+  });
+
+  it("retombe sur « du produit » quand la catégorie est absente", () => {
+    const ctx = buildPublishContext(makeProduct({ category: null }));
+    expect(ctx.ok).toBe(false);
+    expect(ctx.reason).toBe("La catégorie du produit n'a pas été mappée sur Faire.");
   });
 });
 

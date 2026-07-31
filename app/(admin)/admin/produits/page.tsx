@@ -16,10 +16,9 @@ import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedSiteConfig, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
-import { maybeBrandifyPath } from "@/lib/branded-image-display";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
 import {
   buildAdminProductsWhere,
@@ -548,19 +547,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     if (!imagesByProductColor.has(key)) imagesByProductColor.set(key, img.path);
   }
 
-  const brandedBadgeRow = await getCachedSiteConfig("branded_reference_badge_enabled");
-  const brandedEnabled = brandedBadgeRow?.value === "true";
-
   const serializedProducts = products.map((p) => {
     const colorImagePath = (colorId: string | null) =>
       colorId ? imagesByProductColor.get(`${p.id}::${colorId}`) ?? null : null;
     const rawFirstImage = pickFirstImage({ primaryColorId: p.primaryColorId, colors: p.colors }, colorImagePath);
-    // Si l'image sélectionnée est celle de la couleur principale, on la
-    // remplace par l'URL du badge « Réf » (thumb pour la petite vignette
-    // admin). Sinon (fallback sur autre couleur), on garde l'image brute.
-    const firstImageBrandified = p.primaryColorId
-      ? maybeBrandifyPath(rawFirstImage, p.primaryColorId, p.primaryColorId, p.reference, brandedEnabled, "thumb")
-      : rawFirstImage;
     const colorsMissingImageCount = countColorsMissingImage({
       status: p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
       productId: p.id,
@@ -581,7 +571,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     createdAt:       p.createdAt.toISOString(),
     updatedAt:       p.updatedAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
-    firstImage:      firstImageBrandified,
+    firstImage:      rawFirstImage,
     pfsProductId:          p.pfsProductId,
     ankorsProductId:       p.ankorsProductId,
     efashionReferenceBase: p.efashionReferenceBase,

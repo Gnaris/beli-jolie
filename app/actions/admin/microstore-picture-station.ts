@@ -24,6 +24,12 @@ import {
   bulkImportMicrostorePictures,
   type MicrostoreBulkPictureEntry,
 } from "@/lib/microstore-picture-station";
+import {
+  createMicrostoreUploadJob,
+  markMicrostoreUploadJobStarted,
+  bumpMicrostoreUploadJobCounters,
+  markMicrostoreUploadJobStatus,
+} from "@/lib/microstore-upload-jobs";
 
 /**
  * Prépare un buffer image prêt à être uploadé vers Microstore :
@@ -211,6 +217,7 @@ export async function sendProductPhotosToMicrostore(
       select: {
         id: true,
         reference: true,
+        name: true,
         primaryColorId: true,
         colors: {
           where: { saleType: "UNIT" },
@@ -234,6 +241,16 @@ export async function sendProductPhotosToMicrostore(
   if (!product) {
     return { success: false, error: `Aucun produit BJ avec la référence « ${trimmedRef} ».` };
   }
+
+  // Suivi widget flottant : un job = ce produit. Créé une fois qu'on a le
+  // produit BJ (avant ça on n'a même pas de nom à afficher). Toutes les
+  // sorties suivantes doivent marquer le job DONE ou FAILED — le helper
+  // gère silencieusement l'absence de tenant / de tid.
+  const jobId = await createMicrostoreUploadJob({
+    productId: product.id,
+    reference: product.reference,
+    productName: product.name ?? null,
+  });
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
   // Regroupe les images par colorId pour un accès O(1) plus loin.
@@ -264,6 +281,10 @@ export async function sendProductPhotosToMicrostore(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur inconnue.";
     logger.error("[Microstore/PS] company fetch failed", { error: err });
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: `Contact Microstore impossible : ${message}`,
+      completed: true,
+    });
     return { success: false, error: `Contact Microstore impossible : ${message}` };
   }
 
@@ -273,14 +294,37 @@ export async function sendProductPhotosToMicrostore(
     mstGoods = await getMicrostoreGoodsByItemRef(stored.key, trimmedRef);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur inconnue.";
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: `Recherche Microstore échouée : ${message}`,
+      completed: true,
+    });
     return { success: false, error: `Recherche Microstore échouée : ${message}` };
   }
   if (!mstGoods) {
-    return {
-      success: false,
-      error: `Aucun produit Microstore avec la référence « ${trimmedRef} ». Publie-le d'abord depuis la boutique.`,
-    };
+    const message = `Aucun produit Microstore avec la référence « ${trimmedRef} ». Publie-le d'abord depuis la boutique.`;
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: message,
+      completed: true,
+    });
+    return { success: false, error: message };
   }
+
+  // Calcule le total prévu de photos à uploader (matchées + fichiers dispos).
+  // La couleur principale a +1 (originale sans badge) si le badge est actif.
+  let plannedTotal = 0;
+  for (const pc of sortedColors) {
+    const colorId = pc.color?.id || "";
+    const colorName = pc.color?.name || "";
+    if (!colorName) continue;
+    const localPaths = (imagesByColorId.get(colorId) ?? []).filter((p) => !!p);
+    const matches = mstGoods.skus.filter(
+      (s) => s.colorName.toLowerCase() === colorName.toLowerCase(),
+    );
+    if (matches.length === 0 || localPaths.length === 0) continue;
+    const isPrimary = colorId === primaryColorId;
+    plannedTotal += localPaths.length + (brandedBadgeEnabled && isPrimary ? 1 : 0);
+  }
+  await markMicrostoreUploadJobStarted(jobId, plannedTotal);
 
   // 4. Upload photos par couleur BJ
   // NB : le carousel principal (`mainImages`) reste vide — Microstore l'utilise
@@ -363,6 +407,7 @@ export async function sendProductPhotosToMicrostore(
         );
         uploadedUrls.push(uploaded.publicUrl);
         anyUpload = true;
+        await bumpMicrostoreUploadJobCounters(jobId, { uploaded: 1 });
         // La couleur primaire est envoyée en premier, donc sa 1re image
         // devient naturellement la couverture (cf. tri sortedColors).
         if (!coverImage) coverImage = uploaded.publicUrl;
@@ -381,6 +426,7 @@ export async function sendProductPhotosToMicrostore(
             originalFilename,
           );
           uploadedUrls.push(originalUpload.publicUrl);
+          await bumpMicrostoreUploadJobCounters(jobId, { uploaded: 1 });
         }
       } catch (err) {
         uploadError = err instanceof Error ? err.message : String(err);
@@ -389,6 +435,7 @@ export async function sendProductPhotosToMicrostore(
           path: rel,
           colorName,
         });
+        await bumpMicrostoreUploadJobCounters(jobId, { failed: 1 });
         break;
       }
     }
@@ -411,9 +458,15 @@ export async function sendProductPhotosToMicrostore(
   }
 
   if (!anyUpload) {
+    const message =
+      "Aucune photo n'a pu être envoyée. Vérifie les couleurs et les fichiers.";
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: message,
+      completed: true,
+    });
     return {
       success: false,
-      error: "Aucune photo n'a pu être envoyée. Vérifie les couleurs et les fichiers.",
+      error: message,
       reference: product.reference,
       microstoreGoodsId: mstGoods.goodsId,
       microstoreGoodsName: mstGoods.name,
@@ -423,6 +476,7 @@ export async function sendProductPhotosToMicrostore(
   }
 
   // 5. PATCH Microstore avec l'imageSetting complet
+  await markMicrostoreUploadJobStatus(jobId, "PATCHING");
   try {
     await patchMicrostoreGoodsImages(stored.key, mstGoods.goodsId, {
       coverImage,
@@ -431,6 +485,10 @@ export async function sendProductPhotosToMicrostore(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: `PATCH images refusé par Microstore : ${message}`,
+      completed: true,
+    });
     return {
       success: false,
       error: `Upload OK mais PATCH images refusé par Microstore : ${message}`,
@@ -452,6 +510,7 @@ export async function sendProductPhotosToMicrostore(
       microstoreLastPushedAt: new Date(),
     },
   });
+  await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
 
   return {
     success: true,
@@ -544,6 +603,7 @@ export async function bulkSendPhotosToMicrostore(
       select: {
         id: true,
         reference: true,
+        name: true,
         primaryColorId: true,
         colors: {
           where: { saleType: "UNIT" },
@@ -565,11 +625,30 @@ export async function bulkSendPhotosToMicrostore(
   ]);
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
+  // Un job par produit. Créés à l'avance pour que le widget affiche la
+  // totalité du lot dès le clic, puis mis à jour au fil de l'upload.
+  const jobIdByProductId = new Map<string, string | null>();
+  for (const p of products) {
+    const jobId = await createMicrostoreUploadJob({
+      productId: p.id,
+      reference: p.reference,
+      productName: p.name ?? null,
+    });
+    jobIdByProductId.set(p.id, jobId);
+  }
+
   let company;
   try {
     company = await getMicrostorePictureStationCompany(stored.key);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur inconnue.";
+    // Aucun contact Microstore possible → tous les jobs échouent d'un coup.
+    for (const jobId of jobIdByProductId.values()) {
+      await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+        errorMessage: `Contact Microstore impossible : ${message}`,
+        completed: true,
+      });
+    }
     return {
       success: false,
       error: `Contact Microstore impossible : ${message}`,
@@ -626,6 +705,25 @@ export async function bulkSendPhotosToMicrostore(
       fallbackUrl: null,
     });
 
+    // Calcule le total prévu pour ce produit et bascule le job en UPLOADING.
+    // On ne compte que les photos dont le fichier existe localement — on ne
+    // peut pas prédire les couleurs matchées côté Microstore ici (le matching
+    // se fait côté serveur Microstore via le POST bulk). C'est donc un total
+    // "photos qu'on va tenter d'uploader vers OSS".
+    const jobId = jobIdByProductId.get(product.id) ?? null;
+    let plannedForProduct = 0;
+    for (const pc of sortedColors) {
+      const colorId = pc.color?.id || "";
+      const colorName = pc.color?.name || "";
+      if (!colorName) continue;
+      const localPaths = imagesByColorId.get(colorId) ?? [];
+      if (localPaths.length === 0) continue;
+      const isPrimary = colorId === primaryColorId;
+      plannedForProduct +=
+        localPaths.length + (brandedBadgeEnabled && isPrimary ? 1 : 0);
+    }
+    await markMicrostoreUploadJobStarted(jobId, plannedForProduct);
+
     let anyForProduct = false;
     for (const pc of sortedColors) {
       const colorName = pc.color?.name || "";
@@ -669,6 +767,7 @@ export async function bulkSendPhotosToMicrostore(
             },
           });
           anyForProduct = true;
+          await bumpMicrostoreUploadJobCounters(jobId, { uploaded: 1 });
 
           // Mémorise l'URL cover : primaryUrl seulement si c'est la 1re photo
           // de la couleur principale ; fallbackUrl sur le tout 1er upload.
@@ -701,6 +800,7 @@ export async function bulkSendPhotosToMicrostore(
                 order: idx + 2,
               },
             });
+            await bumpMicrostoreUploadJobCounters(jobId, { uploaded: 1 });
           }
         } catch (err) {
           logger.error("[Microstore/PS] bulk upload failed", {
@@ -708,6 +808,7 @@ export async function bulkSendPhotosToMicrostore(
             reference: product.reference,
             path: rel,
           });
+          await bumpMicrostoreUploadJobCounters(jobId, { failed: 1 });
         }
       }
     }
@@ -716,6 +817,10 @@ export async function bulkSendPhotosToMicrostore(
       productsWithUpload.add(product.id);
     } else {
       skippedProducts.push(product.reference);
+      await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+        errorMessage: "Aucune photo n'a pu être uploadée pour ce produit.",
+        completed: true,
+      });
     }
   }
 
@@ -733,11 +838,31 @@ export async function bulkSendPhotosToMicrostore(
     };
   }
 
+  // Upload OSS terminé pour ces produits → phase PATCHING (bulk pictureStations
+  // puis PATCH cover un par un).
+  for (const productId of productsWithUpload) {
+    await markMicrostoreUploadJobStatus(
+      jobIdByProductId.get(productId) ?? null,
+      "PATCHING",
+    );
+  }
+
   let bulkRes;
   try {
     bulkRes = await bulkImportMicrostorePictures(stored.key, pictures);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Bulk global échoué → tous les produits en PATCHING passent FAILED.
+    for (const productId of productsWithUpload) {
+      await markMicrostoreUploadJobStatus(
+        jobIdByProductId.get(productId) ?? null,
+        "FAILED",
+        {
+          errorMessage: `Upload OSS OK mais bulk pictureStations refusé : ${message}`,
+          completed: true,
+        },
+      );
+    }
     return {
       success: false,
       error: `Upload OSS OK mais l'appel bulk pictureStations a échoué : ${message}`,
@@ -774,15 +899,27 @@ export async function bulkSendPhotosToMicrostore(
   let coversFailed = 0;
   for (const productId of Array.from(productsWithUpload)) {
     const entry = coverByProduct.get(productId);
-    if (!entry) continue;
+    const jobId = jobIdByProductId.get(productId) ?? null;
+    if (!entry) {
+      await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
+      continue;
+    }
     const coverUrl = entry.primaryUrl || entry.fallbackUrl;
-    if (!coverUrl) continue;
+    if (!coverUrl) {
+      // Rien à propager en cover, mais le bulk POST est passé → succès.
+      await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
+      continue;
+    }
     try {
       const mstGoods = await getMicrostoreGoodsByItemRef(stored.key, entry.reference);
       if (!mstGoods) {
         coversFailed++;
         logger.warn("[Microstore/PS] cover PATCH skipped: goods not found", {
           reference: entry.reference,
+        });
+        await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+          errorMessage: `Photos uploadées mais fiche Microstore introuvable pour la couverture.`,
+          completed: true,
         });
         continue;
       }
@@ -792,11 +929,17 @@ export async function bulkSendPhotosToMicrostore(
         imageSetting: { skuImage: [] },
       });
       coversPatched++;
+      await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
     } catch (err) {
       coversFailed++;
+      const message = err instanceof Error ? err.message : String(err);
       logger.error("[Microstore/PS] cover PATCH failed", {
         error: err,
         reference: entry.reference,
+      });
+      await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+        errorMessage: `Photos uploadées mais PATCH couverture refusé : ${message}`,
+        completed: true,
       });
     }
   }

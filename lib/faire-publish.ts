@@ -103,6 +103,7 @@ interface FullProduct {
   hsCode: { code: string } | null;
   category: {
     id: string;
+    name: string;
     faireTaxonomyId: string | null;
   } | null;
   colors: FullVariant[];
@@ -139,6 +140,7 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
       category: {
         select: {
           id: true,
+          name: true,
           faireTaxonomyId: true,
         },
       },
@@ -829,10 +831,10 @@ export function buildPublishContext(
 } {
   const taxonomyTypeId = product.category?.faireTaxonomyId ?? null;
   if (!taxonomyTypeId) {
+    const categoryName = product.category?.name?.trim() || "du produit";
     return {
       ok: false,
-      reason: "La catégorie du produit n'a pas de mapping Faire (taxonomy_type). " +
-        "Renseigner « Faire » sur la catégorie dans Admin > Catégories.",
+      reason: `La catégorie ${categoryName} n'a pas été mappée sur Faire.`,
     };
   }
 

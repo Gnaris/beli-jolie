@@ -14,6 +14,7 @@ import { ShootingDrawer } from "./ShootingDrawer";
 import { EmailsDrawer } from "./EmailsDrawer";
 import { OrdersImportDrawer } from "./OrdersImportDrawer";
 import { PfsAuditDrawer } from "./PfsAuditDrawer";
+import { MicrostoreUploadDrawer } from "./MicrostoreUploadDrawer";
 
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
@@ -30,6 +31,7 @@ export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
           garantir la rétrocompat avec les points d'ouverture existants. */}
       <OrdersImportDrawer />
       <PfsAuditDrawer />
+      <MicrostoreUploadDrawer />
     </RightRailProvider>
   );
 }
