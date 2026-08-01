@@ -220,6 +220,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de polling des commandes Microstore. Tick 5 min.
+  // Récupère page 1 clients (endpoint dédié `/customer/get_by_order`) puis
+  // les commandes sur `[last_sync - 3j, today]`. Skip silencieusement si la
+  // session Microstore n'est pas configurée pour le tenant (ou expirée).
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startMicrostoreOrdersWorker } = await import("@/lib/microstore-orders-worker");
+        startMicrostoreOrdersWorker();
+      } catch (err) {
+        logger.error("[Microstore Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker des scénarios emails marketing (panier abandonné, etc.). Tick 15 min.
   // Idempotent : les scanners posent leur propre verrou (contrainte unique
   // sur EmailSend) — ré-exécuter n'envoie pas 2× le même mail.

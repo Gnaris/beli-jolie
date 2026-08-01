@@ -44,6 +44,11 @@ import { useFilterPending } from "@/components/admin/products/FilterPendingConte
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
+import {
+  MISSING_FIELD_LABELS,
+  MISSING_FIELD_TITLES,
+  type MissingField,
+} from "@/lib/product-missing-fields";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
 import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
@@ -999,6 +1004,10 @@ interface AdminProduct {
   /** Nombre de couleurs actives (non désactivées) sans aucune image.
    *  Calculé côté serveur. 0 pour les produits archivés. */
   colorsMissingImageCount: number;
+  /** Champs manquants dérivés côté serveur (catégorie, description trop courte,
+   *  compo, pays, saison, prix, poids, stock, tailles). Rendus en badges ambre
+   *  sous le badge de statut. [] pour ARCHIVED. */
+  missingFields: MissingField[];
   /** Verrou manuel : si true, désactive le bouton « Rafraîchir ». */
   locked: boolean;
   /** Marqueur « Important » (favori admin partagé) — étoile visible sur la ligne. */
@@ -2685,7 +2694,7 @@ function ProductRow({
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const { addProduct: addToEfashionShootingBatch, items: efashionShootingItems } = useEfashionShootingBatch();
-  const { open: openRailWidget } = useRightRail();
+  const { open: openRailWidget, nudgeWidget: nudgeRailWidget } = useRightRail();
   const efashionShootingPending = React.useMemo(() => {
     const item = efashionShootingItems.find((i) => i.productId === product.id);
     return item ? item.mode : null;
@@ -3042,6 +3051,8 @@ function ProductRow({
     });
     if (!ok) return;
     setMicrostoreBusy(true);
+    // Nudge le widget « Photos Microstore » — cf. MicrostoreStatusCard.
+    nudgeRailWidget("microstore-upload");
     try {
       const { pushProductToMicrostore } = await import(
         "@/app/actions/admin/microstore-products"
@@ -3572,6 +3583,15 @@ function ProductRow({
                   {product.colorsMissingImageCount} couleur{product.colorsMissingImageCount > 1 ? "s" : ""} sans image
                 </span>
               )}
+              {product.missingFields.map((f) => (
+                <span
+                  key={f}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                  title={MISSING_FIELD_TITLES[f]}
+                >
+                  {MISSING_FIELD_LABELS[f]}
+                </span>
+              ))}
               {isDeleting && (
                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-red-50 text-red-600 border border-red-200">
                   <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -4340,6 +4360,7 @@ export default function AdminProductsTable({
   });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
   const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
+  const { nudgeWidget: nudgeRailWidget } = useRightRail();
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -4592,6 +4613,7 @@ export default function AdminProductsTable({
       // Microstore : hors queue (POST /goods/import_v1 synchrone). Fire-and-
       // forget avec toast récapitulatif à la fin.
       if (options.microstore && microstoreProducts.length > 0) {
+        nudgeRailWidget("microstore-upload");
         const { bulkPushProductsToMicrostore } = await import(
           "@/app/actions/admin/microstore-products"
         );
@@ -4779,6 +4801,7 @@ export default function AdminProductsTable({
       ) {
         const toPushIds = decision.microstoreEligibleIds.filter((id) => onlineIds.has(id));
         if (toPushIds.length > 0) {
+          nudgeRailWidget("microstore-upload");
           const { bulkPushProductsToMicrostore } = await import(
             "@/app/actions/admin/microstore-products"
           );
@@ -4986,6 +5009,7 @@ export default function AdminProductsTable({
           const inputs = buildMarketplaceInputs(candidates, options);
           if (inputs.length > 0) enqueuePfs(inputs);
           if (options.microstore && microstoreCandidates.length > 0) {
+            nudgeRailWidget("microstore-upload");
             const { bulkPushProductsToMicrostore } = await import(
               "@/app/actions/admin/microstore-products"
             );
@@ -5135,6 +5159,7 @@ export default function AdminProductsTable({
 
     // Microstore : hors queue, appel synchrone bulk avec toast récap.
     if (options.microstore && microstoreCandidates.length > 0) {
+      nudgeRailWidget("microstore-upload");
       const { bulkPushProductsToMicrostore } = await import(
         "@/app/actions/admin/microstore-products"
       );
@@ -5513,6 +5538,7 @@ export default function AdminProductsTable({
 
     // Microstore : hors queue, appel synchrone bulk.
     if (options.microstore && microstoreTargets.length > 0) {
+      nudgeRailWidget("microstore-upload");
       const { bulkPushProductsToMicrostore } = await import(
         "@/app/actions/admin/microstore-products"
       );
@@ -5636,6 +5662,7 @@ export default function AdminProductsTable({
         cancelLabel: "Annuler",
       });
       if (ok !== true) return;
+      nudgeRailWidget("microstore-upload");
       const { bulkPushProductsToMicrostore } = await import(
         "@/app/actions/admin/microstore-products"
       );

@@ -20,6 +20,7 @@ import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCo
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
+import { computeMissingProductFields } from "@/lib/product-missing-fields";
 import {
   buildAdminProductsWhere,
   buildAdminProductsOrderBy,
@@ -446,8 +447,13 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             // getCachedSizes() pour éviter une jointure SQL sur la table Size
             // pour chaque variantSize (30 produits × ~4 couleurs × ~10 tailles).
             variantSizes:        { select: { quantity: true, sizeId: true } },
+            // Alimente le check "Tailles manquantes" pour les PACK multi-couleurs
+            // (voir computeMissingProductFields — packLines supplante variantSizes).
+            // colorId est requis par ProductColorLite (pick-first-image).
+            packLines:           { select: { colorId: true, sizes: { select: { sizeId: true } } } },
           },
         },
+        compositions: { select: { percentage: true } },
         translations: { select: { locale: true } },
       },
     }),
@@ -557,6 +563,23 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       colors: p.colors,
       imagesByProductColor,
     });
+    const missingFields = computeMissingProductFields({
+      status: p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
+      reference: p.reference,
+      description: p.description,
+      categoryId: p.categoryId,
+      countryIsoCode: p.countryIsoCode,
+      seasonId: p.seasonId,
+      compositions: p.compositions,
+      colors: p.colors.map((c) => ({
+        disabled:     c.disabled,
+        unitPrice:    Number(c.unitPrice),
+        weight:       c.weight,
+        stock:        c.stock,
+        variantSizes: c.variantSizes,
+        packLines:    c.packLines,
+      })),
+    });
     return {
     id:              p.id,
     reference:       p.reference,
@@ -564,6 +587,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     status:          p.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING",
     isIncomplete:    p.isIncomplete,
     colorsMissingImageCount,
+    missingFields,
     locked:          p.locked,
     important:       p.important,
     categoryName:    p.category.name,

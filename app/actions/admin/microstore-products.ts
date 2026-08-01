@@ -27,6 +27,7 @@ import { getStoredPictureStation } from "@/lib/microstore-picture-station";
 import { sendProductPhotosToMicrostore } from "@/app/actions/admin/microstore-picture-station";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { tenantALS } from "@/lib/tenant-als";
+import { checkProductComplete } from "@/lib/product-publishability-check";
 
 interface ActionResult {
   success: boolean;
@@ -112,6 +113,16 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
       success: false,
       error: `Renseignez le pays de fabrication de « ${product.reference} » dans sa fiche avant de pousser vers Microstore.`,
     };
+  }
+
+  // Garde-fou complétude : pas de push si la fiche n'est pas à 100 %.
+  const completeness = await checkProductComplete(productId);
+  if (!completeness.eligible) {
+    logger.warn("[Microstore] Blocked push — product incomplete", {
+      productId,
+      reasons: completeness.reasons,
+    });
+    return { success: false, error: completeness.message };
   }
 
   let ctx: Awaited<ReturnType<typeof loadExportContext>>;
@@ -211,7 +222,17 @@ export async function bulkPushProductsToMicrostore(
   const withCountryIds = enabledIds.filter((id) => byId.get(id)?.countryIsoCode);
   const missingCountryIds = enabledIds.filter((id) => !byId.get(id)?.countryIsoCode);
 
-  if (withCountryIds.length === 0) {
+  // Garde-fou complétude : on filtre les fiches incomplètes avant de constituer
+  // le batch. Les produits recalés remontent en erreur individuelle avec la
+  // liste des champs manquants (comme pour « pays absent »).
+  const incompleteReasonById = new Map<string, string>();
+  for (const id of withCountryIds) {
+    const c = await checkProductComplete(id);
+    if (!c.eligible) incompleteReasonById.set(id, c.message);
+  }
+  const completeIds = withCountryIds.filter((id) => !incompleteReasonById.has(id));
+
+  if (completeIds.length === 0) {
     const results = productIds.map((id) => {
       const p = byId.get(id);
       if (!p?.microstoreEnabled) {
@@ -222,22 +243,33 @@ export async function bulkPushProductsToMicrostore(
           error: "Microstore désactivé pour ce produit.",
         };
       }
+      if (missingCountryIds.includes(id)) {
+        return {
+          productId: id,
+          reference: p.reference,
+          success: false,
+          error: "Pays de fabrication manquant dans la fiche.",
+        };
+      }
       return {
         productId: id,
         reference: p.reference,
         success: false,
-        error: "Pays de fabrication manquant dans la fiche.",
+        error: incompleteReasonById.get(id) ?? "Fiche produit incomplète.",
       };
     });
-    const skipped = skippedIds.length + missingCountryIds.length;
+    const skipped =
+      skippedIds.length + missingCountryIds.length + incompleteReasonById.size;
     return {
       success: skipped === productIds.length,
       totals: { pushed: 0, skipped, failed: 0 },
       results,
       error:
-        missingCountryIds.length > 0
-          ? `Pays de fabrication manquant sur ${missingCountryIds.length} produit(s). Renseignez-le dans la fiche avant de pousser vers Microstore.`
-          : undefined,
+        incompleteReasonById.size > 0
+          ? `Fiches incomplètes sur ${incompleteReasonById.size} produit(s). Complétez-les avant le push Microstore.`
+          : missingCountryIds.length > 0
+            ? `Pays de fabrication manquant sur ${missingCountryIds.length} produit(s). Renseignez-le dans la fiche avant de pousser vers Microstore.`
+            : undefined,
     };
   }
 
@@ -246,7 +278,7 @@ export async function bulkPushProductsToMicrostore(
   try {
     [ctx, exportProducts] = await Promise.all([
       loadExportContext(),
-      loadExportProducts(withCountryIds),
+      loadExportProducts(completeIds),
     ]);
   } catch (err) {
     logger.error("[Microstore] bulk push: failed to load export data", { error: err });
@@ -271,7 +303,7 @@ export async function bulkPushProductsToMicrostore(
   const pushedIds = exportProducts
     .filter((p) => p.variants.some((v) => v.saleType === "UNIT" && v.colorNames.length > 0))
     .map((p) => p.id);
-  const noUnitIds = withCountryIds.filter((id) => !pushedIds.includes(id));
+  const noUnitIds = completeIds.filter((id) => !pushedIds.includes(id));
 
   await markPushed(pushedIds, {
     productsSent: result.productsSent,
@@ -327,6 +359,14 @@ export async function bulkPushProductsToMicrostore(
         error: "Pays de fabrication manquant dans la fiche.",
       };
     }
+    if (incompleteReasonById.has(id)) {
+      return {
+        productId: id,
+        reference: p.reference,
+        success: false,
+        error: incompleteReasonById.get(id) ?? "Fiche produit incomplète.",
+      };
+    }
     if (noUnitIds.includes(id)) {
       return {
         productId: id,
@@ -343,7 +383,11 @@ export async function bulkPushProductsToMicrostore(
     results,
     totals: {
       pushed: pushedIds.length,
-      skipped: skippedIds.length + missingCountryIds.length + noUnitIds.length,
+      skipped:
+        skippedIds.length +
+        missingCountryIds.length +
+        incompleteReasonById.size +
+        noUnitIds.length,
       failed: 0,
     },
   };

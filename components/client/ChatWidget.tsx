@@ -121,7 +121,10 @@ export default function ChatWidget({ businessHours }: Props) {
 
   // ── SSE: always active for notifications ──
   const handleChatEvent = useCallback(
-    (event: { type: string; conversationId: string; messageData?: ChatMessage }) => {
+    (event: { type: string; conversationId: string; context?: "claim"; messageData?: ChatMessage }) => {
+      // Ignorer TOUS les événements Service Client — géré par sa propre page.
+      if (event.context === "claim") return;
+
       if (event.type === "NEW_MESSAGE" && event.messageData) {
         if (event.messageData.senderRole === "ADMIN") {
           playNotificationSound();

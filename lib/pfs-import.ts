@@ -44,6 +44,7 @@ import { PROTECTED_SIZE_NAME, PROTECTED_SIZE_PFS_REF, isProtectedSizeName } from
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { loadPfsImportPriceMarkup, applyImportMarkupToUnitPrice } from "@/lib/pfs-import-price-markup";
 import { getCountryByIso, getCountryByPfsRef } from "@/lib/countries";
+import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -1286,7 +1287,29 @@ export async function approveAndImportPfsProduct(
   // cliente et stocké dans Composition.name. Historiquement les deux étaient
   // confondus (label FR utilisé comme ref), ce qui cassait la vérification
   // PFS et empêchait la correction « Envoyer PFS » d'aboutir.
-  const materialEntries = (detail?.material_composition ?? []).map((mat) => ({
+  // Fallback API admin : le wholesaler renvoie parfois compo vide alors que
+  // le vendeur l'a saisie via l'appli mobile PFS (bug de synchro côté eux).
+  // On relit alors depuis admin.parisfashionshops.com.
+  let rawMaterialComposition = detail?.material_composition ?? [];
+  if (rawMaterialComposition.length === 0 && product.id) {
+    const fallback = await pfsAdminFetchMaterialComposition(product.id).catch((err) => {
+      logger.warn("[PFS Import] Fallback composition (API admin) échoué", {
+        pfsProductId: product.id,
+        reference: product.reference,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [] as Awaited<ReturnType<typeof pfsAdminFetchMaterialComposition>>;
+    });
+    if (fallback.length > 0) {
+      rawMaterialComposition = fallback;
+      logger.info("[PFS Import] Composition récupérée via API admin (fallback)", {
+        pfsProductId: product.id,
+        reference: product.reference,
+        count: fallback.length,
+      });
+    }
+  }
+  const materialEntries = rawMaterialComposition.map((mat) => ({
     pfsRef: mat.reference,
     label: mat.labels?.fr ?? mat.labels?.en ?? mat.reference,
     percentage: mat.percentage,
@@ -1431,7 +1454,7 @@ export async function approveAndImportPfsProduct(
   for (const mat of materialEntries) {
     let comp = compositionByRef.get(mat.pfsRef);
     if (!comp) {
-      const matSource = detail?.material_composition?.find(
+      const matSource = rawMaterialComposition.find(
         (m) => m.reference === mat.pfsRef,
       );
       const enLabel = pickEnLabel(matSource?.labels);

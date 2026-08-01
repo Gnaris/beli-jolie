@@ -104,6 +104,13 @@ export async function sendAdminReply(
         senderRole: "ADMIN",
         senderName: session.user.name || "Admin",
         createdAt: message.createdAt.toISOString(),
+        attachments: message.attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          filePath: a.filePath,
+          fileSize: a.fileSize,
+          mimeType: a.mimeType,
+        })),
       },
     });
 

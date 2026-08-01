@@ -517,17 +517,19 @@ export async function notifyClientNewReply(params: {
 }
 
 /**
- * Notify admin of a new claim.
+ * Notif admin — nouveau ticket Service Client.
+ * Envoyé automatiquement à `smtp_from_email` (mail pro du tenant)
+ * à chaque ouverture (ou réouverture) de conversation par un client.
  */
 export async function notifyAdminNewClaim(params: {
   clientName: string;
   clientCompany: string;
   claimReference: string;
-  claimType: string;
-  description: string;
+  subject: string;
+  messagePreview: string;
   claimId: string;
 }) {
-  const { clientName, clientCompany, claimReference, claimType, description, claimId } = params;
+  const { clientName, clientCompany, claimReference, subject, messagePreview, claimId } = params;
   const [shopName, notifyEmail] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -539,69 +541,65 @@ export async function notifyAdminNewClaim(params: {
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `Nouvelle demande (Service Client) ${claimReference} — ${clientCompany}`,
+    subject: `Nouvelle demande (Service Client) ${claimReference} — ${clientCompany || clientName}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Nouvelle demande — Service Client</h2>
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <tr><td style="padding:8px;font-weight:bold;">Référence</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
-          <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)} (${escapeHtml(clientCompany)})</td></tr>
-          <tr><td style="padding:8px;font-weight:bold;">Type</td><td style="padding:8px;">${claimType === 'ORDER_CLAIM' ? 'Liée à une commande' : 'Générale'}</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)}${clientCompany ? ` (${escapeHtml(clientCompany)})` : ""}</td></tr>
+          <tr><td style="padding:8px;font-weight:bold;">Sujet</td><td style="padding:8px;">${escapeHtml(subject)}</td></tr>
         </table>
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
-          <p style="margin:0;color:#333;">${escapeHtml(description).substring(0, 500)}</p>
+          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
         <a href="${baseUrl}/admin/reclamations/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Examiner la demande
+          Ouvrir la conversation
         </a>
       </div>
     `,
   });
 
-  logger.info(`[Notifications] Admin notified of new claim ${claimReference}`);
+  logger.info(`[Notifications] Admin notifié — nouvelle demande ${claimReference}`);
 }
 
 /**
- * Notify client of claim status update.
+ * Notif client — l'admin a répondu.
+ * Envoyée uniquement quand l'admin clique sur « Notifier le client »
+ * dans la page conversation (rate-limité 1 h côté action serveur).
  */
-export async function notifyClientClaimUpdate(params: {
+export async function notifyClientHasNewReply(params: {
   clientEmail: string;
   clientName: string;
   claimReference: string;
-  newStatus: string;
-  message?: string;
+  subject: string;
   claimId: string;
 }) {
-  const { clientEmail, clientName, claimReference, newStatus, message, claimId } = params;
+  const { clientEmail, clientName, claimReference, subject, claimId } = params;
   const shopName = await getCachedShopName();
-
   const baseUrl = await getCurrentTenantBaseUrl();
-  const statusLabels: Record<string, string> = {
-    IN_REVIEW: "en cours d'examen",
-    ACCEPTED: "acceptee",
-    REJECTED: "refusee",
-    RETURN_PENDING: "en attente de retour",
-    RESOLVED: "resolue",
-    CLOSED: "cloturee",
-  };
 
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `Demande (Service Client) ${claimReference} — ${statusLabels[newStatus] || newStatus}`,
+    subject: `Service Client ${claimReference} — Nouvelle réponse`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
         <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Votre demande <strong>${escapeHtml(claimReference)}</strong> est maintenant <strong>${statusLabels[newStatus] || newStatus}</strong>.</p>
-        ${message ? `<div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;"><p style="margin:0;">${escapeHtml(message)}</p></div>` : ''}
+        <p>Vous avez une nouvelle réponse à votre demande <strong>${escapeHtml(subject)}</strong> (réf. ${escapeHtml(claimReference)}).</p>
         <a href="${baseUrl}/fr/espace-pro/reclamations/${claimId}"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Voir la demande
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
+          Voir la conversation
         </a>
+        <p style="color:#71717A;font-size:12px;margin-top:24px;">
+          Vous recevez cet email parce que vous avez ouvert une demande auprès du Service Client de ${escapeHtml(shopName || "notre boutique")}.
+        </p>
       </div>
     `,
   });
+
+  logger.info(`[Notifications] Client ${clientEmail} notifié — nouvelle réponse ${claimReference}`);
 }
 
 // ─────────────────────────────────────────────

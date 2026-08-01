@@ -1,20 +1,30 @@
 /**
- * Microstore Orders — État d'import historique persistant par tenant.
+ * Microstore — État d'import historique persistant par tenant.
  *
- * Le rattrapage historique traite N commandes en fond. L'état est stocké en
- * SiteConfig pour survivre à un redémarrage PM2 et être queryable par le widget
- * flottant.
+ * Le rattrapage historique se fait en **2 phases séquentielles** :
+ *   1. CUSTOMERS : liste complète des clients via `/customer/get_by_order`
+ *      (endpoint dédié qui renvoie même les clients sans commande). Total
+ *      connu dès la 1ère page → progression précise `X / totalCustomers`.
+ *   2. ORDERS : liste des commandes sur 5 ans en tranches de 90 jours.
+ *      Total inconnu à l'avance → grimpe au fil des chunks. Chaque commande
+ *      rattache/enrichit la fiche client déjà créée en phase 1.
+ *
+ * L'état est stocké en SiteConfig pour survivre à un redémarrage PM2 et
+ * être queryable par le widget flottant.
  *
  * Clés SiteConfig :
- *   - microstore_orders_import_state    : JSON stringifié (voir MicrostoreImportState)
+ *   - microstore_orders_import_state    : JSON (voir MicrostoreImportState)
  *   - microstore_orders_import_stop     : "1" quand la cliente annule
  */
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncMicrostoreOrders } from "@/lib/microstore-orders-sync";
+import { syncMicrostoreCustomers } from "@/lib/microstore-customers-sync";
+import { microstoreCountOrders } from "@/lib/microstore-client";
 
 export type MicrostoreImportStatus = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "STOPPED";
+export type MicrostoreImportPhase = "CUSTOMERS" | "ORDERS" | null;
 
 export type MicrostoreImportEventResult = "imported" | "unchanged" | "error";
 
@@ -36,10 +46,21 @@ export interface MicrostoreImportRecentEvent {
 
 export interface MicrostoreImportState {
   status: MicrostoreImportStatus;
+  /** Phase courante quand status === "RUNNING". */
+  phase: MicrostoreImportPhase;
   startedAt: number | null;
   finishedAt: number | null;
-  /** Microstore ne renvoie pas de compteur total tant que la liste n'est pas
-   *  complètement chargée — on met à jour au fil des chunks. */
+
+  // ── Phase 1 : CUSTOMERS ────────────────────────
+  /** Total clients Microstore (précis dès la 1ère page). */
+  customersTotal: number;
+  customersProcessed: number;
+  customersCreated: number;
+  customersUpdated: number;
+
+  // ── Phase 2 : ORDERS ───────────────────────────
+  /** Microstore ne renvoie pas de compteur total avant la fin du balayage —
+   *  on met à jour au fil des chunks. */
   totalOrders: number;
   processedOrders: number;
   imported: number;
@@ -47,7 +68,8 @@ export interface MicrostoreImportState {
   errors: number;
   currentChunk: number;
   totalChunks: number;
-  /** Aliases pour compat avec le composant partagé SourceSection (widget). */
+
+  // ── Compat / affichage ─────────────────────────
   currentPage: number;
   unchanged: number;
   skipped: number;
@@ -62,8 +84,13 @@ const RECENT_EVENTS_MAX = 30;
 
 const EMPTY_STATE: MicrostoreImportState = {
   status: "IDLE",
+  phase: null,
   startedAt: null,
   finishedAt: null,
+  customersTotal: 0,
+  customersProcessed: 0,
+  customersCreated: 0,
+  customersUpdated: 0,
   totalOrders: 0,
   processedOrders: 0,
   imported: 0,
@@ -149,8 +176,14 @@ async function checkStopSignal(tenantId: string): Promise<boolean> {
  * Démarre le rattrapage historique en tâche de fond (fire-and-forget).
  * Idempotent : renvoie l'état actuel si un import est déjà RUNNING.
  *
- * Parcourt 5 années en tranches de 90 jours. Progression et events poussés au
- * fur et à mesure pour affichage live dans le widget.
+ * Séquence :
+ *   1. Phase CUSTOMERS : boucle sur les pages de `/customer/get_by_order`
+ *      → upsert AdminClientCard pour chaque client (même sans commande).
+ *   2. Phase ORDERS : boucle sur 5 ans en tranches de 90 jours
+ *      → upsert MicrostoreOrder + rattachement à la fiche client.
+ *
+ * L'annulation coopérative est vérifiée entre chaque page (phase 1) et entre
+ * chaque tranche (phase 2).
  */
 export async function startMicrostoreHistoricalImportInBackground(
   tenantId: string,
@@ -158,139 +191,180 @@ export async function startMicrostoreHistoricalImportInBackground(
   const current = await getMicrostoreImportState(tenantId);
   if (current.status === "RUNNING") return current;
 
-  const CHUNK_DAYS = 90;
   const YEARS_BACK = 5;
-  const totalChunks = Math.ceil((YEARS_BACK * 365) / CHUNK_DAYS);
 
   const initial: MicrostoreImportState = {
     ...EMPTY_STATE,
     status: "RUNNING",
+    phase: "CUSTOMERS",
     startedAt: Date.now(),
-    totalChunks,
   };
   await setMicrostoreImportState(tenantId, initial);
   await setStopSignal(tenantId, false);
 
   // Fire-and-forget dans le contexte tenant (sinon fuite marketplace entre boutiques)
   void tenantALS.run(tenantId, async () => {
-    let imported = 0;
-    let updated = 0;
-    let errors = 0;
-    let processed = 0;
-    let total = 0;
-    let chunkIdx = 0;
-
     try {
+      // ─── Phase 1 : CUSTOMERS ─────────────────────────────
+      const customersRes = await syncMicrostoreCustomers({
+        tenantId,
+        shouldStop: () => checkStopSignal(tenantId),
+        onProgress: async ({ processed, total }) => {
+          await patchMicrostoreImportState(tenantId, {
+            customersProcessed: processed,
+            customersTotal: total,
+          });
+        },
+      });
+      await patchMicrostoreImportState(tenantId, {
+        customersCreated: customersRes.created,
+        customersUpdated: customersRes.updated,
+        customersTotal: customersRes.total,
+      });
+
+      // Signal d'annulation entre les 2 phases
+      if (await checkStopSignal(tenantId)) {
+        await patchMicrostoreImportState(tenantId, {
+          status: "STOPPED",
+          phase: null,
+          finishedAt: Date.now(),
+        });
+        await setStopSignal(tenantId, false);
+        return;
+      }
+
+      // ─── Phase 2 : ORDERS ────────────────────────────────
       const now = new Date();
       const overallStart = now.getTime() - YEARS_BACK * 365 * 86400_000;
-      let cursor = now.getTime();
+      const overallStartDate = new Date(overallStart).toISOString().substring(0, 10);
+      const overallEndDate = now.toISOString().substring(0, 10);
 
-      while (cursor > overallStart) {
-        // Signal d'annulation
-        if (await checkStopSignal(tenantId)) break;
-
-        chunkIdx += 1;
-        const to = new Date(cursor);
-        const from = new Date(Math.max(overallStart, cursor - CHUNK_DAYS * 86400_000));
-        const fromStr = from.toISOString().substring(0, 10);
-        const toStr = to.toISOString().substring(0, 10);
-
-        await patchMicrostoreImportState(tenantId, {
-          currentChunk: chunkIdx,
-          currentPage: chunkIdx, // alias pour SourceSection
-          currentOrders: [],
+      // Pré-comptage : 1 appel léger sur toute la plage 5 ans → renvoie
+      // `list_num` précis. Fige `totalOrders` dès le début pour que le widget
+      // affiche `X / 1059` (au lieu de grimper au fil des chunks — bug
+      // historique 1071/238 corrigé 2026-08-01).
+      let preflightTotal = 0;
+      try {
+        const preflight = await microstoreCountOrders({
+          fromDate: overallStartDate,
+          toDate: overallEndDate,
         });
-
-        const res = await syncMicrostoreOrders({
+        preflightTotal = preflight.total;
+      } catch (err) {
+        logger.warn("[Microstore Import] Pré-comptage commandes échoué", {
           tenantId,
-          fromDate: fromStr,
-          toDate: toStr,
-          onProgress: async (info) => {
-            processed += 1;
-            total = Math.max(total, info.total);
-            await patchMicrostoreImportState(tenantId, {
-              processedOrders: processed,
-              totalOrders: total,
-              currentOrders: [
-                {
-                  microstoreOrderId: info.lastOrderNumber,
-                  customerName: info.lastOrderNumber,
-                  totalHT: null,
-                  country: null,
-                },
-              ],
-            });
-          },
+          error: err as Error,
         });
+        // On continue quand même — le total sera mis à jour par les chunks
+      }
 
-        imported += res.created;
-        updated += res.updated;
-        errors += res.errors.length;
+      await patchMicrostoreImportState(tenantId, {
+        phase: "ORDERS",
+        totalOrders: preflightTotal,
+        processedOrders: 0,
+      });
 
-        // Push events pour chaque commande créée / mise à jour
-        // (res.errors est déjà détaillé ; les succès on résume par chunk pour ne
-        // pas spammer)
-        if (res.created > 0) {
-          await pushMicrostoreImportEvent(tenantId, {
-            orderNumber: `${fromStr} → ${toStr}`,
-            customerName: `${res.created} nouvelles`,
-            result: "imported",
-            totalHT: null,
-            at: Date.now(),
-          });
-        } else if (res.updated > 0) {
-          await pushMicrostoreImportEvent(tenantId, {
-            orderNumber: `${fromStr} → ${toStr}`,
-            customerName: `${res.updated} mises à jour`,
-            result: "unchanged",
-            totalHT: null,
-            at: Date.now(),
-          });
-        }
-        for (const e of res.errors) {
-          await pushMicrostoreImportEvent(tenantId, {
-            orderNumber: e.microstoreOrderId,
-            customerName: "erreur",
-            result: "error",
-            totalHT: null,
-            errorMessage: e.error,
-            at: Date.now(),
-          });
-        }
+      // ─── Passe unique sur toute la plage 5 ans ───────────
+      // Microstore accepte des plages larges sans limite pratique (validé HAR
+      // 2026-08-01). Plus de chunk par 90 jours : évite le bug historique
+      // 1068/1059 causé par le chevauchement des bornes de chunks (jour A à la
+      // fois `to` du chunk N et `from` du chunk N+1 → commandes comptées deux
+      // fois).
+      let imported = 0;
+      let updated = 0;
+      let errors = 0;
+      let processed = 0;
 
-        await patchMicrostoreImportState(tenantId, {
-          imported,
-          updated,
-          unchanged: updated, // alias pour SourceSection
-          errors,
+      const res = await syncMicrostoreOrders({
+        tenantId,
+        fromDate: overallStartDate,
+        toDate: overallEndDate,
+        onProgress: async (info) => {
+          processed = info.scanned;
+          const safeTotal = preflightTotal > 0 ? preflightTotal : Math.max(processed, info.total);
+          await patchMicrostoreImportState(tenantId, {
+            processedOrders: processed,
+            totalOrders: safeTotal,
+            currentOrders: [
+              {
+                microstoreOrderId: info.lastOrderNumber,
+                customerName: info.lastOrderNumber,
+                totalHT: null,
+                country: null,
+              },
+            ],
+          });
+          // Coupe la boucle si la cliente annule
+          if (await checkStopSignal(tenantId)) {
+            throw new Error("__STOPPED__");
+          }
+        },
+      });
+
+      imported = res.created;
+      updated = res.updated;
+      errors = res.errors.length;
+
+      if (imported > 0 || updated > 0) {
+        await pushMicrostoreImportEvent(tenantId, {
+          orderNumber: `${overallStartDate} → ${overallEndDate}`,
+          customerName: `${imported} créée${imported > 1 ? "s" : ""} · ${updated} mise${updated > 1 ? "s" : ""} à jour`,
+          result: imported > 0 ? "imported" : "unchanged",
+          totalHT: null,
+          at: Date.now(),
         });
-
-        cursor -= CHUNK_DAYS * 86400_000;
+      }
+      for (const e of res.errors) {
+        await pushMicrostoreImportEvent(tenantId, {
+          orderNumber: e.microstoreOrderId,
+          customerName: "erreur",
+          result: "error",
+          totalHT: null,
+          errorMessage: e.error,
+          at: Date.now(),
+        });
       }
 
       const stopped = await checkStopSignal(tenantId);
       const finalState: MicrostoreImportState = {
         ...(await getMicrostoreImportState(tenantId)),
         status: stopped ? "STOPPED" : "DONE",
+        phase: null,
         finishedAt: Date.now(),
         imported,
         updated,
         unchanged: updated,
         errors,
-        totalOrders: total,
+        totalOrders: preflightTotal > 0 ? preflightTotal : processed,
         processedOrders: processed,
         currentOrders: [],
       };
       await setMicrostoreImportState(tenantId, finalState);
       await setStopSignal(tenantId, false);
     } catch (err) {
-      logger.error("[Microstore Orders Import] Rattrapage historique échoué", {
+      // Annulation coopérative : `onProgress` throw "__STOPPED__" quand la
+      // cliente clique Annuler. On termine proprement en STOPPED, pas en ERROR.
+      const isStopped = err instanceof Error && err.message === "__STOPPED__";
+      if (isStopped) {
+        const finalState: MicrostoreImportState = {
+          ...(await getMicrostoreImportState(tenantId)),
+          status: "STOPPED",
+          phase: null,
+          finishedAt: Date.now(),
+          currentOrders: [],
+        };
+        await setMicrostoreImportState(tenantId, finalState);
+        await setStopSignal(tenantId, false);
+        return;
+      }
+      logger.error("[Microstore Import] Rattrapage historique échoué", {
         tenantId,
         error: err as Error,
       });
       const errorState: MicrostoreImportState = {
         ...(await getMicrostoreImportState(tenantId)),
         status: "ERROR",
+        phase: null,
         finishedAt: Date.now(),
         errorMessage: err instanceof Error ? err.message : String(err),
         currentOrders: [],

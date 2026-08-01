@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useRightRail } from "@/components/admin/widgets-rail";
 import {
   pushProductToMicrostore,
   clearMicrostoreSyncRequired,
@@ -73,6 +74,7 @@ export function MicrostoreStatusCard({
   const router = useRouter();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const { nudgeWidget } = useRightRail();
   const [busy, setBusy] = useState(false);
 
   const online = microstoreLastPushedAt !== null;
@@ -147,6 +149,11 @@ export function MicrostoreStatusCard({
     if (!ok) return;
 
     setBusy(true);
+    // Prévient le widget « Photos Microstore » de repasser en poll rapide :
+    // le fire-and-forget photos qui suit dure ~5 s, invisible sinon avec le
+    // poll idle 60 s. Nudge posé AVANT l'appel pour couvrir la fenêtre
+    // PENDING dès la création du job côté serveur.
+    nudgeWidget("microstore-upload");
     try {
       const res = await pushProductToMicrostore(productId);
       if (res.success) {

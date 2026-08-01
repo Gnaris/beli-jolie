@@ -123,7 +123,9 @@ export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearFinished = useCallback(() => {
-    setJobs((prev) => prev.filter((j) => j.status === "in_progress"));
+    // Garde les liaisons en vol ET les erreurs (visibles pour retry).
+    // Retire uniquement les ✓ terminées.
+    setJobs((prev) => prev.filter((j) => j.status !== "done"));
   }, []);
 
   const activeCount = jobs.filter((j) => j.status === "in_progress").length;

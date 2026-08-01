@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { enqueueImageJob } from "@/lib/image-queue";
+import { prisma } from "@/lib/prisma";
 import {
   productImageDir,
   productImageBaseName,
@@ -93,6 +94,26 @@ export async function POST(request: NextRequest) {
     const dbPath = `/${destDir.replace(/^public\//, "")}/${basename}.webp`;
     const fileExt = mimeToExt(file.type) || "bin";
 
+    // Résout la palette de la couleur choisie pour l'afficher dans le widget
+    // « Images » (hex ou motif). Best-effort : on n'échoue pas l'upload si la
+    // couleur n'est pas trouvée — le widget affichera juste un gris neutre.
+    let colorHex: string | null = null;
+    let colorPatternImage: string | null = null;
+    if (color) {
+      try {
+        const paletteRow = await prisma.color.findFirst({
+          where: { name: color },
+          select: { hex: true, patternImage: true },
+        });
+        if (paletteRow) {
+          colorHex = paletteRow.hex ?? null;
+          colorPatternImage = paletteRow.patternImage ?? null;
+        }
+      } catch {
+        // ignore, la palette est purement décorative
+      }
+    }
+
     const { jobId } = await enqueueImageJob({
       rawBuffer: buffer,
       fileExt,
@@ -100,6 +121,11 @@ export async function POST(request: NextRequest) {
       destDir,
       filename: basename,
       dbPath,
+      reference: reference || null,
+      colorName: color || null,
+      colorHex,
+      colorPatternImage,
+      position,
     });
 
     return NextResponse.json({ path: dbPath, jobId }, { status: 202 });

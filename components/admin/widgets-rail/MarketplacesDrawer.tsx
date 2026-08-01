@@ -285,7 +285,7 @@ export function MarketplacesDrawer() {
                   clearFinishedLinkJobs();
                 }}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 text-white text-sm font-semibold shadow-sm hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-colors"
-                title="Vide toutes les colonnes en une fois (terminés, erreurs, en attente). N'affecte pas les envois en cours."
+                title="Retire toutes les cartes ✓ terminées dans toutes les colonnes en une fois. N'affecte pas les envois en cours, en attente ou en erreur."
               >
                 <svg
                   className="w-4 h-4"

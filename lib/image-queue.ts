@@ -80,6 +80,12 @@ export interface EnqueueInput {
   filename: string;
   /** Chemin BDD final (ex "/uploads/produits/e310b/e310b-doré-1-abc123.webp"). */
   dbPath: string;
+  /** Snapshot d'affichage pour le widget « Images » (facultatif). */
+  reference?: string | null;
+  colorName?: string | null;
+  colorHex?: string | null;
+  colorPatternImage?: string | null;
+  position?: number | null;
 }
 
 export interface EnqueueResult {
@@ -107,6 +113,11 @@ export async function enqueueImageJob(input: EnqueueInput): Promise<EnqueueResul
       filename: input.filename,
       dbPath: input.dbPath,
       status: "PENDING",
+      reference: input.reference ?? null,
+      colorName: input.colorName ?? null,
+      colorHex: input.colorHex ?? null,
+      colorPatternImage: input.colorPatternImage ?? null,
+      position: input.position ?? null,
     },
     select: { id: true, dbPath: true },
   });

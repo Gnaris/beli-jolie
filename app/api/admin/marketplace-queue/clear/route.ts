@@ -1,9 +1,10 @@
 /**
  * POST /api/admin/marketplace-queue/clear
  *
- * Marque tous les jobs terminés (SUCCEEDED + FAILED) comme CANCELLED pour
- * qu'ils disparaissent de la liste affichée. Garde les jobs encore actifs
- * (QUEUED / IN_PROGRESS / AWAITING_CALLBACK) intacts.
+ * Marque les jobs ✓ terminés (SUCCEEDED) comme CANCELLED pour qu'ils
+ * disparaissent de la liste affichée. Garde intacts les jobs en erreur
+ * (FAILED, la cliente veut les voir pour retry), en attente (QUEUED) et
+ * en vol (IN_PROGRESS / AWAITING_CALLBACK).
  */
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -17,7 +18,7 @@ export async function POST() {
   }
 
   const res = await prisma.marketplaceRefreshJob.updateMany({
-    where: { status: { in: ["SUCCEEDED", "FAILED"] } },
+    where: { status: "SUCCEEDED" },
     data: { status: "CANCELLED" },
   });
 

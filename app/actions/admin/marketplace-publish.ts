@@ -15,6 +15,7 @@ import {
   marketplaceDisabledMessage,
 } from "@/lib/marketplace-enabled";
 import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
+import { checkProductComplete } from "@/lib/product-publishability-check";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -90,6 +91,23 @@ export async function publishProductToMarketplaces(
     if (mp === "pfs") outcome.pfs = { status: "disabled", message };
     if (mp === "ankorstore") outcome.ankorstore = { status: "disabled", message };
     if (mp === "faire") outcome.faire = { status: "disabled", message };
+  }
+
+  // Garde-fou complétude — on n'écrit sur AUCUN marketplace tant que le
+  // produit n'est pas complet à 100 % (mêmes règles que la mise en ligne
+  // boutique). Vaut pour la première création comme pour les mises à jour :
+  // pousser une fiche partielle chez un marketplace = données fausses côté
+  // vendeur (ex : composition vide chez Ankorstore).
+  const completeness = await checkProductComplete(productId);
+  if (!completeness.eligible) {
+    if (options.pfs) outcome.pfs = { status: "error", message: completeness.message };
+    if (options.ankorstore) outcome.ankorstore = { status: "error", message: completeness.message };
+    if (options.faire) outcome.faire = { status: "error", message: completeness.message };
+    logger.warn("[Marketplace Publish] Blocked — product incomplete", {
+      productId,
+      reasons: completeness.reasons,
+    });
+    return outcome;
   }
 
   const maintenance = await getMarketplaceMaintenance();

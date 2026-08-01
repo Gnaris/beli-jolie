@@ -31,6 +31,7 @@ import {
   microstoreCountryToIso,
   type MicrostoreOrderDetail,
   type MicrostoreOrderDetailItem,
+  type MicrostoreOrderListItem,
 } from "@/lib/microstore-client";
 
 const D = Prisma.Decimal;
@@ -88,8 +89,25 @@ async function resolveUserForMicrostoreClient(
 }
 
 // ─────────────────────────────────────────────
-// AdminClientCard — rattachement/creation
+// AdminClientCard — rattachement (enrichissement uniquement)
 // ─────────────────────────────────────────────
+//
+// Depuis 2026-07-31, la liste complète des clients Microstore est importée en
+// AMONT via `syncMicrostoreCustomers` (endpoint `/customer/get_by_order` qui
+// renvoie même les clients sans commande). Ici on ne fait plus que du
+// rattachement + enrichissement des champs manquants (email, VAT, country,
+// company) que la liste basique n'expose pas.
+//
+// Comportement :
+//  - Étape 1 : lookup direct par `microstoreClientId`. Rattache + enrichit
+//    seulement les champs vides en base (jamais destructif — la liste
+//    Microstore garde l'autorité sur phone/name/address).
+//  - Étape 2 : fallback dédup email cross-marketplace (si même humain a
+//    commandé sur eFashion/Ankor avec le même email). Rattache et pose
+//    microstoreClientId.
+//  - Étape 3 : création dégradée depuis `client_info` — uniquement si aucun
+//    client Microstore n'a été importé en passe 1 pour ce client_id (client
+//    créé pile entre les 2 passes, ou fiche jamais synchronisée). Cas rare.
 
 async function upsertClientCardFromMicrostoreDetail(
   tenantId: string,
@@ -99,54 +117,87 @@ async function upsertClientCardFromMicrostoreDetail(
   const clientMcId = detail.client_info?.client_id?.trim() || null;
   if (!clientMcId) return null;
 
-  // Étape 1 : lookup direct
-  const existing = await prisma.adminClientCard.findFirst({
-    where: { tenantId, microstoreClientId: clientMcId },
-    select: { id: true, lastOrderAt: true },
-  });
-  const commonFields = {
-    hasMicrostore: true,
-    lastOrderAt: existing?.lastOrderAt && existing.lastOrderAt.getTime() > orderDate.getTime()
-      ? existing.lastOrderAt
-      : orderDate,
-    phone: firstNonEmpty(
-      detail.client_info?.address_phone,
-      detail.client_info?.phone,
-    ) || undefined,
+  // Champs enrichis par le detail commande (souvent absents de la liste clients)
+  const enrichPatch = {
     email: normalizeEmail(detail.client_info?.email) || undefined,
-    addressLine: firstNonEmpty(detail.client_info?.address) || undefined,
     postalCode: firstNonEmpty(detail.client_info?.zip) || undefined,
     city: firstNonEmpty(detail.client_info?.city) || undefined,
     countryCode:
       microstoreCountryToIso(detail.client_info?.country) ||
       microstoreCountryToIso(detail.invoice_address?.country_ISO) ||
       undefined,
+    company:
+      firstNonEmpty(
+        detail.client_info?.company_name,
+        detail.client_info?.invoice_title,
+      ) || undefined,
+    vatNumber: firstNonEmpty(detail.client_info?.vat_num) || undefined,
   };
 
+  // Étape 1 : lookup direct — cas standard, la fiche a été importée par la
+  // passe clients. On enrichit seulement les champs vides + on met à jour
+  // lastOrderAt si la commande est plus récente.
+  const existing = await prisma.adminClientCard.findFirst({
+    where: { tenantId, microstoreClientId: clientMcId },
+    select: {
+      id: true,
+      lastOrderAt: true,
+      email: true,
+      postalCode: true,
+      city: true,
+      countryCode: true,
+      company: true,
+      vatNumber: true,
+    },
+  });
   if (existing) {
-    await prisma.adminClientCard.update({
-      where: { id: existing.id },
-      data: commonFields,
-    });
+    const patch: Record<string, unknown> = {
+      hasMicrostore: true,
+      lastOrderAt:
+        existing.lastOrderAt && existing.lastOrderAt.getTime() > orderDate.getTime()
+          ? existing.lastOrderAt
+          : orderDate,
+    };
+    // Enrichissement non destructif : on ne remplit un champ que s'il est vide
+    if (!existing.email && enrichPatch.email) patch.email = enrichPatch.email;
+    if (!existing.postalCode && enrichPatch.postalCode) patch.postalCode = enrichPatch.postalCode;
+    if (!existing.city && enrichPatch.city) patch.city = enrichPatch.city;
+    if (!existing.countryCode && enrichPatch.countryCode) patch.countryCode = enrichPatch.countryCode;
+    if (!existing.company && enrichPatch.company) patch.company = enrichPatch.company;
+    if (!existing.vatNumber && enrichPatch.vatNumber) patch.vatNumber = enrichPatch.vatNumber;
+    await prisma.adminClientCard.update({ where: { id: existing.id }, data: patch });
     return existing.id;
   }
 
-  // Étape 1 bis : fallback email cross-marketplace — un même humain peut
-  // avoir commandé sur eFashion ou Ankor avec le même email. On rattache et
-  // on ajoute hasMicrostore=true au lieu de dupliquer la fiche.
+  // Étape 2 : fallback email cross-marketplace — un même humain peut avoir
+  // commandé sur eFashion/Ankor avec le même email. On rattache et on pose
+  // microstoreClientId au lieu de créer un doublon.
   const existingByEmail = await findClientCardByEmailForDedup(
     tenantId,
     detail.client_info?.email,
   );
   if (existingByEmail) {
+    const phone = firstNonEmpty(
+      detail.client_info?.address_phone,
+      detail.client_info?.phone,
+    );
     await prisma.adminClientCard.update({
       where: { id: existingByEmail.id },
-      data: { ...commonFields, microstoreClientId: clientMcId },
+      data: {
+        microstoreClientId: clientMcId,
+        hasMicrostore: true,
+        lastOrderAt: orderDate,
+        phone: phone || undefined,
+        addressLine: firstNonEmpty(detail.client_info?.address) || undefined,
+        ...enrichPatch,
+      },
     });
     return existingByEmail.id;
   }
 
-  // Étape 2 : création
+  // Étape 3 : création dégradée depuis client_info — cas rare (client apparu
+  // entre la passe clients et la passe commandes, ou fiche jamais synchronisée
+  // via `syncMicrostoreCustomers`).
   const firstName = firstNonEmpty(detail.client_info?.first_name);
   const lastName = firstNonEmpty(
     detail.client_info?.last_name,
@@ -154,18 +205,22 @@ async function upsertClientCardFromMicrostoreDetail(
     detail.client_info?.address_name,
     "(client Microstore)",
   );
+  const phone = firstNonEmpty(
+    detail.client_info?.address_phone,
+    detail.client_info?.phone,
+  );
   const created = await prisma.adminClientCard.create({
     data: {
       tenantId,
       firstName,
       lastName,
-      company: firstNonEmpty(
-        detail.client_info?.company_name,
-        detail.client_info?.invoice_title,
-      ) || null,
+      phone: phone || null,
+      addressLine: firstNonEmpty(detail.client_info?.address) || null,
       microstoreClientId: clientMcId,
+      hasMicrostore: true,
       importedFromMarketplace: "MICROSTORE",
-      ...commonFields,
+      lastOrderAt: orderDate,
+      ...enrichPatch,
     },
     select: { id: true },
   });
@@ -438,9 +493,16 @@ export interface MicrostoreSyncResult {
   errors: Array<{ microstoreOrderId: string; error: string }>;
 }
 
+const PARALLEL_ORDER_DETAILS = 10;
+
 /**
  * Récupère la liste Microstore sur une plage puis appelle le détail pour
  * chaque nouvelle commande ou commande modifiée. Idempotent : sûr à relancer.
+ *
+ * Stratégie **parallèle** (2026-08-01) : après le filtrage anti-doublon, les
+ * `GET /pluginsWeb/orderInfo/{id}` sont batchés par PARALLEL_ORDER_DETAILS
+ * (10 en parallèle). Sur 1000 commandes historiques, ça passe d'environ
+ * ~15 min à ~1-2 min.
  */
 export async function syncMicrostoreOrders(opts: {
   tenantId: string;
@@ -481,32 +543,26 @@ export async function syncMicrostoreOrders(opts: {
       : [];
   const existingMap = new Map(existing.map((r) => [r.microstoreOrderId, r]));
 
+  // Filtrage : ne garde que les commandes qui nécessitent un GET detail
+  const toFetch: MicrostoreOrderListItem[] = [];
   for (const listItem of listItems) {
-    result.scanned++;
-    opts.onProgress?.({
-      scanned: result.scanned,
-      total: listItems.length,
-      lastOrderNumber: listItem.number,
-    });
-
     const prev = existingMap.get(listItem.id);
-    const listCtime = Number(listItem.ctime) * 1000;
-    // Skip si déjà importée et shipping_status inchangé — Microstore ne
-    // fournit pas d'utime dans la liste, on utilise le statut comme trigger.
     if (prev) {
       const currentStatus = microstoreMapStatus({
         shippingStatus: listItem.shipping_status,
         goodsStatus: listItem.goods_status,
       });
-      if (currentStatus === prev.status && prev.updatedAtMicrostore) {
-        // Aucun changement de statut → skip refresh du détail
-        continue;
-      }
+      // Skip si statut inchangé (Microstore ne fournit pas d'utime dans la liste)
+      if (currentStatus === prev.status && prev.updatedAtMicrostore) continue;
+      const listCtime = Number(listItem.ctime) * 1000;
+      if (!Number.isFinite(listCtime)) continue;
     }
-    if (prev && !Number.isFinite(listCtime)) {
-      continue; // ctime invalide et déjà en base → skip
-    }
+    toFetch.push(listItem);
+  }
 
+  // Traite un seul item : fetch detail + upsert. Ne throw pas — les erreurs
+  // individuelles sont collectées dans `result.errors`.
+  const processOne = async (listItem: MicrostoreOrderListItem): Promise<void> => {
     try {
       const detail = await microstoreGetOrderDetail(listItem.id);
       const upsert = await upsertMicrostoreOrderFromDetail(opts.tenantId, detail);
@@ -521,6 +577,31 @@ export async function syncMicrostoreOrders(opts: {
         error: err,
       });
     }
+  };
+
+  // Compteur `scanned` inclut TOUTES les commandes (skippées comprises) pour
+  // que la progression du widget avance à un rythme constant, pas seulement
+  // sur les nouveautés.
+  const skippedCount = listItems.length - toFetch.length;
+  result.scanned = skippedCount;
+  if (skippedCount > 0 && opts.onProgress) {
+    opts.onProgress({
+      scanned: result.scanned,
+      total: listItems.length,
+      lastOrderNumber: listItems[skippedCount - 1]?.number ?? "",
+    });
+  }
+
+  // Batch parallèle : 10 GET detail en parallèle, upserts BDD chacun de leur côté
+  for (let start = 0; start < toFetch.length; start += PARALLEL_ORDER_DETAILS) {
+    const batch = toFetch.slice(start, start + PARALLEL_ORDER_DETAILS);
+    await Promise.all(batch.map((it) => processOne(it)));
+    result.scanned += batch.length;
+    opts.onProgress?.({
+      scanned: result.scanned,
+      total: listItems.length,
+      lastOrderNumber: batch[batch.length - 1]?.number ?? "",
+    });
   }
 
   return result;

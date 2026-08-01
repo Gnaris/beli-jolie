@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncRecentEfashionOrders } from "@/lib/efashion-orders-sync";
+import { isMarketplaceAutoSyncEnabled } from "@/lib/marketplace-auto-sync";
 
 const TICK_INTERVAL_MS = 5 * 60_000;
 const START_DELAY_MS = 25_000; // décalé de 5s vs PFS pour ne pas taper les 2 APIs en même temps
@@ -49,6 +50,8 @@ async function tick(): Promise<void> {
       try {
         const hasCreds = await tenantHasEfashionCreds(t.id);
         if (!hasCreds) continue;
+        // Skip silencieux si la cliente a désactivé l'auto-sync eFashion pour ce tenant
+        if (!(await isMarketplaceAutoSyncEnabled(t.id, "EFASHION"))) continue;
         await tenantALS.run(t.id, async () => {
           const res = await syncRecentEfashionOrders(t.id);
           if (res.created > 0 || res.updated > 0) {

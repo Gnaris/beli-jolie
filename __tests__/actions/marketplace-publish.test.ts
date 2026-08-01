@@ -61,6 +61,12 @@ vi.mock("@/lib/marketplace-enabled", () => ({
   marketplaceDisabledMessage: (mp: string) => `${mp} désactivé`,
 }));
 
+vi.mock("@/lib/product-publishability-check", () => ({
+  // Les tests existants valident le dispatch après validation. La garde de
+  // complétude est testée séparément dans marketplace-publish-completeness.test.ts.
+  checkProductComplete: vi.fn().mockResolvedValue({ eligible: true, reasons: [], message: "" }),
+}));
+
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

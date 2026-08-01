@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from "react";
 
-export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
+export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CONVERSATION_DELETED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
 
 export interface ChatEvent {
   type: ChatEventType;
   conversationId: string;
   userId: string;
   targetRole: "ADMIN" | "CLIENT";
+  /** "claim" = Service Client ; absent = chat général SUPPORT. */
+  context?: "claim";
   timestamp: number;
   messageData?: {
     id: string;
@@ -16,6 +18,13 @@ export interface ChatEvent {
     senderRole: "ADMIN" | "CLIENT";
     senderName: string;
     createdAt: string;
+    attachments?: Array<{
+      id: string;
+      fileName: string;
+      filePath: string;
+      fileSize: number;
+      mimeType: string;
+    }>;
   };
   claimData?: {
     claimId: string;

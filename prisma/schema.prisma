@@ -1600,6 +1600,18 @@ model ImageProcessingJob {
   startedAt   DateTime?
   completedAt DateTime?
 
+  // Snapshot d'affichage pour le widget « Images » — évite de re-résoudre
+  // la couleur / le produit à chaque poll UI. `reference` est le Product.reference
+  // au moment de l'enqueue (peut différer plus tard si le produit est renommé,
+  // mais on veut voir ce qui a réellement été demandé), `colorHex` /
+  // `colorPatternImage` reprennent la palette de la couleur choisie
+  // (patternImage prioritaire), `position` = index 1-based demandé.
+  reference         String?
+  colorName         String?
+  colorHex          String?
+  colorPatternImage String?
+  position          Int?
+
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
@@ -2064,59 +2076,12 @@ enum MessageSource {
 }
 
 // ─────────────────────────────────────────────
-// SAV / Réclamations
+// Service Client
 // ─────────────────────────────────────────────
-
-enum ClaimType {
-  ORDER_CLAIM
-  GENERAL
-}
 
 enum ClaimStatus {
   OPEN
-  IN_REVIEW
-  ACCEPTED
-  REJECTED
-  RETURN_PENDING
-  RETURN_SHIPPED
-  RETURN_RECEIVED
-  RESOLUTION_PENDING
-  RESOLVED
   CLOSED
-}
-
-enum ClaimResolution {
-  REFUND
-  CREDIT
-  RESHIP
-  NONE
-}
-
-enum ClaimItemReason {
-  DEFECTIVE
-  WRONG_ITEM
-  MISSING
-  DAMAGED
-  OTHER
-}
-
-enum ShippingMethod {
-  EASY_EXPRESS
-  CLIENT_SELF
-  OTHER
-}
-
-enum ReturnStatus {
-  PENDING
-  LABEL_GENERATED
-  SHIPPED
-  RECEIVED
-}
-
-enum ReshipStatus {
-  PENDING
-  SHIPPED
-  DELIVERED
 }
 
 // ─────────────────────────────────────────────
@@ -2215,7 +2180,6 @@ model Order {
 
   // Relations for new features
   stockMovements    StockMovement[]
-  claims            Claim[]
   creditUsages      CreditUsage[]
   promotionUsages   PromotionUsage[]
   itemModifications OrderItemModification[]
@@ -2268,7 +2232,6 @@ model OrderItem {
   // d'articles identiques ajoutés successivement en compensation.
   productColorId String?
 
-  claimItems    ClaimItem[]
   modifications OrderItemModification[]
 
   createdAt DateTime @default(now())
@@ -2965,35 +2928,25 @@ model MessageAttachment {
 }
 
 // ─────────────────────────────────────────────
-// SAV / Réclamations
+// Service Client
 // ─────────────────────────────────────────────
 
-// Multi-tenant : reference unique composite (tenantId, reference) —
-// deux boutiques indépendantes peuvent avoir chacune une réclamation
-// CLM-000001 sans collision. tenantId nullable côté Prisma comme le
-// reste du schema (l'extension prisma-tenant-scope l'injecte à runtime).
+// Une conversation Service Client entre un client APPROVED et l'admin.
+// Statut binaire : OPEN dès l'ouverture, CLOSED quand l'admin clôt.
+// Si le client répond après clôture → repasse automatiquement en OPEN
+// (voir app/actions/client/claims.ts).
 model Claim {
-  id           String           @id @default(cuid())
-  reference    String
-  type         ClaimType
-  status       ClaimStatus      @default(OPEN)
-  userId       String
-  user         User             @relation(fields: [userId], references: [id])
-  orderId      String?
-  order        Order?           @relation(fields: [orderId], references: [id])
-  description  String           @db.Text
-  adminNote    String?          @db.Text
-  resolution   ClaimResolution?
-  refundAmount Decimal?         @db.Decimal(10, 2)
-  creditAmount Decimal?         @db.Decimal(10, 2)
-  conversation Conversation?
-  items        ClaimItem[]
-  images       ClaimImage[]
-  returnInfo   ClaimReturn?
-  reshipInfo   ClaimReship?
-  credits      Credit[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                     String       @id @default(cuid())
+  reference              String
+  subject                String
+  status                 ClaimStatus  @default(OPEN)
+  userId                 String
+  user                   User         @relation(fields: [userId], references: [id])
+  conversation           Conversation?
+  closedAt               DateTime?
+  lastNotifiedClientAt   DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
@@ -3002,79 +2955,7 @@ model Claim {
   @@index([tenantId])
   @@index([userId, status])
   @@index([status])
-  @@index([orderId])
   @@index([createdAt])
-}
-
-model ClaimItem {
-  id           String          @id @default(cuid())
-  claimId      String
-  claim        Claim           @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  orderItemId  String?
-  orderItem    OrderItem?      @relation(fields: [orderItemId], references: [id])
-  quantity     Int
-  reason       ClaimItemReason
-  reasonDetail String?         @db.Text
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-  @@index([claimId])
-}
-
-model ClaimImage {
-  id        String   @id @default(cuid())
-  claimId   String
-  claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  imagePath String
-  createdAt DateTime @default(now())
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-  @@index([claimId])
-}
-
-model ClaimReturn {
-  id             String         @id @default(cuid())
-  claimId        String         @unique
-  claim          Claim          @relation(fields: [claimId], references: [id])
-  method         ShippingMethod
-  status         ReturnStatus   @default(PENDING)
-  trackingNumber String?
-  shippingLabel  String?
-  adminNote      String?        @db.Text
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-}
-
-model ClaimReship {
-  id             String         @id @default(cuid())
-  claimId        String         @unique
-  claim          Claim          @relation(fields: [claimId], references: [id])
-  method         ShippingMethod
-  status         ReshipStatus   @default(PENDING)
-  trackingNumber String?
-  shippingLabel  String?
-  adminNote      String?        @db.Text
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────
@@ -3087,8 +2968,6 @@ model Credit {
   user            User          @relation(fields: [userId], references: [id])
   amount          Decimal       @db.Decimal(10, 2)
   remainingAmount Decimal       @db.Decimal(10, 2)
-  claimId         String?
-  claim           Claim?        @relation(fields: [claimId], references: [id])
   expiresAt       DateTime?
   usages          CreditUsage[]
   createdAt       DateTime      @default(now())
@@ -3099,7 +2978,6 @@ model Credit {
 
   @@index([tenantId])
   @@index([userId])
-  @@index([claimId])
 }
 
 model CreditUsage {
@@ -3325,10 +3203,6 @@ model Tenant {
   favorites                  Favorite[]
   shippingAddresss           ShippingAddress[]
   claims                     Claim[]
-  claimItems                 ClaimItem[]
-  claimImages                ClaimImage[]
-  claimReturns               ClaimReturn[]
-  claimReships               ClaimReship[]
   credits                    Credit[]
   creditUsages               CreditUsage[]
   collections                Collection[]

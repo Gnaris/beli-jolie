@@ -4,7 +4,7 @@
  * Next.js server actions, API routes, and middleware.
  */
 
-export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
+export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CONVERSATION_DELETED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
 
 export interface ChatEvent {
   type: ChatEventType;
@@ -13,6 +13,13 @@ export interface ChatEvent {
   userId: string;
   /** Which role should receive this event */
   targetRole: "ADMIN" | "CLIENT";
+  /**
+   * Contexte de la conversation. "claim" = Service Client (géré par ses
+   * propres pages). Absent = chat général SUPPORT (widget flottant).
+   * Sert aux widgets à filtrer les events qui ne les concernent pas
+   * (évite le son "ding" du widget Chat sur les réponses Service Client).
+   */
+  context?: "claim";
   timestamp: number;
   /** Partial message data for NEW_MESSAGE events */
   messageData?: {
@@ -21,6 +28,17 @@ export interface ChatEvent {
     senderRole: "ADMIN" | "CLIENT";
     senderName: string;
     createdAt: string;
+    /**
+     * Pièces jointes de ce message (fix bug : sans ce payload, l'UI de l'autre
+     * côté affichait le texte via SSE mais devait refresh pour voir les PJ).
+     */
+    attachments?: Array<{
+      id: string;
+      fileName: string;
+      filePath: string;
+      fileSize: number;
+      mimeType: string;
+    }>;
   };
   /** Claim status data for CLAIM_STATUS_CHANGED events */
   claimData?: {

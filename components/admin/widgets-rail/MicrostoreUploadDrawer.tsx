@@ -33,6 +33,13 @@ interface UploadJobView {
 const ACTIVE = new Set<UploadJobStatus>(["PENDING", "UPLOADING", "PATCHING"]);
 const POLL_ACTIVE_MS = 3_000;
 const POLL_IDLE_MS = 60_000;
+/**
+ * Après un « nudge » (clic « Synchroniser » côté cliente), on reste en poll
+ * rapide pendant cette durée même sans job actif détecté. Sert à couvrir la
+ * fenêtre 0-15 s pendant laquelle le job PENDING/UPLOADING/PATCHING/DONE
+ * défile trop vite pour être capté par le poll idle de 60 s.
+ */
+const NUDGE_ACTIVE_WINDOW_MS = 30_000;
 
 const ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -45,7 +52,7 @@ const ICON = (
 );
 
 export function MicrostoreUploadDrawer() {
-  const { openWidget, close, setBadge } = useRightRail();
+  const { openWidget, close, setBadge, nudges } = useRightRail();
   const [jobs, setJobs] = useState<UploadJobView[]>([]);
   const [isVisible, setIsVisible] = useState(true);
 
@@ -74,12 +81,29 @@ export function MicrostoreUploadDrawer() {
 
   const active = jobs.filter((j) => ACTIVE.has(j.status));
 
+  // Nudge = un caller (bouton « Synchroniser », save fiche produit…) a
+  // déclenché un `pushProductToMicrostore` qui va créer un job très court.
+  // On refresh tout de suite ET on reste en poll actif 30 s même sans job
+  // détecté, sinon le poll idle 60 s rate la fenêtre PENDING→DONE.
+  const nudgedAt = nudges["microstore-upload"] ?? 0;
+  const [nudgeActive, setNudgeActive] = useState(false);
+  useEffect(() => {
+    if (!nudgedAt) return;
+    void refresh();
+    setNudgeActive(true);
+    const timer = window.setTimeout(
+      () => setNudgeActive(false),
+      NUDGE_ACTIVE_WINDOW_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [nudgedAt, refresh]);
+
   useEffect(() => {
     if (!isVisible) return;
-    const delay = active.length > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const delay = active.length > 0 || nudgeActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
     const id = window.setInterval(refresh, delay);
     return () => window.clearInterval(id);
-  }, [active.length, isVisible, refresh]);
+  }, [active.length, isVisible, refresh, nudgeActive]);
 
   const recent = jobs.filter((j) => !ACTIVE.has(j.status));
 

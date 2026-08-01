@@ -20,6 +20,11 @@ import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
 import { logger } from "@/lib/logger";
+import {
+  getMarketplaceAutoSyncStates,
+  setMarketplaceAutoSyncEnabled as setMarketplaceAutoSyncEnabledLib,
+  type MarketplaceAutoSyncSource,
+} from "@/lib/marketplace-auto-sync";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -1216,70 +1221,87 @@ export async function getMarketplaceStats(
     (microstoreItemsAgg._sum.quantity ?? 0);
 
   // Compte des clients uniques cross-marketplace (par email/société normalisés)
-  const [pfsClientRows, efashionClientRows, ankorstoreClientRows, faireClientRows] = await Promise.all([
-    pfsOrderWhere
-      ? prisma.pfsOrder.findMany({
-          where: pfsOrderWhere,
-          select: {
-            id: true,
-            pfsCustomerId: true,
-            customerName: true,
-            customerShop: true,
-            customerCountry: true,
-            adminClientCardId: true,
-            totalHT: true,
-            createdAtPfs: true,
-          },
-        })
-      : Promise.resolve([]),
-    efashionOrderWhere
-      ? prisma.efashionOrder.findMany({
-          where: efashionOrderWhere,
-          select: {
-            id: true,
-            efashionCustomerId: true,
-            customerName: true,
-            customerEmail: true,
-            customerCountry: true,
-            adminClientCardId: true,
-            totalHT: true,
-            createdAtEfashion: true,
-          },
-        })
-      : Promise.resolve([]),
-    ankorstoreOrderWhere
-      ? prisma.ankorstoreOrder.findMany({
-          where: ankorstoreOrderWhere,
-          select: {
-            id: true,
-            ankorstoreRetailerId: true,
-            customerName: true,
-            customerShop: true,
-            customerEmail: true,
-            customerCountry: true,
-            adminClientCardId: true,
-            brandTotalAmount: true,
-            createdAtAnkor: true,
-          },
-        })
-      : Promise.resolve([]),
-    faireOrderWhere
-      ? prisma.faireOrder.findMany({
-          where: faireOrderWhere,
-          select: {
-            id: true,
-            faireRetailerId: true,
-            customerName: true,
-            customerShop: true,
-            customerEmail: true,
-            customerCountry: true,
-            adminClientCardId: true,
-            totalHT: true,
-            createdAtFaire: true,
-          },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [pfsClientRows, efashionClientRows, ankorstoreClientRows, faireClientRows, microstoreClientRows] =
+    await Promise.all([
+      pfsOrderWhere
+        ? prisma.pfsOrder.findMany({
+            where: pfsOrderWhere,
+            select: {
+              id: true,
+              pfsCustomerId: true,
+              customerName: true,
+              customerShop: true,
+              customerCountry: true,
+              adminClientCardId: true,
+              totalHT: true,
+              createdAtPfs: true,
+            },
+          })
+        : Promise.resolve([]),
+      efashionOrderWhere
+        ? prisma.efashionOrder.findMany({
+            where: efashionOrderWhere,
+            select: {
+              id: true,
+              efashionCustomerId: true,
+              customerName: true,
+              customerEmail: true,
+              customerCountry: true,
+              adminClientCardId: true,
+              totalHT: true,
+              createdAtEfashion: true,
+            },
+          })
+        : Promise.resolve([]),
+      ankorstoreOrderWhere
+        ? prisma.ankorstoreOrder.findMany({
+            where: ankorstoreOrderWhere,
+            select: {
+              id: true,
+              ankorstoreRetailerId: true,
+              customerName: true,
+              customerShop: true,
+              customerEmail: true,
+              customerCountry: true,
+              adminClientCardId: true,
+              brandTotalAmount: true,
+              createdAtAnkor: true,
+            },
+          })
+        : Promise.resolve([]),
+      faireOrderWhere
+        ? prisma.faireOrder.findMany({
+            where: faireOrderWhere,
+            select: {
+              id: true,
+              faireRetailerId: true,
+              customerName: true,
+              customerShop: true,
+              customerEmail: true,
+              customerCountry: true,
+              adminClientCardId: true,
+              totalHT: true,
+              createdAtFaire: true,
+            },
+          })
+        : Promise.resolve([]),
+      microstoreOrderWhere
+        ? prisma.microstoreOrder.findMany({
+            where: microstoreOrderWhere,
+            select: {
+              id: true,
+              microstoreClientId: true,
+              customerName: true,
+              customerCompany: true,
+              customerEmail: true,
+              customerCountry: true,
+              adminClientCardId: true,
+              totalHT: true,
+              createdAtMicrostore: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
 
   // Clé de dédoublonnage cross-marketplace : email s'il existe, sinon
   // adminClientCardId (fiche déjà rapprochée), sinon nom société normalisé.
@@ -1390,6 +1412,19 @@ export async function getMarketplaceStats(
       orderDate: r.createdAtFaire,
     });
   }
+  for (const r of microstoreClientRows) {
+    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerCompany ?? r.customerName);
+    upsertClient(key, {
+      source: "MICROSTORE",
+      customerName: r.customerName,
+      customerShop: r.customerCompany,
+      customerCountry: r.customerCountry,
+      customerEmail: r.customerEmail,
+      adminClientCardId: r.adminClientCardId,
+      orderTotal: decimalToNumber(r.totalHT),
+      orderDate: r.createdAtMicrostore,
+    });
+  }
 
   const uniqueCustomers = clientMap.size;
   const topClients: MarketplaceTopClientRow[] = Array.from(clientMap.values())
@@ -1429,36 +1464,44 @@ export async function getMarketplaceStats(
   // sur notre site » avec leur référence marketplace. Clé de groupement =
   // productId si rattaché, sinon "ref:{reference}" pour dédoublonner les
   // items non rattachés d'un même produit.
-  const [pfsItemGrouped, efashionItemGrouped, ankorstoreItemGrouped, faireItemGrouped] = await Promise.all([
-    pfsOrderWhere
-      ? prisma.pfsOrderItem.groupBy({
-          where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere },
-          by: ["productId", "pfsProductRef", "productColorId", "colorLabelFr"],
-          _sum: { qtyValidated: true, totalPriceHT: true },
-        })
-      : Promise.resolve([]),
-    efashionOrderWhere
-      ? prisma.efashionOrderItem.groupBy({
-          where: { tenantId: tenant.id, efashionOrder: efashionOrderWhere },
-          by: ["productId", "referenceBase", "productColorId", "colorLabelFr"],
-          _sum: { qtyTotal: true, totalLineHT: true },
-        })
-      : Promise.resolve([]),
-    ankorstoreOrderWhere
-      ? prisma.ankorstoreOrderItem.groupBy({
-          where: { tenantId: tenant.id, ankorstoreOrder: ankorstoreOrderWhere },
-          by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
-          _sum: { multipliedQuantity: true, totalPriceHT: true },
-        })
-      : Promise.resolve([]),
-    faireOrderWhere
-      ? prisma.faireOrderItem.groupBy({
-          where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
-          by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
-          _sum: { quantity: true, totalPriceHT: true },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [pfsItemGrouped, efashionItemGrouped, ankorstoreItemGrouped, faireItemGrouped, microstoreItemGrouped] =
+    await Promise.all([
+      pfsOrderWhere
+        ? prisma.pfsOrderItem.groupBy({
+            where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere },
+            by: ["productId", "pfsProductRef", "productColorId", "colorLabelFr"],
+            _sum: { qtyValidated: true, totalPriceHT: true },
+          })
+        : Promise.resolve([]),
+      efashionOrderWhere
+        ? prisma.efashionOrderItem.groupBy({
+            where: { tenantId: tenant.id, efashionOrder: efashionOrderWhere },
+            by: ["productId", "referenceBase", "productColorId", "colorLabelFr"],
+            _sum: { qtyTotal: true, totalLineHT: true },
+          })
+        : Promise.resolve([]),
+      ankorstoreOrderWhere
+        ? prisma.ankorstoreOrderItem.groupBy({
+            where: { tenantId: tenant.id, ankorstoreOrder: ankorstoreOrderWhere },
+            by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
+            _sum: { multipliedQuantity: true, totalPriceHT: true },
+          })
+        : Promise.resolve([]),
+      faireOrderWhere
+        ? prisma.faireOrderItem.groupBy({
+            where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
+            by: ["productId", "referenceBase", "productColorId", "variantOptionLabel"],
+            _sum: { quantity: true, totalPriceHT: true },
+          })
+        : Promise.resolve([]),
+      microstoreOrderWhere
+        ? prisma.microstoreOrderItem.groupBy({
+            where: { tenantId: tenant.id, microstoreOrder: microstoreOrderWhere },
+            by: ["productId", "itemRef", "productColorId", "colorNameSnapshot"],
+            _sum: { quantity: true, totalPriceHT: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
   interface ProductAgg {
     productId: string | null;
@@ -1571,6 +1614,17 @@ export async function getMarketplaceStats(
       g.productColorId,
       g.variantOptionLabel,
       "FAIRE",
+      g._sum.quantity ?? 0,
+      decimalToNumber(g._sum.totalPriceHT),
+    );
+  }
+  for (const g of microstoreItemGrouped) {
+    upsertProduct(
+      g.productId,
+      g.itemRef,
+      g.productColorId,
+      g.colorNameSnapshot,
+      "MICROSTORE",
       g._sum.quantity ?? 0,
       decimalToNumber(g._sum.totalPriceHT),
     );
@@ -1747,14 +1801,15 @@ export async function getMarketplaceStats(
 // ─────────────────────────────────────────────
 
 export async function getMarketplaceSyncMeta(): Promise<{
-  pfs: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-  efashion: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-  ankorstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-  faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-  microstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
+  pfs: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean; autoSyncEnabled: boolean };
+  efashion: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean; autoSyncEnabled: boolean };
+  ankorstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean; autoSyncEnabled: boolean };
+  faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean; autoSyncEnabled: boolean };
+  microstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean; autoSyncEnabled: boolean };
 }> {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
+  const autoStates = await getMarketplaceAutoSyncStates(tenant.id);
   const [
     pfsLast,
     efashionLast,
@@ -1830,6 +1885,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
       hasCredentials:
         (pfsMap.get("pfs_email") || "").trim().length > 0 &&
         (pfsMap.get("pfs_password") || "").trim().length > 0,
+      autoSyncEnabled: autoStates.PFS,
     },
     efashion: {
       lastSyncedAt: efashionLast?.value
@@ -1839,6 +1895,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
       hasCredentials:
         (efashionMap.get("efashion_email") || "").trim().length > 0 &&
         (efashionMap.get("efashion_password") || "").trim().length > 0,
+      autoSyncEnabled: autoStates.EFASHION,
     },
     ankorstore: {
       lastSyncedAt: ankorstoreLast?.value
@@ -1848,6 +1905,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
       hasCredentials:
         (ankorstoreMap.get("ankors_client_id") || "").trim().length > 0 &&
         (ankorstoreMap.get("ankors_client_secret") || "").trim().length > 0,
+      autoSyncEnabled: autoStates.ANKORSTORE,
     },
     faire: {
       lastSyncedAt: faireLast?.value
@@ -1855,6 +1913,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
         : null,
       totalOrdersInDb: faireCount,
       hasCredentials: (faireCreds?.value || "").trim().length > 0,
+      autoSyncEnabled: autoStates.FAIRE,
     },
     microstore: {
       lastSyncedAt: microstoreLast?.value
@@ -1862,8 +1921,26 @@ export async function getMarketplaceSyncMeta(): Promise<{
         : null,
       totalOrdersInDb: microstoreCount,
       hasCredentials: (microstoreCreds?.value || "").trim().length > 0,
+      autoSyncEnabled: autoStates.MICROSTORE,
     },
   };
+}
+
+/**
+ * Toggle ON/OFF de la synchro auto pour une marketplace donnée du tenant courant.
+ * Quand on remet à ON, le compteur « Prochaine auto » repart à 5:00
+ * (voir `setMarketplaceAutoSyncEnabled` dans lib/marketplace-auto-sync.ts).
+ */
+export async function setMarketplaceAutoSyncEnabled(input: {
+  source: MarketplaceAutoSyncSource;
+  enabled: boolean;
+}): Promise<{ success: true }> {
+  await requireAdmin();
+  const tenant = await requireCurrentTenant();
+  await setMarketplaceAutoSyncEnabledLib(tenant.id, input.source, input.enabled);
+  revalidatePath("/admin/commandes");
+  revalidatePath("/admin/commandes/marketplaces");
+  return { success: true };
 }
 
 // ─────────────────────────────────────────────

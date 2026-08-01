@@ -128,6 +128,13 @@ export async function sendClientMessage(
         senderRole: "CLIENT",
         senderName: `${user?.firstName} ${user?.lastName}`,
         createdAt: message.createdAt.toISOString(),
+        attachments: message.attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          filePath: a.filePath,
+          fileSize: a.fileSize,
+          mimeType: a.mimeType,
+        })),
       },
     });
 

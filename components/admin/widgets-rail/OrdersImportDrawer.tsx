@@ -56,21 +56,13 @@ import {
   startMicrostoreHistoricalImport,
   stopMicrostoreHistoricalImport,
   type MicrostoreImportState,
-  type MicrostoreImportRecentEvent,
 } from "@/app/actions/admin/microstore-orders";
 import {
   useRightRail,
   type ManualSyncEvent,
-  type ManualSyncSource,
   type RailWidgetId,
 } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
-import {
-  countMarketplaceClientCards,
-  getRecentMarketplaceClientCards,
-  type MarketplaceClientSource,
-  type RecentClientCard,
-} from "@/app/actions/admin/marketplace-clients";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POLL_ACTIVE_MS = 1500;
@@ -115,19 +107,10 @@ function formatRelative(at: number, now: number): string {
   return `il y a ${h}h`;
 }
 
-type OrdersImportPage = "orders" | "clients";
-const WHEEL_LOCK_MS = 700;
-const WHEEL_DELTA_THRESHOLD = 15;
-
 export function OrdersImportDrawer() {
   const { openWidget, open, close, setBadge, manualSyncs, clearManualSync } = useRightRail();
   const { confirm } = useConfirm();
   const [clearing, setClearing] = useState(false);
-  // Carousel 2 pages : « Commandes » (défaut) ⇄ « Clients ». Basculé à la
-  // molette ou via les onglets sticky en haut du body. Les 2 pages restent
-  // montées (pollers actifs pour les 2 côtés → mise à jour temps réel).
-  const [activePage, setActivePage] = useState<OrdersImportPage>("orders");
-  const wheelLockRef = useRef(false);
   const isOpen =
     openWidget === "orders-import" ||
     openWidget === "pfs-import" ||
@@ -228,6 +211,26 @@ export function OrdersImportDrawer() {
     };
   }, []);
 
+  // Refresh immédiat au moment où le widget s'ouvre — sans ça, si un import
+  // vient d'être lancé depuis la page marketplace, le widget affiche encore
+  // l'ancien état IDLE jusqu'à 30 s (POLL_IDLE_MS), et la cliente voit un
+  // bouton "Démarrer" alors que l'import tourne déjà en fond.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current) {
+      wasOpenRef.current = true;
+      void Promise.all([
+        getPfsImportStateAction().then(setPfsState).catch(() => {}),
+        getEfashionImportStateAction().then(setEfState).catch(() => {}),
+        getAnkorstoreImportStateAction().then(setAnkorState).catch(() => {}),
+        getFaireImportStateAction().then(setFaireState).catch(() => {}),
+        getMicrostoreImportStateAction().then(setMicrostoreState).catch(() => {}),
+      ]);
+    } else if (!isOpen) {
+      wasOpenRef.current = false;
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     const pfsRun = pfsState?.status === "RUNNING";
     const efRun = efState?.status === "RUNNING";
@@ -253,10 +256,18 @@ export function OrdersImportDrawer() {
         ? Math.max(0, faireState.totalOrders - faireState.processedOrders)
         : faireState.processedOrders
       : 0;
+    // Microstore : phase CUSTOMERS puis phase ORDERS — le "restant" à afficher
+    // dépend de la phase en cours pour être honnête (sinon on affiche 0 pendant
+    // toute la phase clients).
     const remainingMicrostore = microstoreRun && microstoreState
-      ? microstoreState.totalOrders > 0
-        ? Math.max(0, microstoreState.totalOrders - microstoreState.processedOrders)
-        : microstoreState.processedOrders
+      ? microstoreState.phase === "CUSTOMERS"
+        ? Math.max(
+            0,
+            (microstoreState.customersTotal ?? 0) - (microstoreState.customersProcessed ?? 0),
+          )
+        : microstoreState.totalOrders > 0
+          ? Math.max(0, microstoreState.totalOrders - microstoreState.processedOrders)
+          : microstoreState.processedOrders
       : 0;
     setBadge("orders-import", {
       count: remainingPfs + remainingEf + remainingAnkor + remainingFaire + remainingMicrostore,
@@ -322,9 +333,16 @@ export function OrdersImportDrawer() {
         );
       }
       if (microstoreState?.status === "RUNNING") {
-        parts.push(
-          `Microstore ${microstoreState.processedOrders}${microstoreState.totalOrders > 0 ? `/${microstoreState.totalOrders}` : ""}`,
-        );
+        // Phase CUSTOMERS → compteur clients ; phase ORDERS → compteur commandes
+        if (microstoreState.phase === "CUSTOMERS") {
+          parts.push(
+            `Microstore ${microstoreState.customersProcessed ?? 0}/${microstoreState.customersTotal ?? 0} clients`,
+          );
+        } else {
+          parts.push(
+            `Microstore ${microstoreState.processedOrders}${microstoreState.totalOrders > 0 ? `/${microstoreState.totalOrders}` : ""} commandes`,
+          );
+        }
       }
       return (
         <span className="flex items-center gap-1.5">
@@ -373,39 +391,6 @@ export function OrdersImportDrawer() {
     }
   }, [anyRunning, confirm]);
 
-  // Handler molette : 1 cran > seuil = 1 bascule de page, verrouillé pendant
-  // WHEEL_LOCK_MS pour ne pas enchaîner 2 bascules sur le même swipe.
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      if (wheelLockRef.current) return;
-      const delta = e.deltaY;
-      if (Math.abs(delta) < WHEEL_DELTA_THRESHOLD) return;
-      if (delta > 0 && activePage === "orders") {
-        setActivePage("clients");
-      } else if (delta < 0 && activePage === "clients") {
-        setActivePage("orders");
-      } else {
-        return;
-      }
-      wheelLockRef.current = true;
-      setTimeout(() => {
-        wheelLockRef.current = false;
-      }, WHEEL_LOCK_MS);
-    },
-    [activePage],
-  );
-
-  // Compteurs pour les onglets — reflètent l'activité en temps réel côté
-  // Commandes (imports en cours) et côté Clients (imports en cours = ceux
-  // qui créent des fiches).
-  const ordersRunningCount = [
-    pfsState,
-    efState,
-    ankorState,
-    faireState,
-    microstoreState,
-  ].filter((s) => s?.status === "RUNNING").length;
-
   if (!isOpen) return null;
 
   return (
@@ -441,119 +426,57 @@ export function OrdersImportDrawer() {
         </div>
       }
     >
-      {/* Onglets Commandes/Clients + carousel 2 pages qui glisse à la molette
-       *  ou au clic sur l'onglet. Les 2 pages restent montées → les pollers
-       *  restent actifs et la page cachée reçoit les updates en direct. */}
-      <div className="h-full flex flex-col min-h-0" onWheel={handleWheel}>
-        <PageTabs
-          activePage={activePage}
-          onChange={setActivePage}
-          ordersRunning={ordersRunningCount}
-        />
-        <div className="flex-1 min-h-0 overflow-hidden relative">
-          <div
-            className={`flex h-full w-[200%] transition-transform duration-500 ease-out will-change-transform ${
-              activePage === "orders" ? "translate-x-0" : "-translate-x-1/2"
-            }`}
-            aria-live="polite"
-          >
-            {/* Page 1 — Commandes */}
-            <div
-              className="w-1/2 h-full min-h-0 overflow-hidden"
-              aria-hidden={activePage !== "orders"}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 p-5 h-full min-h-0">
-                <MarketplaceColumn accentBar="bg-indigo-500">
-                  <PfsSection
-                    state={pfsState}
-                    onStateChange={setPfsState}
-                    now={now}
-                    manualSync={manualSyncs.PFS?.target === "orders" ? manualSyncs.PFS : null}
-                    onDismissManualSync={() => clearManualSync("PFS", "orders")}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-rose-500">
-                  <EfashionSection
-                    state={efState}
-                    onStateChange={setEfState}
-                    now={now}
-                    manualSync={manualSyncs.EFASHION?.target === "orders" ? manualSyncs.EFASHION : null}
-                    onDismissManualSync={() => clearManualSync("EFASHION", "orders")}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-sky-500">
-                  <AnkorstoreSection
-                    state={ankorState}
-                    onStateChange={setAnkorState}
-                    now={now}
-                    manualSync={manualSyncs.ANKORSTORE?.target === "orders" ? manualSyncs.ANKORSTORE : null}
-                    onDismissManualSync={() => clearManualSync("ANKORSTORE", "orders")}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-amber-500">
-                  <FaireSection
-                    state={faireState}
-                    onStateChange={setFaireState}
-                    now={now}
-                    manualSync={manualSyncs.FAIRE?.target === "orders" ? manualSyncs.FAIRE : null}
-                    onDismissManualSync={() => clearManualSync("FAIRE", "orders")}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-cyan-500">
-                  <MicrostoreSection
-                    state={microstoreState}
-                    onStateChange={setMicrostoreState}
-                    now={now}
-                    manualSync={manualSyncs.MICROSTORE?.target === "orders" ? manualSyncs.MICROSTORE : null}
-                    onDismissManualSync={() => clearManualSync("MICROSTORE", "orders")}
-                  />
-                </MarketplaceColumn>
-              </div>
-            </div>
-
-            {/* Page 2 — Clients */}
-            <div
-              className="w-1/2 h-full min-h-0 overflow-hidden"
-              aria-hidden={activePage !== "clients"}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 p-5 h-full min-h-0">
-                <MarketplaceColumn accentBar="bg-indigo-500">
-                  <ClientsFullSection
-                    source="PFS"
-                    refreshTick={pfsState?.processedOrders ?? 0}
-                    isImporting={pfsState?.status === "RUNNING"}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-rose-500">
-                  <ClientsFullSection
-                    source="EFASHION"
-                    refreshTick={efState?.processedOrders ?? 0}
-                    isImporting={efState?.status === "RUNNING"}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-sky-500">
-                  <ClientsFullSection
-                    source="ANKORSTORE"
-                    refreshTick={ankorState?.processedOrders ?? 0}
-                    isImporting={ankorState?.status === "RUNNING"}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-amber-500">
-                  <ClientsFullSection
-                    source="FAIRE"
-                    refreshTick={faireState?.processedOrders ?? 0}
-                    isImporting={faireState?.status === "RUNNING"}
-                  />
-                </MarketplaceColumn>
-                <MarketplaceColumn accentBar="bg-cyan-500">
-                  <ClientsFullSection
-                    source="MICROSTORE"
-                    refreshTick={microstoreState?.processedOrders ?? 0}
-                    isImporting={microstoreState?.status === "RUNNING"}
-                  />
-                </MarketplaceColumn>
-              </div>
-            </div>
+      {/* Vue unique — plus de switch Commandes/Clients (2026-08-01). Chaque
+       *  marketplace affiche sa colonne "orders" (Microstore = 2 compteurs
+       *  clients+commandes empilés, les 4 autres = progression + journal). */}
+      <div className="h-full flex flex-col min-h-0">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 p-5 h-full min-h-0">
+            <MarketplaceColumn accentBar="bg-indigo-500">
+              <PfsSection
+                state={pfsState}
+                onStateChange={setPfsState}
+                now={now}
+                manualSync={manualSyncs.PFS?.target === "orders" ? manualSyncs.PFS : null}
+                onDismissManualSync={() => clearManualSync("PFS", "orders")}
+              />
+            </MarketplaceColumn>
+            <MarketplaceColumn accentBar="bg-rose-500">
+              <EfashionSection
+                state={efState}
+                onStateChange={setEfState}
+                now={now}
+                manualSync={manualSyncs.EFASHION?.target === "orders" ? manualSyncs.EFASHION : null}
+                onDismissManualSync={() => clearManualSync("EFASHION", "orders")}
+              />
+            </MarketplaceColumn>
+            <MarketplaceColumn accentBar="bg-sky-500">
+              <AnkorstoreSection
+                state={ankorState}
+                onStateChange={setAnkorState}
+                now={now}
+                manualSync={manualSyncs.ANKORSTORE?.target === "orders" ? manualSyncs.ANKORSTORE : null}
+                onDismissManualSync={() => clearManualSync("ANKORSTORE", "orders")}
+              />
+            </MarketplaceColumn>
+            <MarketplaceColumn accentBar="bg-amber-500">
+              <FaireSection
+                state={faireState}
+                onStateChange={setFaireState}
+                now={now}
+                manualSync={manualSyncs.FAIRE?.target === "orders" ? manualSyncs.FAIRE : null}
+                onDismissManualSync={() => clearManualSync("FAIRE", "orders")}
+              />
+            </MarketplaceColumn>
+            <MarketplaceColumn accentBar="bg-cyan-500">
+              <MicrostoreSection
+                state={microstoreState}
+                onStateChange={setMicrostoreState}
+                now={now}
+                manualSync={manualSyncs.MICROSTORE?.target === "orders" ? manualSyncs.MICROSTORE : null}
+                onDismissManualSync={() => clearManualSync("MICROSTORE", "orders")}
+              />
+            </MarketplaceColumn>
           </div>
         </div>
       </div>
@@ -562,92 +485,7 @@ export function OrdersImportDrawer() {
 }
 
 // ─────────────────────────────────────────────
-// Onglets Commandes/Clients — sticky en haut du body du drawer.
-// ─────────────────────────────────────────────
-function PageTabs({
-  activePage,
-  onChange,
-  ordersRunning,
-}: {
-  activePage: OrdersImportPage;
-  onChange: (p: OrdersImportPage) => void;
-  ordersRunning: number;
-}) {
-  return (
-    <div className="flex-shrink-0 bg-white border-b border-slate-200 px-5 pt-3 pb-0 flex items-center justify-center gap-8">
-      <PageTab
-        active={activePage === "orders"}
-        onClick={() => onChange("orders")}
-        label="Commandes"
-        badge={ordersRunning > 0 ? `${ordersRunning} en cours` : null}
-        color="indigo"
-      />
-      <PageTab
-        active={activePage === "clients"}
-        onClick={() => onChange("clients")}
-        label="Clients"
-        badge={null}
-        color="emerald"
-      />
-      <span className="ml-auto text-[11px] text-slate-400 hidden md:inline-flex items-center gap-1.5">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-        </svg>
-        Molette pour changer de page
-      </span>
-    </div>
-  );
-}
-
-function PageTab({
-  active,
-  onClick,
-  label,
-  badge,
-  color,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  badge: string | null;
-  color: "indigo" | "emerald";
-}) {
-  const activeText = color === "indigo" ? "text-indigo-700" : "text-emerald-700";
-  const activeBar = color === "indigo" ? "bg-indigo-500" : "bg-emerald-500";
-  const badgeCls =
-    color === "indigo"
-      ? "bg-indigo-100 text-indigo-700 ring-indigo-200"
-      : "bg-emerald-100 text-emerald-700 ring-emerald-200";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`relative pb-3 flex items-center gap-2 text-sm font-semibold transition-colors ${
-        active ? activeText : "text-slate-400 hover:text-slate-600"
-      }`}
-    >
-      {label}
-      {badge && (
-        <span
-          className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ring-1 ${badgeCls}`}
-        >
-          {badge}
-        </span>
-      )}
-      {active && (
-        <span
-          className={`absolute -bottom-px left-0 right-0 h-0.5 rounded-full ${activeBar}`}
-          aria-hidden="true"
-        />
-      )}
-    </button>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Enveloppe d'une colonne marketplace : bord + fond, deux enfants
-// empilés verticalement (Commandes en haut, Clients en bas).
+// Enveloppe d'une colonne marketplace : bord + fond, un seul enfant plein.
 // ─────────────────────────────────────────────
 function MarketplaceColumn({
   accentBar,
@@ -1193,12 +1031,22 @@ const MICROSTORE_META = {
   actionLink: "text-cyan-700 hover:text-cyan-800",
 };
 
+/**
+ * Version compacte de la colonne Microstore — remplace la vue « journal +
+ * commandes en cours + liste clients » des autres marketplaces par 2 simples
+ * compteurs (clients puis commandes), affichés séquentiellement selon la
+ * phase du rattrapage.
+ *
+ * Rationale (demande cliente 2026-07-31) : Microstore fait 2 passes claires
+ * (clients complets d'abord, commandes ensuite) et le détail des events
+ * n'apporte rien à la cliente. Un `X / total` en chargement suffit.
+ */
 function MicrostoreSection({
   state,
   onStateChange,
-  now,
-  manualSync,
-  onDismissManualSync,
+  now: _now,
+  manualSync: _manualSync,
+  onDismissManualSync: _onDismissManualSync,
 }: {
   state: MicrostoreImportState | null;
   onStateChange: (s: MicrostoreImportState) => void;
@@ -1209,40 +1057,9 @@ function MicrostoreSection({
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  const [displayed, setDisplayed] = useState<MicrostoreImportRecentEvent[]>([]);
-  const pendingRef = useRef<MicrostoreImportRecentEvent[]>([]);
-  const seenRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!state) return;
-    const chronological = [...state.recentEvents].reverse();
-    for (const ev of chronological) {
-      const k = `${ev.orderNumber}-${ev.at}-${ev.result}`;
-      if (seenRef.current.has(k)) continue;
-      seenRef.current.add(k);
-      pendingRef.current.push(ev);
-    }
-  }, [state]);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      const pending = pendingRef.current;
-      if (pending.length === 0) return;
-      const batch = pending.length > 20 ? 3 : pending.length > 8 ? 2 : 1;
-      const flushed = pending.splice(0, batch);
-      setDisplayed((prev) =>
-        [...flushed.reverse(), ...prev].slice(0, DISPLAYED_EVENTS_MAX),
-      );
-    }, EVENT_DRIP_MS);
-    return () => clearInterval(t);
-  }, []);
-
   const onStart = useCallback(async () => {
     setStarting(true);
     try {
-      pendingRef.current = [];
-      seenRef.current = new Set();
-      setDisplayed([]);
       const next = await startMicrostoreHistoricalImport();
       onStateChange(next);
     } finally {
@@ -1263,43 +1080,244 @@ function MicrostoreSection({
     await acknowledgeMicrostoreHistoricalImport();
     const s = await getMicrostoreImportStateAction();
     onStateChange(s);
-    pendingRef.current = [];
-    seenRef.current = new Set();
-    setDisplayed([]);
   }, [onStateChange]);
 
+  const isRunning = state?.status === "RUNNING";
+  const isDone = state?.status === "DONE";
+  const isError = state?.status === "ERROR";
+  const isStopped = state?.status === "STOPPED";
+  const showFinal = isDone || isError || isStopped;
+
+  const customersDone = (state?.customersProcessed ?? 0) >= (state?.customersTotal ?? 0)
+    && (state?.customersTotal ?? 0) > 0;
+
   return (
-    <SourceSection
-      state={state}
-      meta={MICROSTORE_META}
-      starting={starting}
-      stopping={stopping}
-      onStart={onStart}
-      onStop={onStop}
-      onAck={onAck}
-      pending={pendingRef.current.length}
-      events={displayed.map((ev) => ({
-        key: `${ev.orderNumber}-${ev.at}-${ev.result}`,
-        orderNumber: ev.orderNumber,
-        customerName: ev.customerName,
-        result: ev.result,
-        amount: ev.totalHT,
-        errorMessage: ev.errorMessage,
-        at: ev.at,
-      }))}
-      currentOrders={
-        state?.currentOrders.map((c) => ({
-          key: c.microstoreOrderId,
-          orderNumber: c.microstoreOrderId,
-          customerName: c.customerName,
-          country: c.country,
-          amount: c.totalHT,
-        })) ?? []
-      }
-      now={now}
-      manualSync={manualSync}
-      onDismissManualSync={onDismissManualSync}
-    />
+    <div className="flex-1 basis-0 min-h-0 flex flex-col overflow-hidden">
+      {/* Header source */}
+      <div className="px-5 py-4 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
+        <span
+          className="w-11 h-11 rounded-xl text-white font-heading font-bold text-lg flex items-center justify-center shadow-sm shrink-0"
+          style={{ background: MICROSTORE_META.gradient }}
+        >
+          {MICROSTORE_META.letter}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-semibold text-slate-900 truncate">
+            {MICROSTORE_META.name}
+          </p>
+          <p className="text-xs text-slate-500 truncate mt-0.5">
+            {isRunning
+              ? state?.phase === "CUSTOMERS"
+                ? "Import des clients…"
+                : "Import des commandes…"
+              : isDone
+              ? "Import terminé"
+              : isStopped
+              ? "Import annulé"
+              : isError
+              ? "Erreur d'import"
+              : "En attente"}
+          </p>
+        </div>
+        {isRunning ? (
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={stopping}
+            className="text-sm font-semibold rounded-lg px-3.5 py-2 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-50 shrink-0"
+          >
+            {stopping ? "Annulation…" : "Annuler"}
+          </button>
+        ) : showFinal ? (
+          <button
+            type="button"
+            onClick={onAck}
+            className={`text-sm font-semibold rounded-lg px-3.5 py-2 text-white shrink-0 ${MICROSTORE_META.actionBtn}`}
+          >
+            Fermer récap
+          </button>
+        ) : null}
+      </div>
+
+      {/* Corps — soit IDLE (grand bouton), soit 2 compteurs empilés. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col p-5 gap-4">
+        {!state ? (
+          <div className="text-center text-sm text-slate-500 py-10">Chargement…</div>
+        ) : state.status === "IDLE" ? (
+          <div className="text-center py-8">
+            <div
+              className="mx-auto w-20 h-20 rounded-full flex items-center justify-center text-white font-heading font-bold text-3xl shadow-lg"
+              style={{ background: MICROSTORE_META.gradient }}
+            >
+              {MICROSTORE_META.letter}
+            </div>
+            <p className="mt-4 text-lg font-semibold text-slate-900">
+              Aucun import en cours
+            </p>
+            <p className="mt-2 text-sm text-slate-500 max-w-xs mx-auto leading-relaxed">
+              Rattrapage historique complet Microstore — d'abord tous les
+              clients, puis toutes les commandes.
+            </p>
+            <button
+              type="button"
+              onClick={onStart}
+              disabled={starting}
+              className={`mt-5 inline-flex items-center gap-2 px-5 py-2.5 text-white text-sm font-semibold rounded-xl shadow-sm disabled:opacity-50 ${MICROSTORE_META.actionBtn}`}
+            >
+              {starting ? "Démarrage…" : "Importer clients + commandes"}
+            </button>
+          </div>
+        ) : (
+          <>
+            <MicrostoreCounter
+              label="Clients"
+              processed={state.customersProcessed ?? 0}
+              total={state.customersTotal ?? 0}
+              active={isRunning && state.phase === "CUSTOMERS"}
+              done={customersDone || (state.phase === "ORDERS" || showFinal)}
+              meta={MICROSTORE_META}
+            />
+            <MicrostoreCounter
+              label="Commandes"
+              processed={state.processedOrders ?? 0}
+              total={state.totalOrders ?? 0}
+              active={isRunning && state.phase === "ORDERS"}
+              done={showFinal && !isError && !isStopped}
+              meta={MICROSTORE_META}
+              // Le total commandes n'est pas connu à l'avance — grimpe au fil des chunks
+              totalIsGrowing
+            />
+            {isError && state.errorMessage && (
+              <p className="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
+                {state.errorMessage}
+              </p>
+            )}
+            {isStopped && (
+              <p className="text-sm text-slate-600">
+                Import interrompu. Les données déjà importées sont conservées.
+              </p>
+            )}
+            {showFinal && (
+              <button
+                type="button"
+                onClick={onStart}
+                disabled={starting}
+                className={`text-sm font-medium underline underline-offset-2 self-start ${MICROSTORE_META.actionLink}`}
+              >
+                Relancer un import
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compteur d'une phase (clients ou commandes) — grosse valeur + barre de
+ * progression + libellé d'état. Une seule phase est « active » à la fois
+ * (spinner + halo). L'autre est soit `done` (coche verte) soit `pending`
+ * (grisée).
+ */
+function MicrostoreCounter({
+  label,
+  processed,
+  total,
+  active,
+  done,
+  meta,
+  totalIsGrowing = false,
+}: {
+  label: string;
+  processed: number;
+  total: number;
+  active: boolean;
+  done: boolean;
+  meta: typeof MICROSTORE_META;
+  totalIsGrowing?: boolean;
+}) {
+  const hasTotal = total > 0;
+  const percent = hasTotal ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const state: "active" | "done" | "pending" = active ? "active" : done ? "done" : "pending";
+  const tone =
+    state === "active"
+      ? `${meta.chipBg} border ${meta.chipRing}`
+      : state === "done"
+      ? "bg-emerald-50/60 border border-emerald-100"
+      : "bg-slate-50 border border-slate-100";
+  const labelColor =
+    state === "active" ? meta.chipText : state === "done" ? "text-emerald-700" : "text-slate-500";
+  const valueColor =
+    state === "active" ? "text-slate-900" : state === "done" ? "text-emerald-800" : "text-slate-400";
+
+  return (
+    <div className={`rounded-2xl px-4 py-4 ${tone}`}>
+      <div className="flex items-center gap-2">
+        <span
+          className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${labelColor}`}
+        >
+          {label}
+        </span>
+        {state === "active" && (
+          <span
+            className={`inline-block w-3 h-3 rounded-full border-2 border-t-transparent animate-spin ${meta.chipDot.replace("bg-", "border-")}`}
+          />
+        )}
+        {state === "done" && (
+          <svg
+            className="w-4 h-4 text-emerald-600"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        )}
+      </div>
+      <div className="mt-1 flex items-baseline gap-1.5 tabular-nums">
+        <p className={`font-heading font-bold text-3xl leading-none ${valueColor}`}>
+          {processed}
+        </p>
+        {hasTotal && (
+          <p className={`text-lg font-semibold ${valueColor} opacity-70`}>
+            / {total}
+            {totalIsGrowing && active && (
+              <span className="text-xs font-normal text-slate-400 ml-1">
+                (grimpe…)
+              </span>
+            )}
+          </p>
+        )}
+        {!hasTotal && state === "pending" && (
+          <span className="text-sm text-slate-400">— en attente</span>
+        )}
+      </div>
+      <div className="mt-2 h-2 bg-white/70 rounded-full overflow-hidden">
+        {hasTotal ? (
+          <div
+            className="h-full transition-all duration-300"
+            style={{
+              width: `${percent}%`,
+              background: state === "done"
+                ? "linear-gradient(90deg,#10b981,#34d399)"
+                : meta.barGrad,
+            }}
+          />
+        ) : active ? (
+          <div
+            className="h-full w-1/3"
+            style={{
+              background: meta.barGrad,
+              animation: "ordersIndeterminate 1.4s ease-in-out infinite",
+            }}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -1753,213 +1771,6 @@ function EventRow({ event, now }: { event: EventItem; now: number }) {
  *  - success  : compteur créées / mises à jour + relatif « il y a Xs »
  *  - error    : message d'erreur (ou « session expirée » pour Microstore)
  */
-// ─────────────────────────────────────────────
-// ClientsRow — sous-carte "Clients" en bas de chaque colonne marketplace.
-// ─────────────────────────────────────────────
-//
-// Rôle : afficher le nombre de fiches clients liées à ce marketplace et
-// permettre à la cliente de lancer un import clients dédié. Techniquement
-// c'est la même synchro que "Commandes" (les fiches sont créées par les
-// upserts d'orders), mais présentée avec des stats client-centric.
-
-const CLIENTS_META: Record<
-  MarketplaceClientSource,
-  { name: string; gradient: string; letter: string; accent: string }
-> = {
-  PFS: {
-    name: "PFS",
-    letter: "P",
-    gradient: "linear-gradient(135deg,#4f46e5,#6366f1)",
-    accent: "text-indigo-700",
-  },
-  EFASHION: {
-    name: "eFashion",
-    letter: "E",
-    gradient: "linear-gradient(135deg,#db2777,#ec4899)",
-    accent: "text-rose-700",
-  },
-  ANKORSTORE: {
-    name: "Ankorstore",
-    letter: "A",
-    gradient: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
-    accent: "text-sky-700",
-  },
-  FAIRE: {
-    name: "Faire",
-    letter: "F",
-    gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
-    accent: "text-amber-700",
-  },
-  MICROSTORE: {
-    name: "Microstore",
-    letter: "M",
-    gradient: "linear-gradient(135deg,#0891b2,#22d3ee)",
-    accent: "text-cyan-700",
-  },
-};
-
-const CLIENTS_FULL_LIMIT = 12;
-
-function ClientsFullSection({
-  source,
-  refreshTick = 0,
-  isImporting = false,
-}: {
-  source: MarketplaceClientSource;
-  /** Compteur qui grimpe pendant un import historique — la section se
-   *  rafraîchit automatiquement à chaque tick pour montrer les fiches
-   *  créées en live. */
-  refreshTick?: number;
-  /** true quand un import historique tourne (spinner + label "en cours"). */
-  isImporting?: boolean;
-}) {
-  const { manualSyncs } = useRightRail();
-  const [count, setCount] = useState<number | null>(null);
-  const [recent, setRecent] = useState<RecentClientCard[]>([]);
-  const meta = CLIENTS_META[source];
-  const manualSync = manualSyncs[source as ManualSyncSource];
-
-  // Rechargement UNIQUEMENT sur événement manuel (clic « Synchro » ou
-  // « Rattrapage ») — les workers auto toutes les 5 min ne doivent RIEN
-  // afficher ici (demande cliente 2026-07-31). Trois sources d'événement
-  // manuel :
-  //   (a) fin d'une synchro manuelle (banner "Synchro terminée") → endedAt
-  //   (b) démarrage / fin d'un Rattrapage historique → isImporting change
-  //   (c) progression d'un Rattrapage en cours                → refreshTick augmente
-  const manualEndedAt =
-    manualSync && manualSync.phase !== "starting" ? manualSync.endedAt : null;
-  const triggerKey = `${manualEndedAt ?? "none"}|${isImporting ? "run" : "idle"}|${refreshTick}`;
-
-  // À l'ouverture du widget, on capture le trigger « figé » — le 1er fire du
-  // useEffect ne déclenche PAS de fetch (sinon on montrerait les fiches
-  // auto-importées entre deux sessions). Le fetch ne part qu'à partir du
-  // moment où la cliente déclenche une vraie action manuelle qui change la clé.
-  const initialTriggerRef = useRef(triggerKey);
-  const [hasManualTrigger, setHasManualTrigger] = useState(false);
-
-  useEffect(() => {
-    if (triggerKey === initialTriggerRef.current) return;
-    setHasManualTrigger(true);
-    let cancelled = false;
-    (async () => {
-      const [c, r] = await Promise.all([
-        countMarketplaceClientCards(source),
-        getRecentMarketplaceClientCards(source, CLIENTS_FULL_LIMIT),
-      ]);
-      if (!cancelled) {
-        setCount(c);
-        setRecent(r);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [source, triggerKey]);
-
-  const isSyncing =
-    isImporting ||
-    (manualSync?.target === "orders" && manualSync.phase === "starting");
-
-  return (
-    <div className="flex-1 basis-0 min-h-0 flex flex-col overflow-hidden">
-      {/* Header source pleine largeur — même grammaire que la page Commandes
-          pour que la cliente retrouve la lettre marketplace + compteur au même
-          endroit après la bascule. */}
-      <div className="px-5 py-4 flex items-center gap-3 border-b border-slate-100 flex-shrink-0">
-        <span
-          className="w-11 h-11 rounded-xl text-white font-heading font-bold text-lg flex items-center justify-center shadow-sm shrink-0"
-          style={{ background: meta.gradient }}
-        >
-          {meta.letter}
-        </span>
-        <div className="flex-1 min-w-0">
-          <p className="text-base font-semibold text-slate-900 truncate">{meta.name}</p>
-          <p className={`text-xs font-medium truncate mt-0.5 ${meta.accent}`}>
-            {isSyncing
-              ? "Synchro en cours…"
-              : hasManualTrigger
-                ? "Fiches clients importées"
-                : "En attente d'une action"}
-          </p>
-        </div>
-        <div className="text-right shrink-0">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-slate-400 font-semibold">
-            {hasManualTrigger ? "Total" : ""}
-          </p>
-          <p className="text-xl font-heading font-bold tabular-nums leading-tight text-slate-900">
-            {hasManualTrigger ? (count !== null ? count : "…") : "—"}
-          </p>
-        </div>
-        {isSyncing && (
-          <span className="inline-block w-4 h-4 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
-        )}
-      </div>
-
-      {/* Liste des fiches — n'apparaît QUE si une action manuelle a été
-          déclenchée dans cette session (Synchro ou Rattrapage). Les workers
-          auto tous les 5 min ne remplissent pas cette liste. */}
-      {!hasManualTrigger ? (
-        <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-          <div className="text-center max-w-xs">
-            <div className="mx-auto w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-              </svg>
-            </div>
-            <p className="text-sm text-slate-500 leading-snug">
-              Aucune fiche affichée.
-              <br />
-              Clique sur <b className="text-slate-700">Synchro</b> ou{" "}
-              <b className="text-slate-700">Rattrapage</b> pour voir les clients
-              importés en direct.
-            </p>
-            <p className="text-[11px] text-slate-400 italic mt-2">
-              La synchro automatique en fond ne s'affiche pas ici.
-            </p>
-          </div>
-        </div>
-      ) : recent.length === 0 ? (
-        <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-          <p className="text-sm text-slate-500 leading-snug italic text-center max-w-xs">
-            Aucune nouvelle fiche sur cette synchro.
-          </p>
-        </div>
-      ) : (
-        <ul className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
-          {recent.map((c, idx) => {
-            const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || c.company || "—";
-            const line2 = [c.email, [c.city, c.countryCode].filter(Boolean).join(", ")]
-              .filter(Boolean)
-              .join(" · ");
-            const isFresh = isSyncing && idx < 3;
-            return (
-              <li
-                key={c.id}
-                className={`rounded-lg border px-3 py-2.5 transition-colors ${
-                  isFresh
-                    ? "border-emerald-200 bg-emerald-50/40"
-                    : "border-slate-100 bg-white"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {isFresh && (
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-                  )}
-                  <p className="text-sm font-semibold text-slate-900 truncate flex-1">
-                    {name}
-                  </p>
-                </div>
-                {line2 && (
-                  <p className="text-[11.5px] text-slate-500 truncate mt-1">{line2}</p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────
 // ManualSyncBanner — bandeau haut de carte commande (bloc 1)

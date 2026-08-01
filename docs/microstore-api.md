@@ -247,7 +247,82 @@ unit_number, color, stock, stock_piece, weight, price, product_country, sale, de
 
 ### 4.2 Orders
 
-Endpoint de récupération des commandes marketplace. Cf. `lib/microstore-orders-*.ts` et `app/api/admin/microstore/poll/route.ts`. Non détaillé ici (voir le code).
+#### `GET /order/new_view_all` — Liste paginée des commandes
+
+**Query params** :
+
+| Param | Valeur | Rôle |
+|---|---|---|
+| `bi_key` | `documentList` | Preset UI Microstore — nécessaire pour bénéficier du filtre `order_type` |
+| `type` | `custom` | Mode plage personnalisée |
+| `sday` / `eday` | `YYYY-MM-DD` | Bornes de plage (accepte plusieurs années en un seul appel) |
+| `page` | 1-indexé | Pagination |
+| `page_num` | 20 / 50 / 100 | Taille de page |
+| `order_type` | `{"options":["sale_order"],"allSelected":0}` (URL-encodé) | **CRITIQUE** — filtre les vraies commandes de vente ; sans lui l'API renvoie aussi avoirs, factures, mouvements de stock |
+| `key`, `pid`, `lang` | (session) | Ajoutés par `buildMicrostoreUrl` |
+
+**Réponse** :
+
+```json
+{
+  "err": 0,
+  "msg": "Succès",
+  "list_num": 1059,          // TOTAL commandes sur la plage — identique sur toutes les pages
+  "is_last": 0,              // 0 = encore des pages, 1 = dernière
+  "list": [ /* commandes */ ],
+
+  // Stats globales — présentes UNIQUEMENT sur page=1 (0/absent sur les suivantes)
+  "total_price": "382174.92",
+  "total_vat": "630.25",
+  "total_pack_num": 94943,
+  "total_one_num": 94943,
+  "client_vip_total": [
+    { "label": "A", "total_price": "382174.92", "total_vat": "630.25", "total_quantity": "94943" }
+  ]
+}
+```
+
+**Astuce comptage rapide** : `page=1&page_num=1` renvoie `list_num` + toutes les stats globales pour un poids minimal (~2 Ko). Utilisé par `microstoreCountOrders` avant le rattrapage historique pour afficher un total précis dès le début du widget (au lieu de grimper au fil des chunks).
+
+#### `GET /pluginsWeb/orderInfo/{orderId}` — Détail complet d'une commande
+
+Renvoie `data.doc_info` avec `goods_info[]` (lignes) et `client_info` (fiche client complète : email, VAT, invoice_title, phone_code, etc.). Nécessaire car la liste `new_view_all` ne renvoie pas les lignes.
+
+#### `GET /customer/get_by_order` — Liste tous les clients
+
+Endpoint dédié qui liste TOUS les clients (même sans commande). Cf. `lib/microstore-customers-sync.ts`.
+
+| Param | Valeur |
+|---|---|
+| `bi_key` | `clientList` |
+| `days` | `-1` (tous) |
+| `order` | `utime` |
+| `isasc` | `0` (décroissant) |
+| `page` / `page_num` | pagination (100 recommandé) |
+| `client_status` | `{"options":["disable=0"],"allSelected":0}` — exclut désactivés |
+| `type` | `1` |
+
+Retour : `list_num` = total précis, `is_last` = 1 dernière page. **Attention** : l'API renvoie `page_num + 1` items par page (1 de plus pour signaler "next page dispo") — tronquer à `page_num` côté sync pour éviter le double-comptage.
+
+Client système à filtrer : `id="-11"` ("Client tmp", panier de vente comptant).
+
+#### `GET /customer/search` — Recherche client par mot-clé
+
+Utilisée comme fallback pour retrouver un client par téléphone ou id. Renvoie des items **plus enrichis** que `get_by_order` (email, `country`, `zip`, `city`, `invoice_country`, `invoice_title`, `vat_num`, `tax_number`, `address_name`, `address_phone`, `detail_address`, `tags[]`, etc.).
+
+```
+/customer/search?client_type=1&bi_key=clientList&days=-1&order=utime&isasc=0
+                &keyword={phone_ou_id_ou_nom}&page=1&page_num=100
+                &client_status=...
+```
+
+#### Code
+
+- `lib/microstore-client.ts` — `microstoreListOrders`, `microstoreGetOrderDetail`, `microstoreListCustomers`, `microstoreSearchCustomer`, `microstoreCountOrders`
+- `lib/microstore-orders-sync.ts` — upsert commandes + lookup client par `microstoreClientId`
+- `lib/microstore-customers-sync.ts` — passe clients (upsert AdminClientCard)
+- `lib/microstore-orders-import-state.ts` — orchestration rattrapage 2 phases (CUSTOMERS puis ORDERS)
+- `lib/microstore-orders-worker.ts` — tick auto 5 min (page 1 clients + commandes récentes)
 
 ---
 

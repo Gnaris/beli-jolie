@@ -2,12 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
- * Create a credit (avoir) for a user from a claim.
+ * Create a credit (avoir) for a user.
  */
 export async function createCredit(params: {
   userId: string;
   amount: number;
-  claimId?: string;
   expiresAt?: Date;
 }) {
   const credit = await prisma.credit.create({
@@ -15,7 +14,6 @@ export async function createCredit(params: {
       userId: params.userId,
       amount: params.amount,
       remainingAmount: params.amount,
-      claimId: params.claimId,
       expiresAt: params.expiresAt,
     },
   });

@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 
 /**
- * Generate a unique claim reference: SAV-YYYY-XXXXXX
+ * Génère une référence Service Client unique : SAV-YYYY-XXXXXX
+ * (scopée au tenant courant par l'extension prisma-tenant-scope).
  */
 export async function generateClaimReference(): Promise<string> {
   const year = new Date().getFullYear();
@@ -22,22 +23,8 @@ export async function generateClaimReference(): Promise<string> {
   return `${prefix}${String(nextNum).padStart(6, "0")}`;
 }
 
-/**
- * Valid status transitions for claims.
- */
-const VALID_TRANSITIONS: Record<string, string[]> = {
-  OPEN: ["IN_REVIEW", "REJECTED", "CLOSED"],
-  IN_REVIEW: ["ACCEPTED", "REJECTED"],
-  ACCEPTED: ["RETURN_PENDING", "RESOLUTION_PENDING", "RESOLVED"],
-  RETURN_PENDING: ["RETURN_SHIPPED"],
-  RETURN_SHIPPED: ["RETURN_RECEIVED"],
-  RETURN_RECEIVED: ["RESOLUTION_PENDING", "RESOLVED"],
-  RESOLUTION_PENDING: ["RESOLVED"],
-  RESOLVED: ["CLOSED"],
-  REJECTED: ["CLOSED"],
-  CLOSED: ["OPEN"],
-};
+/** Délai minimum entre deux clics sur « Notifier le client » (1 h). */
+export const NOTIFY_CLIENT_COOLDOWN_MS = 60 * 60 * 1000;
 
-export function canTransition(from: string, to: string): boolean {
-  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
-}
+/** Pagination des listes Service Client (identique admin + client). */
+export const CLAIMS_PAGE_SIZE = 50;

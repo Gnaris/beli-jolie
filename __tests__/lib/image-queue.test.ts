@@ -106,6 +106,61 @@ describe("enqueueImageJob", () => {
       }),
     );
   });
+
+  it("persiste le snapshot d'affichage (référence / couleur / position) quand fourni", async () => {
+    prismaMock.imageProcessingJob.create.mockResolvedValue({ id: "job-9", dbPath: "/x.webp" });
+
+    await enqueueImageJob({
+      rawBuffer: Buffer.from(""),
+      fileExt: "jpg",
+      productId: "p-9",
+      destDir: "uploads/produits/e310b",
+      filename: "e310b-dore-3-abc",
+      dbPath: "/uploads/produits/e310b/e310b-dore-3-abc.webp",
+      reference: "e310b",
+      colorName: "Doré",
+      colorHex: "#D4AF37",
+      colorPatternImage: null,
+      position: 3,
+    });
+
+    expect(prismaMock.imageProcessingJob.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reference: "e310b",
+          colorName: "Doré",
+          colorHex: "#D4AF37",
+          colorPatternImage: null,
+          position: 3,
+        }),
+      }),
+    );
+  });
+
+  it("laisse tous les champs snapshot à null si non fournis (retro-compat)", async () => {
+    prismaMock.imageProcessingJob.create.mockResolvedValue({ id: "job-10", dbPath: "/x.webp" });
+
+    await enqueueImageJob({
+      rawBuffer: Buffer.from(""),
+      fileExt: "jpg",
+      productId: "p-10",
+      destDir: "uploads/produits/e999",
+      filename: "e999-1-xxx",
+      dbPath: "/uploads/produits/e999/e999-1-xxx.webp",
+    });
+
+    expect(prismaMock.imageProcessingJob.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          reference: null,
+          colorName: null,
+          colorHex: null,
+          colorPatternImage: null,
+          position: null,
+        }),
+      }),
+    );
+  });
 });
 
 describe("retryFailedImageJob", () => {

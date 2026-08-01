@@ -1,10 +1,7 @@
 import { getServerSession } from "next-auth";
-import { notFound } from "next/navigation";
 import { redirect, Link } from "@/i18n/navigation";
-import Image from "@/components/ui/SmartImage";
 import { authOptions } from "@/lib/auth";
-import { getClientClaim } from "@/app/actions/client/claims";
-import { getImageSrc, resolveImageUrl } from "@/lib/image-utils";
+import { getClientClaim, markMessagesReadByClient } from "@/app/actions/client/claims";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getTranslations } from "next-intl/server";
 import ClaimDetailClient from "./ClaimDetailClient";
@@ -19,32 +16,45 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return { title: tClaims("metaDetailTitle", { shopName }) };
 }
 
-const REASON_KEY: Record<string, string> = {
-  DEFECTIVE: "reasonDefective",
-  WRONG_ITEM: "reasonWrong",
-  MISSING: "reasonMissing",
-  DAMAGED: "reasonDamaged",
-  OTHER: "reasonOther",
-};
-
 export default async function ClientClaimDetailPage({ params }: { params: Promise<{ id: string; locale: string }> }) {
   const session = await getServerSession(authOptions);
   const { id, locale } = await params;
-  if (!session) return redirect({href: "/connexion", locale});
-  if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
-  const claim = await getClientClaim(id);
-  if (!claim) notFound();
+  if (!session) return redirect({ href: "/connexion", locale });
+  if (session.user.status !== "APPROVED") return redirect({ href: "/espace-pro", locale });
 
-  const [t, tForm] = await Promise.all([
-    getTranslations({ locale, namespace: "claims" }),
-    getTranslations({ locale, namespace: "claimForm" }),
-  ]);
+  const claim = await getClientClaim(id);
+  // Si la conversation a été supprimée par l'admin (ou n'a jamais existé pour ce
+  // client), on renvoie proprement sur la liste avec un flash — pas de 404.
+  if (!claim) return redirect({ href: "/espace-pro/reclamations?deleted=1", locale });
+
+  // Marque les messages admin comme lus à l'ouverture de la page
+  await markMessagesReadByClient(id);
+
+  const t = await getTranslations({ locale, namespace: "claims" });
   const dateLocale = locale === "fr" ? "fr-FR" : "en-US";
   const formattedDate = new Date(claim.createdAt).toLocaleDateString(dateLocale, {
     day: "numeric",
     month: "long",
     year: "numeric",
   });
+
+  const isOpen = claim.status === "OPEN";
+
+  const messages =
+    claim.conversation?.messages.map((m) => ({
+      id: m.id,
+      content: m.content,
+      senderRole: m.senderRole as "ADMIN" | "CLIENT",
+      senderFirstName: m.sender.firstName ?? null,
+      createdAt: m.createdAt.toISOString(),
+      attachments: m.attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        filePath: a.filePath,
+        fileSize: a.fileSize,
+        mimeType: a.mimeType,
+      })),
+    })) ?? [];
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
@@ -59,113 +69,43 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
       </Link>
 
       {/* Header card */}
-      <div className="bg-bg-primary border border-border rounded-2xl p-6 shadow-sm space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-xl font-bold text-text-primary">{claim.reference}</h1>
+      <div className="bg-bg-primary border border-border rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isOpen ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-800 text-xs font-semibold border border-zinc-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-800" />
+                  {t("statusOpen")}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-50 text-zinc-500 text-xs font-semibold border border-zinc-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                  {t("statusClosed")}
+                </span>
+              )}
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-text-muted">
+                {claim.reference}
+              </span>
+            </div>
+            <h1 className="font-heading text-xl sm:text-2xl font-bold text-text-primary mt-1 break-words">
+              {claim.subject}
+            </h1>
             <p className="text-xs text-text-muted font-body mt-1">
               {t("detailCreatedOn", { date: formattedDate })}
             </p>
           </div>
-          <span className={`badge ${
-            claim.type === "ORDER_CLAIM" ? "badge-purple" : "badge-neutral"
-          }`}>
-            {claim.type === "ORDER_CLAIM" ? t("typeOrder") : t("typeGeneral")}
-          </span>
         </div>
-
-        {/* Info */}
-        <div className="space-y-3">
-          {claim.order && (
-            <div className="flex items-center gap-2 text-sm font-body">
-              <svg className="w-4 h-4 text-text-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              <span className="text-text-muted">{t("detailOrderLabel")}</span>
-              <span className="font-medium text-text-primary">{claim.order.orderNumber}</span>
-            </div>
-          )}
-
-          <div className="bg-bg-secondary/50 rounded-xl p-4">
-            <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body mb-2">{t("detailDescription")}</p>
-            <p className="text-sm text-text-primary font-body whitespace-pre-wrap leading-relaxed">{claim.description}</p>
-          </div>
-        </div>
-
-        {/* Items */}
-        {claim.items.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body">
-              {t("detailItemsLabel", { count: claim.items.length })}
-            </p>
-            <div className="space-y-2">
-              {claim.items.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 p-3 bg-bg-secondary/50 rounded-xl">
-                  {item.orderItem?.imagePath && (
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-bg-secondary flex-shrink-0">
-                      <Image
-                        src={getImageSrc(item.orderItem.imagePath, "thumb")}
-                        alt={item.orderItem?.productName || t("detailItemAlt")}
-                        width={40}
-                        height={40}
-                        className="object-cover w-full h-full"
-                      />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-body font-medium text-text-primary truncate">
-                      {item.orderItem?.productName || t("detailItemAlt")}
-                    </p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-text-muted font-body">
-                        {t("detailItemQty")} {item.quantity}
-                      </span>
-                      <span className="text-xs text-text-muted">•</span>
-                      <span className="badge badge-neutral text-[10px]">
-                        {REASON_KEY[item.reason] ? tForm(REASON_KEY[item.reason]) : item.reason}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Attached images */}
-        {claim.images.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs uppercase tracking-wider text-text-muted font-semibold font-body">
-              {t("detailAttachments", { count: claim.images.length })}
-            </p>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
-              {claim.images.map((img) => (
-                <a
-                  key={img.id}
-                  href={resolveImageUrl(img.imagePath)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="relative aspect-square rounded-xl overflow-hidden border border-border bg-bg-secondary hover:border-[#1A1A1A]/30 hover:shadow-md transition-all group"
-                >
-                  <Image
-                    src={resolveImageUrl(img.imagePath)}
-                    alt={t("detailAttachmentAlt")}
-                    fill
-                    className="object-cover group-hover:scale-105 transition-transform"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                    </svg>
-                  </div>
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      <ClaimDetailClient claim={claim} />
+      {claim.conversation && (
+        <ClaimDetailClient
+          claimId={claim.id}
+          conversationId={claim.conversation.id}
+          initialMessages={messages}
+          initialStatus={claim.status as "OPEN" | "CLOSED"}
+        />
+      )}
     </div>
   );
 }

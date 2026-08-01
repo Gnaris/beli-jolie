@@ -7,6 +7,7 @@ import {
   getMarketplaceSyncMeta,
   bulkDeductMarketplaceOrders,
   bulkMarkMarketplaceOrdersAsDeducted,
+  setMarketplaceAutoSyncEnabled,
   type BulkMarketplaceOrderIds,
   type MarketplacePeriodKey,
   type MarketplaceOrderListItem,
@@ -46,6 +47,7 @@ import {
 import {
   syncMicrostoreOrdersNow,
   startMicrostoreHistoricalImport,
+  getMicrostoreImportStateAction,
   getMicrostoreOrderDetail,
   type MicrostoreOrderDetailFull,
 } from "@/app/actions/admin/microstore-orders";
@@ -68,22 +70,29 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useRightRail } from "@/components/admin/widgets-rail";
 
+interface SyncMetaEntry {
+  lastSyncedAt: string | null;
+  totalOrdersInDb: number;
+  hasCredentials: boolean;
+  autoSyncEnabled: boolean;
+}
+
 interface Props {
   initialSyncMeta: {
-    pfs: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-    efashion: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-    ankorstore: {
-      lastSyncedAt: string | null;
-      totalOrdersInDb: number;
-      hasCredentials: boolean;
-    };
-    faire: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
-    microstore: { lastSyncedAt: string | null; totalOrdersInDb: number; hasCredentials: boolean };
+    pfs: SyncMetaEntry;
+    efashion: SyncMetaEntry;
+    ankorstore: SyncMetaEntry;
+    faire: SyncMetaEntry;
+    microstore: SyncMetaEntry;
   };
 }
 
 export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
-  const [period, setPeriod] = useState<MarketplacePeriodKey>("month");
+  // Défaut "all" (au lieu de "month") pour que le tableau de bord montre
+  // vraiment ce qui est en base — sinon la cliente importe 5 ans d'historique
+  // et se retrouve avec un dashboard vide car "ce mois-ci" ne matche que
+  // les commandes récentes (bug UX corrigé 2026-08-01).
+  const [period, setPeriod] = useState<MarketplacePeriodKey>("all");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
   const [stats, setStats] = useState<MarketplaceStatsBundle | null>(null);
@@ -202,33 +211,37 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     setSelectedIds(new Set());
   }, [page, q, statusFilter, sourceFilter, stockFilter, period, customFrom, customTo]);
 
-  // Polling léger de l'état d'import (PFS + eFashion + Ankorstore + Faire)
-  // pour rafraîchir la vue à la fin de chaque import historique.
+  // Polling léger de l'état d'import (PFS + eFashion + Ankorstore + Faire +
+  // Microstore) pour rafraîchir la vue à la fin de chaque import historique.
   useEffect(() => {
     let cancelled = false;
     let pfsWasRunning = false;
     let efashionWasRunning = false;
     let ankorWasRunning = false;
     let faireWasRunning = false;
+    let microstoreWasRunning = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       try {
-        const [pfsState, efState, ankorState, faireState] = await Promise.all([
+        const [pfsState, efState, ankorState, faireState, microstoreState] = await Promise.all([
           getPfsImportStateAction().catch(() => null),
           getEfashionImportStateAction().catch(() => null),
           getAnkorstoreImportStateAction().catch(() => null),
           getFaireImportStateAction().catch(() => null),
+          getMicrostoreImportStateAction().catch(() => null),
         ]);
         if (cancelled) return;
         const pfsRun = pfsState?.status === "RUNNING";
         const efRun = efState?.status === "RUNNING";
         const ankorRun = ankorState?.status === "RUNNING";
         const faireRun = faireState?.status === "RUNNING";
+        const microstoreRun = microstoreState?.status === "RUNNING";
         if (
           (!pfsRun && pfsWasRunning) ||
           (!efRun && efashionWasRunning) ||
           (!ankorRun && ankorWasRunning) ||
-          (!faireRun && faireWasRunning)
+          (!faireRun && faireWasRunning) ||
+          (!microstoreRun && microstoreWasRunning)
         ) {
           void refresh();
           void getMarketplaceSyncMeta().then(setSyncMeta);
@@ -237,9 +250,10 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         efashionWasRunning = efRun;
         ankorWasRunning = ankorRun;
         faireWasRunning = faireRun;
+        microstoreWasRunning = microstoreRun;
         timer = setTimeout(
           tick,
-          pfsRun || efRun || ankorRun || faireRun ? 3000 : 8000,
+          pfsRun || efRun || ankorRun || faireRun || microstoreRun ? 3000 : 8000,
         );
       } catch {
         timer = setTimeout(tick, 8000);
@@ -669,6 +683,55 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     [nowTick],
   );
 
+  /**
+   * Toggle ON/OFF de la synchro auto d'une marketplace.
+   * Optimistic update local + call serveur en fond.
+   * Quand on remet ON, le serveur pose `lastSyncedAt = now` → le compteur
+   * `nextSyncLabel` repart automatiquement à 5:00 au prochain render.
+   */
+  const onToggleAutoSync = useCallback(
+    async (source: MarketplaceSource, enabled: boolean) => {
+      // Optimistic UI
+      setSyncMeta((prev) => {
+        const key =
+          source === "PFS"
+            ? "pfs"
+            : source === "EFASHION"
+            ? "efashion"
+            : source === "ANKORSTORE"
+            ? "ankorstore"
+            : source === "FAIRE"
+            ? "faire"
+            : "microstore";
+        return {
+          ...prev,
+          [key]: {
+            ...prev[key],
+            autoSyncEnabled: enabled,
+            // Si on rallume : reset côté client aussi pour que le compteur
+            // affiche 5:00 immédiatement sans attendre le retour serveur.
+            lastSyncedAt: enabled ? new Date().toISOString() : prev[key].lastSyncedAt,
+          },
+        };
+      });
+      try {
+        await setMarketplaceAutoSyncEnabled({ source, enabled });
+        // Ré-aligne avec la vérité serveur (timestamp exact)
+        const meta = await getMarketplaceSyncMeta();
+        setSyncMeta(meta);
+      } catch (err) {
+        toast.error(
+          "Impossible de modifier la synchro auto",
+          err instanceof Error ? err.message : "Erreur inconnue.",
+        );
+        // Rollback
+        const meta = await getMarketplaceSyncMeta();
+        setSyncMeta(meta);
+      }
+    },
+    [toast],
+  );
+
   const closingDrawer = useMemo(
     () => () => {
       setSelectedPfs(null);
@@ -854,6 +917,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             nextLabel={nextSyncLabel(syncMeta.pfs.lastSyncedAt)}
             totalInDb={syncMeta.pfs.totalOrdersInDb}
             syncing={syncingPfs}
+            autoSyncEnabled={syncMeta.pfs.autoSyncEnabled}
+            onToggleAutoSync={(v) => void onToggleAutoSync("PFS", v)}
             onSyncNow={() => startTransition(() => void onSyncPfs())}
             onImport={() => void onStartImportPfs()}
           />
@@ -864,6 +929,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             nextLabel={nextSyncLabel(syncMeta.efashion.lastSyncedAt)}
             totalInDb={syncMeta.efashion.totalOrdersInDb}
             syncing={syncingEfashion}
+            autoSyncEnabled={syncMeta.efashion.autoSyncEnabled}
+            onToggleAutoSync={(v) => void onToggleAutoSync("EFASHION", v)}
             onSyncNow={() => startTransition(() => void onSyncEfashion())}
             onImport={() => void onStartImportEfashion()}
           />
@@ -874,6 +941,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             nextLabel={nextSyncLabel(syncMeta.ankorstore.lastSyncedAt)}
             totalInDb={syncMeta.ankorstore.totalOrdersInDb}
             syncing={syncingAnkorstore}
+            autoSyncEnabled={syncMeta.ankorstore.autoSyncEnabled}
+            onToggleAutoSync={(v) => void onToggleAutoSync("ANKORSTORE", v)}
             onSyncNow={() => startTransition(() => void onSyncAnkorstore())}
             onImport={() => void onStartImportAnkorstore()}
           />
@@ -884,6 +953,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             nextLabel={nextSyncLabel(syncMeta.faire.lastSyncedAt)}
             totalInDb={syncMeta.faire.totalOrdersInDb}
             syncing={syncingFaire}
+            autoSyncEnabled={syncMeta.faire.autoSyncEnabled}
+            onToggleAutoSync={(v) => void onToggleAutoSync("FAIRE", v)}
             onSyncNow={() => startTransition(() => void onSyncFaire())}
             onImport={() => void onStartImportFaire()}
           />
@@ -894,6 +965,8 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
             nextLabel={nextSyncLabel(syncMeta.microstore.lastSyncedAt)}
             totalInDb={syncMeta.microstore.totalOrdersInDb}
             syncing={syncingMicrostore}
+            autoSyncEnabled={syncMeta.microstore.autoSyncEnabled}
+            onToggleAutoSync={(v) => void onToggleAutoSync("MICROSTORE", v)}
             onSyncNow={() => startTransition(() => void onSyncMicrostore())}
             onImport={() => void onStartImportMicrostore()}
           />
@@ -1010,6 +1083,8 @@ function SyncStatusPill({
   nextLabel,
   totalInDb,
   syncing,
+  autoSyncEnabled,
+  onToggleAutoSync,
   onSyncNow,
   onImport,
 }: {
@@ -1019,6 +1094,8 @@ function SyncStatusPill({
   nextLabel: string | null;
   totalInDb: number;
   syncing: boolean;
+  autoSyncEnabled: boolean;
+  onToggleAutoSync: (enabled: boolean) => void;
   onSyncNow: () => void;
   onImport?: () => void;
 }) {
@@ -1041,26 +1118,39 @@ function SyncStatusPill({
     : "flex flex-col gap-2 rounded-xl border border-dashed border-border bg-bg-secondary/30 p-3 min-w-0 flex-1 md:min-w-[220px] opacity-60";
   return (
     <div className={wrapperCls} title={connected ? undefined : `${marketplaceLabel} — non configurée`}>
-      {/* Header : badge + nom */}
+      {/* Header : badge + nom + toggle Auto */}
       <div className="flex items-center gap-2 min-w-0">
         <MarketplaceBadge source={source} size="sm" />
-        <div className="font-medium text-[12.5px] text-text-primary truncate">
+        <div className="font-medium text-[12.5px] text-text-primary truncate flex-1">
           {marketplaceLabel}
         </div>
+        <AutoSyncToggle
+          enabled={autoSyncEnabled}
+          disabled={!connected}
+          onChange={onToggleAutoSync}
+          marketplaceLabel={marketplaceLabel}
+        />
       </div>
 
-      {/* Infos synchro : stats + dernière + prochaine auto */}
+      {/* Infos synchro : stats + dernière + prochaine auto (ou "Auto désactivée") */}
       <div className="text-[11px] leading-tight text-text-muted min-h-[28px]">
         {connected ? (
           <>
             <div className="truncate">
               {totalInDb.toLocaleString("fr-FR")} en base · {lastLabel}
             </div>
-            {nextLabel && (
+            {autoSyncEnabled ? (
+              nextLabel && (
+                <div className="inline-flex items-center gap-1 mt-0.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-text-secondary">Prochaine&nbsp;</span>
+                  <span className="text-text-primary tabular-nums font-medium">{nextLabel}</span>
+                </div>
+              )
+            ) : (
               <div className="inline-flex items-center gap-1 mt-0.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-text-secondary">Prochaine&nbsp;</span>
-                <span className="text-text-primary tabular-nums font-medium">{nextLabel}</span>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span className="text-text-secondary italic">Auto désactivée</span>
               </div>
             )}
           </>
@@ -1069,7 +1159,9 @@ function SyncStatusPill({
         )}
       </div>
 
-      {/* Boutons */}
+      {/* Boutons — la synchro manuelle et le rattrapage restent utilisables
+          même quand l'auto est OFF (c'est le worker qu'on coupe, pas les
+          actions manuelles). */}
       <div className="flex items-center gap-1.5 mt-auto">
         <button
           type="button"
@@ -1096,5 +1188,54 @@ function SyncStatusPill({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Petit toggle ON/OFF (switch iOS style) placé dans le header de chaque
+ * SyncStatusPill. Coupe uniquement le worker automatique — les boutons
+ * « Synchro » et « Rattrapage » restent utilisables.
+ */
+function AutoSyncToggle({
+  enabled,
+  disabled,
+  onChange,
+  marketplaceLabel,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  onChange: (enabled: boolean) => void;
+  marketplaceLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={`Auto-synchro ${marketplaceLabel} ${enabled ? "activée" : "désactivée"}`}
+      title={
+        disabled
+          ? `${marketplaceLabel} — non configurée`
+          : enabled
+          ? "Auto-synchro activée (5 min). Clique pour couper."
+          : "Auto-synchro désactivée. Clique pour rallumer (compteur repart à 5:00)."
+      }
+      disabled={disabled}
+      onClick={() => onChange(!enabled)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+        disabled
+          ? "bg-slate-200 cursor-not-allowed opacity-50"
+          : enabled
+          ? "bg-emerald-500"
+          : "bg-slate-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          enabled ? "translate-x-4" : "translate-x-0.5"
+        }`}
+        aria-hidden
+      />
+    </button>
   );
 }

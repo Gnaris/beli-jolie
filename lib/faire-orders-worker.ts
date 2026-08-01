@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncRecentFaireOrders } from "@/lib/faire-orders-sync";
+import { isMarketplaceAutoSyncEnabled } from "@/lib/marketplace-auto-sync";
 
 const TICK_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const START_DELAY_MS = 30_000; // Laisser le serveur finir de démarrer (30s pour ne pas taper 4 APIs en même temps)
@@ -49,6 +50,8 @@ async function tick(): Promise<void> {
       try {
         const hasCreds = await tenantHasFaireCreds(t.id);
         if (!hasCreds) continue;
+        // Skip silencieux si la cliente a désactivé l'auto-sync Faire pour ce tenant
+        if (!(await isMarketplaceAutoSyncEnabled(t.id, "FAIRE"))) continue;
         await tenantALS.run(t.id, async () => {
           const res = await syncRecentFaireOrders(t.id);
           if (res.created > 0 || res.updated > 0) {

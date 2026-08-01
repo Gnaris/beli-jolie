@@ -9,6 +9,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { logger } from "@/lib/logger";
 import type { MarketplacePublishOutcome } from "./marketplace-publish";
 import { isMarketplaceInMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
+import { checkProductComplete } from "@/lib/product-publishability-check";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -53,6 +54,16 @@ export async function resyncProductOnPfs(
 
   if (await isMarketplaceInMaintenance("pfs")) {
     outcome.pfs = { status: "error", message: marketplaceMaintenanceMessage("pfs") };
+    return outcome;
+  }
+
+  const completeness = await checkProductComplete(productId);
+  if (!completeness.eligible) {
+    outcome.pfs = { status: "error", message: completeness.message };
+    logger.warn("[PFS Resync] Blocked — product incomplete", {
+      productId,
+      reasons: completeness.reasons,
+    });
     return outcome;
   }
 
@@ -131,6 +142,16 @@ export async function resyncProductOnAnkorstore(
       status: "error",
       message: "Sync Ankorstore désactivée dans Paramètres.",
     };
+    return outcome;
+  }
+
+  const completeness = await checkProductComplete(productId);
+  if (!completeness.eligible) {
+    outcome.ankorstore = { status: "error", message: completeness.message };
+    logger.warn("[Ankorstore Resync] Blocked — product incomplete", {
+      productId,
+      reasons: completeness.reasons,
+    });
     return outcome;
   }
 

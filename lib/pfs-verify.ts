@@ -38,6 +38,7 @@ import {
 import { mapLocalToPfsStatus, type PfsTargetStatus } from "@/lib/pfs-status";
 import { countryName } from "@/lib/countries";
 import { logger } from "@/lib/logger";
+import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -1018,6 +1019,29 @@ export async function verifyPfsProduct(
       ok: false,
       error: { kind: "not_found_on_pfs", message: `Référence ${product.reference} inexistante sur PFS` },
     };
+  }
+
+  // Fallback API admin (mobile PFS) : le wholesaler renvoie parfois compo
+  // vide alors que le vendeur l'a saisie via l'appli mobile (bug de synchro
+  // côté PFS). On enrichit checkRef.product.material_composition en place
+  // pour que comparePfsProduct voie la vraie compo.
+  if ((checkRef.product.material_composition ?? []).length === 0 && checkRef.product.id) {
+    const fallback = await pfsAdminFetchMaterialComposition(checkRef.product.id).catch((err) => {
+      logger.warn("[PFS Verify] Fallback composition (API admin) échoué", {
+        pfsProductId: checkRef.product!.id,
+        reference: product.reference,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [] as Awaited<ReturnType<typeof pfsAdminFetchMaterialComposition>>;
+    });
+    if (fallback.length > 0) {
+      checkRef.product.material_composition = fallback;
+      logger.info("[PFS Verify] Composition enrichie via API admin", {
+        pfsProductId: checkRef.product.id,
+        reference: product.reference,
+        count: fallback.length,
+      });
+    }
   }
 
   // 2) PFS variants (correct prices/stock/weight/is_star)

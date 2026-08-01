@@ -974,7 +974,7 @@ export const getCachedActiveClaimsCount = tenantScopedCacheWithTid(
   async (tid) => prisma.claim.count({
     where: {
       ...(tid === "global" ? {} : { tenantId: tid }),
-      status: { in: ["OPEN", "IN_REVIEW", "ACCEPTED", "RETURN_PENDING", "RETURN_SHIPPED", "RETURN_RECEIVED", "RESOLUTION_PENDING"] },
+      status: "OPEN",
     },
   }),
   ["active-claims-count"],

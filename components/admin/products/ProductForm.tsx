@@ -29,6 +29,7 @@ import HsCodeModal from "@/components/admin/codes-sh/HsCodeModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
+import { useRightRail } from "@/components/admin/widgets-rail";
 import { useRefreshMarketplacePrompt } from "./RefreshMarketplaceDialog";
 import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
@@ -773,6 +774,7 @@ export default function ProductForm({
   const toast = useToast();
   const { enqueue: enqueuePublish } = useMarketplaceRefreshQueue();
   const { ask: askMarketplaceOptions } = useRefreshMarketplacePrompt();
+  const { nudgeWidget } = useRightRail();
 
   const handleSaveNote = async () => {
     if (!productId || noteSaving) return;
@@ -2353,6 +2355,10 @@ export default function ProductForm({
             // and forget avec toast — l'API prend ~500 ms et la modale reste
             // fermée pendant ce temps.
             if (options.microstore) {
+              // Nudge le widget « Photos Microstore » : le push produit
+              // synchrone (~500 ms) enchaîne un fire-and-forget photos qui
+              // dure ~5 s. Sans nudge, le poll idle 60 s rate la fenêtre.
+              nudgeWidget("microstore-upload");
               const { pushProductToMicrostore } = await import(
                 "@/app/actions/admin/microstore-products"
               );

@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncRecentAnkorstoreOrders } from "@/lib/ankorstore-orders-sync";
+import { isMarketplaceAutoSyncEnabled } from "@/lib/marketplace-auto-sync";
 
 const TICK_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const START_DELAY_MS = 25_000; // Décalé de PFS pour ne pas rentrer en collision au boot
@@ -49,6 +50,8 @@ async function tick(): Promise<void> {
       try {
         const hasCreds = await tenantHasAnkorstoreCreds(t.id);
         if (!hasCreds) continue;
+        // Skip silencieux si la cliente a désactivé l'auto-sync Ankorstore pour ce tenant
+        if (!(await isMarketplaceAutoSyncEnabled(t.id, "ANKORSTORE"))) continue;
         await tenantALS.run(t.id, async () => {
           try {
             const res = await syncRecentAnkorstoreOrders(t.id);

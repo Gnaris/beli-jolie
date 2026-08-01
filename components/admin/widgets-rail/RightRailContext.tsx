@@ -71,6 +71,15 @@ interface RightRailContextValue {
   toggle: (id: RailWidgetId) => void;
   setBadge: (id: RailWidgetId, badge: RailBadge) => void;
   getBadge: (id: RailWidgetId) => RailBadge;
+  /**
+   * Timestamp du dernier "nudge" par widget — signale au drawer concerné
+   * qu'une action côté cliente vient de créer un job court (ex: sync photos
+   * Microstore de 5 s) et qu'il doit refresh immédiatement + rester en poll
+   * actif quelques secondes pour ne pas rater la fenêtre.
+   */
+  nudges: Record<string, number>;
+  /** Déclenche un refresh immédiat du widget cible. */
+  nudgeWidget: (id: RailWidgetId) => void;
   /** État courant des synchros manuelles par source. `null` = pas de synchro
    * récente à afficher. */
   manualSyncs: Record<ManualSyncSource, ManualSyncEvent | null>;
@@ -93,6 +102,7 @@ const EMPTY_MANUAL_SYNCS: Record<ManualSyncSource, ManualSyncEvent | null> = {
 export function RightRailProvider({ children }: { children: React.ReactNode }) {
   const [openWidget, setOpenWidget] = useState<RailWidgetId | null>(null);
   const [badges, setBadges] = useState<Record<string, RailBadge>>({});
+  const [nudges, setNudges] = useState<Record<string, number>>({});
   const [manualSyncs, setManualSyncs] =
     useState<Record<ManualSyncSource, ManualSyncEvent | null>>(EMPTY_MANUAL_SYNCS);
 
@@ -113,6 +123,9 @@ export function RightRailProvider({ children }: { children: React.ReactNode }) {
     (id: RailWidgetId): RailBadge => badges[id] ?? { count: 0 },
     [badges],
   );
+  const nudgeWidget = useCallback((id: RailWidgetId) => {
+    setNudges((prev) => ({ ...prev, [id]: Date.now() }));
+  }, []);
   const pushManualSync = useCallback((event: ManualSyncEvent) => {
     setManualSyncs((prev) => ({ ...prev, [event.source]: event }));
   }, []);
@@ -135,6 +148,8 @@ export function RightRailProvider({ children }: { children: React.ReactNode }) {
       toggle,
       setBadge,
       getBadge,
+      nudges,
+      nudgeWidget,
       manualSyncs,
       pushManualSync,
       clearManualSync,
@@ -146,6 +161,8 @@ export function RightRailProvider({ children }: { children: React.ReactNode }) {
       toggle,
       setBadge,
       getBadge,
+      nudges,
+      nudgeWidget,
       manualSyncs,
       pushManualSync,
       clearManualSync,

@@ -1,12 +1,18 @@
 "use client";
 
 /**
- * Tiroir « Images produits » — reprend la logique du feu ImportProgressWidget
- * (polling /api/admin/import-jobs) et présente les jobs actifs + derniers
- * terminés avec une barre de progression globale.
+ * Tiroir « Images produits »
+ *
+ * Deux sources sont poll ées :
+ *   - GET /api/admin/import-jobs  → jobs bulk agrégés (barre de progression totale)
+ *   - GET /api/admin/image-jobs   → une ligne par image (miniature + réf + couleur + position)
+ *
+ * L'admin voit donc à la fois le compteur global de l'import et le détail
+ * image-par-image pour la traçabilité (« Où est passée telle photo ? »).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRightRail } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
@@ -24,11 +30,27 @@ interface JobView {
   updatedAt: string;
 }
 
+export interface ImageItem {
+  id: string;
+  source: "form" | "bulk";
+  status: "PENDING" | "PROCESSING" | "DONE" | "FAILED";
+  reference: string | null;
+  colorName: string | null;
+  colorHex: string | null;
+  colorPatternImage: string | null;
+  position: number | null;
+  imagePath: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
 const ACTIVE = new Set(["PENDING", "UPLOADING", "PROCESSING"]);
 const DONE = new Set(["COMPLETED", "FAILED"]);
 const RECENT_DONE_MS = 8 * 60_000;
 const POLL_ACTIVE_MS = 4_000;
 const POLL_IDLE_MS = 60_000;
+const GROUP_THRESHOLD = 15; // au-delà, on plie par référence
+const INITIAL_DISPLAY_LIMIT = 40; // affichage initial avant « Voir plus »
 
 const IMAGES_ICON = (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
@@ -39,14 +61,24 @@ const IMAGES_ICON = (
 export function ImagesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
   const [jobs, setJobs] = useState<JobView[]>([]);
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [displayLimit, setDisplayLimit] = useState(INITIAL_DISPLAY_LIMIT);
   const [isVisible, setIsVisible] = useState(true);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/import-jobs", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { jobs?: JobView[] };
-      setJobs(data.jobs ?? []);
+      const [jobsRes, imagesRes] = await Promise.all([
+        fetch("/api/admin/import-jobs", { cache: "no-store" }),
+        fetch("/api/admin/image-jobs", { cache: "no-store" }),
+      ]);
+      if (jobsRes.ok) {
+        const data = (await jobsRes.json()) as { jobs?: JobView[] };
+        setJobs(data.jobs ?? []);
+      }
+      if (imagesRes.ok) {
+        const data = (await imagesRes.json()) as { items?: ImageItem[] };
+        setImages(data.items ?? []);
+      }
     } catch {
       // ignored
     }
@@ -65,13 +97,15 @@ export function ImagesDrawer() {
   }, [isVisible, refresh]);
 
   const active = jobs.filter((j) => ACTIVE.has(j.status));
+  const activeImages = images.filter((i) => i.status === "PENDING" || i.status === "PROCESSING");
 
   useEffect(() => {
     if (!isVisible) return;
-    const delay = active.length > 0 ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    const hasActive = active.length > 0 || activeImages.length > 0;
+    const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
     const id = window.setInterval(refresh, delay);
     return () => window.clearInterval(id);
-  }, [active.length, isVisible, refresh]);
+  }, [active.length, activeImages.length, isVisible, refresh]);
 
   const recent = jobs.filter((j) => {
     if (!DONE.has(j.status)) return false;
@@ -80,18 +114,30 @@ export function ImagesDrawer() {
   });
 
   useEffect(() => {
-    setBadge("images", { count: active.length, pulse: active.length > 0 });
-  }, [active.length, setBadge]);
+    const pulse = active.length > 0 || activeImages.length > 0;
+    setBadge("images", { count: active.length + activeImages.length, pulse });
+  }, [active.length, activeImages.length, setBadge]);
 
   const totalPlanned = active.reduce((n, j) => n + (j.totalItems || 0), 0);
   const totalProcessed = active.reduce((n, j) => n + (j.processedItems || 0), 0);
   const pct = totalPlanned > 0 ? Math.round((totalProcessed / totalPlanned) * 100) : 0;
 
+  // Groupement automatique par (reference, colorName) au-delà du seuil.
+  // On garde une seule tuile de synthèse par groupe très volumineux pour éviter
+  // de noyer le tiroir pendant un import massif (100+ photos).
+  const displayItems = useMemo(() => groupImages(images), [images]);
+  const shownItems = displayItems.slice(0, displayLimit);
+  const hasMore = displayItems.length > displayLimit;
+
   const title =
     active.length > 0
       ? `${totalProcessed} / ${totalPlanned} traitées`
+      : activeImages.length > 0
+      ? `${activeImages.length} image${activeImages.length > 1 ? "s" : ""} en cours`
       : recent.length > 0
       ? `${recent.length} terminé${recent.length > 1 ? "s" : ""}`
+      : images.length > 0
+      ? `${images.length} récente${images.length > 1 ? "s" : ""}`
       : "Aucun import";
 
   return (
@@ -102,7 +148,7 @@ export function ImagesDrawer() {
       eyebrow="Images"
       title={
         <span className="flex items-center gap-1.5">
-          {active.length > 0 && (
+          {(active.length > 0 || activeImages.length > 0) && (
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           )}
           {title}
@@ -118,7 +164,7 @@ export function ImagesDrawer() {
         </div>
       }
     >
-      {jobs.length === 0 ? (
+      {jobs.length === 0 && images.length === 0 ? (
         <div className="p-6 text-center">
           <p className="text-sm text-slate-500">Aucun import récent.</p>
         </div>
@@ -151,11 +197,291 @@ export function ImagesDrawer() {
           {recent.map((job) => (
             <JobRow key={job.id} job={job} />
           ))}
+
+          {displayItems.length > 0 && (
+            <div className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-slate-500 font-semibold bg-slate-50/60 border-b border-slate-100">
+              Détail des images
+            </div>
+          )}
+          {shownItems.map((it) =>
+            it.kind === "single" ? (
+              <ImageRow key={it.item.id} item={it.item} />
+            ) : (
+              <GroupRow key={it.groupKey} group={it} />
+            ),
+          )}
+          {hasMore && (
+            <button
+              type="button"
+              onClick={() => setDisplayLimit((n) => n + INITIAL_DISPLAY_LIMIT)}
+              className="w-full py-2 text-xs text-emerald-700 hover:bg-emerald-50/40 border-b border-slate-100"
+            >
+              Voir plus ({displayItems.length - displayLimit} restant{displayItems.length - displayLimit > 1 ? "s" : ""})
+            </button>
+          )}
         </>
       )}
     </DrawerShell>
   );
 }
+
+// ─────────────────────────────────────────────
+// Groupement par référence + couleur
+// ─────────────────────────────────────────────
+
+export type DisplayItem =
+  | { kind: "single"; item: ImageItem }
+  | {
+      kind: "group";
+      groupKey: string;
+      reference: string;
+      colorName: string | null;
+      colorHex: string | null;
+      colorPatternImage: string | null;
+      items: ImageItem[];
+      counts: { done: number; processing: number; failed: number; total: number };
+    };
+
+export function groupImages(images: ImageItem[]): DisplayItem[] {
+  // Bucketise par (reference|colorName). Les items sans reference restent seuls.
+  const buckets = new Map<string, ImageItem[]>();
+  const singletons: ImageItem[] = [];
+
+  for (const img of images) {
+    if (!img.reference) {
+      singletons.push(img);
+      continue;
+    }
+    const key = `${img.reference}::${img.colorName ?? ""}`;
+    const existing = buckets.get(key);
+    if (existing) existing.push(img);
+    else buckets.set(key, [img]);
+  }
+
+  const out: DisplayItem[] = [];
+  for (const [key, items] of buckets) {
+    if (items.length < GROUP_THRESHOLD) {
+      // Trop peu pour grouper : on remet tel quel dans le flux
+      for (const it of items) out.push({ kind: "single", item: it });
+      continue;
+    }
+    const first = items[0];
+    const counts = {
+      done: items.filter((i) => i.status === "DONE").length,
+      processing: items.filter((i) => i.status === "PENDING" || i.status === "PROCESSING").length,
+      failed: items.filter((i) => i.status === "FAILED").length,
+      total: items.length,
+    };
+    out.push({
+      kind: "group",
+      groupKey: key,
+      reference: first.reference!,
+      colorName: first.colorName,
+      colorHex: first.colorHex,
+      colorPatternImage: first.colorPatternImage,
+      items,
+      counts,
+    });
+  }
+  for (const s of singletons) out.push({ kind: "single", item: s });
+
+  // Réordonne pour garder l'ordre chronologique global (le plus récent des items du groupe)
+  out.sort((a, b) => {
+    const aDate = a.kind === "single" ? a.item.createdAt : a.items[0].createdAt;
+    const bDate = b.kind === "single" ? b.item.createdAt : b.items[0].createdAt;
+    return aDate < bDate ? 1 : aDate > bDate ? -1 : 0;
+  });
+  return out;
+}
+
+// ─────────────────────────────────────────────
+// Rendu — pastille couleur (mirror léger de ColorSwatch)
+// ─────────────────────────────────────────────
+
+function ColorDot({
+  hex,
+  patternImage,
+  size = 14,
+}: {
+  hex: string | null;
+  patternImage: string | null;
+  size?: number;
+}) {
+  const bg: React.CSSProperties = patternImage
+    ? {
+        backgroundImage: `url(${patternImage})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : { backgroundColor: hex ?? "#CBD5E1" };
+  return (
+    <span
+      className="inline-block rounded-full border border-white shadow-[0_0_0_1px_rgba(0,0,0,0.14)] flex-shrink-0"
+      style={{ ...bg, width: size, height: size }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────
+// Rendu — ligne image individuelle
+// ─────────────────────────────────────────────
+
+function ImageRow({ item }: { item: ImageItem }) {
+  const active = item.status === "PENDING" || item.status === "PROCESSING";
+  const failed = item.status === "FAILED";
+  const bg = failed ? "bg-rose-50/30" : "";
+
+  return (
+    <div className={`px-4 py-2.5 border-b border-slate-100 ${bg} flex items-center gap-3`}>
+      <ImageThumb item={item} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-[13px] font-medium text-slate-800 truncate">
+          <span className="truncate">{item.reference ?? "Brouillon"}</span>
+          {item.colorName && (
+            <>
+              <span className="text-slate-300">·</span>
+              <ColorDot hex={item.colorHex} patternImage={item.colorPatternImage} />
+              <span className="truncate text-slate-600">{item.colorName}</span>
+            </>
+          )}
+          {item.position != null && (
+            <>
+              <span className="text-slate-300">·</span>
+              <span className="text-slate-500 tabular-nums">#{item.position}</span>
+            </>
+          )}
+        </div>
+        {failed && item.error && (
+          <p className="text-[11px] text-rose-600 truncate mt-0.5">{item.error}</p>
+        )}
+      </div>
+      <StatusIcon status={item.status} />
+    </div>
+  );
+}
+
+function ImageThumb({ item }: { item: ImageItem }) {
+  if (item.imagePath) {
+    return (
+      <div className="relative w-10 h-10 rounded-md overflow-hidden bg-slate-100 flex-shrink-0 border border-slate-200">
+        <Image
+          src={item.imagePath}
+          alt={item.reference ?? ""}
+          fill
+          sizes="40px"
+          className="object-cover"
+          unoptimized
+        />
+      </div>
+    );
+  }
+  if (item.status === "FAILED") {
+    return (
+      <div className="w-10 h-10 rounded-md bg-rose-100 border border-rose-200 flex-shrink-0 flex items-center justify-center">
+        <svg className="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </div>
+    );
+  }
+  // PENDING / PROCESSING : skeleton pulsant
+  return (
+    <div className="w-10 h-10 rounded-md bg-slate-200 animate-pulse flex-shrink-0 border border-slate-200" />
+  );
+}
+
+function StatusIcon({ status }: { status: ImageItem["status"] }) {
+  if (status === "PENDING" || status === "PROCESSING") {
+    return (
+      <svg className="w-4 h-4 text-emerald-700 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={4} />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+    );
+  }
+  if (status === "DONE") {
+    return (
+      <svg className="w-4 h-4 text-emerald-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 text-rose-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.007M4.03 19.5l7.97-15 7.97 15H4.03z" />
+    </svg>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Rendu — ligne groupe (dépliable)
+// ─────────────────────────────────────────────
+
+function GroupRow({ group }: { group: Extract<DisplayItem, { kind: "group" }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const { reference, colorName, colorHex, colorPatternImage, counts, items } = group;
+
+  return (
+    <div className="border-b border-slate-100">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50/60 text-left"
+      >
+        <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 flex-shrink-0 flex items-center justify-center text-slate-500 text-xs font-semibold tabular-nums">
+          {counts.total}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[13px] font-medium text-slate-800 truncate">
+            <span className="truncate">{reference}</span>
+            {colorName && (
+              <>
+                <span className="text-slate-300">·</span>
+                <ColorDot hex={colorHex} patternImage={colorPatternImage} />
+                <span className="truncate text-slate-600">{colorName}</span>
+              </>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {counts.done > 0 && <span className="text-emerald-700">{counts.done} traitées</span>}
+            {counts.processing > 0 && (
+              <>
+                {counts.done > 0 && <span className="text-slate-300"> · </span>}
+                <span className="text-slate-600">{counts.processing} en cours</span>
+              </>
+            )}
+            {counts.failed > 0 && (
+              <>
+                {(counts.done > 0 || counts.processing > 0) && <span className="text-slate-300"> · </span>}
+                <span className="text-rose-600">{counts.failed} échec{counts.failed > 1 ? "s" : ""}</span>
+              </>
+            )}
+          </p>
+        </div>
+        <svg
+          className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="bg-slate-50/40 pl-4">
+          {items.map((it) => (
+            <ImageRow key={it.id} item={it} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Rendu — ligne job agrégé (inchangé)
+// ─────────────────────────────────────────────
 
 function JobRow({ job }: { job: JobView }) {
   const active = ACTIVE.has(job.status);

@@ -17,6 +17,7 @@ import {
   marketplaceDisabledMessage,
 } from "@/lib/marketplace-enabled";
 import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
+import { checkProductComplete } from "@/lib/product-publishability-check";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -133,6 +134,31 @@ export async function refreshProductOnMarketplaces(
 
   if (options.local) {
     await refreshLocal(productId);
+  }
+
+  // Garde-fou complétude — s'applique aux 3 marketplaces (PFS, Ankor, Faire).
+  // Le refresh « boutique seule » (options.local) reste autorisé : il ne
+  // touche pas aux marketplaces, il bump juste lastRefreshedAt.
+  const anyMarketplace = options.pfs || options.ankorstore || options.faire;
+  if (anyMarketplace) {
+    const completeness = await checkProductComplete(productId);
+    if (!completeness.eligible) {
+      if (options.pfs) outcome.pfs = { status: "error", message: completeness.message };
+      if (options.ankorstore) {
+        outcome.ankorstore = { status: "error", message: completeness.message };
+      }
+      if (options.faire) outcome.faire = { status: "error", message: completeness.message };
+      logger.warn("[Marketplace Refresh] Blocked — product incomplete", {
+        productId,
+        reasons: completeness.reasons,
+      });
+      revalidatePath("/admin/produits");
+      revalidatePath(`/admin/produits/${productId}/modifier`);
+      revalidatePath(`/produits/${productId}`);
+      revalidatePath("/produits");
+      revalidateTag("products", "default");
+      return outcome;
+    }
   }
 
   const maintenance = await getMarketplaceMaintenance();

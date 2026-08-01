@@ -1,7 +1,6 @@
 import { getServerSession } from "next-auth";
 import { redirect, Link } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import ClaimForm from "@/components/client/claims/ClaimForm";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -16,29 +15,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return { title: tClaims("metaNewTitle", { shopName }) };
 }
 
-export default async function NewClaimPage({ searchParams }: { searchParams: Promise<{ order?: string }> }) {
+export default async function NewClaimPage() {
   const session = await getServerSession(authOptions);
   const locale = await getLocale();
-  if (!session) return redirect({href: "/connexion", locale});
-  if (session.user.status !== "APPROVED") return redirect({href: "/espace-pro", locale});
+  if (!session) return redirect({ href: "/connexion", locale });
+  if (session.user.status !== "APPROVED") return redirect({ href: "/espace-pro", locale });
 
   const t = await getTranslations({ locale, namespace: "claims" });
-  const { order: preselectedOrderId } = await searchParams;
-
-  const orders = await prisma.order.findMany({
-    where: {
-      userId: session.user.id,
-    },
-    select: {
-      id: true,
-      orderNumber: true,
-      items: {
-        select: { id: true, productName: true, quantity: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -53,11 +36,11 @@ export default async function NewClaimPage({ searchParams }: { searchParams: Pro
           {t("backToList")}
         </Link>
         <h1 className="font-heading text-2xl font-bold text-text-primary mt-3">{t("newClaim")}</h1>
-        <p className="text-sm text-text-muted font-body mt-1">
+        <p className="text-sm text-text-secondary font-body mt-1">
           {t("newPageIntro")}
         </p>
       </div>
-      <ClaimForm orders={orders} preselectedOrderId={preselectedOrderId} />
+      <ClaimForm />
     </div>
   );
 }

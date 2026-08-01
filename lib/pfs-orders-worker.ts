@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncRecentPfsOrders } from "@/lib/pfs-orders-sync";
+import { isMarketplaceAutoSyncEnabled } from "@/lib/marketplace-auto-sync";
 
 const TICK_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const START_DELAY_MS = 20_000; // Laisser le serveur finir de démarrer
@@ -49,6 +50,8 @@ async function tick(): Promise<void> {
       try {
         const hasCreds = await tenantHasPfsCreds(t.id);
         if (!hasCreds) continue;
+        // Skip silencieux si la cliente a désactivé l'auto-sync PFS pour ce tenant
+        if (!(await isMarketplaceAutoSyncEnabled(t.id, "PFS"))) continue;
         await tenantALS.run(t.id, async () => {
           const res = await syncRecentPfsOrders(t.id);
           if (res.created > 0 || res.updated > 0) {

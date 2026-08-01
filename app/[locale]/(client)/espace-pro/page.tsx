@@ -176,7 +176,6 @@ export default async function DashboardPage() {
     }),
     prisma.credit.findMany({
       where: { userId },
-      include: { claim: { select: { reference: true } } },
       orderBy: { createdAt: "desc" },
     }),
     getAvailableCredit(userId),
@@ -573,11 +572,6 @@ export default async function DashboardPage() {
                             {total.toFixed(2)} {"\u20AC"}
                             <span className="text-text-muted font-normal"> — {tOrders("remaining")} : {remaining.toFixed(2)} {"\u20AC"}</span>
                           </p>
-                          {credit.claim && (
-                            <p className="text-xs text-text-muted font-body mt-1">
-                              {tOrders("claimRef")} {credit.claim.reference}
-                            </p>
-                          )}
                         </div>
                         <div className="text-right shrink-0">
                           <span className={`badge ${remaining > 0 && !isExpired ? "badge-success" : "badge-neutral"}`}>

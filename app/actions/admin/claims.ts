@@ -1,38 +1,53 @@
 "use server";
 
 import { getServerSession } from "next-auth";
+import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { canTransition } from "@/lib/claims";
-import { createCredit } from "@/lib/credits";
+import { NOTIFY_CLIENT_COOLDOWN_MS, CLAIMS_PAGE_SIZE } from "@/lib/claims";
 import { addMessage } from "@/lib/messaging";
-import { notifyClientClaimUpdate } from "@/lib/notifications";
+import { notifyClientHasNewReply } from "@/lib/notifications";
 import { emitChatEvent } from "@/lib/chat-events";
+import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
-import { revalidateTag } from "next/cache";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") throw new Error("Acces non autorise.");
+  if (!session || session.user.role !== "ADMIN") throw new Error("Accès non autorisé.");
   return session;
 }
 
-export async function getAdminClaims(filter?: string) {
+export async function getAdminClaims(filter?: string, page = 1) {
   await requireAdmin();
 
   const where: Record<string, unknown> = {};
-  if (filter && filter !== "all") where.status = filter;
+  if (filter === "OPEN" || filter === "CLOSED") where.status = filter;
 
-  const claims = await prisma.claim.findMany({
-    where,
-    include: {
-      user: { select: { firstName: true, lastName: true, company: true } },
-      order: { select: { orderNumber: true } },
-      conversation: { select: { id: true } },
-      _count: { select: { items: true, images: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const currentPage = Math.max(1, page | 0);
+  const skip = (currentPage - 1) * CLAIMS_PAGE_SIZE;
+
+  const [claims, filteredTotal] = await Promise.all([
+    prisma.claim.findMany({
+      where,
+      include: {
+        user: { select: { firstName: true, lastName: true, company: true, email: true } },
+        conversation: {
+          select: {
+            id: true,
+            messages: {
+              select: { id: true, content: true, senderRole: true, readAt: true, createdAt: true },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
+      skip,
+      take: CLAIMS_PAGE_SIZE,
+    }),
+    prisma.claim.count({ where }),
+  ]);
 
   const conversationIds = claims
     .map((c) => c.conversation?.id)
@@ -52,12 +67,19 @@ export async function getAdminClaims(filter?: string) {
 
   const unreadMap = new Map(unreadCounts.map((u) => [u.conversationId, u._count._all]));
 
-  return claims.map((c) => ({
+  const rows = claims.map((c) => ({
     ...c,
-    refundAmount: c.refundAmount ? Number(c.refundAmount) : null,
-    creditAmount: c.creditAmount ? Number(c.creditAmount) : null,
     hasUnreadFromClient: c.conversation ? (unreadMap.get(c.conversation.id) ?? 0) > 0 : false,
+    lastMessage: c.conversation?.messages[0] ?? null,
   }));
+
+  return {
+    rows,
+    page: currentPage,
+    pageSize: CLAIMS_PAGE_SIZE,
+    totalPages: Math.max(1, Math.ceil(filteredTotal / CLAIMS_PAGE_SIZE)),
+    filteredTotal,
+  };
 }
 
 export async function getAdminClaimsStats() {
@@ -66,63 +88,79 @@ export async function getAdminClaimsStats() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const startOf30d = new Date(now.getTime() - 30 * 86_400_000);
 
-  const [counts, oldestOpen, resolvedThisMonth, resolvedPrevMonth, monthAmounts] = await Promise.all([
-    prisma.claim.groupBy({
-      by: ["status"],
-      _count: true,
-    }),
-    prisma.claim.findFirst({
-      where: { status: { in: ["OPEN", "IN_REVIEW"] } },
-      orderBy: { createdAt: "asc" },
-      select: { createdAt: true },
-    }),
-    prisma.claim.count({
-      where: { status: "RESOLVED", updatedAt: { gte: startOfMonth } },
-    }),
-    prisma.claim.count({
-      where: { status: "RESOLVED", updatedAt: { gte: startOfPrevMonth, lt: startOfMonth } },
-    }),
-    prisma.claim.aggregate({
-      where: { status: "RESOLVED", updatedAt: { gte: startOfMonth } },
-      _sum: { refundAmount: true, creditAmount: true },
-      _count: { _all: true },
-    }),
-  ]);
+  const [counts, oldestOpen, closedThisMonth, closedPrevMonth, unreadMessages, firstResponseSamples] =
+    await Promise.all([
+      prisma.claim.groupBy({ by: ["status"], _count: true }),
+      prisma.claim.findFirst({
+        where: { status: "OPEN" },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+      prisma.claim.count({
+        where: { status: "CLOSED", closedAt: { gte: startOfMonth } },
+      }),
+      prisma.claim.count({
+        where: { status: "CLOSED", closedAt: { gte: startOfPrevMonth, lt: startOfMonth } },
+      }),
+      prisma.message.count({
+        where: { senderRole: "CLIENT", readAt: null },
+      }),
+      // Échantillon des 30 derniers jours : délai entre 1er message CLIENT et 1er message ADMIN
+      prisma.claim.findMany({
+        where: { createdAt: { gte: startOf30d } },
+        select: {
+          conversation: {
+            select: {
+              messages: {
+                select: { senderRole: true, createdAt: true },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+          },
+        },
+      }),
+    ]);
 
-  const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count]));
+  const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count])) as Record<
+    string,
+    number
+  >;
   const total = counts.reduce((sum, c) => sum + c._count, 0);
-
-  const toTreat = (countMap.OPEN ?? 0) + (countMap.IN_REVIEW ?? 0);
-  const inProgress =
-    (countMap.RETURN_PENDING ?? 0) +
-    (countMap.RETURN_SHIPPED ?? 0) +
-    (countMap.RETURN_RECEIVED ?? 0) +
-    (countMap.RESOLUTION_PENDING ?? 0);
+  const opened = countMap.OPEN ?? 0;
 
   const oldestOpenDays = oldestOpen
     ? Math.max(0, Math.floor((now.getTime() - oldestOpen.createdAt.getTime()) / 86_400_000))
     : null;
 
   const growth =
-    resolvedPrevMonth > 0
-      ? ((resolvedThisMonth - resolvedPrevMonth) / resolvedPrevMonth) * 100
-      : null;
+    closedPrevMonth > 0 ? ((closedThisMonth - closedPrevMonth) / closedPrevMonth) * 100 : null;
 
-  const monthRefund = Number(monthAmounts._sum.refundAmount ?? 0);
-  const monthCredit = Number(monthAmounts._sum.creditAmount ?? 0);
-  const monthAmount = monthRefund + monthCredit;
+  const responseTimesMinutes: number[] = [];
+  for (const c of firstResponseSamples) {
+    const msgs = c.conversation?.messages ?? [];
+    const firstClient = msgs.find((m) => m.senderRole === "CLIENT");
+    const firstAdmin = msgs.find((m) => m.senderRole === "ADMIN");
+    if (firstClient && firstAdmin && firstAdmin.createdAt > firstClient.createdAt) {
+      responseTimesMinutes.push(
+        (firstAdmin.createdAt.getTime() - firstClient.createdAt.getTime()) / 60_000,
+      );
+    }
+  }
+  const avgFirstResponseMinutes = responseTimesMinutes.length
+    ? Math.round(responseTimesMinutes.reduce((s, v) => s + v, 0) / responseTimesMinutes.length)
+    : null;
 
   return {
     total,
     countMap,
-    toTreat,
-    inProgress,
+    opened,
+    closedThisMonth,
+    unreadMessages,
     oldestOpenDays,
-    resolvedThisMonth,
     growth,
-    monthAmount,
-    monthResolvedCount: monthAmounts._count._all,
+    avgFirstResponseMinutes,
   };
 }
 
@@ -132,18 +170,16 @@ export async function getAdminClaim(claimId: string) {
   return prisma.claim.findUnique({
     where: { id: claimId },
     include: {
-      user: { select: { id: true, firstName: true, lastName: true, company: true, email: true } },
-      order: {
-        select: { id: true, orderNumber: true, totalTTC: true, status: true },
-      },
-      items: {
-        include: {
-          orderItem: { select: { productName: true, productRef: true, colorName: true, imagePath: true, quantity: true, unitPrice: true } },
+      user: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          company: true,
+          email: true,
+          createdAt: true,
         },
       },
-      images: true,
-      returnInfo: true,
-      reshipInfo: true,
       conversation: {
         include: {
           messages: {
@@ -159,135 +195,133 @@ export async function getAdminClaim(claimId: string) {
   });
 }
 
-export async function updateClaimStatus(claimId: string, newStatus: string, message?: string) {
-  const session = await requireAdmin();
-
-  const claim = await prisma.claim.findUnique({
-    where: { id: claimId },
-    include: { user: { select: { email: true, firstName: true } }, conversation: true },
-  });
-
-  if (!claim) return { success: false, error: "Demande introuvable." };
-
-  if (!canTransition(claim.status, newStatus)) {
-    return { success: false, error: `Transition ${claim.status} -> ${newStatus} non autorisee.` };
-  }
-
-  await prisma.claim.update({
-    where: { id: claimId },
-    data: { status: newStatus as never },
-  });
-
-  if (message?.trim() && claim.conversation) {
-    await addMessage({
-      conversationId: claim.conversation.id,
-      senderId: session.user.id,
-      senderRole: "ADMIN",
-      content: message.trim(),
-    });
-  }
-
-  notifyClientClaimUpdate({
-    clientEmail: claim.user.email,
-    clientName: claim.user.firstName,
-    claimReference: claim.reference,
-    newStatus,
-    message,
-    claimId,
-  }).catch((err) =>
-    logger.error("[admin/claims] Email client réclamation échoué", {
-      error: err,
-    }),
-  );
-
-  emitChatEvent({
-    type: "CLAIM_STATUS_CHANGED",
-    conversationId: claim.conversation?.id || "",
-    userId: claim.userId,
-    targetRole: "CLIENT",
-    claimData: { claimId, newStatus },
-  });
-
-  revalidateTag("claims", "default");
-  return { success: true };
-}
-
-export async function setClaimResolution(
+/** Envoi d'un message admin. */
+export async function sendAdminMessage(
   claimId: string,
-  resolution: "NONE" | "REFUND" | "CREDIT" | "RESHIP",
-  params: { amount?: number; message?: string }
+  content: string,
+  attachments?: { fileName: string; filePath: string; fileSize: number; mimeType: string }[],
 ) {
   const session = await requireAdmin();
 
+  const body = content.trim();
+  const hasAttachments = attachments && attachments.length > 0;
+  if (!body && !hasAttachments) return { success: false, error: "Message vide." };
+
   const claim = await prisma.claim.findUnique({
     where: { id: claimId },
-    include: { user: true, conversation: true },
+    select: { conversation: { select: { id: true } }, userId: true },
+  });
+  if (!claim?.conversation) return { success: false, error: "Demande introuvable." };
+
+  const message = await addMessage({
+    conversationId: claim.conversation.id,
+    senderId: session.user.id,
+    senderRole: "ADMIN",
+    content: body || "📎 Pièce jointe",
+    attachments,
   });
 
-  if (!claim) return { success: false, error: "Demande introuvable." };
+  emitChatEvent({
+    type: "NEW_MESSAGE",
+    conversationId: claim.conversation.id,
+    userId: claim.userId,
+    targetRole: "CLIENT",
+    context: "claim",
+    messageData: {
+      id: message.id,
+      content: message.content,
+      senderRole: "ADMIN",
+      senderName: message.sender.firstName ?? "Administrateur",
+      createdAt: message.createdAt.toISOString(),
+      attachments: message.attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        filePath: a.filePath,
+        fileSize: a.fileSize,
+        mimeType: a.mimeType,
+      })),
+    },
+  });
 
-  const updateData: Record<string, unknown> = { resolution };
+  revalidateTag("claims", "default");
+  return { success: true, messageId: message.id };
+}
 
-  if (resolution === "CREDIT" && params.amount) {
-    updateData.creditAmount = params.amount;
-    await createCredit({
-      userId: claim.userId,
-      amount: params.amount,
-      claimId,
-    });
-  }
+/**
+ * Suppression définitive d'une conversation. Refuse si status !== CLOSED.
+ * Cascade : messages + pièces jointes (via onDelete: Cascade sur Message
+ * → MessageAttachment) puis conversation puis claim.
+ */
+export async function deleteClaim(claimId: string) {
+  await requireAdmin();
 
-  if (resolution === "REFUND" && params.amount) {
-    updateData.refundAmount = params.amount;
-  }
-
-  // NONE/CREDIT = action immédiate côté plateforme → RESOLVED.
-  // REFUND/RESHIP = action admin restante (virement, expédition) → RESOLUTION_PENDING.
-  const targetStatus =
-    resolution === "NONE" || resolution === "CREDIT"
-      ? "RESOLVED"
-      : "RESOLUTION_PENDING";
-
-  const statusChanged =
-    claim.status !== targetStatus && canTransition(claim.status, targetStatus);
-  if (statusChanged) {
-    updateData.status = targetStatus;
-  }
-
-  await prisma.claim.update({
+  const claim = await prisma.claim.findUnique({
     where: { id: claimId },
-    data: updateData,
+    select: {
+      status: true,
+      userId: true,
+      conversation: { select: { id: true } },
+    },
+  });
+  if (!claim) return { success: false, error: "Demande introuvable." };
+  if (claim.status !== "CLOSED") {
+    return {
+      success: false,
+      error: "La conversation doit être clôturée avant d'être supprimée.",
+    };
+  }
+
+  // 1) Récupérer les paths des fichiers physiques AVANT de supprimer la DB
+  let filePathsToDelete: string[] = [];
+  if (claim.conversation) {
+    const attachments = await prisma.messageAttachment.findMany({
+      where: { message: { conversationId: claim.conversation.id } },
+      select: { filePath: true },
+    });
+    filePathsToDelete = attachments
+      .map((a) => a.filePath.replace(/^\//, ""))
+      .filter(Boolean);
+  }
+
+  // 2) Suppression DB en transaction
+  await prisma.$transaction(async (tx) => {
+    if (claim.conversation) {
+      const msgs = await tx.message.findMany({
+        where: { conversationId: claim.conversation.id },
+        select: { id: true },
+      });
+      const msgIds = msgs.map((m) => m.id);
+      if (msgIds.length > 0) {
+        await tx.messageAttachment.deleteMany({ where: { messageId: { in: msgIds } } });
+        await tx.message.deleteMany({ where: { id: { in: msgIds } } });
+      }
+      await tx.conversation.delete({ where: { id: claim.conversation.id } });
+    }
+    await tx.claim.delete({ where: { id: claimId } });
   });
 
-  if (statusChanged) {
-    if (params.message?.trim() && claim.conversation) {
-      await addMessage({
-        conversationId: claim.conversation.id,
-        senderId: session.user.id,
-        senderRole: "ADMIN",
-        content: params.message.trim(),
+  // 3) Suppression fichiers physiques (best-effort, ne bloque pas si échec)
+  if (filePathsToDelete.length > 0) {
+    try {
+      await deleteFiles(filePathsToDelete);
+      logger.info(`[deleteClaim] ${filePathsToDelete.length} fichier(s) supprimé(s) du disque`, {
+        claimId,
       });
+    } catch (err) {
+      logger.warn("[deleteClaim] Nettoyage disque partiel", { error: err, claimId });
     }
+  }
 
-    notifyClientClaimUpdate({
-      clientEmail: claim.user.email,
-      clientName: claim.user.firstName,
-      claimReference: claim.reference,
-      newStatus: targetStatus,
-      message: params.message,
-      claimId,
-    }).catch((err) =>
-      logger.error("[admin/claims] Email client demande échoué", {
-        error: err,
-      }),
-    );
-
+  // 4) Notifie le client via SSE — s'il est en train de lire cette conversation,
+  //    son UI le redirige proprement vers la liste au lieu d'un 404.
+  if (claim.conversation) {
     emitChatEvent({
-      type: "CLAIM_STATUS_CHANGED",
-      conversationId: claim.conversation?.id || "",
+      type: "CONVERSATION_DELETED",
+      conversationId: claim.conversation.id,
       userId: claim.userId,
       targetRole: "CLIENT",
-      claimData: { claimId, newStatus: targetStatus },
+      context: "claim",
+      claimData: { claimId, newStatus: "DELETED" },
     });
   }
 
@@ -295,12 +329,111 @@ export async function setClaimResolution(
   return { success: true };
 }
 
-export async function updateAdminNote(claimId: string, note: string) {
+/** Clôture une conversation. */
+export async function closeClaim(claimId: string) {
   await requireAdmin();
+
+  const claim = await prisma.claim.findUnique({
+    where: { id: claimId },
+    select: { status: true, userId: true, conversation: { select: { id: true } } },
+  });
+  if (!claim) return { success: false, error: "Demande introuvable." };
+  if (claim.status === "CLOSED") return { success: true }; // idempotent
 
   await prisma.claim.update({
     where: { id: claimId },
-    data: { adminNote: note },
+    data: { status: "CLOSED", closedAt: new Date() },
+  });
+
+  emitChatEvent({
+    type: "CLAIM_STATUS_CHANGED",
+    conversationId: claim.conversation?.id ?? "",
+    userId: claim.userId,
+    targetRole: "CLIENT",
+    context: "claim",
+    claimData: { claimId, newStatus: "CLOSED" },
+  });
+
+  revalidateTag("claims", "default");
+  return { success: true };
+}
+
+/** Envoi manuel d'un email au client (« vous avez une nouvelle réponse »). Rate-limité 1 h. */
+export async function notifyClient(claimId: string) {
+  await requireAdmin();
+
+  const claim = await prisma.claim.findUnique({
+    where: { id: claimId },
+    include: {
+      user: { select: { email: true, firstName: true, lastName: true } },
+    },
+  });
+  if (!claim) return { success: false, error: "Demande introuvable." };
+
+  const now = new Date();
+  if (
+    claim.lastNotifiedClientAt &&
+    now.getTime() - claim.lastNotifiedClientAt.getTime() < NOTIFY_CLIENT_COOLDOWN_MS
+  ) {
+    const remainingMs =
+      NOTIFY_CLIENT_COOLDOWN_MS - (now.getTime() - claim.lastNotifiedClientAt.getTime());
+    return {
+      success: false,
+      error: "Notification déjà envoyée récemment.",
+      remainingMinutes: Math.ceil(remainingMs / 60_000),
+    };
+  }
+
+  try {
+    await notifyClientHasNewReply({
+      clientEmail: claim.user.email,
+      clientName: claim.user.firstName ?? "",
+      claimReference: claim.reference,
+      subject: claim.subject,
+      claimId: claim.id,
+    });
+  } catch (err) {
+    logger.error("[notifyClient] Email client échoué", { error: err });
+    return { success: false, error: "Échec de l'envoi de l'email." };
+  }
+
+  await prisma.claim.update({
+    where: { id: claimId },
+    data: { lastNotifiedClientAt: now },
+  });
+
+  revalidateTag("claims", "default");
+  return { success: true };
+}
+
+/** Marque tous les messages CLIENT comme lus (à l'ouverture de la page admin).
+ *  Appelée depuis un Server Component au render — donc PAS de revalidateTag()
+ *  ici (Next 16 interdit revalidate pendant render). Le compteur "Non lues"
+ *  de la liste sera rafraîchi au prochain navigate/refresh, ce qui est OK. */
+export async function markMessagesReadByAdmin(claimId: string) {
+  await requireAdmin();
+
+  const claim = await prisma.claim.findUnique({
+    where: { id: claimId },
+    select: { userId: true, conversation: { select: { id: true } } },
+  });
+  if (!claim?.conversation) return { success: false };
+
+  await prisma.message.updateMany({
+    where: {
+      conversationId: claim.conversation.id,
+      senderRole: "CLIENT",
+      readAt: null,
+    },
+    data: { readAt: new Date() },
+  });
+
+  emitChatEvent({
+    type: "MESSAGE_READ",
+    conversationId: claim.conversation.id,
+    userId: claim.userId,
+    targetRole: "CLIENT",
+    context: "claim",
   });
 
   return { success: true };

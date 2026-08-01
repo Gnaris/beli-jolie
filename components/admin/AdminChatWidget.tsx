@@ -175,7 +175,11 @@ export default function AdminChatWidget() {
 
   // ── SSE real-time events ────────────────────
   const handleChatEvent = useCallback(
-    (event: { type: string; conversationId: string; messageData?: ChatMessage }) => {
+    (event: { type: string; conversationId: string; context?: "claim"; messageData?: ChatMessage }) => {
+      // Ignorer TOUS les événements Service Client — géré par sa propre page.
+      // Sans ce filtre, le widget Chat sonnait à chaque réponse Service Client.
+      if (event.context === "claim") return;
+
       if (event.type === "NEW_MESSAGE" && event.messageData) {
         // Only handle client messages (admin messages are added optimistically)
         if (event.messageData.senderRole !== "CLIENT") return;

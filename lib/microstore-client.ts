@@ -4,6 +4,8 @@
  * Endpoints utilisés :
  *  - GET /order/new_view_all → liste commandes (sans lignes)
  *  - GET /pluginsWeb/orderInfo/{id} → détail complet avec goods_info[]
+ *  - GET /customer/get_by_order → liste TOUS les clients (même sans commande)
+ *  - GET /customer/search → recherche client par mot-clé (téléphone, id, nom)
  *
  * Toutes les fonctions nécessitent que `microstore_session_key` soit
  * configurée pour le tenant courant (voir lib/microstore-auth.ts).
@@ -90,9 +92,27 @@ export interface MicrostoreOrderListItem {
 export interface MicrostoreOrderListResponse {
   err: number;
   list: MicrostoreOrderListItem[];
-  is_last: boolean;
+  /** 1 = dernière page, 0 = encore des pages après. L'API renvoie soit un
+   *  number (0/1), soit un boolean. */
+  is_last: number | boolean;
+  /** Total commandes précis pour la plage demandée (identique sur toutes les
+   *  pages — permet un pré-comptage avec `page_num=1`). */
   list_num: number;
+  /** CA total pour la plage — présent UNIQUEMENT sur `page=1` (0.00 sur les
+   *  pages suivantes). */
   total_price: string;
+  /** Quantité totale d'articles vendus sur la plage (page=1 uniquement). */
+  total_pack_num?: number;
+  total_one_num?: number;
+  /** TVA totale sur la plage (page=1 uniquement). */
+  total_vat?: string;
+  /** Répartition par niveau VIP (page=1 uniquement). */
+  client_vip_total?: Array<{
+    label: string;
+    total_price: string;
+    total_vat: string;
+    total_quantity: string;
+  }>;
 }
 
 export interface MicrostoreOrderDetailItem {
@@ -164,14 +184,24 @@ export interface MicrostoreOrderInfoResponse {
 
 // ─── Fonctions publiques ─────────────────────────────────────────────────
 
+const ORDER_LIST_SALE_ORDER_FILTER = JSON.stringify({
+  options: ["sale_order"],
+  allSelected: 0,
+});
+
 /**
  * Liste les commandes Microstore sur une plage de dates.
- * Pagination : page + page_num (max 50 par page).
+ * Pagination : `page` (1-indexé) + `pageSize` (100 recommandé, max validé HAR).
  *
- * NB : `bi_key` et `order_type` du HAR web.mc.app sont volontairement omis —
- * ils requièrent un contexte de session propre à la vraie UI web (registered
- * biKeys côté serveur, filtre "sale_order" restreint à 0). Sans ces filtres
- * on récupère la liste brute de tous les documents de vente sur la plage.
+ * Filtre STRICT sur les vraies commandes de vente via `order_type=sale_order` —
+ * sinon l'API renvoie aussi les avoirs, factures, mouvements de stock, etc.
+ * (bug historique corrigé 2026-08-01, cf. HAR `order mc.har`).
+ *
+ * Retour :
+ *  - `list_num` : total commandes de la plage (précis dès la 1ère page)
+ *  - `is_last` : 1 = dernière page
+ *  - `total_price`, `total_vat`, `total_pack_num`, `client_vip_total[]` :
+ *    stats globales, présentes uniquement sur `page=1`
  */
 export async function microstoreListOrders(opts: {
   fromDate: string; // "YYYY-MM-DD"
@@ -180,13 +210,40 @@ export async function microstoreListOrders(opts: {
   pageSize?: number;
 }): Promise<MicrostoreOrderListResponse> {
   const url = await buildMicrostoreUrl("/order/new_view_all", {
+    bi_key: "documentList",
     page: String(opts.page ?? 1),
-    page_num: String(opts.pageSize ?? 50),
+    page_num: String(opts.pageSize ?? 100),
     type: "custom",
     sday: opts.fromDate,
     eday: opts.toDate,
+    order_type: ORDER_LIST_SALE_ORDER_FILTER,
   });
   return callMicrostore<MicrostoreOrderListResponse>(url);
+}
+
+/**
+ * Comptage rapide (sans transfert de payload) — appelle `page=1&page_num=1`
+ * et renvoie `list_num`. Utilisé au démarrage du rattrapage historique pour
+ * afficher un total précis dès le début du widget.
+ *
+ * Coût : 1 appel API, réponse ~2 Ko (1 commande + les compteurs).
+ */
+export async function microstoreCountOrders(opts: {
+  fromDate: string;
+  toDate: string;
+}): Promise<{ total: number; totalPrice: string; totalVat: string; totalQuantity: number }> {
+  const resp = await microstoreListOrders({
+    fromDate: opts.fromDate,
+    toDate: opts.toDate,
+    page: 1,
+    pageSize: 1,
+  });
+  return {
+    total: resp.list_num ?? 0,
+    totalPrice: resp.total_price ?? "0",
+    totalVat: resp.total_vat ?? "0",
+    totalQuantity: resp.total_pack_num ?? 0,
+  };
 }
 
 /**
@@ -208,25 +265,176 @@ export async function microstoreGetOrderDetail(
 /**
  * Récupère toutes les commandes d'une plage (auto-pagination).
  * Attention : peut faire plusieurs appels — utiliser avec des dates courtes.
+ *
+ * **Important** : l'API `/order/new_view_all` renvoie parfois `pageSize + 1`
+ * items par page (1 de plus pour signaler "next page dispo") — on tronque
+ * à `pageSize` pour éviter le double-comptage (bug 1068/1059 corrigé 2026-08-01).
  */
 export async function microstoreListAllOrders(opts: {
   fromDate: string;
   toDate: string;
   maxPages?: number;
 }): Promise<MicrostoreOrderListItem[]> {
-  const maxPages = opts.maxPages ?? 20; // sécurité : max 1000 orders
+  const maxPages = opts.maxPages ?? 200; // sécurité : 20 000 commandes max
+  const pageSize = 100;
   const all: MicrostoreOrderListItem[] = [];
   for (let page = 1; page <= maxPages; page++) {
     const res = await microstoreListOrders({
       fromDate: opts.fromDate,
       toDate: opts.toDate,
       page,
-      pageSize: 50,
+      pageSize,
     });
-    all.push(...(res.list ?? []));
-    if (res.is_last || (res.list?.length ?? 0) === 0) break;
+    const truncated = (res.list ?? []).slice(0, pageSize);
+    all.push(...truncated);
+    if (res.is_last || truncated.length === 0) break;
   }
   return all;
+}
+
+// ─── Types clients (customer/get_by_order + customer/search) ─────────────
+
+/**
+ * Item renvoyé par `/customer/get_by_order` — la liste basique n'inclut PAS
+ * tous les champs (email, VAT, country, invoice). On y accède via
+ * `/customer/search?keyword=...` ou via `client_info` du détail d'une commande.
+ *
+ * L'identifiant stable est `id` (ex "11374"), qu'on stocke dans
+ * `AdminClientCard.microstoreClientId`. Le téléphone est plus fragile
+ * (peut être vide, partagé, changé) — on ne l'utilise pas comme clé.
+ */
+export interface MicrostoreCustomerListItem {
+  id: string;
+  add_id?: string;
+  type?: string;
+  name: string;
+  vip?: string;
+  is_premium?: string;
+  disable?: string;
+  phone?: string;
+  address?: string;
+  remark?: string;
+  ctime?: string; // unix seconds, "0" pour les clients système
+  debt?: string; // "0.00"
+  goods_num?: number;
+  currency_debt?: string;
+  currency_symbol?: string;
+  client_shop_id?: string[];
+}
+
+export interface MicrostoreCustomerListResponse {
+  err: number;
+  msg?: string;
+  list: MicrostoreCustomerListItem[];
+  /** Total de clients (précis dès la 1ère page). */
+  list_num: number;
+  /** 1 = dernière page, 0 = encore des pages après. */
+  is_last: number;
+  vip_num?: Array<{ vip: string; num: string }>;
+  premium_num?: number;
+}
+
+/**
+ * Version enrichie du search — inclut email, country, VAT, invoice, etc.
+ */
+export interface MicrostoreCustomerSearchItem extends MicrostoreCustomerListItem {
+  company_name?: string;
+  country?: string;
+  invoice_country?: string;
+  invoice_title?: string;
+  invoice_address?: string;
+  invoice_zip?: string;
+  city?: string;
+  zip?: string;
+  address_name?: string;
+  address_phone?: string;
+  detail_address?: string;
+  tel?: string;
+  fax?: string;
+  vat_num?: string;
+  vat_number?: string;
+  tax_number?: string;
+  member_num?: string;
+  vip_card_no?: string;
+  tags?: unknown[];
+}
+
+// ─── Fonctions publiques — clients ───────────────────────────────────────
+
+const CUSTOMER_LIST_STATUS_ENABLED_ONLY = JSON.stringify({
+  options: ["disable=0"],
+  allSelected: 0,
+});
+
+/**
+ * Liste les clients Microstore (dont ceux qui n'ont jamais commandé).
+ *
+ * Pagination :
+ *  - `page` : 1-indexé
+ *  - `pageNum` : 20 / 50 / 100 (100 recommandé)
+ *
+ * Retour :
+ *  - `list_num` = total connu dès la 1ère page → parfait pour une progress bar
+ *  - `is_last` = 1 quand on a atteint la fin
+ *  - `list` peut contenir `pageNum + 1` items (l'API retourne 1 de plus pour
+ *    signaler "prochaine page dispo"). On tronque à `pageNum` côté sync pour
+ *    éviter le double comptage.
+ */
+export async function microstoreListCustomers(opts: {
+  page?: number;
+  pageNum?: number;
+}): Promise<MicrostoreCustomerListResponse> {
+  const url = await buildMicrostoreUrl("/customer/get_by_order", {
+    bi_key: "clientList",
+    days: "-1",
+    order: "utime",
+    isasc: "0",
+    page: String(opts.page ?? 1),
+    page_num: String(opts.pageNum ?? 100),
+    client_status: CUSTOMER_LIST_STATUS_ENABLED_ONLY,
+    type: "1",
+  });
+  return callMicrostore<MicrostoreCustomerListResponse>(url);
+}
+
+/**
+ * Recherche un client par mot-clé (téléphone, id, nom).
+ * Utilisé comme fallback quand un `client_id` de commande ne matche aucune
+ * fiche déjà importée (rare : client créé entre la passe clients et la passe
+ * commandes du rattrapage historique).
+ *
+ * Renvoie des items enrichis (email, country, VAT, etc.) — plus complets
+ * que ceux de `microstoreListCustomers`.
+ */
+export async function microstoreSearchCustomer(opts: {
+  keyword: string;
+  page?: number;
+  pageNum?: number;
+}): Promise<{
+  err: number;
+  msg?: string;
+  list: MicrostoreCustomerSearchItem[];
+  list_num: number;
+  is_last: number;
+}> {
+  const url = await buildMicrostoreUrl("/customer/search", {
+    client_type: "1",
+    bi_key: "clientList",
+    days: "-1",
+    order: "utime",
+    isasc: "0",
+    keyword: opts.keyword,
+    page: String(opts.page ?? 1),
+    page_num: String(opts.pageNum ?? 100),
+    client_status: CUSTOMER_LIST_STATUS_ENABLED_ONLY,
+  });
+  return callMicrostore<{
+    err: number;
+    msg?: string;
+    list: MicrostoreCustomerSearchItem[];
+    list_num: number;
+    is_last: number;
+  }>(url);
 }
 
 // ─── Utilitaires normalisation ───────────────────────────────────────────
