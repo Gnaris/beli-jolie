@@ -2938,7 +2938,7 @@ model MessageAttachment {
 model Claim {
   id                     String       @id @default(cuid())
   reference              String
-  subject                String
+  subject                String       @default("")
   status                 ClaimStatus  @default(OPEN)
   userId                 String
   user                   User         @relation(fields: [userId], references: [id])
