@@ -17,6 +17,12 @@ describe("pfs-verify-apply — support checks (Lot B)", () => {
     }
   });
 
+  it("supporte le PULL composition (ajouté 2026-08-01 — pull auto via API admin PFS + resolvePfsCompositionsToLocal)", () => {
+    expect(isPushSupportedLotB("product", "composition")).toBe(true);
+    expect(isPullSupportedLotB("product", "composition")).toBe(true);
+    expect(isFieldSupportedLotB("product", "composition")).toBe(true);
+  });
+
   it("supporte les champs variante simples (prix / stock / poids / actif)", () => {
     for (const f of ["price", "stock", "weight", "isActive"]) {
       expect(isPushSupportedLotB("color", f)).toBe(true);
@@ -24,8 +30,8 @@ describe("pfs-verify-apply — support checks (Lot B)", () => {
     }
   });
 
-  it("autorise l'ENVOI pour composition/pays/saison/genre/catégorie/famille (push OK), mais BLOQUE la récupération (pull KO — Lot C)", () => {
-    for (const f of ["composition", "country", "season", "gender", "category", "family"]) {
+  it("autorise l'ENVOI pour pays/saison/genre/catégorie/famille (push OK), mais BLOQUE la récupération (pull KO — Lot C restant)", () => {
+    for (const f of ["country", "season", "gender", "category", "family"]) {
       expect(isPushSupportedLotB("product", f)).toBe(true);
       expect(isPullSupportedLotB("product", f)).toBe(false);
     }

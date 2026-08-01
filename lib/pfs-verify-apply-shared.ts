@@ -39,6 +39,7 @@ const PRODUCT_FIELDS_PULL = new Set([
   "dimensions",
   "isBestSeller",
   "productStatus",
+  "composition",
 ]);
 
 // `missingVariant` / `extraVariant` sont considérés comme des champs "variante"

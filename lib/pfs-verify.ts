@@ -626,13 +626,16 @@ export function comparePfsProduct(
       blockingMappingIssue: `Composition « ${list} » non liée à PFS. Ouvrez Paramètres > Compositions et renseignez la référence PFS, puis relancez l'audit.`,
     });
   } else if (expectedP.composition !== actualP.composition) {
+    // Pull auto disponible : buildProductPullPatch (pfs-verify-apply.ts)
+    // sait résoudre `material_composition` → ProductComposition locale via
+    // le mapping pfsCompositionRef, avec auto-création si le code PFS est
+    // inconnu localement.
     issues.push({
       scope: "product",
       field: "composition",
       fieldLabel: "Composition",
       pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
       expectedValue: formatCompositionForDisplayHuman(expectedP.composition, labels?.compositionLabelByRef, local.compositions),
-      pullBlocked: PULL_LOT_C_REASON,
     });
   }
 

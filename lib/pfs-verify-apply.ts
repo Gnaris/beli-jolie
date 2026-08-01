@@ -48,6 +48,8 @@ import {
   pullRemoveLocalVariant,
 } from "@/lib/pfs-verify-variant-ops";
 import { Prisma } from "@prisma/client";
+import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { createOrLinkMapping } from "@/lib/pfs-import";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -124,6 +126,7 @@ export async function applyPfsVerifyPullsOnly(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
+  await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
   const [markupConfigs, outOfStockCfg] = await Promise.all([
@@ -182,7 +185,7 @@ export async function applyPfsVerifyPullsOnly(
   const pullLocalPatch: LocalPatch = { product: {}, variants: new Map() };
   for (const a of productPullActions) {
     try {
-      buildProductPullPatch(a, ctx, pullLocalPatch);
+      await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {
       report.errors.push({ key: a.rawKey, error: humanizeError(err) });
@@ -197,7 +200,10 @@ export async function applyPfsVerifyPullsOnly(
     }
   }
 
-  const hadPatch = Object.keys(pullLocalPatch.product).length > 0 || pullLocalPatch.variants.size > 0;
+  const hadPatch =
+    Object.keys(pullLocalPatch.product).length > 0 ||
+    pullLocalPatch.variants.size > 0 ||
+    pullLocalPatch.compositions !== undefined;
   if (hadPatch) {
     await commitLocalPatch(productId, local, pullLocalPatch);
   }
@@ -226,6 +232,7 @@ export async function applyPfsVerifyActions(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
+  await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
   const [markupConfigs, outOfStockCfg] = await Promise.all([
@@ -297,7 +304,7 @@ export async function applyPfsVerifyActions(
 
   for (const a of productPullActions) {
     try {
-      buildProductPullPatch(a, ctx, pullLocalPatch);
+      await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {
       report.errors.push({ key: a.rawKey, error: humanizeError(err) });
@@ -313,7 +320,9 @@ export async function applyPfsVerifyActions(
   }
 
   const hadScalarPull =
-    Object.keys(pullLocalPatch.product).length > 0 || pullLocalPatch.variants.size > 0;
+    Object.keys(pullLocalPatch.product).length > 0 ||
+    pullLocalPatch.variants.size > 0 ||
+    pullLocalPatch.compositions !== undefined;
   if (hadScalarPull) {
     await commitLocalPatch(productId, local, pullLocalPatch);
   }
@@ -393,6 +402,7 @@ async function loadProductWithVariants(productId: string) {
       isBestSeller: true,
       pfsProductId: true,
       pfsLastSyncSnapshot: true,
+      tenantId: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -492,6 +502,40 @@ function normalizeColorRef(ref: string): string {
     .toUpperCase();
 }
 
+// ─── Enrichissement compo depuis API admin PFS ─────────────────────────────
+
+/**
+ * Si l'API wholesaler PFS renvoie une composition vide (bug PFS pour les
+ * produits créés via l'appli mobile), on va la relire côté API admin
+ * (mobile). Mutation en place de `checkRefProduct.material_composition`.
+ * Best-effort : silencieux en cas d'échec (compo restera vide, comportement
+ * pré-existant).
+ */
+async function enrichCheckRefCompositionIfEmpty(
+  checkRefProduct: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>,
+  reference: string,
+): Promise<void> {
+  if ((checkRefProduct.material_composition ?? []).length > 0) return;
+  if (!checkRefProduct.id) return;
+  try {
+    const fallback = await pfsAdminFetchMaterialComposition(checkRefProduct.id);
+    if (fallback.length > 0) {
+      checkRefProduct.material_composition = fallback;
+      logger.info("[PFS Verify Apply] Composition enrichie via API admin", {
+        pfsProductId: checkRefProduct.id,
+        reference,
+        count: fallback.length,
+      });
+    }
+  } catch (err) {
+    logger.warn("[PFS Verify Apply] Fallback composition (API admin) échoué", {
+      pfsProductId: checkRefProduct.id,
+      reference,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ─── Construction du patch local (pulls) ───────────────────────────────────
 
 interface LocalPatch {
@@ -506,13 +550,21 @@ interface LocalPatch {
     dimensionDiameter: number | null;
     dimensionCircumference: number | null;
   }>;
+  /**
+   * Nouvel état exhaustif des ProductComposition (remplace complètement les
+   * lignes existantes en base). `undefined` = pas de pull compo demandé.
+   * Array vide = compo à effacer (jamais utilisé aujourd'hui — l'audit ne
+   * détecte pas d'écart quand PFS a `[]` et local a `[]`, et un pull ne
+   * s'applique que sur écart).
+   */
+  compositions?: { compositionId: string; percentage: number }[];
   variants: Map<
     string,
     Partial<{ unitPrice: number; stock: number; weight: number; disabled: boolean }>
   >;
 }
 
-function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalPatch): void {
+async function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalPatch): Promise<void> {
   const pfs = ctx.pfsProduct;
   switch (a.field) {
     case "name":
@@ -551,9 +603,61 @@ function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalP
       else throw new Error(`Statut PFS inconnu : ${raw}`);
       return;
     }
+    case "composition": {
+      patch.compositions = await resolvePfsCompositionsToLocal(pfs.material_composition ?? []);
+      return;
+    }
     default:
       throw new Error(`Champ produit non supporté (pull) : ${a.field}`);
   }
+}
+
+/**
+ * Prend un array de composition PFS (format `checkRef.material_composition`)
+ * et le convertit en lignes `ProductComposition` prêtes à écrire en base :
+ *   1. Résolution `Composition` locale par `pfsCompositionRef` (= code PFS).
+ *   2. Si absente : auto-création via `createOrLinkMapping` (comportement
+ *      identique à l'import PFS — libellé FR/EN pré-remplis, mapping posé).
+ *   3. Dédoublonnage : si 2 codes PFS distincts mappent sur la même
+ *      Composition locale (alias par nom), on additionne les pourcentages
+ *      (cohérent avec pfs-import.ts:1470).
+ */
+export async function resolvePfsCompositionsToLocal(
+  pfsCompositions: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>["material_composition"],
+): Promise<{ compositionId: string; percentage: number }[]> {
+  if (pfsCompositions.length === 0) return [];
+  const uniqueRefs = Array.from(new Set(pfsCompositions.map((m) => m.reference).filter(Boolean)));
+  const existingRows = uniqueRefs.length > 0
+    ? await prisma.composition.findMany({
+        where: { pfsCompositionRef: { in: uniqueRefs } },
+        select: { id: true, pfsCompositionRef: true },
+      })
+    : [];
+  const byRef = new Map(existingRows.map((r) => [r.pfsCompositionRef, r.id]));
+
+  const merged = new Map<string, { compositionId: string; percentage: number }>();
+  for (const mat of pfsCompositions) {
+    let compositionId = byRef.get(mat.reference);
+    if (!compositionId) {
+      const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
+      const enLabel = mat.labels?.en ?? null;
+      const created = await createOrLinkMapping({
+        type: "composition",
+        pfsRef: mat.reference,
+        label,
+        enLabel,
+      });
+      compositionId = created.id;
+      byRef.set(mat.reference, compositionId);
+    }
+    const existing = merged.get(compositionId);
+    if (existing) {
+      existing.percentage += mat.percentage;
+    } else {
+      merged.set(compositionId, { compositionId, percentage: mat.percentage });
+    }
+  }
+  return Array.from(merged.values());
 }
 
 function buildVariantPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalPatch): void {
@@ -612,8 +716,27 @@ async function commitLocalPatch(
   };
 
   await prisma.$transaction(async (tx) => {
-    if (Object.keys(patch.product).length > 0 || Object.keys(otherMarketplaceFlags).length > 0) {
+    if (
+      Object.keys(patch.product).length > 0 ||
+      Object.keys(otherMarketplaceFlags).length > 0 ||
+      patch.compositions !== undefined
+    ) {
       await tx.product.update({ where: { id: productId }, data: productData });
+    }
+    if (patch.compositions !== undefined) {
+      // Remplacement complet : delete puis recréation. Plus simple et plus
+      // robuste qu'un diff (nombre de compos < 5 en pratique).
+      await tx.productComposition.deleteMany({ where: { productId } });
+      if (patch.compositions.length > 0) {
+        await tx.productComposition.createMany({
+          data: patch.compositions.map((c) => ({
+            productId,
+            compositionId: c.compositionId,
+            percentage: c.percentage,
+            tenantId: local.tenantId,
+          })),
+        });
+      }
     }
     for (const [variantId, data] of patch.variants) {
       const upd: Prisma.ProductColorUpdateInput = {};
