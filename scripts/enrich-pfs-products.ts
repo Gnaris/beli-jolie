@@ -20,10 +20,12 @@ import {
 } from "@/lib/pfs-import";
 import { getCountryByIso, getCountryByPfsRef } from "@/lib/countries";
 import { logger } from "@/lib/logger";
+import { tenantALS } from "@/lib/tenant-als";
 
 interface Target {
   id: string;
   reference: string;
+  tenantId: string;
   needCompositions: boolean;
   needCountry: boolean;
   needSeason: boolean;
@@ -142,6 +144,7 @@ async function main() {
     select: {
       id: true,
       reference: true,
+      tenantId: true,
       countryIsoCode: true,
       seasonId: true,
       compositions: { select: { id: true } },
@@ -150,6 +153,10 @@ async function main() {
 
   const targets: Target[] = [];
   for (const p of all) {
+    if (!p.tenantId) {
+      console.warn(`[Enrich PFS] Produit ${p.reference} sans tenantId — skip pour éviter d'orphaner les writes.`);
+      continue;
+    }
     const needCompositions = p.compositions.length === 0;
     const needCountry = !p.countryIsoCode;
     const needSeason = !p.seasonId;
@@ -157,6 +164,7 @@ async function main() {
       targets.push({
         id: p.id,
         reference: p.reference,
+        tenantId: p.tenantId,
         needCompositions,
         needCountry,
         needSeason,
@@ -170,7 +178,12 @@ async function main() {
   let i = 0;
   for (const t of targets) {
     i++;
-    const result = await enrichOne(t);
+    // Wrap dans l'ALS du tenant du produit : sans ça, l'extension Prisma
+    // retombe en passthrough (script hors request context) et toutes les
+    // lignes créées (ProductComposition, Composition auto-créée, Season…)
+    // atterrissent avec tenantId=NULL — invisibles aux reads tenant-scopés
+    // et cause du P2002 sur les prochains audits (incident 2026-08-02).
+    const result = await tenantALS.run(t.tenantId, () => enrichOne(t));
     if (result.ok) {
       ok++;
       if (i % 10 === 0 || i === targets.length) {

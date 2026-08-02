@@ -5,7 +5,8 @@
  * array `{ compositionId, percentage }[]` pour la table ProductComposition à
  * partir du format PFS (checkRef.material_composition), avec :
  *   - résolution des codes PFS connus (Composition existante mappée)
- *   - auto-création via createOrLinkMapping des codes inconnus
+ *   - BLOCAGE + erreur claire si un code PFS n'a pas de mapping local
+ *     (règle post-incident 2026-08-01 : jamais d'auto-création silencieuse)
  *   - dédoublonnage + merge des pourcentages si 2 codes PFS mappent vers la
  *     même Composition locale (alias par nom)
  */
@@ -13,18 +14,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted requis : Vitest lève les vi.mock() en haut du fichier, ce qui les
-// exécute AVANT toute déclaration classique. Sans hoisted, `prismaMock` et
-// `createOrLinkMappingMock` sont undefined au moment où pfs-verify-apply.ts
-// est parsé (car il importe prisma en top-level).
-const { prismaMock, createOrLinkMappingMock } = vi.hoisted(() => ({
+// exécute AVANT toute déclaration classique. Sans hoisted, `prismaMock` est
+// undefined au moment où pfs-verify-apply.ts est parsé (car il importe
+// prisma en top-level).
+const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     composition: { findMany: vi.fn() },
   },
-  createOrLinkMappingMock: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
-vi.mock("@/lib/pfs-import", () => ({ createOrLinkMapping: createOrLinkMappingMock }));
+vi.mock("@/lib/pfs-import", () => ({ createOrLinkMapping: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -76,29 +76,31 @@ describe("resolvePfsCompositionsToLocal", () => {
     const result = await resolvePfsCompositionsToLocal([]);
     expect(result).toEqual([]);
     expect(prismaMock.composition.findMany).not.toHaveBeenCalled();
-    expect(createOrLinkMappingMock).not.toHaveBeenCalled();
   });
 
-  it("résout un code PFS connu (Composition existante) sans auto-création", async () => {
+  it("résout un code PFS connu (Composition existante)", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
       { id: "loc-cotton", pfsCompositionRef: "COTTON" },
     ]);
     const result = await resolvePfsCompositionsToLocal([compoCoton()]);
     expect(result).toEqual([{ compositionId: "loc-cotton", percentage: 100 }]);
-    expect(createOrLinkMappingMock).not.toHaveBeenCalled();
   });
 
-  it("auto-crée la Composition via createOrLinkMapping quand le code PFS est inconnu", async () => {
+  it("lève une erreur claire quand le code PFS n'a pas de mapping local (jamais d'auto-création)", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([]); // aucun mapping existant
-    createOrLinkMappingMock.mockResolvedValueOnce({ id: "loc-new-acier", name: "Acier inoxydable" });
-    const result = await resolvePfsCompositionsToLocal([compoAcier()]);
-    expect(createOrLinkMappingMock).toHaveBeenCalledWith({
-      type: "composition",
-      pfsRef: "ACIERINOXYDABLE",
-      label: "Acier inoxydable",
-      enLabel: null,
-    });
-    expect(result).toEqual([{ compositionId: "loc-new-acier", percentage: 100 }]);
+    await expect(resolvePfsCompositionsToLocal([compoAcier()])).rejects.toThrow(
+      /« Acier inoxydable »/,
+    );
+  });
+
+  it("liste toutes les matières manquantes dans le message d'erreur", async () => {
+    prismaMock.composition.findMany.mockResolvedValueOnce([]);
+    await expect(
+      resolvePfsCompositionsToLocal([
+        compoCoton(),
+        compoAcier(),
+      ]),
+    ).rejects.toThrow(/« Coton »[^«]+« Acier inoxydable »/);
   });
 
   it("gère plusieurs compositions (multi-slots) — reference distincts, garde chacune", async () => {
@@ -140,17 +142,12 @@ describe("resolvePfsCompositionsToLocal", () => {
     expect(result).toEqual([{ compositionId: "loc-silver", percentage: 92.5 }]);
   });
 
-  it("utilise le libellé EN en fallback si le libellé FR est absent lors de l'auto-création", async () => {
+  it("utilise le libellé EN en fallback dans le message d'erreur si le libellé FR est absent", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([]);
-    createOrLinkMappingMock.mockResolvedValueOnce({ id: "loc-new", name: "Wool" });
-    await resolvePfsCompositionsToLocal([
-      { id: "1", reference: "WOOL", percentage: 100, labels: { en: "Wool" } },
-    ]);
-    expect(createOrLinkMappingMock).toHaveBeenCalledWith({
-      type: "composition",
-      pfsRef: "WOOL",
-      label: "Wool",
-      enLabel: "Wool",
-    });
+    await expect(
+      resolvePfsCompositionsToLocal([
+        { id: "1", reference: "WOOL", percentage: 100, labels: { en: "Wool" } },
+      ]),
+    ).rejects.toThrow(/« Wool »/);
   });
 });

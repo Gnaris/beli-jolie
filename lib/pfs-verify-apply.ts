@@ -49,7 +49,6 @@ import {
 } from "@/lib/pfs-verify-variant-ops";
 import { Prisma } from "@prisma/client";
 import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
-import { createOrLinkMapping } from "@/lib/pfs-import";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -616,8 +615,12 @@ async function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: 
  * Prend un array de composition PFS (format `checkRef.material_composition`)
  * et le convertit en lignes `ProductComposition` prêtes à écrire en base :
  *   1. Résolution `Composition` locale par `pfsCompositionRef` (= code PFS).
- *   2. Si absente : auto-création via `createOrLinkMapping` (comportement
- *      identique à l'import PFS — libellé FR/EN pré-remplis, mapping posé).
+ *   2. Si absente : ON BLOQUE — jette une erreur listant les matières PFS
+ *      sans mapping local. La cliente doit créer la Composition manuellement
+ *      dans Paramètres avant de relancer l'audit (règle établie après
+ *      l'incident du 2026-08-01 : PFS Salesforce stocke les codes de manière
+ *      incohérente, l'auto-création créait des doublons Elastane/Élasthanne,
+ *      Cotton/Coton…).
  *   3. Dédoublonnage : si 2 codes PFS distincts mappent sur la même
  *      Composition locale (alias par nom), on additionne les pourcentages
  *      (cohérent avec pfs-import.ts:1470).
@@ -635,20 +638,14 @@ export async function resolvePfsCompositionsToLocal(
     : [];
   const byRef = new Map(existingRows.map((r) => [r.pfsCompositionRef, r.id]));
 
+  const missingLabels: string[] = [];
   const merged = new Map<string, { compositionId: string; percentage: number }>();
   for (const mat of pfsCompositions) {
-    let compositionId = byRef.get(mat.reference);
+    const compositionId = byRef.get(mat.reference);
     if (!compositionId) {
-      const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
-      const enLabel = mat.labels?.en ?? null;
-      const created = await createOrLinkMapping({
-        type: "composition",
-        pfsRef: mat.reference,
-        label,
-        enLabel,
-      });
-      compositionId = created.id;
-      byRef.set(mat.reference, compositionId);
+      const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference ?? "(sans nom)";
+      if (!missingLabels.includes(label)) missingLabels.push(label);
+      continue;
     }
     const existing = merged.get(compositionId);
     if (existing) {
@@ -656,6 +653,13 @@ export async function resolvePfsCompositionsToLocal(
     } else {
       merged.set(compositionId, { compositionId, percentage: mat.percentage });
     }
+  }
+  if (missingLabels.length > 0) {
+    const list = missingLabels.map((l) => `« ${l} »`).join(", ");
+    const plural = missingLabels.length > 1 ? "s" : "";
+    throw new Error(
+      `Composition${plural} ${list} absente${plural} de la bibliothèque locale. Créez-la${plural} dans Paramètres → Compositions avant de relancer l'audit.`,
+    );
   }
   return Array.from(merged.values());
 }

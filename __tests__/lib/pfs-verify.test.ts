@@ -206,7 +206,10 @@ describe("comparePfsProduct", () => {
     });
   });
 
-  it("détecte un écart de composition (ordre indépendant)", () => {
+  it("détecte un écart de composition (compo BJ orpheline sans équivalent PFS)", () => {
+    // Local a 2 compos (Laiton + Zircon), PFS n'a que Laiton. La compo
+    // "Zircon" est orpheline → on remonte un blocage qui demande de la
+    // corriger côté catalogue local (aucune auto-création dans PFS).
     const local = makeLocalProduct({
       compositions: [
         { percentage: 80, composition: { pfsCompositionRef: "LAITON", name: "Laiton" } },
@@ -224,11 +227,10 @@ describe("comparePfsProduct", () => {
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     const compo = issues.find((i) => i.field === "composition");
     expect(compo).toBeDefined();
-    // "Attendu" utilise le nom local de la composition (fallback quand la
-    // map PFS n'est pas fournie dans les tests) ; côté PFS on garde la REF
-    // brute puisqu'aucun mapping PFS n'est câblé ici.
-    expect(compo?.expectedValue).toBe("Laiton 80%, Zircon 20%");
+    expect(compo?.expectedValue).toContain("Zircon");
+    expect(compo?.expectedValue).toContain("Sans équivalent PFS");
     expect(compo?.pfsValue).toBe("LAITON 100%");
+    expect(compo?.blockingMappingIssue).toContain("Zircon");
   });
 
   it("détecte des écarts prix + stock sur une variante", () => {
@@ -354,6 +356,62 @@ describe("comparePfsProduct", () => {
     ];
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     expect(issues.find((i) => i.field === "composition")).toBeUndefined();
+  });
+
+  it("réconcilie « Coton » ↔ « COTTON » via le libellé FR PFS et déclenche l'auto-guérison", () => {
+    // Reproduit le bug production : local a stocké « Coton » comme
+    // pfsCompositionRef (au lieu de « COTTON » — bug d'import historique).
+    // La compo BJ nommée « Coton » doit être réconciliée avec la matière
+    // PFS « COTTON » via le libellé FR "Coton", sans faux positif et en
+    // proposant une auto-guérison de `pfsCompositionRef`.
+    const local = makeLocalProduct({
+      compositions: [
+        { percentage: 100, composition: { id: "c-coton", pfsCompositionRef: "Coton", name: "Coton" } },
+      ],
+    });
+    const pfsProduct = makePfsProduct({
+      material_composition: [
+        { id: "cm1", reference: "COTTON", percentage: 100, labels: { fr: "Coton" } },
+      ],
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const heals: Array<{ localCompositionId: string; newPfsRef: string }> = [];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      onCompositionAutoHeal: (h) => heals.push({ localCompositionId: h.localCompositionId, newPfsRef: h.newPfsRef }),
+    });
+    expect(issues.find((i) => i.field === "composition")).toBeUndefined();
+    expect(heals).toEqual([{ localCompositionId: "c-coton", newPfsRef: "COTTON" }]);
+  });
+
+  it("bloque quand PFS renvoie une matière absente du catalogue BJ (création manuelle exigée)", () => {
+    // PFS a « CACHEMIRE », local n'a que « Coton ». Aucune auto-création :
+    // l'admin doit créer la composition manuellement dans Paramètres.
+    const local = makeLocalProduct({
+      compositions: [
+        { percentage: 100, composition: { id: "c-coton", pfsCompositionRef: "COTTON", name: "Coton" } },
+      ],
+    });
+    const pfsProduct = makePfsProduct({
+      material_composition: [
+        { id: "cm1", reference: "COTTON", percentage: 80, labels: { fr: "Coton" } },
+        { id: "cm2", reference: "CACHEMIRE", percentage: 20, labels: { fr: "Cachemire" } },
+      ],
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const heals: unknown[] = [];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      onCompositionAutoHeal: (h) => heals.push(h),
+    });
+    const compoIssue = issues.find((i) => i.field === "composition");
+    expect(compoIssue).toBeDefined();
+    expect(compoIssue?.blockingMappingIssue).toContain("Cachemire");
+    expect(compoIssue?.blockingMappingIssue).toContain("créez-la");
+    // Pas de guérison automatique (l'écart existe pour de vrai).
+    expect(heals).toEqual([]);
   });
 
   it("matche les variantes même si la casse/accents de la couleur diffèrent (Rose ↔ ROSE)", () => {

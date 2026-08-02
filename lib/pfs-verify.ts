@@ -180,7 +180,10 @@ interface FullProduct {
   colors: FullVariant[];
   compositions: {
     percentage: number | { toString(): string };
-    composition: { pfsCompositionRef: string | null; name: string };
+    // `id` optionnel car les tests fabriquent des Composition sans id ; en
+    // requête réelle (`loadProductFull`) on le charge pour permettre
+    // l'auto-guérison de `pfsCompositionRef`.
+    composition: { id?: string; pfsCompositionRef: string | null; name: string };
   }[];
   countryIsoCode: string | null;
   season: { pfsRef: string | null; name: string } | null;
@@ -340,7 +343,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: { percentage: true, composition: { select: { pfsCompositionRef: true, name: true } } },
+        select: { percentage: true, composition: { select: { id: true, pfsCompositionRef: true, name: true } } },
       },
       countryIsoCode: true,
       season: { select: { pfsRef: true, name: true } },
@@ -558,6 +561,13 @@ export function comparePfsProduct(
     /** Tables de correspondance pour afficher des noms humains à la place
      *  des IDs Salesforce / refs techniques. */
     labels?: PfsLabelMaps;
+    /**
+     * Callback invoqué quand la composition PFS et la composition locale
+     * matchent par nom (libellé FR) mais que le `pfsCompositionRef` local
+     * est différent de la vraie ref PFS. Le caller (`verifyPfsProduct`)
+     * l'utilise pour auto-guérir en base. Ne pas passer = pas d'effet.
+     */
+    onCompositionAutoHeal?: (heal: CompositionAutoHealAction) => void;
   },
 ): PfsVerifyIssue[] {
   const issues: PfsVerifyIssue[] = [];
@@ -606,37 +616,71 @@ export function comparePfsProduct(
 
   const labels = opts.labels;
 
-  // Composition : détecte séparément 2 cas
-  //  - Mapping BJ manquant : au moins une composition BJ sans pfsCompositionRef
-  //    alors que PFS en renvoie une → on ne peut pas comparer proprement,
-  //    on bloque la fiche entière.
-  //  - Écart de valeur classique : mappings OK des deux côtés mais valeurs différentes.
-  const unmappedCompositions = local.compositions
-    .filter((c) => !c.composition.pfsCompositionRef)
-    .map((c) => c.composition.name);
-  if (unmappedCompositions.length > 0 && actualP.composition.length > 0) {
-    const list = unmappedCompositions.join(" · ");
-    issues.push({
-      scope: "product",
-      field: "composition",
-      fieldLabel: "Composition",
-      pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
-      expectedValue: `${list} — non liée à PFS`,
-      pullBlocked: `Composition « ${list} » non liée à PFS.`,
-      blockingMappingIssue: `Composition « ${list} » non liée à PFS. Ouvrez Paramètres > Compositions et renseignez la référence PFS, puis relancez l'audit.`,
-    });
-  } else if (expectedP.composition !== actualP.composition) {
-    // Pull auto disponible : buildProductPullPatch (pfs-verify-apply.ts)
-    // sait résoudre `material_composition` → ProductComposition locale via
-    // le mapping pfsCompositionRef, avec auto-création si le code PFS est
-    // inconnu localement.
-    issues.push({
-      scope: "product",
-      field: "composition",
-      fieldLabel: "Composition",
-      pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
-      expectedValue: formatCompositionForDisplayHuman(expectedP.composition, labels?.compositionLabelByRef, local.compositions),
-    });
+  // Composition — 3 cas :
+  //  (1) Sig identique côté BJ et PFS → aucun écart.
+  //  (2) Sig différent MAIS chaque matière PFS trouve une compo locale par
+  //      nom FR (le mauvais `pfsCompositionRef` local sera guéri via callback
+  //      et l'écart est masqué : plus de faux positif "Coton" vs "COTTON").
+  //  (3) Sig différent avec au moins une matière introuvable côté BJ (nom
+  //      absent du catalogue local) OU une compo BJ orpheline (absente PFS)
+  //      OU un écart de % → on remonte l'écart, avec un message spécifique
+  //      quand il faut créer la composition manuellement.
+  if (expectedP.composition !== actualP.composition) {
+    const reconcile = reconcileCompositionsByLabel(
+      local.compositions,
+      pfsProduct.material_composition ?? [],
+      labels?.compositionLabelByRef,
+    );
+
+    if (reconcile.aligned) {
+      // Cas (2) — même matière, mauvais code PFS local → auto-guérison.
+      for (const h of reconcile.heals) opts.onCompositionAutoHeal?.(h);
+    } else if (
+      reconcile.missingLocalNames.length > 0 ||
+      reconcile.orphanLocalNames.length > 0
+    ) {
+      // Cas (3a) — au moins une matière n'a pas d'équivalent d'un côté :
+      //   - `missingLocalNames` : PFS renvoie une matière absente du catalogue BJ
+      //     → création manuelle requise, aucune auto-création automatique.
+      //   - `orphanLocalNames` : BJ a une compo sans équivalent PFS (par ref
+      //     ou par nom) → à corriger côté catalogue local.
+      // Le message couvre les 2 directions pour indiquer précisément
+      // ce que l'admin doit faire.
+      const parts: string[] = [];
+      const blockingParts: string[] = [];
+      if (reconcile.missingLocalNames.length > 0) {
+        const list = reconcile.missingLocalNames.join(" · ");
+        parts.push(`Manque côté BJ : ${list}`);
+        blockingParts.push(
+          `Composition « ${list} » présente sur PFS mais absente de votre catalogue — créez-la dans Paramètres > Compositions avec la bonne référence PFS.`,
+        );
+      }
+      if (reconcile.orphanLocalNames.length > 0) {
+        const list = reconcile.orphanLocalNames.join(" · ");
+        parts.push(`Sans équivalent PFS : ${list}`);
+        blockingParts.push(
+          `Composition « ${list} » présente côté BJ mais sans équivalent PFS — renseignez sa bonne référence PFS dans Paramètres > Compositions.`,
+        );
+      }
+      issues.push({
+        scope: "product",
+        field: "composition",
+        fieldLabel: "Composition",
+        pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
+        expectedValue: parts.join(" · "),
+        pullBlocked: blockingParts.join(" "),
+        blockingMappingIssue: `${blockingParts.join(" ")} Puis relancez l'audit.`,
+      });
+    } else {
+      // Cas (3b) — écart de % uniquement (matières identifiées des 2 côtés).
+      issues.push({
+        scope: "product",
+        field: "composition",
+        fieldLabel: "Composition",
+        pfsValue: formatCompositionForDisplayHuman(actualP.composition, labels?.compositionLabelByRef),
+        expectedValue: formatCompositionForDisplayHuman(expectedP.composition, labels?.compositionLabelByRef, local.compositions),
+      });
+    }
   }
 
   if (expectedP.country !== actualP.country) {
@@ -910,6 +954,128 @@ function normalizeCompositionRef(ref: string): string {
 }
 
 /**
+ * Guérison automatique candidate : quand PFS renvoie une matière avec sa
+ * vraie référence (ex: "COTTON") et que localement on a une composition
+ * portant le bon libellé français ("Coton") mais un mauvais
+ * `pfsCompositionRef` ("Coton"), on peut aligner sans intervention manuelle.
+ * `verifyPfsProduct` applique ces guérisons après la compare.
+ */
+export interface CompositionAutoHealAction {
+  localCompositionId: string;
+  localName: string;
+  currentPfsRef: string | null;
+  newPfsRef: string;
+}
+
+interface CompositionReconcileResult {
+  /** Toutes les entrées PFS ont un équivalent local (par ref ou par nom)
+   *  ET toutes les entrées locales ont un équivalent côté PFS ET les % correspondent. */
+  aligned: boolean;
+  /** Noms FR (labelMap) des matières PFS sans équivalent local par nom. */
+  missingLocalNames: string[];
+  /** Noms locaux des compositions sans équivalent PFS. */
+  orphanLocalNames: string[];
+  /** Guérisons à appliquer si aligned=true. */
+  heals: CompositionAutoHealAction[];
+}
+
+/**
+ * Tente de réconcilier compositions locales et PFS quand les signatures
+ * `REF:pct|REF:pct` ne matchent pas :
+ *  1. Match direct par ref normalisée (ex: "Acier inoxydable" ↔ "ACIERINOXYDABLE").
+ *  2. Fallback : match par libellé FR PFS (ex: "COTTON" ↔ "Coton") — utilisé
+ *     quand `Composition.pfsCompositionRef` local a été mal stocké
+ *     (bug d'import historique, voir `scripts/backfill-composition-refs.ts`).
+ *
+ * Ne crée jamais de composition locale. Si PFS a une matière absente du
+ * catalogue local, on la signale — l'admin doit la créer manuellement.
+ */
+function reconcileCompositionsByLabel(
+  local: FullProduct["compositions"],
+  pfs: Array<{ reference: string; percentage: number; labels?: Record<string, string> }>,
+  compositionLabelByRef: Map<string, string> | undefined,
+): CompositionReconcileResult {
+  // Normalisation nom pour matching : sans accents, sans espaces, uppercase.
+  const normName = (s: string): string => normalizeCompositionRef(s);
+
+  // Index local : par ref (si pfsCompositionRef présent) et par nom normalisé.
+  interface LocalEntry {
+    id: string | undefined;
+    name: string;
+    ref: string | null;
+    normRef: string | null;
+    normName: string;
+    pct: number;
+    consumed: boolean;
+  }
+  const locals: LocalEntry[] = local.map((c) => ({
+    id: c.composition.id,
+    name: c.composition.name,
+    ref: c.composition.pfsCompositionRef,
+    normRef: c.composition.pfsCompositionRef ? normalizeCompositionRef(c.composition.pfsCompositionRef) : null,
+    normName: normName(c.composition.name),
+    pct: Number(c.percentage),
+    consumed: false,
+  }));
+
+  const heals: CompositionAutoHealAction[] = [];
+  const missingLocalNames: string[] = [];
+
+  for (const pfsEntry of pfs) {
+    const normPfsRef = normalizeCompositionRef(pfsEntry.reference);
+    const pfsFrLabel =
+      pfsEntry.labels?.fr?.trim() || compositionLabelByRef?.get(normPfsRef) || pfsEntry.reference;
+    const normPfsLabel = normName(pfsFrLabel);
+
+    // Étape 1 : match direct par ref
+    let match = locals.find((l) => !l.consumed && l.normRef === normPfsRef);
+    // Étape 2 : match par nom (le libellé FR PFS matche le nom local)
+    if (!match) {
+      match = locals.find((l) => !l.consumed && l.normName === normPfsLabel);
+    }
+
+    if (!match) {
+      missingLocalNames.push(pfsFrLabel);
+      continue;
+    }
+    match.consumed = true;
+    // % différent → pas alignable, on renvoie tout de même les autres matchs
+    // (pour info), mais la compare finale re-fera un diff standard.
+    if (Number(match.pct) !== Number(pfsEntry.percentage)) {
+      // On marque un pseudo-heal invalide pour signaler l'écart de %.
+      // Le caller détectera aligned=false et n'appliquera rien.
+      // Simple : on ne heal pas, on laisse le sig diff normal remonter.
+      // Aucune action ici.
+    } else if (match.id && match.normRef !== normPfsRef) {
+      heals.push({
+        localCompositionId: match.id,
+        localName: match.name,
+        currentPfsRef: match.ref,
+        newPfsRef: pfsEntry.reference,
+      });
+    }
+  }
+
+  const orphanLocalNames = locals.filter((l) => !l.consumed).map((l) => l.name);
+  const pctMismatch = locals.some((l) => {
+    if (!l.consumed) return false;
+    const pfsMatch = pfs.find((p) => {
+      const normPfsRef = normalizeCompositionRef(p.reference);
+      if (l.normRef === normPfsRef) return true;
+      const pfsFrLabel =
+        p.labels?.fr?.trim() || compositionLabelByRef?.get(normPfsRef) || p.reference;
+      return normName(pfsFrLabel) === l.normName;
+    });
+    return pfsMatch != null && Number(pfsMatch.percentage) !== Number(l.pct);
+  });
+
+  const aligned =
+    missingLocalNames.length === 0 && orphanLocalNames.length === 0 && !pctMismatch;
+
+  return { aligned, missingLocalNames, orphanLocalNames, heals };
+}
+
+/**
  * Formate un poids en kg pour l'affichage. Bijou = grammes → arrondi au 0.1g.
  * Au-delà de 1 kg (rare) → affichage en kg à 2 décimales.
  */
@@ -1065,6 +1231,12 @@ export async function verifyPfsProduct(
   // évite 5 HTTP + 2 BDD redondants par produit.
   const ctx = context ?? (await loadPfsVerifyContext());
 
+  // Collecte les auto-guérisons de `pfsCompositionRef` détectées pendant la
+  // compare (matières identiques par nom mais mauvais code PFS local, ex :
+  // "Coton" ↔ "COTTON"). Appliquées après la compare pour ne pas mélanger
+  // une mutation dans le flux de calcul.
+  const compositionHeals: CompositionAutoHealAction[] = [];
+
   const issues = comparePfsProduct(
     product,
     checkRef.product,
@@ -1074,8 +1246,45 @@ export async function verifyPfsProduct(
       pfsMarkup: ctx.pfsMarkup,
       outOfStockProductAction: ctx.outOfStockProductAction,
       labels: ctx.labels,
+      onCompositionAutoHeal: (heal) => {
+        compositionHeals.push(heal);
+      },
     },
   );
+
+  if (compositionHeals.length > 0) {
+    await Promise.allSettled(
+      compositionHeals.map(async (heal) => {
+        // Anti-collision : si une AUTRE composition du tenant porte déjà la
+        // vraie ref PFS (ex: doublon historique), on ne l'écrase pas — on
+        // laissera l'admin fusionner manuellement.
+        const collision = await prisma.composition.findFirst({
+          where: { pfsCompositionRef: heal.newPfsRef, NOT: { id: heal.localCompositionId } },
+          select: { id: true, name: true },
+        });
+        if (collision) {
+          logger.warn("[PFS Verify] Auto-heal skippé (collision de ref)", {
+            productReference: product.reference,
+            localName: heal.localName,
+            targetRef: heal.newPfsRef,
+            collidesWithId: collision.id,
+            collidesWithName: collision.name,
+          });
+          return;
+        }
+        await prisma.composition.update({
+          where: { id: heal.localCompositionId },
+          data: { pfsCompositionRef: heal.newPfsRef },
+        });
+        logger.info("[PFS Verify] Auto-guérison pfsCompositionRef", {
+          productReference: product.reference,
+          localName: heal.localName,
+          oldRef: heal.currentPfsRef,
+          newRef: heal.newPfsRef,
+        });
+      }),
+    );
+  }
 
   return {
     ok: true,
