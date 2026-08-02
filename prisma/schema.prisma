@@ -1110,6 +1110,11 @@ model Composition {
   id                 String                   @id @default(cuid())
   name               String
   pfsCompositionRef  String?
+  // Salesforce Uid PFS (globalement stable, immunisé aux fautes d'orthographe
+  // et aux renommages côté PFS). Rempli à la volée par le fallback mobile
+  // via le dictionnaire /attributes/composition, et par backfill sur les
+  // compos existantes. Match prioritaire par Uid dans resolvePfsCompositionsToLocal.
+  pfsCompositionUid  String?
   efashionId         Int?
   faireMaterialLabel String?
   position           Int                      @default(0)
@@ -1122,6 +1127,7 @@ model Composition {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, name])
+  @@unique([tenantId, pfsCompositionUid])
   @@index([tenantId])
 }
 

@@ -183,7 +183,7 @@ interface FullProduct {
     // `id` optionnel car les tests fabriquent des Composition sans id ; en
     // requête réelle (`loadProductFull`) on le charge pour permettre
     // l'auto-guérison de `pfsCompositionRef`.
-    composition: { id?: string; pfsCompositionRef: string | null; name: string };
+    composition: { id?: string; pfsCompositionRef: string | null; pfsCompositionUid?: string | null; name: string };
   }[];
   countryIsoCode: string | null;
   season: { pfsRef: string | null; name: string } | null;
@@ -343,7 +343,7 @@ async function loadProductFull(productId: string): Promise<FullProduct | null> {
         orderBy: { createdAt: "asc" as const },
       },
       compositions: {
-        select: { percentage: true, composition: { select: { id: true, pfsCompositionRef: true, name: true } } },
+        select: { percentage: true, composition: { select: { id: true, pfsCompositionRef: true, pfsCompositionUid: true, name: true } } },
       },
       countryIsoCode: true,
       season: { select: { pfsRef: true, name: true } },
@@ -965,6 +965,11 @@ export interface CompositionAutoHealAction {
   localName: string;
   currentPfsRef: string | null;
   newPfsRef: string;
+  /** Si non-null : PFS a fourni un Salesforce Uid pour cette matière et
+   *  la compo locale n'en a pas encore un — heal parallèle pour aligner
+   *  définitivement la clé Uid (immunise l'audit aux futures fautes
+   *  d'orthographe PFS). */
+  newPfsUid?: string | null;
 }
 
 interface CompositionReconcileResult {
@@ -982,27 +987,33 @@ interface CompositionReconcileResult {
 /**
  * Tente de réconcilier compositions locales et PFS quand les signatures
  * `REF:pct|REF:pct` ne matchent pas :
- *  1. Match direct par ref normalisée (ex: "Acier inoxydable" ↔ "ACIERINOXYDABLE").
- *  2. Fallback : match par libellé FR PFS (ex: "COTTON" ↔ "Coton") — utilisé
+ *  1. Match par Salesforce Uid (le plus fiable — immunisé aux orthographes).
+ *  2. Match direct par ref normalisée (ex: "Acier inoxydable" ↔ "ACIERINOXYDABLE").
+ *  3. Fallback : match par libellé FR PFS (ex: "COTTON" ↔ "Coton") — utilisé
  *     quand `Composition.pfsCompositionRef` local a été mal stocké
- *     (bug d'import historique, voir `scripts/backfill-composition-refs.ts`).
+ *     (bug d'import historique).
  *
  * Ne crée jamais de composition locale. Si PFS a une matière absente du
  * catalogue local, on la signale — l'admin doit la créer manuellement.
+ *
+ * Pose aussi un `newPfsUid` sur les heals quand PFS renvoie un Uid et
+ * que le local n'en a pas — permet de basculer progressivement toutes les
+ * compos existantes sur la clé Uid stable.
  */
 function reconcileCompositionsByLabel(
   local: FullProduct["compositions"],
-  pfs: Array<{ reference: string; percentage: number; labels?: Record<string, string> }>,
+  pfs: Array<{ id?: string; reference: string; percentage: number; labels?: Record<string, string> }>,
   compositionLabelByRef: Map<string, string> | undefined,
 ): CompositionReconcileResult {
   // Normalisation nom pour matching : sans accents, sans espaces, uppercase.
   const normName = (s: string): string => normalizeCompositionRef(s);
 
-  // Index local : par ref (si pfsCompositionRef présent) et par nom normalisé.
+  // Index local : par Uid (priorité 1), par ref (priorité 2), par nom.
   interface LocalEntry {
     id: string | undefined;
     name: string;
     ref: string | null;
+    uid: string | null;
     normRef: string | null;
     normName: string;
     pct: number;
@@ -1012,6 +1023,7 @@ function reconcileCompositionsByLabel(
     id: c.composition.id,
     name: c.composition.name,
     ref: c.composition.pfsCompositionRef,
+    uid: c.composition.pfsCompositionUid ?? null,
     normRef: c.composition.pfsCompositionRef ? normalizeCompositionRef(c.composition.pfsCompositionRef) : null,
     normName: normName(c.composition.name),
     pct: Number(c.percentage),
@@ -1027,9 +1039,13 @@ function reconcileCompositionsByLabel(
       pfsEntry.labels?.fr?.trim() || compositionLabelByRef?.get(normPfsRef) || pfsEntry.reference;
     const normPfsLabel = normName(pfsFrLabel);
 
-    // Étape 1 : match direct par ref
-    let match = locals.find((l) => !l.consumed && l.normRef === normPfsRef);
-    // Étape 2 : match par nom (le libellé FR PFS matche le nom local)
+    // Étape 1 : match par Uid Salesforce (le plus stable)
+    let match = pfsEntry.id ? locals.find((l) => !l.consumed && l.uid === pfsEntry.id) : undefined;
+    // Étape 2 : match direct par ref (Code PFS)
+    if (!match) {
+      match = locals.find((l) => !l.consumed && l.normRef === normPfsRef);
+    }
+    // Étape 3 : match par nom (le libellé FR PFS matche le nom local)
     if (!match) {
       match = locals.find((l) => !l.consumed && l.normName === normPfsLabel);
     }
@@ -1046,12 +1062,13 @@ function reconcileCompositionsByLabel(
       // Le caller détectera aligned=false et n'appliquera rien.
       // Simple : on ne heal pas, on laisse le sig diff normal remonter.
       // Aucune action ici.
-    } else if (match.id && match.normRef !== normPfsRef) {
+    } else if (match.id && (match.normRef !== normPfsRef || (pfsEntry.id && !match.uid))) {
       heals.push({
         localCompositionId: match.id,
         localName: match.name,
         currentPfsRef: match.ref,
         newPfsRef: pfsEntry.reference,
+        newPfsUid: pfsEntry.id && !match.uid ? pfsEntry.id : null,
       });
     }
   }
@@ -1274,13 +1291,17 @@ export async function verifyPfsProduct(
         }
         await prisma.composition.update({
           where: { id: heal.localCompositionId },
-          data: { pfsCompositionRef: heal.newPfsRef },
+          data: {
+            pfsCompositionRef: heal.newPfsRef,
+            ...(heal.newPfsUid ? { pfsCompositionUid: heal.newPfsUid } : {}),
+          },
         });
         logger.info("[PFS Verify] Auto-guérison pfsCompositionRef", {
           productReference: product.reference,
           localName: heal.localName,
           oldRef: heal.currentPfsRef,
           newRef: heal.newPfsRef,
+          newUid: heal.newPfsUid ?? null,
         });
       }),
     );

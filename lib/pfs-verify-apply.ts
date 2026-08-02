@@ -614,44 +614,74 @@ async function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: 
 /**
  * Prend un array de composition PFS (format `checkRef.material_composition`)
  * et le convertit en lignes `ProductComposition` prêtes à écrire en base :
- *   1. Résolution `Composition` locale par `pfsCompositionRef` (= code PFS).
- *   2. Si absente : ON BLOQUE — jette une erreur listant les matières PFS
- *      sans mapping local. La cliente doit créer la Composition manuellement
- *      dans Paramètres avant de relancer l'audit (règle établie après
- *      l'incident du 2026-08-01 : PFS Salesforce stocke les codes de manière
- *      incohérente, l'auto-création créait des doublons Elastane/Élasthanne,
- *      Cotton/Coton…).
- *   3. Dédoublonnage : si 2 codes PFS distincts mappent sur la même
- *      Composition locale (alias par nom), on additionne les pourcentages
- *      (cohérent avec pfs-import.ts:1470).
+ *   1. Résolution `Composition` locale — priorité `pfsCompositionUid`
+ *      (Salesforce Uid, stable et immunisé aux fautes d'orthographe),
+ *      fallback `pfsCompositionRef` (Code PFS) pour compat rétro pendant
+ *      la migration du backfill.
+ *   2. Heal opportuniste : si une compo locale a été trouvée par Ref mais
+ *      n'a pas encore de Uid, on lui pose le Uid PFS courant (aligne
+ *      progressivement toutes les compos existantes sur la clé Uid).
+ *   3. Si aucun match : ON BLOQUE — jette une erreur listant les matières
+ *      PFS sans mapping local. La cliente doit créer la Composition
+ *      manuellement dans Paramètres avant de relancer l'audit (règle
+ *      établie après l'incident du 2026-08-01).
+ *   4. Dédoublonnage : si 2 codes PFS distincts mappent sur la même
+ *      Composition locale (alias par nom), on additionne les pourcentages.
  */
 export async function resolvePfsCompositionsToLocal(
   pfsCompositions: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>["material_composition"],
 ): Promise<{ compositionId: string; percentage: number }[]> {
   if (pfsCompositions.length === 0) return [];
+  const uniqueUids = Array.from(new Set(pfsCompositions.map((m) => m.id).filter(Boolean)));
   const uniqueRefs = Array.from(new Set(pfsCompositions.map((m) => m.reference).filter(Boolean)));
-  const existingRows = uniqueRefs.length > 0
-    ? await prisma.composition.findMany({
-        where: { pfsCompositionRef: { in: uniqueRefs } },
-        select: { id: true, pfsCompositionRef: true },
-      })
-    : [];
-  const byRef = new Map(existingRows.map((r) => [r.pfsCompositionRef, r.id]));
+  const existingRows = await prisma.composition.findMany({
+    where: {
+      OR: [
+        ...(uniqueUids.length > 0 ? [{ pfsCompositionUid: { in: uniqueUids } }] : []),
+        ...(uniqueRefs.length > 0 ? [{ pfsCompositionRef: { in: uniqueRefs } }] : []),
+      ],
+    },
+    select: { id: true, pfsCompositionRef: true, pfsCompositionUid: true },
+  });
+  const byUid = new Map(
+    existingRows.filter((r) => r.pfsCompositionUid).map((r) => [r.pfsCompositionUid!, r]),
+  );
+  const byRef = new Map(
+    existingRows.filter((r) => r.pfsCompositionRef).map((r) => [r.pfsCompositionRef!, r]),
+  );
 
+  const healPromises: Promise<unknown>[] = [];
   const missingLabels: string[] = [];
   const merged = new Map<string, { compositionId: string; percentage: number }>();
   for (const mat of pfsCompositions) {
-    const compositionId = byRef.get(mat.reference);
-    if (!compositionId) {
+    let match = mat.id ? byUid.get(mat.id) : undefined;
+    if (!match && mat.reference) match = byRef.get(mat.reference);
+    if (!match) {
       const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference ?? "(sans nom)";
       if (!missingLabels.includes(label)) missingLabels.push(label);
       continue;
     }
-    const existing = merged.get(compositionId);
+    // Heal opportuniste : matched par Ref mais Uid pas encore rempli localement.
+    if (mat.id && !match.pfsCompositionUid) {
+      healPromises.push(
+        prisma.composition
+          .update({ where: { id: match.id }, data: { pfsCompositionUid: mat.id } })
+          .catch((err) =>
+            logger.warn("[PFS Resolve] Heal Uid skipped (collision ou erreur)", {
+              compositionId: match!.id,
+              targetUid: mat.id,
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          ),
+      );
+      match.pfsCompositionUid = mat.id;
+      byUid.set(mat.id, match);
+    }
+    const existing = merged.get(match.id);
     if (existing) {
       existing.percentage += mat.percentage;
     } else {
-      merged.set(compositionId, { compositionId, percentage: mat.percentage });
+      merged.set(match.id, { compositionId: match.id, percentage: mat.percentage });
     }
   }
   if (missingLabels.length > 0) {
@@ -661,6 +691,9 @@ export async function resolvePfsCompositionsToLocal(
       `Composition${plural} ${list} absente${plural} de la bibliothèque locale. Créez-la${plural} dans Paramètres → Compositions avant de relancer l'audit.`,
     );
   }
+  // On attend les heal mais sans bloquer le retour de la valeur si l'un
+  // échoue (allSettled) — les heals sont best-effort.
+  if (healPromises.length > 0) await Promise.allSettled(healPromises);
   return Array.from(merged.values());
 }
 

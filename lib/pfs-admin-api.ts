@@ -275,11 +275,17 @@ export async function pfsAdminFetchMaterialComposition(
       });
     }
   }
-  const byCode = new Map(dict.map((d) => [d.Code, d]));
+  // Multi-index sur le dict : Code, Name, LabelFR, LabelEN, LabelDE, LabelES,
+  // LabelIT — tout normalisé (sans accents, uppercase). Salesforce chez PFS
+  // stocke `Composition_N__c` de façon incohérente : parfois le Code
+  // canonique ("ELASTHANNE"), parfois le Name ("Elastane"), parfois le
+  // LabelFR ("Élasthanne"), parfois avec des points en plus ("P.U."). On
+  // teste toutes ces variantes pour retrouver l'entrée canonique.
+  const lookupIndex = buildDictLookupIndex(dict);
 
   return filled.map((slot) => {
     const percentage = slot.pct ? Number(slot.pct) : 100;
-    const entry = byCode.get(slot.code);
+    const entry = lookupIndex.get(normalizeDictKey(slot.code));
     const labels: Record<string, string> = {};
     if (entry?.LabelFR) labels.fr = entry.LabelFR;
     if (entry?.LabelEN) labels.en = entry.LabelEN;
@@ -288,11 +294,58 @@ export async function pfsAdminFetchMaterialComposition(
     if (entry?.LabelIT) labels.it = entry.LabelIT;
     return {
       id: entry?.Uid ?? slot.code,
-      reference: slot.code,
+      reference: entry?.Code ?? slot.code,
       percentage: Number.isFinite(percentage) ? percentage : 100,
       labels,
     };
   });
+}
+
+/**
+ * Normalisation utilisée pour indexer le dict PFS : strip accents, points,
+ * espaces, uppercase. Permet de matcher "P.U." avec "PU", "Élasthanne" avec
+ * "ELASTHANNE" ou "Elastane".
+ */
+export function normalizeDictKey(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[.\s_-]+/g, "")
+    .toUpperCase();
+}
+
+/**
+ * Construit un index multi-clés du dictionnaire compositions : Code, Name,
+ * LabelFR, LabelEN, LabelDE, LabelES, LabelIT. Tous normalisés via
+ * `normalizeDictKey`. En cas de collision (rare : ex. "Cotton" dans Name
+ * anglais et un autre "Cotton" dans LabelEN), la première entrée gagne
+ * — priorité Code > Name > Labels.
+ */
+export function buildDictLookupIndex(
+  dict: PfsAdminCompositionDictEntry[],
+): Map<string, PfsAdminCompositionDictEntry> {
+  const idx = new Map<string, PfsAdminCompositionDictEntry>();
+  // Priorité 1 : Code (le plus fiable, canonique).
+  for (const d of dict) {
+    if (d.Code) idx.set(normalizeDictKey(d.Code), d);
+  }
+  // Priorité 2 : Name (souvent identique à Code, mais parfois différent
+  // ex. "P.U." vs "PU").
+  for (const d of dict) {
+    if (d.Name) {
+      const k = normalizeDictKey(d.Name);
+      if (!idx.has(k)) idx.set(k, d);
+    }
+  }
+  // Priorité 3 : Labels traduits.
+  for (const d of dict) {
+    for (const l of [d.LabelFR, d.LabelEN, d.LabelDE, d.LabelES, d.LabelIT]) {
+      if (!l) continue;
+      const k = normalizeDictKey(l);
+      if (!idx.has(k)) idx.set(k, d);
+    }
+  }
+  return idx;
 }
 
 // ─── Helpers exposés pour tests ────────────────────────────────────────

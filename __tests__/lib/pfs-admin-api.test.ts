@@ -275,6 +275,73 @@ describe("pfsAdminFetchMaterialComposition", () => {
     await expect(pfsAdminFetchMaterialComposition("pro_test")).rejects.toThrow(/Identifiants PFS manquants/);
   });
 
+  it("matche Composition_N__c contre Name dict et remonte le Code canonique + Uid (cas Elastane)", async () => {
+    // Bug PFS chez issyma : Composition_2__c stocke le texte "Elastane"
+    // (le Name du dict) au lieu du Code canonique "ELASTHANNE". Notre code
+    // doit retrouver l'entrée dict via son Name et renvoyer le Code +
+    // Uid canoniques — sinon downstream on cherche pfsCompositionRef=Elastane
+    // qui n'existe pas.
+    stubFetch([
+      loginSuccessResponse(),
+      productResponse({
+        Composition_1__c: "Elastane",
+        Composition_1_Percentage__c: "5.0000",
+      }),
+      compositionsDictResponse([
+        {
+          Id: 111,
+          Uid: "a0z58000000d3bbAAA",
+          Name: "Elastane",
+          Code: "ELASTHANNE",
+          Categories: ["CLOTH"],
+          LabelFR: "Élasthanne",
+          LabelEN: "Elastane",
+        },
+      ]),
+    ]);
+    const result = await pfsAdminFetchMaterialComposition("pro_test");
+    expect(result).toEqual([
+      {
+        id: "a0z58000000d3bbAAA",
+        reference: "ELASTHANNE",
+        percentage: 5,
+        labels: { fr: "Élasthanne", en: "Elastane" },
+      },
+    ]);
+  });
+
+  it("matche Composition_N__c contre LabelFR (accents/points) et normalise vers Code canonique (cas P.U.)", async () => {
+    // Composition_1__c stocke "P.U." avec points, dict a Code="PU" + Name="P.U.".
+    // La normalisation strip les points → match trouvé, renvoyé avec Code="PU".
+    stubFetch([
+      loginSuccessResponse(),
+      productResponse({
+        Composition_1__c: "P.U.",
+        Composition_1_Percentage__c: "50.0000",
+      }),
+      compositionsDictResponse([
+        {
+          Id: 222,
+          Uid: "a0z58000000d3d3AAA",
+          Name: "P.U.",
+          Code: "PU",
+          Categories: ["CLOTH"],
+          LabelFR: "P.U.",
+          LabelEN: "P.U.",
+        },
+      ]),
+    ]);
+    const result = await pfsAdminFetchMaterialComposition("pro_test");
+    expect(result).toEqual([
+      {
+        id: "a0z58000000d3d3AAA",
+        reference: "PU",
+        percentage: 50,
+        labels: { fr: "P.U.", en: "P.U." },
+      },
+    ]);
+  });
+
   it("lève une erreur si l'API admin répond Status != SUCCEEDED au login", async () => {
     stubFetch([
       {
