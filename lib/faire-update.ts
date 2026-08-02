@@ -266,18 +266,34 @@ export function reconcilePatchBodyWithFaireOptions(
   // (HTTP 400). Parade : on strip `options` et `variant_option_sets` du body
   // pour rester bit-à-bit compatible avec l'état Faire. Cas vu en prod
   // 2026-07-30 sur JG162 / JG61 / JG65 (tenant issyma) — un seul coloris.
-  if (faireState.variantOptionSets.length === 0) {
+  //
+  // ⚠️ Ce strip n'est valide QUE si notre payload contient au maximum 1
+  // variante (donc miroir de l'état axisless Faire). Si on envoie plusieurs
+  // variantes (typiquement quand la cliente ajoute de nouvelles couleurs à un
+  // produit historiquement mono-coloris chez Faire), stripper les options
+  // fait rejeter Faire avec « A product with multiple variants must have
+  // options » (HTTP 400). Dans ce cas on garde les options + variant_option_sets
+  // : Faire tentera d'ajouter l'axe. Si ça échoue avec « Product variant
+  // options cannot be changed », l'erreur surface à l'UI et la cliente peut
+  // relier le produit pour repartir sur une fiche saine. Cas vu 2026-08-02
+  // sur issyma ref JG16 (1 coloris Faire + 2 nouveaux à créer).
+  const patchVariantsArr = Array.isArray(patchBody.variants)
+    ? (patchBody.variants as Record<string, unknown>[])
+    : [];
+  if (faireState.variantOptionSets.length === 0 && patchVariantsArr.length <= 1) {
     const stripped: Record<string, unknown> = { ...patchBody };
     delete stripped.variant_option_sets;
-    if (Array.isArray(patchBody.variants)) {
-      stripped.variants = (patchBody.variants as Record<string, unknown>[]).map(
-        (v) => {
-          const { options: _drop, ...rest } = v;
-          return rest;
-        },
-      );
-    }
+    stripped.variants = patchVariantsArr.map((v) => {
+      const { options: _drop, ...rest } = v;
+      return rest;
+    });
     return stripped;
+  }
+  if (faireState.variantOptionSets.length === 0) {
+    // Faire est sans axe mais on introduit plusieurs variantes → on garde le
+    // body tel quel (options + variant_option_sets). Rien à réconcilier côté
+    // libellés puisque Faire n'a pas d'options à préserver.
+    return patchBody;
   }
 
   const bjOptionSets = Array.isArray(patchBody.variant_option_sets)

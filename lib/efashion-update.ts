@@ -1549,82 +1549,123 @@ export async function efashionUpdateProductInPlace(
     const primaryColorId = product.primaryColorId ?? null;
 
     const productRefBase = product.efashionReferenceBase;
+    // Le serveur wapi.efashion-paris.com est irrégulier : socket hang up,
+    // ECONNRESET et 502 Bad Gateway sont observés à intervalles réguliers.
+    // Sans retry, un simple glitch pendant la purge (GET photos) ou pendant
+    // un upload multipart fait remonter un `TypeError: fetch failed` opaque
+    // (cf. incidents 2026-08-02 sur eFashion 3771865 / 3774287, tenant issyma).
+    // On tolère 2 échecs consécutifs par variante avec un petit backoff.
+    const MAX_ATTEMPTS = 3;
     for (const variant of variantsNeedingImageSync) {
       const efId = variant.efashionProductId;
       const images = variant.images ?? [];
-      try {
-        // 1. Purge des photos existantes côté eFashion.
-        // ⚠️ eFashion renumérote automatiquement les filenames après chaque
-        // DELETE (cf. docs/efashion-api.md §18.3) : supprimer `c.jpg` fait que
-        // `z-1.jpg` devient le nouveau `c.jpg`. On ne peut donc PAS itérer
-        // sur la liste initiale — il faut re-fetcher la liste après chaque
-        // suppression et toujours supprimer la 1ʳᵉ entrée. Une garde anti
-        // boucle infinie est en place au cas où eFashion renvoie toujours
-        // la même photo (bug serveur improbable mais on veut couper court).
-        let safety = 50;
-        // Boucle tant qu'eFashion expose encore des photos pour ce produit.
-        while (safety-- > 0) {
-          const current = await efashionGetProductPhotos(efId);
-          if (current.photos.length === 0) break;
-          const photoPath = current.photos[0];
-          const filename = photoPath.split("/").pop();
-          if (!filename) break;
-          try {
-            await efashionDeleteProductPhoto({ efashionProductId: efId, filename });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.warn("[eFashion] deletePhoto échoué (abandon purge)", { efId, filename, error: msg });
-            break; // on arrête la purge pour éviter une boucle infinie sur la même photo
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          // 1. Purge des photos existantes côté eFashion.
+          // ⚠️ eFashion renumérote automatiquement les filenames après chaque
+          // DELETE (cf. docs/efashion-api.md §18.3) : supprimer `c.jpg` fait que
+          // `z-1.jpg` devient le nouveau `c.jpg`. On ne peut donc PAS itérer
+          // sur la liste initiale — il faut re-fetcher la liste après chaque
+          // suppression et toujours supprimer la 1ʳᵉ entrée. Une garde anti
+          // boucle infinie est en place au cas où eFashion renvoie toujours
+          // la même photo (bug serveur improbable mais on veut couper court).
+          let safety = 50;
+          // Boucle tant qu'eFashion expose encore des photos pour ce produit.
+          while (safety-- > 0) {
+            const current = await efashionGetProductPhotos(efId);
+            if (current.photos.length === 0) break;
+            const photoPath = current.photos[0];
+            const filename = photoPath.split("/").pop();
+            if (!filename) break;
+            try {
+              await efashionDeleteProductPhoto({ efashionProductId: efId, filename });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              logger.warn("[eFashion] deletePhoto échoué (abandon purge)", { efId, filename, error: msg });
+              break; // on arrête la purge pour éviter une boucle infinie sur la même photo
+            }
+          }
+
+          // 2. Ré-upload dans l'ordre `order` croissant. La 1ʳᵉ photo uploadée
+          // devient `c.jpg` (principale), les suivantes `z-1.jpg`, `z-2.jpg`, etc.
+          //
+          // ⚠️ Upload **séquentiel** (1 photo = 1 requête HTTP) et PAS en batch :
+          // un upload multipart avec plusieurs `photos` peut être traité dans un
+          // ordre indéterminé côté eFashion → une photo censée être 2ᵉ peut
+          // finir en principale. En sérialisant, eFashion les enregistre dans
+          // l'ordre exact où on les pousse.
+          const sorted = [...images].sort((a, b) => a.order - b.order);
+          const localColor = linkedColors.find((c) => c.efashionProductId === efId);
+          const colorName = localColor?.colorId ? `color-${localColor.colorId}` : "color";
+          const isPrimaryVariant =
+            brandedBadgeEnabled &&
+            primaryColorId != null &&
+            localColor?.colorId === primaryColorId &&
+            sorted.length > 0;
+          // Toggle branded actif sur la couleur principale :
+          //   → upload 1 = badge composé sur la source (devient c.jpg côté eFashion)
+          //   → upload 2 = même source, brute (devient z-1.jpg)
+          //   → uploads 3..5 = photos brutes suivantes (z-2.jpg, z-3.jpg, z-4.jpg)
+          // Cap à 5 uploads (comme les autres couleurs).
+          interface UploadEntry { dbPath: string; branded: boolean }
+          const uploadList: UploadEntry[] = isPrimaryVariant
+            ? [
+                { dbPath: sorted[0]!.dbPath, branded: true },
+                ...sorted.slice(0, 4).map((img) => ({ dbPath: img.dbPath, branded: false })),
+              ]
+            : sorted.slice(0, 5).map((img) => ({ dbPath: img.dbPath, branded: false }));
+          for (let idx = 0; idx < uploadList.length; idx++) {
+            const entry = uploadList[idx]!;
+            await efashionUploadProductPhotos(efId, [
+              {
+                dbPath: entry.dbPath,
+                filename: `${productRefBase}-${colorName}-${idx + 1}.jpg`,
+                ...(entry.branded ? { brandedReference: product.reference } : {}),
+              },
+            ]);
+          }
+          imagesUpdatedCount++;
+          logger.info("[eFashion] Photos resynchronisées", {
+            efId,
+            count: uploadList.length,
+            brandedInserted: isPrimaryVariant,
+            attempt,
+          });
+          lastError = null;
+          break; // succès → sortie de la boucle retry
+        } catch (err) {
+          lastError = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          // Sortir la vraie cause quand undici emballe l'erreur réseau dans
+          // un `TypeError: fetch failed` opaque. `err.cause` contient l'objet
+          // Error de bas niveau (code: 'UND_ERR_SOCKET' / 'ECONNRESET' / etc.).
+          const cause = (err as { cause?: unknown }).cause;
+          const causeMsg = cause instanceof Error
+            ? `${(cause as Error & { code?: string }).code ?? cause.name}: ${cause.message}`
+            : cause !== undefined ? String(cause) : "";
+          logger.warn("[eFashion] syncPhotos tentative échouée", {
+            efId,
+            attempt,
+            maxAttempts: MAX_ATTEMPTS,
+            error: msg,
+            cause: causeMsg || undefined,
+          });
+          if (attempt < MAX_ATTEMPTS) {
+            // Backoff court : 800 ms puis 1600 ms. Le CDN eFashion se remet
+            // souvent en < 1 s après un socket hang up. Pas de jitter — le
+            // volume par produit est bas (1-5 variantes × 2 retries max).
+            await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
           }
         }
-
-        // 2. Ré-upload dans l'ordre `order` croissant. La 1ʳᵉ photo uploadée
-        // devient `c.jpg` (principale), les suivantes `z-1.jpg`, `z-2.jpg`, etc.
-        //
-        // ⚠️ Upload **séquentiel** (1 photo = 1 requête HTTP) et PAS en batch :
-        // un upload multipart avec plusieurs `photos` peut être traité dans un
-        // ordre indéterminé côté eFashion → une photo censée être 2ᵉ peut
-        // finir en principale. En sérialisant, eFashion les enregistre dans
-        // l'ordre exact où on les pousse.
-        const sorted = [...images].sort((a, b) => a.order - b.order);
-        const localColor = linkedColors.find((c) => c.efashionProductId === efId);
-        const colorName = localColor?.colorId ? `color-${localColor.colorId}` : "color";
-        const isPrimaryVariant =
-          brandedBadgeEnabled &&
-          primaryColorId != null &&
-          localColor?.colorId === primaryColorId &&
-          sorted.length > 0;
-        // Toggle branded actif sur la couleur principale :
-        //   → upload 1 = badge composé sur la source (devient c.jpg côté eFashion)
-        //   → upload 2 = même source, brute (devient z-1.jpg)
-        //   → uploads 3..5 = photos brutes suivantes (z-2.jpg, z-3.jpg, z-4.jpg)
-        // Cap à 5 uploads (comme les autres couleurs).
-        interface UploadEntry { dbPath: string; branded: boolean }
-        const uploadList: UploadEntry[] = isPrimaryVariant
-          ? [
-              { dbPath: sorted[0]!.dbPath, branded: true },
-              ...sorted.slice(0, 4).map((img) => ({ dbPath: img.dbPath, branded: false })),
-            ]
-          : sorted.slice(0, 5).map((img) => ({ dbPath: img.dbPath, branded: false }));
-        for (let idx = 0; idx < uploadList.length; idx++) {
-          const entry = uploadList[idx]!;
-          await efashionUploadProductPhotos(efId, [
-            {
-              dbPath: entry.dbPath,
-              filename: `${productRefBase}-${colorName}-${idx + 1}.jpg`,
-              ...(entry.branded ? { brandedReference: product.reference } : {}),
-            },
-          ]);
-        }
-        imagesUpdatedCount++;
-        logger.info("[eFashion] Photos resynchronisées", {
-          efId,
-          count: uploadList.length,
-          brandedInserted: isPrimaryVariant,
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`syncPhotos(${efId}): ${msg}`);
+      }
+      if (lastError !== null) {
+        const msg = lastError instanceof Error ? lastError.message : String(lastError);
+        const cause = (lastError as { cause?: unknown }).cause;
+        const causeMsg = cause instanceof Error
+          ? ` (${(cause as Error & { code?: string }).code ?? cause.name})`
+          : "";
+        errors.push(`syncPhotos(${efId}): ${msg}${causeMsg}`);
       }
     }
   } else {

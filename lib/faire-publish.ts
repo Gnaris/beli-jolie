@@ -475,6 +475,18 @@ export function buildFaireProductPayload(
   const colorValuesSet = new Set<string>();
   const sizeValuesSet = new Set<string>();
 
+  // Combien de lignes chaque bjVariantId génère-t-il ? Sert à décider si on
+  // peut réutiliser l'ID Faire de la variante BJ (voir plus bas). Une variante
+  // BJ multi-taille qui explose en N lignes ne peut PAS toutes les faire
+  // pointer sur le même faireVariantId — chaque taille est une variante Faire
+  // distincte, on laisse Faire matcher par SKU. À l'inverse, une ProductColor
+  // qui ne produit qu'une seule ligne DOIT porter son id : sans ça, Faire
+  // recrée un doublon (« Duplicate variants with same options »).
+  const linesPerBjVariantId = new Map<string, number>();
+  for (const l of lines) {
+    linesPerBjVariantId.set(l.bjVariant.id, (linesPerBjVariantId.get(l.bjVariant.id) ?? 0) + 1);
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const v = line.bjVariant;
@@ -576,12 +588,17 @@ export function buildFaireProductPayload(
         // same options »). Absent pour les nouvelles variantes → Faire les
         // crée à partir du payload.
         //
-        // ⚠️ On ne réutilise l'ID Faire QUE quand une seule ligne existe pour
-        // cette variante BJ (`v.faireVariantId` désigne une variante Faire
-        // unique). Dans le cas éclaté multi-taille, plusieurs lignes partagent
-        // le même bjVariantId mais chaque taille est une variante Faire
-        // distincte — on laisse Faire matcher par SKU.
-        ...(v.faireVariantId && !(sizeAxis && line.sizeName)
+        // ⚠️ On ne réutilise l'ID Faire QUE quand la ProductColor produit UNE
+        // seule ligne (`v.faireVariantId` désigne alors une variante Faire
+        // unique). Cas éclaté multi-taille (une même ProductColor avec ≥ 2
+        // VariantSize) : chaque taille est une variante Faire distincte, on
+        // laisse Faire matcher par SKU. Attention : ne PAS s'appuyer sur
+        // `sizeAxis && line.sizeName` — ce couple est vrai dès qu'une taille
+        // existe au niveau produit, même quand une ProductColor n'a qu'une
+        // taille (auquel cas son id Faire est bien unique et doit être envoyé,
+        // sinon on retombe sur le bug « Duplicate variants with same options »
+        // vu sur ref 10037 / H29 / H30 / H32 / H33 / F129 / E107 / ZK03E).
+        ...(v.faireVariantId && (linesPerBjVariantId.get(v.id) ?? 0) === 1
           ? { id: v.faireVariantId }
           : {}),
         // Token unique par ligne (variante + taille) + salt timestamp. Sans

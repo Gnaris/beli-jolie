@@ -571,6 +571,115 @@ describe("buildFaireProductPayload — axe Size activé quand ≥ 2 tailles dist
     expect(doreLines).toHaveLength(2);
   });
 
+  it("réutilise faireVariantId sur chaque ligne mono-taille même quand l'axe Size est actif (ref 10037/H29/H30 : ProductColor par (couleur×taille))", () => {
+    // Bug reproduit en prod 2026-08-02 sur issyma ref 10037 et bj H29/H30/H32/H33/F129/E107/ZK03E :
+    // chaque ProductColor porte 1 seule VariantSize + son propre faireVariantId,
+    // mais l'ancienne condition `!(sizeAxis && line.sizeName)` strippait l'id
+    // → Faire recevait 9 variantes sans id → « Duplicate variants with same options ».
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-noir-sm",
+          faireVariantId: "po_noir_sm",
+          unitPrice: 20.2,
+          weight: 0.3,
+          stock: 300,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-noir",
+          color: { id: "c-noir", name: "Noir" },
+          variantSizes: [{ size: { name: "S/M" }, quantity: 1 }],
+          packLines: [],
+        },
+        {
+          id: "v-noir-ml",
+          faireVariantId: "po_noir_ml",
+          unitPrice: 20.2,
+          weight: 0.3,
+          stock: 300,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-noir",
+          color: { id: "c-noir", name: "Noir" },
+          variantSizes: [{ size: { name: "M/L" }, quantity: 1 }],
+          packLines: [],
+        },
+        {
+          id: "v-noir-lxl",
+          faireVariantId: "po_noir_lxl",
+          unitPrice: 20.2,
+          weight: 0.3,
+          stock: 300,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-noir",
+          color: { id: "c-noir", name: "Noir" },
+          variantSizes: [{ size: { name: "L/XL" }, quantity: 1 }],
+          packLines: [],
+        },
+      ],
+    });
+    const { variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    expect(variants).toHaveLength(3);
+    const idBySize = new Map<string, string | undefined>();
+    for (const v of variants) {
+      const size = v.payload.options.find((o) => o.name === "Size")?.value ?? "";
+      idBySize.set(size, (v.payload as { id?: string }).id);
+    }
+    expect(idBySize.get("S/M")).toBe("po_noir_sm");
+    expect(idBySize.get("M/L")).toBe("po_noir_ml");
+    expect(idBySize.get("L/XL")).toBe("po_noir_lxl");
+  });
+
+  it("N'inclut PAS le faireVariantId quand une ProductColor est éclatée sur ≥ 2 tailles (chaque taille = variante Faire distincte)", () => {
+    const p = makeProduct({
+      colors: [
+        {
+          id: "v-ar-multi",
+          faireVariantId: "po_ar_ancien",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: false,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-ar",
+          color: { id: "c-ar", name: "Argent" },
+          variantSizes: [
+            { size: { name: "52" }, quantity: 10 },
+            { size: { name: "53" }, quantity: 20 },
+          ],
+          packLines: [],
+        },
+        {
+          id: "v-do-mono",
+          faireVariantId: "po_do_54",
+          unitPrice: 3.2,
+          weight: 0.02,
+          stock: 100,
+          isPrimary: true,
+          saleType: "UNIT" as const,
+          packQuantity: null,
+          colorId: "c-do",
+          color: { id: "c-do", name: "Doré" },
+          variantSizes: [{ size: { name: "54" }, quantity: 5 }],
+          packLines: [],
+        },
+      ],
+    });
+    const { variants } = buildFaireProductPayload(p, ctx, wholesale, retail, "PUBLISHED");
+    // Les 2 lignes issues de v-ar-multi n'ont PAS d'id → Faire matchera par SKU.
+    for (const v of variants.filter((x) => x.bjVariantId === "v-ar-multi")) {
+      expect((v.payload as { id?: string }).id).toBeUndefined();
+    }
+    // La ligne unique de v-do-mono porte bien son id → pas de duplicate.
+    const doLine = variants.find((v) => v.bjVariantId === "v-do-mono");
+    expect((doLine?.payload as { id?: string }).id).toBe("po_do_54");
+  });
+
   it("garde 1 seul axe Color quand toutes les variantes partagent la même taille (ex 'Taille unique')", () => {
     // Sécurité rétro-compat : les 1051 produits déjà sur Faire ont tous
     // « Taille unique » comme taille — leur SKU et leur schéma d'options

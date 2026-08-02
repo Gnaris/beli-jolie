@@ -23,9 +23,17 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 /**
- * Wrapper fetch avec retry simple sur 429/5xx (max 2 retries, backoff 500ms → 2s).
- * On reste très conservateur pour ne pas surcharger Faire — pas de chiffre
- * officiel sur les rate limits (voir docs/faire-api.md §15).
+ * Wrapper fetch avec retry simple sur 429/5xx **ET** sur erreurs réseau
+ * (max 2 retries, backoff 500ms → 2s). On reste très conservateur pour ne pas
+ * surcharger Faire — pas de chiffre officiel sur les rate limits (voir
+ * docs/faire-api.md §15).
+ *
+ * Le retry réseau est indispensable : undici (client fetch de Node) lève un
+ * `TypeError: fetch failed` opaque dès qu'un socket est coupé (ECONNRESET,
+ * socket hang up, DNS ponctuel). Sans ce retry, un simple glitch faisait
+ * échouer un PATCH complet côté cliente (incidents 2026-08-02 sur issyma
+ * JG41 / JG53). La vraie cause bas niveau est exposée dans le message final
+ * quand tous les retries ont échoué (via `err.cause.code`).
  *
  * Exporté car réutilisé par tous les modules d'écriture (publish/update/
  * delete/inventory) — un seul wrapper = un seul endroit où ajuster les
@@ -34,20 +42,51 @@ function clamp(n: number, min: number, max: number): number {
 export async function faireFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers = await getFaireHeaders();
   const url = `${FAIRE_BASE_URL}${path}`;
+  const mergedInit = {
+    ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
+  } satisfies RequestInit;
 
+  let lastNetworkError: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(url, {
-      ...init,
-      headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
-    });
-    if (res.status !== 429 && res.status < 500) return res;
-    if (attempt === 2) return res;
-    const wait = 500 * Math.pow(2, attempt);
-    logger.warn("[Faire] retry", { path, status: res.status, wait });
-    await new Promise((r) => setTimeout(r, wait));
+    try {
+      const res = await fetch(url, mergedInit);
+      if (res.status !== 429 && res.status < 500) return res;
+      if (attempt === 2) return res;
+      const wait = 500 * Math.pow(2, attempt);
+      logger.warn("[Faire] retry", { path, status: res.status, wait });
+      await new Promise((r) => setTimeout(r, wait));
+    } catch (err) {
+      // Erreur réseau (undici : TypeError: fetch failed). Extraire la cause
+      // bas niveau (code: 'UND_ERR_SOCKET' / 'ECONNRESET' / 'EAI_AGAIN' / …).
+      lastNetworkError = err;
+      const causeObj = (err as { cause?: unknown }).cause;
+      const causeCode = causeObj instanceof Error
+        ? (causeObj as Error & { code?: string }).code ?? causeObj.name
+        : undefined;
+      if (attempt === 2) {
+        logger.error("[Faire] fetch network error (retries épuisés)", {
+          path,
+          attempt,
+          message: err instanceof Error ? err.message : String(err),
+          cause: causeCode,
+        });
+        // Re-throw en enrichissant le message pour que l'UI ne voie plus
+        // « fetch failed » brut mais bien la cause réseau.
+        if (err instanceof Error && causeCode) {
+          err.message = `${err.message} (${causeCode})`;
+        }
+        throw err;
+      }
+      const wait = 500 * Math.pow(2, attempt);
+      logger.warn("[Faire] retry (network)", { path, attempt, cause: causeCode, wait });
+      await new Promise((r) => setTimeout(r, wait));
+    }
   }
-  // unreachable mais TS l'exige
-  return fetch(url, { ...init, headers });
+  // Boucle épuisée sans retour ni throw : impossible en pratique, mais TS
+  // exige un chemin de sortie.
+  if (lastNetworkError !== null) throw lastNetworkError;
+  return fetch(url, mergedInit);
 }
 
 export interface FaireProductListResponse {
