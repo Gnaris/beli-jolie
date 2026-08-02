@@ -304,6 +304,17 @@ export function PfsAuditDrawer() {
     [visibleResults],
   );
 
+  // Bloque « Tout modifier depuis PFS » tant qu'il reste une erreur ou un
+  // mapping bloquant sur au moins un produit visible. Force la cliente à
+  // traiter d'abord les cas problématiques (créer les compos manquantes,
+  // corriger les mappings côté site) pour garantir un audit propre.
+  const hasBlockersRemaining = useMemo(
+    () =>
+      visibleResults.some((r) => !r.ok) ||
+      visibleResults.some((r) => r.ok && r.issues.some((i) => i.blockingMappingIssue)),
+    [visibleResults],
+  );
+
   const counts = useMemo(() => {
     let fixable = 0, manual = 0, error = 0;
     for (const r of visibleResults) {
@@ -423,43 +434,17 @@ export function PfsAuditDrawer() {
           conflicts.map((c) => `${c.name} — ${c.detail}`).join(" | "),
         );
       }
-      const createdUids = new Set(
-        createRes.results
-          .filter((r) => r.outcome === "created" || r.outcome === "linked" || r.outcome === "already-mapped")
-          .map((r) => r.pfsUid)
-          .filter((v): v is string => !!v),
-      );
-      if (createdUids.size === 0) return;
-      // Mise à jour optimiste : strip les Uids créés de tous les issues
-      // compo de tous les produits, et lève les blocages devenus caducs.
-      setState((prev) => {
-        if (!prev) return prev;
-        const nextResults = prev.results.map((r) => {
-          if (!r.ok) return r;
-          let touched = false;
-          const nextIssues = r.issues.map((iss) => {
-            if (!iss.missingLocalPfs || iss.missingLocalPfs.length === 0) return iss;
-            const kept = iss.missingLocalPfs.filter(
-              (m) => !(m.pfsUid && createdUids.has(m.pfsUid)),
-            );
-            if (kept.length === iss.missingLocalPfs.length) return iss;
-            touched = true;
-            const next: PfsVerifyIssue = { ...iss, missingLocalPfs: kept.length > 0 ? kept : undefined };
-            if (kept.length === 0) {
-              // Plus aucune compo manquante sur cet issue → on lève le blocage
-              // (le seul blocage restant sur cet issue serait un orphelin local
-              // ou un écart de %, qui sont gérés autrement).
-              next.pullBlocked = undefined;
-              next.blockingMappingIssue = undefined;
-            }
-            return next;
-          });
-          if (!touched) return r;
-          return { ...r, issues: nextIssues };
-        });
-        return { ...prev, results: nextResults };
-      });
-      const successCount = createdUids.size;
+      const successCount = createRes.results.filter(
+        (r) => r.outcome === "created" || r.outcome === "linked" || r.outcome === "already-mapped",
+      ).length;
+      if (successCount === 0) return;
+      // Persistance côté serveur : le nouvel état d'audit vient de la BDD
+      // (les rows PfsAuditResult ont été patchées côté serveur). Pas de
+      // patch optimiste ici — évite le flicker « débloqué puis re-bloqué »
+      // quand le poll suivant récupère l'état frais.
+      if (createRes.updatedAuditState) {
+        setState(createRes.updatedAuditState);
+      }
       toast.success(
         `${successCount} composition${successCount > 1 ? "s" : ""} créée${successCount > 1 ? "s" : ""}`,
         "Les produits concernés sont débloqués — vous pouvez cliquer sur « Modifier » ou « Tout modifier ».",
@@ -1022,7 +1007,12 @@ export function PfsAuditDrawer() {
             <button
               type="button"
               onClick={handleFixAll}
-              disabled={fixableResults.length === 0 || bulkProgress !== null}
+              disabled={fixableResults.length === 0 || hasBlockersRemaining || bulkProgress !== null}
+              title={
+                hasBlockersRemaining
+                  ? "Résolvez d'abord tous les blocages (compos manquantes, mappings) — impossible tant qu'au moins un produit reste bloqué ou en erreur."
+                  : undefined
+              }
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
@@ -1030,7 +1020,9 @@ export function PfsAuditDrawer() {
               </svg>
               {fixableResults.length === 0
                 ? "Rien à corriger automatiquement"
-                : `Tout modifier depuis PFS (${fixableResults.length})`}
+                : hasBlockersRemaining
+                  ? "Blocages à résoudre d'abord"
+                  : `Tout modifier depuis PFS (${fixableResults.length})`}
             </button>
           </div>
         ) : isRunning ? (
@@ -1101,7 +1093,7 @@ export function PfsAuditDrawer() {
                   <FilterTab active={filter === "error"} onClick={() => setFilter("error")}>Erreurs ({counts.error})</FilterTab>
                 )}
               </div>
-              {aggregatedMissingCompos.length > 0 && (
+              {isDone && aggregatedMissingCompos.length > 0 && (
                 <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gradient-to-r from-violet-50 to-fuchsia-50 ring-1 ring-violet-200">
                   <div className="flex items-start gap-2.5 min-w-0">
                     <span className="mt-0.5 w-7 h-7 rounded-full bg-violet-100 ring-1 ring-violet-200 flex items-center justify-center text-violet-700 flex-shrink-0">
@@ -1159,7 +1151,7 @@ export function PfsAuditDrawer() {
                       onZoomImage={() => {
                         if (r.firstImage) setLightbox({ url: r.firstImage, alt: r.name });
                       }}
-                      onCreateMissingCompositions={handleCreateMissingCompositions}
+                      onCreateMissingCompositions={isDone ? handleCreateMissingCompositions : undefined}
                     />
                   ))}
                 </div>
@@ -1397,7 +1389,7 @@ function ProductCard({
               Modifier
             </button>
           )}
-          {result.ok && hasBlockingMapping && !hasOnlyCompoBlocking && (
+          {result.ok && hasBlockingMapping && (!hasOnlyCompoBlocking || !onCreateMissingCompositions) && (
             <span
               title="Corrigez le mapping côté site puis relancez l'audit."
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-700 bg-rose-100 ring-1 ring-rose-200 cursor-not-allowed"

@@ -23,6 +23,7 @@ import {
   requestStopPfsAudit,
   resetPfsAuditState,
   dismissAuditResults,
+  stripMissingCompositionsFromAudit,
   type PfsAuditState,
 } from "@/lib/pfs-audit-runner";
 import {
@@ -427,7 +428,7 @@ export interface CreateCompositionFromPfsResult {
 export async function createCompositionsFromPfsAuditAction(
   items: CreateCompositionFromPfsInput[],
 ): Promise<
-  | { success: true; results: CreateCompositionFromPfsResult[] }
+  | { success: true; results: CreateCompositionFromPfsResult[]; updatedAuditState?: PfsAuditState }
   | { success: false; error: string }
 > {
   await requireAdmin();
@@ -553,7 +554,21 @@ export async function createCompositionsFromPfsAuditAction(
     }
 
     revalidateTag("compositions", "default");
-    return { success: true, results };
+
+    // Patche l'audit stocké : retire les Uids créés de tous les
+    // `missingLocalPfs` des issues concernées, lève les blocages devenus
+    // caducs. Persisté en BDD → survit au polling client (fix du flicker
+    // « débloqué puis re-bloqué »).
+    const createdUids = results
+      .filter((r) => r.outcome === "created" || r.outcome === "linked" || r.outcome === "already-mapped")
+      .map((r) => r.pfsUid)
+      .filter((v): v is string => !!v);
+    let updatedAuditState: PfsAuditState | undefined;
+    if (createdUids.length > 0) {
+      await stripMissingCompositionsFromAudit(tenant.id, createdUids);
+      updatedAuditState = await getPfsAuditState(tenant.id);
+    }
+    return { success: true, results, updatedAuditState };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error("[PFS Audit CreateCompos] Crash", { error: msg });

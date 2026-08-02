@@ -442,6 +442,61 @@ export async function resetPfsAuditState(tenantId: string): Promise<void> {
  *  - `autoReset` : true si tout est dismissed et qu'on a purgé l'état d'audit
  *    (évite au drawer de rester bloqué en mode « Aucun écart » vide).
  */
+/**
+ * Patche le PfsAuditResult courant pour retirer les compositions PFS
+ * manquantes qui viennent d'être créées (identifiées par leurs Uids
+ * Salesforce). Sur chaque issue "composition" impactée :
+ *   - retire les Uids créés de `missingLocalPfs`
+ *   - si `missingLocalPfs` devient vide, lève `pullBlocked` +
+ *     `blockingMappingIssue` (la compo existe désormais localement,
+ *     la valeur PFS peut être pull)
+ * Ce patch est persisté en BDD → survit aux polls suivants. C'est ce qui
+ * évite le flicker « débloqué puis re-bloqué » côté UI.
+ */
+export async function stripMissingCompositionsFromAudit(
+  tenantId: string,
+  createdPfsUids: string[],
+): Promise<{ updated: number }> {
+  if (createdPfsUids.length === 0) return { updated: 0 };
+  const persisted = await readPersistedState(tenantId);
+  if (!persisted.auditRunId) return { updated: 0 };
+  const uidSet = new Set(createdPfsUids);
+  // Charge uniquement les rows qui ont au moins une issue avec missingLocalPfs
+  // — le filtre JSON est coûteux, on préfère filtrer côté app.
+  const rows = await prisma.pfsAuditResult.findMany({
+    where: { tenantId, auditRunId: persisted.auditRunId, ok: true, dismissedAt: null },
+    select: { id: true, issues: true },
+  });
+  let updated = 0;
+  for (const row of rows) {
+    const issues = (row.issues as unknown as PfsVerifyIssue[]) ?? [];
+    let touched = false;
+    const nextIssues = issues.map((iss) => {
+      if (!iss.missingLocalPfs || iss.missingLocalPfs.length === 0) return iss;
+      const kept = iss.missingLocalPfs.filter((m) => !(m.pfsUid && uidSet.has(m.pfsUid)));
+      if (kept.length === iss.missingLocalPfs.length) return iss;
+      touched = true;
+      const next: PfsVerifyIssue = { ...iss };
+      if (kept.length > 0) next.missingLocalPfs = kept;
+      else delete next.missingLocalPfs;
+      if (kept.length === 0) {
+        // Plus aucune compo manquante sur cet issue → on lève le blocage.
+        // (Autres types de blocage restent gérés par leurs propres issues.)
+        delete next.pullBlocked;
+        delete next.blockingMappingIssue;
+      }
+      return next;
+    });
+    if (!touched) continue;
+    await prisma.pfsAuditResult.update({
+      where: { id: row.id },
+      data: { issues: nextIssues as unknown as Prisma.InputJsonValue },
+    });
+    updated++;
+  }
+  return { updated };
+}
+
 export async function dismissAuditResults(
   tenantId: string,
   productIds: string[],
