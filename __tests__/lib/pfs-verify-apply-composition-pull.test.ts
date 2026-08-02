@@ -56,7 +56,7 @@ vi.mock("@/lib/pfs-admin-api", () => ({
   pfsAdminFetchMaterialComposition: vi.fn(),
 }));
 
-import { resolvePfsCompositionsToLocal } from "@/lib/pfs-verify-apply";
+import { resolvePfsCompositionsToLocal, PfsCompositionsMissingError } from "@/lib/pfs-verify-apply";
 
 type PfsCompo = Parameters<typeof resolvePfsCompositionsToLocal>[0][number];
 
@@ -177,5 +177,27 @@ describe("resolvePfsCompositionsToLocal", () => {
         { id: "1", reference: "WOOL", percentage: 100, labels: { en: "Wool" } },
       ]),
     ).rejects.toThrow(/« Wool »/);
+  });
+
+  it("l'erreur transporte les métadonnées PFS (Uid + ref + name + labels) pour l'UI", async () => {
+    prismaMock.composition.findMany.mockResolvedValueOnce([]);
+    try {
+      await resolvePfsCompositionsToLocal([
+        { id: "sf-elast", reference: "ELASTHANNE", percentage: 5, labels: { fr: "Élasthanne", en: "Elastane" } },
+        { id: "sf-cotton", reference: "COTTON", percentage: 95, labels: { fr: "Coton", en: "Cotton" } },
+      ]);
+      throw new Error("aurait dû jeter");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PfsCompositionsMissingError);
+      const missing = (err as PfsCompositionsMissingError).missing;
+      expect(missing).toHaveLength(2);
+      expect(missing[0]).toMatchObject({
+        pfsUid: "sf-elast",
+        pfsRef: "ELASTHANNE",
+        suggestedName: "Élasthanne",
+        labels: { fr: "Élasthanne", en: "Elastane" },
+      });
+      expect(missing[1].pfsUid).toBe("sf-cotton");
+    }
   });
 });

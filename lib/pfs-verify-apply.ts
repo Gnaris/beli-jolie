@@ -66,7 +66,40 @@ export interface PfsVerifyApplyReport {
   /** Actions refusées (champ non pris en charge, écart déjà résolu, etc.). */
   skipped: { key: string; reason: string }[];
   /** Erreurs techniques d'application. */
-  errors: { key: string; error: string }[];
+  errors: {
+    key: string;
+    error: string;
+    /** Si présent : compositions PFS sans mapping local — la cliente peut
+     *  cliquer sur « Créer automatiquement » côté UI pour les créer d'un
+     *  coup avec le nom FR + Uid + Code PFS pré-remplis. */
+    missingCompositions?: PfsMissingCompositionInfo[];
+  }[];
+}
+
+/** Métadonnées d'une matière PFS absente de la bibliothèque locale.
+ *  Assez pour proposer une création automatique côté UI avec mapping
+ *  complet vers PFS pré-rempli. */
+export interface PfsMissingCompositionInfo {
+  /** Salesforce Uid PFS (identifiant stable, clé de matching prioritaire). */
+  pfsUid: string;
+  /** Code canonique PFS (ex: "ELASTHANNE"). Fallback = valeur brute. */
+  pfsRef: string;
+  /** Nom local suggéré, best-effort : LabelFR > LabelEN > Code. */
+  suggestedName: string;
+  /** Labels par locale (fr/en/de/es/it) — utilisés pour traductions. */
+  labels: Record<string, string>;
+}
+
+/** Erreur dédiée levée par resolvePfsCompositionsToLocal quand ≥ 1 matière
+ *  PFS est absente localement. Portée jusqu'au rapport pour permettre à
+ *  l'UI d'afficher un bouton « Créer automatiquement ». */
+export class PfsCompositionsMissingError extends Error {
+  readonly missing: PfsMissingCompositionInfo[];
+  constructor(missing: PfsMissingCompositionInfo[], message: string) {
+    super(message);
+    this.name = "PfsCompositionsMissingError";
+    this.missing = missing;
+  }
 }
 
 // Réexports pour compat : la source de vérité vit dans
@@ -187,7 +220,7 @@ export async function applyPfsVerifyPullsOnly(
       await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {
-      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
+      report.errors.push(buildErrorEntry(a.rawKey, err));
     }
   }
   for (const a of variantPullActions) {
@@ -306,7 +339,7 @@ export async function applyPfsVerifyActions(
       await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {
-      report.errors.push({ key: a.rawKey, error: humanizeError(err) });
+      report.errors.push(buildErrorEntry(a.rawKey, err));
     }
   }
   for (const a of variantPullActions) {
@@ -651,14 +684,24 @@ export async function resolvePfsCompositionsToLocal(
   );
 
   const healPromises: Promise<unknown>[] = [];
-  const missingLabels: string[] = [];
+  const missing: PfsMissingCompositionInfo[] = [];
   const merged = new Map<string, { compositionId: string; percentage: number }>();
   for (const mat of pfsCompositions) {
     let match = mat.id ? byUid.get(mat.id) : undefined;
     if (!match && mat.reference) match = byRef.get(mat.reference);
     if (!match) {
-      const label = mat.labels?.fr ?? mat.labels?.en ?? mat.reference ?? "(sans nom)";
-      if (!missingLabels.includes(label)) missingLabels.push(label);
+      const suggestedName = mat.labels?.fr ?? mat.labels?.en ?? mat.reference ?? "(sans nom)";
+      // Dédoublonne par Uid (ou par ref si pas d'Uid) : PFS renvoie parfois
+      // la même matière sur plusieurs slots avec des % différents.
+      const dedupKey = mat.id || mat.reference || suggestedName;
+      if (!missing.some((m) => (m.pfsUid || m.pfsRef) === dedupKey)) {
+        missing.push({
+          pfsUid: mat.id || "",
+          pfsRef: mat.reference,
+          suggestedName,
+          labels: mat.labels ?? {},
+        });
+      }
       continue;
     }
     // Heal opportuniste : matched par Ref mais Uid pas encore rempli localement.
@@ -684,10 +727,11 @@ export async function resolvePfsCompositionsToLocal(
       merged.set(match.id, { compositionId: match.id, percentage: mat.percentage });
     }
   }
-  if (missingLabels.length > 0) {
-    const list = missingLabels.map((l) => `« ${l} »`).join(", ");
-    const plural = missingLabels.length > 1 ? "s" : "";
-    throw new Error(
+  if (missing.length > 0) {
+    const list = missing.map((m) => `« ${m.suggestedName} »`).join(", ");
+    const plural = missing.length > 1 ? "s" : "";
+    throw new PfsCompositionsMissingError(
+      missing,
       `Composition${plural} ${list} absente${plural} de la bibliothèque locale. Créez-la${plural} dans Paramètres → Compositions avant de relancer l'audit.`,
     );
   }
@@ -989,6 +1033,17 @@ export function extractDimensionsFromPfs(pfsDescription: string): {
 
 function humanizeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Construit une entrée `errors[]` : détecte si l'erreur porte des
+ *  compositions PFS manquantes (via PfsCompositionsMissingError) et attache
+ *  ces méta pour permettre à l'UI de proposer la création en 1 clic. */
+function buildErrorEntry(key: string, err: unknown): PfsVerifyApplyReport["errors"][number] {
+  const entry: PfsVerifyApplyReport["errors"][number] = { key, error: humanizeError(err) };
+  if (err instanceof PfsCompositionsMissingError) {
+    entry.missingCompositions = err.missing;
+  }
+  return entry;
 }
 
 // ─── Actions structurelles (ajout / suppression de variante) ───────────────

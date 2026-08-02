@@ -28,6 +28,7 @@ import {
 import {
   applyPfsVerifyPullsOnly,
   type PfsVerifyActionInput,
+  type PfsMissingCompositionInfo,
 } from "@/lib/pfs-verify-apply";
 import { isPullSupportedLotB, issueKey } from "@/lib/pfs-verify-apply-shared";
 import type { PfsVerifyIssue } from "@/lib/pfs-verify";
@@ -130,6 +131,10 @@ interface ApplySingleResult {
   skippedCount: number;
   errorCount: number;
   firstError?: string;
+  /** Compositions PFS absentes localement (dédoublonnées, avec Uid + Code
+   *  canoniques + libellés). Utilisées par l'UI pour proposer une création
+   *  automatique en 1 clic. */
+  missingCompositions?: PfsMissingCompositionInfo[];
   /** Marketplaces (hors PFS) sur lesquelles on peut propager les valeurs
    *  fraîchement récupérées. Vide si le produit n'est lié à aucune autre
    *  marketplace ou si les kill-switches / credentials manquent. */
@@ -178,6 +183,7 @@ export async function applyPfsAuditFixesForProductAction(
         ? await computePfsPullEligibleMarketplaces(productId)
         : [];
     revalidateTag("products", "default");
+    const missingCompositions = collectMissingCompositions(report);
     return {
       success: true,
       result: {
@@ -187,6 +193,7 @@ export async function applyPfsAuditFixesForProductAction(
         skippedCount: report.skipped.length,
         errorCount: report.errors.length,
         firstError: report.errors[0]?.error,
+        missingCompositions: missingCompositions.length > 0 ? missingCompositions : undefined,
         eligibleMarketplaces,
       },
     };
@@ -207,6 +214,24 @@ export interface BulkApplyPerProductResult {
   ok: boolean;
   eligibleMarketplaces: PfsPullEligibleMarketplace[];
   error?: string;
+  /** Compositions PFS absentes localement — UI propose "Créer automatiquement". */
+  missingCompositions?: PfsMissingCompositionInfo[];
+}
+
+/** Agrège les compositions manquantes d'un report (dédoublonnage par Uid ou
+ *  ref au cas où plusieurs erreurs pointent vers la même matière). */
+function collectMissingCompositions(report: { errors: { missingCompositions?: PfsMissingCompositionInfo[] }[] }): PfsMissingCompositionInfo[] {
+  const seen = new Set<string>();
+  const out: PfsMissingCompositionInfo[] = [];
+  for (const e of report.errors) {
+    for (const m of e.missingCompositions ?? []) {
+      const k = m.pfsUid || m.pfsRef;
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(m);
+    }
+  }
+  return out;
 }
 
 /**
@@ -310,18 +335,28 @@ export async function bulkApplyPfsAuditFixesAction(
             }
             try {
               const { report } = await applyPfsVerifyPullsOnly(it.productId, actions);
-              appliedProducts++;
-              const eligible =
-                report.applied.length > 0
-                  ? await computePfsPullEligibleMarketplaces(it.productId)
-                  : [];
+              const missing = collectMissingCompositions(report);
+              // Considéré "ok" seulement si au moins une action a été appliquée ;
+              // si toutes les erreurs sont des "compo manquante", on remonte ok=false
+              // pour que l'UI colle sur ce produit et propose la création.
+              const anyApplied = report.applied.length > 0;
+              if (anyApplied) appliedProducts++;
+              else failedProducts++;
+              const eligible = anyApplied
+                ? await computePfsPullEligibleMarketplaces(it.productId)
+                : [];
+              if (!anyApplied && !firstError && report.errors[0]?.error) {
+                firstError = `${it.productId} : ${report.errors[0].error}`;
+              }
               perProduct.push({
                 productId: it.productId,
                 reference: info.reference,
                 productName: info.name,
                 firstImage: info.firstImage,
-                ok: true,
+                ok: anyApplied,
                 eligibleMarketplaces: eligible,
+                error: anyApplied ? undefined : report.errors[0]?.error,
+                missingCompositions: missing.length > 0 ? missing : undefined,
               });
             } catch (err) {
               failedProducts++;
@@ -358,6 +393,170 @@ export async function bulkApplyPfsAuditFixesAction(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error("[PFS Audit Bulk Apply] Crash", { error: msg });
+    return { success: false, error: msg };
+  }
+}
+
+// ─── Création automatique de compositions depuis l'audit ───────────────────
+
+export interface CreateCompositionFromPfsInput {
+  pfsUid: string;
+  pfsRef: string;
+  name: string;
+  labels?: Record<string, string>;
+}
+
+export interface CreateCompositionFromPfsResult {
+  pfsUid: string;
+  name: string;
+  compositionId: string;
+  outcome: "created" | "linked" | "already-mapped" | "conflict";
+  detail?: string;
+}
+
+/**
+ * Crée (ou relie) plusieurs compositions locales depuis les métadonnées PFS
+ * qui remontent de l'audit. Comportement par item :
+ *   - Compo locale déjà porteuse de ce pfsCompositionUid → skip (already-mapped).
+ *   - Compo locale porteuse du même nom (case+accents insensible) → on la
+ *     relie (pose l'Uid + le Ref canoniques). Sinon création fresh.
+ *   - Traductions FR/EN/DE/ES/IT créées depuis `labels` si fournies.
+ * Retour détaillé par item pour affichage UI granulaire (toast liste des OK
+ * + collisions à résoudre à la main).
+ */
+export async function createCompositionsFromPfsAuditAction(
+  items: CreateCompositionFromPfsInput[],
+): Promise<
+  | { success: true; results: CreateCompositionFromPfsResult[] }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+  if (items.length === 0) return { success: true, results: [] };
+
+  const tenant = await requireCurrentTenant();
+  const results: CreateCompositionFromPfsResult[] = [];
+
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+
+  try {
+    for (const item of items) {
+      const cleanName = item.name.trim();
+      if (!item.pfsUid || !cleanName) {
+        results.push({
+          pfsUid: item.pfsUid,
+          name: cleanName,
+          compositionId: "",
+          outcome: "conflict",
+          detail: "Uid ou nom manquant",
+        });
+        continue;
+      }
+
+      // 1. Déjà mappée par Uid ?
+      const byUid = await prisma.composition.findFirst({
+        where: { pfsCompositionUid: item.pfsUid },
+        select: { id: true, name: true, pfsCompositionRef: true },
+      });
+      if (byUid) {
+        results.push({
+          pfsUid: item.pfsUid,
+          name: cleanName,
+          compositionId: byUid.id,
+          outcome: "already-mapped",
+          detail: `Déjà présente sous le nom « ${byUid.name} »`,
+        });
+        continue;
+      }
+
+      // 2. Compo homonyme locale ? On la relie.
+      const allLocal = await prisma.composition.findMany({
+        select: { id: true, name: true, pfsCompositionUid: true, pfsCompositionRef: true },
+      });
+      const homonym = allLocal.find((c) => norm(c.name) === norm(cleanName));
+      if (homonym) {
+        if (homonym.pfsCompositionUid && homonym.pfsCompositionUid !== item.pfsUid) {
+          results.push({
+            pfsUid: item.pfsUid,
+            name: cleanName,
+            compositionId: homonym.id,
+            outcome: "conflict",
+            detail: `Compo locale « ${homonym.name} » déjà mappée sur Uid ${homonym.pfsCompositionUid} — à fusionner manuellement`,
+          });
+          continue;
+        }
+        await prisma.composition.update({
+          where: { id: homonym.id },
+          data: {
+            pfsCompositionUid: item.pfsUid,
+            ...(item.pfsRef && homonym.pfsCompositionRef !== item.pfsRef
+              ? { pfsCompositionRef: item.pfsRef }
+              : {}),
+          },
+        });
+        results.push({
+          pfsUid: item.pfsUid,
+          name: cleanName,
+          compositionId: homonym.id,
+          outcome: "linked",
+          detail: `Compo locale « ${homonym.name} » liée à PFS`,
+        });
+        continue;
+      }
+
+      // 3. Création fresh.
+      try {
+        const created = await prisma.composition.create({
+          data: {
+            name: cleanName,
+            pfsCompositionUid: item.pfsUid,
+            pfsCompositionRef: item.pfsRef || null,
+            tenantId: tenant.id,
+          },
+        });
+        // Traductions best-effort (labels absents = pas de blocage).
+        if (item.labels) {
+          const translations = Object.entries(item.labels)
+            .filter(([locale, val]) => locale !== "fr" && val && val.trim().length > 0)
+            .map(([locale, val]) => ({
+              compositionId: created.id,
+              locale,
+              name: val.trim(),
+            }));
+          if (translations.length > 0) {
+            await prisma.compositionTranslation.createMany({
+              data: translations,
+              skipDuplicates: true,
+            });
+          }
+        }
+        results.push({
+          pfsUid: item.pfsUid,
+          name: cleanName,
+          compositionId: created.id,
+          outcome: "created",
+        });
+      } catch (createErr) {
+        results.push({
+          pfsUid: item.pfsUid,
+          name: cleanName,
+          compositionId: "",
+          outcome: "conflict",
+          detail: createErr instanceof Error ? createErr.message : String(createErr),
+        });
+      }
+    }
+
+    revalidateTag("compositions", "default");
+    return { success: true, results };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("[PFS Audit CreateCompos] Crash", { error: msg });
     return { success: false, error: msg };
   }
 }

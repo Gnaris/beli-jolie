@@ -36,6 +36,7 @@ import {
   dismissPfsAuditResultsAction,
   applyPfsAuditFixesForProductAction,
   bulkApplyPfsAuditFixesAction,
+  createCompositionsFromPfsAuditAction,
   type BulkApplyPerProductResult,
 } from "@/app/actions/admin/pfs-audit";
 import type {
@@ -432,6 +433,57 @@ export function PfsAuditDrawer() {
         toast.error(`Correction impossible pour « ${r.name} »`, res.error);
         return;
       }
+      // Compositions PFS absentes de la bibliothèque locale → on propose une
+      // création automatique (Uid + Code + nom PFS pré-remplis), puis on
+      // ré-applique automatiquement les corrections dans la foulée.
+      if (res.result.missingCompositions && res.result.missingCompositions.length > 0) {
+        const missing = res.result.missingCompositions;
+        const list = missing.map((m) => `• ${m.suggestedName}`).join("\n");
+        const okCreate = await confirm.confirm({
+          type: "info",
+          title: `Composition${missing.length > 1 ? "s" : ""} à créer dans votre bibliothèque`,
+          message: `PFS a des matières que vous n'avez pas encore dans Paramètres → Compositions :\n\n${list}\n\nJe peux les créer automatiquement pour vous (nom + identifiant PFS déjà remplis), puis réappliquer la correction. On continue ?`,
+          confirmLabel: `Créer et réessayer`,
+          cancelLabel: "Non, je le ferai à la main",
+        });
+        if (okCreate) {
+          const createRes = await createCompositionsFromPfsAuditAction(
+            missing.map((m) => ({
+              pfsUid: m.pfsUid,
+              pfsRef: m.pfsRef,
+              name: m.suggestedName,
+              labels: m.labels,
+            })),
+          );
+          if (!createRes.success) {
+            toast.error("Création des compositions impossible", createRes.error);
+            return;
+          }
+          const conflicts = createRes.results.filter((r) => r.outcome === "conflict");
+          if (conflicts.length > 0) {
+            toast.error(
+              "Conflits détectés",
+              conflicts.map((c) => `${c.name} — ${c.detail}`).join(" | "),
+            );
+            return;
+          }
+          // Retry auto : on rappelle la correction sur le même produit.
+          setFixingProductId(r.productId);
+          let retry: Awaited<ReturnType<typeof applyPfsAuditFixesForProductAction>>;
+          try {
+            retry = await applyPfsAuditFixesForProductAction(r.productId, r.issues);
+          } finally {
+            setFixingProductId(null);
+          }
+          if (!retry.success) {
+            toast.error(`Réessai impossible pour « ${r.name} »`, retry.error);
+            return;
+          }
+          res = retry;
+        } else {
+          return;
+        }
+      }
       toast.success(
         `« ${r.name} » corrigé depuis PFS`,
         res.result.appliedCount > 0
@@ -637,6 +689,91 @@ export function PfsAuditDrawer() {
           : bailReason,
       );
       return;
+    }
+
+    // Compositions PFS absentes agrégées sur toute la fournée → propose
+    // création automatique en un seul clic, puis relance la correction sur
+    // les produits qui avaient été bloqués par ces manques.
+    const missingByUid = new Map<string, { pfsUid: string; pfsRef: string; suggestedName: string; labels: Record<string, string> }>();
+    for (const p of allPerProduct) {
+      for (const m of p.missingCompositions ?? []) {
+        const k = m.pfsUid || m.pfsRef;
+        if (k && !missingByUid.has(k)) missingByUid.set(k, m);
+      }
+    }
+    if (missingByUid.size > 0) {
+      const missing = Array.from(missingByUid.values());
+      const list = missing.map((m) => `• ${m.suggestedName}`).join("\n");
+      const blockedProducts = allPerProduct.filter(
+        (p) => !p.ok && p.missingCompositions && p.missingCompositions.length > 0,
+      );
+      const okCreate = await confirm.confirm({
+        type: "info",
+        title: `${missing.length} composition${missing.length > 1 ? "s" : ""} manquante${missing.length > 1 ? "s" : ""} dans votre bibliothèque`,
+        message: `PFS a des matières absentes de Paramètres → Compositions :\n\n${list}\n\nJe peux les créer automatiquement (identifiant PFS + nom pré-remplis), puis rejouer la correction sur les ${blockedProducts.length} produit${blockedProducts.length > 1 ? "s" : ""} bloqué${blockedProducts.length > 1 ? "s" : ""}.`,
+        confirmLabel: "Créer et rejouer",
+        cancelLabel: "Non, plus tard",
+      });
+      if (okCreate) {
+        const createRes = await createCompositionsFromPfsAuditAction(
+          missing.map((m) => ({
+            pfsUid: m.pfsUid,
+            pfsRef: m.pfsRef,
+            name: m.suggestedName,
+            labels: m.labels,
+          })),
+        );
+        if (!createRes.success) {
+          toast.error("Création des compositions impossible", createRes.error);
+        } else {
+          const conflicts = createRes.results.filter((r) => r.outcome === "conflict");
+          if (conflicts.length > 0) {
+            toast.error(
+              "Conflits détectés",
+              conflicts.map((c) => `${c.name} — ${c.detail}`).join(" | "),
+            );
+          }
+          // Rejoue la correction uniquement sur les produits bloqués.
+          if (blockedProducts.length > 0) {
+            setBulkProgress({ done: 0, total: blockedProducts.length });
+            let retryApplied = 0;
+            try {
+              const retryItems = blockedProducts
+                .map((p) => {
+                  const original = items.find((it) => it.productId === p.productId);
+                  return original ? { productId: p.productId, issues: original.issues } : null;
+                })
+                .filter((v): v is { productId: string; issues: PfsVerifyIssue[] } => v !== null);
+              const retryChunks = chunkArray(retryItems, BULK_APPLY_CHUNK_SIZE);
+              let retryDone = 0;
+              for (const batch of retryChunks) {
+                const rr = await bulkApplyPfsAuditFixesAction(batch);
+                if (rr.success) {
+                  retryApplied += rr.appliedProducts;
+                  retryDone += batch.length;
+                  setBulkProgress({ done: retryDone, total: blockedProducts.length });
+                  for (const p of rr.perProduct) {
+                    if (p.ok) doneIds.push(p.productId);
+                  }
+                }
+              }
+              if (retryApplied > 0) {
+                setDismissedIds((prev) => {
+                  const next = new Set(prev);
+                  for (const p of blockedProducts) next.add(p.productId);
+                  return next;
+                });
+                void persistDismiss(blockedProducts.map((p) => p.productId));
+                router.refresh();
+                totalApplied += retryApplied;
+                totalFailed -= retryApplied;
+              }
+            } finally {
+              setBulkProgress(null);
+            }
+          }
+        }
+      }
     }
 
     toast.success(
