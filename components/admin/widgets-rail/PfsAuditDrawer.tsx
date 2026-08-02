@@ -36,6 +36,7 @@ import {
   dismissPfsAuditResultsAction,
   applyPfsAuditFixesForProductAction,
   bulkApplyPfsAuditFixesAction,
+  type BulkApplyPerProductResult,
 } from "@/app/actions/admin/pfs-audit";
 import type {
   PfsAuditState,
@@ -57,6 +58,20 @@ type Filter = "all" | "fixable" | "manual" | "error";
 
 const POLL_ACTIVE_MS = 1500;
 const POLL_IDLE_MS = 60_000;
+
+// « Tout modifier depuis PFS » : on découpe le lot en petits paquets pour
+// éviter les timeouts (nginx 60 s, navigateur ~5 min) sur des audits massifs
+// (400+ produits). Chaque paquet est traité côté serveur avec concurrency 5
+// → ~10-15 s max par paquet, très en dessous de tout timeout, et la barre
+// de progression avance après chaque paquet.
+const BULK_APPLY_CHUNK_SIZE = 15;
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  if (size <= 0) return [arr];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 function labelForMarketplace(m: PfsPullEligibleMarketplace): string {
   if (m === "ankorstore") return "Ankorstore";
@@ -560,39 +575,82 @@ export function PfsAuditDrawer() {
     const items = fixableResults
       .filter((r): r is Extract<PfsAuditProductResult, { ok: true }> => r.ok)
       .map((r) => ({ productId: r.productId, issues: r.issues }));
+    if (items.length === 0) return;
 
-    // Loading bloquant : la cliente voit "Correction en cours…" pendant que
-    // le server action tourne (peut prendre plusieurs secondes pour N produits).
+    // On découpe en paquets de BULK_APPLY_CHUNK_SIZE pour :
+    //  1) éviter les timeouts (nginx/navigateur) sur les gros audits ;
+    //  2) faire avancer la barre de progression en temps réel après chaque
+    //     paquet (feedback visuel — sinon la cliente ne sait pas où on en est).
+    const chunks = chunkArray(items, BULK_APPLY_CHUNK_SIZE);
+    const allPerProduct: BulkApplyPerProductResult[] = [];
+    const doneIds: string[] = [];
+    let totalApplied = 0;
+    let totalFailed = 0;
+    let firstError: string | undefined;
+    let bailReason: string | null = null;
+
     setBulkProgress({ done: 0, total: items.length });
-    let res: Awaited<ReturnType<typeof bulkApplyPfsAuditFixesAction>>;
     try {
-      res = await bulkApplyPfsAuditFixesAction(items);
+      for (const batch of chunks) {
+        const res = await bulkApplyPfsAuditFixesAction(batch);
+        if (!res.success) {
+          bailReason = res.error;
+          break;
+        }
+        totalApplied += res.appliedProducts;
+        totalFailed += res.failedProducts;
+        if (!firstError && res.firstError) firstError = res.firstError;
+        allPerProduct.push(...res.perProduct);
+        for (const it of batch) doneIds.push(it.productId);
+        // Progression basée sur le nombre de produits VALIDÉS côté serveur
+        // (chaque batch entier — on ne fractionne pas visuellement dans un
+        // batch, mais avec des paquets de 15 la barre bouge tous les ~10 s).
+        setBulkProgress({ done: doneIds.length, total: items.length });
+      }
+    } catch (err) {
+      // Timeout, coupure réseau, crash serveur — le finally reset le loader
+      // et on montre un toast explicite pour que la cliente sache ce qui s'est
+      // passé (ancien comportement : silence total → « rien ne se passe »).
+      const msg = err instanceof Error ? err.message : String(err);
+      bailReason = msg;
     } finally {
       setBulkProgress(null);
     }
-    if (!res.success) {
-      toast.error("Correction en masse impossible", res.error);
+
+    // Les produits déjà traités avec succès sont retirés de la liste, même
+    // si le lot a échoué en cours de route (progrès partiel conservé).
+    if (doneIds.length > 0) {
+      setDismissedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of doneIds) next.add(id);
+        return next;
+      });
+      void persistDismiss(doneIds);
+      router.refresh();
+    }
+
+    if (bailReason !== null) {
+      toast.error(
+        "Correction en masse interrompue",
+        doneIds.length > 0
+          ? `${doneIds.length} produit${doneIds.length > 1 ? "s" : ""} traité${doneIds.length > 1 ? "s" : ""} avant l'erreur. Relancez « Tout modifier » pour reprendre. (${bailReason})`
+          : bailReason,
+      );
       return;
     }
+
     toast.success(
-      `${res.appliedProducts} produit${res.appliedProducts > 1 ? "s" : ""} corrigé${res.appliedProducts > 1 ? "s" : ""} depuis PFS`,
-      res.failedProducts > 0
-        ? `${res.failedProducts} en erreur — ${res.firstError ?? ""}`
+      `${totalApplied} produit${totalApplied > 1 ? "s" : ""} corrigé${totalApplied > 1 ? "s" : ""} depuis PFS`,
+      totalFailed > 0
+        ? `${totalFailed} en erreur — ${firstError ?? ""}`
         : undefined,
     );
-    setDismissedIds((prev) => {
-      const next = new Set(prev);
-      for (const it of items) next.add(it.productId);
-      return next;
-    });
-    void persistDismiss(items.map((it) => it.productId));
-    router.refresh();
 
     // Propagation en masse aux autres marketplaces. On ne propose que les
     // marketplaces où AU MOINS UN produit corrigé est éligible. Pour chaque
     // marketplace cochée, on enqueue uniquement les produits éligibles à
     // cette marketplace (pas d'enqueue à blanc si le produit n'est pas lié).
-    const okProducts = res.perProduct.filter((p) => p.ok);
+    const okProducts = allPerProduct.filter((p) => p.ok);
     const hasAnkor = okProducts.some((p) => p.eligibleMarketplaces.includes("ankorstore"));
     const hasEfashion = okProducts.some((p) => p.eligibleMarketplaces.includes("efashion"));
     const hasFaire = okProducts.some((p) => p.eligibleMarketplaces.includes("faire"));
@@ -761,7 +819,7 @@ export function PfsAuditDrawer() {
           filtres) reste sticky en haut. */}
       <div className="h-full flex flex-col min-h-0">
         {bulkProgress ? (
-          <BulkApplyingScreen total={bulkProgress.total} />
+          <BulkApplyingScreen done={bulkProgress.done} total={bulkProgress.total} />
         ) : !state || status === "IDLE" ? (
           <div className="flex-1 flex items-center justify-center p-10">
             <div className="text-center max-w-md">
@@ -870,9 +928,11 @@ function FilterTab({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-function BulkApplyingScreen({ total }: { total: number }) {
+function BulkApplyingScreen({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const isStarting = done === 0;
   return (
-    <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-4">
+    <div className="p-6 flex flex-col items-center justify-center h-full text-center gap-5">
       <div className="relative w-14 h-14">
         <div className="absolute inset-0 rounded-full border-4 border-slate-200" />
         <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-500 border-r-emerald-500 animate-spin" />
@@ -882,10 +942,32 @@ function BulkApplyingScreen({ total }: { total: number }) {
           Correction en cours…
         </div>
         <div className="text-[12px] text-slate-500 mt-1">
-          {total} produit{total > 1 ? "s" : ""} en train d&apos;être mis à jour depuis PFS.
+          {isStarting
+            ? `Préparation de ${total} produit${total > 1 ? "s" : ""}…`
+            : `${done} sur ${total} produit${total > 1 ? "s" : ""} mis à jour depuis PFS.`}
+        </div>
+      </div>
+      <div className="w-full max-w-xs">
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            Progression
+          </span>
+          <span className="text-[13px] font-bold text-emerald-600 tabular-nums">
+            {pct}%
+          </span>
+        </div>
+        <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-[width] duration-500 ease-out"
+            style={{ width: `${pct}%` }}
+            role="progressbar"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          />
         </div>
         <div className="text-[11px] text-slate-400 mt-2">
-          Ne fermez pas cette fenêtre — cela peut prendre quelques secondes.
+          Ne fermez pas cette fenêtre — la barre avance par paquets de {BULK_APPLY_CHUNK_SIZE}.
         </div>
       </div>
     </div>
