@@ -697,6 +697,101 @@ export async function faireUpdateProduct(
     }
   }
 
+  // 3.quater) Migration axisless → axe couleur.
+  //
+  // Cas : Faire connaît le produit avec ≥ 1 variante SANS axe (options: []),
+  // typiquement quand la fiche a été publiée à l'époque où elle n'avait qu'un
+  // coloris. La cliente a depuis ajouté d'autres couleurs côté BJ et on
+  // essaie de sync. Faire refuse alors 2 choses opposées :
+  //   1. Envoyer options: [{Color, "X"}] sur la variante existante axisless
+  //      → « Product variant options cannot be changed » (HTTP 400).
+  //   2. Envoyer variants[] sans options quand il y a > 1 variante
+  //      → « A product with multiple variants must have options » (HTTP 400).
+  //
+  // Seule issue : SUPPRIMER les variantes axisless côté Faire avant le PATCH,
+  // pour que Faire nous laisse recréer une structure fresh avec l'axe Color.
+  // Après DELETE, on nettoie la BDD (faireVariantId → null) et on invalide le
+  // cache d'état ; le calcul de `newVariantsToCreate` juste en dessous
+  // reclasse alors ces variantes en création → tout part propre dans le PATCH.
+  //
+  // Cas vu 2026-08-02 sur issyma JG16 (Bleu Ciel + Blush ajoutés à un p_
+  // Faire qui n'avait que Jaune) et JG17 (Bleu ajouté à un p_ qui n'avait
+  // que Blanc). Le premier fix (`reconcilePatchBodyWithFaireOptions` qui
+  // gardait les options en multi-variant) était juste, il fallait juste ce
+  // nettoyage préalable.
+  if (variants.length > 1) {
+    const preState = await getFaireProductState();
+    if (preState && preState.variantOptionSets.length === 0 && preState.variants.length > 0) {
+      const axislessVids = preState.variants.map((v) => v.id);
+      logger.warn("[Faire Update] Migration axisless → axe : suppression variantes existantes", {
+        productId,
+        faireProductId: meta.faireProductId,
+        vidsToDelete: axislessVids,
+      });
+      for (const vid of axislessVids) {
+        try {
+          const delRes = await faireFetch(
+            `/products/${encodeURIComponent(meta.faireProductId)}/variants/${encodeURIComponent(vid)}`,
+            { method: "DELETE" },
+          );
+          if (!delRes.ok && delRes.status !== 404) {
+            const text = await delRes.text().catch(() => "");
+            logger.error("[Faire Update] DELETE variante axisless échoué (migration bloquée)", {
+              productId,
+              vid,
+              status: delRes.status,
+              body: text.slice(0, 200),
+            });
+            return {
+              success: false,
+              error:
+                `Faire ne peut pas ajouter d'axe couleur sur cette fiche (HTTP ${delRes.status} sur suppression de la variante existante). ` +
+                `Merci de délier puis relier ce produit à Faire pour repartir sur une fiche propre.`,
+            };
+          }
+        } catch (err) {
+          logger.error("[Faire Update] DELETE variante axisless : exception réseau", {
+            productId,
+            vid,
+            error: String(err),
+          });
+          return {
+            success: false,
+            error:
+              "Erreur réseau Faire lors de la suppression de la variante existante — réessayer dans quelques secondes.",
+          };
+        }
+      }
+      // Purge BDD : ces vids ne pointent plus vers rien côté Faire.
+      await prisma.productColor.updateMany({
+        where: { productId, faireVariantId: { in: axislessVids } },
+        data: { faireVariantId: null },
+      });
+      // Invalide le cache pour que la prochaine `getFaireProductState` renvoie
+      // l'état à jour (0 variantes, 0 axe).
+      faireProductStateCache = null;
+      // Purge notre index SKU → vid pour que la variante ex-axisless bascule
+      // en « à créer » dans le calcul de `newVariantsToCreate` juste après.
+      const axislessSet = new Set(axislessVids);
+      for (const [sku, vid] of Array.from(faireVariantIdBySku.entries())) {
+        if (axislessSet.has(vid)) faireVariantIdBySku.delete(sku);
+      }
+      // Enfin, retire l'id des variantes concernées dans le payload : sans
+      // ça, Faire refuserait avec « Invalid product variant IDs » (l'id ne
+      // pointe plus vers une variante existante après le DELETE).
+      const bodyRecord = body as Record<string, unknown>;
+      if (Array.isArray(bodyRecord.variants)) {
+        bodyRecord.variants = (bodyRecord.variants as Record<string, unknown>[]).map((v) => {
+          if (typeof v.id === "string" && axislessSet.has(v.id)) {
+            const { id: _omit, ...rest } = v;
+            return rest;
+          }
+          return v;
+        });
+      }
+    }
+  }
+
   const newVariantsToCreate = variants.filter((v) => !faireVariantIdBySku.has(v.sku));
   const hasNewVariants = newVariantsToCreate.length > 0;
 
