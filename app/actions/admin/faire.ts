@@ -23,7 +23,8 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { faireFetch } from "@/lib/faire-api";
+import { faireFetch, faireGetProduct, type FaireProduct } from "@/lib/faire-api";
+import { sortFaireCandidates, skuMatchesQuery } from "@/lib/faire-search-rank";
 import { buildFaireVariantSkus } from "@/lib/faire-sku";
 import { getFaireTaxonomy, type FaireTaxonomyType } from "@/lib/faire-taxonomy";
 
@@ -540,71 +541,16 @@ export async function previewFaireMatchBySku(
       };
     }
 
-    // 2. Local colors BJ — Faire ne vend qu'en UNIT (les PACK sont ignorés).
-    //    Fallback image en 2 niveaux :
-    //     (a) image portée directement par la ProductColor (via `pc.images`) ;
-    //     (b) image portée au niveau (productId, colorId) mais non attachée à
-    //         cette ProductColor précise — cas fréquent après propagation de
-    //         couleur, où `ProductColorImage.productColorId` reste `null`.
-    //     (c) dernier recours : n'importe quelle image d'une autre couleur du
-    //         produit (y compris PACK).
-    //    Sans ces fallbacks, la case « Notre Boutique » de la modale affiche
-    //    « Pas d'image » sur les produits type E841C alors qu'une image existe.
-    const allProductImages = await prisma.productColorImage.findMany({
-      where: { productId: product.id },
-      orderBy: { order: "asc" },
-      select: { colorId: true, path: true },
-    });
-    const imageByColorId = new Map<string, string>();
-    for (const img of allProductImages) {
-      if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
-    }
-    const anyProductImage = allProductImages[0]?.path ?? null;
-    const localColors: FaireLinkLocalColor[] = product.colors
-      .filter((pc) => pc.color && pc.saleType === "UNIT")
-      .map((pc) => ({
-        productColorId: pc.id,
-        colorId: pc.color!.id,
-        name: pc.color!.name,
-        hex: pc.color!.hex,
-        patternImage: pc.color!.patternImage,
-        saleType: pc.saleType,
-        productImage:
-          pc.images[0]?.path ??
-          imageByColorId.get(pc.color!.id) ??
-          anyProductImage,
-        unitPrice: Number(pc.unitPrice),
-        stock: pc.stock ?? 0,
-        weightKg: Number(pc.weight ?? 0),
-        expectedFaireSku: skuMap.get(pc.id) ?? product.reference,
-      }));
-
-    // 3. Existing links pour pré-remplir la modale à la réouverture.
-    const existingLinks: Record<string, string> = {};
-    for (const pc of product.colors) {
-      if (pc.faireVariantId) existingLinks[pc.id] = pc.faireVariantId;
-    }
-
-    // Cas : aucun produit trouvé
+    // Cas : aucun produit trouvé — on renvoie tout de même les localColors
+    // pour que la modale montre "aucune fiche trouvée" avec le contexte BJ.
     if (products.length === 0) {
-      return {
-        success: true,
-        data: {
-          productId: product.id,
-          productName: product.name,
-          reference: product.reference,
-          faireSkuInput,
-          faireProductId: null,
-          faireProductName: null,
-          faireLifecycleState: null,
-          faireProductImage: null,
-          localColors,
-          candidates: [],
-          existingLinks,
-          alreadyLinked: !!product.faireProductId,
-          otherMatchesCount: 0,
-        },
-      };
+      return buildFaireLinkPreviewFromChosen({
+        product,
+        chosen: null,
+        faireSkuInput,
+        otherMatchesCount: 0,
+        skuMap,
+      });
     }
 
     // Cas : plusieurs produits matchent. On prend le premier PUBLISHED, sinon
@@ -615,126 +561,13 @@ export async function previewFaireMatchBySku(
     const chosen = publishedFirst ?? products[0];
     const otherMatchesCount = products.length - 1;
 
-    // 4. Candidates Faire (variantes du produit choisi)
-    const variants: FaireApiVariant[] = chosen.variants ?? [];
-    // Pour le matching auto : on précalcule pour chaque couleur BJ son slug
-    // (même règle que le générateur de SKU côté `lib/faire-sku.ts`) et son nom
-    // normalisé sans accent.
-    const localBySlug = new Map<string, FaireLinkLocalColor>();
-    const localByNormName = new Map<string, FaireLinkLocalColor>();
-    for (const lc of localColors) {
-      const slug = slugifyColor(lc.name);
-      if (slug && !localBySlug.has(slug)) localBySlug.set(slug, lc);
-      const norm = normalizeColorName(lc.name);
-      if (norm && !localByNormName.has(norm)) localByNormName.set(norm, lc);
-    }
-
-    const candidates: FaireLinkCandidate[] = variants
-      .filter((v): v is FaireApiVariant & { id: string; sku: string } =>
-        Boolean(v.id && v.sku),
-      )
-      .map((v) => {
-        const colorLabel = variantColorLabel(v);
-        // Suggestion auto en 3 étapes :
-        //  (a) SKU = source de vérité. On extrait le segment couleur du SKU
-        //      Faire (ex `f137_argent_UNIT_btjq32q5` → `argent`) et on cherche
-        //      une couleur BJ dont le slug commence par ce segment (couvre les
-        //      cas accent : "Argenté" slug "argent" ⇔ "Argent" slug "argent",
-        //      ou troncature côté Faire si SKU long).
-        //  (b) Fallback exact sur le nom de l'option couleur (`options[].value`).
-        //  (c) Fallback préfixe sur le nom (l'un inclus dans l'autre).
-        let suggested: FaireLinkLocalColor | null = null;
-
-        const skuColor = extractColorFromSku(v.sku);
-        if (skuColor) {
-          // Match exact
-          suggested = localBySlug.get(skuColor) ?? null;
-          // Match préfixe (BJ slug commence par SKU couleur, ou inverse)
-          if (!suggested) {
-            for (const [slug, lc] of localBySlug.entries()) {
-              if (slug.startsWith(skuColor) || skuColor.startsWith(slug)) {
-                suggested = lc;
-                break;
-              }
-            }
-          }
-        }
-        if (!suggested && colorLabel) {
-          const normLabel = normalizeColorName(colorLabel);
-          suggested = localByNormName.get(normLabel) ?? null;
-          if (!suggested) {
-            for (const [norm, lc] of localByNormName.entries()) {
-              if (norm.startsWith(normLabel) || normLabel.startsWith(norm)) {
-                suggested = lc;
-                break;
-              }
-            }
-          }
-        }
-
-        // Faire moderne : `variants[].prices[]` est un tableau plat où chaque
-        // entrée est directement `{ geo_constraint, wholesale_price, retail_price }`
-        // (pas d'imbrication `prices[].prices[]` — ce shape n'existe que sur
-        // les endpoints PATCH `product-prices/by-*`). On cherche l'entrée
-        // EUROPEAN_UNION en priorité, sinon on prend la première.
-        // Les champs racine wholesale_price_cents/retail_price_cents sont
-        // dépréciés et souvent nuls sur les fiches publiées après 2021.
-        const euPrice =
-          (v.prices ?? []).find(
-            (p) => p.geo_constraint?.country_group === "EUROPEAN_UNION",
-          ) ?? v.prices?.[0];
-        const wholesaleFromPrices = euPrice?.wholesale_price?.amount_minor ?? null;
-        const retailFromPrices = euPrice?.retail_price?.amount_minor ?? null;
-        return {
-          faireVariantId: v.id,
-          faireSku: v.sku,
-          faireVariantName: v.name ?? colorLabel ?? v.sku,
-          colorLabel,
-          availableQuantity: v.available_quantity ?? 0,
-          wholesalePriceCents:
-            typeof v.wholesale_price_cents === "number"
-              ? v.wholesale_price_cents
-              : wholesaleFromPrices,
-          retailPriceCents:
-            typeof v.retail_price_cents === "number"
-              ? v.retail_price_cents
-              : retailFromPrices,
-          weightGrams: v.measurements?.weight ?? 0,
-          lifecycleState: v.lifecycle_state ?? null,
-          imageUrl: viaProxyIfFaireCdn(firstVariantImage(v)),
-          suggestedLocalColorId: suggested?.productColorId ?? null,
-        };
-      });
-
-    // Filtre les anciens liens qui pointent vers une variante Faire qui n'existe
-    // plus dans la nouvelle fiche trouvée. Cas typique : l'admin avait lié à
-    // une fiche Faire ensuite supprimée/republiée → ses faireVariantId stockés
-    // pointent vers du néant. Sans ce filtre, l'UI affiche "Pas encore liée"
-    // partout et n'applique pas les suggestions auto.
-    const candidateIds = new Set(candidates.map((c) => c.faireVariantId));
-    const filteredExistingLinks: Record<string, string> = {};
-    for (const [pcId, fvid] of Object.entries(existingLinks)) {
-      if (candidateIds.has(fvid)) filteredExistingLinks[pcId] = fvid;
-    }
-
-    return {
-      success: true,
-      data: {
-        productId: product.id,
-        productName: product.name,
-        reference: product.reference,
-        faireSkuInput,
-        faireProductId: chosen.id,
-        faireProductName: chosen.name ?? null,
-        faireLifecycleState: chosen.lifecycle_state ?? null,
-        faireProductImage: viaProxyIfFaireCdn(firstProductImage(chosen)),
-        localColors,
-        candidates,
-        existingLinks: filteredExistingLinks,
-        alreadyLinked: !!product.faireProductId,
-        otherMatchesCount,
-      },
-    };
+    return buildFaireLinkPreviewFromChosen({
+      product,
+      chosen,
+      faireSkuInput,
+      otherMatchesCount,
+      skuMap,
+    });
   } catch (err) {
     logger.warn("[Faire Link] previewFaireMatchBySku failed", {
       error: String(err),
@@ -745,6 +578,498 @@ export async function previewFaireMatchBySku(
     };
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// previewFaireByProductId — nouveau flow "picker"
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Charge la preview de mapping Faire à partir d'un `faireProductId` que
+ * l'admin a explicitement sélectionné dans la liste de candidats (picker).
+ *
+ * Contrairement à `previewFaireMatchBySku` qui devine le meilleur produit
+ * Faire depuis une référence, ici on part d'un ID Faire connu → GET direct.
+ * Utilisé quand la référence a des suffixes (676A, 676GD, ED676P…) et que
+ * l'admin doit trancher parmi plusieurs candidats.
+ */
+export async function previewFaireByProductId(
+  productId: string,
+  faireProductId: string,
+): Promise<
+  | { success: true; data: FaireLinkPreview }
+  | { success: false; error: string }
+> {
+  try {
+    await requireAdmin();
+
+    if (!faireProductId.trim()) {
+      return { success: false, error: "ID Faire du produit vide." };
+    }
+
+    const product = await loadFaireLinkProduct(productId);
+    if (!product) return { success: false, error: "Produit introuvable." };
+
+    const variantsForSku = product.colors
+      .filter((c) => c.color)
+      .map((c) => ({
+        id: c.id,
+        saleType: c.saleType,
+        color: c.color!,
+      }));
+    const skuMap = buildFaireVariantSkus(product.reference, variantsForSku);
+
+    let chosen: FaireProduct | null;
+    try {
+      chosen = await faireGetProduct(faireProductId);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erreur Faire",
+      };
+    }
+    if (!chosen) {
+      return {
+        success: false,
+        error: `Produit Faire ${faireProductId} introuvable (peut-être supprimé).`,
+      };
+    }
+
+    return buildFaireLinkPreviewFromChosen({
+      product,
+      chosen: libFaireProductToApiShape(chosen),
+      faireSkuInput: product.reference,
+      otherMatchesCount: 0,
+      skuMap,
+    });
+  } catch (err) {
+    logger.warn("[Faire Link] previewFaireByProductId failed", {
+      productId,
+      faireProductId,
+      error: String(err),
+    });
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Erreur",
+    };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// searchFaireCandidatesList — nouveau flow "picker"
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Vignette d'un candidat Faire pour la modale de liaison (picker).
+ * Ligne servie à l'admin quand une référence a des suffixes multiples
+ * (676A, 676GD, ED676P…) et que plusieurs fiches matchent.
+ */
+export interface FaireCandidateProduct {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  sampleSku: string | null;
+  variantCount: number;
+  lifecycleState: string | null;
+}
+
+/**
+ * Renvoie la LISTE de tous les produits Faire dont au moins une variante
+ * a un SKU contenant la référence, OU dont le nom contient la référence.
+ * Triée par pertinence (SKU exact → préfixe → contient → nom contient).
+ *
+ * Sert au picker de la modale de liaison quand la référence chez Faire a
+ * des suffixes (676A, 676GD, ED676P…).
+ */
+export async function searchFaireCandidatesList(
+  query: string,
+): Promise<
+  | { success: true; data: { candidates: FaireCandidateProduct[]; truncated: boolean } }
+  | { success: false; error: string }
+> {
+  try {
+    await requireAdmin();
+
+    const q = query.trim();
+    if (!q) return { success: false, error: "Référence vide." };
+
+    let scan: {
+      products: FaireApiProduct[];
+      pagesScanned: number;
+      truncated: boolean;
+    };
+    try {
+      scan = await scanFaireByContains(q);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Erreur Faire",
+      };
+    }
+
+    const ranked = sortFaireCandidates(scan.products, q);
+
+    const candidates: FaireCandidateProduct[] = ranked.map((p) => {
+      const variants = p.variants ?? [];
+      const firstSkuVariant = variants.find(
+        (v): v is FaireApiVariant & { sku: string } => typeof v.sku === "string",
+      );
+      return {
+        id: p.id,
+        name: p.name ?? "(sans nom)",
+        imageUrl: viaProxyIfFaireCdn(firstProductImage(p)),
+        sampleSku: firstSkuVariant?.sku ?? null,
+        variantCount: variants.length,
+        lifecycleState: p.lifecycle_state ?? null,
+      };
+    });
+
+    return {
+      success: true,
+      data: {
+        candidates,
+        truncated: scan.truncated,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Erreur inconnue.",
+    };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Helpers privés — charge product BJ + build preview from chosen Faire product
+// ────────────────────────────────────────────────────────────────────────────
+
+async function loadFaireLinkProduct(productId: string) {
+  return prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      faireProductId: true,
+      colors: {
+        select: {
+          id: true,
+          saleType: true,
+          unitPrice: true,
+          stock: true,
+          weight: true,
+          faireVariantId: true,
+          color: {
+            select: {
+              id: true,
+              name: true,
+              hex: true,
+              patternImage: true,
+            },
+          },
+          images: {
+            select: { path: true },
+            orderBy: { order: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+}
+
+type LoadedFaireLinkProduct = NonNullable<
+  Awaited<ReturnType<typeof loadFaireLinkProduct>>
+>;
+
+/**
+ * Construit une FaireLinkPreview à partir d'un produit BJ chargé et d'un
+ * FaireApiProduct choisi (celui trouvé par recherche OU sélectionné par
+ * l'admin dans le picker). Passer `chosen=null` renvoie une preview vide
+ * (cas "aucune fiche Faire trouvée" mais on veut quand même afficher le
+ * contexte BJ dans la modale).
+ */
+async function buildFaireLinkPreviewFromChosen(params: {
+  product: LoadedFaireLinkProduct;
+  chosen: FaireApiProduct | null;
+  faireSkuInput: string;
+  otherMatchesCount: number;
+  skuMap: Map<string, string>;
+}): Promise<{ success: true; data: FaireLinkPreview }> {
+  const { product, chosen, faireSkuInput, otherMatchesCount, skuMap } = params;
+
+  // Local colors BJ — Faire ne vend qu'en UNIT (les PACK sont ignorés).
+  // Fallback image en 3 niveaux (pc.images → image (productId,colorId) →
+  // n'importe quelle image du produit).
+  const allProductImages = await prisma.productColorImage.findMany({
+    where: { productId: product.id },
+    orderBy: { order: "asc" },
+    select: { colorId: true, path: true },
+  });
+  const imageByColorId = new Map<string, string>();
+  for (const img of allProductImages) {
+    if (!imageByColorId.has(img.colorId)) imageByColorId.set(img.colorId, img.path);
+  }
+  const anyProductImage = allProductImages[0]?.path ?? null;
+  const localColors: FaireLinkLocalColor[] = product.colors
+    .filter((pc) => pc.color && pc.saleType === "UNIT")
+    .map((pc) => ({
+      productColorId: pc.id,
+      colorId: pc.color!.id,
+      name: pc.color!.name,
+      hex: pc.color!.hex,
+      patternImage: pc.color!.patternImage,
+      saleType: pc.saleType,
+      productImage:
+        pc.images[0]?.path ??
+        imageByColorId.get(pc.color!.id) ??
+        anyProductImage,
+      unitPrice: Number(pc.unitPrice),
+      stock: pc.stock ?? 0,
+      weightKg: Number(pc.weight ?? 0),
+      expectedFaireSku: skuMap.get(pc.id) ?? product.reference,
+    }));
+
+  const existingLinks: Record<string, string> = {};
+  for (const pc of product.colors) {
+    if (pc.faireVariantId) existingLinks[pc.id] = pc.faireVariantId;
+  }
+
+  if (!chosen) {
+    return {
+      success: true,
+      data: {
+        productId: product.id,
+        productName: product.name,
+        reference: product.reference,
+        faireSkuInput,
+        faireProductId: null,
+        faireProductName: null,
+        faireLifecycleState: null,
+        faireProductImage: null,
+        localColors,
+        candidates: [],
+        existingLinks,
+        alreadyLinked: !!product.faireProductId,
+        otherMatchesCount: 0,
+      },
+    };
+  }
+
+  const variants: FaireApiVariant[] = chosen.variants ?? [];
+  const localBySlug = new Map<string, FaireLinkLocalColor>();
+  const localByNormName = new Map<string, FaireLinkLocalColor>();
+  for (const lc of localColors) {
+    const slug = slugifyColor(lc.name);
+    if (slug && !localBySlug.has(slug)) localBySlug.set(slug, lc);
+    const norm = normalizeColorName(lc.name);
+    if (norm && !localByNormName.has(norm)) localByNormName.set(norm, lc);
+  }
+
+  const candidates: FaireLinkCandidate[] = variants
+    .filter((v): v is FaireApiVariant & { id: string; sku: string } =>
+      Boolean(v.id && v.sku),
+    )
+    .map((v) => {
+      const colorLabel = variantColorLabel(v);
+      let suggested: FaireLinkLocalColor | null = null;
+
+      const skuColor = extractColorFromSku(v.sku);
+      if (skuColor) {
+        suggested = localBySlug.get(skuColor) ?? null;
+        if (!suggested) {
+          for (const [slug, lc] of localBySlug.entries()) {
+            if (slug.startsWith(skuColor) || skuColor.startsWith(slug)) {
+              suggested = lc;
+              break;
+            }
+          }
+        }
+      }
+      if (!suggested && colorLabel) {
+        const normLabel = normalizeColorName(colorLabel);
+        suggested = localByNormName.get(normLabel) ?? null;
+        if (!suggested) {
+          for (const [norm, lc] of localByNormName.entries()) {
+            if (norm.startsWith(normLabel) || normLabel.startsWith(norm)) {
+              suggested = lc;
+              break;
+            }
+          }
+        }
+      }
+
+      const euPrice =
+        (v.prices ?? []).find(
+          (p) => p.geo_constraint?.country_group === "EUROPEAN_UNION",
+        ) ?? v.prices?.[0];
+      const wholesaleFromPrices = euPrice?.wholesale_price?.amount_minor ?? null;
+      const retailFromPrices = euPrice?.retail_price?.amount_minor ?? null;
+      return {
+        faireVariantId: v.id,
+        faireSku: v.sku,
+        faireVariantName: v.name ?? colorLabel ?? v.sku,
+        colorLabel,
+        availableQuantity: v.available_quantity ?? 0,
+        wholesalePriceCents:
+          typeof v.wholesale_price_cents === "number"
+            ? v.wholesale_price_cents
+            : wholesaleFromPrices,
+        retailPriceCents:
+          typeof v.retail_price_cents === "number"
+            ? v.retail_price_cents
+            : retailFromPrices,
+        weightGrams: v.measurements?.weight ?? 0,
+        lifecycleState: v.lifecycle_state ?? null,
+        imageUrl: viaProxyIfFaireCdn(firstVariantImage(v)),
+        suggestedLocalColorId: suggested?.productColorId ?? null,
+      };
+    });
+
+  const candidateIds = new Set(candidates.map((c) => c.faireVariantId));
+  const filteredExistingLinks: Record<string, string> = {};
+  for (const [pcId, fvid] of Object.entries(existingLinks)) {
+    if (candidateIds.has(fvid)) filteredExistingLinks[pcId] = fvid;
+  }
+
+  return {
+    success: true,
+    data: {
+      productId: product.id,
+      productName: product.name,
+      reference: product.reference,
+      faireSkuInput,
+      faireProductId: chosen.id,
+      faireProductName: chosen.name ?? null,
+      faireLifecycleState: chosen.lifecycle_state ?? null,
+      faireProductImage: viaProxyIfFaireCdn(firstProductImage(chosen)),
+      localColors,
+      candidates,
+      existingLinks: filteredExistingLinks,
+      alreadyLinked: !!product.faireProductId,
+      otherMatchesCount,
+    },
+  };
+}
+
+/** Adapte le shape `FaireProduct` (lib/faire-api.ts, plus strict) vers le
+ *  shape interne `FaireApiProduct` utilisé par buildFaireLinkPreviewFromChosen.
+ *  Les deux shapes matchent structurellement, seule la propriété `images`
+ *  du produit n'est pas typée côté lib alors qu'elle est bien renvoyée par
+ *  l'API — on la remonte via un cast intermédiaire. */
+function libFaireProductToApiShape(p: FaireProduct): FaireApiProduct {
+  const withImages = p as FaireProduct & {
+    images?: { url?: string; sequence?: number }[];
+  };
+  return {
+    id: p.id,
+    name: p.name,
+    lifecycle_state: p.lifecycle_state,
+    images: withImages.images,
+    variants: p.variants?.map((v) => ({
+      id: v.id,
+      sku: v.sku,
+      name: v.name,
+      lifecycle_state: v.lifecycle_state,
+      available_quantity: v.available_quantity,
+      wholesale_price_cents: v.wholesale_price_cents,
+      retail_price_cents: v.retail_price_cents,
+      options: v.options,
+      images: v.images,
+      measurements: v.measurements,
+      prices: v.prices,
+    })),
+  };
+}
+
+/**
+ * Version "contient" du scan Faire, dédiée au picker de la modale.
+ * Un produit matche si au moins une variante a un SKU qui CONTIENT la query
+ * (case-insensitive) OU si le nom du produit contient la query. Cela couvre
+ * les cas où Faire ajoute des suffixes (676A, 676GD, ED676P…).
+ *
+ * Limite : 10 pages × 250 = 2500 produits (cf. PREFIX_SCAN_MAX_PAGES). Si la
+ * cliente a un catalogue plus large, on la préviendra via `truncated: true`
+ * pour qu'elle affine sa recherche.
+ */
+async function fetchFairePage(page: number): Promise<FaireApiProduct[]> {
+  const params = new URLSearchParams({
+    limit: String(PREFIX_SCAN_PAGE_SIZE),
+    page: String(page),
+  });
+  const res = await faireFetch(`/products?${params.toString()}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    logger.warn("[Faire Link] contains scan page failed", {
+      page,
+      status: res.status,
+      body: text.slice(0, 200),
+    });
+    throw new Error(`Faire a répondu HTTP ${res.status} sur la recherche.`);
+  }
+  const data = (await res.json()) as { products?: FaireApiProduct[] };
+  return data.products ?? [];
+}
+
+async function scanFaireByContains(query: string): Promise<{
+  products: FaireApiProduct[];
+  pagesScanned: number;
+  truncated: boolean;
+}> {
+  const needle = query.toLowerCase();
+
+  // Optimisation : on charge la 1ʳᵉ page d'abord, seule. Si elle n'est pas
+  // pleine, le catalogue Faire fait ≤ 250 produits → pas besoin d'aller plus
+  // loin (cas fréquent pour les brands avec peu de produits — évite 9 requêtes
+  // inutiles qui font paraître le picker "bloqué à l'infini").
+  const page1Products = await fetchFairePage(1);
+  if (page1Products.length < PREFIX_SCAN_PAGE_SIZE) {
+    const matches = filterFaireProductsByNeedle(page1Products, needle);
+    return { products: matches, pagesScanned: 1, truncated: false };
+  }
+
+  // Catalogue > 250 : on parallélise les pages 2 à 10 en un seul Promise.all.
+  // Faire n'a pas de rate-limit documenté strict ; les 9 requêtes en parallèle
+  // finissent en ~1-3 s au lieu de 15-30 s en séquentiel (mesuré sur catalogue
+  // Issyma le 2026-08-02). En cas de 429, le retry backoff de `faireFetch`
+  // absorbe.
+  const pageIndexes = Array.from({ length: PREFIX_SCAN_MAX_PAGES - 1 }, (_, i) => i + 2);
+  const otherPages = await Promise.all(pageIndexes.map((p) => fetchFairePage(p)));
+
+  const seen = new Set<string>();
+  const matches: FaireApiProduct[] = [];
+  for (const page of [page1Products, ...otherPages]) {
+    for (const p of filterFaireProductsByNeedle(page, needle)) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      matches.push(p);
+    }
+  }
+
+  // Truncated = true si la DERNIÈRE page est pleine (catalogue > 2500 produits).
+  const lastPage = otherPages[otherPages.length - 1] ?? page1Products;
+  const truncated = lastPage.length >= PREFIX_SCAN_PAGE_SIZE;
+
+  return { products: matches, pagesScanned: PREFIX_SCAN_MAX_PAGES, truncated };
+}
+
+function filterFaireProductsByNeedle(
+  products: FaireApiProduct[],
+  needle: string,
+): FaireApiProduct[] {
+  return products.filter((p) => {
+    const variants = p.variants ?? [];
+    const productName = typeof p.name === "string" ? p.name.toLowerCase() : "";
+    // `skuMatchesQuery` gère les 2 sens + la tokenisation des SKU multi-segment
+    // (`A2630_argent_UNIT_xxxx` → tokens `["a2630","argent","unit","xxxx"]`).
+    // Sinon un SKU long ne matcherait ni la query courte (car underscore) ni
+    // la query longue (SKU trop long pour être contenu).
+    const skuHit = variants.some((v) =>
+      typeof v.sku === "string" ? skuMatchesQuery(v.sku, needle) : false,
+    );
+    return skuHit || productName.includes(needle);
+  });
+}
+
 
 // ────────────────────────────────────────────────────────────────────────────
 // linkFaireProductManually

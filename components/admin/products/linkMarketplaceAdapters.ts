@@ -12,14 +12,22 @@ import {
   linkPfsProductManually,
   type PfsLinkPreview,
 } from "@/app/actions/admin/pfs";
-import { searchAndPreviewAnkorstoreByQuery } from "@/app/actions/admin/ankorstore-search";
-import { linkAnkorstoreProductWithMapping } from "@/app/actions/admin/ankorstore";
+import {
+  searchAndPreviewAnkorstoreByQuery,
+  searchAnkorstoreCandidatesList,
+} from "@/app/actions/admin/ankorstore-search";
+import {
+  linkAnkorstoreProductWithMapping,
+  previewAnkorstoreProductForLinking,
+} from "@/app/actions/admin/ankorstore";
 import {
   previewEfashionMatchByReference,
   linkEfashionProductManually,
 } from "@/app/actions/admin/efashion";
 import {
   previewFaireMatchBySku,
+  previewFaireByProductId,
+  searchFaireCandidatesList,
   linkFaireProductManually,
 } from "@/app/actions/admin/faire";
 
@@ -267,6 +275,88 @@ export async function fetchLinkPreview(
   }
   // faire
   const res = await previewFaireMatchBySku(productId, query);
+  if (!res.success) return res;
+  return { success: true, data: normalizeFaire(res.data) };
+}
+
+// ─── Dispatch : liste de candidats (picker) ────────────────────────────────
+// Ankorstore et Faire uniquement. PFS et eFashion gardent leur flow direct
+// (référence propre, pas de suffixe → pas besoin de picker).
+
+/** Vignette affichée dans le picker de la modale de liaison. */
+export interface LinkCandidateProduct {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  sampleSku: string | null;
+  variantCount: number;
+  /** Faire uniquement (PUBLISHED / DRAFT / …). null pour Ankorstore. */
+  lifecycleState: string | null;
+}
+
+/** Marketplaces où le picker s'active quand la référence peut avoir des suffixes. */
+export function supportsCandidatePicker(m: Marketplace): m is "ankorstore" | "faire" {
+  return m === "ankorstore" || m === "faire";
+}
+
+export async function fetchLinkCandidates(
+  marketplace: "ankorstore" | "faire",
+  query: string,
+): Promise<
+  | { success: true; data: { candidates: LinkCandidateProduct[]; truncated: boolean } }
+  | { success: false; error: string }
+> {
+  if (marketplace === "ankorstore") {
+    const res = await searchAnkorstoreCandidatesList(query);
+    if (!res.success) return res;
+    return {
+      success: true,
+      data: {
+        candidates: res.data.candidates.map((c) => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: c.imageUrl,
+          sampleSku: c.sampleSku,
+          variantCount: c.variantCount,
+          lifecycleState: c.lifecycleState,
+        })),
+        truncated: res.data.truncated,
+      },
+    };
+  }
+  // faire
+  const res = await searchFaireCandidatesList(query);
+  if (!res.success) return res;
+  return {
+    success: true,
+    data: {
+      candidates: res.data.candidates.map((c) => ({
+        id: c.id,
+        name: c.name,
+        imageUrl: c.imageUrl,
+        sampleSku: c.sampleSku,
+        variantCount: c.variantCount,
+        lifecycleState: c.lifecycleState,
+      })),
+      truncated: res.data.truncated,
+    },
+  };
+}
+
+/** Charge la preview d'un produit marketplace précis (choisi dans le picker). */
+export async function fetchLinkPreviewByMarketplaceProductId(
+  marketplace: "ankorstore" | "faire",
+  productId: string,
+  marketplaceProductId: string,
+  query: string,
+): Promise<{ success: true; data: LinkPreview } | { success: false; error: string }> {
+  if (marketplace === "ankorstore") {
+    const res = await previewAnkorstoreProductForLinking(productId, marketplaceProductId);
+    if (!res.success) return res;
+    return { success: true, data: normalizeAnkorstore(productId, query, res.data) };
+  }
+  // faire
+  const res = await previewFaireByProductId(productId, marketplaceProductId);
   if (!res.success) return res;
   return { success: true, data: normalizeFaire(res.data) };
 }

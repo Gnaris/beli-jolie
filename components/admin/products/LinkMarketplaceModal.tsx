@@ -14,6 +14,9 @@ import { useMarketplaceLinkJobs } from "./MarketplaceLinkContext";
 import { ZoomableImage } from "./ZoomableImage";
 import {
   fetchLinkPreview,
+  fetchLinkCandidates,
+  fetchLinkPreviewByMarketplaceProductId,
+  supportsCandidatePicker,
   executeLink,
   MARKETPLACE_META,
   type Marketplace,
@@ -22,6 +25,7 @@ import {
   type LinkCandidate,
   type LinkLocalColor,
   type LinkIntents,
+  type LinkCandidateProduct,
 } from "./linkMarketplaceAdapters";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -66,6 +70,17 @@ export default function LinkMarketplaceModal({
   const [searchInput, setSearchInput] = useState(reference);
   const [preview, setPreview] = useState<LinkPreview | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  // Picker (Ankorstore + Faire) : liste des candidats à trancher quand la
+  // référence a des suffixes marketplace (676A, 676GD, ED676P…). Null tant
+  // qu'aucune recherche multi-résultat n'a été faite.
+  const [candidatesList, setCandidatesList] = useState<LinkCandidateProduct[] | null>(null);
+  const [candidatesTruncated, setCandidatesTruncated] = useState(false);
+  const [candidatesPage, setCandidatesPage] = useState(1);
+  const [pickingCandidateId, setPickingCandidateId] = useState<string | null>(null);
+  // Compteur incrémenté à chaque nouvelle recherche OU annulation. Un résultat
+  // qui arrive avec un `genId` obsolète est ignoré → laisse l'admin arrêter et
+  // relancer sans que l'ancien résultat écrase le nouveau.
+  const searchGenRef = useRef(0);
   const [markup, setMarkup] = useState<MarkupConfig | null>(null);
   const [secondaryMarkup, setSecondaryMarkup] = useState<MarkupConfig | null>(null);
   const [shopName, setShopName] = useState<string>("notre boutique");
@@ -126,29 +141,132 @@ export default function LinkMarketplaceModal({
     [],
   );
 
+  /** Applique une preview au state (mapping + reset des intentions). */
+  const applyPreview = useCallback(
+    (data: LinkPreview) => {
+      setPreview(data);
+      setMapping(buildInitialMapping(data));
+      setColorsToCreate(new Set());
+      setOrphansToDelete(new Set());
+      setOrphansToImport(new Set());
+    },
+    [buildInitialMapping],
+  );
+
   const runSearch = useCallback(
     async (query: string) => {
+      const genId = ++searchGenRef.current;
       setSearchError(null);
+      setPreview(null);
+      setCandidatesList(null);
+      setCandidatesTruncated(false);
+      setCandidatesPage(1);
       setIsSearching(true);
+
       try {
+        // Ankorstore + Faire : d'abord la liste complète des candidats. Si 1
+        // seul match on charge sa preview direct. Sinon on montre le picker.
+        if (supportsCandidatePicker(marketplace)) {
+          const list = await fetchLinkCandidates(marketplace, query);
+          if (genId !== searchGenRef.current) return; // annulé ou remplacé
+
+          if (!list.success) {
+            setSearchError(list.error);
+            return;
+          }
+
+          const cands = list.data.candidates;
+          if (cands.length === 0) {
+            // Aucune fiche trouvée : on charge une "preview vide" pour que
+            // Step1Search affiche son message "aucune fiche pour X".
+            const emptyPreview = await fetchLinkPreview(marketplace, productId, query);
+            if (genId !== searchGenRef.current) return;
+            if (emptyPreview.success) {
+              applyPreview(emptyPreview.data);
+            } else {
+              setSearchError(emptyPreview.error);
+            }
+            return;
+          }
+
+          if (cands.length === 1) {
+            // Un seul candidat → on skip le picker et on charge direct.
+            const single = await fetchLinkPreviewByMarketplaceProductId(
+              marketplace,
+              productId,
+              cands[0].id,
+              query,
+            );
+            if (genId !== searchGenRef.current) return;
+            if (single.success) {
+              applyPreview(single.data);
+            } else {
+              setSearchError(single.error);
+            }
+            return;
+          }
+
+          // ≥ 2 candidats : on montre le picker.
+          setCandidatesList(cands);
+          setCandidatesTruncated(list.data.truncated);
+          setCandidatesPage(1);
+          return;
+        }
+
+        // PFS / eFashion : flow direct historique (référence propre).
         const res = await fetchLinkPreview(marketplace, productId, query);
+        if (genId !== searchGenRef.current) return;
         if (res.success) {
-          setPreview(res.data);
-          setMapping(buildInitialMapping(res.data));
-          // Reset des intentions à chaque nouvelle recherche pour éviter de
-          // trainer un choix d'une fiche marketplace précédente.
-          setColorsToCreate(new Set());
-          setOrphansToDelete(new Set());
-          setOrphansToImport(new Set());
+          applyPreview(res.data);
         } else {
           setSearchError(res.error);
-          setPreview(null);
         }
       } finally {
-        setIsSearching(false);
+        // Ne coupe le spinner que si on n'a pas été annulé/remplacé.
+        if (genId === searchGenRef.current) {
+          setIsSearching(false);
+        }
       }
     },
-    [marketplace, productId, buildInitialMapping],
+    [marketplace, productId, applyPreview],
+  );
+
+  /** Coupe la recherche en cours : les résultats qui reviendront seront
+   *  ignorés (searchGenRef bump). L'admin peut relancer immédiatement. */
+  const cancelSearch = useCallback(() => {
+    searchGenRef.current += 1;
+    setIsSearching(false);
+    setPickingCandidateId(null);
+  }, []);
+
+  /** Charge la preview du candidat que l'admin a choisi dans le picker. */
+  const pickCandidate = useCallback(
+    async (candidateId: string) => {
+      if (!supportsCandidatePicker(marketplace)) return;
+      const genId = ++searchGenRef.current;
+      setPickingCandidateId(candidateId);
+      setSearchError(null);
+      try {
+        const res = await fetchLinkPreviewByMarketplaceProductId(
+          marketplace,
+          productId,
+          candidateId,
+          searchInput.trim() || reference,
+        );
+        if (genId !== searchGenRef.current) return;
+        if (res.success) {
+          applyPreview(res.data);
+          setCandidatesList(null); // ferme le picker
+        } else {
+          setSearchError(res.error);
+        }
+      } finally {
+        if (genId === searchGenRef.current) {
+          setPickingCandidateId(null);
+        }
+      }
+    },
+    [marketplace, productId, searchInput, reference, applyPreview],
   );
 
   // Auto-lance la recherche à l'ouverture si la référence produit est présente,
@@ -361,6 +479,9 @@ export default function LinkMarketplaceModal({
     setColorsToCreate(new Set());
     setOrphansToDelete(new Set());
     setOrphansToImport(new Set());
+    setCandidatesList(null);
+    setCandidatesTruncated(false);
+    setCandidatesPage(1);
   }
 
   return (
@@ -410,10 +531,25 @@ export default function LinkMarketplaceModal({
             searchInput={searchInput}
             onSearchInputChange={setSearchInput}
             onSearch={doSearch}
+            onCancel={cancelSearch}
             isSearching={isSearching}
             searchError={searchError}
             preview={preview}
+            hasCandidates={candidatesList !== null}
           />
+
+          {candidatesList !== null && !isSearching && (
+            <Step1bCandidatePicker
+              meta={meta}
+              candidates={candidatesList}
+              truncated={candidatesTruncated}
+              page={candidatesPage}
+              onPageChange={setCandidatesPage}
+              onPick={pickCandidate}
+              pickingCandidateId={pickingCandidateId}
+              query={searchInput.trim() || reference}
+            />
+          )}
 
           {hasResult && preview && (
             <>
@@ -642,19 +778,25 @@ function Step1Search({
   searchInput,
   onSearchInputChange,
   onSearch,
+  onCancel,
   isSearching,
   searchError,
   preview,
+  hasCandidates,
 }: {
   meta: MarketplaceMeta;
   searchInput: string;
   onSearchInputChange: (v: string) => void;
   onSearch: () => void;
+  onCancel: () => void;
   isSearching: boolean;
   searchError: string | null;
   preview: LinkPreview | null;
+  hasCandidates: boolean;
 }) {
-  const notFound = preview && !preview.marketplaceProductId;
+  // "Aucune fiche trouvée" ne doit pas s'afficher quand le picker est ouvert
+  // (auquel cas on a plein de candidats à trancher).
+  const notFound = preview && !preview.marketplaceProductId && !hasCandidates;
   return (
     <section className="space-y-5">
       <div className="flex items-start gap-3">
@@ -679,20 +821,31 @@ function Step1Search({
             value={searchInput}
             onChange={(e) => onSearchInputChange(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
+              if (e.key === "Enter" && !isSearching) onSearch();
             }}
             placeholder={meta.searchPlaceholder}
             className="flex-1 px-4 py-3 rounded-xl border border-slate-300 bg-white text-text-primary focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 font-mono text-sm"
             disabled={isSearching}
           />
-          <button
-            type="button"
-            onClick={onSearch}
-            disabled={isSearching || !searchInput.trim()}
-            className="px-5 py-3 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700 disabled:opacity-40"
-          >
-            {isSearching ? "Recherche…" : "Chercher"}
-          </button>
+          {isSearching ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-5 py-3 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-500"
+              title="Arrête la recherche en cours pour en relancer une autre"
+            >
+              ⨯ Arrêter
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSearch}
+              disabled={!searchInput.trim()}
+              className="px-5 py-3 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700 disabled:opacity-40"
+            >
+              Chercher
+            </button>
+          )}
         </div>
       </div>
 
@@ -700,7 +853,10 @@ function Step1Search({
         <div className="rounded-2xl border border-slate-200 p-6 text-center bg-slate-50">
           <div className="inline-flex items-center gap-2 text-sm text-text-secondary">
             <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
-            Recherche en cours…
+            Recherche dans le catalogue {meta.name}… (peut prendre 5 à 20 s)
+          </div>
+          <div className="mt-2 text-xs text-text-muted">
+            Clique sur <b className="text-rose-700">⨯ Arrêter</b> pour changer de référence sans attendre.
           </div>
         </div>
       )}
@@ -735,6 +891,174 @@ function Step1Search({
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Étape 1b : Picker de candidats (Ankorstore + Faire) ───────────────────
+// Affichée quand la recherche renvoie ≥ 2 fiches marketplace qui matchent la
+// référence — cas typique Faire/Ankorstore où la fiche a des suffixes de
+// couleur/finition (676A, 676GD, ED676P…) et où la référence seule ne suffit
+// pas à trancher automatiquement. 4 vignettes par page, pagination simple.
+
+const CANDIDATES_PER_PAGE = 4;
+
+function Step1bCandidatePicker({
+  meta,
+  candidates,
+  truncated,
+  page,
+  onPageChange,
+  onPick,
+  pickingCandidateId,
+  query,
+}: {
+  meta: MarketplaceMeta;
+  candidates: LinkCandidateProduct[];
+  truncated: boolean;
+  page: number;
+  onPageChange: (page: number) => void;
+  onPick: (candidateId: string) => void;
+  pickingCandidateId: string | null;
+  query: string;
+}) {
+  const totalPages = Math.max(1, Math.ceil(candidates.length / CANDIDATES_PER_PAGE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * CANDIDATES_PER_PAGE;
+  const pageItems = candidates.slice(start, start + CANDIDATES_PER_PAGE);
+
+  const pillBg = {
+    pfs: "linear-gradient(135deg,#4f46e5,#6366f1)",
+    ank: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
+    efa: "linear-gradient(135deg,#db2777,#ec4899)",
+    fai: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  }[meta.cls];
+
+  return (
+    <section className="space-y-5">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg bg-slate-900 text-white text-xs font-semibold flex items-center justify-center">
+          ?
+        </div>
+        <div className="flex-1">
+          <h3 className="font-heading text-lg font-semibold text-text-primary">
+            {candidates.length} fiche{candidates.length > 1 ? "s" : ""} {meta.name} trouvée{candidates.length > 1 ? "s" : ""} — choisis la bonne
+          </h3>
+          <p className="text-sm text-text-muted mt-0.5">
+            Ces fiches contiennent « <b className="font-mono">{query}</b> » dans leur SKU ou leur nom.
+            Clique sur celle qui correspond à ton produit.
+          </p>
+        </div>
+      </div>
+
+      {truncated && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900">
+          ⚠ Plus de {candidates.length} fiches matchent — pense à préciser ta recherche
+          (ajoute quelques lettres) si tu ne trouves pas la bonne.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {pageItems.map((c) => {
+          const isPicking = pickingCandidateId === c.id;
+          const isAnyPicking = pickingCandidateId !== null;
+          return (
+            <button
+              type="button"
+              key={c.id}
+              onClick={() => onPick(c.id)}
+              disabled={isAnyPicking}
+              className="text-left rounded-2xl border border-slate-200 bg-white p-4 hover:border-emerald-500 hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-wait relative"
+            >
+              {isPicking && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-2 text-sm text-text-secondary z-10">
+                  <span className="w-4 h-4 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+                  Chargement…
+                </div>
+              )}
+              <div className="flex gap-3 items-start">
+                {c.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={c.imageUrl}
+                    alt={c.name}
+                    className="w-24 h-24 rounded-xl object-cover border border-slate-200 shrink-0 bg-slate-50"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-24 h-24 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] text-text-muted shrink-0">
+                    Pas d&apos;image
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className="px-2 py-0.5 rounded-full text-white text-[9px] font-semibold uppercase tracking-wider"
+                      style={{ background: pillBg }}
+                    >
+                      {meta.name}
+                    </span>
+                    {c.lifecycleState && (
+                      <span
+                        className={`text-[9px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${
+                          c.lifecycleState === "PUBLISHED"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {c.lifecycleState === "PUBLISHED"
+                          ? "En ligne"
+                          : c.lifecycleState.toLowerCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 font-semibold text-sm text-text-primary line-clamp-2">
+                    {c.name}
+                  </div>
+                  {c.sampleSku && (
+                    <div className="mt-1 font-mono text-[11px] text-text-muted truncate">
+                      SKU · {c.sampleSku}
+                    </div>
+                  )}
+                  <div className="mt-1 text-[11px] text-text-muted">
+                    {c.variantCount} variante{c.variantCount > 1 ? "s" : ""}
+                  </div>
+                  <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                    Choisir cette fiche →
+                  </div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => onPageChange(safePage - 1)}
+            disabled={safePage <= 1}
+            className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm text-text-secondary hover:text-text-primary hover:border-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            ← Précédent
+          </button>
+          <div className="text-xs text-text-muted">
+            Page <span className="font-semibold text-text-secondary">{safePage}</span> sur {totalPages}
+            <span className="ml-2 text-text-muted">
+              ({candidates.length} fiche{candidates.length > 1 ? "s" : ""} au total)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onPageChange(safePage + 1)}
+            disabled={safePage >= totalPages}
+            className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-sm text-text-secondary hover:text-text-primary hover:border-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Suivant →
+          </button>
         </div>
       )}
     </section>

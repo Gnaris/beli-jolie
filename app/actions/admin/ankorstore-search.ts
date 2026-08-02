@@ -34,6 +34,7 @@ import { prisma } from "@/lib/prisma";
 import {
   ankorstoreGetProduct,
   ankorstoreSearchProducts,
+  type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
 import {
   getCachedCatalog,
@@ -136,4 +137,92 @@ export async function searchAndPreviewAnkorstoreByQuery(
       error: err instanceof Error ? err.message : "Erreur inconnue.",
     };
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// searchAnkorstoreCandidatesList
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Vignette d'un produit marketplace, affichée dans le picker de la modale de
+ *  liaison quand la recherche renvoie plusieurs candidats à trancher. */
+export interface MarketplaceCandidateProduct {
+  /** ID marketplace (opaque, réutilisé pour charger la preview). */
+  id: string;
+  /** Nom du produit côté marketplace. */
+  name: string;
+  /** URL de la 1ʳᵉ image (déjà proxifiée si nécessaire). */
+  imageUrl: string | null;
+  /** SKU d'exemple (celui de la 1ʳᵉ variante) pour aider l'admin à identifier. */
+  sampleSku: string | null;
+  /** Nombre de variantes du produit côté marketplace. */
+  variantCount: number;
+  /** Statut lifecycle éventuel (Faire : PUBLISHED/DRAFT/…). Vide pour Ankorstore. */
+  lifecycleState: string | null;
+  /** Référence extraite quand elle est reconnaissable (aide à trier visuellement). */
+  extractedReference: string | null;
+}
+
+/**
+ * Renvoie la liste COMPLÈTE des candidats Ankorstore matchant la référence,
+ * triée par pertinence (SKU exact → préfixe → contient → nom). Sert au picker
+ * de la modale de liaison quand la référence a des suffixes (676A, 676GD…).
+ *
+ * Contrairement à `searchAndPreviewAnkorstoreByQuery`, on N'appelle PAS de
+ * preview automatique : on renvoie juste la liste pour laisser l'admin choisir
+ * le bon produit à la main.
+ */
+export async function searchAnkorstoreCandidatesList(
+  query: string,
+): Promise<
+  | { success: true; data: { candidates: MarketplaceCandidateProduct[]; truncated: boolean } }
+  | { success: false; error: string }
+> {
+  try {
+    await requireAdmin();
+    await requireCurrentTenant();
+
+    const q = query.trim();
+    if (!q) return { success: false, error: "Référence vide." };
+
+    // On demande large côté API (100 = cap) et on garde le tri par pertinence
+    // déjà fait par `ankorstoreSearchProducts`. `skipWideScan: false` pour
+    // couvrir les cas où Ankorstore tokenize mal (ex : ref collée à un tiret).
+    const products = await ankorstoreSearchProducts(q, 100, {
+      skipWideScan: false,
+    });
+
+    const candidates: MarketplaceCandidateProduct[] = products.map((p) =>
+      toCandidateProduct(p),
+    );
+
+    return {
+      success: true,
+      data: {
+        candidates,
+        // 100 = cap API : on ne peut pas prouver qu'il y en avait plus, mais
+        // c'est un bon indicateur pour prévenir la cliente.
+        truncated: candidates.length >= 100,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Erreur inconnue.",
+    };
+  }
+}
+
+function toCandidateProduct(p: AnkorstoreProduct): MarketplaceCandidateProduct {
+  const firstImage = [...p.images].sort((a, b) => a.order - b.order)[0]?.url ?? null;
+  const firstSku =
+    p.variants.map((v) => v.sku).find((s): s is string => !!s) ?? null;
+  return {
+    id: p.id,
+    name: p.name,
+    imageUrl: firstImage,
+    sampleSku: firstSku,
+    variantCount: p.variants.length,
+    lifecycleState: null,
+    extractedReference: p.externalId ?? null,
+  };
 }
