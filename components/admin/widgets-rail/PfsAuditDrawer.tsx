@@ -43,7 +43,7 @@ import type {
   PfsAuditState,
   PfsAuditProductResult,
 } from "@/lib/pfs-audit-runner";
-import type { PfsVerifyIssue, PfsVerifyIssueField } from "@/lib/pfs-verify";
+import type { PfsVerifyIssue, PfsVerifyIssueField, PfsMissingCompositionInfoLite } from "@/lib/pfs-verify";
 import {
   isPullSupportedLotB,
   countPullableIssues,
@@ -314,6 +314,23 @@ export function PfsAuditDrawer() {
     return { all: visibleResults.length, fixable, manual, error };
   }, [visibleResults]);
 
+  // Compos PFS manquantes agrégées sur tous les produits visibles, dédoublonnées
+  // par Uid|Ref. Utilisé pour le bandeau sticky « Créer toutes » en haut du
+  // tiroir + les compteurs par carte.
+  const aggregatedMissingCompos = useMemo(() => {
+    const map = new Map<string, PfsMissingCompositionInfoLite>();
+    for (const r of visibleResults) {
+      if (!r.ok) continue;
+      for (const iss of r.issues) {
+        for (const m of iss.missingLocalPfs ?? []) {
+          const k = m.pfsUid || m.pfsRef;
+          if (k && !map.has(k)) map.set(k, m);
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [visibleResults]);
+
   const filtered = useMemo(() => {
     switch (filter) {
       case "fixable":
@@ -367,6 +384,89 @@ export function PfsAuditDrawer() {
     close();
     router.refresh();
   }, [close, router]);
+
+  /**
+   * Crée en 1 clic un lot de compos PFS absentes de la bibliothèque locale.
+   * Mise à jour optimiste : après création, on strip les entrées des issues
+   * concernées dans TOUS les produits (dédup par Uid), et si un issue compo
+   * n'a plus rien de manquant on lève son `pullBlocked` + `blockingMappingIssue`
+   * — la carte se débloque instantanément sans re-audit.
+   */
+  const handleCreateMissingCompositions = useCallback(
+    async (items: PfsMissingCompositionInfoLite[]) => {
+      if (items.length === 0) return;
+      const list = items.map((m) => `• ${m.suggestedName}`).join("\n");
+      const ok = await confirm.confirm({
+        type: "info",
+        title: `Créer ${items.length} composition${items.length > 1 ? "s" : ""} dans votre bibliothèque`,
+        message: `Les matières suivantes seront ajoutées à Paramètres → Compositions, avec leur identifiant PFS déjà mappé :\n\n${list}\n\nVous pourrez ensuite relancer les corrections des produits concernés.`,
+        confirmLabel: "Créer maintenant",
+        cancelLabel: "Annuler",
+      });
+      if (!ok) return;
+      const createRes = await createCompositionsFromPfsAuditAction(
+        items.map((m) => ({
+          pfsUid: m.pfsUid,
+          pfsRef: m.pfsRef,
+          name: m.suggestedName,
+          labels: m.labels,
+        })),
+      );
+      if (!createRes.success) {
+        toast.error("Création des compositions impossible", createRes.error);
+        return;
+      }
+      const conflicts = createRes.results.filter((r) => r.outcome === "conflict");
+      if (conflicts.length > 0) {
+        toast.error(
+          "Conflits détectés",
+          conflicts.map((c) => `${c.name} — ${c.detail}`).join(" | "),
+        );
+      }
+      const createdUids = new Set(
+        createRes.results
+          .filter((r) => r.outcome === "created" || r.outcome === "linked" || r.outcome === "already-mapped")
+          .map((r) => r.pfsUid)
+          .filter((v): v is string => !!v),
+      );
+      if (createdUids.size === 0) return;
+      // Mise à jour optimiste : strip les Uids créés de tous les issues
+      // compo de tous les produits, et lève les blocages devenus caducs.
+      setState((prev) => {
+        if (!prev) return prev;
+        const nextResults = prev.results.map((r) => {
+          if (!r.ok) return r;
+          let touched = false;
+          const nextIssues = r.issues.map((iss) => {
+            if (!iss.missingLocalPfs || iss.missingLocalPfs.length === 0) return iss;
+            const kept = iss.missingLocalPfs.filter(
+              (m) => !(m.pfsUid && createdUids.has(m.pfsUid)),
+            );
+            if (kept.length === iss.missingLocalPfs.length) return iss;
+            touched = true;
+            const next: PfsVerifyIssue = { ...iss, missingLocalPfs: kept.length > 0 ? kept : undefined };
+            if (kept.length === 0) {
+              // Plus aucune compo manquante sur cet issue → on lève le blocage
+              // (le seul blocage restant sur cet issue serait un orphelin local
+              // ou un écart de %, qui sont gérés autrement).
+              next.pullBlocked = undefined;
+              next.blockingMappingIssue = undefined;
+            }
+            return next;
+          });
+          if (!touched) return r;
+          return { ...r, issues: nextIssues };
+        });
+        return { ...prev, results: nextResults };
+      });
+      const successCount = createdUids.size;
+      toast.success(
+        `${successCount} composition${successCount > 1 ? "s" : ""} créée${successCount > 1 ? "s" : ""}`,
+        "Les produits concernés sont débloqués — vous pouvez cliquer sur « Modifier » ou « Tout modifier ».",
+      );
+    },
+    [confirm, toast],
+  );
 
   const handleFixOne = useCallback(
     async (r: PfsAuditProductResult) => {
@@ -1001,6 +1101,35 @@ export function PfsAuditDrawer() {
                   <FilterTab active={filter === "error"} onClick={() => setFilter("error")}>Erreurs ({counts.error})</FilterTab>
                 )}
               </div>
+              {aggregatedMissingCompos.length > 0 && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gradient-to-r from-violet-50 to-fuchsia-50 ring-1 ring-violet-200">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className="mt-0.5 w-7 h-7 rounded-full bg-violet-100 ring-1 ring-violet-200 flex items-center justify-center text-violet-700 flex-shrink-0">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[12px] font-bold text-violet-900">
+                        {aggregatedMissingCompos.length} composition{aggregatedMissingCompos.length > 1 ? "s" : ""} PFS manquante{aggregatedMissingCompos.length > 1 ? "s" : ""} dans votre bibliothèque
+                      </div>
+                      <div className="text-[11px] text-violet-700 truncate">
+                        {aggregatedMissingCompos.map((m) => m.suggestedName).join(" · ")}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCreateMissingCompositions(aggregatedMissingCompos)}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-violet-600 hover:bg-violet-700 shadow-sm transition"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    Tout créer
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Zone scrollable — la grille remplit de gauche à droite puis
@@ -1030,6 +1159,7 @@ export function PfsAuditDrawer() {
                       onZoomImage={() => {
                         if (r.firstImage) setLightbox({ url: r.firstImage, alt: r.name });
                       }}
+                      onCreateMissingCompositions={handleCreateMissingCompositions}
                     />
                   ))}
                 </div>
@@ -1118,6 +1248,7 @@ function ProductCard({
   onIgnore,
   onFix,
   onZoomImage,
+  onCreateMissingCompositions,
 }: {
   result: PfsAuditProductResult;
   justRevealed?: boolean;
@@ -1125,14 +1256,37 @@ function ProductCard({
   onIgnore: () => void;
   onFix: () => void;
   onZoomImage: () => void;
+  onCreateMissingCompositions?: (items: PfsMissingCompositionInfoLite[]) => void;
 }) {
   const image = result.firstImage;
   const showImage = !!image;
   const fixableCount = result.ok ? countPullableIssues(result.issues) : 0;
   const manualCount = result.ok ? result.issues.length - fixableCount : 0;
+  // Compos PFS manquantes sur cette fiche (dédoublonnées par Uid). Prises
+  // dans TOUS les issues (normalement il n'y en a qu'un sur la compo, mais
+  // on reste défensif).
+  const cardMissingCompos = useMemo(() => {
+    if (!result.ok) return [] as PfsMissingCompositionInfoLite[];
+    const map = new Map<string, PfsMissingCompositionInfoLite>();
+    for (const iss of result.issues) {
+      for (const m of iss.missingLocalPfs ?? []) {
+        const k = m.pfsUid || m.pfsRef;
+        if (k && !map.has(k)) map.set(k, m);
+      }
+    }
+    return Array.from(map.values());
+  }, [result]);
   // Mapping BJ manquant sur au moins un écart → carte rouge, bouton
   // « Modifier » désactivé, la cliente doit corriger côté site + relancer.
+  // Exception : si le seul blocage est des compos manquantes qu'on peut
+  // maintenant créer en 1 clic, la carte reste rouge mais le message est
+  // remplacé par le bouton d'action (voir plus bas dans le rendu).
   const hasBlockingMapping = result.ok && result.issues.some((i) => i.blockingMappingIssue);
+  const hasOnlyCompoBlocking =
+    hasBlockingMapping &&
+    cardMissingCompos.length > 0 &&
+    result.ok &&
+    result.issues.every((i) => !i.blockingMappingIssue || (i.missingLocalPfs && i.missingLocalPfs.length > 0));
   const isRed = !result.ok || hasBlockingMapping;
   const badgeClass = isRed
     ? "bg-rose-50 text-rose-700 ring-rose-200"
@@ -1243,7 +1397,7 @@ function ProductCard({
               Modifier
             </button>
           )}
-          {result.ok && hasBlockingMapping && (
+          {result.ok && hasBlockingMapping && !hasOnlyCompoBlocking && (
             <span
               title="Corrigez le mapping côté site puis relancez l'audit."
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-rose-700 bg-rose-100 ring-1 ring-rose-200 cursor-not-allowed"
@@ -1253,6 +1407,21 @@ function ProductCard({
               </svg>
               Bloqué
             </span>
+          )}
+          {result.ok && hasOnlyCompoBlocking && onCreateMissingCompositions && (
+            <button
+              type="button"
+              onClick={() => onCreateMissingCompositions(cardMissingCompos)}
+              title={`Créer dans votre bibliothèque : ${cardMissingCompos.map((m) => m.suggestedName).join(", ")}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-violet-600 hover:bg-violet-700 shadow-sm transition"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              {cardMissingCompos.length === 1
+                ? `Créer « ${cardMissingCompos[0].suggestedName} »`
+                : `Créer ${cardMissingCompos.length} compos`}
+            </button>
           )}
         </div>
       </div>

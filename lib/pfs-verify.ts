@@ -109,6 +109,26 @@ export interface PfsVerifyIssue {
    * cliente doit corriger le mapping côté site puis relancer l'audit.
    */
   blockingMappingIssue?: string;
+  /**
+   * Compositions PFS présentes sur ce produit mais absentes de la bibliothèque
+   * BJ locale (dédoublonnées par Uid). Utilisé par l'UI de l'audit pour
+   * proposer un raccourci « Créer cette composition » à même la carte produit
+   * + agrégation en top bar de tout le tiroir. Chaque item est prêt à être
+   * passé à `createCompositionsFromPfsAuditAction`.
+   */
+  missingLocalPfs?: PfsMissingCompositionInfoLite[];
+}
+
+/**
+ * Version « lite » de `PfsMissingCompositionInfo` (défini côté server-only
+ * pfs-verify-apply.ts, qui importe Prisma). Reprise ici pour rester
+ * utilisable dans les composants client via `PfsVerifyIssue`.
+ */
+export interface PfsMissingCompositionInfoLite {
+  pfsUid: string;
+  pfsRef: string;
+  suggestedName: string;
+  labels: Record<string, string>;
 }
 
 export interface PfsVerifyResult {
@@ -670,6 +690,8 @@ export function comparePfsProduct(
         expectedValue: parts.join(" · "),
         pullBlocked: blockingParts.join(" "),
         blockingMappingIssue: `${blockingParts.join(" ")} Puis relancez l'audit.`,
+        // Métadonnées pour raccourci UI « Créer cette composition ».
+        missingLocalPfs: reconcile.missingLocalPfs.length > 0 ? reconcile.missingLocalPfs : undefined,
       });
     } else {
       // Cas (3b) — écart de % uniquement (matières identifiées des 2 côtés).
@@ -978,6 +1000,10 @@ interface CompositionReconcileResult {
   aligned: boolean;
   /** Noms FR (labelMap) des matières PFS sans équivalent local par nom. */
   missingLocalNames: string[];
+  /** Métadonnées PFS complètes des matières manquantes (Uid + Ref + suggested
+   *  name + labels) — utilisé par l'UI pour proposer un raccourci « Créer cette
+   *  composition » en 1 clic sans passer par l'apply. */
+  missingLocalPfs: PfsMissingCompositionInfoLite[];
   /** Noms locaux des compositions sans équivalent PFS. */
   orphanLocalNames: string[];
   /** Guérisons à appliquer si aligned=true. */
@@ -1032,6 +1058,7 @@ function reconcileCompositionsByLabel(
 
   const heals: CompositionAutoHealAction[] = [];
   const missingLocalNames: string[] = [];
+  const missingLocalPfs: PfsMissingCompositionInfoLite[] = [];
 
   for (const pfsEntry of pfs) {
     const normPfsRef = normalizeCompositionRef(pfsEntry.reference);
@@ -1052,6 +1079,16 @@ function reconcileCompositionsByLabel(
 
     if (!match) {
       missingLocalNames.push(pfsFrLabel);
+      // Métadonnées complètes pour raccourci UI (create-in-1-click).
+      const dedupKey = pfsEntry.id || pfsEntry.reference || pfsFrLabel;
+      if (!missingLocalPfs.some((m) => (m.pfsUid || m.pfsRef) === dedupKey)) {
+        missingLocalPfs.push({
+          pfsUid: pfsEntry.id || "",
+          pfsRef: pfsEntry.reference,
+          suggestedName: pfsFrLabel,
+          labels: pfsEntry.labels ?? {},
+        });
+      }
       continue;
     }
     match.consumed = true;
@@ -1089,7 +1126,7 @@ function reconcileCompositionsByLabel(
   const aligned =
     missingLocalNames.length === 0 && orphanLocalNames.length === 0 && !pctMismatch;
 
-  return { aligned, missingLocalNames, orphanLocalNames, heals };
+  return { aligned, missingLocalNames, missingLocalPfs, orphanLocalNames, heals };
 }
 
 /**
