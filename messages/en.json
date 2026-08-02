@@ -417,7 +417,19 @@
     "proPricesReserved": "Pricing reserved for professionals",
     "proPricesReservedDesc": "Create your account to discover our wholesale prices and place orders in a few clicks.",
     "alreadyHaveAccount": "I already have an account",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "fromPrice": "from {price} €",
+    "totalHT": "Total excl. tax",
+    "itemsCountOne": "{count} item",
+    "itemsCountOther": "{count} items",
+    "close": "Close",
+    "chooseOptionsTitle": "Choose your options",
+    "chooseColor": "Choose your color",
+    "addSelection": "Add to cart",
+    "addSelectionEmpty": "Pick at least one quantity",
+    "addSuccess": "Added to cart",
+    "stockAvailable": "Stock {count}",
+    "packInfo": "Pack contents"
   },
   "cart": {
     "stepCart": "Cart",

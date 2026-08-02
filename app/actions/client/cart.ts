@@ -397,6 +397,85 @@ export async function addToCart(variantId: string, quantity: number = 1) {
 }
 
 // ─────────────────────────────────────────────
+// Ajout batch (modal "Choisir mes options")
+// ─────────────────────────────────────────────
+
+/**
+ * Ajoute plusieurs variantes en une seule opération. Utilisé par le modal
+ * de sélection multi-variantes de la carte produit — permet à un client
+ * de saisir des quantités pour plusieurs tailles/types/couleurs d'un même
+ * produit puis d'envoyer tout d'un coup.
+ *
+ * Retour : nombre de lignes ajoutées, et éventuelles erreurs par variante
+ * pour qu'on puisse remonter au user quelles lignes ont échoué sans tuer
+ * les lignes qui sont passées.
+ */
+export async function addMultipleToCart(
+  items: { variantId: string; quantity: number }[]
+): Promise<{ addedCount: number; errors: { variantId: string; message: string }[] }> {
+  const userId = await requireClient();
+  const clean = items.filter((it) => it.quantity > 0);
+  if (clean.length === 0) return { addedCount: 0, errors: [] };
+
+  const cart = await getOrCreateCart(userId);
+  const errors: { variantId: string; message: string }[] = [];
+  let addedCount = 0;
+
+  for (const it of clean) {
+    try {
+      const variant = await prisma.productColor.findUnique({
+        where: { id: it.variantId },
+        select: {
+          stock: true,
+          saleType: true,
+          packQuantity: true,
+          product: { select: { status: true } },
+        },
+      });
+      if (!variant) throw new Error("Variante introuvable.");
+      if (variant.product.status !== "ONLINE") {
+        throw new Error("Ce produit n'est plus disponible.");
+      }
+
+      const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
+        ? Math.floor(variant.stock / variant.packQuantity)
+        : variant.stock;
+
+      if (effectiveStock <= 0) throw new Error("Rupture de stock.");
+
+      const existing = await prisma.cartItem.findUnique({
+        where: { cartId_variantId: { cartId: cart.id, variantId: it.variantId } },
+      });
+      const newQty = (existing?.quantity ?? 0) + it.quantity;
+      if (newQty > effectiveStock) {
+        throw new Error(`Stock insuffisant (${effectiveStock} dispo).`);
+      }
+
+      if (existing) {
+        await prisma.cartItem.update({
+          where: { id: existing.id },
+          data: { quantity: newQty },
+        });
+      } else {
+        await prisma.cartItem.create({
+          data: { cartId: cart.id, variantId: it.variantId, quantity: it.quantity },
+        });
+      }
+      addedCount++;
+    } catch (err) {
+      errors.push({
+        variantId: it.variantId,
+        message: err instanceof Error ? err.message : "Erreur",
+      });
+    }
+  }
+
+  revalidatePath("/panier");
+  revalidatePath("/panier/commande");
+  return { addedCount, errors };
+}
+
+// ─────────────────────────────────────────────
 // Modifier la quantité d'une ligne
 // ─────────────────────────────────────────────
 

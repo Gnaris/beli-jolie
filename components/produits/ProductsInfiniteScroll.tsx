@@ -162,10 +162,10 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 lg:gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 auto-rows-fr gap-3 sm:gap-5 lg:gap-6">
         {products.map((product) => {
           return (
-          <div key={product.id} className="stagger-card">
+          <div key={product.id} className="stagger-card h-full">
           <ProductCard
             id={product.id}
             name={product.name}

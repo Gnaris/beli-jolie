@@ -207,18 +207,23 @@ h1, h2, h3, h4, h5, h6 {
 .btn-danger:hover { background-color: #DC2626; box-shadow: var(--shadow-card); }
 
 /* ─── Cards ──────────────────────────────── */
-.card {
+/*
+ * Déclarées en @utility (Tailwind v4) pour permettre le préfixage
+ * responsive — ex: `sm:card` applique la carte à partir de sm+ seulement.
+ * Utilisé par la ProductCard mobile qui n'a pas de fond de carte.
+ */
+@utility card {
   background-color: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
 }
-.card-hover {
+@utility card-hover {
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
-}
-.card-hover:hover {
-  box-shadow: var(--shadow-card-md);
-  border-color: var(--color-border-dark);
+  &:hover {
+    box-shadow: var(--shadow-card-md);
+    border-color: var(--color-border-dark);
+  }
 }
 
 /* Legacy shadow aliases */

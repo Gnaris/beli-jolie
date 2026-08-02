@@ -59,7 +59,7 @@ export default function FavoritesGrid({ items }: Props) {
   const visible = items.filter((it) => !removedIds.has(it.id));
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 auto-rows-fr gap-3 sm:gap-4">
       {visible.map((p) => (
         <ProductCard
           key={p.id}
