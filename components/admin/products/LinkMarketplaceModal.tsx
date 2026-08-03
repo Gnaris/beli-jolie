@@ -167,7 +167,7 @@ export default function LinkMarketplaceModal({
         // Ankorstore + Faire : d'abord la liste complète des candidats. Si 1
         // seul match on charge sa preview direct. Sinon on montre le picker.
         if (supportsCandidatePicker(marketplace)) {
-          const list = await fetchLinkCandidates(marketplace, query);
+          const list = await fetchLinkCandidates(marketplace, query, productId);
           if (genId !== searchGenRef.current) return; // annulé ou remplacé
 
           if (!list.success) {

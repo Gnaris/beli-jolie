@@ -46,6 +46,7 @@ vi.mock("@/app/actions/admin/ankorstore", () => ({
 const ankorApiMock = {
   ankorstoreGetProduct: vi.fn(),
   ankorstoreSearchProducts: vi.fn(),
+  ankorstoreFindProductIdBySku: vi.fn(),
 };
 vi.mock("@/lib/ankorstore-api", () => ankorApiMock);
 
@@ -69,9 +70,14 @@ function fakePreviewOk(marketplaceProductId = "ak-123") {
 
 beforeEach(() => {
   prismaMock.product.findUnique.mockReset();
+  // Défaut : findUnique du 2ᵉ appel (récupération des colors pour SKU lookup)
+  // retourne des colors vides → l'étape SKU-first skip. Les tests qui veulent
+  // exercer l'étape SKU-first doivent définir explicitement les colors.
+  prismaMock.product.findUnique.mockResolvedValue({ colors: [] });
   previewMock.mockReset();
   ankorApiMock.ankorstoreSearchProducts.mockReset();
   ankorApiMock.ankorstoreGetProduct.mockReset();
+  ankorApiMock.ankorstoreFindProductIdBySku.mockReset();
   cacheMock.getCachedCatalog.mockReset();
   cacheMock.filterCatalogEntries.mockReset();
 });
@@ -181,6 +187,42 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     expect(previewMock).not.toHaveBeenCalled();
   });
 
+  it("étape 1.5 : SKU-first lookup trouve A164 même quand filter[skuOrName] est vide (bug 2026-08-03)", async () => {
+    // Régression : `filter[skuOrName]=A164` renvoie 0 côté Ankor alors que
+    // les variantes A164_NOIR_UNIT_2, A164_BLANC_UNIT_4… existent. La preuve
+    // ci-dessous : on n'exerce PAS ankorstoreSearchProducts et pourtant on
+    // trouve le produit via SKU exact.
+    prismaMock.product.findUnique
+      .mockResolvedValueOnce({ ankorsProductId: null }) // 1er appel : ankorsProductId
+      .mockResolvedValueOnce({
+        colors: [
+          { sku: "A164_NOIR_UNIT_2" },
+          { sku: "A164_BLANC_UNIT_4" },
+          { sku: "A164_BLEU_UNIT_6" },
+        ],
+      });
+    // A164_NOIR_UNIT_2 → produit Ankor #123. Les 2 autres SKUs pointent aussi
+    // vers #123 (variantes du même produit) → dédupliqué à 1 produit.
+    ankorApiMock.ankorstoreFindProductIdBySku
+      .mockResolvedValueOnce("ak-123")
+      .mockResolvedValueOnce("ak-123")
+      .mockResolvedValueOnce("ak-123");
+    ankorApiMock.ankorstoreGetProduct.mockResolvedValueOnce({
+      id: "ak-123",
+      name: "Bagues A164",
+      variants: [],
+    } as any);
+    previewMock.mockResolvedValueOnce(fakePreviewOk("ak-123"));
+
+    const res = await searchAndPreviewAnkorstoreByQuery("bj-a164", "A164");
+
+    expect(res.success).toBe(true);
+    expect(previewMock).toHaveBeenCalledWith("bj-a164", "ak-123");
+    // Le SKU-first suffit — pas d'appel `filter[skuOrName]`.
+    expect(ankorApiMock.ankorstoreSearchProducts).not.toHaveBeenCalled();
+    expect(cacheMock.getCachedCatalog).not.toHaveBeenCalled();
+  });
+
   it("filtre les parasites Ankorstore dans le fallback preview (bug A164 → A670)", async () => {
     // Régression 2026-08-03 : si toutes les fiches renvoyées par l'API sont
     // des parasites (score 10), on ne doit PAS charger la 1ʳᵉ comme preview.
@@ -207,6 +249,34 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
 });
 
 describe("searchAnkorstoreCandidatesList — cache-first (picker)", () => {
+  it("SKU-first : trouve les produits Ankor via les SKUs BJ exacts (bug A164/E598)", async () => {
+    // Régression 2026-08-03 : filter[skuOrName] ne trouve pas A164/E598
+    // malgré leurs variantes présentes sur Ankor. Le picker doit alors
+    // interroger Ankor variante par variante avec les SKUs BJ exacts.
+    prismaMock.product.findUnique.mockResolvedValueOnce({
+      colors: [{ sku: "E598_DORE_UNIT_4" }, { sku: "E598_ARGENT_UNIT_2" }],
+    });
+    ankorApiMock.ankorstoreFindProductIdBySku
+      .mockResolvedValueOnce("ak-e598")
+      .mockResolvedValueOnce("ak-e598");
+    ankorApiMock.ankorstoreGetProduct.mockResolvedValueOnce({
+      id: "ak-e598",
+      name: "Boucles d'oreilles - Acier Inoxydable",
+      variants: [{ sku: "E598_DORE_UNIT_4" }, { sku: "E598_ARGENT_UNIT_2" }],
+      images: [],
+    } as any);
+
+    const res = await searchAnkorstoreCandidatesList("E598", "bj-e598");
+
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates).toHaveLength(1);
+    expect(res.data.candidates[0].id).toBe("ak-e598");
+    // Le SKU-first suffit — pas de cache ni d'API filter[skuOrName].
+    expect(cacheMock.getCachedCatalog).not.toHaveBeenCalled();
+    expect(ankorApiMock.ankorstoreSearchProducts).not.toHaveBeenCalled();
+  });
+
   it("cache chaud → renvoie les matches sans appeler l'API (rapide)", async () => {
     // Le picker doit filtrer le cache in-memory avant tout appel API.
     // Bug 2026-08-03 : sans cache-first, ouvrir la modale sur E598

@@ -302,12 +302,13 @@ export function supportsCandidatePicker(m: Marketplace): m is "ankorstore" | "fa
 export async function fetchLinkCandidates(
   marketplace: "ankorstore" | "faire",
   query: string,
+  productId?: string,
 ): Promise<
   | { success: true; data: { candidates: LinkCandidateProduct[]; truncated: boolean } }
   | { success: false; error: string }
 > {
   if (marketplace === "ankorstore") {
-    const res = await searchAnkorstoreCandidatesList(query);
+    const res = await searchAnkorstoreCandidatesList(query, productId);
     if (!res.success) return res;
     return {
       success: true,

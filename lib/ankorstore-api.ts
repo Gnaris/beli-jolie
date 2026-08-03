@@ -483,6 +483,31 @@ export async function ankorstoreFindVariantBySku(
 }
 
 /**
+ * Find the parent Ankorstore product ID for a given variant SKU.
+ *
+ * L'API `filter[skuOrName]` d'Ankor est instable pour certaines refs (ex :
+ * chercher « E598 » ne renvoie pas E598_DORE_UNIT_4 même si la variante
+ * existe). Passer par `filter[sku]=<sku_exact>` + relation `product` est
+ * beaucoup plus fiable puisque c'est un lookup exact indexé.
+ *
+ * Retourne l'ID du produit parent, ou null si la variante n'existe pas.
+ */
+export async function ankorstoreFindProductIdBySku(
+  sku: string,
+): Promise<string | null> {
+  const url =
+    `/product-variants?filter[sku]=${encodeURIComponent(sku)}&include=product&page[limit]=1`;
+  const resp = await ankorstoreFetch<{
+    data: (JsonApiVariantItem & {
+      relationships?: { product?: { data?: { id: string } } };
+    })[];
+  }>(url);
+  const first = resp.data?.[0];
+  if (!first) return null;
+  return first.relationships?.product?.data?.id ?? null;
+}
+
+/**
  * List all products from Ankorstore using cursor-based pagination.
  * Fetches up to 200 pages (safety cap).
  */

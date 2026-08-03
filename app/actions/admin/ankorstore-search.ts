@@ -34,6 +34,7 @@ import { prisma } from "@/lib/prisma";
 import {
   ankorstoreGetProduct,
   ankorstoreSearchProducts,
+  ankorstoreFindProductIdBySku,
   type AnkorstoreProduct,
 } from "@/lib/ankorstore-api";
 import {
@@ -41,12 +42,63 @@ import {
   filterCatalogEntries,
 } from "@/lib/ankorstore-catalog-cache";
 import { scoreAnkorstoreSearchResult } from "@/lib/ankorstore-search-rank";
+import { logger } from "@/lib/logger";
 import { previewAnkorstoreProductForLinking } from "@/app/actions/admin/ankorstore";
 import type { AnkorstoreLinkPreview } from "@/app/actions/admin/ankorstore";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") throw new Error("Non autorisé");
+}
+
+/**
+ * Cherche les produits Ankorstore correspondant à un produit BJ via lookup SKU
+ * exact (le seul chemin fiable pour certaines refs — cf. bug E598/A164 où
+ * `filter[skuOrName]` renvoie 0 alors que les SKUs existent).
+ *
+ * Renvoie tableau vide si aucune variante BJ n'a de SKU, ou si aucune n'est
+ * trouvée côté Ankor. Dédupe si plusieurs SKUs BJ pointent vers le même
+ * produit Ankor.
+ */
+async function findAnkorstoreProductsByBjSkus(
+  bjProductId: string,
+): Promise<AnkorstoreProduct[]> {
+  const bj = await prisma.product.findUnique({
+    where: { id: bjProductId },
+    select: {
+      colors: {
+        where: { saleType: "UNIT" },
+        select: { sku: true },
+      },
+    },
+  });
+  const skus = (bj?.colors ?? [])
+    .map((c) => c.sku)
+    .filter((s): s is string => !!s);
+  if (skus.length === 0) return [];
+
+  const productIds = new Set<string>();
+  await Promise.all(
+    skus.map(async (sku) => {
+      try {
+        const pid = await ankorstoreFindProductIdBySku(sku);
+        if (pid) productIds.add(pid);
+      } catch (err) {
+        logger.warn("[Ankorstore] SKU lookup failed", {
+          sku,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }),
+  );
+  if (productIds.size === 0) return [];
+
+  const products = await Promise.all(
+    [...productIds].map((pid) =>
+      ankorstoreGetProduct(pid).catch(() => null),
+    ),
+  );
+  return products.filter((p): p is AnkorstoreProduct => p !== null);
 }
 
 export async function searchAndPreviewAnkorstoreByQuery(
@@ -77,6 +129,27 @@ export async function searchAndPreviewAnkorstoreByQuery(
       }
       // Si le GET a échoué (produit archivé/supprimé côté Ankorstore), on
       // tombe sur les étapes suivantes plutôt que d'échouer directement.
+    }
+
+    // ── Étape 1.5 : lookup exact par SKU BJ ────────────────────────────
+    // Chemin le plus fiable : on connaît les SKUs UNIT côté BJ (ex :
+    // A164_NOIR_UNIT_2, E598_DORE_UNIT_4), on interroge Ankor variante
+    // par variante avec `filter[sku]=X`. Contrairement à `filter[skuOrName]`
+    // qui est instable et rate certaines refs (bug 2026-08-03), le lookup
+    // par SKU exact est indexé et 100 % fiable.
+    const bySku = await findAnkorstoreProductsByBjSkus(productId);
+    if (bySku.length > 0) {
+      const previewRes = await previewAnkorstoreProductForLinking(
+        productId,
+        bySku[0].id,
+      );
+      if (previewRes.success) {
+        return {
+          success: true,
+          data: previewRes.data,
+          totalMatches: bySku.length,
+        };
+      }
     }
 
     // ── Étape 2 : cache complet du catalogue s'il est chaud ────────────
@@ -176,6 +249,7 @@ export interface MarketplaceCandidateProduct {
  */
 export async function searchAnkorstoreCandidatesList(
   query: string,
+  bjProductId?: string,
 ): Promise<
   | { success: true; data: { candidates: MarketplaceCandidateProduct[]; truncated: boolean } }
   | { success: false; error: string }
@@ -186,6 +260,24 @@ export async function searchAnkorstoreCandidatesList(
 
     const q = query.trim();
     if (!q) return { success: false, error: "Référence vide." };
+
+    // ── Étape 0 : lookup exact par SKU BJ (le plus fiable) ─────────────
+    // Si on connaît le produit BJ, on interroge Ankor directement avec les
+    // SKUs UNIT stockés en base. C'est le seul chemin qui trouve des refs
+    // comme A164 / E598 dont `filter[skuOrName]` retourne 0 malgré leur
+    // existence côté Ankor (bug de l'API confirmé 2026-08-03).
+    if (bjProductId) {
+      const bySku = await findAnkorstoreProductsByBjSkus(bjProductId);
+      if (bySku.length > 0) {
+        const candidates: MarketplaceCandidateProduct[] = bySku.map((p) =>
+          toCandidateProduct(p),
+        );
+        return {
+          success: true,
+          data: { candidates, truncated: false },
+        };
+      }
+    }
 
     // ── Étape 1 : cache complet du catalogue s'il est chaud ─────────────
     // Le cache Ankorstore est préchargé au boot pm2 et rechargé toutes les 6 h
