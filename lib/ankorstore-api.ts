@@ -290,11 +290,16 @@ export async function ankorstoreSearchProducts(
   }
 
   // Fallback : aucune correspondance via les SKU → recherche legacy par nom de produit.
+  //
+  // ⚠️ L'endpoint `/products` cap `page[limit]` à 50 (400 sinon). Le variant
+  // endpoint utilisé au-dessus accepte 100 : les 2 endpoints n'ont pas la
+  // même limite malgré une signature commune. Constaté 2026-08-03 :
+  // envoyer 100 ici renvoyait « The page.limit may not be greater than 50. »
   if (candidates.length === 0) {
     try {
       const url =
         `/products?filter[skuOrName]=${encodeURIComponent(query)}` +
-        `&filter[archived]=false&include=productVariants&page[limit]=${FETCH_LIMIT}`;
+        `&filter[archived]=false&include=productVariants&page[limit]=50`;
       const resp = await ankorstoreFetch<{
         data: JsonApiProductItem[];
         included?: JsonApiVariantItem[];

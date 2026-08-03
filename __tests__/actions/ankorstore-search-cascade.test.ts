@@ -95,29 +95,31 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     expect(cacheMock.getCachedCatalog).not.toHaveBeenCalled();
   });
 
-  it("étape 2 : pas d'ankorsProductId → search rapide et prend le 1er candidat", async () => {
+  it("étape 2 : cache chaud → filtrage in-memory, PAS d'appel API", async () => {
+    // Le cache est préchargé au boot pm2 (~10 000 produits BJ, reload 6h).
+    // Filtrage in-memory = quelques ms là où l'API `filter[skuOrName]` prend
+    // 30-40 s par appel — et rate les SKUs à underscore comme E598_DORE_UNIT_4.
     prismaMock.product.findUnique.mockResolvedValueOnce({
       ankorsProductId: null,
     });
-    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
-      { id: "ak-search-1" } as any,
-      { id: "ak-search-2" } as any,
+    cacheMock.getCachedCatalog.mockReturnValueOnce([
+      { id: "ak-cached-1", name: "Foo", ref: "A405", externalId: null } as any,
     ]);
-    previewMock.mockResolvedValueOnce(fakePreviewOk("ak-search-1"));
+    cacheMock.filterCatalogEntries.mockReturnValueOnce([
+      { id: "ak-cached-1", name: "Foo", ref: "A405", externalId: null } as any,
+    ]);
+    previewMock.mockResolvedValueOnce(fakePreviewOk("ak-cached-1"));
 
     const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "A405");
 
     expect(res.success).toBe(true);
     if (!res.success) return;
-    expect(res.totalMatches).toBe(2);
-    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("A405", 5, {
-      skipWideScan: true,
-    });
-    expect(previewMock).toHaveBeenCalledWith("bj-1", "ak-search-1");
-    expect(cacheMock.getCachedCatalog).not.toHaveBeenCalled();
+    expect(previewMock).toHaveBeenCalledWith("bj-1", "ak-cached-1");
+    // Pas de fallback API si le cache trouve
+    expect(ankorApiMock.ankorstoreSearchProducts).not.toHaveBeenCalled();
   });
 
-  it("étape 1 échoue (ID obsolète 404) → bascule sur search rapide", async () => {
+  it("étape 1 échoue (ID obsolète 404) → bascule sur cache puis search", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce({
       ankorsProductId: "ak-stale",
     });
@@ -126,6 +128,8 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
       success: false,
       error: "Produit Ankorstore introuvable.",
     });
+    // Cache pas prêt (ex : PM2 restart récent)
+    cacheMock.getCachedCatalog.mockReturnValueOnce(null);
     // La search prend le relais
     ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
       { id: "ak-fresh" } as any,
@@ -141,50 +145,33 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     expect(previewMock.mock.calls[1][1]).toBe("ak-fresh");
   });
 
-  it("étape 3 : search vide + cache chaud → fallback cache", async () => {
+  it("étape 3 : cache froid + search API prend le relais avec skipWideScan false (SKU à underscore)", async () => {
+    // Ce test verrouille le fait qu'on garde le wide scan comme dernier recours
+    // pour les SKUs comme E598_DORE_UNIT_4 que le tokenizer Ankorstore ignore.
     prismaMock.product.findUnique.mockResolvedValueOnce({
       ankorsProductId: null,
     });
-    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
-    // Cache chaud : catalogue préchargé au boot
-    cacheMock.getCachedCatalog.mockReturnValueOnce([
-      { id: "ak-cached-1", name: "Foo", ref: "A405", externalId: null } as any,
+    cacheMock.getCachedCatalog.mockReturnValueOnce(null); // cache pas prêt
+    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
+      { id: "ak-scan-found" } as any,
     ]);
-    cacheMock.filterCatalogEntries.mockReturnValueOnce([
-      { id: "ak-cached-1", name: "Foo", ref: "A405", externalId: null } as any,
-    ]);
-    previewMock.mockResolvedValueOnce(fakePreviewOk("ak-cached-1"));
+    previewMock.mockResolvedValueOnce(fakePreviewOk("ak-scan-found"));
 
-    const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "A405");
+    const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "E598");
 
     expect(res.success).toBe(true);
-    if (!res.success) return;
-    expect(previewMock).toHaveBeenCalledWith("bj-1", "ak-cached-1");
+    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("E598", 5, {
+      skipWideScan: false,
+    });
   });
 
-  it("étape 3 : cache VIDE (non chargé) → on ne bloque PAS, on renvoie erreur claire", async () => {
+  it("cache chaud sans match + API vide → erreur claire", async () => {
     prismaMock.product.findUnique.mockResolvedValueOnce({
       ankorsProductId: null,
     });
-    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
-    cacheMock.getCachedCatalog.mockReturnValueOnce(null); // cache pas prêt
-
-    const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "A405");
-
-    expect(res.success).toBe(false);
-    if (res.success) return;
-    expect(res.error).toMatch(/Aucun produit Ankorstore/i);
-    // On ne doit jamais déclencher un chargement complet ici
-    expect(cacheMock.filterCatalogEntries).not.toHaveBeenCalled();
-  });
-
-  it("rien nulle part (search vide, cache chaud sans match) → erreur claire", async () => {
-    prismaMock.product.findUnique.mockResolvedValueOnce({
-      ankorsProductId: null,
-    });
-    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
     cacheMock.getCachedCatalog.mockReturnValueOnce([{ id: "x" } as any]);
     cacheMock.filterCatalogEntries.mockReturnValueOnce([]);
+    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
 
     const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "ZZZ");
 
@@ -195,18 +182,53 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
   });
 });
 
-describe("searchAnkorstoreCandidatesList — perf (picker)", () => {
-  it("passe skipWideScan: true à ankorstoreSearchProducts (évite le scan 4000 fiches ~30-60s)", async () => {
-    // Régression : avant 2026-08-03, le picker appelait avec skipWideScan: false.
-    // Résultat : ouvrir la modale sur un produit BJ inconnu d'Ankorstore (ex E598)
-    // déclenchait le wide scan → 30-60 s d'attente pour rien.
+describe("searchAnkorstoreCandidatesList — cache-first (picker)", () => {
+  it("cache chaud → renvoie les matches sans appeler l'API (rapide)", async () => {
+    // Le picker doit filtrer le cache in-memory avant tout appel API.
+    // Bug 2026-08-03 : sans cache-first, ouvrir la modale sur E598
+    // déclenchait 30-40 s de filter[skuOrName] à Ankorstore.
+    cacheMock.getCachedCatalog.mockReturnValueOnce([
+      {
+        id: "ak-e598",
+        name: "Boucles E598",
+        ref: "E598",
+        externalId: "E598",
+        firstImageUrl: null,
+        variantCount: 2,
+      } as any,
+    ]);
+    cacheMock.filterCatalogEntries.mockReturnValueOnce([
+      {
+        id: "ak-e598",
+        name: "Boucles E598",
+        ref: "E598",
+        externalId: "E598",
+        firstImageUrl: null,
+        variantCount: 2,
+      } as any,
+    ]);
+
+    const res = await searchAnkorstoreCandidatesList("E598");
+
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates).toHaveLength(1);
+    expect(res.data.candidates[0].id).toBe("ak-e598");
+    // Aucun appel API tant que le cache répond
+    expect(ankorApiMock.ankorstoreSearchProducts).not.toHaveBeenCalled();
+  });
+
+  it("cache froid (PM2 restart) → retombe sur l'API avec skipWideScan false", async () => {
+    // Wide scan reste actif comme dernier recours pour les SKUs à underscore
+    // (E598_DORE_UNIT_4) que le tokenizer Ankorstore ignore.
+    cacheMock.getCachedCatalog.mockReturnValueOnce(null); // cache pas prêt
     ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
 
     const res = await searchAnkorstoreCandidatesList("E598");
 
     expect(res.success).toBe(true);
     expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("E598", 100, {
-      skipWideScan: true,
+      skipWideScan: false,
     });
   });
 });

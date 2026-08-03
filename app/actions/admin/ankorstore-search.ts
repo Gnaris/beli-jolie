@@ -78,37 +78,10 @@ export async function searchAndPreviewAnkorstoreByQuery(
       // tombe sur les étapes suivantes plutôt que d'échouer directement.
     }
 
-    // ── Étape 2 : recherche rapide via filter[skuOrName] ──────────────
-    // ankorstoreSearchProducts fait 1 appel `/product-variants?filter[skuOrName]=…`
-    // (rapide), avec fallback interne vers `/products?filter[skuOrName]` si
-    // le filtre variantes ne matche rien.
-    //
-    // On DÉSACTIVE le scan large (`skipWideScan: true`) : dans la modale de
-    // liaison, si les 2 filtres API renvoient 0, la fiche n'existe presque
-    // jamais côté marketplace (cas Issyma). Scanner 4 000 fiches à sec = 30-60 s
-    // dans le vide. Mieux vaut afficher « pas trouvé » tout de suite.
-    const candidates = await ankorstoreSearchProducts(query, 5, {
-      skipWideScan: true,
-    });
-    if (candidates.length > 0) {
-      // Le tableau est déjà trié par pertinence côté ankorstoreSearchProducts.
-      const previewRes = await previewAnkorstoreProductForLinking(
-        productId,
-        candidates[0].id,
-      );
-      if (previewRes.success) {
-        return {
-          success: true,
-          data: previewRes.data,
-          totalMatches: candidates.length,
-        };
-      }
-      // Preview a échoué (rare) → on tente le fallback cache.
-    }
-
-    // ── Étape 3 : fallback cache complet (uniquement si déjà chaud) ───
-    // On ne DÉCLENCHE PAS de chargement si le cache est vide — mieux vaut
-    // rendre la main tout de suite que faire attendre 60 s.
+    // ── Étape 2 : cache complet du catalogue s'il est chaud ────────────
+    // Le cache est préchargé au boot pm2 (~10 000 produits BJ, reload 6h).
+    // Filtrage in-memory = quelques ms là où l'API `filter[skuOrName]` prend
+    // 30-40 s par appel — et rate les SKUs à underscore comme E598_DORE_UNIT_4.
     const cached = getCachedCatalog(tenant.id);
     if (cached && cached.length > 0) {
       const matches = filterCatalogEntries(cached, query);
@@ -124,6 +97,28 @@ export async function searchAndPreviewAnkorstoreByQuery(
             totalMatches: matches.length,
           };
         }
+      }
+      // Cache chaud sans match = la fiche n'existe pas (ou pas encore indexée
+      // depuis le dernier reload). On continue quand même sur l'API au cas où.
+    }
+
+    // ── Étape 3 : recherche via l'API Ankorstore ─────────────────────────
+    // Cache pas prêt (boot en cours) → on retombe sur l'API. `skipWideScan: false`
+    // pour couvrir les SKUs que le tokenizer Ankorstore ignore (ex : E598).
+    const candidates = await ankorstoreSearchProducts(query, 5, {
+      skipWideScan: false,
+    });
+    if (candidates.length > 0) {
+      const previewRes = await previewAnkorstoreProductForLinking(
+        productId,
+        candidates[0].id,
+      );
+      if (previewRes.success) {
+        return {
+          success: true,
+          data: previewRes.data,
+          totalMatches: candidates.length,
+        };
       }
     }
 
@@ -179,21 +174,51 @@ export async function searchAnkorstoreCandidatesList(
 > {
   try {
     await requireAdmin();
-    await requireCurrentTenant();
+    const tenant = await requireCurrentTenant();
 
     const q = query.trim();
     if (!q) return { success: false, error: "Référence vide." };
 
-    // On demande large côté API (100 = cap) et on garde le tri par pertinence
-    // déjà fait par `ankorstoreSearchProducts`.
-    //
-    // `skipWideScan: true` — même logique que `searchAndPreviewAnkorstoreByQuery` :
-    // si les 2 filtres API renvoient 0, la fiche n'existe presque jamais côté
-    // marketplace. Scanner 4 000 fiches à sec = 30-60 s dans le vide (bug
-    // constaté sur E598 en 2026-08-03). Mieux vaut afficher « pas trouvé »
-    // tout de suite (l'admin sait qu'elle doit publier, pas chercher plus loin).
+    // ── Étape 1 : cache complet du catalogue s'il est chaud ─────────────
+    // Le cache Ankorstore est préchargé au boot pm2 et rechargé toutes les 6 h
+    // (~10 000 produits BJ). Filtrage in-memory = < 100 ms pour un match sur
+    // ref/externalId/nom, là où le filter[skuOrName] de l'API prend 30-40 s
+    // par appel — et rate quand même les SKUs à underscore comme
+    // `E598_DORE_UNIT_4` (bug constaté 2026-08-03).
+    const cached = getCachedCatalog(tenant.id);
+    if (cached && cached.length > 0) {
+      const matches = filterCatalogEntries(cached, q).slice(0, 100);
+      if (matches.length > 0) {
+        const candidates: MarketplaceCandidateProduct[] = matches.map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          imageUrl: entry.firstImageUrl,
+          sampleSku: null, // le cache n'indexe pas les SKUs, non-bloquant pour le picker
+          variantCount: entry.variantCount,
+          lifecycleState: null,
+          extractedReference: entry.externalId ?? entry.ref,
+        }));
+        return {
+          success: true,
+          data: {
+            candidates,
+            truncated: matches.length >= 100,
+          },
+        };
+      }
+      // Cache chaud sans match = la fiche n'existe pas (ou pas encore indexée
+      // depuis le dernier reload de cache). On continue quand même sur l'API
+      // au cas où le cache serait périmé.
+    }
+
+    // ── Étape 2 : recherche via l'API Ankorstore ─────────────────────────
+    // Cache pas prêt (boot en cours) → on fait l'appel API classique.
+    // `skipWideScan: false` : on garde le scan large en dernier recours pour
+    // les SKUs que le tokenizer Ankorstore ignore (ex : E598_DORE_UNIT_4).
+    // Ça coûte 30-60 s d'attente mais c'est le seul chemin qui marche quand
+    // le cache est froid.
     const products = await ankorstoreSearchProducts(q, 100, {
-      skipWideScan: true,
+      skipWideScan: false,
     });
 
     const candidates: MarketplaceCandidateProduct[] = products.map((p) =>
@@ -204,8 +229,6 @@ export async function searchAnkorstoreCandidatesList(
       success: true,
       data: {
         candidates,
-        // 100 = cap API : on ne peut pas prouver qu'il y en avait plus, mais
-        // c'est un bon indicateur pour prévenir la cliente.
         truncated: candidates.length >= 100,
       },
     };
