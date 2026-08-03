@@ -4,7 +4,6 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { pfsUpdateProductInPlace } from "@/lib/pfs-update";
 import { pfsPublishProduct } from "@/lib/pfs-publish";
 import { emitProductEvent } from "@/lib/product-events";
@@ -126,28 +125,26 @@ export async function publishProductToMarketplaces(
     } else {
       try {
         if (product.pfsProductId) {
+          // Produit déjà lié à une fiche PFS → PATCH (modification seulement).
+          // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça effacerait
+          // le lien pfsProductId en base et retenterait un create sur la même
+          // reference_code, ce que PFS refuse (« Référence non valide »).
+          // Cas vu en réel sur A264 le 03/08 après un abort du fetch d'update.
           const res = await pfsUpdateProductInPlace(productId, undefined, { skipRevalidation: true });
           if (res.success) {
             outcome.pfs = { status: "ok", mode: "update", archived: res.archived };
           } else {
-            logger.warn("[Marketplace Publish] PFS update failed, falling back to publish", {
+            logger.error("[Marketplace Publish] PFS update failed (no fallback)", {
               productId,
               error: res.error,
             });
-            await prisma.product.update({
-              where: { id: productId },
-              data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
-            });
-            await prisma.productColor.updateMany({
-              where: { productId },
-              data: { pfsVariantId: null },
-            });
-            const pubRes = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });
-            if (pubRes.success) {
-              outcome.pfs = { status: "ok", mode: "create", archived: pubRes.archived };
-            } else {
-              outcome.pfs = { status: "error", message: pubRes.error };
-            }
+            outcome.pfs = {
+              status: "error",
+              message:
+                `Modification Paris Fashion Shop refusée : ${res.error ?? "erreur inconnue"}. ` +
+                `Aucun produit n'a été recréé pour éviter un doublon ou un lien cassé. ` +
+                `Vérifiez le contenu puis re-tentez.`,
+            };
           }
         } else {
           const res = await pfsPublishProduct(productId, undefined, { skipRevalidation: true });

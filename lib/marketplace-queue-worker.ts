@@ -29,9 +29,9 @@ const ANKORSTORE_CONCURRENCY = 1;
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
 
-type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
+export type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
 
-interface QueueJobPayload {
+export interface QueueJobPayload {
   reference: string;
   productName: string;
   firstImage: string | null;
@@ -339,7 +339,7 @@ async function processJobBody(job: any): Promise<void> {
   revalidateProductPaths(job.productId);
 }
 
-async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
   // Local bump (bouton « Boutique »)
   let localOutcome: TargetOutcomeOk | undefined;
   if (payload.options.local) {
@@ -477,6 +477,11 @@ async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
         select: { pfsProductId: true },
       });
       if (product?.pfsProductId) {
+        // Produit déjà lié à une fiche PFS → PATCH (modification seulement).
+        // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça effacerait
+        // le lien pfsProductId en base et retenterait un create sur la même
+        // reference_code, ce que PFS refuse (« Référence non valide »). Cas
+        // vu en réel sur A264 le 03/08 après un abort du fetch d'update.
         const { pfsUpdateProductInPlace } = await import("@/lib/pfs-update");
         const res = await pfsUpdateProductInPlace(job.productId, undefined, {
           skipRevalidation: true,
@@ -484,29 +489,18 @@ async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
         if (res.success) {
           pfsOutcome = { ok: true, archived: res.archived };
         } else {
-          // Fallback identique à publishProductToMarketplaces : on reset les IDs
-          // et on retente en mode publish.
-          logger.warn("[Marketplace Queue] PFS update failed, fallback to publish", {
+          logger.error("[Marketplace Queue] PFS update failed (no fallback)", {
             productId: job.productId,
             error: res.error,
           });
-          await prisma.product.update({
-            where: { id: job.productId },
-            data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
-          });
-          await prisma.productColor.updateMany({
-            where: { productId: job.productId },
-            data: { pfsVariantId: null },
-          });
-          const { pfsPublishProduct } = await import("@/lib/pfs-publish");
-          const pubRes = await pfsPublishProduct(job.productId, undefined, {
-            skipRevalidation: true,
-          });
-          if (pubRes.success) {
-            pfsOutcome = { ok: true, archived: pubRes.archived };
-          } else {
-            pfsOutcome = { ok: false, kind: "error", message: pubRes.error };
-          }
+          pfsOutcome = {
+            ok: false,
+            kind: "error",
+            message:
+              `Modification Paris Fashion Shop refusée : ${res.error ?? "erreur inconnue"}. ` +
+              `Aucun produit n'a été recréé pour éviter un doublon ou un lien cassé. ` +
+              `Vérifiez le contenu puis re-tentez.`,
+          };
         }
       } else {
         const { pfsPublishProduct } = await import("@/lib/pfs-publish");

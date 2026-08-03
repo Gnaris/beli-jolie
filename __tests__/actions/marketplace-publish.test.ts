@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Prisma } from "@prisma/client";
 
 const {
   mockProductFindUnique,
@@ -59,6 +58,16 @@ vi.mock("@/lib/marketplace-enabled", () => ({
     faire: true,
   }),
   marketplaceDisabledMessage: (mp: string) => `${mp} désactivé`,
+}));
+
+vi.mock("@/lib/platform-config", () => ({
+  getMarketplaceMaintenance: vi.fn().mockResolvedValue({
+    pfs: false,
+    ankorstore: false,
+    efashion: false,
+    faire: false,
+  }),
+  marketplaceMaintenanceMessage: (mp: string) => `${mp} en maintenance`,
 }));
 
 vi.mock("@/lib/product-publishability-check", () => ({
@@ -127,33 +136,34 @@ describe("publishProductToMarketplaces", () => {
     expect(out.pfs).toEqual({ status: "ok", mode: "update", archived: false });
   });
 
-  it("retombe sur publish si l'update PFS échoue (ID stale)", async () => {
+  it("NE recrée PAS le produit si l'update PFS échoue (garde-fou anti-doublon)", async () => {
+    // Régression A264 (03/08/2026) : un update aborted → fallback catastrophique
+    // qui reset pfsProductId + retente un create → PFS refuse « Référence non
+    // valide » → lien perdu en base, fiche encore présente côté PFS. Depuis, on
+    // ne recrée JAMAIS après un update échoué, quel que soit le motif.
     mockProductFindUnique.mockResolvedValue({
       id: "p-1",
       reference: "REF-1",
       name: "T",
       status: "OFFLINE",
-      pfsProductId: "stale_pfs",
+      pfsProductId: "existing_pfs",
     });
     pfsUpdateInPlaceSpy.mockResolvedValue({
       success: false,
-      error: "Produit inexistant sur PFS",
-    });
-    pfsPublishSpy.mockResolvedValue({
-      success: true,
-      pfsProductId: "new_pfs",
-      archived: false,
+      error: "This operation was aborted",
     });
 
     const out = await publishProductToMarketplaces("p-1", { pfs: true });
 
     expect(pfsUpdateInPlaceSpy).toHaveBeenCalledOnce();
-    expect(pfsPublishSpy).toHaveBeenCalledOnce();
-    expect(mockProductUpdate).toHaveBeenCalledWith({
-      where: { id: "p-1" },
-      data: { pfsProductId: null, pfsLastSyncSnapshot: Prisma.DbNull },
-    });
-    expect(out.pfs).toEqual({ status: "ok", mode: "create", archived: false });
+    expect(pfsPublishSpy).not.toHaveBeenCalled();
+    expect(mockProductUpdate).not.toHaveBeenCalled();
+    expect(mockProductColorUpdateMany).not.toHaveBeenCalled();
+    expect(out.pfs?.status).toBe("error");
+    if (out.pfs?.status === "error") {
+      expect(out.pfs.message).toContain("This operation was aborted");
+      expect(out.pfs.message).toContain("Aucun produit n'a été recréé");
+    }
   });
 
   it("renvoie status error si la fonction sous-jacente échoue", async () => {
