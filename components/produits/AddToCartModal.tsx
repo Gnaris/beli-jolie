@@ -102,6 +102,9 @@ export default function AddToCartModal({
   // Mini dropdown de sélection de couleur
   const [showColorMenu, setShowColorMenu] = useState(false);
   const colorMenuRef = useRef<HTMLDivElement>(null);
+  // Feedback bouton "Ajouté !" 2 sec + point de départ de l'animation fly-to-cart
+  const [justAdded, setJustAdded] = useState(false);
+  const headerImageRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -234,6 +237,8 @@ export default function AddToCartModal({
       return;
     }
 
+    const totalQty = items.reduce((s, it) => s + it.quantity, 0);
+
     startTransition(async () => {
       try {
         const res = await addMultipleToCart(items);
@@ -245,7 +250,25 @@ export default function AddToCartModal({
         } else {
           setFeedback({ type: "success", msg: t("addSuccess") });
           setQuantities({}); // reset pour permettre d'ajouter d'autres couleurs
-          window.dispatchEvent(new CustomEvent("cart:refresh"));
+
+          // Animation fly-to-cart : point de départ = image du header du modal
+          if (headerImageRef.current && activeImage) {
+            const rect = headerImageRef.current.getBoundingClientRect();
+            window.dispatchEvent(new CustomEvent("cart:item-added", {
+              detail: {
+                imageSrc: activeImage,
+                rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+                quantity: totalQty,
+              },
+            }));
+          } else {
+            // Fallback : au moins bump le compteur
+            window.dispatchEvent(new CustomEvent("cart:refresh"));
+          }
+
+          // Bouton vert "Ajouté !" pendant 2 sec
+          setJustAdded(true);
+          setTimeout(() => setJustAdded(false), 2000);
           setTimeout(() => setFeedback(null), 3000);
         }
       } catch (err) {
@@ -275,6 +298,7 @@ export default function AddToCartModal({
         <div className="p-4 sm:p-5 border-b border-border-light flex items-start gap-3 sm:gap-4 shrink-0">
           {activeImage ? (
             <button
+              ref={headerImageRef}
               type="button"
               onClick={() => setShowLightbox(true)}
               aria-label={t("preview")}
@@ -527,13 +551,21 @@ export default function AddToCartModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isPending || totalItems === 0}
-            className="w-full py-3 sm:py-3 rounded-full bg-accent text-white text-[15px] sm:text-base font-medium hover:bg-accent-dark active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-body"
+            disabled={isPending || totalItems === 0 || justAdded}
+            className={`w-full py-3 sm:py-3 rounded-full text-white text-[15px] sm:text-base font-medium active:scale-[0.98] transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2 font-body ${
+              justAdded
+                ? "bg-success"
+                : "bg-accent hover:bg-accent-dark disabled:opacity-50"
+            }`}
           >
             {isPending ? (
               <svg className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : justAdded ? (
+              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             ) : (
               <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -541,7 +573,7 @@ export default function AddToCartModal({
                   d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
               </svg>
             )}
-            {t("addSelection")}
+            {justAdded ? t("added") : t("addSelection")}
           </button>
         </div>
       </div>

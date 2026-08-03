@@ -342,7 +342,7 @@ export default function ProductDetail({
         </div>
         <button type="button" disabled={effectiveStock === 0 || isPending} onClick={() => handleAddToCart(v.id, qty)}
           className={`flex-1 h-10 text-text-inverse text-xs font-heading font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 rounded-lg ${
-            addedOptId === v.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
+            addedOptId === v.id ? "bg-success" : "bg-bg-dark hover:bg-primary-hover"
           }`}
         >
           {addedOptId === v.id ? (
@@ -867,7 +867,7 @@ export default function ProductDetail({
             </div>
             <button type="button" disabled={stickyStock === 0 || isPending} onClick={() => handleAddToCart(firstV.id, stickyQty)}
               className={`h-11 px-5 text-text-inverse text-xs font-heading font-semibold rounded-lg shrink-0 flex items-center gap-1.5 transition-colors disabled:opacity-40 ${
-                addedOptId === firstV.id ? "bg-accent-dark" : "bg-bg-dark hover:bg-primary-hover"
+                addedOptId === firstV.id ? "bg-success" : "bg-bg-dark hover:bg-primary-hover"
               }`}
             >
               {addedOptId === firstV.id ? (
