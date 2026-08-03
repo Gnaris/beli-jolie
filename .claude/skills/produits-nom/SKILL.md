@@ -11,6 +11,10 @@ La cliente dirige **Beli & Jolie**, un site B2B de vente en gros de bijoux en ac
 
 Ce travail s'étale sur plusieurs sessions et possiblement plusieurs PC. Le champ `Product.note` en base de données fait office de marqueur : un produit dont la note contient « Complété par l'IA » ne sera plus reproposé dans les lots suivants.
 
+## Portée tenant — beliandjolie UNIQUEMENT
+
+Le VPS héberge deux boutiques (beliandjolie.com **et** issyma.fr) sur la même base. **Ce skill ne doit JAMAIS toucher les produits Issyma.** Les scripts `name-batch-export.ts` et `name-batch-apply.ts` sont hard-scopés sur le tenant `beliandjolie` (via `tenantALS.run(tenantId, …)`). Si un jour un autre skill équivalent est créé pour Issyma, il devra vivre dans son propre skill avec son propre slug — ne jamais paramétrer ce skill pour accepter un autre tenant.
+
 ## Style de communication
 
 **Toujours en français. Toujours non-technique.** La cliente n'est pas développeuse. Lui parler comme à une chef d'entreprise qui veut savoir ce qui change sur son site.

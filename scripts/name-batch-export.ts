@@ -6,11 +6,32 @@
  */
 import "dotenv/config";
 import { prisma } from "@/lib/prisma";
+import { tenantALS } from "@/lib/tenant-als";
 import { buildExportWhereClause } from "@/lib/name-batch-export-filter";
+
+const SKILL_TENANT_SLUG = "beliandjolie";
 
 (async () => {
   const N = parseInt(process.argv[2] ?? "10", 10);
 
+  const tenant = await prisma.tenant.findFirst({
+    where: { slug: SKILL_TENANT_SLUG },
+    select: { id: true },
+  });
+  if (!tenant) {
+    throw new Error(
+      `Tenant "${SKILL_TENANT_SLUG}" introuvable — le skill produits-nom ne cible que cette boutique.`,
+    );
+  }
+
+  await tenantALS.run(tenant.id, () => runExport(N));
+  await prisma.$disconnect();
+})().catch((err) => {
+  console.error("ERREUR:", err);
+  process.exit(1);
+});
+
+async function runExport(N: number) {
   const products = await prisma.product.findMany({
     where: buildExportWhereClause(),
     take: N,
@@ -118,9 +139,4 @@ import { buildExportWhereClause } from "@/lib/name-batch-export-filter";
       2,
     ),
   );
-
-  await prisma.$disconnect();
-})().catch((err) => {
-  console.error("ERREUR:", err);
-  process.exit(1);
-});
+}

@@ -101,6 +101,53 @@ Si la catégorie principale paraît clairement fausse (bague rangée dans Bracel
 
 Aucun changement automatique.
 
+## Vocabulaire simple — pas de jargon de bijoutier
+
+Les clients Beli & Jolie sont des **revendeurs B2B non-spécialistes** — ils ne connaissent pas le vocabulaire technique du bijou. Éviter les mots trop pointus, préférer des équivalents courants.
+
+**Mots à éviter (trop techniques) → équivalents simples :**
+- ❌ « gourmette » → ✅ « chaîne » ou « chaîne à maillons »
+- ❌ « maille forçat / jaseron / vénitienne / bismark » → ✅ « chaîne fine » (ou nom simple si vraiment reconnaissable)
+- ❌ « anneau bélière » → ✅ « anneau »
+- ❌ « fermoir mousqueton / t-bar / anneau ressort » (sauf si vraiment visible et utile)
+- ❌ « pierre sertie clos / griffé / rail » → ✅ « pierre sertie »
+
+**Exceptions à garder** : mots devenus grand public dans la mode/bijou :
+- ✅ « pampille », « breloque », « charm », « pendentif », « strass », « nacre », « émail »
+- ✅ « ajouré », « martelé », « strié », « facetté », « torsadé » (si vraiment visible sans ambiguïté)
+- ✅ « maille marine » (assez connue, sinon « anneau marine »)
+- ✅ « ajustable » (info commerciale utile)
+
+Règle : si un mot risque d'obliger le lecteur à Googler pour comprendre, choisir un synonyme plus simple.
+
+## Émail vs résine vs nacre — piège récurrent
+
+Sur les bijoux Beli & Jolie (acier inoxydable en gros), les motifs colorés brillants (trèfles, papillons, fleurs, cœurs…) sont **quasiment toujours de l'émail**, pas de la résine et pas de la nacre — même quand ils ont un aspect translucide, laiteux ou irisé qui ressemble à la nacre.
+
+- **Émail** = revêtement vitrifié cuit sur le métal. C'est la matière par défaut sur cette boutique pour tout motif coloré brillant.
+- **Résine** = plastique/époxy coulé. Aspect plus mat, effet 3D marqué, souvent utilisé sur de gros pendentifs volumineux.
+- **Nacre** = coquillage vrai, effet irisé naturel unique par pièce. Rare sur ces produits, presque toujours indiqué explicitement dans l'ancien nom si présent.
+
+**Règle par défaut** : en cas de doute sur un motif brillant coloré, dire **« émail »** (adjectif « émaillé »). Ne dire « résine » ou « nacre » que si l'ancien nom du produit le confirme explicitement, ou si l'aspect visuel est vraiment sans ambiguïté.
+
+Cette règle a été instaurée après plusieurs corrections successives de la cliente en août 2026 — elle sait par cœur ce qu'elle vend.
+
+## Présentoirs et lots — quantité obligatoire
+
+Dès qu'un produit est un **présentoir**, un **lot**, un **assortiment** ou un **coffret** contenant plusieurs pièces, la **quantité doit apparaître dans le nom ET dans la description** (en FR et EN).
+
+- ❌ « Lot de boucles d'oreilles avec présentoir »
+- ✅ « Lot de 16 boucles d'oreilles avec présentoir »
+- ❌ « Set of dangling earrings with display »
+- ✅ « Set of 16 dangling earrings with display »
+
+**Comment compter :**
+1. Regarder l'image et compter les pièces réellement visibles (par ex. 4 rangées × 4 modèles = 16).
+2. Si le compte n'est pas évident visuellement, se rabattre sur l'**ancien nom** du produit (souvent la quantité y est déjà — ex. l'ancien nom de `PRT-OREILLE170` disait « Lot de 16 »).
+3. Si toujours pas certain, poser une `clarifyingQuestion` (« Combien de pièces contient ce présentoir ? ») plutôt qu'inventer un nombre.
+
+Ne jamais mettre une quantité inventée « au pif ».
+
 ## Erreurs typiques à éviter
 
 - Mentionner la couleur (« doré », « argenté », « bleu »… sauf si c'est intrinsèque au matériau, ex : « strass », « nacre »)

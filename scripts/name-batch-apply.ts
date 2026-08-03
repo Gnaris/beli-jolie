@@ -23,10 +23,13 @@
 import "dotenv/config";
 import fs from "fs";
 import { prisma } from "@/lib/prisma";
+import { tenantALS } from "@/lib/tenant-als";
 import { normalizeForCompare } from "@/lib/text-normalize";
 import { prependAiNote } from "@/lib/ai-note";
 import { computeMarketplaceSyncFlags } from "@/lib/marketplace-sync-flag";
 import { revalidateTag } from "next/cache";
+
+const SKILL_TENANT_SLUG = "beliandjolie";
 
 type Item = {
   ref: string;
@@ -149,6 +152,7 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
         name: item.name.trim(),
         description: item.description.trim(),
         note: prependAiNote(product.note, now),
+        important: true,
         subCategories: { connect: subIds.map((id) => ({ id })) },
         tags: {
           deleteMany: {},
@@ -227,25 +231,38 @@ async function applyItem(item: Item, now: Date): Promise<Report> {
     process.exit(1);
   }
 
-  const payload = JSON.parse(fs.readFileSync(payloadPath, "utf-8")) as { items: Item[] };
-  console.log(`📋 ${payload.items.length} produit(s) à appliquer.`);
-
-  const now = new Date();
-  const reports: Report[] = [];
-  for (const item of payload.items) {
-    try {
-      const r = await applyItem(item, now);
-      reports.push(r);
-      console.log(`  ${item.ref} → ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
-    } catch (e: any) {
-      const r: Report = { ref: item.ref, status: "error", reason: e?.message ?? String(e) };
-      reports.push(r);
-      console.log(`  ${item.ref} → error: ${r.reason}`);
-    }
+  const tenant = await prisma.tenant.findFirst({
+    where: { slug: SKILL_TENANT_SLUG },
+    select: { id: true },
+  });
+  if (!tenant) {
+    throw new Error(
+      `Tenant "${SKILL_TENANT_SLUG}" introuvable — le skill produits-nom ne cible que cette boutique.`,
+    );
   }
 
-  console.log("\n=== RAPPORT ===");
-  console.log(JSON.stringify(reports, null, 2));
+  const payload = JSON.parse(fs.readFileSync(payloadPath, "utf-8")) as { items: Item[] };
+  console.log(`📋 ${payload.items.length} produit(s) à appliquer (tenant=${SKILL_TENANT_SLUG}).`);
+
+  const now = new Date();
+  await tenantALS.run(tenant.id, async () => {
+    const reports: Report[] = [];
+    for (const item of payload.items) {
+      try {
+        const r = await applyItem(item, now);
+        reports.push(r);
+        console.log(`  ${item.ref} → ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
+      } catch (e: any) {
+        const r: Report = { ref: item.ref, status: "error", reason: e?.message ?? String(e) };
+        reports.push(r);
+        console.log(`  ${item.ref} → error: ${r.reason}`);
+      }
+    }
+
+    console.log("\n=== RAPPORT ===");
+    console.log(JSON.stringify(reports, null, 2));
+  });
+
   await prisma.$disconnect();
 })().catch((err) => {
   console.error("ERREUR:", err);
