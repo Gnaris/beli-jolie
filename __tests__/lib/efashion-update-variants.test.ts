@@ -10,6 +10,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
     color: { findMany: vi.fn().mockResolvedValue([]) },
+    siteConfig: { findFirst: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
   },
 }));
@@ -339,7 +340,7 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
 
     expect(res.success).toBe(false);
     expect(res.colorsSkippedCount).toBe(1);
-    expect(res.error).toMatch(/inconnue.*eFashion/i);
+    expect(res.error).toMatch(/introuvable\(s\).*eFashion/i);
     expect(res.error).toMatch(/Rafra/i);
     // updateProduit ne doit JAMAIS être appelé pour la couleur 999 (sinon eFashion
     // renverrait une erreur de toute façon).
@@ -456,6 +457,113 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
     });
 
     // 6. Compteur retourné
+    expect(res.colorsCreatedCount).toBe(1);
+  });
+
+  it("crée aussi une couleur disabled=true (attendue visible=false côté eFashion après update)", async () => {
+    // Avant fix (bug 628ESB, 03/08/2026) : le filtre `!c.disabled` dans
+    // `colorsToCreate` empêchait toute couleur BJ désactivée de monter chez
+    // eFashion — même si elle avait un mapping bibliothèque et une image.
+    // Résultat : les couleurs disabled restaient orphelines et l'admin voyait
+    // « 4 couleurs sur 7 » côté eFashion pour un produit à 7 couleurs.
+    //
+    // Attendu maintenant : la couleur disabled est dupliquée + upload photo +
+    // publishBrouillon, puis l'`updateProduit` final la met en `visible=false`
+    // (calcul l.~698 : `visible = ONLINE && !c.disabled && stock>0`). La
+    // couleur existe chez eFashion mais reste invisible côté acheteurs.
+    duplicateMock.mockResolvedValue({
+      id_produit: 5555,
+      reference: "TEST-BEIGE",
+      main: false,
+    });
+
+    findUniqueMock.mockResolvedValue({
+      id: "p-disabled",
+      reference: "TEST",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "TEST",
+      efashionLastSyncSnapshot: {
+        version: 1,
+        referenceBase: "TEST",
+        variants: [
+          { efashionProductId: 101, visible: true, prix: 10, poids: 0.05, stockByTaille: { TU: 5 } },
+        ],
+        descriptions: { fr: "", en: "", it: "", es: "", zh: "" },
+        compositions: [],
+        primaryEfashionProductId: 101,
+      },
+      primaryColorId: "color-101",
+      compositions: [],
+      colors: [
+        makeLinkedColor({
+          id: "pc-101",
+          colorId: "color-101",
+          efashionProductId: 101,
+          isPrimary: true,
+          colorName: "Rose",
+          efashionColorId: 10,
+        }),
+        // Couleur disabled sans efashionProductId → attendue créée chez eFashion.
+        {
+          ...makeLinkedColor({
+            id: "pc-beige",
+            colorId: "color-beige",
+            efashionProductId: null,
+            colorName: "Beige",
+            efashionColorId: 42,
+            stock: 276,
+          }),
+          disabled: true,
+        },
+      ],
+    });
+    listProductsMock.mockResolvedValue({
+      items: [makeLiveItem({ id_produit: 101, id_couleur: 10, main: true, reference_base: "TEST" })],
+    });
+
+    const res = await efashionUpdateProductInPlace("p-disabled");
+
+    // 1. duplicateWithNewColor a été appelé pour la couleur disabled.
+    expect(duplicateMock).toHaveBeenCalledTimes(1);
+    expect(duplicateMock.mock.calls[0][0]).toEqual({
+      idProduit: 101,
+      couleurId: 42,
+      couleurName: "Beige",
+    });
+
+    // 2. Photo uploadée sur le nouvel id_produit.
+    const uploadCall = uploadPhotosMock.mock.calls.find(([id]) => id === 5555);
+    expect(uploadCall).toBeDefined();
+
+    // 3. publishBrouillon appelé (la fiche sort du brouillon même si elle
+    //    finit invisible — c'est le flow standard, updateProduit derrière
+    //    la basculera en visible=false).
+    const publishCall = publishBrouillonMock.mock.calls.find(
+      ([args]) => args.idProduit === 5555,
+    );
+    expect(publishCall).toBeDefined();
+
+    // 4. ProductColor.efashionProductId posé en BDD.
+    expect(productColorUpdateMock).toHaveBeenCalledWith({
+      where: { id: "pc-beige" },
+      data: { efashionProductId: 5555 },
+    });
+
+    // 5. L'update final (boucle qui pose prix/visible/poids) contient bien
+    //    visible=false pour la couleur disabled (le stock=276 aurait posé
+    //    visible=true si disabled=false).
+    const finalUpdateForBeige = updateProduitMock.mock.calls
+      .map(([c]) => c)
+      .find((c) => c.id_produit === 5555 && typeof c.visible !== "undefined");
+    expect(finalUpdateForBeige).toBeDefined();
+    expect(finalUpdateForBeige!.visible).toBe(false);
+
     expect(res.colorsCreatedCount).toBe(1);
   });
 

@@ -384,14 +384,17 @@ export async function efashionUpdateProductInPlace(
   //
   // Pré-requis pour qu'une couleur soit créée :
   //   - `efashionColorId` renseigné (mapping de bibliothèque)
-  //   - couleur non `disabled`
   //   - une couleur source côté eFashion (main + référence) connue
+  // Les couleurs `disabled=true` sont créées quand même : le push
+  // `updateProduit` qui suit posera `visible=false` (calcul plus bas
+  // ligne ~698 : `!c.disabled` dans `visible`) — la couleur existe chez
+  // eFashion mais reste invisible côté catalogue acheteurs jusqu'à ce
+  // qu'elle soit réactivée côté boutique.
   let colorsCreatedCount = 0;
   const createErrors: string[] = [];
   const colorsToCreate = unitColors.filter(
     (c) =>
       c.efashionProductId === null &&
-      !c.disabled &&
       // Mapping effectif = override secondaire s'il existe, sinon principal.
       (c.efashionColorIdOverride ?? c.color?.efashionColorId ?? null) != null &&
       // Pas de création sans image locale — sinon la couleur arrive vide

@@ -56,7 +56,7 @@ const cacheMock = {
 };
 vi.mock("@/lib/ankorstore-catalog-cache", () => cacheMock);
 
-const { searchAndPreviewAnkorstoreByQuery } = await import(
+const { searchAndPreviewAnkorstoreByQuery, searchAnkorstoreCandidatesList } = await import(
   "@/app/actions/admin/ankorstore-search"
 );
 
@@ -110,7 +110,9 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     expect(res.success).toBe(true);
     if (!res.success) return;
     expect(res.totalMatches).toBe(2);
-    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("A405", 5);
+    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("A405", 5, {
+      skipWideScan: true,
+    });
     expect(previewMock).toHaveBeenCalledWith("bj-1", "ak-search-1");
     expect(cacheMock.getCachedCatalog).not.toHaveBeenCalled();
   });
@@ -190,5 +192,21 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     if (res.success) return;
     expect(res.error).toMatch(/ZZZ/);
     expect(previewMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("searchAnkorstoreCandidatesList — perf (picker)", () => {
+  it("passe skipWideScan: true à ankorstoreSearchProducts (évite le scan 4000 fiches ~30-60s)", async () => {
+    // Régression : avant 2026-08-03, le picker appelait avec skipWideScan: false.
+    // Résultat : ouvrir la modale sur un produit BJ inconnu d'Ankorstore (ex E598)
+    // déclenchait le wide scan → 30-60 s d'attente pour rien.
+    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([]);
+
+    const res = await searchAnkorstoreCandidatesList("E598");
+
+    expect(res.success).toBe(true);
+    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("E598", 100, {
+      skipWideScan: true,
+    });
   });
 });

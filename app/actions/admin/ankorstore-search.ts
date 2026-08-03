@@ -185,10 +185,15 @@ export async function searchAnkorstoreCandidatesList(
     if (!q) return { success: false, error: "Référence vide." };
 
     // On demande large côté API (100 = cap) et on garde le tri par pertinence
-    // déjà fait par `ankorstoreSearchProducts`. `skipWideScan: false` pour
-    // couvrir les cas où Ankorstore tokenize mal (ex : ref collée à un tiret).
+    // déjà fait par `ankorstoreSearchProducts`.
+    //
+    // `skipWideScan: true` — même logique que `searchAndPreviewAnkorstoreByQuery` :
+    // si les 2 filtres API renvoient 0, la fiche n'existe presque jamais côté
+    // marketplace. Scanner 4 000 fiches à sec = 30-60 s dans le vide (bug
+    // constaté sur E598 en 2026-08-03). Mieux vaut afficher « pas trouvé »
+    // tout de suite (l'admin sait qu'elle doit publier, pas chercher plus loin).
     const products = await ankorstoreSearchProducts(q, 100, {
-      skipWideScan: false,
+      skipWideScan: true,
     });
 
     const candidates: MarketplaceCandidateProduct[] = products.map((p) =>
