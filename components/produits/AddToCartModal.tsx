@@ -82,7 +82,6 @@ export default function AddToCartModal({
   category,
   subCategory,
   colors,
-  initialColorGroupKey,
   discountPercent,
   clientDiscount,
 }: AddToCartModalProps) {
@@ -92,40 +91,27 @@ export default function AddToCartModal({
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  const [activeColorKey, setActiveColorKey] = useState<string>(
-    initialColorGroupKey ?? colors[0]?.groupKey ?? "",
-  );
   // Quantités par variantId (persistantes tant que le modal est ouvert)
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   // Lightbox pour l'image du produit
   const [showLightbox, setShowLightbox] = useState(false);
-  // Mini dropdown de sélection de couleur
-  const [showColorMenu, setShowColorMenu] = useState(false);
-  const colorMenuRef = useRef<HTMLDivElement>(null);
   // Feedback bouton "Ajouté !" 2 sec + point de départ de l'animation fly-to-cart
   const [justAdded, setJustAdded] = useState(false);
   const headerImageRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
 
-  // Réinitialiser feedback + set active color quand on rouvre
+  // Réinitialiser feedback quand on rouvre
   useEffect(() => {
-    if (isOpen) {
-      setFeedback(null);
-      if (initialColorGroupKey && colors.some((c) => c.groupKey === initialColorGroupKey)) {
-        setActiveColorKey(initialColorGroupKey);
-      }
-    }
-  }, [isOpen, initialColorGroupKey, colors]);
+    if (isOpen) setFeedback(null);
+  }, [isOpen]);
 
-  // Fermeture par ESC : priorité dropdown couleur > lightbox > modal
+  // Fermeture par ESC : priorité lightbox > modal
   useEffect(() => {
     if (!isOpen) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      if (showColorMenu) {
-        setShowColorMenu(false);
-      } else if (showLightbox) {
+      if (showLightbox) {
         setShowLightbox(false);
       } else {
         onClose();
@@ -133,24 +119,7 @@ export default function AddToCartModal({
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, onClose, showLightbox, showColorMenu]);
-
-  // Ferme le dropdown couleur au clic extérieur
-  useEffect(() => {
-    if (!showColorMenu) return;
-    function onDocClick(e: MouseEvent) {
-      if (colorMenuRef.current && !colorMenuRef.current.contains(e.target as Node)) {
-        setShowColorMenu(false);
-      }
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [showColorMenu]);
-
-  // Ferme le dropdown couleur quand le modal se ferme ou quand la couleur active change
-  useEffect(() => {
-    if (!isOpen) setShowColorMenu(false);
-  }, [isOpen]);
+  }, [isOpen, onClose, showLightbox]);
 
   // Ferme la lightbox si le modal se ferme
   useEffect(() => {
@@ -167,10 +136,23 @@ export default function AddToCartModal({
     };
   }, [isOpen]);
 
-  const activeColor = colors.find((c) => c.groupKey === activeColorKey) ?? colors[0];
-  const activeImage = activeColor?.firstImage ?? colors.find((c) => c.firstImage)?.firstImage ?? null;
+  // Ordre d'affichage : la couleur principale (isPrimary) d'abord, puis les autres
+  // dans l'ordre d'origine — plus intuitif pour la cliente qui met en avant sa couleur phare.
+  const orderedColors = useMemo(() => {
+    const primary = colors.filter((c) => c.isPrimary);
+    const rest = colors.filter((c) => !c.isPrimary);
+    return [...primary, ...rest];
+  }, [colors]);
 
-  // Regroupement des variantes de la couleur active par type de vente
+  // Image utilisée pour le header du modal + point de départ de l'animation fly-to-cart :
+  // la couleur principale, à défaut la première ayant une image.
+  const headerImage =
+    orderedColors[0]?.firstImage ??
+    colors.find((c) => c.firstImage)?.firstImage ??
+    null;
+  const headerColorName = orderedColors[0]?.name ?? null;
+
+  // Regroupement des variantes par type de vente, calculé pour CHAQUE couleur.
   interface SaleGroup {
     key: string;
     label: string;
@@ -178,27 +160,30 @@ export default function AddToCartModal({
     packQuantity: number | null;
     variants: VariantData[];
   }
-  const saleGroups: SaleGroup[] = useMemo(() => {
-    if (!activeColor) return [];
-    const map = new Map<string, SaleGroup>();
-    for (const v of activeColor.variants) {
-      const key = v.saleType === "UNIT" ? "UNIT" : `PACK:${v.packQuantity ?? 0}`;
-      if (map.has(key)) {
-        map.get(key)!.variants.push(v);
-      } else {
-        const label = v.saleType === "UNIT"
-          ? t("unit")
-          : v.packQuantity ? `Pack ×${v.packQuantity}` : "Pack";
-        map.set(key, { key, label, saleType: v.saleType, packQuantity: v.packQuantity, variants: [v] });
+  const saleGroupsByColorKey = useMemo(() => {
+    const result = new Map<string, SaleGroup[]>();
+    for (const color of orderedColors) {
+      const map = new Map<string, SaleGroup>();
+      for (const v of color.variants) {
+        const key = v.saleType === "UNIT" ? "UNIT" : `PACK:${v.packQuantity ?? 0}`;
+        if (map.has(key)) {
+          map.get(key)!.variants.push(v);
+        } else {
+          const label = v.saleType === "UNIT"
+            ? t("unit")
+            : v.packQuantity ? `Pack ×${v.packQuantity}` : "Pack";
+          map.set(key, { key, label, saleType: v.saleType, packQuantity: v.packQuantity, variants: [v] });
+        }
       }
+      const arr = Array.from(map.values());
+      arr.sort((a, b) => {
+        if (a.saleType !== b.saleType) return a.saleType === "UNIT" ? -1 : 1;
+        return (a.packQuantity ?? 0) - (b.packQuantity ?? 0);
+      });
+      result.set(color.groupKey, arr);
     }
-    const arr = Array.from(map.values());
-    arr.sort((a, b) => {
-      if (a.saleType !== b.saleType) return a.saleType === "UNIT" ? -1 : 1;
-      return (a.packQuantity ?? 0) - (b.packQuantity ?? 0);
-    });
-    return arr;
-  }, [activeColor, t]);
+    return result;
+  }, [orderedColors, t]);
 
   // Totaux globaux (toutes couleurs / tous variants confondus)
   const totalItems = Object.values(quantities).reduce((s, n) => s + n, 0);
@@ -254,11 +239,11 @@ export default function AddToCartModal({
           setQuantities({}); // reset pour permettre d'ajouter d'autres couleurs
 
           // Animation fly-to-cart : point de départ = image du header du modal
-          if (headerImageRef.current && activeImage) {
+          if (headerImageRef.current && headerImage) {
             const rect = headerImageRef.current.getBoundingClientRect();
             window.dispatchEvent(new CustomEvent("cart:item-added", {
               detail: {
-                imageSrc: activeImage,
+                imageSrc: headerImage,
                 rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
                 quantity: totalQty,
               },
@@ -297,7 +282,7 @@ export default function AddToCartModal({
       >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-border-light flex items-start gap-3 sm:gap-4 shrink-0">
-          {activeImage ? (
+          {headerImage ? (
             <button
               ref={headerImageRef}
               type="button"
@@ -305,7 +290,7 @@ export default function AddToCartModal({
               aria-label={t("preview")}
               className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-bg-secondary shrink-0 relative group/thumb cursor-zoom-in"
             >
-              <Image src={activeImage} alt={tp(productName)} fill sizes="(max-width: 640px) 64px, 80px" className="object-cover transition-transform group-hover/thumb:scale-110" />
+              <Image src={headerImage} alt={headerColorName ? tp(headerColorName) : tp(productName)} fill sizes="(max-width: 640px) 64px, 80px" className="object-cover transition-transform group-hover/thumb:scale-110" />
               <span className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover/thumb:bg-slate-900/30 transition-colors">
                 <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
@@ -336,98 +321,53 @@ export default function AddToCartModal({
           </button>
         </div>
 
-        {/* Sélecteur de couleur — mini dropdown compact */}
-        {colors.length > 1 && (() => {
-          const active = colors.find((c) => c.groupKey === activeColorKey) ?? colors[0];
-          const activeSwatch: React.CSSProperties = active?.patternImage
-            ? { backgroundImage: `url(${active.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-            : { backgroundColor: active?.hex ?? "#9CA3AF" };
-          return (
-            <div className="px-4 sm:px-5 pt-3 sm:pt-4 pb-2 flex items-center gap-2 sm:gap-3 shrink-0">
-              <p className="text-[11px] sm:text-sm font-medium text-text-secondary uppercase tracking-wide shrink-0 font-body">
-                {t("chooseColor")} :
-              </p>
-              <div ref={colorMenuRef} className="relative flex-1 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setShowColorMenu((v) => !v)}
-                  aria-haspopup="listbox"
-                  aria-expanded={showColorMenu}
-                  className="inline-flex items-center gap-2 pl-1.5 pr-3 py-1.5 sm:py-2 rounded-full border border-border bg-bg-primary hover:border-border-dark text-[13px] sm:text-sm font-body text-text-primary transition-all max-w-full"
-                >
-                  <span
-                    className="w-[18px] h-[18px] sm:w-5 sm:h-5 rounded-full shrink-0 ring-1 ring-border"
-                    style={activeSwatch}
-                  />
-                  <span className="truncate max-w-[10rem] sm:max-w-[14rem]">
-                    {active ? tp(active.name) : ""}
-                  </span>
-                  <span className="text-text-muted text-[10px] sm:text-xs shrink-0">
-                    +{colors.length - 1}
-                  </span>
-                  <svg className={`w-3.5 h-3.5 text-text-muted transition-transform shrink-0 ${showColorMenu ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                {showColorMenu && (
-                  <div
-                    role="listbox"
-                    className="absolute z-30 left-0 top-full mt-1 min-w-[220px] max-h-72 overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-lg p-1"
-                  >
-                    {colors.map((c) => {
-                      const isSelected = c.groupKey === activeColorKey;
-                      const swatchStyle: React.CSSProperties = c.patternImage
-                        ? { backgroundImage: `url(${c.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
-                        : { backgroundColor: c.hex ?? "#9CA3AF" };
-                      return (
-                        <button
-                          key={c.groupKey}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          title={tp(c.name)}
-                          onClick={() => { setActiveColorKey(c.groupKey); setShowColorMenu(false); }}
-                          className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-[13px] sm:text-sm font-body text-left transition-colors ${
-                            isSelected
-                              ? "bg-bg-secondary text-text-primary font-medium"
-                              : "text-text-secondary hover:bg-bg-secondary"
-                          }`}
-                        >
-                          <span
-                            className="w-5 h-5 rounded-full shrink-0 ring-1 ring-border"
-                            style={swatchStyle}
-                          />
-                          <span className="truncate flex-1">{tp(c.name)}</span>
-                          {isSelected && (
-                            <svg className="w-4 h-4 text-text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Body : sections par type de vente */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 sm:space-y-5">
-          {saleGroups.length === 0 && (
+        {/* Body : une section par couleur, chaque section liste ses variantes groupées par type de vente */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-6 sm:space-y-7">
+          {orderedColors.length === 0 && (
             <p className="text-sm sm:text-base text-text-muted text-center py-8">{t("errorNoOption")}</p>
           )}
-          {saleGroups.map((group) => {
-            const firstVariant = group.variants[0];
-            const unitPriceRaw = pricePerUnit(firstVariant);
-            const unitPriceFinal = applyDiscount(unitPriceRaw, discountPercent, clientDiscount);
-            const isPack = group.saleType === "PACK";
-            const packQty = group.packQuantity ?? 1;
-            const packPrice = unitPriceFinal * packQty;
+          {orderedColors.map((color, colorIdx) => {
+            const groups = saleGroupsByColorKey.get(color.groupKey) ?? [];
+            const swatchStyle: React.CSSProperties = color.patternImage
+              ? { backgroundImage: `url(${color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
+              : { backgroundColor: color.hex ?? "#9CA3AF" };
             return (
-              <div key={group.key}>
+              <section
+                key={color.groupKey}
+                className={colorIdx > 0 ? "pt-5 sm:pt-6 border-t border-border-light" : ""}
+                aria-label={tp(color.name)}
+              >
+                {/* En-tête de section couleur : palette + nom */}
+                <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                  <span
+                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 ring-1 ring-border shadow-sm"
+                    style={swatchStyle}
+                    aria-hidden="true"
+                  />
+                  <h4 className="text-[15px] sm:text-base font-semibold text-text-primary font-body truncate">
+                    {tp(color.name)}
+                  </h4>
+                  {color.isPrimary && (
+                    <span className="text-[10px] sm:text-[11px] uppercase tracking-wide text-text-muted font-body">
+                      · {t("mainColor")}
+                    </span>
+                  )}
+                </div>
+
+                {groups.length === 0 && (
+                  <p className="text-xs sm:text-sm text-text-muted italic">{t("errorNoOption")}</p>
+                )}
+
+                <div className="space-y-4 sm:space-y-5">
+                  {groups.map((group) => {
+                    const firstVariant = group.variants[0];
+                    const unitPriceRaw = pricePerUnit(firstVariant);
+                    const unitPriceFinal = applyDiscount(unitPriceRaw, discountPercent, clientDiscount);
+                    const isPack = group.saleType === "PACK";
+                    const packQty = group.packQuantity ?? 1;
+                    const packPrice = unitPriceFinal * packQty;
+                    return (
+                      <div key={group.key}>
                 <div className="flex items-baseline justify-between mb-2 sm:mb-3">
                   <p className="text-xs sm:text-sm uppercase tracking-wider font-semibold text-text-primary font-body">
                     {group.label}
@@ -519,6 +459,10 @@ export default function AddToCartModal({
                   })}
                 </div>
               </div>
+                    );
+                  })}
+                </div>
+              </section>
             );
           })}
         </div>
@@ -580,7 +524,7 @@ export default function AddToCartModal({
       </div>
 
       {/* Lightbox : image plein écran au-dessus du modal */}
-      {showLightbox && activeImage && (
+      {showLightbox && headerImage && (
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-fade-in"
           onClick={(e) => {
@@ -606,8 +550,8 @@ export default function AddToCartModal({
             onClick={(e) => e.stopPropagation()}
           >
             <Image
-              src={activeImage}
-              alt={tp(productName)}
+              src={headerImage}
+              alt={headerColorName ? tp(headerColorName) : tp(productName)}
               fill
               sizes="(max-width: 640px) 100vw, 80vw"
               className="object-contain"

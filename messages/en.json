@@ -425,6 +425,7 @@
     "close": "Close",
     "chooseOptionsTitle": "Choose your options",
     "chooseColor": "Choose your color",
+    "mainColor": "Main color",
     "addSelection": "Add to cart",
     "addSelectionEmpty": "Pick at least one quantity",
     "addSuccess": "Added to cart",
