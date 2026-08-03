@@ -248,7 +248,9 @@ export default function AddToCartModal({
             msg: res.errors.map((e) => e.message).join(" · "),
           });
         } else {
-          setFeedback({ type: "success", msg: t("addSuccess") });
+          // Le feedback visuel de succès est porté par le bouton vert « Ajouté ! »
+          // + l'animation fly-to-cart : plus besoin du message texte redondant.
+          setFeedback(null);
           setQuantities({}); // reset pour permettre d'ajouter d'autres couleurs
 
           // Animation fly-to-cart : point de départ = image du header du modal
@@ -269,7 +271,6 @@ export default function AddToCartModal({
           // Bouton vert "Ajouté !" pendant 2 sec
           setJustAdded(true);
           setTimeout(() => setJustAdded(false), 2000);
-          setTimeout(() => setFeedback(null), 3000);
         }
       } catch (err) {
         setFeedback({
