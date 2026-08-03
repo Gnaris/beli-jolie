@@ -40,6 +40,7 @@ import {
   getCachedCatalog,
   filterCatalogEntries,
 } from "@/lib/ankorstore-catalog-cache";
+import { scoreAnkorstoreSearchResult } from "@/lib/ankorstore-search-rank";
 import { previewAnkorstoreProductForLinking } from "@/app/actions/admin/ankorstore";
 import type { AnkorstoreLinkPreview } from "@/app/actions/admin/ankorstore";
 
@@ -221,7 +222,16 @@ export async function searchAnkorstoreCandidatesList(
       skipWideScan: false,
     });
 
-    const candidates: MarketplaceCandidateProduct[] = products.map((p) =>
+    // Filtre anti-parasites : Ankorstore renvoie parfois des produits qui
+    // n'ont rien à voir avec la requête (score 10 = « match indirect sans
+    // rapport direct »). Ex bug 2026-08-03 sur A164 qui remontait A687, ZB09A,
+    // P14 en fond de picker. On garde uniquement les scores ≥ 20 (min = 30
+    // pour name.includes, 50 pour sku.includes…).
+    const filtered = products.filter(
+      (p) => scoreAnkorstoreSearchResult(p, q) >= 20,
+    );
+
+    const candidates: MarketplaceCandidateProduct[] = filtered.map((p) =>
       toCandidateProduct(p),
     );
 

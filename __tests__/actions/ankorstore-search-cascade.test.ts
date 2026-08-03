@@ -231,4 +231,26 @@ describe("searchAnkorstoreCandidatesList — cache-first (picker)", () => {
       skipWideScan: false,
     });
   });
+
+  it("filtre les parasites Ankorstore (score 10 = match indirect sans rapport)", async () => {
+    // Bug 2026-08-03 : chercher A164 remontait A687, ZB09A, P14 en fond de
+    // picker parce qu'Ankorstore renvoie des produits qui n'ont rien à voir
+    // avec la requête. Le scoring leur donne 10 (« match indirect »). On
+    // les exclut du picker (seuil minimum = 20).
+    cacheMock.getCachedCatalog.mockReturnValueOnce(null); // cache pas prêt
+    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
+      // Match légitime : SKU contient A164
+      { id: "ak-a164", name: "Bracelet A164", variants: [{ sku: "A164_OR" }], images: [], externalId: "A164" } as any,
+      // Parasite Ankorstore : rien ne matche « a164 » → score 10
+      { id: "ak-a687", name: "Bague A687", variants: [{ sku: "A687_ARGENT" }], images: [], externalId: "A687" } as any,
+      { id: "ak-zb09a", name: "Collier ZB09A", variants: [{ sku: "ZB09A_ROSE" }], images: [], externalId: "ZB09A" } as any,
+    ]);
+
+    const res = await searchAnkorstoreCandidatesList("A164");
+
+    expect(res.success).toBe(true);
+    if (!res.success) return;
+    expect(res.data.candidates).toHaveLength(1);
+    expect(res.data.candidates[0].id).toBe("ak-a164");
+  });
 });
