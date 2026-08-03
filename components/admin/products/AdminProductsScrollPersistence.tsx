@@ -81,6 +81,33 @@ export function AdminProductsScrollPersistence() {
     let cancelled = false;
     let stableFrames = 0;
 
+    // Dès qu'un signal indiquant que la cliente veut scroller arrive
+    // (molette, touche PageDown/Flèches/Home/End/Espace, touch mobile), on
+    // relâche la boucle de restauration : sans ça, chaque tentative de
+    // scroll manuel est réécrasée par le prochain rAF et la page semble
+    // « bloquée » 1-2 s.
+    const stopOnUserIntent = () => {
+      cancelled = true;
+    };
+    const SCROLL_KEYS = new Set([
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+      " ",
+      "Spacebar",
+    ]);
+    const onKeyIntent = (e: KeyboardEvent) => {
+      if (SCROLL_KEYS.has(e.key)) cancelled = true;
+    };
+    window.addEventListener("wheel", stopOnUserIntent, { passive: true, once: true });
+    window.addEventListener("touchstart", stopOnUserIntent, { passive: true, once: true });
+    window.addEventListener("keydown", onKeyIntent);
+
     const tick = () => {
       if (cancelled) return;
       const elapsed = performance.now() - start;
@@ -98,12 +125,19 @@ export function AdminProductsScrollPersistence() {
       // page reste plus courte que la cible.
       if (stableFrames < STABLE_FRAMES_REQUIRED && elapsed < MAX_MS) {
         requestAnimationFrame(tick);
+      } else {
+        window.removeEventListener("wheel", stopOnUserIntent);
+        window.removeEventListener("touchstart", stopOnUserIntent);
+        window.removeEventListener("keydown", onKeyIntent);
       }
     };
     requestAnimationFrame(tick);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("wheel", stopOnUserIntent);
+      window.removeEventListener("touchstart", stopOnUserIntent);
+      window.removeEventListener("keydown", onKeyIntent);
     };
   }, []);
 
