@@ -106,19 +106,26 @@ export async function searchAndPreviewAnkorstoreByQuery(
     // ── Étape 3 : recherche via l'API Ankorstore ─────────────────────────
     // Cache pas prêt (boot en cours) → on retombe sur l'API. `skipWideScan: false`
     // pour couvrir les SKUs que le tokenizer Ankorstore ignore (ex : E598).
-    const candidates = await ankorstoreSearchProducts(query, 5, {
+    const candidates = await ankorstoreSearchProducts(query, 20, {
       skipWideScan: false,
     });
-    if (candidates.length > 0) {
+    // Filtre anti-parasites : Ankorstore renvoie parfois des produits qui
+    // n'ont rien à voir avec la requête (score 10 = « match indirect sans
+    // rapport direct »). Sans ce filtre, chercher A164 remonte A670 en 1er
+    // candidat et la preview charge les variants d'A670 — bug 2026-08-03.
+    const relevant = candidates.filter(
+      (p) => scoreAnkorstoreSearchResult(p, query) >= 20,
+    );
+    if (relevant.length > 0) {
       const previewRes = await previewAnkorstoreProductForLinking(
         productId,
-        candidates[0].id,
+        relevant[0].id,
       );
       if (previewRes.success) {
         return {
           success: true,
           data: previewRes.data,
-          totalMatches: candidates.length,
+          totalMatches: relevant.length,
         };
       }
     }

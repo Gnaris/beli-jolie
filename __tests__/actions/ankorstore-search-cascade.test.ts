@@ -130,9 +130,9 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     });
     // Cache pas prêt (ex : PM2 restart récent)
     cacheMock.getCachedCatalog.mockReturnValueOnce(null);
-    // La search prend le relais
+    // La search prend le relais avec un vrai match (name inclut A405)
     ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
-      { id: "ak-fresh" } as any,
+      { id: "ak-fresh", name: "Boucles A405", variants: [{ sku: "A405_OR" }] } as any,
     ]);
     previewMock.mockResolvedValueOnce(fakePreviewOk("ak-fresh"));
 
@@ -153,14 +153,14 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     });
     cacheMock.getCachedCatalog.mockReturnValueOnce(null); // cache pas prêt
     ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
-      { id: "ak-scan-found" } as any,
+      { id: "ak-scan-found", name: "Bracelet E598", variants: [{ sku: "E598_DORE_UNIT_4" }] } as any,
     ]);
     previewMock.mockResolvedValueOnce(fakePreviewOk("ak-scan-found"));
 
     const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "E598");
 
     expect(res.success).toBe(true);
-    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("E598", 5, {
+    expect(ankorApiMock.ankorstoreSearchProducts).toHaveBeenCalledWith("E598", 20, {
       skipWideScan: false,
     });
   });
@@ -178,6 +178,30 @@ describe("searchAndPreviewAnkorstoreByQuery — cascade", () => {
     expect(res.success).toBe(false);
     if (res.success) return;
     expect(res.error).toMatch(/ZZZ/);
+    expect(previewMock).not.toHaveBeenCalled();
+  });
+
+  it("filtre les parasites Ankorstore dans le fallback preview (bug A164 → A670)", async () => {
+    // Régression 2026-08-03 : si toutes les fiches renvoyées par l'API sont
+    // des parasites (score 10), on ne doit PAS charger la 1ʳᵉ comme preview.
+    // Sans filtre, chercher A164 chargeait la preview d'A670 en 1er, exposant
+    // à l'admin des variants d'un produit sans rapport.
+    prismaMock.product.findUnique.mockResolvedValueOnce({
+      ankorsProductId: null,
+    });
+    cacheMock.getCachedCatalog.mockReturnValueOnce(null);
+    ankorApiMock.ankorstoreSearchProducts.mockResolvedValueOnce([
+      // Parasites : rien ne matche « a164 » → score 10 chacun
+      { id: "ak-a670", name: "Boucles d'oreilles en acier inoxydable", variants: [{ sku: "A670_DORE" }] } as any,
+      { id: "ak-a687", name: "Boucles d'oreilles en acier inoxydable", variants: [{ sku: "A687_ARGENT" }] } as any,
+    ]);
+
+    const res = await searchAndPreviewAnkorstoreByQuery("bj-1", "A164");
+
+    expect(res.success).toBe(false);
+    if (res.success) return;
+    expect(res.error).toMatch(/A164/);
+    // La preview du parasite A670 ne doit JAMAIS être chargée
     expect(previewMock).not.toHaveBeenCalled();
   });
 });
