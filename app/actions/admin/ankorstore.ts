@@ -321,9 +321,25 @@ export async function previewAnkorstoreProductForLinking(
     const report = runAutoMatch([fakeRefAlignedProduct], [bjForMatch]);
     const result = report.results[0];
 
+    // runAutoMatch renvoie un `bjColorId` = Color.id (bibliothèque). Mais la
+    // modale de liaison indexe le mapping par ProductColor.id — elle affiche
+    // les suggestions et détecte les "déjà utilisées ailleurs" via cette clé.
+    // Si on laissait bjColorId tel quel, la colonne Ankorstore resterait vide
+    // et toutes les variantes apparaîtraient "À déplacer" dans le déroulant
+    // (mapping[productColorId] introuvable, mais Object.values(mapping) matche
+    // quand même les cand.id). On traduit donc colorId → productColorId ici.
+    const productColorIdByColorId = new Map<string, string>();
+    for (const pc of bjProductRaw.colors) {
+      if (pc.colorId && !productColorIdByColorId.has(pc.colorId)) {
+        productColorIdByColorId.set(pc.colorId, pc.id);
+      }
+    }
     const suggestedByAkVariantId = new Map<string, string | null>();
     for (const vm of result.variantMatches ?? []) {
-      suggestedByAkVariantId.set(vm.ankorstoreVariant.id, vm.bjColorId);
+      const suggestedProductColorId = vm.bjColorId
+        ? productColorIdByColorId.get(vm.bjColorId) ?? null
+        : null;
+      suggestedByAkVariantId.set(vm.ankorstoreVariant.id, suggestedProductColorId);
     }
 
     const extraImages = akProduct.images
