@@ -45,6 +45,15 @@ export interface FairePricesResult {
   updatedCount: number;
   failedCount: number;
   errors: { sku: string; message: string }[];
+  /**
+   * SKU signalé « inconnu » par Faire (HTTP 404 avec `message` = le SKU
+   * exact du batch). L'endpoint `by-skus` matche uniquement les SKU que Faire
+   * connaît côté sa base : si UN SKU envoyé n'existe pas chez Faire, tout le
+   * batch est rejeté en bloc. Signal explicite pour l'appelant : la fiche
+   * Faire porte des SKU différents de ceux que BJ génère (typiquement après
+   * une liaison manuelle mal alignée). Solution : délier puis relier.
+   */
+  unknownSku?: string | null;
 }
 
 const MAX_BATCH = 500;
@@ -119,16 +128,36 @@ export async function faireUpdatePrices(
 
       if (!res.ok) {
         const body = await res.text().catch(() => "");
+        // Faire renvoie 404 avec `message` = le SKU introuvable quand un des
+        // SKU du batch n'existe pas côté Faire (l'endpoint est atomique).
+        // On l'extrait pour permettre à l'appelant de renvoyer un message
+        // clair à l'admin (« délier puis relier »).
+        let unknownSku: string | null = null;
+        if (res.status === 404) {
+          try {
+            const j = JSON.parse(body) as { message?: string };
+            if (
+              typeof j.message === "string" &&
+              batch.some((u) => u.sku === j.message)
+            ) {
+              unknownSku = j.message;
+            }
+          } catch {
+            // pas un JSON parseable — on garde unknownSku à null
+          }
+        }
         logger.error("[Faire Prices] PATCH failed", {
           status: res.status,
           body: body.slice(0, 300),
           batchSize: batch.length,
+          unknownSku,
         });
         for (const u of batch) {
           result.errors.push({ sku: u.sku, message: `HTTP ${res.status}` });
           result.failedCount++;
         }
         result.success = false;
+        if (unknownSku && !result.unknownSku) result.unknownSku = unknownSku;
         continue;
       }
 

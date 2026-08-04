@@ -1238,6 +1238,60 @@ export async function linkFaireProductManually(
       }
     }
 
+    // Renommage SKU côté Faire pour chaque variante liée à la main.
+    // Faire garde le SKU d'origine des variantes (souvent hérité de la brand
+    // via le portail Faire ou d'un ancien format). BJ génère ses propres SKU
+    // (`buildFaireVariantSkus`) qui sont ensuite utilisés par les endpoints
+    // batch `/product-inventory/by-skus` et `/product-prices/by-skus` — ces
+    // endpoints matchent par SKU (pas par ID de variante), donc sans rename
+    // toute maj prix/stock échoue avec HTTP 404. Incident déclencheur :
+    // issyma / produit 1880 (2026-08-04) — 8 couleurs liées le 2 août, tous
+    // les pushs prix ultérieurs cassaient 13/13. Best-effort : un rename qui
+    // échoue n'annule pas la liaison, le filet `unknownSku` dans faire-update
+    // remonte un message clair si le problème persiste.
+    if (links.length > 0) {
+      const { buildSingleFaireSku } = await import("@/lib/faire-sku");
+      const { faireRenameVariantSku } = await import("@/lib/faire-rename-sku");
+      const linkedProductColors = await prisma.productColor.findMany({
+        where: { id: { in: links.map((l) => l.productColorId) } },
+        select: {
+          id: true,
+          saleType: true,
+          color: { select: { id: true, name: true } },
+        },
+      });
+      const productMeta = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { reference: true },
+      });
+      if (productMeta) {
+        for (let i = 0; i < links.length; i++) {
+          const l = links[i];
+          const pc = linkedProductColors.find((c) => c.id === l.productColorId);
+          if (!pc) continue;
+          // Link manuel = 1 ProductColor ↔ 1 variante Faire, donc mono-taille
+          // supposée (sizeName = null). Si le produit BJ passe plus tard en
+          // multi-taille, la sync forcée régénérera les SKU côté Faire via
+          // le PATCH consolidé.
+          const sku = buildSingleFaireSku(
+            productMeta.reference,
+            {
+              id: pc.id,
+              saleType: pc.saleType,
+              color: pc.color,
+              sizeName: null,
+            },
+            i,
+          );
+          await faireRenameVariantSku(
+            faireProductId.trim(),
+            l.faireVariantId.trim(),
+            sku,
+          );
+        }
+      }
+    }
+
     // Sync best-effort post-liaison : on pousse stock/prix/visibilité pour
     // aligner les 2 côtés sans étape manuelle. Si la sync échoue, on garde la
     // liaison et on remonte un warning. La sync s'occupe aussi de créer côté

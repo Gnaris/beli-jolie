@@ -1271,14 +1271,28 @@ export async function faireUpdateProduct(
     if (hasNewVariants) {
       await new Promise((r) => setTimeout(r, 3000));
     }
-    const inv = await faireUpdateInventory(updates);
+    let inv = await faireUpdateInventory(updates);
     if (!inv.success && hasNewVariants) {
       logger.warn("[Faire Update] Inventory échec après création — retry dans 3s", {
         productId,
         failedCount: inv.failedCount,
       });
       await new Promise((r) => setTimeout(r, 3000));
-      await faireUpdateInventory(updates);
+      inv = await faireUpdateInventory(updates);
+    }
+    // Signal « SKU inconnu chez Faire » : les endpoints batch by-skus matchent
+    // uniquement les SKU que Faire connaît (pas via l'ID de variante). Après
+    // une liaison manuelle, les variantes Faire portent souvent l'ancien SKU
+    // brand → tout le batch est rejeté 404. On stoppe le flow et on demande
+    // à l'admin de délier/relier (le rename SKU dans linkFaireProductManually
+    // évite ça à l'avenir).
+    if (!inv.success && inv.unknownSku) {
+      return {
+        success: false,
+        error:
+          `Faire ne reconnaît pas le code de variante « ${inv.unknownSku} ». ` +
+          `Merci de délier puis relier ce produit à Faire depuis la modale.`,
+      };
     }
   }
 
@@ -1321,6 +1335,16 @@ export async function faireUpdateProduct(
     }
     const pricesRes = await faireUpdatePrices(priceUpdates);
     if (!pricesRes.success) {
+      // Même filet que pour l'inventory : un SKU inconnu côté Faire rejette
+      // tout le batch en bloc. On surface un message clair à l'admin.
+      if (pricesRes.unknownSku) {
+        return {
+          success: false,
+          error:
+            `Faire ne reconnaît pas le code de variante « ${pricesRes.unknownSku} ». ` +
+            `Merci de délier puis relier ce produit à Faire depuis la modale.`,
+        };
+      }
       return {
         success: false,
         error: `PATCH prix échoué (${pricesRes.failedCount}/${priceUpdates.length} SKU).`,
