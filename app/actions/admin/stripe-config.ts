@@ -32,15 +32,19 @@ export async function updateStripeConfig(
   try {
     await requireAdmin();
 
-    const entries: { key: string; value: string | null }[] = [
-      { key: "stripe_secret_key", value: input.secretKey?.trim() || null },
-      { key: "stripe_publishable_key", value: input.publishableKey?.trim() || null },
-      { key: "stripe_webhook_secret", value: input.webhookSecret?.trim() || null },
+    // undefined = « ne touche pas » (champ laissé vide côté formulaire avec
+    // placeholder « déjà en place »). "" = « vider explicitement ».
+    // Sans cette distinction, un save partiel wipe la clé conservée en BDD
+    // (bug qui a causé la disparition de la clé secrète Issyma).
+    const entries: { key: string; value: string | undefined }[] = [
+      { key: "stripe_secret_key", value: input.secretKey?.trim() },
+      { key: "stripe_publishable_key", value: input.publishableKey?.trim() },
+      { key: "stripe_webhook_secret", value: input.webhookSecret?.trim() },
     ];
 
     for (const { key, value } of entries) {
       if (value === undefined) continue;
-      if (value === null || value === "") {
+      if (value === "") {
         await prisma.siteConfig.deleteMany({ where: { key } });
         continue;
       }

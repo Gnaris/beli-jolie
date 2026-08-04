@@ -555,10 +555,7 @@ async function PaiementTab() {
     // savait pas à quel compte Stripe le site était relié.
     getStripeAccountInfo(),
   ]);
-  const publishable =
-    publishableRow?.value?.trim() ||
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() ||
-    "";
+  const publishable = publishableRow?.value?.trim() || "";
 
   const cardStatus = status.ready
     ? { tone: "ok" as const, label: status.testMode ? "Mode TEST" : "Mode LIVE" }
@@ -574,12 +571,6 @@ async function PaiementTab() {
         accent="dark"
         status={cardStatus}
       >
-        {status.source === "env" && (
-          <div className="mb-5 rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-            💡 Configuration actuelle lue dans le fichier <code>.env</code> du serveur.
-            Renseignez les clés ci-dessous pour les migrer en base (chiffrées).
-          </div>
-        )}
         <StripeSettingsForm
           initialHasSecret={status.hasSecret}
           initialHasWebhook={status.hasWebhook}

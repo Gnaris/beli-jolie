@@ -4,8 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // "sk_live_XXXXXX..." apparaisse littéralement (sinon GitHub Push Protection
 // les bloque en pensant à de vraies clés Stripe).
 function fakeStripeKey(kind: "sk" | "pk", env: "live" | "test", account: string): string {
-  const parts = [kind, env, account];
-  return parts.join("_");
+  return `${kind}_${env}_${account}`;
 }
 
 vi.mock("stripe", () => ({
@@ -14,23 +13,45 @@ vi.mock("stripe", () => ({
   },
 }));
 
-// Mock Prisma pour forcer le fallback vers process.env dans ces tests.
+// Décrypt = passthrough : la valeur en BDD est traitée telle quelle.
+vi.mock("@/lib/encryption", () => ({
+  decryptIfSensitive: (_key: string, value: string) => value,
+  encryptIfSensitive: (_key: string, value: string) => value,
+}));
+
+// Tenant courant : la lib/stripe résout tid via ALS, sinon via headers.
+// On lui pose "T1" en dur pour tous les tests (sinon readStripeConfig
+// renvoie null null null par sécurité).
+vi.mock("@/lib/tenant-als", () => ({
+  getCurrentTenantIdSync: () => "T1",
+}));
+
+// Mock Prisma : chaque test contrôle les rows renvoyées par findMany.
+const siteConfigFindMany = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     siteConfig: {
-      findMany: vi.fn().mockResolvedValue([]),
+      findMany: (...args: unknown[]) => siteConfigFindMany(...args),
     },
   },
 }));
 
-describe("lib/stripe (fallback env-only)", () => {
+function rowsFrom(cfg: Record<string, string | undefined>) {
+  return Object.entries(cfg)
+    .filter(([, v]) => !!v)
+    .map(([key, value]) => ({ key, value }));
+}
+
+describe("lib/stripe — strict BDD par tenant (plus de fallback env)", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.resetModules();
-    delete process.env.STRIPE_SECRET_KEY;
-    delete process.env.STRIPE_WEBHOOK_SECRET;
-    delete process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    siteConfigFindMany.mockReset();
+    // Poser des vars env "polluées" : elles ne doivent JAMAIS être lues.
+    process.env.STRIPE_SECRET_KEY = "sk_env_polluted_should_be_ignored";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_env_polluted";
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_env_polluted";
   });
 
   afterEach(() => {
@@ -38,21 +59,27 @@ describe("lib/stripe (fallback env-only)", () => {
   });
 
   describe("getStripeInstance", () => {
-    it("crée une instance Stripe avec STRIPE_SECRET_KEY", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    it("crée l'instance avec la clé secrète BDD du tenant (jamais l'env)", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_test_from_db" })
+      );
       const { getStripeInstance } = await import("@/lib/stripe");
 
       const instance = (await getStripeInstance()) as unknown as { __key: string };
-      expect(instance.__key).toBe("sk_test_123");
+      expect(instance.__key).toBe("sk_test_from_db");
+      expect(instance.__key).not.toContain("polluted");
     });
 
-    it("lance une erreur si STRIPE_SECRET_KEY manque", async () => {
+    it("lance une erreur si la BDD tenant n'a pas de clé secrète (pas de fallback env)", async () => {
+      siteConfigFindMany.mockResolvedValue([]);
       const { getStripeInstance } = await import("@/lib/stripe");
-      await expect(getStripeInstance()).rejects.toThrow(/STRIPE_SECRET_KEY/);
+      await expect(getStripeInstance()).rejects.toThrow(/Stripe non configuré/);
     });
 
     it("met en cache l'instance entre deux appels", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_test_456";
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_test_cache" })
+      );
       const { getStripeInstance } = await import("@/lib/stripe");
 
       const a = await getStripeInstance();
@@ -62,48 +89,79 @@ describe("lib/stripe (fallback env-only)", () => {
   });
 
   describe("getStripeWebhookSecret", () => {
-    it("retourne STRIPE_WEBHOOK_SECRET", async () => {
-      process.env.STRIPE_WEBHOOK_SECRET = "whsec_xxx";
+    it("retourne la signature de la BDD tenant", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_webhook_secret: "whsec_from_db" })
+      );
       const { getStripeWebhookSecret } = await import("@/lib/stripe");
-      await expect(getStripeWebhookSecret()).resolves.toBe("whsec_xxx");
+      await expect(getStripeWebhookSecret()).resolves.toBe("whsec_from_db");
     });
 
-    it("lance une erreur si STRIPE_WEBHOOK_SECRET manque", async () => {
+    it("lance une erreur si la BDD tenant n'a pas de signature (pas de fallback env)", async () => {
+      siteConfigFindMany.mockResolvedValue([]);
       const { getStripeWebhookSecret } = await import("@/lib/stripe");
-      await expect(getStripeWebhookSecret()).rejects.toThrow(/STRIPE_WEBHOOK_SECRET/);
+      await expect(getStripeWebhookSecret()).rejects.toThrow(/webhook/i);
     });
   });
 
   describe("getStripePublishableKey", () => {
-    it("retourne NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", async () => {
-      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_abc";
+    it("retourne la clé publique BDD du tenant", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_publishable_key: "pk_test_from_db" })
+      );
       const { getStripePublishableKey } = await import("@/lib/stripe");
-      await expect(getStripePublishableKey()).resolves.toBe("pk_test_abc");
+      await expect(getStripePublishableKey()).resolves.toBe("pk_test_from_db");
     });
 
-    it("retourne null si la variable est absente", async () => {
+    it("retourne null si la BDD tenant n'a pas de clé publique (pas de fallback env)", async () => {
+      siteConfigFindMany.mockResolvedValue([]);
       const { getStripePublishableKey } = await import("@/lib/stripe");
       await expect(getStripePublishableKey()).resolves.toBeNull();
     });
   });
 
   describe("isStripeConfigured", () => {
-    it("retourne true quand SECRET_KEY + PUBLISHABLE_KEY sont définies", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_x";
-      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_x";
+    it("true quand sk et pk sont présentes en BDD tenant", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_x", stripe_publishable_key: "pk_x" })
+      );
       const { isStripeConfigured } = await import("@/lib/stripe");
       await expect(isStripeConfigured()).resolves.toBe(true);
     });
 
-    it("retourne false si une des deux clés manque", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_x";
+    it("false si une des deux clés manque en BDD tenant (pas de fallback env)", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_x" })
+      );
       const { isStripeConfigured } = await import("@/lib/stripe");
       await expect(isStripeConfigured()).resolves.toBe(false);
     });
 
-    it("retourne false si les deux clés manquent", async () => {
+    it("false si les deux clés manquent", async () => {
+      siteConfigFindMany.mockResolvedValue([]);
       const { isStripeConfigured } = await import("@/lib/stripe");
       await expect(isStripeConfigured()).resolves.toBe(false);
+    });
+  });
+
+  describe("garantie multi-tenant : env est ignoré même s'il contient des clés", () => {
+    it("BDD tenant vide + env plein → Stripe considéré comme non configuré", async () => {
+      // Env pollué par beforeEach, BDD vide
+      siteConfigFindMany.mockResolvedValue([]);
+      const { isStripeConfigured, getStripePublishableKey } = await import("@/lib/stripe");
+      await expect(isStripeConfigured()).resolves.toBe(false);
+      await expect(getStripePublishableKey()).resolves.toBeNull();
+    });
+
+    it("mélange BDD-tenant / env impossible : la clé publique ne vient jamais de env", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({
+          stripe_secret_key: "sk_test_from_db",
+          // pk manquant en BDD → doit rester null, pas retomber sur env
+        })
+      );
+      const { getStripePublishableKey } = await import("@/lib/stripe");
+      await expect(getStripePublishableKey()).resolves.toBeNull();
     });
   });
 
@@ -145,14 +203,18 @@ describe("lib/stripe (fallback env-only)", () => {
   });
 
   describe("invalidateStripeCache", () => {
-    it("force la recréation de l'instance Stripe", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_first";
+    it("force la recréation de l'instance Stripe après changement de clé BDD", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_first" })
+      );
       const { getStripeInstance, invalidateStripeCache } = await import("@/lib/stripe");
 
       const first = (await getStripeInstance()) as unknown as { __key: string };
       expect(first.__key).toBe("sk_first");
 
-      process.env.STRIPE_SECRET_KEY = "sk_second";
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({ stripe_secret_key: "sk_second" })
+      );
       invalidateStripeCache();
 
       const second = (await getStripeInstance()) as unknown as { __key: string };
@@ -206,5 +268,36 @@ describe("lib/stripe (fallback env-only)", () => {
       const pk = stripeAccountPrefix(fakeStripeKey("pk", "live", acctB));
       expect(sk).toBe(pk);
     });
+  });
+});
+
+describe("lib/stripe — hors requête (pas de tenant résolu) refuse de lire", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it("readStripeConfig renvoie tout null si aucun tenant en ALS + pas de headers", async () => {
+    vi.doMock("@/lib/tenant-als", () => ({
+      getCurrentTenantIdSync: () => null,
+    }));
+    vi.doMock("next/headers", () => ({
+      headers: async () => ({ get: () => null }),
+    }));
+    vi.doMock("@/lib/encryption", () => ({
+      decryptIfSensitive: (_k: string, v: string) => v,
+      encryptIfSensitive: (_k: string, v: string) => v,
+    }));
+    const stubFindMany = vi.fn().mockResolvedValue([
+      { key: "stripe_secret_key", value: "sk_should_not_be_returned" },
+    ]);
+    vi.doMock("@/lib/prisma", () => ({
+      prisma: { siteConfig: { findMany: stubFindMany } },
+    }));
+
+    const { isStripeConfigured, getStripePublishableKey } = await import("@/lib/stripe");
+    await expect(isStripeConfigured()).resolves.toBe(false);
+    await expect(getStripePublishableKey()).resolves.toBeNull();
+    // On n'a même pas appelé la BDD : refus dès qu'aucun tenant n'est résolu.
+    expect(stubFindMany).not.toHaveBeenCalled();
   });
 });

@@ -3,10 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { decryptIfSensitive } from "@/lib/encryption";
 
 /**
- * Configuration Stripe hybride : lit d'abord SiteConfig (BDD chiffrée),
- * fallback sur les variables d'environnement. Permet à chaque boutique
- * (clone) de brancher son propre compte Stripe depuis l'UI d'admin sans
- * toucher au `.env` du serveur.
+ * Configuration Stripe **strictement par tenant** : les 3 clés viennent de
+ * SiteConfig (BDD, chiffrées pour les sensibles). Pas de fallback `process.env` :
+ * en multi-tenant, une clé env est forcément celle d'un seul compte Stripe et
+ * fuiterait sur les autres boutiques → mismatch pk/sk → paiements rejetés.
+ * Si l'une des 3 clés manque en BDD pour le tenant courant, `isStripeConfigured`
+ * renvoie false et le checkout affiche « Paiement indisponible ».
  *
  * Clés SiteConfig (voir `SENSITIVE_KEYS` dans lib/encryption.ts) :
  * - `stripe_secret_key`     : chiffrée
@@ -49,10 +51,14 @@ async function readStripeConfig(): Promise<StripeConfig> {
       }
     } catch { /* hors requête */ }
 
+    // Hors requête (script CLI, boot) sans tid : on refuse de lire pour éviter
+    // qu'un cron non-scopé récupère les clés d'un tenant arbitraire.
+    if (!tid) {
+      return { secretKey: null, publishableKey: null, webhookSecret: null };
+    }
+
     const rows = await prisma.siteConfig.findMany({
-      where: tid
-        ? { tenantId: tid, key: { in: [...CONFIG_KEYS] } }
-        : { key: { in: [...CONFIG_KEYS] } },
+      where: { tenantId: tid, key: { in: [...CONFIG_KEYS] } },
     });
     dbMap = new Map(
       rows
@@ -60,19 +66,14 @@ async function readStripeConfig(): Promise<StripeConfig> {
         .map((r) => [r.key, decryptIfSensitive(r.key, r.value).trim()]),
     );
   } catch {
-    // BDD indisponible (ex. tests unitaires sans Prisma) → fallback env pur.
+    // BDD indisponible → considère Stripe non configuré (checkout affichera
+    // « Paiement indisponible » plutôt que crasher).
   }
 
-  const pick = (dbKey: (typeof CONFIG_KEYS)[number], envKey: string): string | null =>
-    dbMap.get(dbKey) || process.env[envKey]?.trim() || null;
-
   return {
-    secretKey: pick("stripe_secret_key", "STRIPE_SECRET_KEY"),
-    publishableKey: pick(
-      "stripe_publishable_key",
-      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
-    ),
-    webhookSecret: pick("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
+    secretKey: dbMap.get("stripe_secret_key") ?? null,
+    publishableKey: dbMap.get("stripe_publishable_key") ?? null,
+    webhookSecret: dbMap.get("stripe_webhook_secret") ?? null,
   };
 }
 
@@ -80,7 +81,7 @@ export async function getStripeInstance(): Promise<Stripe> {
   const { secretKey } = await readStripeConfig();
   if (!secretKey) {
     throw new Error(
-      "Stripe non configuré. STRIPE_SECRET_KEY manquante dans .env ou dans SiteConfig.",
+      "Stripe non configuré pour cette boutique. Renseignez les 3 clés dans /admin/parametres?tab=paiement.",
     );
   }
   const existing = stripeInstanceBySecretKey.get(secretKey);
@@ -93,7 +94,9 @@ export async function getStripeInstance(): Promise<Stripe> {
 export async function getStripeWebhookSecret(): Promise<string> {
   const { webhookSecret } = await readStripeConfig();
   if (!webhookSecret) {
-    throw new Error("Stripe webhook secret non configuré (STRIPE_WEBHOOK_SECRET).");
+    throw new Error(
+      "Signature webhook Stripe non configurée pour cette boutique. Renseignez-la dans /admin/parametres?tab=paiement.",
+    );
   }
   return webhookSecret;
 }
@@ -256,29 +259,14 @@ export async function getStripeConfigStatus(): Promise<{
   hasWebhook: boolean;
   testMode: boolean;
   ready: boolean;
-  source: "database" | "env" | "none";
 }> {
   const { secretKey, publishableKey, webhookSecret } = await readStripeConfig();
-
-  let source: "database" | "env" | "none" = "none";
-  try {
-    const rows = await prisma.siteConfig.findMany({
-      where: { key: { in: [...CONFIG_KEYS] } },
-      select: { key: true },
-    });
-    if (rows.length > 0) source = "database";
-    else if (secretKey || publishableKey || webhookSecret) source = "env";
-  } catch {
-    if (secretKey || publishableKey || webhookSecret) source = "env";
-  }
-
   return {
     hasSecret: !!secretKey,
     hasPublishable: !!publishableKey,
     hasWebhook: !!webhookSecret,
     testMode: !!secretKey?.startsWith("sk_test_"),
     ready: !!secretKey && !!publishableKey && !!webhookSecret,
-    source,
   };
 }
 

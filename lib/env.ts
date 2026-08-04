@@ -18,11 +18,6 @@ const envSchema = z.object({
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),
   ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
 
-  // ── Stripe (env-only, simple mode) ─────────────────────────────────────────
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
-
   // ── Ankorstore webhook secret ─────────────────────────────────────────────
   // Used as a query-string token on the callback URL we send to Ankorstore so
   // we can authenticate inbound callbacks. Optional in dev (callbacks never
