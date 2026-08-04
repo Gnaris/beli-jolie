@@ -327,6 +327,23 @@ export function reconcilePatchBodyWithFaireOptions(
 
   const rewrittenBody: Record<string, unknown> = { ...patchBody };
 
+  // Axes présents chez Faire mais non couverts par ce que BJ envoie. Cas vu
+  // 2026-08-04 sur issyma 15110 et 680LEOPARD : Faire connaît [Color, Tallie]
+  // alors que BJ n'envoie que [Color] (produit BJ mono-taille « Taille unique »
+  // → `shouldExposeSizeAxis` renvoie false). Sans compensation, chaque variante
+  // envoyée n'a qu'une option (Color) alors que Faire en attend deux →
+  // « Product variant options cannot be changed » (HTTP 400).
+  //
+  // Parade appliquée en 2 endroits :
+  //   - Dans chaque `variants[i].options` : on complète jusqu'à
+  //     `faireState.variantOptionSets.length`, en récupérant la valeur Faire
+  //     exacte pour les variantes existantes (via `faireOptionsByVid`) ou en
+  //     tombant sur la valeur unique de l'axe pour les nouvelles variantes
+  //     (Faire « Tallie: TU 38-42 » a 1 seule valeur → sans ambiguïté).
+  //   - Dans `variant_option_sets` UNIQUEMENT si BJ en avait envoyé (bloc 2
+  //     ci-dessous) : on injecte les axes Faire supplémentaires tels quels
+  //     pour que le PATCH ne « supprime » pas Tallie par omission.
+
   // 1) Reconstruit variants[]
   if (Array.isArray(patchBody.variants)) {
     rewrittenBody.variants = (patchBody.variants as Record<string, unknown>[]).map(
@@ -347,14 +364,55 @@ export function reconcilePatchBodyWithFaireOptions(
           }
           return { name: renamedName, value: opt.value };
         });
-        return { ...v, options: rewrittenOptions };
+
+        // Axes Faire au-delà de ce que la variante BJ couvre : on complète.
+        const appendedOptions: { name: string; value: string }[] = [];
+        for (
+          let idx = rewrittenOptions.length;
+          idx < faireState.variantOptionSets.length;
+          idx++
+        ) {
+          const faireAxis = faireState.variantOptionSets[idx];
+          if (faireOpts && faireOpts[idx]) {
+            appendedOptions.push({
+              name: faireOpts[idx].name,
+              value: faireOpts[idx].value,
+            });
+            continue;
+          }
+          // Nouvelle variante : on ne peut inférer qu'à condition que l'axe
+          // Faire n'ait qu'une seule valeur (cas typique Tallie « TU 38-42 »).
+          if (faireAxis.values.length === 1) {
+            appendedOptions.push({
+              name: faireAxis.name,
+              value: faireAxis.values[0],
+            });
+          }
+          // Sinon on saute silencieusement — Faire renverra un 400 explicite
+          // sur la variante concernée avec le vrai nom d'axe manquant.
+        }
+
+        return {
+          ...v,
+          options: [...rewrittenOptions, ...appendedOptions],
+        };
       },
     );
   }
 
-  // 2) Reconstruit variant_option_sets : name Faire + valeurs mergées.
+  // Axes supplémentaires à ajouter dans variant_option_sets — uniquement si
+  // BJ a envoyé au moins un set (voir explication au bloc 2 plus bas).
+  const extraFaireAxes = faireState.variantOptionSets.slice(bjOptionSets.length);
+
+  // 2) Reconstruit variant_option_sets : name Faire + valeurs mergées, puis
+  //    concatène les axes Faire supplémentaires tels quels.
+  //    ⚠️ On ne réintroduit `variant_option_sets` QUE si BJ en avait envoyé
+  //    à l'origine. En resync forcée sans nouvelle variante, buildPatchBody
+  //    omet ce champ à dessein (le PATCH partiel laisse Faire garder son état) —
+  //    injecter les axes ici transformerait le PATCH en « replacement » sur
+  //    des axes qui n'ont pas bougé, et masquerait des futurs bugs.
   if (bjOptionSets.length > 0) {
-    rewrittenBody.variant_option_sets = bjOptionSets.map((set, i) => {
+    const mergedSets = bjOptionSets.map((set, i) => {
       const faireSet = faireState.variantOptionSets[i];
       if (!faireSet) return set;
       const faireValues = faireSet.values;
@@ -373,6 +431,13 @@ export function reconcilePatchBodyWithFaireOptions(
         values: [...faireValues, ...additional],
       };
     });
+    rewrittenBody.variant_option_sets = [
+      ...mergedSets,
+      ...extraFaireAxes.map((axis) => ({
+        name: axis.name,
+        values: [...axis.values],
+      })),
+    ];
   }
 
   return rewrittenBody;

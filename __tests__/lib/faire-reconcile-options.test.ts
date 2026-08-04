@@ -231,6 +231,173 @@ describe("reconcilePatchBodyWithFaireOptions", () => {
     expect(out.images).toEqual([{ url: "https://cdn/img.jpg" }]);
   });
 
+  it("BJ envoie 1 axe (Color) alors que Faire en a 2 (Color + Tallie) : injecte l'axe manquant et complète chaque variante", () => {
+    // Cas reproduit 2026-08-04 sur issyma 15110 / 680LEOPARD — Faire connaît
+    // [Color, Tallie] mais BJ envoie que [Color] (produit mono-taille « Taille
+    // unique » → sizeAxis désactivé). Sans compensation, chaque variante
+    // envoyée n'a qu'une option → Faire refuse « Product variant options
+    // cannot be changed ».
+    const state = {
+      variantOptionSets: [
+        { name: "Color", values: ["Beige", "Ciel", "Kaki", "Noir", "Rose", "Orange", "Rouge"] },
+        { name: "Tallie", values: ["TU 38-42"] },
+      ],
+      variants: [
+        {
+          id: "po_j78cthrxah",
+          options: [
+            { name: "Color", value: "Noir" },
+            { name: "Tallie", value: "TU 38-42" },
+          ],
+        },
+        {
+          id: "po_wrembcqetq",
+          options: [
+            { name: "Color", value: "Ciel" },
+            { name: "Tallie", value: "TU 38-42" },
+          ],
+        },
+      ],
+    };
+    const patchBody = {
+      variant_option_sets: [
+        { name: "Color", values: ["Noir", "Bleu Ciel", "Marine", "Brun foncé"] },
+      ],
+      variants: [
+        {
+          id: "po_j78cthrxah",
+          sku: "15110n",
+          options: [{ name: "Color", value: "Noir" }],
+        },
+        {
+          id: "po_wrembcqetq",
+          sku: "15110c",
+          options: [{ name: "Color", value: "Bleu Ciel" }],
+        },
+        {
+          sku: "15110marine",
+          options: [{ name: "Color", value: "Marine" }],
+        },
+        {
+          sku: "15110brun",
+          options: [{ name: "Color", value: "Brun foncé" }],
+        },
+      ],
+    };
+    const out = reconcilePatchBodyWithFaireOptions(patchBody, state);
+
+    // variant_option_sets doit maintenant contenir les 2 axes.
+    const sets = out.variant_option_sets as { name: string; values: string[] }[];
+    expect(sets).toHaveLength(2);
+    expect(sets[0].name).toBe("Color");
+    // Marine et Brun foncé ajoutés à la fin, Bleu Ciel aussi (Faire n'a que "Ciel").
+    expect(sets[0].values).toEqual([
+      "Beige", "Ciel", "Kaki", "Noir", "Rose", "Orange", "Rouge",
+      "Bleu Ciel", "Marine", "Brun foncé",
+    ]);
+    expect(sets[1]).toEqual({ name: "Tallie", values: ["TU 38-42"] });
+
+    const vs = out.variants as { options: { name: string; value: string }[] }[];
+    // Chaque variante DOIT avoir 2 options.
+    for (const v of vs) {
+      expect(v.options).toHaveLength(2);
+    }
+    // Variantes existantes : valeurs Faire imposées sur les 2 axes.
+    expect(vs[0].options).toEqual([
+      { name: "Color", value: "Noir" },
+      { name: "Tallie", value: "TU 38-42" },
+    ]);
+    expect(vs[1].options).toEqual([
+      { name: "Color", value: "Ciel" },
+      { name: "Tallie", value: "TU 38-42" },
+    ]);
+    // Nouvelles variantes : Color BJ conservé, Tallie hérité de la seule valeur.
+    expect(vs[2].options).toEqual([
+      { name: "Color", value: "Marine" },
+      { name: "Tallie", value: "TU 38-42" },
+    ]);
+    expect(vs[3].options).toEqual([
+      { name: "Color", value: "Brun foncé" },
+      { name: "Tallie", value: "TU 38-42" },
+    ]);
+  });
+
+  it("Axe Faire supplémentaire multi-valeurs sur une nouvelle variante : saute (Faire renverra un 400 explicite sur l'axe)", () => {
+    const state = {
+      variantOptionSets: [
+        { name: "Color", values: ["Noir"] },
+        { name: "Size", values: ["36", "38", "40"] },
+      ],
+      variants: [
+        {
+          id: "po_existing",
+          options: [
+            { name: "Color", value: "Noir" },
+            { name: "Size", value: "36" },
+          ],
+        },
+      ],
+    };
+    const patchBody = {
+      variant_option_sets: [{ name: "Color", values: ["Noir", "Blanc"] }],
+      variants: [
+        {
+          id: "po_existing",
+          sku: "existing",
+          options: [{ name: "Color", value: "Noir" }],
+        },
+        {
+          sku: "new",
+          options: [{ name: "Color", value: "Blanc" }],
+        },
+      ],
+    };
+    const out = reconcilePatchBodyWithFaireOptions(patchBody, state);
+    const vs = out.variants as { options: { name: string; value: string }[] }[];
+    // Existante : les 2 options héritées.
+    expect(vs[0].options).toHaveLength(2);
+    // Nouvelle : seulement Color (Size ambigu → skip, Faire décidera).
+    expect(vs[1].options).toEqual([{ name: "Color", value: "Blanc" }]);
+  });
+
+  it("Pas de variant_option_sets côté BJ + Faire multi-axes : NE réintroduit PAS variant_option_sets, mais complète les options des variantes existantes", () => {
+    // Chemin forceFullSync sans nouvelle variante — buildPatchBody omet
+    // variant_option_sets à dessein pour ne pas transformer le PATCH en
+    // « replacement » sur des axes stables.
+    const state = {
+      variantOptionSets: [
+        { name: "Color", values: ["Noir"] },
+        { name: "Tallie", values: ["TU"] },
+      ],
+      variants: [
+        {
+          id: "po_x",
+          options: [
+            { name: "Color", value: "Noir" },
+            { name: "Tallie", value: "TU" },
+          ],
+        },
+      ],
+    };
+    const patchBody = {
+      variants: [
+        {
+          id: "po_x",
+          sku: "s",
+          options: [{ name: "Color", value: "Noir" }],
+        },
+      ],
+    };
+    const out = reconcilePatchBodyWithFaireOptions(patchBody, state);
+    expect(out.variant_option_sets).toBeUndefined();
+    const vs = out.variants as { options: { name: string; value: string }[] }[];
+    // Existante : les 2 options héritées de Faire malgré l'absence de sets côté BJ.
+    expect(vs[0].options).toEqual([
+      { name: "Color", value: "Noir" },
+      { name: "Tallie", value: "TU" },
+    ]);
+  });
+
   it("gère un axe Size en plus (dimension 2)", () => {
     const state = {
       variantOptionSets: [
