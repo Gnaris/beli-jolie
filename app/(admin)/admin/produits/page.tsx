@@ -16,7 +16,7 @@ import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
@@ -355,8 +355,11 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   // Filtre images :
   //   "1" → au moins une variante sans image (intersection sur les IDs trouvés)
   //   "0" → toutes les variantes ont au moins une image (exclusion de ces IDs)
+  // Le scan raw SQL ne passe pas par l'extension prisma-tenant-scope — on passe
+  // donc le tenantId explicitement pour éviter la fuite cross-tenant.
+  const tenantForImages = await requireCurrentTenant();
   const missingImageIds = missingImages === "1" || missingImages === "0"
-    ? await findProductIdsWithMissingVariantImages(prisma)
+    ? await findProductIdsWithMissingVariantImages(prisma, tenantForImages.id)
     : null;
   const productIdsIn = missingImages === "1" ? missingImageIds : null;
   const productIdsNotIn = missingImages === "0" ? missingImageIds : null;
@@ -458,61 +461,14 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       },
     }),
     prisma.product.count({ where }),
-    prisma.category.findMany({
-      orderBy: [{ position: "asc" }, { name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true } },
-      },
-    }),
+    getCachedAllCategoriesWithSubs(),
     getCachedTags(),
     getCachedCompositions(),
-    // Bibliothèque des codes SH (pour le filtre dédié)
-    prisma.hsCode.findMany({
-      orderBy: [{ position: "asc" }, { code: "asc" }],
-      select: { id: true, code: true, label: true },
-    }),
-    // Saisons pour la modale d'édition en masse (les pays sont statiques dans lib/countries.ts)
-    prisma.season.findMany({
-      orderBy: [{ position: "asc" }, { name: "asc" }],
-      select: { id: true, name: true },
-    }),
-    // Collections pour la modale « Ajouter à une collection » (menu Plus)
-    prisma.collection.findMany({
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        _count: { select: { products: true } },
-      },
-    }),
-    // Tous les tags (y compris ceux jamais assignés) pour la modale « Ajouter/
-    // retirer des tags ». `getCachedTags` filtre les tags orphelins pour le
-    // panneau de filtres — ici on veut la liste complète.
-    prisma.tag.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    // Section counts for tabs (lightweight parallel queries).
-    // `recentCutoff` : borne 30j servant aux raccourcis "Créé récemment" et
-    // "Modifié récemment" — même fenêtre que la notion de « Nouveauté ».
-    (() => {
-      const recentCutoff = new Date();
-      recentCutoff.setDate(recentCutoff.getDate() - 30);
-      return Promise.all([
-        prisma.product.count(),
-        prisma.product.count({ where: { status: "ONLINE" } }),
-        prisma.product.count({ where: { status: "OFFLINE", isIncomplete: false } }),
-        prisma.product.count({ where: { status: "OFFLINE", isIncomplete: true } }),
-        prisma.product.count({ where: { status: "ARCHIVED" } }),
-        prisma.product.count({ where: { important: true } }),
-        prisma.product.count({ where: { createdAt: { gte: recentCutoff } } }),
-        prisma.product.count({ where: { updatedAt: { gte: recentCutoff } } }),
-      ]).then(([all, online, offline, draft, archived, important, createdRecent, updatedRecent]) => ({
-        all, online, offline, draft, archived, important, createdRecent, updatedRecent,
-      }));
-    })(),
+    getCachedHsCodes(),
+    getCachedSeasons(),
+    getCachedAllCollectionsWithProductCount(),
+    getCachedAllTags(),
+    getCachedProductSectionCounts(),
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
@@ -521,10 +477,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getCachedHasMicrostoreConfig(),
-    (async () => {
-      const t = await requireCurrentTenant();
-      return countPendingPfsStockDeductions(t.id);
-    })(),
+    countPendingPfsStockDeductions(tenantForImages.id),
     // Tailles en cache (60s TTL) — utilisées pour résoudre les noms des
     // variantSizes sans passer par une jointure SQL sur la table Size.
     getCachedSizes(),

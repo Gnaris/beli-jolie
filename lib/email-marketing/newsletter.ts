@@ -24,6 +24,7 @@ import { getOrCreateScenario } from "@/lib/email-marketing/scenarios";
 import { getTenantBaseUrl } from "@/lib/email-marketing/tenant-domain";
 import { isUnsubscribed } from "@/lib/email-marketing/unsubscribe";
 import { encodeUnsubscribeToken, encodeTrackingToken } from "@/lib/email-marketing/tokens";
+import { buildProductHandle } from "@/lib/product-url";
 import {
   renderNewsletterEmail,
   type NewsletterProductView,
@@ -252,6 +253,7 @@ async function loadProductViews(
     select: {
       id: true,
       name: true,
+      reference: true,
       createdAt: true,
       colors: {
         orderBy: { isPrimary: "desc" },
@@ -280,7 +282,7 @@ async function loadProductViews(
       return {
         name: p.name,
         priceLabel: v ? formatEuros(Number(v.unitPrice)) : "",
-        productUrl: `${baseUrl}/fr/produits/${p.id}`,
+        productUrl: `${baseUrl}/fr/produits/${buildProductHandle(p.name, p.reference)}`,
         imageUrl: v?.images[0]?.path ? absoluteUrl(baseUrl, v.images[0].path) : null,
         isNew: now - p.createdAt.getTime() < NEW_THRESHOLD_MS,
       };

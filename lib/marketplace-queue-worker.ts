@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { tenantALS } from "@/lib/tenant-als";
+import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 5;
@@ -202,7 +203,7 @@ async function reconcileAwaitingCallback(): Promise<void> {
 
   // Revalidation / SSE : hors update DB, séquentiel mais rapide (cache tag reset).
   for (const p of pending) {
-    revalidateProductPaths(p.productId);
+    await revalidateProductPaths(p.productId);
     if (p.emitSuccess) emitProductUpdated(p.productId);
   }
 }
@@ -308,7 +309,7 @@ async function processJobBody(job: any): Promise<void> {
           completedAt: new Date(),
         },
       });
-      revalidateProductPaths(job.productId);
+      await revalidateProductPaths(job.productId);
       return;
     }
   }
@@ -336,7 +337,7 @@ async function processJobBody(job: any): Promise<void> {
       },
     });
   }
-  revalidateProductPaths(job.productId);
+  await revalidateProductPaths(job.productId);
 }
 
 export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
@@ -958,11 +959,11 @@ async function markFaireFailed(
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────
-function revalidateProductPaths(productId: string): void {
+async function revalidateProductPaths(productId: string): Promise<void> {
   try {
     revalidatePath("/admin/produits");
     revalidatePath(`/admin/produits/${productId}/modifier`);
-    revalidatePath(`/produits/${productId}`);
+    await revalidateProductPublicPage(productId);
     revalidatePath("/produits");
     revalidateTag("products", "default");
   } catch {

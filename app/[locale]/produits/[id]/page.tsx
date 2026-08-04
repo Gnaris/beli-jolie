@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
@@ -17,17 +17,25 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { buildProductHandle, parseProductHandle } from "@/lib/product-url";
 
 interface PageProps {
   params: Promise<{ id: string; locale: string }>;
 }
 
-const getProduct = cache(async (id: string, locale: string) => {
+const getProduct = cache(async (handle: string, locale: string) => {
   const categorySelect = locale === "fr"
     ? { name: true }
     : { name: true, translations: { where: { locale }, select: { name: true }, take: 1 } };
-  return prisma.product.findUnique({
-    where: { id },
+  const parsed = parseProductHandle(handle);
+  const where = parsed.legacyCuid
+    ? { id: parsed.legacyCuid }
+    : parsed.reference
+      ? { reference: parsed.reference }
+      : null;
+  if (!where) return null;
+  return prisma.product.findFirst({
+    where,
     include: {
       category:      { select: categorySelect },
       subCategories: { select: { name: true } },
@@ -101,22 +109,21 @@ const getProduct = cache(async (id: string, locale: string) => {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant Prisma / caches
-  const { id, locale } = await params;
-  const [product, firstImage] = await Promise.all([
-    getProduct(id, locale),
-    prisma.productColorImage.findFirst({
-      where: { productId: id },
-      orderBy: { order: "asc" },
-      select: { path: true },
-    }),
-  ]);
-
+  const { id: handle, locale } = await params;
+  const product = await getProduct(handle, locale);
   if (!product) return { title: "Produit introuvable" };
 
+  const firstImage = await prisma.productColorImage.findFirst({
+    where: { productId: product.id },
+    orderBy: { order: "asc" },
+    select: { path: true },
+  });
+
+  const canonicalHandle = buildProductHandle(product.name, product.reference);
   const [shopName, siteUrl, alternates] = await Promise.all([
     getCachedShopName(),
     getSiteUrl(),
-    buildAlternates(`/produits/${id}`, locale),
+    buildAlternates(`/produits/${canonicalHandle}`, locale),
   ]);
   const title = `${product.name} — ${shopName}`;
   const description = product.description.slice(0, 160).replace(/\n/g, " ");
@@ -130,7 +137,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       type: "website",
       siteName: shopName,
-      url: `${siteUrl}/${locale}/produits/${id}`,
+      url: `${siteUrl}/${locale}/produits/${canonicalHandle}`,
       ...(imageUrl && { images: [{ url: imageUrl, width: 800, height: 800, alt: product.name }] }),
     },
     twitter: {
@@ -145,11 +152,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function ProduitDetailPage({ params }: PageProps) {
   await getCurrentTenantId(); // bind ALS avant Prisma / caches
-  const { id, locale: routeLocale } = await params;
+  const { id: handle, locale: routeLocale } = await params;
 
   // Fetch product, session, config, and locale in parallel
   const [product, session, stockVariantsConfig, locale, shopName] = await Promise.all([
-    getProduct(id, routeLocale),
+    getProduct(handle, routeLocale),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
     getLocale(),
@@ -157,6 +164,15 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   ]);
 
   if (!product) notFound();
+
+  // Redirection 301 permanente vers l'URL canonique (slug + reference) :
+  // - cuid legacy `/produits/{cuid}` posé par l'ancien schéma → nouvel URL SEO
+  // - slug obsolète (produit renommé) → nouveau slug pour ne pas cannibaliser
+  //   les positions Google entre 2 URLs qui pointent la même fiche.
+  const canonicalHandle = buildProductHandle(product.name, product.reference);
+  if (handle !== canonicalHandle) {
+    permanentRedirect(`/${routeLocale}/produits/${canonicalHandle}`);
+  }
 
   // Product exists but is not online (e.g. OFFLINE during refresh) — show unavailable page
   if (product.status !== "ONLINE") {
@@ -209,7 +225,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   // Fetch images and client discount in parallel
   const [colorImages, relatedColorImages, clientDiscount] = await Promise.all([
     prisma.productColorImage.findMany({
-      where:   { productId: id },
+      where:   { productId: product.id },
       orderBy: { order: "asc" },
     }),
     relatedIds.length > 0
@@ -329,7 +345,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     },
     offers: {
       "@type": "Offer",
-      url: `${siteUrl}/produits/${product.id}`,
+      url: `${siteUrl}/${routeLocale}/produits/${canonicalHandle}`,
       priceCurrency: "EUR",
       price: minPrice.toFixed(2),
       availability: primaryColor && primaryColor.stock > 0

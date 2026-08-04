@@ -521,14 +521,18 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
  * nul) pour lesquels aucune ligne image n'existe sur ce couple.
  *
  * Utilisé par la page `/admin/produits` pour le filtre « Variantes sans image ».
+ * Le tenantId est OBLIGATOIRE en contexte requête (sinon fuite cross-tenant :
+ * le scan raw SQL n'est pas passé par l'extension prisma-tenant-scope).
  */
 export async function findProductIdsWithMissingVariantImages(
   prisma: Pick<PrismaClient, "$queryRaw">,
+  tenantId: string,
 ): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ productId: string }[]>`
     SELECT DISTINCT pc.productId AS productId
     FROM ProductColor pc
     WHERE pc.colorId IS NOT NULL
+      AND pc.tenantId = ${tenantId}
       AND NOT EXISTS (
         SELECT 1
         FROM ProductColorImage pci

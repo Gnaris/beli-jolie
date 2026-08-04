@@ -11,7 +11,10 @@ import {
   sendAbandonedCartTest,
   sendBackInStockTest,
   sendWelcomeTest,
+  sendInactiveClientTest,
   triggerAbandonedCartScanNow,
+  triggerInactiveClientScanNow,
+  updateInactiveClientConfigAction,
   dispatchBackInStockNow,
   sendNewsletterTestAction,
   launchNewsletterCampaign,
@@ -50,19 +53,25 @@ interface Props {
     };
     welcome: { enabled: boolean };
     newsletter: { enabled: boolean };
+    inactiveClient: {
+      enabled: boolean;
+      inactiveAfterDays: number;
+      cooldownDays: number;
+    };
   };
   audienceCount: number;
   recentSends: RecentSend[];
   stats30d: { sent: number; opened: number; clicked: number; byScenario: Record<string, number> };
 }
 
-type Tab = "abandonedCart" | "backInStock" | "welcome" | "newsletter";
+type Tab = "abandonedCart" | "backInStock" | "welcome" | "newsletter" | "inactiveClient";
 
 const TAB_LABEL: Record<Tab, string> = {
   abandonedCart: "Panier abandonné",
   backInStock: "Retour en stock",
   welcome: "Bienvenue",
   newsletter: "Newsletter",
+  inactiveClient: "Client inactif",
 };
 
 const KEY_BY_TAB: Record<Tab, EmailScenarioKey> = {
@@ -70,6 +79,7 @@ const KEY_BY_TAB: Record<Tab, EmailScenarioKey> = {
   backInStock: "BACK_IN_STOCK",
   welcome: "WELCOME",
   newsletter: "NEWSLETTER",
+  inactiveClient: "INACTIVE_CLIENT",
 };
 
 const SCENARIO_LABEL: Record<string, string> = {
@@ -77,6 +87,8 @@ const SCENARIO_LABEL: Record<string, string> = {
   BACK_IN_STOCK: "Retour en stock",
   WELCOME: "Bienvenue",
   NEWSLETTER: "Newsletter",
+  INACTIVE_CLIENT: "Client inactif",
+  MANUAL_RELANCE: "Relance manuelle",
 };
 
 export default function EmailsClient({ scenarios, audienceCount, recentSends, stats30d }: Props) {
@@ -91,9 +103,16 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
     backInStock: scenarios.backInStock.enabled,
     welcome: scenarios.welcome.enabled,
     newsletter: scenarios.newsletter.enabled,
+    inactiveClient: scenarios.inactiveClient.enabled,
   });
   const [reminders, setReminders] = useState<number[]>(
     scenarios.abandonedCart.reminders.map((r) => r.afterHours),
+  );
+  const [inactiveAfterDays, setInactiveAfterDays] = useState<number>(
+    scenarios.inactiveClient.inactiveAfterDays,
+  );
+  const [inactiveCooldownDays, setInactiveCooldownDays] = useState<number>(
+    scenarios.inactiveClient.cooldownDays,
   );
   const [testEmail, setTestEmail] = useState("");
 
@@ -174,6 +193,29 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
           );
           router.refresh();
         }
+      } else if (t === "inactiveClient") {
+        const res = await triggerInactiveClientScanNow();
+        if (!res.success) toast.error(`Échec : ${res.error}`);
+        else {
+          toast.success(
+            `Scan terminé — ${res.sent ?? 0} envoyé(s), ${res.skipped ?? 0} ignoré(s), ${res.errors ?? 0} erreur(s)`,
+          );
+          router.refresh();
+        }
+      }
+    });
+  }
+
+  function onSaveInactiveClientConfig() {
+    startTransition(async () => {
+      const res = await updateInactiveClientConfigAction({
+        inactiveAfterDays,
+        cooldownDays: inactiveCooldownDays,
+      });
+      if (!res.success) toast.error(`Échec : ${res.error}`);
+      else {
+        toast.success("Réglages enregistrés");
+        router.refresh();
       }
     });
   }
@@ -188,6 +230,7 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
       if (t === "abandonedCart") res = await sendAbandonedCartTest(testEmail.trim());
       else if (t === "backInStock") res = await sendBackInStockTest(testEmail.trim());
       else if (t === "welcome") res = await sendWelcomeTest(testEmail.trim());
+      else if (t === "inactiveClient") res = await sendInactiveClientTest(testEmail.trim());
       else {
         res = await sendNewsletterTestAction(testEmail.trim(), {
           subject: nlSubject,
@@ -252,7 +295,7 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
             Emails automatiques
           </h1>
           <p className="mt-2 text-text-secondary max-w-2xl">
-            {"Configurez vos 4 scénarios d'emails (panier abandonné, retour en stock, bienvenue, newsletter). Chaque scénario peut être activé, pausé et testé indépendamment."}
+            {"Configurez vos 5 scénarios d'emails (panier abandonné, retour en stock, bienvenue, newsletter, client inactif). Chaque scénario peut être activé, pausé et testé indépendamment."}
           </p>
         </div>
       </div>
@@ -262,7 +305,7 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
         <KpiTile label="Envoyés (30 j)" value={stats30d.sent} accent="violet" />
         <KpiTile label="Ouverts" value={`${stats30d.opened} · ${openRate}%`} accent="emerald" />
         <KpiTile label="Cliqués" value={`${stats30d.clicked} · ${clickRate}%`} accent="sky" />
-        <KpiTile label="Scénarios actifs" value={`${activeCount}/4`} accent="amber" />
+        <KpiTile label="Scénarios actifs" value={`${activeCount}/5`} accent="amber" />
       </div>
 
       {/* Tabs */}
@@ -642,6 +685,78 @@ export default function EmailsClient({ scenarios, audienceCount, recentSends, st
               />
             </ScenarioBody>
           )}
+
+          {tab === "inactiveClient" && (
+            <ScenarioBody
+              title={"Rappelle aux clients qui n'ont pas visité depuis longtemps"}
+              description={"Un email doux est envoyé aux clients approuvés qui ne se sont pas connectés depuis un certain temps (par défaut 30 jours). Chaque client n'est rappelé qu'une fois par période — pas de spam même si l'inactivité dure."}
+              accent="rose"
+              enabled={enabled.inactiveClient}
+              onToggle={(n) => onToggle("inactiveClient", n)}
+              disabled={pending}
+            >
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Délai d'inactivité (jours)">
+                  <input
+                    type="number"
+                    min={7}
+                    max={365}
+                    value={inactiveAfterDays}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (Number.isFinite(v)) setInactiveAfterDays(v);
+                    }}
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-bg-primary text-text-primary"
+                  />
+                  <p className="text-xs text-text-muted mt-1">
+                    {`Un client est considéré inactif après ${inactiveAfterDays} jour${inactiveAfterDays > 1 ? "s" : ""} sans connexion.`}
+                  </p>
+                </Field>
+                <Field label="Délai avant nouvelle relance (jours)">
+                  <input
+                    type="number"
+                    min={inactiveAfterDays}
+                    max={365}
+                    value={inactiveCooldownDays}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (Number.isFinite(v)) setInactiveCooldownDays(v);
+                    }}
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-bg-primary text-text-primary"
+                  />
+                  <p className="text-xs text-text-muted mt-1">
+                    {`Même client relancé au maximum une fois tous les ${inactiveCooldownDays} jour${inactiveCooldownDays > 1 ? "s" : ""}.`}
+                  </p>
+                </Field>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={onSaveInactiveClientConfig}
+                  disabled={pending}
+                  className="bg-bg-dark text-text-inverse px-5 py-2.5 rounded-xl font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  Enregistrer les réglages
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onScanNow("inactiveClient")}
+                  disabled={pending || !enabled.inactiveClient}
+                  className="border border-border text-text-primary px-5 py-2.5 rounded-xl font-medium hover:bg-bg-secondary disabled:opacity-50"
+                >
+                  Scanner maintenant
+                </button>
+              </div>
+
+              <TestEmailBox
+                testEmail={testEmail}
+                setTestEmail={setTestEmail}
+                onSend={() => onSendTest("inactiveClient")}
+                disabled={pending}
+              />
+            </ScenarioBody>
+          )}
         </div>
       </div>
 
@@ -715,7 +830,7 @@ function ScenarioBody({
 }: {
   title: string;
   description: string;
-  accent: "violet" | "emerald" | "sky" | "amber";
+  accent: "violet" | "emerald" | "sky" | "amber" | "rose";
   enabled: boolean;
   onToggle: (n: boolean) => void;
   disabled?: boolean;
@@ -726,6 +841,7 @@ function ScenarioBody({
     emerald: "text-emerald-600",
     sky: "text-sky-600",
     amber: "text-amber-600",
+    rose: "text-rose-600",
   }[accent];
   return (
     <div>
@@ -816,13 +932,14 @@ function ToggleSwitch({
   enabled: boolean;
   onChange: (n: boolean) => void;
   disabled?: boolean;
-  accent?: "violet" | "emerald" | "sky" | "amber";
+  accent?: "violet" | "emerald" | "sky" | "amber" | "rose";
 }) {
   const onColor = {
     violet: "bg-violet-500",
     emerald: "bg-emerald-500",
     sky: "bg-sky-500",
     amber: "bg-amber-500",
+    rose: "bg-rose-500",
   }[accent];
   return (
     <button

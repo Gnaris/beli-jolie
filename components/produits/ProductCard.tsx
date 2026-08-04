@@ -8,6 +8,7 @@ import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useTranslations } from "next-intl";
 import { canSeePrices } from "@/lib/price-visibility";
+import { buildProductHandle } from "@/lib/product-url";
 import AddToCartModal from "./AddToCartModal";
 
 interface VariantData {
@@ -118,6 +119,7 @@ export default function ProductCard({
 
   const displayed = selectedColor ?? primaryColor;
   const image = displayed?.firstImage;
+  const productHref = `/produits/${buildProductHandle(name, reference)}`;
 
   const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
 
@@ -154,7 +156,7 @@ export default function ProductCard({
   function handleOpenModal() {
     if (!session) {
       // Redirection vers login si pas connecté
-      window.location.href = `/connexion?callbackUrl=/produits/${id}`;
+      window.location.href = `/connexion?callbackUrl=${productHref}`;
       return;
     }
     setShowModal(true);
@@ -163,7 +165,7 @@ export default function ProductCard({
   return (
     <article className="group h-full overflow-hidden flex flex-col animate-zoom-fade sm:card sm:card-hover sm:p-2.5">
       {/* Image */}
-      <Link href={`/produits/${id}`} className="block">
+      <Link href={productHref} className="block">
         <div className="bg-bg-secondary relative overflow-hidden aspect-[4/5] md:aspect-[3/4] rounded-xl sm:rounded-[14px] border-0 sm:border sm:border-border-light">
           {image ? (
             <Image
@@ -268,7 +270,7 @@ export default function ProductCard({
         </p>
 
         {/* Nom — min-h-[2.6em] réserve toujours 2 lignes pour uniformiser la hauteur des cartes */}
-        <Link href={`/produits/${id}`} className="block">
+        <Link href={productHref} className="block">
           <p className="font-body font-medium sm:font-semibold text-[13px] sm:text-sm text-text-primary line-clamp-2 leading-tight sm:leading-snug hover:text-text-secondary transition-colors min-h-[2.6em]">
             {tp(name)}
           </p>

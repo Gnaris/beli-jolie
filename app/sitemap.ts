@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
 import { getCurrentTenantId } from "@/lib/tenant";
+import { buildProductHandle } from "@/lib/product-url";
 
 const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "monthly" | "yearly"; priority: number }[] = [
   { path: "", changeFrequency: "daily", priority: 1 },
@@ -58,20 +59,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // laisser un peu de marge aux pages statiques et collections.
   const products = await prisma.product.findMany({
     where: { status: "ONLINE" },
-    select: { id: true, updatedAt: true },
+    select: { id: true, name: true, reference: true, updatedAt: true },
     orderBy: { updatedAt: "desc" },
     take: 24000,
   });
 
-  const productPages: MetadataRoute.Sitemap = products.flatMap((p) =>
-    VALID_LOCALES.map((locale) => ({
-      url: `${baseUrl}/${locale}/produits/${p.id}`,
+  const productPages: MetadataRoute.Sitemap = products.flatMap((p) => {
+    const handle = buildProductHandle(p.name, p.reference);
+    return VALID_LOCALES.map((locale) => ({
+      url: `${baseUrl}/${locale}/produits/${handle}`,
       lastModified: p.updatedAt,
       changeFrequency: "weekly" as const,
       priority: 0.7,
-      alternates: { languages: buildLanguageMap(baseUrl, `/produits/${p.id}`) },
-    }))
-  );
+      alternates: { languages: buildLanguageMap(baseUrl, `/produits/${handle}`) },
+    }));
+  });
 
   // ── Collections ──────────────────────────────────────────────────────────
   const collections = await prisma.collection.findMany({

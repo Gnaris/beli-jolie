@@ -9,10 +9,14 @@ import { requireAdmin } from "@/lib/auth-helpers";
 import type { EmailScenarioKey } from "@prisma/client";
 import {
   setAbandonedCartConfig,
+  setInactiveClientConfig,
   setScenarioEnabled,
   getOrCreateScenario,
+  type InactiveClientConfig,
 } from "@/lib/email-marketing/scenarios";
 import { runAbandonedCartScan } from "@/lib/email-marketing/abandoned-cart";
+import { runInactiveClientScan } from "@/lib/email-marketing/inactive-client";
+import { renderInactiveClientEmail } from "@/lib/email-marketing/templates/inactive-client";
 import {
   dispatchPendingRestockEvents,
   getPendingRestockSummary,
@@ -90,6 +94,48 @@ export async function triggerAbandonedCartScanNow(): Promise<
   try {
     const { tenant } = await requireAdmin();
     const res = await runAbandonedCartScan(tenant.id);
+    revalidatePath("/admin/emails");
+    return { success: true, ...res };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Config client inactif
+// ─────────────────────────────────────────────────────────────
+
+export async function updateInactiveClientConfigAction(
+  cfg: InactiveClientConfig,
+): Promise<ActionResult> {
+  try {
+    const { tenant } = await requireAdmin();
+    const inactiveAfterDays = Math.round(Number(cfg.inactiveAfterDays));
+    const cooldownDays = Math.round(Number(cfg.cooldownDays));
+    if (!Number.isFinite(inactiveAfterDays) || inactiveAfterDays < 7) {
+      return { success: false, error: "Le délai d'inactivité doit être d'au moins 7 jours." };
+    }
+    if (!Number.isFinite(cooldownDays) || cooldownDays < inactiveAfterDays) {
+      return {
+        success: false,
+        error: "Le délai avant nouvelle relance doit être supérieur ou égal au délai d'inactivité.",
+      };
+    }
+    await setInactiveClientConfig(tenant.id, { inactiveAfterDays, cooldownDays });
+    revalidatePath("/admin/emails");
+    return { success: true };
+  } catch (err) {
+    logger.error("[EmailScenarios] updateInactiveClientConfig", { error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export async function triggerInactiveClientScanNow(): Promise<
+  ActionResult & { scanned?: number; sent?: number; skipped?: number; errors?: number }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+    const res = await runInactiveClientScan(tenant.id);
     revalidatePath("/admin/emails");
     return { success: true, ...res };
   } catch (err) {
@@ -199,6 +245,29 @@ export async function sendBackInStockTest(toEmail: string): Promise<ActionResult
         },
       ],
       browseAllUrl: `${baseUrl}/fr/produits`,
+      unsubscribeUrl: `${baseUrl}/desabonnement?token=${encodeURIComponent(unsubToken)}`,
+      companyLegal: tenant.name,
+    });
+    const result = await sendMail({ to: target, subject: `[TEST] ${subject}`, html });
+    if (!result.sent) return { success: false, error: `Envoi échoué (${result.reason})` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export async function sendInactiveClientTest(toEmail: string): Promise<ActionResult> {
+  try {
+    const { tenant } = await requireAdmin();
+    const target = toEmail?.trim();
+    if (!target) return { success: false, error: "Email destinataire requis." };
+    const baseUrl = await getTenantBaseUrl(tenant.id);
+    const unsubToken = encodeUnsubscribeToken(tenant.id, target, "INACTIVE_REMINDERS");
+    const { subject, html } = renderInactiveClientEmail({
+      customerFirstName: "Marie",
+      shopName: tenant.name,
+      daysSinceLastLogin: 42,
+      catalogUrl: `${baseUrl}/fr/produits`,
       unsubscribeUrl: `${baseUrl}/desabonnement?token=${encodeURIComponent(unsubToken)}`,
       companyLegal: tenant.name,
     });

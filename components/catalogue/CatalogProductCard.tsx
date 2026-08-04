@@ -6,6 +6,7 @@ import { addToCart } from "@/app/actions/client/cart";
 import { getImageSrc } from "@/lib/image-utils";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
+import { buildProductHandle } from "@/lib/product-url";
 
 interface VariantSize {
   size: { name: string };
@@ -254,7 +255,7 @@ export default function CatalogProductCard({
 
       {/* ── Image ───────────────────────────────────────────────────────── */}
       <div className="relative aspect-[4/5] bg-[#F7F6F4] overflow-hidden" ref={imageContainerRef}>
-        <a href={`/produits/${product.id}`} className="block w-full h-full cursor-pointer">
+        <a href={`/produits/${buildProductHandle(product.name, product.reference)}`} className="block w-full h-full cursor-pointer">
           {image ? (
             <img
               src={getImageSrc(image, "medium")}
@@ -305,7 +306,7 @@ export default function CatalogProductCard({
 
       {/* ── Info ────────────────────────────────────────────────────────── */}
       <div className="p-4 flex-1 flex flex-col">
-        <a href={`/produits/${product.id}`} className="block">
+        <a href={`/produits/${buildProductHandle(product.name, product.reference)}`} className="block">
         <h2
           className="font-semibold text-[#1A1A1A] text-sm leading-snug line-clamp-2 mb-0.5 hover:text-[#555] transition-colors"
           style={{ fontFamily: "var(--font-poppins)" }}

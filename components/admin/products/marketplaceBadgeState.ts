@@ -68,7 +68,26 @@ export function computeMarketplaceBadgeState(
   // orange même si l'op serveur a disparu du poll ou si l'horloge serveur est
   // décalée. Fourni par `MarketplaceRefreshContext.getRecentClientSuccessAt`.
   clientRecentSuccessAt: number | null = null,
+  // True quand une liaison marketplace tourne côté client (MarketplaceLinkContext).
+  // Les liaisons ne passent PAS par MarketplaceRefreshJob : sans ce signal, le
+  // badge resterait "hors ligne" pendant toute la liaison (10-30 s) puis
+  // basculerait vert d'un coup — la cliente veut un état "en cours" continu,
+  // sans flash rouge. On garde aussi ce flag brièvement APRÈS la fin (grace
+  // window côté LinkContext) le temps que router.refresh rapatrie
+  // serverProductId, sinon le badge repasse "non lié" 1-2 s avant d'être vert.
+  linkInProgress: boolean = false,
 ): MarketplaceBadgeState {
+  // Une liaison en cours prend la priorité absolue sur tout le reste :
+  // pas d'orange, pas de vert prématuré, pas de rouge — juste "en cours".
+  if (linkInProgress) {
+    return {
+      loading: true,
+      online: false,
+      syncRequired: false,
+      justPublishedOk: false,
+    };
+  }
+
   // Sticky green client-side : indépendant de la présence de l'op.
   // Élimine le flash orange dans les cas où :
   //   - le poll perd temporairement l'item ;

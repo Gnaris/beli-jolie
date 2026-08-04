@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { tenantALS } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
 import { runAbandonedCartScan } from "@/lib/email-marketing/abandoned-cart";
+import { runInactiveClientScan } from "@/lib/email-marketing/inactive-client";
 
 const TICK_MS = 15 * 60_000; // 15 min
 
@@ -62,6 +63,23 @@ async function tick(): Promise<void> {
         // piloté manuellement par l'admin depuis le widget flottant, pour
         // éviter le spam (1 email par produit) et laisser la maîtresse
         // choisir le moment (batch groupé par client).
+
+        try {
+          const inactive = await runInactiveClientScan(t.id);
+          if (inactive.sent > 0 || inactive.errors > 0) {
+            logger.info("[EmailMarketing] Client inactif — résultat", {
+              tenantId: t.id,
+              tenant: t.name,
+              ...inactive,
+            });
+          }
+        } catch (err) {
+          logger.error("[EmailMarketing] Erreur pendant le scan client inactif", {
+            tenantId: t.id,
+            tenant: t.name,
+            error: err as Error,
+          });
+        }
       });
     }
   } catch (err) {

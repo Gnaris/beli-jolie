@@ -10,6 +10,7 @@ import { useScrollReveal } from "./useScrollReveal";
 import { addToCart } from "@/app/actions/client/cart";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { canSeePrices } from "@/lib/price-visibility";
+import { buildProductHandle } from "@/lib/product-url";
 
 interface CarouselVariant {
   id: string;
@@ -246,7 +247,7 @@ function CarouselCard({
 
   return (
     <article className={`group shrink-0 h-full ${cardWidth} ${cardRadius} bg-bg-primary border border-border overflow-hidden flex flex-col transition-shadow duration-300 ${cardShadow}`}>
-      <Link href={`/produits/${product.id}`} className="block">
+      <Link href={`/produits/${buildProductHandle(product.name, product.reference)}`} className="block">
         <div ref={imageRef} className={`${imageAspect} bg-bg-secondary relative overflow-hidden`}>
           {image ? (
             <Image
@@ -319,7 +320,7 @@ function CarouselCard({
           ))}
         </div>
 
-        <Link href={`/produits/${product.id}`}>
+        <Link href={`/produits/${buildProductHandle(product.name, product.reference)}`}>
           <p className="font-body font-semibold text-sm text-text-primary line-clamp-1 leading-snug hover:text-text-secondary transition-colors">
             {tp(product.name)}
           </p>

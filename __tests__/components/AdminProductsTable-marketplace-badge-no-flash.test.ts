@@ -51,9 +51,9 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
 
   it("les MpDot mobiles (< lg) utilisent aussi xxxBadgeState.online", () => {
     // Sur mobile/tablet on affichait un aperçu compact qui souffrait du même bug.
-    expect(SRC).toMatch(/<MpDot label="PFS"[\s\S]{0,120}active=\{hasPfsConfig && pfsBadgeState\.online\}/);
+    expect(SRC).toMatch(/<MpDot[\s\S]{0,120}label="PFS"[\s\S]{0,120}active=\{hasPfsConfig && pfsBadgeState\.online\}/);
     expect(SRC).toMatch(/<MpDot[\s\S]{0,200}label="EF"[\s\S]{0,200}active=\{efashionBadgeState\.online\}/);
-    expect(SRC).toMatch(/<MpDot label="AK"[\s\S]{0,120}active=\{ankorstoreBadgeState\.online\}/);
+    expect(SRC).toMatch(/<MpDot[\s\S]{0,120}label="AK"[\s\S]{0,120}active=\{ankorstoreBadgeState\.online\}/);
   });
 
   it("les 4 badges lisent syncRequired depuis xxxBadgeState.syncRequired (fenêtre de grâce 5s post-sync)", () => {
@@ -71,13 +71,15 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
     expect(SRC).not.toMatch(/product\.efashionSyncRequired && !isEfashionPublishing && !efashionBadgeState\.justPublishedOk/);
   });
 
-  it("computeMarketplaceBadgeState reçoit bien product.xxxSyncRequired en 4e arg pour activer la fenêtre de grâce", () => {
+  it("computeMarketplaceBadgeState reçoit bien le drapeau syncRequired en 4e arg pour activer la fenêtre de grâce", () => {
     // Sans ce 4e arg, xxxBadgeState.syncRequired vaut toujours false (defaut).
-    // Les args suivants (undefined = now par défaut, sticky client) sont optionnels.
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.pfsProductId,\s*pfsOp,\s*"pfs",\s*product\.pfsSyncRequired,/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.ankorsProductId,\s*ankorstoreOp,\s*"ankorstore",\s*product\.ankorsSyncRequired,/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*efashionLinked \? "linked" : null,\s*efashionOp,\s*"efashion",\s*product\.efashionSyncRequired,/);
-    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.faireProductId,\s*faireOp,\s*"faire",\s*product\.faireSyncRequired,/);
+    // Peut être `product.xxxSyncRequired` OU une variable dérivée
+    // (`effectiveXxxSyncRequired`) qui intègre l'override optimistic "cleared
+    // locally" — l'important est que la valeur remonte bien jusqu'ici.
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.pfsProductId,\s*pfsOp,\s*"pfs",\s*(product\.pfsSyncRequired|effectivePfsSyncRequired),/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.ankorsProductId,\s*ankorstoreOp,\s*"ankorstore",\s*(product\.ankorsSyncRequired|effectiveAnkorsSyncRequired),/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*efashionLinked \? "linked" : null,\s*efashionOp,\s*"efashion",\s*(product\.efashionSyncRequired|effectiveEfashionSyncRequired),/);
+    expect(SRC).toMatch(/computeMarketplaceBadgeState\(\s*product\.faireProductId,\s*faireOp,\s*"faire",\s*(product\.faireSyncRequired|effectiveFaireSyncRequired),/);
   });
 
   it("computeMarketplaceBadgeState reçoit aussi le sticky client-side pour éliminer le flash orange post-sync", () => {
@@ -89,5 +91,17 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
     expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"ankorstore"\)/);
     expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"efashion"\)/);
     expect(SRC).toMatch(/getRecentClientSuccessAt\(product\.id,\s*"faire"\)/);
+  });
+
+  it("computeMarketplaceBadgeState reçoit le signal hasLinkJob en 7e arg — badge en loading pendant la liaison, sans flash rouge", () => {
+    // Sans ce 7e arg, une liaison marketplace en cours (LinkMarketplaceModal
+    // → server action linkXxxProductManually) laisserait le badge "hors ligne"
+    // (rouge) pendant 10-30 s puis basculerait vert d'un coup à la fin.
+    // Avec ce signal : le badge est "en cours" pendant toute la liaison
+    // (dont la fenêtre de grâce post-succès côté MarketplaceLinkContext).
+    expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"pfs"\)/);
+    expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"ankorstore"\)/);
+    expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"efashion"\)/);
+    expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"faire"\)/);
   });
 });

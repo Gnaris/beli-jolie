@@ -26,6 +26,7 @@ import { getOrCreateScenario } from "@/lib/email-marketing/scenarios";
 import { getTenantBaseUrl } from "@/lib/email-marketing/tenant-domain";
 import { isUnsubscribed } from "@/lib/email-marketing/unsubscribe";
 import { encodeUnsubscribeToken, encodeTrackingToken } from "@/lib/email-marketing/tokens";
+import { buildProductHandle } from "@/lib/product-url";
 import {
   renderBackInStockDigestEmail,
   type DigestProductView,
@@ -379,7 +380,7 @@ export async function dispatchPendingRestockEvents(
           productName: p.name,
           reference: p.reference,
           priceLabel: v ? formatEuros(Number(v.unitPrice)) : "",
-          productUrl: `${baseUrl}/fr/produits/${p.id}`,
+          productUrl: `${baseUrl}/fr/produits/${buildProductHandle(p.name, p.reference)}`,
           imageUrl: v?.images[0]?.path ? absoluteUrl(baseUrl, v.images[0].path) : null,
         });
       }

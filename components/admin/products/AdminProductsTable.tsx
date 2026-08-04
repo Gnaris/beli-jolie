@@ -38,12 +38,14 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { useRightRail } from "@/components/admin/widgets-rail/RightRailContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
+import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
 import {
   MISSING_FIELD_LABELS,
   MISSING_FIELD_TITLES,
@@ -51,6 +53,7 @@ import {
 } from "@/lib/product-missing-fields";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { formatRelativeDate } from "@/lib/format-date";
+import { buildProductHandle } from "@/lib/product-url";
 import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
 import PfsVerifyBadge, { type PfsVerifyIssue } from "@/components/admin/products/PfsVerifyBadge";
@@ -2204,6 +2207,8 @@ function MobileStatusOption({
 
 function ActionsDropdown({
   productId,
+  productName,
+  productReference,
   expanded,
   refreshing,
   anchorRef,
@@ -2226,6 +2231,8 @@ function ActionsDropdown({
   onDelete,
 }: {
   productId: string;
+  productName: string;
+  productReference: string;
   expanded: boolean;
   refreshing: boolean;
   anchorRef: React.RefObject<HTMLDivElement | null>;
@@ -2331,7 +2338,7 @@ function ActionsDropdown({
         Dupliquer
       </Link>
       <Link
-        href={`/fr/produits/${productId}`}
+        href={`/fr/produits/${buildProductHandle(productName, productReference)}`}
         target="_blank"
         className={itemClass}
         onClick={onClose}
@@ -2693,6 +2700,7 @@ function ProductRow({
   const toast = useToast();
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
+  const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
   const { addProduct: addToEfashionShootingBatch, items: efashionShootingItems } = useEfashionShootingBatch();
   const { open: openRailWidget, nudgeWidget: nudgeRailWidget } = useRightRail();
   const efashionShootingPending = React.useMemo(() => {
@@ -2778,6 +2786,8 @@ function ProductRow({
   // marketplace pour ce produit et on bloque les clics tant qu'elle est en
   // file/exécution/attente du callback. Verrou local supplémentaire pour le
   // bref instant entre le clic et la mise à jour de la file (anti-double-clic).
+  // On englobe aussi les liaisons manuelles (MarketplaceLinkContext) — sans
+  // ce signal le badge resterait rouge toute la durée de la liaison.
   const pfsOp = findLatestOpForProduct(queueItems, product.id, "pfs");
   const pfsBadgeState = computeMarketplaceBadgeState(
     product.pfsProductId,
@@ -2786,6 +2796,7 @@ function ProductRow({
     effectivePfsSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "pfs"),
+    hasLinkJob(product.id, "pfs"),
   );
   const [pendingPfsEnqueue, setPendingPfsEnqueue] = useState(false);
   const isPfsPublishing = pfsBadgeState.loading || pendingPfsEnqueue;
@@ -2798,6 +2809,7 @@ function ProductRow({
     effectiveAnkorsSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "ankorstore"),
+    hasLinkJob(product.id, "ankorstore"),
   );
   const [pendingAnkorstoreEnqueue, setPendingAnkorstoreEnqueue] = useState(false);
   const isAnkorstorePublishing = ankorstoreBadgeState.loading || pendingAnkorstoreEnqueue;
@@ -2810,6 +2822,7 @@ function ProductRow({
     effectiveEfashionSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "efashion"),
+    hasLinkJob(product.id, "efashion"),
   );
   const [pendingEfashionEnqueue, setPendingEfashionEnqueue] = useState(false);
   const isEfashionPublishing = efashionBadgeState.loading || pendingEfashionEnqueue;
@@ -2822,6 +2835,7 @@ function ProductRow({
     effectiveFaireSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "faire"),
+    hasLinkJob(product.id, "faire"),
   );
   const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
   const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;
@@ -3690,6 +3704,8 @@ function ProductRow({
             {actionsOpen && createPortal(
               <ActionsDropdown
                 productId={product.id}
+                productName={product.name}
+                productReference={product.reference}
                 expanded={expanded}
                 refreshing={refreshing}
                 anchorRef={actionsRef}
@@ -4475,11 +4491,13 @@ export default function AdminProductsTable({
       // un premier push crée automatiquement la fiche côté Microstore, un
       // push suivant la met à jour. Pas de restriction sur
       // `microstoreLastPushedAt` — sinon la case n'apparaîtrait jamais avant
-      // le tout premier envoi manuel.
+      // le tout premier envoi manuel. Les brouillons sont exclus (cf.
+      // `isMicrostorePropagationEligible`) : sinon on créerait une fiche
+      // vide côté Microstore au premier push.
       const microstoreProducts = hasMicrostoreConfig
-        ? affectedProducts.filter((p) => {
+        ? affectedProducts.flatMap((p) => {
             const full = allProducts.find((ap) => ap.id === p.id);
-            return !!full?.microstoreEnabled;
+            return full && isMicrostorePropagationEligible(full) ? [p] : [];
           })
         : [];
 
@@ -4970,7 +4988,7 @@ export default function AdminProductsTable({
         : [];
       const microstoreCandidates = hasMicrostoreConfig
         ? allProducts.filter(
-            (p) => successIds.includes(p.id) && p.microstoreEnabled,
+            (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
           )
         : [];
 
@@ -5100,7 +5118,7 @@ export default function AdminProductsTable({
       : [];
     const microstoreCandidates = hasMicrostoreConfig
       ? allProducts.filter(
-          (p) => successIds.includes(p.id) && p.microstoreEnabled,
+          (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
         )
       : [];
 
@@ -5486,7 +5504,7 @@ export default function AdminProductsTable({
       : [];
     const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
     const microstoreTargets = hasMicrostoreConfig
-      ? targets.filter((p) => p.microstoreEnabled)
+      ? targets.filter((p) => isMicrostorePropagationEligible(p))
       : [];
 
     if (

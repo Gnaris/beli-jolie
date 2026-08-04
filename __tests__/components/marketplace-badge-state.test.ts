@@ -423,3 +423,89 @@ describe("computeMarketplaceBadgeState — sticky client-side", () => {
     expect(state.online).toBe(false);
   });
 });
+
+describe("computeMarketplaceBadgeState — liaison en cours (linkInProgress)", () => {
+  // La liaison manuelle marketplace (LinkMarketplaceModal → linkPfsProductManually…)
+  // ne passe PAS par MarketplaceRefreshJob : sans ce signal côté badge, le rendu
+  // resterait "hors ligne" (rouge) pendant toute la durée de la server action
+  // (10-30 s), puis basculerait vert d'un coup — flash inconfortable pour la
+  // cliente. Le 7ᵉ param force un état "loading" propre pendant toute la liaison
+  // (dont la fenêtre de grâce post-succès côté MarketplaceLinkContext).
+
+  it("force loading quand une liaison est en cours, même sans op", () => {
+    const state = computeMarketplaceBadgeState(
+      null,
+      undefined,
+      "pfs",
+      false,
+      undefined,
+      null,
+      true, // linkInProgress
+    );
+    expect(state.loading).toBe(true);
+    expect(state.online).toBe(false);
+    expect(state.syncRequired).toBe(false);
+    expect(state.justPublishedOk).toBe(false);
+  });
+
+  it("force loading même si le produit est déjà lié (relink)", () => {
+    // Cas : la cliente clique sur « Lier » alors qu'un pfsProductId existe déjà
+    // (elle veut ré-associer). Le badge ne doit pas rester vert → loading.
+    const state = computeMarketplaceBadgeState(
+      "pfs-existing",
+      undefined,
+      "pfs",
+      false,
+      undefined,
+      null,
+      true,
+    );
+    expect(state.loading).toBe(true);
+    expect(state.online).toBe(false);
+  });
+
+  it("force loading même si syncRequired est vrai (pas de flash orange)", () => {
+    const state = computeMarketplaceBadgeState(
+      "pfs-existing",
+      undefined,
+      "pfs",
+      true, // syncRequired stale
+      undefined,
+      null,
+      true,
+    );
+    expect(state.loading).toBe(true);
+    expect(state.syncRequired).toBe(false);
+  });
+
+  it("force loading même s'il y a une op refresh récemment terminée (pas de flash vert prématuré)", () => {
+    // Cas : une op refresh a fini quelques secondes avant la liaison. Sans le
+    // linkInProgress, `justPublishedOk` ou `online` prendrait le dessus.
+    const now = 1_700_000_000_000;
+    const op = baseItem({
+      status: "done",
+      mode: "publish",
+      ankorsOutcome: { ok: true, archived: false },
+      completedAt: new Date(now - 500).toISOString(),
+    });
+    const state = computeMarketplaceBadgeState(
+      "ankors-123",
+      op,
+      "ankorstore",
+      false,
+      now,
+      now - 500,
+      true,
+    );
+    expect(state.loading).toBe(true);
+    expect(state.online).toBe(false);
+    expect(state.justPublishedOk).toBe(false);
+  });
+
+  it("linkInProgress false → comportement historique inchangé", () => {
+    // Régression : le 7ᵉ param doit être optionnel et neutre par défaut.
+    const state = computeMarketplaceBadgeState("pfs-123", undefined, "pfs", false);
+    expect(state.online).toBe(true);
+    expect(state.loading).toBe(false);
+  });
+});

@@ -2751,6 +2751,8 @@ enum EmailScenarioKey {
   BACK_IN_STOCK // Produit favoris/RestockAlert repasse en stock
   WELCOME // Compte client validé par l'admin
   NEWSLETTER // Envoi manuel depuis l'admin
+  INACTIVE_CLIENT // Client sans connexion depuis > X jours — 1 relance douce
+  MANUAL_RELANCE // Relance manuelle depuis la page /admin/utilisateurs (bouton "…")
 }
 
 enum EmailUnsubscribeScope {
@@ -2758,6 +2760,7 @@ enum EmailUnsubscribeScope {
   CART_REMINDERS // Panier abandonné uniquement
   STOCK_ALERTS // Retour en stock uniquement
   NEWSLETTER // Nouveautés uniquement
+  INACTIVE_REMINDERS // "On ne vous a pas vu depuis…"
 }
 
 // ─────────────────────────────────────────────

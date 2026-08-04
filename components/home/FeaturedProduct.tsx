@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useScrollReveal } from "./useScrollReveal";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import type { CarouselProduct, ClientDiscountInfo } from "./ProductCarousel";
+import { buildProductHandle } from "@/lib/product-url";
 
 interface Props {
   products: CarouselProduct[];
@@ -31,7 +32,7 @@ function PhotoTile({
   const image = getProductImage(product);
 
   return (
-    <Link href={`/produits/${product.id}`} className={`group relative block overflow-hidden ${className}`}>
+    <Link href={`/produits/${buildProductHandle(product.name, product.reference)}`} className={`group relative block overflow-hidden ${className}`}>
       <div className="absolute inset-0 bg-bg-secondary">
         {image ? (
           <Image

@@ -652,15 +652,26 @@ describe("findProductIdsWithMissingVariantImages", () => {
       { productId: "p1" },
       { productId: "p2" },
     ]);
-    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never);
+    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never, "tenant-a");
     expect(ids).toEqual(["p1", "p2"]);
     expect($queryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("returns an empty array when no product has a variant without images", async () => {
     const $queryRaw = vi.fn().mockResolvedValue([]);
-    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never);
+    const ids = await findProductIdsWithMissingVariantImages({ $queryRaw } as never, "tenant-a");
     expect(ids).toEqual([]);
+  });
+
+  it("passes the tenantId to the raw SQL (interpolated in the template values)", async () => {
+    const $queryRaw = vi.fn().mockResolvedValue([]);
+    await findProductIdsWithMissingVariantImages({ $queryRaw } as never, "tenant-42");
+    // Tagged-template calls receive (strings, ...values). We only assert the value
+    // list contains the tenantId — the SQL text itself is asserted structurally
+    // by the two tests above (mock returns rows unchanged).
+    const call = $queryRaw.mock.calls[0];
+    const values = call.slice(1);
+    expect(values).toContain("tenant-42");
   });
 });
 

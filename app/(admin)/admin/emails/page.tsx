@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
 import {
   getAbandonedCartConfig,
+  getInactiveClientConfig,
   getOrCreateScenario,
 } from "@/lib/email-marketing/scenarios";
 import {
@@ -27,6 +28,7 @@ export default async function AdminEmailsPage() {
     backInStockPendingProducts,
     welcomeScenario,
     newsletterScenario,
+    inactiveClient,
     recentSends,
     stats30d,
   ] = await Promise.all([
@@ -36,6 +38,7 @@ export default async function AdminEmailsPage() {
     getPendingRestockList(tenant.id),
     getOrCreateScenario(tenant.id, "WELCOME"),
     getOrCreateScenario(tenant.id, "NEWSLETTER"),
+    getInactiveClientConfig(tenant.id),
     prisma.emailSend.findMany({
       where: { tenantId: tenant.id },
       orderBy: { sentAt: "desc" },
@@ -78,6 +81,11 @@ export default async function AdminEmailsPage() {
         },
         welcome: { enabled: welcomeScenario.enabled },
         newsletter: { enabled: newsletterScenario.enabled },
+        inactiveClient: {
+          enabled: inactiveClient.enabled,
+          inactiveAfterDays: inactiveClient.config.inactiveAfterDays,
+          cooldownDays: inactiveClient.config.cooldownDays,
+        },
       }}
       audienceCount={audienceCount}
       recentSends={recentSends.map((s) => ({

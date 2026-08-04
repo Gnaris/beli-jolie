@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getAvailableCredit } from "@/lib/credits";
+import { buildProductHandle } from "@/lib/product-url";
 import AccountEditor from "@/components/client/AccountEditor";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations, getLocale } from "next-intl/server";
@@ -627,7 +628,7 @@ export default async function DashboardPage() {
                   return (
                     <Link
                       key={fav.id}
-                      href={`/produits/${fav.product.id}`}
+                      href={`/produits/${buildProductHandle(fav.product.name, fav.product.reference)}`}
                       className="group rounded-xl overflow-hidden transition-all duration-200 hover:shadow-md"
                     >
                       {img ? (

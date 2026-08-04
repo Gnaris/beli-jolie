@@ -18,6 +18,7 @@ import { floorMoney } from "@/lib/order-totals";
 import { decryptIfSensitive } from "@/lib/encryption";
 import { derivePublicContactEmail } from "@/lib/public-contact-email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
+import { buildProductHandle } from "@/lib/product-url";
 
 function escapeHtml(str: string): string {
   return str
@@ -185,7 +186,7 @@ export async function notifyRestockAlerts(productColorId: string): Promise<void>
     const baseUrl = await getCurrentTenantBaseUrl();
 
     for (const alert of alerts) {
-      const productUrl = `${baseUrl}/fr/produits/${alert.product.id}`;
+      const productUrl = `${baseUrl}/fr/produits/${buildProductHandle(alert.product.name, alert.product.reference)}`;
       const colorName = alert.productColor.color?.name ?? "";
 
       const result = await sendMail({

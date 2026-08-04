@@ -803,6 +803,89 @@ export const getCachedProductCount = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["products"] }
 );
 
+// ─── Admin products section counts (8 counts per tab, cache 5min) ─────────────
+// Onglets de la page /admin/produits : « Tous / En ligne / Hors ligne /
+// Brouillon / Archivés / Importants / Créés récents / Modifiés récents ».
+// Ces compteurs ne dépendent PAS des filtres actifs, donc on les cache pour
+// éviter de refaire 8 COUNT(*) sur 78k lignes à chaque changement de page ou
+// de filtre. Invalidé par tout revalidateTag("products").
+export const getCachedProductSectionCounts = tenantScopedCacheWithTid(
+  "product-section-counts",
+  async (tid) => {
+    const scoped = tid === "global" ? {} : { tenantId: tid };
+    const recentCutoff = new Date();
+    recentCutoff.setDate(recentCutoff.getDate() - 30);
+    const [all, online, offline, draft, archived, important, createdRecent, updatedRecent] = await Promise.all([
+      prisma.product.count({ where: scoped }),
+      prisma.product.count({ where: { ...scoped, status: "ONLINE" } }),
+      prisma.product.count({ where: { ...scoped, status: "OFFLINE", isIncomplete: false } }),
+      prisma.product.count({ where: { ...scoped, status: "OFFLINE", isIncomplete: true } }),
+      prisma.product.count({ where: { ...scoped, status: "ARCHIVED" } }),
+      prisma.product.count({ where: { ...scoped, important: true } }),
+      prisma.product.count({ where: { ...scoped, createdAt: { gte: recentCutoff } } }),
+      prisma.product.count({ where: { ...scoped, updatedAt: { gte: recentCutoff } } }),
+    ]);
+    return { all, online, offline, draft, archived, important, createdRecent, updatedRecent };
+  },
+  ["product-section-counts"],
+  { revalidate: 300, tags: ["products"] }
+);
+
+// ─── All categories + sub-categories (for admin filters + bulk edit, cache 1h) ─
+// Diffère de getCachedCategories qui ne renvoie QUE les catégories effectivement
+// utilisées par un produit du tenant. Ici on veut la liste COMPLÈTE (y compris
+// les catégories nouvellement créées mais pas encore assignées) pour permettre
+// à l'admin de les choisir dans les filtres et les modales bulk.
+export const getCachedAllCategoriesWithSubs = tenantScopedCacheWithTid(
+  "all-categories-with-subs",
+  async (tid) =>
+    prisma.category.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true } },
+      },
+    }),
+  ["all-categories-with-subs"],
+  { revalidate: 3600, tags: ["categories"] }
+);
+
+// ─── All collections + product count (for admin bulk "Ajouter à une collection") ─
+// Diffère de getCachedCollections qui ne sélectionne que { id, name } — ici
+// on ajoute _count.products pour l'UI "N produits déjà dedans".
+export const getCachedAllCollectionsWithProductCount = tenantScopedCacheWithTid(
+  "all-collections-with-count",
+  async (tid) =>
+    prisma.collection.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { products: true } },
+      },
+    }),
+  ["all-collections-with-count"],
+  { revalidate: 3600, tags: ["collections"] }
+);
+
+// ─── All tags (including orphans) for admin bulk edit ──────────────────────
+// Diffère de getCachedTags qui filtre les tags orphelins (jamais assignés) —
+// ici on veut la liste COMPLÈTE pour la modale « Ajouter/retirer des tags ».
+export const getCachedAllTags = tenantScopedCacheWithTid(
+  "all-tags",
+  async (tid) =>
+    prisma.tag.findMany({
+      where: tid === "global" ? undefined : { tenantId: tid },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ["all-tags"],
+  { revalidate: 3600, tags: ["tags"] }
+);
+
 // ─── Bestseller refs (groupBy on orderItems, cache 10min) ──────────────────────
 export const getCachedBestsellerRefs = tenantScopedCacheWithTid<[number?], string[]>(
   "bestseller-refs",

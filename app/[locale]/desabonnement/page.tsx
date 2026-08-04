@@ -26,6 +26,7 @@ const VALID_SCOPES: EmailUnsubscribeScope[] = [
   "CART_REMINDERS",
   "STOCK_ALERTS",
   "NEWSLETTER",
+  "INACTIVE_REMINDERS",
 ];
 
 const SCOPE_LABELS: Record<EmailUnsubscribeScope, string> = {
@@ -33,6 +34,7 @@ const SCOPE_LABELS: Record<EmailUnsubscribeScope, string> = {
   CART_REMINDERS: "les rappels de panier",
   STOCK_ALERTS: "les alertes de retour en stock",
   NEWSLETTER: "la newsletter",
+  INACTIVE_REMINDERS: "les rappels d'inactivité",
 };
 
 export default async function UnsubscribePage({

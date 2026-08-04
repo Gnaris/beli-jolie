@@ -21,6 +21,7 @@ import {
   deleteDirectory,
 } from "@/lib/storage";
 import { requireCurrentTenant } from "@/lib/tenant";
+import { revalidateProductPublicPage } from "@/lib/product-url-server";
 import {
   guardAdminActionOtp,
   applyPauseChoice,
@@ -1498,7 +1499,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   }
 
   revalidatePath(`/admin/produits/${id}/modifier`);
-  revalidatePath(`/produits/${id}`);
+  await revalidateProductPublicPage(id);
   revalidateTag("products", "default");
   revalidateTag("tags", "default");
 
@@ -2543,7 +2544,7 @@ export async function updateVariantQuick(
   }
 
   revalidatePath("/admin/produits");
-  revalidatePath(`/produits/${variant.productId}`);
+  await revalidateProductPublicPage(variant.productId);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
   if (archivedFromOnline) {
     emitProductEvent({ type: "PRODUCT_OFFLINE", productId: variant.productId });
@@ -2665,7 +2666,7 @@ export async function bulkUpdateVariants(
 
   revalidatePath("/admin/produits");
   for (const pid of productIds) {
-    revalidatePath(`/produits/${pid}`);
+    await revalidateProductPublicPage(pid);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
     if (archivedFromOnlineIds.has(pid)) {
       emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
@@ -2819,7 +2820,7 @@ export async function refreshProduct(productId: string): Promise<void> {
   });
 
   revalidatePath("/admin/produits");
-  revalidatePath(`/produits/${productId}`);
+  await revalidateProductPublicPage(productId);
   revalidatePath("/produits");
   revalidateTag("products", "default");
 

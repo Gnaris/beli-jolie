@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
+import { useMarketplaceLinkJobs } from "./MarketplaceLinkContext";
 import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
 import { useMarketplaceMaintenance } from "./MarketplaceMaintenanceContext";
 import {
@@ -493,6 +494,7 @@ export function MarketplaceStatusButtons({
   const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
   const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
   const { enqueue, items, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
+  const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
   const {
     addProduct: addToEfashionShootingBatch,
     items: efashionShootingItems,
@@ -592,6 +594,13 @@ export function MarketplaceStatusButtons({
     efashionSyncRequired && !isClearedLocally("efashion");
   const effectiveFaireSyncRequired = faireSyncRequired && !isClearedLocally("faire");
 
+  // Liaison marketplace en cours (contexte client MarketplaceLinkContext) —
+  // englobe la fenêtre de grâce post-succès pour éviter le flash rouge → vert.
+  const pfsLinking = hasLinkJob(productId, "pfs");
+  const ankorstoreLinking = hasLinkJob(productId, "ankorstore");
+  const efashionLinking = hasLinkJob(productId, "efashion");
+  const faireLinking = hasLinkJob(productId, "faire");
+
   const efashionState = useMemo(
     () =>
       computeMarketplaceBadgeState(
@@ -601,8 +610,9 @@ export function MarketplaceStatusButtons({
         effectiveEfashionSyncRequired,
         undefined,
         efashionClientRecent,
+        efashionLinking,
       ),
-    [efashionLinked, efashionOp, effectiveEfashionSyncRequired, efashionClientRecent],
+    [efashionLinked, efashionOp, effectiveEfashionSyncRequired, efashionClientRecent, efashionLinking],
   );
   const pfsState = useMemo(
     () =>
@@ -613,8 +623,9 @@ export function MarketplaceStatusButtons({
         effectivePfsSyncRequired,
         undefined,
         pfsClientRecent,
+        pfsLinking,
       ),
-    [pfsProductId, pfsOp, effectivePfsSyncRequired, pfsClientRecent],
+    [pfsProductId, pfsOp, effectivePfsSyncRequired, pfsClientRecent, pfsLinking],
   );
   const ankorstoreState = useMemo(
     () =>
@@ -625,8 +636,9 @@ export function MarketplaceStatusButtons({
         effectiveAnkorsSyncRequired,
         undefined,
         ankorstoreClientRecent,
+        ankorstoreLinking,
       ),
-    [ankorsProductId, ankorstoreOp, effectiveAnkorsSyncRequired, ankorstoreClientRecent],
+    [ankorsProductId, ankorstoreOp, effectiveAnkorsSyncRequired, ankorstoreClientRecent, ankorstoreLinking],
   );
   const faireState = useMemo(
     () =>
@@ -637,8 +649,9 @@ export function MarketplaceStatusButtons({
         effectiveFaireSyncRequired,
         undefined,
         faireClientRecent,
+        faireLinking,
       ),
-    [faireProductId, faireOp, effectiveFaireSyncRequired, faireClientRecent],
+    [faireProductId, faireOp, effectiveFaireSyncRequired, faireClientRecent, faireLinking],
   );
 
   // ── Refresh routeur après publication réussie ──

@@ -30,6 +30,7 @@ import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 import { getMarketplaceMaintenance } from "@/lib/platform-config";
 import { extractLiveMarketplaceColorLabels } from "@/lib/marketplace-live-color-labels";
+import { buildProductHandle } from "@/lib/product-url";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -532,7 +533,7 @@ export default async function ModifierProduitPage({
                 variant="icon"
               />
               <Link
-                href={`/produits/${product.id}`}
+                href={`/fr/produits/${buildProductHandle(product.name, product.reference)}`}
                 target="_blank"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-text-secondary bg-bg-primary border border-border rounded-md hover:bg-bg-secondary hover:border-border-dark hover:text-text-primary transition-all font-body shadow-sm whitespace-nowrap"
                 title="Voir côté client"

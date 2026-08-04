@@ -37,10 +37,11 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
-import MailNotifyForm from "@/components/admin/settings/MailNotifyForm";
+import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
+import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
 import PersonalEmailCard from "@/components/admin/settings/PersonalEmailCard";
-import { getMailNotifySettings } from "@/app/actions/admin/mail-notify";
+import { getMailForwardStatus, getSmtpPublicConfig } from "@/app/actions/admin/mail-notify";
 import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -906,22 +907,14 @@ async function SeoTab() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Messagerie — notifications mail non lus + reset mdp boîte pro
+   TAB : Messagerie — transfert vers Gmail + tutoriel Send-As + sécurité mdp
    ═══════════════════════════════════════════════════════════════════════════ */
 async function MessagerieTab() {
-  const [settings, persoState, smtpFromEmailRow, smtpUserRow] = await Promise.all([
-    getMailNotifySettings(),
+  const [forwardStatus, smtpPublic, persoState] = await Promise.all([
+    getMailForwardStatus(),
+    getSmtpPublicConfig(),
     getAdminPersonalEmailState(),
-    prisma.siteConfig.findFirst({ where: { key: "smtp_from_email" }, select: { value: true } }),
-    prisma.siteConfig.findFirst({ where: { key: "smtp_user" }, select: { value: true } }),
   ]);
-  const { decryptIfSensitive } = await import("@/lib/encryption");
-  const proEmail = smtpFromEmailRow?.value
-    ? decryptIfSensitive("smtp_from_email", smtpFromEmailRow.value).trim() || null
-    : null;
-  const mailboxUser = smtpUserRow?.value
-    ? decryptIfSensitive("smtp_user", smtpUserRow.value).trim() || null
-    : null;
 
   const verifiedEmail = persoState.verifiedEmail;
   const verifiedAt = persoState.verifiedAt;
@@ -948,24 +941,35 @@ async function MessagerieTab() {
 
       <SettingCard
         icon={Ico.bell}
-        title="Notifications sur votre mail perso"
-        description={
-          proEmail
-            ? `Envoyées depuis votre boîte pro ${proEmail}. Choisissez entre résumé périodique et transfert instantané.`
-            : "Configurez d'abord votre boîte mail pro avant d'activer les notifications."
-        }
+        title="Où vos mails pro arrivent"
+        description="Chaque mail reçu sur la boîte pro est transféré instantanément dans votre boîte perso."
         accent="dark"
       >
-        <MailNotifyForm initialSettings={settings} />
+        <MailForwardStatusCard status={forwardStatus} />
+      </SettingCard>
+
+      <SettingCard
+        icon={Ico.card}
+        title="Envoyer depuis Gmail comme votre adresse pro"
+        description="Configurez Gmail une seule fois pour que vos réponses partent depuis votre adresse pro, pas depuis votre Gmail perso."
+        accent="dark"
+      >
+        <GmailSetupTutorialCard
+          smtpHost={smtpPublic.host || "mail.beliandjolie.com"}
+          smtpPort={smtpPublic.port}
+          smtpUser={smtpPublic.user}
+          proEmail={smtpPublic.fromEmail}
+          shopName={smtpPublic.shopName}
+        />
       </SettingCard>
 
       <SettingCard
         icon={Ico.lock}
         title="Sécurité — mot de passe boîte pro"
-        description="Réinitialisation protégée par un code de sécurité envoyé à votre adresse perso."
+        description="C'est ce mot de passe qui vous sera demandé par Gmail à l'étape 2 du tutoriel. Réinitialisation protégée par un code envoyé à votre adresse perso."
         accent="dark"
       >
-        <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={mailboxUser} />
+        <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={smtpPublic.user || null} />
       </SettingCard>
     </CardsStack>
   );

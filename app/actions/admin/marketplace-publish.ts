@@ -15,6 +15,7 @@ import {
 } from "@/lib/marketplace-enabled";
 import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
 import { checkProductComplete } from "@/lib/product-publishability-check";
+import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -264,7 +265,7 @@ export async function publishProductToMarketplaces(
 
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
-  revalidatePath(`/produits/${productId}`);
+  await revalidateProductPublicPage(productId);
   revalidatePath("/produits");
   revalidateTag("products", "default");
 

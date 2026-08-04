@@ -11,6 +11,7 @@ import { addToCart } from "@/app/actions/client/cart";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useToast } from "@/components/ui/Toast";
 import ColorSwatch from "@/components/ui/ColorSwatch";
+import { buildProductHandle } from "@/lib/product-url";
 
 interface VariantData {
   id: string;
@@ -94,7 +95,7 @@ function RelatedCard({ product, showPrice }: { product: RelatedProduct; showPric
   const { tp } = useProductTranslation();
   return (
     <Link
-      href={`/produits/${product.id}`}
+      href={`/produits/${buildProductHandle(product.name, product.reference)}`}
       className="group block card card-hover overflow-hidden"
     >
       <div className="aspect-square bg-bg-tertiary overflow-hidden">

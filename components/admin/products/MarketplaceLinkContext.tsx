@@ -15,9 +15,19 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
+
+// Fenêtre de grâce (ms) pendant laquelle on garde le badge en "linking" APRÈS
+// la fin réelle de la liaison. Sans ça, le badge repasse "hors ligne" (rouge)
+// pendant 1-3 s le temps que router.refresh rapatrie le nouveau pfsProductId /
+// ankorsProductId / faireProductId / efashionLinked côté RSC — flash rouge
+// bien visible et déroutant pour la cliente.
+const LINK_POST_DONE_GRACE_MS = 15_000;
 
 export type LinkJobStatus = "in_progress" | "done" | "error";
 
@@ -71,6 +81,21 @@ const Ctx = createContext<Value | null>(null);
 
 export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<LinkJob[]>([]);
+  const router = useRouter();
+  // Force un re-render à l'expiration de la fenêtre de grâce post-done, sinon
+  // `hasActiveJobForProduct` continue à renvoyer true dans les composants
+  // memoisés jusqu'à la prochaine mutation de `jobs` (qui peut ne jamais venir
+  // si l'admin ne clique nulle part). Sans re-render, le badge reste bloqué
+  // en "loading" jusqu'à un refresh manuel.
+  const [, forceTick] = useState(0);
+  const graceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      for (const t of graceTimersRef.current.values()) clearTimeout(t);
+      graceTimersRef.current.clear();
+    };
+  }, []);
 
   const enqueueLinkJob = useCallback((input: EnqueueLinkJobInput, executor: LinkJobExecutor) => {
     const id =
@@ -99,6 +124,17 @@ export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
               : j,
           ),
         );
+        if (res.success) {
+          // Rapatrie le nouveau *ProductId marketplace côté RSC au plus vite —
+          // sans ça, le badge repasse "hors ligne" à l'expiration de la
+          // fenêtre de grâce et flashe rouge avant de devenir vert.
+          router.refresh();
+          const timer = setTimeout(() => {
+            graceTimersRef.current.delete(id);
+            forceTick((n) => n + 1);
+          }, LINK_POST_DONE_GRACE_MS);
+          graceTimersRef.current.set(id, timer);
+        }
       } catch (err) {
         setJobs((prev) =>
           prev.map((j) =>
@@ -116,7 +152,7 @@ export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
     })();
 
     return id;
-  }, []);
+  }, [router]);
 
   const dismissJob = useCallback((id: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== id));
@@ -131,13 +167,25 @@ export function MarketplaceLinkProvider({ children }: { children: ReactNode }) {
   const activeCount = jobs.filter((j) => j.status === "in_progress").length;
 
   const hasActiveJobForProduct = useCallback(
-    (productId: string, marketplace: LinkJob["marketplace"]) =>
-      jobs.some(
-        (j) =>
-          j.status === "in_progress" &&
-          j.productId === productId &&
-          j.marketplace === marketplace,
-      ),
+    (productId: string, marketplace: LinkJob["marketplace"]) => {
+      const now = Date.now();
+      return jobs.some((j) => {
+        if (j.productId !== productId || j.marketplace !== marketplace) return false;
+        if (j.status === "in_progress") return true;
+        // Fenêtre de grâce post-succès : le badge reste "linking" le temps
+        // que router.refresh rapatrie serverProductId côté RSC. Sans ça, le
+        // badge repasse rouge 1-3 s avant de devenir vert.
+        if (
+          j.status === "done" &&
+          j.doneAt !== undefined &&
+          !j.error &&
+          now - j.doneAt < LINK_POST_DONE_GRACE_MS
+        ) {
+          return true;
+        }
+        return false;
+      });
+    },
     [jobs],
   );
 

@@ -10,6 +10,8 @@ import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import UsersTabs from "@/components/admin/users/UsersTabs";
 import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
 import UsersSortControl from "@/components/admin/users/UsersSortControl";
+import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
+import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import {
@@ -173,6 +175,7 @@ export default async function UtilisateursPage({
   const page = parsePage(params.page);
   const sort = parseClientSort(params.sort);
   const dir = parseSortDir(params.dir, sort);
+  const registeredSearch = (params.q ?? "").trim();
 
   const onlineThreshold = getOnlineThreshold();
 
@@ -187,19 +190,36 @@ export default async function UtilisateursPage({
       prisma.adminClientCard.count({}),
     ]);
 
-  const registeredWhere =
-    filterStatus === "ALL"
-      ? { role: "CLIENT" as const }
-      : { role: "CLIENT" as const, status: filterStatus as UserStatus };
+  const searchFilter: Prisma.UserWhereInput = registeredSearch
+    ? {
+        OR: [
+          { firstName: { contains: registeredSearch } },
+          { lastName: { contains: registeredSearch } },
+          { company: { contains: registeredSearch } },
+          { email: { contains: registeredSearch } },
+          { phone: { contains: registeredSearch } },
+          { siret: { contains: registeredSearch } },
+          { vatNumber: { contains: registeredSearch } },
+        ],
+      }
+    : {};
 
-  const filteredRegisteredCount =
+  const registeredWhere: Prisma.UserWhereInput =
     filterStatus === "ALL"
+      ? { role: "CLIENT", ...searchFilter }
+      : { role: "CLIENT", status: filterStatus as UserStatus, ...searchFilter };
+
+  // Count filtré = respecte AUSSI la recherche (les compteurs KPI restent globaux
+  // pour donner une vue d'ensemble ; seul le total de la liste change).
+  const filteredRegisteredCount = registeredSearch
+    ? await prisma.user.count({ where: registeredWhere })
+    : filterStatus === "ALL"
       ? totalCount
       : filterStatus === "PENDING"
-      ? pendingCount
-      : filterStatus === "APPROVED"
-      ? approvedCount
-      : rejectedCount;
+        ? pendingCount
+        : filterStatus === "APPROVED"
+          ? approvedCount
+          : rejectedCount;
 
   const counts: Record<string, number> = {
     ALL:      totalCount,
@@ -304,6 +324,7 @@ export default async function UtilisateursPage({
           perPage={perPage}
           sort={sort}
           dir={dir}
+          search={registeredSearch}
         />
       ) : (
         cardsData && (
@@ -534,6 +555,7 @@ function RegisteredPane({
   perPage,
   sort,
   dir,
+  search,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -544,11 +566,17 @@ function RegisteredPane({
   perPage: number;
   sort: ClientSortKey;
   dir: SortDir;
+  search: string;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
   return (
     <>
+      {/* Barre de recherche */}
+      <div className="flex justify-end">
+        <UsersSearchBar initialValue={search} />
+      </div>
+
       {/* Filtres + tri + par page */}
       <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -609,11 +637,13 @@ function RegisteredPane({
           </div>
           <h3 className="font-heading text-xl font-bold text-text-primary mb-2">Aucun client trouvé</h3>
           <p className="text-sm text-text-muted max-w-md mx-auto">
-            {filterStatus === "ALL"
-              ? "Vous n'avez encore aucun client inscrit."
-              : `Aucun client avec le statut « ${FILTERS.find(f => f.value === filterStatus)?.label ?? ""} » pour l'instant.`}
+            {search
+              ? `Aucun résultat pour « ${search} »${filterStatus === "ALL" ? "" : ` avec le statut « ${FILTERS.find(f => f.value === filterStatus)?.label ?? ""} »`}.`
+              : filterStatus === "ALL"
+                ? "Vous n'avez encore aucun client inscrit."
+                : `Aucun client avec le statut « ${FILTERS.find(f => f.value === filterStatus)?.label ?? ""} » pour l'instant.`}
           </p>
-          {filterStatus !== "ALL" && (
+          {(search || filterStatus !== "ALL") && (
             <Link href="/admin/utilisateurs" className="btn-ghost mt-6 inline-flex">
               ← Voir tous les clients
             </Link>
@@ -743,24 +773,32 @@ function RegisteredPane({
                           <p className="text-[11px] font-body text-text-muted">{inscription.time}</p>
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          {isPending ? (
-                            <Link
-                              href={`/admin/utilisateurs/${c.id}`}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
-                            >
-                              Examiner
-                            </Link>
-                          ) : (
-                            <Link
-                              href={`/admin/utilisateurs/${c.id}`}
-                              className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
-                            >
-                              Voir
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M5 12h14M13 5l7 7-7 7"/>
-                              </svg>
-                            </Link>
-                          )}
+                          <div className="inline-flex items-center gap-1 justify-end">
+                            {isPending ? (
+                              <Link
+                                href={`/admin/utilisateurs/${c.id}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
+                              >
+                                Examiner
+                              </Link>
+                            ) : (
+                              <Link
+                                href={`/admin/utilisateurs/${c.id}`}
+                                className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
+                              >
+                                Voir
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M5 12h14M13 5l7 7-7 7"/>
+                                </svg>
+                              </Link>
+                            )}
+                            <UserRowActionsMenu
+                              userId={c.id}
+                              userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                              userEmail={c.email}
+                              isPending={isPending}
+                            />
+                          </div>
                         </td>
                       </tr>
                     );

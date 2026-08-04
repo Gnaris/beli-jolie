@@ -8,6 +8,7 @@ import { useSession, signOut } from "next-auth/react";
 import { useTranslations, useLocale } from "next-intl";
 import { disableAdminPreview } from "@/app/actions/admin/preview-mode";
 import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
+import { buildProductHandle } from "@/lib/product-url";
 
 /* -- Icons ---------------------------------------- */
 function IconCart() {
@@ -153,10 +154,10 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     }
   }
 
-  function handleResultClick(id: string) {
+  function handleResultClick(result: SearchResult) {
     setShowResults(false);
     setSearchQuery("");
-    router.push(`/produits/${id}`);
+    router.push(`/produits/${buildProductHandle(result.name, result.reference)}`);
   }
 
   const isClient     = session?.user?.role === "CLIENT";
@@ -363,7 +364,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                         key={r.id}
                         type="button"
                         role="option"
-                        onClick={() => handleResultClick(r.id)}
+                        onClick={() => handleResultClick(r)}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-bg-secondary transition-colors text-left border-b border-border-light last:border-b-0"
                       >
                         <div className="w-11 h-11 bg-bg-tertiary rounded-lg overflow-hidden shrink-0">
