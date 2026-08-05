@@ -167,11 +167,54 @@ interface GraphqlResponse<T> {
   errors?: Array<{ message: string; path?: unknown[] }>;
 }
 
+// Deadlocks côté MySQL eFashion (ER_LOCK_DEADLOCK) : le serveur a déjà
+// rollback la transaction perdante, la doc MySQL dit littéralement « try
+// restarting transaction ». Retry sûr et idempotent (la mutation n'a rien
+// commité). Incident 2026-08-05 sur la bascule main de la boutique Issyma.
+const DEADLOCK_MAX_ATTEMPTS = 3;
+const DEADLOCK_BACKOFF_MS = [500, 1000, 2000] as const;
+
+function isDeadlockMessage(msg: string): boolean {
+  return msg.includes("ER_LOCK_DEADLOCK");
+}
+
 /**
  * Wrapper GraphQL : envoie une query/mutation et déballe le champ `data`.
  * Throw si `errors` est présent dans la réponse, même quand le HTTP est 200.
+ *
+ * Retry automatique sur `ER_LOCK_DEADLOCK` uniquement (jusqu'à 3 tentatives,
+ * backoff 500ms → 1s → 2s). Toute autre erreur (auth, validation, HTTP) est
+ * levée sans nouvelle tentative.
  */
 export async function efashionGraphql<T>(
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= DEADLOCK_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await efashionGraphqlOnce<T>(query, variables);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!isDeadlockMessage(msg) || attempt === DEADLOCK_MAX_ATTEMPTS) {
+        throw err;
+      }
+      lastError = err;
+      const wait = DEADLOCK_BACKOFF_MS[attempt - 1] ?? 2000;
+      logger.warn("[eFashion] GraphQL deadlock — retry", {
+        attempt,
+        maxAttempts: DEADLOCK_MAX_ATTEMPTS,
+        waitMs: wait,
+      });
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
+  // Sécurité — la boucle ci-dessus throw ou return, on ne sort jamais ici
+  // sauf bug de logique. On relance le dernier throw plutôt que renvoyer T.
+  throw lastError ?? new Error("eFashion GraphQL: échec inconnu après retry");
+}
+
+async function efashionGraphqlOnce<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {

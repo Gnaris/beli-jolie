@@ -77,7 +77,7 @@ describe("efashion-client session jar", () => {
       .mockResolvedValueOnce(mockResponse({ body: { ok: true } }));
 
     await efashionFetch("/anything");
-    expect(hasEfashionCookies()).toBe(true);
+    expect(await hasEfashionCookies()).toBe(true);
 
     await efashionFetch("/follow-up");
     const secondCall = fetchMock.mock.calls[1];
@@ -103,12 +103,12 @@ describe("efashion-client session jar", () => {
       .mockResolvedValueOnce(mockResponse({ setCookies: ["s=v; Max-Age=1"] }));
 
     await efashionFetch("/seed");
-    expect(hasEfashionCookies()).toBe(true);
+    expect(await hasEfashionCookies()).toBe(true);
 
     // Force expiry
     vi.useFakeTimers();
     vi.advanceTimersByTime(2_000);
-    expect(hasEfashionCookies()).toBe(false);
+    expect(await hasEfashionCookies()).toBe(false);
     vi.useRealTimers();
   });
 });
@@ -152,5 +152,77 @@ describe("efashionGraphql", () => {
         new Response("Server error body", { status: 500, headers: new Headers() }),
       );
     await expect(efashionGraphql("query { x }")).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("retries on ER_LOCK_DEADLOCK and succeeds when 2nd attempt is clean", async () => {
+    vi.useFakeTimers();
+    const deadlockBody = JSON.stringify({
+      errors: [
+        {
+          message:
+            "ER_LOCK_DEADLOCK: Deadlock found when trying to get lock; try restarting transaction 2596B",
+        },
+      ],
+    });
+    const okBody = JSON.stringify({ data: { updateProduit: { id_produit: "42" } } });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(deadlockBody, { status: 200, headers: new Headers() }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(okBody, { status: 200, headers: new Headers() }),
+    );
+
+    const promise = efashionGraphql<{ updateProduit: { id_produit: string } }>("mutation { x }");
+    await vi.advanceTimersByTimeAsync(500);
+    const data = await promise;
+    expect(data.updateProduit.id_produit).toBe("42");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("gives up after 3 deadlock attempts and throws the last error", async () => {
+    vi.useFakeTimers();
+    const deadlockBody = JSON.stringify({
+      errors: [
+        {
+          message: "ER_LOCK_DEADLOCK: Deadlock found when trying to get lock; try restarting transaction",
+        },
+      ],
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(deadlockBody, { status: 200, headers: new Headers() }),
+    );
+
+    const promise = efashionGraphql("mutation { x }");
+    // Attache le catch de suite pour éviter un unhandled rejection pendant qu'on avance les timers.
+    const settled = promise.catch((err) => err);
+    await vi.advanceTimersByTimeAsync(500 + 1000);
+    const err = await settled;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/ER_LOCK_DEADLOCK/);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it("does NOT retry on other GraphQL errors (e.g. Unauthorized)", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ errors: [{ message: "Unauthorized" }] }), {
+        status: 200,
+        headers: new Headers(),
+      }),
+    );
+
+    await expect(efashionGraphql("query { x }")).rejects.toThrow(/Unauthorized/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT retry on HTTP 5xx (out of retry scope)", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response("boom", { status: 500, headers: new Headers() }),
+    );
+
+    await expect(efashionGraphql("query { x }")).rejects.toThrow(/HTTP 500/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
