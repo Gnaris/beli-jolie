@@ -213,6 +213,32 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true });
     }
 
+    // Phase « collecting_hints » : la cliente tape un indice pour un produit.
+    // Autosave à chaque frappe (debounced côté front).
+    if (url.pathname === '/api/save-hint' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { ref, hint } = body;
+      if (!ref) return sendJSON(res, 400, { error: 'ref requis' });
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      s.hints = s.hints || {};
+      s.hints[ref] = typeof hint === 'string' ? hint : '';
+      writeSession(s);
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    // Phase « collecting_hints » → clic sur "Générer les propositions".
+    // On bascule la session en awaiting_generation et on attend que la cliente
+    // revienne dans Claude Code taper « génère ».
+    if (url.pathname === '/api/request-generation' && req.method === 'POST') {
+      const s = readSession();
+      if (!s) return sendJSON(res, 500, { error: 'session unreadable' });
+      s.phase = 'awaiting_generation';
+      s.awaiting_generation_at = new Date().toISOString();
+      writeSession(s);
+      return sendJSON(res, 200, { ok: true });
+    }
+
     if (url.pathname === '/api/push-all' && req.method === 'POST') {
       const s = readSession();
       if (!s) return sendJSON(res, 500, { error: 'session unreadable' });

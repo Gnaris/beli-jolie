@@ -1,6 +1,6 @@
 ---
 name: produits-nom
-description: Use this skill whenever the user wants help renaming Beli & Jolie products. Opens a local web interface (http://localhost:3010) that shows one product at a time with 3 name proposals + 3 description proposals to click on, plus suggested sub-categories and tags. The user picks, adjusts tags/sub-categories, and validations are saved locally as she goes. At the end of the session, a single click pushes everything to the live site — the push updates only the database (name, description, tags, sub-categories, note) and raises "Synchro nécessaire" flags for marketplaces already linked to each product, but does NOT push directly to PFS / Ankorstore / eFashion. If she clicks "Aucun ne va" + writes a comment, the page asks her to come back in Claude Code and type "regénère" — at which point Claude regenerates the 3 proposals based on her comment by re-reading the product image. Trigger phrases (FR) - (a) NEW SESSION - "produits-nom", "nouveau lot de noms", "génère des noms", "lance les noms", "renommer des produits", "donne-moi un lot" ; (b) REGEN during active session - "regénère", "refais ces propositions" ; (c) STATUS - "où on en est", "combien de produits traités" ; (d) PUSH follow-up - "où en est l'envoi". The user is non-technical, French-speaking, and manages ~9000 stainless steel jewelry products being renamed progressively across many sessions, sometimes from different PCs.
+description: Use this skill whenever the user wants help renaming Beli & Jolie products. Opens a local web interface (http://localhost:3010) in TWO steps. Step 1 — "Indices" grid : the user briefly describes each product in free text (material, shape, keywords). She can skip products. Step 2 — When she clicks "Générer les propositions", she comes back in Claude Code and types "génère" — Claude then reads each image + hints and produces 3 name proposals + 3 description proposals + suggested sub-categories + tags. She picks, adjusts tags/sub-categories, and validations are saved locally. At the end, a single click pushes everything to the live site — the push updates only the database (name, description, tags, sub-categories, note) and raises "Synchro nécessaire" flags for marketplaces already linked to each product, but does NOT push directly to PFS / Ankorstore / eFashion. If she clicks "Aucun ne va" + writes a comment, the page asks her to come back in Claude Code and type "regénère" — Claude regenerates the 3 proposals based on her comment + the original hint + re-reading the image. Trigger phrases (FR) - (a) NEW SESSION - "produits-nom", "nouveau lot de noms", "lance les noms", "renommer des produits", "donne-moi un lot" ; (b) GENERATE PROPOSALS after hints - "génère", "vas-y", "lance la génération", "analyse maintenant" ; (c) REGEN one product - "regénère", "refais ces propositions" ; (d) STATUS - "où on en est", "combien de produits traités" ; (e) PUSH follow-up - "où en est l'envoi". The user is non-technical, French-speaking, and manages ~9000 stainless steel jewelry products being renamed progressively across many sessions, sometimes from different PCs.
 ---
 
 # Skill : produits-nom
@@ -10,6 +10,15 @@ description: Use this skill whenever the user wants help renaming Beli & Jolie p
 La cliente dirige **Beli & Jolie**, un site B2B de vente en gros de bijoux en acier inoxydable. Elle a **~9 000 produits** dont les noms/descriptions actuels sont génériques. Elle veut renommer **chaque produit** avec un nom + description **courts, factuels, basés sur ce qu'on voit** sur la photo (pas de couleur, pas de mots marketing).
 
 Ce travail s'étale sur plusieurs sessions et possiblement plusieurs PC. Le champ `Product.note` en base de données fait office de marqueur : un produit dont la note contient « Complété par l'IA » ne sera plus reproposé dans les lots suivants.
+
+## Workflow en 2 temps (nouveau)
+
+La cliente s'est rendue compte que quand je propose « à froid » sur juste l'image, je cite parfois des choses qui n'existent pas sur le produit (mauvaise matière, motif imaginé). Pour éviter ça, la session est maintenant découpée en **2 phases** :
+
+1. **Phase « Indices »** (`phase: "collecting_hints"`) — la cliente ouvre localhost et voit une grille avec **une carte par produit** (photo + zone de texte libre). Elle tape rapidement des mots-clés (matière, forme, motif principal, particularités). Vide = elle n'a rien à ajouter, je génère à froid pour ce produit.
+2. **Phase « Génération »** (`phase: "awaiting_generation"` puis `"validating"`) — quand elle clique « Générer les propositions », elle revient dans Claude Code et tape `génère`. Je lis chaque image + ses indices, puis je remplis les 3 noms / 3 descriptions / sous-catégories / tags par produit. La page bascule toute seule en mode validation (celle qu'elle connaît).
+
+Le reste du flow (validation produit par produit, regen ponctuelle, push final) est **inchangé**.
 
 ## Portée tenant — beliandjolie UNIQUEMENT
 
@@ -24,26 +33,29 @@ Le VPS héberge deux boutiques (beliandjolie.com **et** issyma.fr) sur la même 
 
 ## Détection du mode
 
-Trois modes possibles selon ce qu'elle demande :
+Quatre modes possibles :
 
-- **Mode A — Nouvelle session** : phrases du type « génère un lot », « nouveau lot », « lance les noms », « renommer », ou juste `/produits-nom` sans plus de précision. → Aller à [Mode A](#mode-a--nouvelle-session).
-- **Mode B — Regénérer (pendant une session active)** : phrase « regénère » ou « refais », alors qu'un fichier de session existe avec un `awaitingRegen`. → Aller à [Mode B](#mode-b--regénérer-pendant-la-session).
-- **Mode C — Bilan / état** : phrase « où on en est », « combien de produits traités », etc. → Aller à [Mode C](#mode-c--état-de-la-session).
+- **Mode A — Nouvelle session** : phrases du type « nouveau lot », « lance les noms », « renommer », « donne-moi un lot », ou juste `/produits-nom` sans plus de précision. → Aller à [Mode A](#mode-a--nouvelle-session).
+- **Mode B — Générer les propositions** : phrase « génère », « vas-y », « lance la génération », « analyse maintenant ». Une session doit exister avec `phase === "collecting_hints"` ou `phase === "awaiting_generation"`. → Aller à [Mode B](#mode-b--générer-les-propositions).
+- **Mode C — Regénérer un produit** : phrase « regénère » ou « refais », alors qu'un fichier de session existe avec un `awaitingRegen`. → Aller à [Mode C](#mode-c--regénérer-un-produit).
+- **Mode D — Bilan / état** : phrase « où on en est », « combien de produits traités », etc. → Aller à [Mode D](#mode-d--état-de-la-session).
 
 Si **ambigu**, demander gentiment :
-> Vous voulez (A) démarrer un nouveau lot, (B) regénérer le produit en cours de regen, ou (C) voir où on en est ?
+> Vous voulez (A) démarrer un nouveau lot, (B) lancer la génération sur le lot en cours (après avoir décrit les produits), (C) regénérer le produit en cours de regen, ou (D) voir où on en est ?
 
 ## Paramètres globaux
 
 - **VPS SSH** : `ssh root@72.61.106.128`
 - **Projet sur VPS** : `/var/www/beliandjolie/`
-- **Session locale (sur ce PC)** : `${USERPROFILE}\Desktop\beli-nom-session.json` — état en cours d'une session (produits du lot + propositions + choix de la cliente avant push).
+- **Session locale (sur ce PC)** : `${USERPROFILE}\Desktop\beli-nom-session.json` — état en cours d'une session (produits du lot + indices + propositions + choix de la cliente avant push).
 - **Dossier images temporaire** : `${USERPROFILE}\Desktop\beli-images-temp\` — webp téléchargés depuis le VPS pour visualisation.
 - **Page web locale** : `http://localhost:3010` (port par défaut)
 
 ---
 
 ## Mode A — Nouvelle session
+
+**Rappel :** ce mode NE génère PLUS les propositions. Il prépare juste le lot et ouvre la grille d'indices. La génération se fait au Mode B.
 
 ### Étape A.1 — Vérifier qu'aucune session n'est déjà en cours (local + VPS)
 
@@ -52,11 +64,11 @@ Si **ambigu**, demander gentiment :
 ```bash
 # 1. Local
 ls "${USERPROFILE}/Desktop/beli-nom-session.json" 2>/dev/null && \
-  jq -r '.updated_at + " " + .status' "${USERPROFILE}/Desktop/beli-nom-session.json" 2>/dev/null
+  jq -r '.updated_at + " " + .status + " " + (.phase // "validating")' "${USERPROFILE}/Desktop/beli-nom-session.json" 2>/dev/null
 
 # 2. VPS (filet de secours)
 ssh root@72.61.106.128 'test -f /var/www/beliandjolie/data/name-session-backup/session.json && \
-  jq -r ".updated_at + \" \" + .status" /var/www/beliandjolie/data/name-session-backup/session.json'
+  jq -r ".updated_at + \" \" + .status + \" \" + (.phase // \"validating\")" /var/www/beliandjolie/data/name-session-backup/session.json'
 ```
 
 Logique de décision :
@@ -74,9 +86,9 @@ scp "root@72.61.106.128:/var/www/beliandjolie/data/name-session-backup/session.j
 ```
 
 Si une session **non poussée** existe (`status !== "pushed"`), proposer à la cliente :
-> Vous avez une session en cours avec X produits dont Y validés (dernière modif : Z). Vous voulez (1) reprendre, (2) la pousser puis démarrer un nouveau lot, ou (3) tout effacer et recommencer ?
+> Vous avez une session en cours avec X produits (phase : indices / génération en attente / validation) — dernière modif : Z. Vous voulez (1) reprendre, (2) la pousser puis démarrer un nouveau lot, ou (3) tout effacer et recommencer ?
 
-- Si elle reprend → relancer juste le serveur (étape A.6 directement). Re-télécharger les images en local si elles manquent (cas restauration depuis VPS).
+- Si elle reprend → relancer juste le serveur (étape A.6 directement). Re-télécharger les images en local si elles manquent (cas restauration depuis VPS). Si la phase est `awaiting_generation`, lui rappeler qu'il faut taper `génère`.
 - Si elle pousse puis recommence → laisser la page faire le push comme d'habitude, attendre, supprimer le fichier session (local + VPS), puis continuer.
 - Si elle efface → supprimer le fichier session (local + VPS) et continuer.
 
@@ -113,35 +125,18 @@ scp "root@72.61.106.128:/var/www/beliandjolie/public<imagePath>" "/c/Users/chenb
 
 Si un produit n'a pas d'image (`imagePath` null), le marquer dans la session comme « sans image » et ne pas le proposer dans le lot (re-tenté plus tard).
 
-### Étape A.5 — Regarder chaque image et générer 3 noms + 3 descriptions + tags + sous-cat
+### Étape A.5 — Créer le fichier session (SANS PROPOSITIONS) et démarrer le serveur
 
-Utiliser l'outil **Read** sur chaque fichier `.webp` du dossier temporaire. Suivre **strictement** le style décrit dans `references/style-guide.md`.
-
-Pour chaque produit, générer :
-- **3 noms FR + 3 noms EN** (`names` et `names_en`, index-matché : `names_en[i]` = traduction anglaise de `names[i]`)
-- **3 descriptions FR + 3 descriptions EN** (`descs` et `descs_en`, index-matché)
-- **`proposedTags`** : 5 à 12 tags suggérés (lowercase, anti-doublon comparaison sans accent)
-- **`proposedSubCategories`** : 1 à 4 sous-catégories suggérées, choisies parmi `category.availableSubCategories` si possible, ou inventées (nom propre) si rien ne convient
-- **`clarifyingQuestions`** : 0 à 3 questions si tu as un doute (matériau ambigu, élément à moitié coupé sur l'image, packaging non vu)
-- **`categoryFlag`** : `null` ou `{ current, suggested }` si la catégorie principale paraît clairement fausse
-
-**Règles absolues** (rappel) :
-- **Aucune couleur** dans noms ou descriptions
-- **Aucun mot marketing**
-- Décrire uniquement **ce qu'on voit visuellement**
-- **Court et factuel**
-- Les règles FR s'appliquent à l'EN — voir `references/style-guide.md` section « Anglais »
-
-### Étape A.6 — Créer le fichier session et démarrer le serveur
-
-Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette structure :
+Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` en **phase indices**, avec des tableaux de propositions vides — ils seront remplis au Mode B après que la cliente ait donné ses indices :
 
 ```json
 {
-  "version": 2,
-  "created_at": "2026-06-30T10:00:00Z",
-  "updated_at": "2026-06-30T10:00:00Z",
+  "version": 3,
+  "created_at": "2026-08-06T10:00:00Z",
+  "updated_at": "2026-08-06T10:00:00Z",
   "status": "in_progress",
+  "phase": "collecting_hints",
+  "hints": {},
   "products": [
     {
       "id": "...",
@@ -160,14 +155,14 @@ Construire le fichier `${USERPROFILE}\Desktop\beli-nom-session.json` avec cette 
       "pfsProductId": null,
       "ankorsProductId": null,
       "efashionReferenceBase": null,
-      "names": ["Nom 1", "Nom 2", "Nom 3"],
-      "descs": ["Desc 1", "Desc 2", "Desc 3"],
-      "names_en": ["Name 1", "Name 2", "Name 3"],
-      "descs_en": ["Desc 1", "Desc 2", "Desc 3"],
       "siblings": [{ "ref": "A2591", "category": "Collier" }, { "ref": "A2591A", "category": "Bracelet" }],
-      "proposedTags": [{ "id": null, "name": "Coeur" }, { "id": "tag123", "name": "Strass" }],
-      "proposedSubCategories": [{ "id": null, "name": "Sautoir" }],
-      "clarifyingQuestions": ["Le pendant central est-il en résine ou en nacre ?"],
+      "names": [],
+      "descs": [],
+      "names_en": [],
+      "descs_en": [],
+      "proposedTags": [],
+      "proposedSubCategories": [],
+      "clarifyingQuestions": [],
       "categoryFlag": null
     }
   ],
@@ -183,23 +178,73 @@ node "C:/Users/chenb/Desktop/beli-jolie/.claude/skills/produits-nom/scripts/serv
 
 Utiliser `run_in_background: true` du tool Bash. Le serveur garde la main et écoute sur `http://localhost:3010`.
 
-### Étape A.7 — Informer la cliente
+### Étape A.6 — Informer la cliente
 
 Lui dire en français simple :
-- Le nombre de produits prêts
-- L'adresse à ouvrir : **http://localhost:3010**
-- Le mode d'emploi en une phrase : « pour chaque produit, choisissez un nom et une description parmi mes 3 propositions, ajustez les tags et sous-catégories (déjà cochés), puis cliquez Valider — ça passe au suivant tout seul »
-- Si je propose une bannière jaune sur un produit : « vous pouvez répondre aux questions et cliquer "Regénérer avec mes réponses", OU ignorer la bannière et valider tel quel »
-- Si rien ne va pour le nom ou la description : « cochez "Aucun ne va", écrivez pourquoi, cliquez "Demander de regénérer", puis revenez ici taper `regénère` »
-- À la fin : « cliquez sur le bouton vert "Tout pousser sur le site" en haut à droite »
+- Le nombre de produits prêts et l'adresse : **http://localhost:3010**
+- Le mode d'emploi en deux phrases :
+  1. « Pour chaque produit, écrivez rapidement vos indices dans la zone à droite de la photo (matière, forme, motif principal, mots-clés) — vous pouvez laisser vide si vous n'avez rien à ajouter. »
+  2. « Quand vous avez fini de tout décrire, cliquez sur le bouton vert "Générer les propositions" en haut, puis revenez ici et tapez `génère`. Je regarderai chaque photo avec vos indices en tête et je proposerai 3 noms + 3 descriptions par produit. »
+- Insister : « Vos indices sont facultatifs mais fortement recommandés — c'est ce qui évitera que je cite des matières ou des motifs qui ne sont pas sur le produit. »
 
 ---
 
-## Mode B — Regénérer (pendant la session)
+## Mode B — Générer les propositions
 
-Quand la cliente tape « regénère » (ou « refais »), il y a normalement un `awaitingRegen` dans la session.
+Déclenché quand la cliente tape `génère` (ou `vas-y`, `lance la génération`, `analyse maintenant`) après avoir renseigné ses indices sur la page.
 
-### Étape B.1 — Lire la session
+### Étape B.1 — Lire la session et vérifier la phase
+
+```bash
+cat "${USERPROFILE}/Desktop/beli-nom-session.json"
+```
+
+- Si la session n'existe pas → dire à la cliente qu'il n'y a rien à générer, elle veut peut-être démarrer un nouveau lot ?
+- Si `phase === "validating"` → les propositions existent déjà. Ambigu : lui demander si elle voulait plutôt regénérer un produit précis (Mode C).
+- Si `phase === "collecting_hints"` ou `phase === "awaiting_generation"` → continuer.
+
+### Étape B.2 — Pour chaque produit, lire l'image + hint et générer
+
+Pour chaque produit du lot :
+
+1. **Read** l'image dans `${USERPROFILE}\Desktop\beli-images-temp\<ref-lowercase>.webp`
+2. Récupérer l'indice de la cliente : `session.hints[product.reference]` (peut être vide — dans ce cas, générer à froid comme avant)
+3. Générer, en suivant **strictement** `references/style-guide.md` :
+   - **3 noms FR + 3 noms EN** (`names` et `names_en`, index-matché)
+   - **3 descriptions FR + 3 descriptions EN** (`descs` et `descs_en`, index-matché)
+   - **`proposedTags`** : 5 à 12 tags suggérés
+   - **`proposedSubCategories`** : 1 à 4 sous-catégories suggérées (parmi `category.availableSubCategories` sinon inventées)
+   - **`clarifyingQuestions`** : 0 à 3 questions si doute (matière ambiguë, élément coupé sur l'image, packaging non vu)
+   - **`categoryFlag`** : `null` ou `{ current, suggested }` si la catégorie principale paraît fausse
+
+**Traiter le hint comme vérité vérifiée** : si la cliente a écrit « émail rouge, coeur, chaîne fine », ne pas contredire (pas « résine » à la place d'émail, pas « oval » à la place de coeur). Le hint prime sur ma lecture visuelle en cas d'ambiguïté. **Mais** je peux quand même poser une `clarifyingQuestion` si le hint est incomplet (ex : hint = « coeur » mais je vois aussi un pendentif rond → demander).
+
+**Règles absolues** (rappel) :
+- **Aucune couleur** dans noms ou descriptions
+- **Aucun mot marketing**
+- Décrire uniquement **ce qu'on voit visuellement** (+ ce qui est confirmé par le hint)
+- **Court et factuel**
+- Les règles FR s'appliquent à l'EN — voir `references/style-guide.md` section « Anglais »
+
+### Étape B.3 — Mettre à jour la session
+
+Pour chaque produit, écrire les `names`, `descs`, `names_en`, `descs_en`, `proposedTags`, `proposedSubCategories`, `clarifyingQuestions`, `categoryFlag`.
+
+Puis passer la session en `phase: "validating"`.
+
+Réécrire le fichier session.
+
+### Étape B.4 — Informer la cliente
+
+> Propositions prêtes pour les X produits du lot. Retournez sur http://localhost:3010 — la page se mettra à jour toute seule dans 2-3 secondes en mode validation. Pour chaque produit : choisissez un nom + une description parmi mes 3 propositions, ajustez tags/sous-catégories, cliquez Valider. À la fin, bouton vert « Tout pousser sur le site » en haut à droite.
+
+---
+
+## Mode C — Regénérer un produit (ex-Mode B)
+
+Quand la cliente tape « regénère » (ou « refais »), il y a normalement un `awaitingRegen` dans la session (posé par le bouton « Demander de regénérer » sur la page).
+
+### Étape C.1 — Lire la session
 
 ```bash
 cat "${USERPROFILE}/Desktop/beli-nom-session.json"
@@ -210,42 +255,49 @@ Trouver `awaitingRegen` : `{ ref, comment, answers, what }` (`what` = `"name"`, 
 Si pas de `awaitingRegen`, dire à la cliente :
 > Il n'y a rien à regénérer pour le moment. Tout est bon ?
 
-### Étape B.2 — Re-regarder l'image et regénérer
+### Étape C.2 — Re-regarder l'image (+ hint initial) et regénérer
 
 Utiliser **Read** sur le fichier image correspondant : `${USERPROFILE}\Desktop\beli-images-temp\<ref-lowercase>.webp`.
+
+**Injecter dans le contexte** :
+- L'indice initial de la cliente : `session.hints[ref]` (s'il existe)
+- Le commentaire de regen : `awaitingRegen.comment`
+- Les réponses aux questions de clarification : `awaitingRegen.answers`
 
 Lire `awaitingRegen.what` :
 - `"name"` → 3 nouveaux noms FR + 3 nouveaux noms EN (gardé : `descs`/`descs_en` + `proposedTags` + `proposedSubCategories` actuels)
 - `"description"` → 3 nouvelles descriptions FR + 3 nouvelles descriptions EN
 - `"both"` → 3 noms FR/EN + 3 descriptions FR/EN
-- `"all"` → 3 noms FR/EN + 3 descriptions FR/EN + nouvelles `proposedTags` + nouvelles `proposedSubCategories` + nouvelles `clarifyingQuestions` (la cliente a répondu à mes questions, je refais tout en tenant compte de ses réponses)
+- `"all"` → 3 noms FR/EN + 3 descriptions FR/EN + nouvelles `proposedTags` + nouvelles `proposedSubCategories` + nouvelles `clarifyingQuestions`
 
-**Toujours regénérer EN en même temps que FR** — sinon l'index-match casse et la traduction ne suivra pas au push.
+**Toujours regénérer EN en même temps que FR** — sinon l'index-match casse.
 
-Le commentaire/réponses se trouvent dans `awaitingRegen.comment` et `awaitingRegen.answers`. Toujours respecter le `style-guide.md`.
+Le commentaire de la cliente **prime sur tout** (y compris sur son hint initial si elle a changé d'avis). Toujours respecter le `style-guide.md`.
 
-### Étape B.3 — Mettre à jour le fichier session
+### Étape C.3 — Mettre à jour le fichier session
 
 Remplacer dans le tableau `products` les nouveaux `names` et/ou `descs` du produit concerné, puis effacer `awaitingRegen` (le mettre à `null`).
 
-Réécrire le fichier session avec les modifs.
-
-### Étape B.4 — Informer la cliente
+### Étape C.4 — Informer la cliente
 
 > Nouvelles propositions prêtes ! Retournez sur la page http://localhost:3010, elle se mettra à jour toute seule dans 2-3 secondes.
 
 ---
 
-## Mode C — État de la session
+## Mode D — État de la session (ex-Mode C)
 
 Lire le fichier session, compter :
+- Phase courante (`collecting_hints`, `awaiting_generation`, `validating`, ou `pushed`)
 - Nombre total de produits dans le lot
+- Nombre d'indices renseignés (dans `hints`, non vide)
 - Nombre validés (dans `decisions`)
 - Nombre en attente de regen
 - Statut global (`in_progress`, `pushed`)
 
 Présenter sous forme :
-> Sur les X produits du lot, vous en avez validé Y. Y'en a Z qui attendent une regénération. La session n'a pas encore été poussée sur le site.
+> Sur les X produits du lot, vous avez décrit Y (phase indices), validé Z propositions. Y'en a W qui attendent une regénération. La session n'a pas encore été poussée sur le site.
+
+Adapter le message selon la phase.
 
 ---
 
@@ -289,13 +341,13 @@ taskkill /F /IM node.exe
 ```
 
 ### Sauvegarde locale + filet VPS
-Le fichier `beli-nom-session.json` est sur le Bureau. Chaque clic de validation déclenche :
+Le fichier `beli-nom-session.json` est sur le Bureau. Chaque clic de validation **et chaque frappe d'indice** déclenche :
 1. Une réécriture atomique en local (`.tmp` puis `rename`)
 2. Un `scp` non-bloquant vers `root@72.61.106.128:/var/www/beliandjolie/data/name-session-backup/session.json`
 
 Le PC de la cliente crash souvent — la copie VPS permet de tout retrouver même si le disque local est inaccessible. Au prochain démarrage (Mode A.1), si le local est manquant ou plus vieux que le VPS, on restaure depuis le VPS.
 
-Coalescence : si plusieurs validations se suivent vite, on ne lance qu'un seul `scp` à la fois — le suivant attend la fin du précédent puis se déclenche avec la version la plus récente.
+Coalescence : si plusieurs validations ou frappes d'indices se suivent vite, on ne lance qu'un seul `scp` à la fois — le suivant attend la fin du précédent puis se déclenche avec la version la plus récente.
 
 ### Style des noms/descriptions
 Voir `references/style-guide.md` — référence à relire à chaque génération **et** à chaque regen.
@@ -305,3 +357,6 @@ Si le payload contient `nameEn`+`descriptionEn` (cas normal du skill), la traduc
 
 ### Si l'image d'un produit n'existe pas
 Le `colorImages` de la BDD peut être vide. Dans ce cas, signaler à la cliente le produit comme « sans image — à compléter » et le skip pour le lot en cours (ne pas le mettre dans le journal pour qu'il soit re-tenté plus tard).
+
+### Compatibilité des anciennes sessions
+Si un fichier session sans champ `phase` est trouvé (versions ≤ 2), le traiter comme `phase: "validating"` — le workflow legacy s'applique (les propositions sont déjà dedans, la cliente est déjà en train de valider).

@@ -438,6 +438,171 @@
     }
     .btn-big-push:hover { background: #15803d; }
     .btn-big-push:disabled { background: #d6d3d1; cursor: not-allowed; box-shadow: none; }
+
+    /* HINTS VIEW — étape 1 : la cliente décrit chaque produit */
+    .hints-intro {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      padding: 24px 28px;
+      margin-bottom: 16px;
+    }
+    .hints-intro h1 { font-size: 20px; margin-bottom: 8px; color: #1c1917; }
+    .hints-intro p { color: #57534e; font-size: 14px; line-height: 1.55; }
+    .hints-intro .hint-example {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: #fafaf9;
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #44403c;
+      font-style: italic;
+    }
+    .hints-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (min-width: 1000px) {
+      .hints-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .hint-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 16px;
+      transition: border-color .15s, background .15s;
+      border: 1px solid transparent;
+    }
+    .hint-card.filled { border-color: #86efac; background: #f7fef9; }
+    .hint-card-image {
+      width: 160px;
+      height: 160px;
+      object-fit: contain;
+      background: #fafaf9;
+      border-radius: 8px;
+      border: 1px solid #e7e5e4;
+      cursor: zoom-in;
+    }
+    .hint-card-body { display: flex; flex-direction: column; min-width: 0; }
+    .hint-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+    .hint-card-ref {
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: #1c1917;
+    }
+    .hint-card-cat { font-size: 12px; color: #78716c; }
+    .hint-card-oldname {
+      font-size: 12px;
+      color: #a8a29e;
+      font-style: italic;
+      margin-bottom: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .hint-textarea {
+      width: 100%;
+      flex: 1;
+      min-height: 80px;
+      border: 1px solid #d6d3d1;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+      background: white;
+    }
+    .hint-textarea:focus {
+      outline: none;
+      border-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16,185,129,.15);
+    }
+    .hint-status {
+      font-size: 11px;
+      color: #78716c;
+      margin-top: 4px;
+      min-height: 14px;
+    }
+    .hint-status.saved { color: #16a34a; font-weight: 500; }
+    .hint-status.error { color: #dc2626; font-weight: 500; }
+    .hints-cta {
+      position: sticky;
+      bottom: 16px;
+      display: flex;
+      justify-content: center;
+      margin-top: 16px;
+      z-index: 5;
+    }
+    .btn-generate {
+      background: #16a34a;
+      color: white;
+      padding: 16px 28px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(22,163,74,.35);
+      transition: all .15s;
+    }
+    .btn-generate:hover { background: #15803d; transform: translateY(-1px); }
+    .btn-generate:disabled {
+      background: #d6d3d1;
+      color: #78716c;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+    @media (max-width: 700px) {
+      .hint-card { grid-template-columns: 1fr; }
+      .hint-card-image { width: 100%; height: 220px; }
+    }
+
+    /* AWAITING GENERATION — étape 1.5 : modale d'attente pendant que Claude analyse */
+    .await-gen-view {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+      padding: 48px 32px;
+      text-align: center;
+      margin-top: 40px;
+    }
+    .await-gen-view h1 {
+      font-size: 24px;
+      margin-bottom: 12px;
+      color: #1c1917;
+    }
+    .await-gen-view p {
+      color: #44403c;
+      font-size: 15px;
+      margin-bottom: 16px;
+      line-height: 1.55;
+    }
+    .await-gen-view .cmd-hint {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 10px 18px;
+      background: #1c1917;
+      color: white;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 16px;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -531,6 +696,19 @@
 
       const products = session.products || [];
       const totalCount = products.length;
+      const phase = session.phase || 'validating'; // backward compat sessions v1/v2
+
+      // Routage par phase : indices → grille, en attente de génération → modale,
+      // validating → comportement historique (édition + récap + push).
+      if (phase === 'collecting_hints') {
+        renderHintsView();
+        return;
+      }
+      if (phase === 'awaiting_generation') {
+        renderAwaitingGenerationView();
+        return;
+      }
+
       const validatedCount = countValidated();
 
       // Topbar
@@ -540,6 +718,7 @@
         totalCount > 0 ? `${(validatedCount / totalCount) * 100}%` : '0%';
 
       const pushBtn = document.getElementById('push-btn');
+      pushBtn.style.display = '';
       if (session.status === 'pushed') {
         pushBtn.className = 'push-btn pushed';
         pushBtn.disabled = true;
@@ -878,6 +1057,147 @@
 
     async function pushFromRecap() {
       document.getElementById('push-btn').click();
+    }
+
+    // ============ HINTS VIEW (étape 1 : la cliente décrit chaque produit) ============
+    const hintSaveTimers = new Map(); // ref -> setTimeout id (autosave debounced)
+    let hintsViewRendered = false; // évite d'écraser les <textarea> en cours de saisie
+
+    function countHintsFilled() {
+      const hints = (session && session.hints) || {};
+      let n = 0;
+      for (const k in hints) {
+        if (typeof hints[k] === 'string' && hints[k].trim().length > 0) n++;
+      }
+      return n;
+    }
+
+    function updateHintsTopbar() {
+      const total = (session.products || []).length;
+      const filled = countHintsFilled();
+      document.getElementById('progress-text').textContent =
+        'Étape 1 · Indices — ' + filled + ' sur ' + total + ' produit(s) décrit(s)';
+      document.getElementById('progress-fill').style.width =
+        total > 0 ? ((filled / total) * 100) + '%' : '0%';
+    }
+
+    function renderHintsView() {
+      const products = session.products || [];
+      const totalCount = products.length;
+      updateHintsTopbar();
+      const pushBtn = document.getElementById('push-btn');
+      pushBtn.style.display = 'none';
+
+      // Ne re-render que si c'est la 1re fois (sinon on écraserait la saisie en cours).
+      // refresh() polling met à jour session.hints en mémoire mais pas le DOM des textareas.
+      if (hintsViewRendered) return;
+      hintsViewRendered = true;
+
+      const hints = session.hints || {};
+      const cardsHtml = products.map((p) => {
+        const imgSrc = '/images/' + p.reference.toLowerCase() + '.webp';
+        const catName = p.category ? (typeof p.category === 'string' ? p.category : p.category.name) : '';
+        const oldName = p.name || '';
+        const currentHint = hints[p.reference] || '';
+        const filledClass = currentHint.trim() ? ' filled' : '';
+        return (
+          '<div class="hint-card' + filledClass + '" data-ref="' + escapeAttr(p.reference) + '">' +
+            '<img class="hint-card-image" src="' + imgSrc + '" alt="' + escapeAttr(p.reference) + '" onclick="openLightbox(\'' + imgSrc + '\')" onerror="this.style.display=\'none\'">' +
+            '<div class="hint-card-body">' +
+              '<div class="hint-card-header">' +
+                '<span class="hint-card-ref">' + escapeHtml(p.reference) + '</span>' +
+                (catName ? '<span class="hint-card-cat">' + escapeHtml(catName) + '</span>' : '') +
+              '</div>' +
+              (oldName ? '<div class="hint-card-oldname" title="' + escapeAttr(oldName) + '">' + escapeHtml(oldName) + '</div>' : '') +
+              '<textarea class="hint-textarea" placeholder="Vos indices (facultatif) — matière, forme, motif, mots-clés…" data-ref="' + escapeAttr(p.reference) + '">' + escapeHtml(currentHint) + '</textarea>' +
+              '<div class="hint-status" data-ref="' + escapeAttr(p.reference) + '"></div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join('');
+
+      document.getElementById('main').innerHTML =
+        '<div class="hints-intro">' +
+          '<h1>Étape 1 · Décrivez chaque produit rapidement</h1>' +
+          '<p>Pour chaque produit, écrivez quelques mots — matière, forme, motif principal, tout ce qui pourrait m\'aider à ne pas me tromper. <strong>Vous pouvez laisser vide</strong> si vous n\'avez rien à ajouter (je générerai à froid pour ce produit).</p>' +
+          '<span class="hint-example">Exemple : « acier, forme cœur, petits strass, chaîne fine »</span>' +
+        '</div>' +
+        '<div class="hints-grid">' + cardsHtml + '</div>' +
+        '<div class="hints-cta">' +
+          '<button id="btn-generate-props" class="btn-generate">Générer les propositions (' + totalCount + ' produits)</button>' +
+        '</div>';
+
+      // Wire up autosave sur toutes les textareas (debounce 500ms)
+      document.querySelectorAll('.hint-textarea').forEach((ta) => {
+        ta.addEventListener('input', function () {
+          const ref = ta.dataset.ref;
+          const value = ta.value;
+          const card = ta.closest('.hint-card');
+          if (card) card.classList.toggle('filled', value.trim().length > 0);
+          const status = document.querySelector('.hint-status[data-ref="' + ref + '"]');
+          if (status) { status.textContent = '…'; status.className = 'hint-status'; }
+          if (hintSaveTimers.has(ref)) clearTimeout(hintSaveTimers.get(ref));
+          hintSaveTimers.set(ref, setTimeout(async function () {
+            const ok = await postJSON('/api/save-hint', { ref, hint: value });
+            const st = document.querySelector('.hint-status[data-ref="' + ref + '"]');
+            if (st) {
+              st.textContent = ok ? '✓ enregistré' : '⚠ erreur — retapez';
+              st.className = 'hint-status ' + (ok ? 'saved' : 'error');
+              if (ok) setTimeout(function () {
+                if (st.textContent === '✓ enregistré') st.textContent = '';
+              }, 1500);
+            }
+            // Sync local session.hints + compteur en haut
+            if (!session.hints) session.hints = {};
+            session.hints[ref] = value;
+            updateHintsTopbar();
+          }, 500));
+        });
+      });
+
+      // Wire up bouton « Générer les propositions »
+      document.getElementById('btn-generate-props').addEventListener('click', async function () {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Envoi en cours…';
+        // Flush tout autosave en cours pour être sûr que tout est bien sauvé côté serveur
+        for (const [ref, t] of hintSaveTimers.entries()) {
+          clearTimeout(t);
+          const ta = document.querySelector('.hint-textarea[data-ref="' + ref + '"]');
+          if (ta) await postJSON('/api/save-hint', { ref, hint: ta.value });
+        }
+        hintSaveTimers.clear();
+        const ok = await postJSON('/api/request-generation', {});
+        if (!ok) {
+          toast('Erreur — réessayez');
+          btn.disabled = false;
+          btn.textContent = 'Générer les propositions (' + (session.products || []).length + ' produits)';
+          return;
+        }
+        session.phase = 'awaiting_generation';
+        hintsViewRendered = false;
+        render();
+      });
+    }
+
+    function renderAwaitingGenerationView() {
+      document.getElementById('progress-text').textContent = 'Étape 2 · Analyse en cours…';
+      document.getElementById('progress-fill').style.width = '100%';
+      const pushBtn = document.getElementById('push-btn');
+      pushBtn.style.display = 'none';
+      hintsViewRendered = false;
+
+      document.getElementById('main').innerHTML =
+        '<div class="await-gen-view">' +
+          '<h1><span class="pulse"></span>J\'analyse les produits…</h1>' +
+          '<p>Vos indices sont bien enregistrés. Il reste une seule action à faire :</p>' +
+          '<p><strong>Retournez dans Claude Code et tapez :</strong></p>' +
+          '<div class="cmd-hint">génère</div>' +
+          '<p style="margin-top:24px; font-size:13px; color:#78716c;">' +
+            'Je regarderai chaque photo en tenant compte de vos indices, puis proposerai 3 noms et 3 descriptions par produit.<br>' +
+            'Cette page se mettra à jour automatiquement quand ce sera prêt (comptez 1 à 3 minutes selon la taille du lot).' +
+          '</p>' +
+        '</div>';
     }
 
     function escapeHtml(s) {
@@ -1239,18 +1559,31 @@
       const prevAwaiting = session?.awaitingRegen?.ref;
       const newAwaiting = s.awaitingRegen?.ref;
       const prevStatus = session?.status;
+      const prevPhase = session?.phase || 'validating';
+      const newPhase = s.phase || 'validating';
       const wasResolved = prevAwaiting && !newAwaiting;
       const startedAwaiting = !prevAwaiting && newAwaiting;
       const statusChanged = prevStatus !== s.status;
+      const phaseChanged = prevPhase !== newPhase;
       session = s;
       // Ne re-rendre QUE si un changement pertinent est arrivé.
-      // Sinon on écraserait la saisie en cours (chips décochés, focus textarea).
+      // Sinon on écraserait la saisie en cours (chips décochés, focus textarea, indices en cours).
       if (wasResolved) {
         selectedName = null;
         selectedDesc = null;
         nameComment = '';
         descComment = '';
         toast('Nouvelles propositions chargées !');
+        render();
+      } else if (phaseChanged) {
+        // Reset flag "hints view déjà rendue" pour permettre un re-render propre à chaque bascule
+        hintsViewRendered = false;
+        if (newPhase === 'validating') {
+          currentIdx = findFirstUnvalidatedIdx();
+          selectedName = null;
+          selectedDesc = null;
+          toast('Propositions prêtes ! Choisissez pour chaque produit.');
+        }
         render();
       } else if (startedAwaiting || statusChanged) {
         render();
