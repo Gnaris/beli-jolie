@@ -356,7 +356,8 @@ export async function upsertFaireOrderFromResource(
     const productByFaireId = new Map(
       bjProducts.filter((p) => p.faireProductId).map((p) => [p.faireProductId!, p]),
     );
-    const productByRef = new Map(bjProducts.map((p) => [p.reference, p]));
+    // Voir pfs-orders-sync.ts : MySQL case-insensitive vs Map.get case-sensitive.
+    const productByRef = new Map(bjProducts.map((p) => [p.reference.toLowerCase(), p]));
     const productByVariantId = new Map<string, (typeof bjProducts)[number]>();
     for (const p of bjProducts) {
       for (const c of p.colors) {
@@ -368,7 +369,7 @@ export async function upsertFaireOrderFromResource(
       const productMatch =
         (row.variantIdFaire && productByVariantId.get(row.variantIdFaire)) ||
         (row.productIdFaire && productByFaireId.get(row.productIdFaire)) ||
-        (row.refBase && productByRef.get(row.refBase)) ||
+        (row.refBase && productByRef.get(row.refBase.toLowerCase())) ||
         null;
       const productColorMatch =
         productMatch && row.variantIdFaire

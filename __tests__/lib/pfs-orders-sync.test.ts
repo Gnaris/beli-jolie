@@ -9,6 +9,7 @@ const mockOrderCreate = vi.fn();
 const mockOrderUpdate = vi.fn();
 const mockItemDeleteMany = vi.fn();
 const mockItemCreateMany = vi.fn();
+const mockItemFindMany = vi.fn();
 const mockProductFindMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
     pfsOrderItem: {
       deleteMany: (...a: unknown[]) => mockItemDeleteMany(...a),
       createMany: (...a: unknown[]) => mockItemCreateMany(...a),
+      findMany: (...a: unknown[]) => mockItemFindMany(...a),
     },
     product: {
       findMany: (...a: unknown[]) => mockProductFindMany(...a),
@@ -248,6 +250,7 @@ describe("upsertPfsOrderFromDetail — matching produit", () => {
     mockOrderCreate.mockResolvedValue({ id: "pfsorder-1" });
     mockItemDeleteMany.mockResolvedValue({ count: 0 });
     mockItemCreateMany.mockResolvedValue({ count: 0 });
+    mockItemFindMany.mockResolvedValue([]);
   });
 
   it("match un article sur Product.reference existant", async () => {
@@ -281,6 +284,45 @@ describe("upsertPfsOrderFromDetail — matching produit", () => {
     expect(rows[0].productId).toBeNull();
     expect(rows[0].productColorId).toBeNull();
     expect(rows[0].productSnapshotName).toBeNull();
+  });
+
+  it("rattache un article même si la référence PFS diffère par la casse (7563b ↔ 7563B)", async () => {
+    // PFS envoie la ref en minuscule, notre BDD la stocke en majuscule.
+    const detailLowercaseRef = {
+      ...baseDetail,
+      items_by_brand: [
+        {
+          ...baseDetail.items_by_brand[0],
+          products: [
+            {
+              ...baseDetail.items_by_brand[0].products[0],
+              reference: "7563b",
+              items: [
+                {
+                  ...baseDetail.items_by_brand[0].products[0].items[0],
+                  sku: "7563b_GOLDEN_TU",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockProductFindMany.mockResolvedValue([
+      {
+        id: "prod-issyma-7563B",
+        reference: "7563B",
+        name: "Pantalon Large",
+        colors: [],
+      },
+    ]);
+
+    await upsertPfsOrderFromDetail(tenantId, detailLowercaseRef);
+
+    const rows = mockItemCreateMany.mock.calls[0][0].data;
+    expect(rows[0].productId).toBe("prod-issyma-7563B");
+    expect(rows[0].productSnapshotName).toBe("Pantalon Large");
+    expect(rows[0].pfsProductRef).toBe("7563b"); // on garde la ref d'origine côté marketplace
   });
 });
 

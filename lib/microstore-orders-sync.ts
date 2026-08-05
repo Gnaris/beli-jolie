@@ -283,7 +283,8 @@ async function resolveMatchesForItems(
           },
         })
       : [];
-  const productByRef = new Map(products.map((p) => [p.reference, p]));
+  // Voir pfs-orders-sync.ts : MySQL case-insensitive vs Map.get case-sensitive.
+  const productByRef = new Map(products.map((p) => [p.reference.toLowerCase(), p]));
 
   for (const it of items) {
     const ean = (it.goods_sn || it.receipt_goods_sn || "").trim();
@@ -295,7 +296,7 @@ async function resolveMatchesForItems(
     }
     // Fallback ref + couleur
     const ref = (it.item_ref || "").trim();
-    const p = ref ? productByRef.get(ref) : null;
+    const p = ref ? productByRef.get(ref.toLowerCase()) : null;
     if (p) {
       const colorName = (it.color_name || "").trim().toLowerCase();
       const variant = colorName

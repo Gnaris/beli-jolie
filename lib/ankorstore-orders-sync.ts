@@ -441,12 +441,13 @@ export async function upsertAnkorstoreOrderFromResource(
     const productByAnkorId = new Map(
       bjProducts.filter((p) => p.ankorsProductId).map((p) => [p.ankorsProductId!, p]),
     );
-    const productByRef = new Map(bjProducts.map((p) => [p.reference, p]));
+    // Voir pfs-orders-sync.ts : MySQL case-insensitive vs Map.get case-sensitive.
+    const productByRef = new Map(bjProducts.map((p) => [p.reference.toLowerCase(), p]));
 
     const itemRows: Prisma.AnkorstoreOrderItemUncheckedCreateInput[] = perItem.map((row) => {
       const productMatch =
         (row.productIdAnkor && productByAnkorId.get(row.productIdAnkor)) ||
-        (row.refBase && productByRef.get(row.refBase)) ||
+        (row.refBase && productByRef.get(row.refBase.toLowerCase())) ||
         null;
       const productColorMatch =
         productMatch && row.variantId

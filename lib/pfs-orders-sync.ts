@@ -291,10 +291,13 @@ export async function upsertPfsOrderFromDetail(
           },
         })
       : [];
-    const productByRef = new Map(products.map((p) => [p.reference, p]));
+    // MySQL utilise utf8mb4_unicode_ci (case-insensitive) donc `reference IN (...)`
+    // matche « 7563b » ↔ « 7563B », mais Map.get() côté JS est case-sensitive.
+    // On normalise en lowercase pour éviter les faux « produit non présent ».
+    const productByRef = new Map(products.map((p) => [p.reference.toLowerCase(), p]));
 
     const itemRows: Prisma.PfsOrderItemUncheckedCreateInput[] = flatItems.map((it) => {
-      const productMatch = productByRef.get(it.reference);
+      const productMatch = productByRef.get(it.reference.toLowerCase());
       const productColorMatch = productMatch?.colors.find((c) =>
         c.pfsVariantId && it.raw.variant_id && c.pfsVariantId === it.raw.variant_id,
       );

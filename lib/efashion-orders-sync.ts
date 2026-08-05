@@ -318,12 +318,13 @@ export async function upsertEfashionOrderFromDetail(
         .filter((c) => typeof c.efashionProductId === "number")
         .map((c) => [c.efashionProductId as number, c]),
     );
-    const productByRef = new Map(productMatches.map((p) => [p.reference, p]));
+    // Voir pfs-orders-sync.ts : MySQL case-insensitive vs Map.get case-sensitive.
+    const productByRef = new Map(productMatches.map((p) => [p.reference.toLowerCase(), p]));
 
     const itemRows: Prisma.EfashionOrderItemUncheckedCreateInput[] = lines.map((line) => {
       const colorMatch = colorByEfashionId.get(line.id_produit);
       const productMatch =
-        colorMatch?.product ?? productByRef.get(line.reference_base) ?? null;
+        colorMatch?.product ?? productByRef.get(line.reference_base.toLowerCase()) ?? null;
 
       const qtyTotal = line.quantite_total ?? sumLineQuantities(line.quantites);
       const unitPriceHT = new D(line.prix ?? 0);
