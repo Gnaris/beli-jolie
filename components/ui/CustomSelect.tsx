@@ -112,11 +112,25 @@ export default function CustomSelect({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // Scroll highlighted option into view
+  // Scroll highlighted option into view.
+  // On macOS (Safari + Chrome), scrollIntoView appelé sur un élément situé
+  // dans un parent position:fixed peut aussi faire défiler la page principale
+  // jusqu'au haut du document (le fixed a une position doc-relative 0,0).
+  // On scrolle manuellement l'intérieur du listbox pour éviter ce bug.
   useEffect(() => {
-    if (highlightedIndex >= 0) {
-      const el = optionRefs.current.get(highlightedIndex);
-      el?.scrollIntoView({ block: "nearest" });
+    if (highlightedIndex < 0) return;
+    const el = optionRefs.current.get(highlightedIndex);
+    if (!el) return;
+    const listbox = el.parentElement;
+    if (!listbox) return;
+    const elTop = el.offsetTop;
+    const elBottom = elTop + el.offsetHeight;
+    const viewTop = listbox.scrollTop;
+    const viewBottom = viewTop + listbox.clientHeight;
+    if (elTop < viewTop) {
+      listbox.scrollTop = elTop;
+    } else if (elBottom > viewBottom) {
+      listbox.scrollTop = elBottom - listbox.clientHeight;
     }
   }, [highlightedIndex]);
 
