@@ -1093,80 +1093,8 @@ export async function getMarketplaceStats(
       }
     : null;
 
-  // ─── KPIs ─────
-  const [
-    pfsAgg,
-    pfsItemsAgg,
-    efashionAgg,
-    efashionItemsAgg,
-    ankorstoreAgg,
-    ankorstoreItemsAgg,
-    faireAgg,
-    faireItemsAgg,
-  ] = await Promise.all([
-    pfsOrderWhere
-      ? prisma.pfsOrder.aggregate({
-          where: pfsOrderWhere,
-          _count: { _all: true },
-          _sum: { totalHT: true },
-        })
-      : Promise.resolve({ _count: { _all: 0 }, _sum: { totalHT: null as unknown as number | null } }),
-    pfsOrderWhere
-      ? prisma.pfsOrderItem.aggregate({
-          where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere },
-          _sum: { qtyValidated: true },
-        })
-      : Promise.resolve({ _sum: { qtyValidated: 0 } }),
-    efashionOrderWhere
-      ? prisma.efashionOrder.aggregate({
-          where: efashionOrderWhere,
-          _count: { _all: true },
-          _sum: { totalHT: true },
-        })
-      : Promise.resolve({ _count: { _all: 0 }, _sum: { totalHT: null as unknown as number | null } }),
-    efashionOrderWhere
-      ? prisma.efashionOrderItem.aggregate({
-          where: { tenantId: tenant.id, efashionOrder: efashionOrderWhere },
-          _sum: { qtyTotal: true },
-        })
-      : Promise.resolve({ _sum: { qtyTotal: 0 } }),
-    ankorstoreOrderWhere
-      ? prisma.ankorstoreOrder.aggregate({
-          where: ankorstoreOrderWhere,
-          _count: { _all: true },
-          _sum: { brandTotalAmount: true },
-        })
-      : Promise.resolve({
-          _count: { _all: 0 },
-          _sum: { brandTotalAmount: null as unknown as number | null },
-        }),
-    ankorstoreOrderWhere
-      ? prisma.ankorstoreOrderItem.aggregate({
-          where: { tenantId: tenant.id, ankorstoreOrder: ankorstoreOrderWhere },
-          _sum: { multipliedQuantity: true },
-        })
-      : Promise.resolve({ _sum: { multipliedQuantity: 0 } }),
-    faireOrderWhere
-      ? prisma.faireOrder.aggregate({
-          where: faireOrderWhere,
-          _count: { _all: true },
-          _sum: { totalHT: true },
-        })
-      : Promise.resolve({
-          _count: { _all: 0 },
-          _sum: { totalHT: null as unknown as number | null },
-        }),
-    faireOrderWhere
-      ? prisma.faireOrderItem.aggregate({
-          where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
-          _sum: { quantity: true },
-        })
-      : Promise.resolve({ _sum: { quantity: 0 } }),
-  ]);
-
-  // Microstore : NEW + SHIPPED comptent (déjà payées côté client). Pas
-  // d'items groupby ici pour rester léger : on somme quantity depuis les
-  // MicrostoreOrderItem.
+  // Microstore : NEW + SHIPPED comptent (déjà payées côté client). Défini ici
+  // pour être inclus dans le Promise.all unifié ci-dessous.
   const microstoreOrderWhere = wantsMicrostore
     ? {
         tenantId: tenant.id,
@@ -1176,17 +1104,113 @@ export async function getMarketplaceStats(
           : {}),
       }
     : null;
-  const [microstoreAgg, microstoreItemsAgg] = await Promise.all([
-    microstoreOrderWhere
-      ? prisma.microstoreOrder.aggregate({
-          where: microstoreOrderWhere,
+
+  // ─── GROUP BY clients (par source) + item aggregates (itemsSold) ─────
+  // Historique : on chargeait toutes les commandes en RAM via findMany puis on
+  // agrégeait en JS. Sur issyma (~20 k commandes marketplaces) ça faisait
+  // transiter 15-20 MB par requête. Depuis 2026-08-05 on agrège directement
+  // via groupBy SQL : ~6 k tuples pré-agrégés au lieu de ~20 k lignes brutes.
+  // Les KPI (ordersCount, totalHT) sont ensuite dérivés en sommant les
+  // groupes, ce qui évite les aggregate() séparés (10 queries de moins).
+  const [
+    pfsClientGroups,
+    pfsItemsAgg,
+    efashionClientGroups,
+    efashionItemsAgg,
+    ankorstoreClientGroups,
+    ankorstoreItemsAgg,
+    faireClientGroups,
+    faireItemsAgg,
+    microstoreClientGroups,
+    microstoreItemsAgg,
+  ] = await Promise.all([
+    pfsOrderWhere
+      ? prisma.pfsOrder.groupBy({
+          where: pfsOrderWhere,
+          by: ["adminClientCardId", "customerName", "customerShop", "customerCountry"],
           _count: { _all: true },
           _sum: { totalHT: true },
+          _max: { createdAtPfs: true },
         })
-      : Promise.resolve({
-          _count: { _all: 0 },
-          _sum: { totalHT: null as unknown as number | null },
-        }),
+      : Promise.resolve([]),
+    pfsOrderWhere
+      ? prisma.pfsOrderItem.aggregate({
+          where: { tenantId: tenant.id, pfsOrder: pfsOrderWhere },
+          _sum: { qtyValidated: true },
+        })
+      : Promise.resolve({ _sum: { qtyValidated: 0 } }),
+    efashionOrderWhere
+      ? prisma.efashionOrder.groupBy({
+          where: efashionOrderWhere,
+          by: ["adminClientCardId", "customerName", "customerEmail", "customerCountry"],
+          _count: { _all: true },
+          _sum: { totalHT: true },
+          _max: { createdAtEfashion: true },
+        })
+      : Promise.resolve([]),
+    efashionOrderWhere
+      ? prisma.efashionOrderItem.aggregate({
+          where: { tenantId: tenant.id, efashionOrder: efashionOrderWhere },
+          _sum: { qtyTotal: true },
+        })
+      : Promise.resolve({ _sum: { qtyTotal: 0 } }),
+    ankorstoreOrderWhere
+      ? prisma.ankorstoreOrder.groupBy({
+          where: ankorstoreOrderWhere,
+          by: [
+            "adminClientCardId",
+            "customerName",
+            "customerShop",
+            "customerEmail",
+            "customerCountry",
+          ],
+          _count: { _all: true },
+          _sum: { brandTotalAmount: true },
+          _max: { createdAtAnkor: true },
+        })
+      : Promise.resolve([]),
+    ankorstoreOrderWhere
+      ? prisma.ankorstoreOrderItem.aggregate({
+          where: { tenantId: tenant.id, ankorstoreOrder: ankorstoreOrderWhere },
+          _sum: { multipliedQuantity: true },
+        })
+      : Promise.resolve({ _sum: { multipliedQuantity: 0 } }),
+    faireOrderWhere
+      ? prisma.faireOrder.groupBy({
+          where: faireOrderWhere,
+          by: [
+            "adminClientCardId",
+            "customerName",
+            "customerShop",
+            "customerEmail",
+            "customerCountry",
+          ],
+          _count: { _all: true },
+          _sum: { totalHT: true },
+          _max: { createdAtFaire: true },
+        })
+      : Promise.resolve([]),
+    faireOrderWhere
+      ? prisma.faireOrderItem.aggregate({
+          where: { tenantId: tenant.id, faireOrder: faireOrderWhere },
+          _sum: { quantity: true },
+        })
+      : Promise.resolve({ _sum: { quantity: 0 } }),
+    microstoreOrderWhere
+      ? prisma.microstoreOrder.groupBy({
+          where: microstoreOrderWhere,
+          by: [
+            "adminClientCardId",
+            "customerName",
+            "customerCompany",
+            "customerEmail",
+            "customerCountry",
+          ],
+          _count: { _all: true },
+          _sum: { totalHT: true },
+          _max: { createdAtMicrostore: true },
+        })
+      : Promise.resolve([]),
     microstoreOrderWhere
       ? prisma.microstoreOrderItem.aggregate({
           where: { tenantId: tenant.id, microstoreOrder: microstoreOrderWhere },
@@ -1195,16 +1219,34 @@ export async function getMarketplaceStats(
       : Promise.resolve({ _sum: { quantity: 0 } }),
   ]);
 
-  const pfsOrdersCount = pfsAgg._count._all;
-  const pfsTotalHT = decimalToNumber(pfsAgg._sum.totalHT);
-  const efashionOrdersCount = efashionAgg._count._all;
-  const efashionTotalHT = decimalToNumber(efashionAgg._sum.totalHT);
-  const ankorstoreOrdersCount = ankorstoreAgg._count._all;
-  const ankorstoreTotalHT = decimalToNumber(ankorstoreAgg._sum.brandTotalAmount);
-  const faireOrdersCount = faireAgg._count._all;
-  const faireTotalHT = decimalToNumber(faireAgg._sum.totalHT);
-  const microstoreOrdersCount = microstoreAgg._count._all;
-  const microstoreTotalHT = decimalToNumber(microstoreAgg._sum.totalHT);
+  const pfsOrdersCount = pfsClientGroups.reduce((a, g) => a + g._count._all, 0);
+  const pfsTotalHT = pfsClientGroups.reduce(
+    (a, g) => a + decimalToNumber(g._sum.totalHT),
+    0,
+  );
+  const efashionOrdersCount = efashionClientGroups.reduce((a, g) => a + g._count._all, 0);
+  const efashionTotalHT = efashionClientGroups.reduce(
+    (a, g) => a + decimalToNumber(g._sum.totalHT),
+    0,
+  );
+  const ankorstoreOrdersCount = ankorstoreClientGroups.reduce((a, g) => a + g._count._all, 0);
+  const ankorstoreTotalHT = ankorstoreClientGroups.reduce(
+    (a, g) => a + decimalToNumber(g._sum.brandTotalAmount),
+    0,
+  );
+  const faireOrdersCount = faireClientGroups.reduce((a, g) => a + g._count._all, 0);
+  const faireTotalHT = faireClientGroups.reduce(
+    (a, g) => a + decimalToNumber(g._sum.totalHT),
+    0,
+  );
+  const microstoreOrdersCount = microstoreClientGroups.reduce(
+    (a, g) => a + g._count._all,
+    0,
+  );
+  const microstoreTotalHT = microstoreClientGroups.reduce(
+    (a, g) => a + decimalToNumber(g._sum.totalHT),
+    0,
+  );
   const totalOrders =
     pfsOrdersCount +
     efashionOrdersCount +
@@ -1219,89 +1261,6 @@ export async function getMarketplaceStats(
     (ankorstoreItemsAgg._sum.multipliedQuantity ?? 0) +
     (faireItemsAgg._sum.quantity ?? 0) +
     (microstoreItemsAgg._sum.quantity ?? 0);
-
-  // Compte des clients uniques cross-marketplace (par email/société normalisés)
-  const [pfsClientRows, efashionClientRows, ankorstoreClientRows, faireClientRows, microstoreClientRows] =
-    await Promise.all([
-      pfsOrderWhere
-        ? prisma.pfsOrder.findMany({
-            where: pfsOrderWhere,
-            select: {
-              id: true,
-              pfsCustomerId: true,
-              customerName: true,
-              customerShop: true,
-              customerCountry: true,
-              adminClientCardId: true,
-              totalHT: true,
-              createdAtPfs: true,
-            },
-          })
-        : Promise.resolve([]),
-      efashionOrderWhere
-        ? prisma.efashionOrder.findMany({
-            where: efashionOrderWhere,
-            select: {
-              id: true,
-              efashionCustomerId: true,
-              customerName: true,
-              customerEmail: true,
-              customerCountry: true,
-              adminClientCardId: true,
-              totalHT: true,
-              createdAtEfashion: true,
-            },
-          })
-        : Promise.resolve([]),
-      ankorstoreOrderWhere
-        ? prisma.ankorstoreOrder.findMany({
-            where: ankorstoreOrderWhere,
-            select: {
-              id: true,
-              ankorstoreRetailerId: true,
-              customerName: true,
-              customerShop: true,
-              customerEmail: true,
-              customerCountry: true,
-              adminClientCardId: true,
-              brandTotalAmount: true,
-              createdAtAnkor: true,
-            },
-          })
-        : Promise.resolve([]),
-      faireOrderWhere
-        ? prisma.faireOrder.findMany({
-            where: faireOrderWhere,
-            select: {
-              id: true,
-              faireRetailerId: true,
-              customerName: true,
-              customerShop: true,
-              customerEmail: true,
-              customerCountry: true,
-              adminClientCardId: true,
-              totalHT: true,
-              createdAtFaire: true,
-            },
-          })
-        : Promise.resolve([]),
-      microstoreOrderWhere
-        ? prisma.microstoreOrder.findMany({
-            where: microstoreOrderWhere,
-            select: {
-              id: true,
-              microstoreClientId: true,
-              customerName: true,
-              customerCompany: true,
-              customerEmail: true,
-              customerCountry: true,
-              adminClientCardId: true,
-              totalHT: true,
-              createdAtMicrostore: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
 
   // Clé de dédoublonnage cross-marketplace : email s'il existe, sinon
   // adminClientCardId (fiche déjà rapprochée), sinon nom société normalisé.
@@ -1331,13 +1290,22 @@ export async function getMarketplaceStats(
     lastOrderAt: Date | null;
   }
   const clientMap = new Map<string, ClientAcc>();
-  const upsertClient = (key: string, patch: Partial<ClientAcc> & { source: MarketplaceSource; orderTotal: number; orderDate: Date }) => {
+  const upsertClient = (
+    key: string,
+    patch: Partial<ClientAcc> & {
+      source: MarketplaceSource;
+      orderTotal: number;
+      orderDate: Date | null;
+      orderCount?: number;
+    },
+  ) => {
+    const inc = patch.orderCount ?? 1;
     const existing = clientMap.get(key);
     if (existing) {
       existing.sources.add(patch.source);
-      existing.ordersCount += 1;
+      existing.ordersCount += inc;
       existing.totalHT += patch.orderTotal;
-      if (!existing.lastOrderAt || patch.orderDate > existing.lastOrderAt) {
+      if (patch.orderDate && (!existing.lastOrderAt || patch.orderDate > existing.lastOrderAt)) {
         existing.lastOrderAt = patch.orderDate;
       }
       // Enrichissements manquants
@@ -1353,76 +1321,81 @@ export async function getMarketplaceStats(
         customerEmail: patch.customerEmail ?? null,
         adminClientCardId: patch.adminClientCardId ?? null,
         sources: new Set([patch.source]),
-        ordersCount: 1,
+        ordersCount: inc,
         totalHT: patch.orderTotal,
-        lastOrderAt: patch.orderDate,
+        lastOrderAt: patch.orderDate ?? null,
       });
     }
   };
 
-  for (const r of pfsClientRows) {
-    const key = normalizeKey(null, r.adminClientCardId, r.customerShop ?? r.customerName);
+  for (const g of pfsClientGroups) {
+    const key = normalizeKey(null, g.adminClientCardId, g.customerShop ?? g.customerName);
     upsertClient(key, {
       source: "PFS",
-      customerName: r.customerName,
-      customerShop: r.customerShop,
-      customerCountry: r.customerCountry,
+      customerName: g.customerName,
+      customerShop: g.customerShop,
+      customerCountry: g.customerCountry,
       customerEmail: null,
-      adminClientCardId: r.adminClientCardId,
-      orderTotal: decimalToNumber(r.totalHT),
-      orderDate: r.createdAtPfs,
+      adminClientCardId: g.adminClientCardId,
+      orderTotal: decimalToNumber(g._sum.totalHT),
+      orderDate: g._max.createdAtPfs,
+      orderCount: g._count._all,
     });
   }
-  for (const r of efashionClientRows) {
-    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerName);
+  for (const g of efashionClientGroups) {
+    const key = normalizeKey(g.customerEmail, g.adminClientCardId, g.customerName);
     upsertClient(key, {
       source: "EFASHION",
-      customerName: r.customerName,
-      customerShop: r.customerName,
-      customerCountry: r.customerCountry,
-      customerEmail: r.customerEmail,
-      adminClientCardId: r.adminClientCardId,
-      orderTotal: decimalToNumber(r.totalHT),
-      orderDate: r.createdAtEfashion,
+      customerName: g.customerName,
+      customerShop: g.customerName,
+      customerCountry: g.customerCountry,
+      customerEmail: g.customerEmail,
+      adminClientCardId: g.adminClientCardId,
+      orderTotal: decimalToNumber(g._sum.totalHT),
+      orderDate: g._max.createdAtEfashion,
+      orderCount: g._count._all,
     });
   }
-  for (const r of ankorstoreClientRows) {
-    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerShop ?? r.customerName);
+  for (const g of ankorstoreClientGroups) {
+    const key = normalizeKey(g.customerEmail, g.adminClientCardId, g.customerShop ?? g.customerName);
     upsertClient(key, {
       source: "ANKORSTORE",
-      customerName: r.customerName,
-      customerShop: r.customerShop,
-      customerCountry: r.customerCountry,
-      customerEmail: r.customerEmail,
-      adminClientCardId: r.adminClientCardId,
-      orderTotal: decimalToNumber(r.brandTotalAmount),
-      orderDate: r.createdAtAnkor,
+      customerName: g.customerName,
+      customerShop: g.customerShop,
+      customerCountry: g.customerCountry,
+      customerEmail: g.customerEmail,
+      adminClientCardId: g.adminClientCardId,
+      orderTotal: decimalToNumber(g._sum.brandTotalAmount),
+      orderDate: g._max.createdAtAnkor,
+      orderCount: g._count._all,
     });
   }
-  for (const r of faireClientRows) {
-    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerShop ?? r.customerName);
+  for (const g of faireClientGroups) {
+    const key = normalizeKey(g.customerEmail, g.adminClientCardId, g.customerShop ?? g.customerName);
     upsertClient(key, {
       source: "FAIRE",
-      customerName: r.customerName,
-      customerShop: r.customerShop,
-      customerCountry: r.customerCountry,
-      customerEmail: r.customerEmail,
-      adminClientCardId: r.adminClientCardId,
-      orderTotal: decimalToNumber(r.totalHT),
-      orderDate: r.createdAtFaire,
+      customerName: g.customerName,
+      customerShop: g.customerShop,
+      customerCountry: g.customerCountry,
+      customerEmail: g.customerEmail,
+      adminClientCardId: g.adminClientCardId,
+      orderTotal: decimalToNumber(g._sum.totalHT),
+      orderDate: g._max.createdAtFaire,
+      orderCount: g._count._all,
     });
   }
-  for (const r of microstoreClientRows) {
-    const key = normalizeKey(r.customerEmail, r.adminClientCardId, r.customerCompany ?? r.customerName);
+  for (const g of microstoreClientGroups) {
+    const key = normalizeKey(g.customerEmail, g.adminClientCardId, g.customerCompany ?? g.customerName);
     upsertClient(key, {
       source: "MICROSTORE",
-      customerName: r.customerName,
-      customerShop: r.customerCompany,
-      customerCountry: r.customerCountry,
-      customerEmail: r.customerEmail,
-      adminClientCardId: r.adminClientCardId,
-      orderTotal: decimalToNumber(r.totalHT),
-      orderDate: r.createdAtMicrostore,
+      customerName: g.customerName,
+      customerShop: g.customerCompany,
+      customerCountry: g.customerCountry,
+      customerEmail: g.customerEmail,
+      adminClientCardId: g.adminClientCardId,
+      orderTotal: decimalToNumber(g._sum.totalHT),
+      orderDate: g._max.createdAtMicrostore,
+      orderCount: g._count._all,
     });
   }
 
