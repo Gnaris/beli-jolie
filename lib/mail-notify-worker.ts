@@ -31,6 +31,40 @@ interface TenantForwardConfig {
   imapPass: string;
 }
 
+interface EnvelopeAddress {
+  name?: string | null;
+  address?: string | null;
+}
+
+interface EnvelopeLike {
+  replyTo?: EnvelopeAddress[] | null;
+  from?: EnvelopeAddress[] | null;
+  sender?: EnvelopeAddress[] | null;
+}
+
+/**
+ * Retourne l'adresse email brute à utiliser en `Reply-To:` sur le mail
+ * transféré vers l'adresse perso. Priorité : `Reply-To` original >
+ * `From` original > `Sender` original. Sans ça, quand la cliente clique
+ * « Répondre » dans Gmail, Gmail préremplit le destinataire avec le
+ * `From:` du forward = sa propre adresse pro, et le mail lui revient.
+ */
+export function pickReplyToAddress(envelope: EnvelopeLike | null | undefined): string | null {
+  const candidates: (EnvelopeAddress[] | null | undefined)[] = [
+    envelope?.replyTo,
+    envelope?.from,
+    envelope?.sender,
+  ];
+  for (const list of candidates) {
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      const addr = (entry?.address || "").trim();
+      if (addr && addr.includes("@")) return addr;
+    }
+  }
+  return null;
+}
+
 const TICK_INTERVAL_MS = 60_000;
 const START_DELAY_MS = 15_000;
 
@@ -94,6 +128,7 @@ interface MailForForward {
   uid: number;
   subject: string;
   from: string;
+  replyToAddress: string | null;
   source: Buffer;
 }
 
@@ -121,7 +156,8 @@ async function fetchNewMails(cfg: TenantForwardConfig): Promise<MailForForward[]
       const from =
         fromArr.map((a) => (a.name ? `${a.name} <${a.address}>` : a.address)).join(", ") ||
         "(inconnu)";
-      results.push({ uid: msg.uid ?? uid, subject, from, source: msg.source });
+      const replyToAddress = pickReplyToAddress(msg.envelope);
+      results.push({ uid: msg.uid ?? uid, subject, from, replyToAddress, source: msg.source });
     }
     return results;
   } finally {
@@ -162,6 +198,7 @@ async function forwardMail(cfg: TenantForwardConfig, mail: MailForForward): Prom
       to: cfg.notifyEmail,
       subject: `[Fwd] ${safeSubj}`,
       html,
+      replyTo: mail.replyToAddress || undefined,
       attachments: [{ filename: `mail-${mail.uid}.eml`, content: mail.source }],
     })
   );
