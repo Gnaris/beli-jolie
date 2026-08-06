@@ -1,55 +1,119 @@
 # API publique produits — Beli & Jolie
 
-Endpoint pour récupérer le catalogue produit depuis l'extérieur.
+Un seul endpoint pour lire le catalogue.
 
 **Réservé à `beliandjolie.com`.** Un appel sur `issyma.fr` ou tout autre domaine renvoie `404`.
 
 ## Authentification
 
-Un seul header à ajouter à chaque appel :
+Un header obligatoire :
 
 ```
 X-API-Key: kebab
 ```
 
-Sans header, ou avec une autre valeur → `401 Unauthorized`.
+Sans header ou avec une autre valeur → `401 Unauthorized`.
 
-## GET `/api/public/products`
+---
 
-Liste paginée des produits.
+## Deux modes d'appel
 
-### Query params (tous optionnels)
+L'endpoint est le même : `GET https://beliandjolie.com/api/public/products`.
 
-| Paramètre   | Type   | Défaut | Description                                                       |
-|-------------|--------|--------|-------------------------------------------------------------------|
-| `page`      | int    | `1`    | Numéro de page (démarre à 1).                                     |
-| `perPage`   | int    | `50`   | Produits par page. Plafond : `200`.                               |
-| `reference` | string | —      | Filtre exact sur la référence (ex : `BJ-1234`).                   |
-| `status`    | string | —      | Filtre par statut. Valeurs : `en-ligne`, `hors-ligne`, `brouillon`, `archive`, `synchronisation`. Sinon tous. |
+| Mode                  | Header à ajouter                     | Réponse                          |
+|-----------------------|--------------------------------------|----------------------------------|
+| **1 produit précis**  | `X-Product-Reference: BJ-1234`       | `{ "product": {...} }` ou `404`  |
+| **Liste paginée**     | (aucun header supplémentaire)        | `{ page, totalPages, products }` |
 
-### Exemples
+### Mode 1 — Récupérer un seul produit
 
 ```bash
-# Tous les produits, page 1
-curl -H "X-API-Key: kebab" https://beliandjolie.com/api/public/products
-
-# Un produit précis
-curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?reference=BJ-1234"
-
-# Uniquement les produits en ligne, 100 par page
-curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=en-ligne&perPage=100"
-
-# Uniquement les brouillons (produits incomplets non publiés)
-curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=brouillon"
+curl -H "X-API-Key: kebab" \
+     -H "X-Product-Reference: BJ-1234" \
+     https://beliandjolie.com/api/public/products
 ```
 
-### Réponse
+Réponse :
+```json
+{ "product": { "reference": "BJ-1234", "status": "En ligne", ... } }
+```
+
+Si la référence n'existe pas → `404 Not Found`.
+
+### Mode 2 — Liste paginée
+
+```bash
+# Page 1 (50 produits par défaut)
+curl -H "X-API-Key: kebab" https://beliandjolie.com/api/public/products
+
+# Page 2, 100 par page
+curl -H "X-API-Key: kebab" \
+  "https://beliandjolie.com/api/public/products?page=2&perPage=100"
+
+# Filtrer par statut (voir table plus bas)
+curl -H "X-API-Key: kebab" \
+  "https://beliandjolie.com/api/public/products?status=brouillon"
+```
+
+Query params (tous optionnels) :
+
+| Paramètre | Type   | Défaut | Description                                                     |
+|-----------|--------|--------|------------------------------------------------------------------|
+| `page`    | int    | `1`    | Numéro de page                                                   |
+| `perPage` | int    | `50`   | Produits par page. Max `200`.                                    |
+| `status`  | string | —      | `en-ligne`, `hors-ligne`, `brouillon`, `archive`, `synchronisation` |
+
+---
+
+## Comment parcourir toutes les pages
+
+Chaque réponse contient `page`, `totalPages` et `hasMore`. Boucle simple :
+
+```javascript
+let page = 1;
+let all = [];
+while (true) {
+  const res = await fetch(
+    `https://beliandjolie.com/api/public/products?page=${page}&perPage=200`,
+    { headers: { "X-API-Key": "kebab" } }
+  );
+  const data = await res.json();
+  all = all.concat(data.products);
+  if (!data.hasMore) break;
+  page++;
+}
+console.log(`Récupéré ${all.length} produits sur ${data.total}`);
+```
+
+Ou en cURL, page par page :
+```bash
+curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?page=1&perPage=200"
+curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?page=2&perPage=200"
+# … jusqu'à ce que hasMore = false
+```
+
+---
+
+## Statuts produit
+
+| Retour API              | Filtre `?status=`      | Signification                                     |
+|-------------------------|------------------------|---------------------------------------------------|
+| `"En ligne"`            | `en-ligne`             | Visible sur la boutique                           |
+| `"Hors ligne"`          | `hors-ligne`           | Caché volontairement                              |
+| `"Brouillon"`           | `brouillon`            | Fiche incomplète (manque prix, photo, poids…)     |
+| `"Archivé"`             | `archive`              | Fin de vie, gardé pour l'historique               |
+| `"En synchronisation"`  | `synchronisation`      | Rafraîchissement en cours (état passager)         |
+
+---
+
+## Structure d'une réponse liste
 
 ```json
 {
   "page": 1,
   "perPage": 50,
   "total": 8234,
+  "totalPages": 165,
   "hasMore": true,
   "products": [
     {
@@ -61,21 +125,20 @@ curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=
       "subCategories": ["Chevalière", "Éternité"],
       "manufacturingCountry": "Chine",
       "dimensions": {
-        "length": 20,
-        "width": 10,
-        "height": 5,
-        "diameter": null,
-        "circumference": null
+        "length": 20, "width": 10, "height": 5,
+        "diameter": null, "circumference": null
       },
       "composition": [
         { "name": "Acier inoxydable", "percent": 100 }
       ],
       "colors": [
         {
-          "colorId": "cku42x…",
           "name": "Or",
-          "hex": "#D4AF37",
-          "imageUrl": "https://beliandjolie.com/uploads/beliandjolie/motifs-couleurs/or.jpg",
+          "imageUrls": [
+            "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-1.webp",
+            "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-2.webp",
+            "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-3.webp"
+          ],
           "variants": [
             {
               "sku": "BJ-1234_OR_UNIT_1",
@@ -94,15 +157,14 @@ curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=
 }
 ```
 
+En **Mode 1** (header `X-Product-Reference`), la réponse est exactement le même objet mais dans un champ `product` (singulier) au lieu d'un tableau `products`.
+
 ### Champs
 
-- `status` : état du produit — `"En ligne"`, `"Hors ligne"`, `"Brouillon"`, `"Archivé"`, `"En synchronisation"`. Un **Brouillon** = produit hors ligne dont il manque des infos (prix, photo, poids…).
 - `dimensions` : en millimètres, `null` si non renseigné.
-- `composition[].percent` : pourcentage (ex : `100` pour 100 %).
-- `colors[].imageUrl` : URL absolue de l'image représentant la couleur (motif prioritaire, sinon 1ʳᵉ photo).
-- `colors[].hex` : peut être `null` si la couleur est représentée uniquement par un motif.
+- `composition[].percent` : pourcentage (`100` = 100 %).
+- `colors[].imageUrls` : **liste** de toutes les photos de la couleur (URLs absolues sur `beliandjolie.com`, prêtes à télécharger).
 - `variants[].saleType` : `UNIT` (pièce unique) ou `PACK` (paquet).
-- `variants[].packQuantity` : nombre de pièces par paquet (`null` pour `UNIT`).
 - `variants[].price` : prix HT en euros.
 - `variants[].weightKg` : poids en kilogrammes.
 
@@ -112,4 +174,4 @@ curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=
 |------|---------------------------------------------------------------------|
 | 200  | OK                                                                  |
 | 401  | Header `X-API-Key` manquant ou incorrect                            |
-| 404  | Appel depuis un autre domaine que `beliandjolie.com`                |
+| 404  | Autre domaine que `beliandjolie.com`, ou référence introuvable      |

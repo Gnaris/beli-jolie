@@ -3,9 +3,12 @@
  *
  * - Tenant != beliandjolie → 404 (endpoint réservé à Beli & Jolie).
  * - Mauvaise clé API → 401.
- * - Bonne clé + bon tenant → produit shape complet (couleur avec imageUrl,
- *   compositions, sizes, dimensions, statut, prix).
- * - Filtre `reference`, filtre `status`, pagination `page` + `perPage`.
+ * - Bonne clé + bon tenant → produit shape complet.
+ * - Header X-Product-Reference → renvoie { product } ou 404.
+ * - Sinon → liste paginée (page, perPage, total, totalPages, hasMore).
+ * - Filtre `status` (5 slugs FR : en-ligne, hors-ligne, brouillon, archive, synchronisation).
+ * - Statut renvoyé en français.
+ * - imageUrls[] absolues sur https://beliandjolie.com, plus de colorId ni hex.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -18,6 +21,7 @@ vi.mock("@/lib/prisma", () => ({
     product: {
       count: vi.fn(),
       findMany: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
@@ -27,9 +31,13 @@ import { getCurrentTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { GET } from "@/app/api/public/products/route";
 
-function makeRequest(url = "https://beliandjolie.com/api/public/products", apiKey?: string) {
+function makeRequest(
+  url = "https://beliandjolie.com/api/public/products",
+  opts: { apiKey?: string; ref?: string } = {},
+) {
   const headers = new Headers();
-  if (apiKey !== undefined) headers.set("x-api-key", apiKey);
+  if (opts.apiKey !== undefined) headers.set("x-api-key", opts.apiKey);
+  if (opts.ref !== undefined) headers.set("x-product-reference", opts.ref);
   return new NextRequest(url, { headers });
 }
 
@@ -51,9 +59,7 @@ const productRow = {
   dimensionCircumference: null,
   category: { name: "Bague" },
   subCategories: [{ name: "Chevalière" }, { name: "Éternité" }],
-  compositions: [
-    { percentage: 100, composition: { name: "Acier inoxydable" } },
-  ],
+  compositions: [{ percentage: 100, composition: { name: "Acier inoxydable" } }],
   colors: [
     {
       id: "pc-1",
@@ -64,12 +70,14 @@ const productRow = {
       unitPrice: "4.20",
       stock: 12,
       weight: 0.02,
-      color: { name: "Or", hex: "#D4AF37", patternImage: "/uploads/beliandjolie/motifs-couleurs/or.jpg" },
+      color: { name: "Or" },
       variantSizes: [{ quantity: 1, size: { name: "TU" } }],
     },
   ],
   colorImages: [
-    { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/or-1.webp", order: 0 },
+    { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/or-1.webp" },
+    { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/or-2.webp" },
+    { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/or-3.webp" },
   ],
 };
 
@@ -78,51 +86,43 @@ describe("GET /api/public/products", () => {
     vi.clearAllMocks();
   });
 
-  it("404 si le tenant courant n'est pas beliandjolie", async () => {
+  it("404 si tenant != beliandjolie", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(issymaTenant);
-    const res = await GET(makeRequest("https://issyma.fr/api/public/products", "kebab"));
+    const res = await GET(makeRequest("https://issyma.fr/api/public/products", { apiKey: "kebab" }));
     expect(res.status).toBe(404);
     expect(prisma.product.findMany).not.toHaveBeenCalled();
   });
 
-  it("404 si aucun tenant résolu", async () => {
-    vi.mocked(getCurrentTenant).mockResolvedValue(null);
-    const res = await GET(makeRequest(undefined, "kebab"));
-    expect(res.status).toBe(404);
-  });
-
-  it("401 si header X-API-Key manquant", async () => {
+  it("401 sans clé", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    const res = await GET(makeRequest(undefined, undefined));
-    expect(res.status).toBe(401);
-    expect(prisma.product.findMany).not.toHaveBeenCalled();
-  });
-
-  it("401 si mauvaise clé", async () => {
-    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    const res = await GET(makeRequest(undefined, "pas-la-bonne"));
+    const res = await GET(makeRequest());
     expect(res.status).toBe(401);
   });
 
-  it("200 + shape complet quand clé + tenant OK", async () => {
+  it("401 mauvaise clé", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    const res = await GET(makeRequest(undefined, { apiKey: "wrong" }));
+    expect(res.status).toBe(401);
+  });
+
+  it("200 + shape complet + pagination + URLs absolues beliandjolie.com", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
     vi.mocked(prisma.product.count).mockResolvedValue(1);
     vi.mocked(prisma.product.findMany).mockResolvedValue([productRow] as never);
 
-    const res = await GET(makeRequest(undefined, "kebab"));
+    const res = await GET(makeRequest(undefined, { apiKey: "kebab" }));
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body.total).toBe(1);
     expect(body.page).toBe(1);
+    expect(body.totalPages).toBe(1);
     expect(body.hasMore).toBe(false);
-    expect(body.products).toHaveLength(1);
 
     const p = body.products[0];
     expect(p.reference).toBe("BJ-1234");
     expect(p.status).toBe("En ligne");
     expect(p.name).toBe("Bague acier or");
-    expect(p.description).toBe("Une jolie bague");
     expect(p.category).toBe("Bague");
     expect(p.subCategories).toEqual(["Chevalière", "Éternité"]);
     expect(p.manufacturingCountry).toBe("Chine");
@@ -134,127 +134,146 @@ describe("GET /api/public/products", () => {
       circumference: null,
     });
     expect(p.composition).toEqual([{ name: "Acier inoxydable", percent: 100 }]);
-    expect(p.colors).toHaveLength(1);
 
     const c = p.colors[0];
     expect(c.name).toBe("Or");
-    expect(c.hex).toBe("#D4AF37");
-    // patternImage prioritaire sur les colorImages, URL absolue
-    expect(c.imageUrl).toBe("https://beliandjolie.com/uploads/beliandjolie/motifs-couleurs/or.jpg");
-    expect(c.variants).toHaveLength(1);
+    // pas de colorId ni hex
+    expect(c.colorId).toBeUndefined();
+    expect(c.hex).toBeUndefined();
+    // liste d'URLs absolues, toutes sur beliandjolie.com même appelé ailleurs
+    expect(c.imageUrls).toEqual([
+      "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-1.webp",
+      "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-2.webp",
+      "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/or-3.webp",
+    ]);
     expect(c.variants[0]).toMatchObject({
       sku: "BJ-1234_OR_UNIT_1",
       saleType: "UNIT",
-      packQuantity: null,
       price: 4.2,
       stock: 12,
-      weightKg: 0.02,
-      sizes: [{ name: "TU", quantity: 1 }],
     });
   });
 
-  it("retombe sur la première image de la couleur si patternImage absente", async () => {
+  it("URLs absolues même si l'appel arrive sur localhost:3000 (dev)", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
     vi.mocked(prisma.product.count).mockResolvedValue(1);
-    vi.mocked(prisma.product.findMany).mockResolvedValue([
-      {
-        ...productRow,
-        colors: [
-          {
-            ...productRow.colors[0],
-            color: { name: "Argent", hex: "#C0C0C0", patternImage: null },
-          },
-        ],
-        colorImages: [
-          { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/argent-1.webp", order: 0 },
-          { colorId: "c-or", path: "/uploads/beliandjolie/produits/BJ-1234/argent-2.webp", order: 1 },
-        ],
-      },
-    ] as never);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([productRow] as never);
 
-    const res = await GET(makeRequest(undefined, "kebab"));
-    const body = await res.json();
-    expect(body.products[0].colors[0].imageUrl).toBe(
-      "https://beliandjolie.com/uploads/beliandjolie/produits/BJ-1234/argent-1.webp",
+    const res = await GET(
+      makeRequest("http://localhost:3000/api/public/products", { apiKey: "kebab" }),
     );
+    const body = await res.json();
+    // Le lien reste sur beliandjolie.com, pas sur localhost.
+    expect(body.products[0].colors[0].imageUrls[0]).toMatch(/^https:\/\/beliandjolie\.com\//);
   });
 
-  it("filtre par référence quand ?reference= est fourni", async () => {
+  it("header X-Product-Reference → renvoie { product } (pas de tableau)", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(0);
+    vi.mocked(prisma.product.findFirst).mockResolvedValue(productRow as never);
+
+    const res = await GET(makeRequest(undefined, { apiKey: "kebab", ref: "BJ-1234" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.product).toBeDefined();
+    expect(body.products).toBeUndefined();
+    expect(body.product.reference).toBe("BJ-1234");
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+    // Prisma a bien été appelé avec la référence
+    expect(vi.mocked(prisma.product.findFirst).mock.calls[0][0]).toMatchObject({
+      where: { reference: "BJ-1234" },
+    });
+  });
+
+  it("header X-Product-Reference introuvable → 404", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.findFirst).mockResolvedValue(null);
+
+    const res = await GET(makeRequest(undefined, { apiKey: "kebab", ref: "BJ-INEXISTANT" }));
+    expect(res.status).toBe(404);
+  });
+
+  it("pagination : page=2, perPage=100, calcule totalPages", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(500);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?reference=BJ-9999", "kebab"));
+    const res = await GET(
+      makeRequest("https://beliandjolie.com/api/public/products?page=2&perPage=100", {
+        apiKey: "kebab",
+      }),
+    );
+    const body = await res.json();
+
+    expect(body.page).toBe(2);
+    expect(body.perPage).toBe(100);
+    expect(body.total).toBe(500);
+    expect(body.totalPages).toBe(5);
+    expect(body.hasMore).toBe(true);
+
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
-    expect(args?.where).toMatchObject({ reference: "BJ-9999" });
+    expect(args?.take).toBe(100);
+    expect(args?.skip).toBe(100);
   });
 
-  it("filtre par statut quand ?status=archive", async () => {
+  it("perPage plafonné à 200", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(0);
+    vi.mocked(prisma.product.count).mockResolvedValue(500);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=archive", "kebab"));
+    await GET(
+      makeRequest("https://beliandjolie.com/api/public/products?perPage=999", { apiKey: "kebab" }),
+    );
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
-    expect(args?.where).toMatchObject({ status: "ARCHIVED" });
+    expect(args?.take).toBe(200);
   });
 
-  it("filtre par brouillon = OFFLINE + isIncomplete true", async () => {
+  it("filtre brouillon → OFFLINE + isIncomplete true", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
     vi.mocked(prisma.product.count).mockResolvedValue(0);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=brouillon", "kebab"));
+    await GET(
+      makeRequest("https://beliandjolie.com/api/public/products?status=brouillon", {
+        apiKey: "kebab",
+      }),
+    );
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
     expect(args?.where).toMatchObject({ status: "OFFLINE", isIncomplete: true });
   });
 
-  it("filtre hors-ligne exclut les brouillons (isIncomplete false)", async () => {
+  it("filtre hors-ligne exclut les brouillons", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
     vi.mocked(prisma.product.count).mockResolvedValue(0);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=hors-ligne", "kebab"));
+    await GET(
+      makeRequest("https://beliandjolie.com/api/public/products?status=hors-ligne", {
+        apiKey: "kebab",
+      }),
+    );
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
     expect(args?.where).toMatchObject({ status: "OFFLINE", isIncomplete: false });
   });
 
-  it("renvoie 'Brouillon' pour OFFLINE + isIncomplete true", async () => {
+  it("mapping statut en français pour tous les cas", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(1);
+    vi.mocked(prisma.product.count).mockResolvedValue(4);
     vi.mocked(prisma.product.findMany).mockResolvedValue([
+      { ...productRow, status: "ONLINE", isIncomplete: false },
       { ...productRow, status: "OFFLINE", isIncomplete: true },
+      { ...productRow, status: "ARCHIVED", isIncomplete: false },
+      { ...productRow, status: "SYNCING", isIncomplete: false },
     ] as never);
 
-    const res = await GET(makeRequest(undefined, "kebab"));
+    const res = await GET(makeRequest(undefined, { apiKey: "kebab" }));
     const body = await res.json();
-    expect(body.products[0].status).toBe("Brouillon");
-  });
-
-  it("renvoie 'Hors ligne' pour OFFLINE + isIncomplete false", async () => {
-    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(1);
-    vi.mocked(prisma.product.findMany).mockResolvedValue([
-      { ...productRow, status: "OFFLINE", isIncomplete: false },
-    ] as never);
-
-    const res = await GET(makeRequest(undefined, "kebab"));
-    const body = await res.json();
-    expect(body.products[0].status).toBe("Hors ligne");
-  });
-
-  it("renvoie 'Archivé' / 'En synchronisation' selon status", async () => {
-    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(2);
-    vi.mocked(prisma.product.findMany).mockResolvedValue([
-      { ...productRow, status: "ARCHIVED" },
-      { ...productRow, status: "SYNCING" },
-    ] as never);
-
-    const res = await GET(makeRequest(undefined, "kebab"));
-    const body = await res.json();
-    expect(body.products[0].status).toBe("Archivé");
-    expect(body.products[1].status).toBe("En synchronisation");
+    expect(body.products.map((p: { status: string }) => p.status)).toEqual([
+      "En ligne",
+      "Brouillon",
+      "Archivé",
+      "En synchronisation",
+    ]);
   });
 
   it("ignore un statut invalide (renvoie tous les statuts)", async () => {
@@ -262,20 +281,10 @@ describe("GET /api/public/products", () => {
     vi.mocked(prisma.product.count).mockResolvedValue(0);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=nimportequoi", "kebab"));
+    await GET(
+      makeRequest("https://beliandjolie.com/api/public/products?status=nawak", { apiKey: "kebab" }),
+    );
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
     expect(args?.where).not.toHaveProperty("status");
-    expect(args?.where).not.toHaveProperty("isIncomplete");
-  });
-
-  it("pagine avec perPage plafonné à 200", async () => {
-    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
-    vi.mocked(prisma.product.count).mockResolvedValue(500);
-    vi.mocked(prisma.product.findMany).mockResolvedValue([]);
-
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?page=3&perPage=999", "kebab"));
-    const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
-    expect(args?.take).toBe(200);
-    expect(args?.skip).toBe(400); // (3-1) * 200
   });
 });

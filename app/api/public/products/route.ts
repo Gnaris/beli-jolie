@@ -5,6 +5,7 @@ import { countryName } from "@/lib/countries";
 
 const API_KEY = "kebab";
 const ALLOWED_TENANT_SLUG = "beliandjolie";
+const PUBLIC_ORIGIN = "https://beliandjolie.com";
 const PER_PAGE = 50;
 const MAX_PER_PAGE = 200;
 
@@ -23,7 +24,6 @@ function toStatusFr(status: string, isIncomplete: boolean): ProductStatusFr {
   return "En synchronisation";
 }
 
-// Filtre `?status=` : slug URL-friendly → { status, isIncomplete? }
 const STATUS_FILTER_MAP: Record<
   string,
   { status?: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING"; isIncomplete?: boolean }
@@ -39,8 +39,7 @@ const UNAUTHORIZED = NextResponse.json({ error: "Unauthorized" }, { status: 401 
 const NOT_FOUND = NextResponse.json({ error: "Not found" }, { status: 404 });
 
 function checkAuth(request: NextRequest): boolean {
-  const provided = request.headers.get("x-api-key") ?? "";
-  return provided === API_KEY;
+  return (request.headers.get("x-api-key") ?? "") === API_KEY;
 }
 
 async function checkTenant(): Promise<boolean> {
@@ -48,11 +47,12 @@ async function checkTenant(): Promise<boolean> {
   return tenant?.slug === ALLOWED_TENANT_SLUG;
 }
 
-function absoluteUrl(request: NextRequest, path: string | null | undefined): string | null {
+// Toutes les images sont servies sur beliandjolie.com peu importe d'où on
+// appelle l'API (évite les liens localhost:3000 en dev).
+function absoluteUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (/^https?:\/\//i.test(path)) return path;
-  const origin = new URL(request.url).origin;
-  return `${origin}${path.startsWith("/") ? "" : "/"}${path}`;
+  return `${PUBLIC_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
 const productInclude = {
@@ -65,7 +65,7 @@ const productInclude = {
     where: { disabled: false },
     orderBy: { isPrimary: "desc" as const },
     include: {
-      color: { select: { name: true, hex: true, patternImage: true } },
+      color: { select: { name: true } },
       variantSizes: {
         orderBy: { size: { position: "asc" as const } },
         include: { size: { select: { name: true } } },
@@ -74,20 +74,16 @@ const productInclude = {
   },
   colorImages: {
     orderBy: { order: "asc" as const },
-    select: { colorId: true, path: true, order: true },
+    select: { colorId: true, path: true },
   },
 } as const;
 
-function shapeProduct(
-  request: NextRequest,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  p: any,
-) {
-  const firstImageByColorId = new Map<string, string>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function shapeProduct(p: any) {
+  const imagesByColorId = new Map<string, string[]>();
   for (const img of p.colorImages ?? []) {
-    if (!firstImageByColorId.has(img.colorId)) {
-      firstImageByColorId.set(img.colorId, img.path);
-    }
+    if (!imagesByColorId.has(img.colorId)) imagesByColorId.set(img.colorId, []);
+    imagesByColorId.get(img.colorId)!.push(img.path);
   }
 
   const dimensions = {
@@ -107,10 +103,8 @@ function shapeProduct(
   const colorsMap = new Map<
     string,
     {
-      colorId: string;
       name: string;
-      hex: string | null;
-      imageUrl: string | null;
+      imageUrls: string[];
       variants: {
         sku: string | null;
         saleType: "UNIT" | "PACK";
@@ -126,13 +120,10 @@ function shapeProduct(
   for (const v of p.colors ?? []) {
     if (!v.colorId) continue;
     if (!colorsMap.has(v.colorId)) {
-      // Color.patternImage prioritaire sur hex + première image de la couleur
-      const rawImage = v.color?.patternImage ?? firstImageByColorId.get(v.colorId) ?? null;
+      const paths = imagesByColorId.get(v.colorId) ?? [];
       colorsMap.set(v.colorId, {
-        colorId: v.colorId,
         name: v.color?.name ?? "",
-        hex: v.color?.hex ?? null,
-        imageUrl: absoluteUrl(request, rawImage),
+        imageUrls: paths.map((p) => absoluteUrl(p)!).filter(Boolean),
         variants: [],
       });
     }
@@ -170,16 +161,26 @@ export async function GET(request: NextRequest) {
   if (!(await checkTenant())) return NOT_FOUND;
   if (!checkAuth(request)) return UNAUTHORIZED;
 
+  // Recherche par référence via header : renvoie 1 seul produit (ou 404).
+  const refFromHeader = request.headers.get("x-product-reference")?.trim() ?? "";
+  if (refFromHeader) {
+    const product = await prisma.product.findFirst({
+      where: { reference: refFromHeader },
+      include: productInclude,
+    });
+    if (!product) return NOT_FOUND;
+    return NextResponse.json({ product: shapeProduct(product) });
+  }
+
+  // Sinon : liste paginée, avec filtre statut optionnel.
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const perPageRaw = parseInt(searchParams.get("perPage") ?? String(PER_PAGE), 10);
   const perPage = Math.min(MAX_PER_PAGE, Math.max(1, isNaN(perPageRaw) ? PER_PAGE : perPageRaw));
-  const reference = searchParams.get("reference")?.trim() ?? "";
   const statusFilterRaw = searchParams.get("status")?.trim().toLowerCase() ?? "";
   const statusFilter = STATUS_FILTER_MAP[statusFilterRaw];
 
   const where = {
-    ...(reference && { reference }),
     ...(statusFilter?.status && { status: statusFilter.status }),
     ...(statusFilter?.isIncomplete !== undefined && { isIncomplete: statusFilter.isIncomplete }),
   };
@@ -195,13 +196,14 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  const shaped = products.map((p) => shapeProduct(request, p));
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   return NextResponse.json({
     page,
     perPage,
     total,
-    hasMore: page * perPage < total,
-    products: shaped,
+    totalPages,
+    hasMore: page < totalPages,
+    products: products.map(shapeProduct),
   });
 }
