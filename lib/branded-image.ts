@@ -93,11 +93,15 @@ function buildBadgeSvg(
   );
 
   const headerFontSize = Math.max(8, Math.round(badgeWidth * p.headerFontPct));
-  const codeFontSize = Math.max(12, Math.round(badgeWidth * p.codeFontPct));
+  // Police « naturelle » calculée à partir de la largeur du badge. Sert de
+  // plafond ET de base pour la hauteur du bloc code — on garde la hauteur
+  // constante quelle que soit la longueur de la référence pour que deux
+  // vignettes côte à côte restent visuellement homogènes.
+  const naturalCodeFontSize = Math.max(12, Math.round(badgeWidth * p.codeFontPct));
   const headerPadY = Math.max(3, Math.round(headerFontSize * p.headerPadYPct));
-  const codePadY = Math.max(4, Math.round(codeFontSize * p.codePadYPct));
+  const codePadY = Math.max(4, Math.round(naturalCodeFontSize * p.codePadYPct));
   const headerHeight = headerFontSize + headerPadY * 2;
-  const codeHeight = codeFontSize + codePadY * 2;
+  const codeHeight = naturalCodeFontSize + codePadY * 2;
   const badgeHeight = headerHeight + codeHeight;
   const cornerRadius = p.cornerRadius;
 
@@ -110,6 +114,22 @@ function buildBadgeSvg(
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+
+  // Auto-fit horizontal du code pour éviter le débordement sur les longues
+  // références (« PRT-OREILLE174 »…). En monospace (Consolas/Courier New),
+  // chaque glyphe occupe ~0.6 × font-size. On calcule la police max qui tient
+  // dans la largeur disponible (badge moins padding horizontal de 4 %) et on
+  // prend le min avec la police naturelle. Plancher à 9 px pour rester lisible.
+  const padX = Math.max(8, Math.round(badgeWidth * 0.04));
+  const availableTextWidth = Math.max(1, badgeWidth - 2 * padX);
+  const MONO_CHAR_WIDTH_RATIO = 0.6;
+  const maxCodeFontFromLength = Math.floor(
+    availableTextWidth / (Math.max(1, reference.length) * MONO_CHAR_WIDTH_RATIO),
+  );
+  const codeFontSize = Math.max(
+    9,
+    Math.min(naturalCodeFontSize, maxCodeFontFromLength),
+  );
 
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${badgeWidth}" height="${badgeHeight}" viewBox="0 0 ${badgeWidth} ${badgeHeight}">
@@ -252,12 +272,17 @@ export async function composeBrandedBuffer(
  *   v5 → badge agrandi + profils "standard"/"large" : Ankorstore push "large"
  *        car ses vignettes de liste descendent à ~130px où le badge historique
  *        (28% width) devenait illisible. (2026-07-30)
+ *   v6 → auto-fit horizontal du code : la police du bloc référence se réduit
+ *        automatiquement pour tenir dans la largeur du badge quand la
+ *        référence est longue (fix débordement « PRT-OREILLE174 »). Hauteur
+ *        du badge inchangée pour rester homogène entre vignettes.
+ *        (2026-08-06)
  *
  * Exposée pour que `buildBrandedUrl` inclue le suffixe `&v=…` dans l'URL —
  * les navigateurs revoient alors une URL différente au bump et refetch
  * immédiatement sans attendre l'expiration du Cache-Control.
  */
-export const BADGE_TEMPLATE_VERSION = "v5";
+export const BADGE_TEMPLATE_VERSION = "v6";
 
 /**
  * Hash tronqué qui identifie une combinaison

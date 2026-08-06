@@ -106,6 +106,47 @@ describe("buildBadgeSvg", () => {
     expect(svg).toContain('id="headerGrad"');
     expect(svg).toContain('id="codeGrad"');
   });
+
+  it("auto-fit : les longues références (14 chars) tiennent dans le badge", () => {
+    // Bug 2026-08-06 : « PRT-OREILLE174 » débordait à droite du cadre.
+    for (const imageWidth of [400, 800, 1200, 2000]) {
+      for (const variant of ["standard", "large"] as const) {
+        const badge = buildBadgeSvg("PRT-OREILLE174", imageWidth, variant);
+        const svg = badge.svg.toString();
+        const badgeWidth = Number(svg.match(/<svg[^>]*width="(\d+)"/)?.[1]);
+        // 2e font-size = bloc code référence
+        const fontSizes = [...svg.matchAll(/font-size="(\d+)"/g)].map((m) => Number(m[1]));
+        const codeFontSize = fontSizes[1]!;
+        // Largeur estimée du texte en monospace (0.6 × font-size par char).
+        const estimatedTextWidth = 14 * codeFontSize * 0.6;
+        // Doit tenir dans le badge avec un peu de marge (padding ~4 % × 2).
+        const padTolerance = badgeWidth * 0.08;
+        expect(estimatedTextWidth).toBeLessThanOrEqual(badgeWidth - padTolerance);
+      }
+    }
+  });
+
+  it("auto-fit : les courtes références gardent la police naturelle (grande)", () => {
+    // On ne veut PAS écraser inutilement les refs courtes — seule la police
+    // du bloc code doit rétrécir quand c'est nécessaire.
+    const shortBadge = buildBadgeSvg("R1", 1000, "standard");
+    const longBadge = buildBadgeSvg("PRT-OREILLE174", 1000, "standard");
+    const shortCodeFont = Number(
+      [...shortBadge.svg.toString().matchAll(/font-size="(\d+)"/g)][1]![1],
+    );
+    const longCodeFont = Number(
+      [...longBadge.svg.toString().matchAll(/font-size="(\d+)"/g)][1]![1],
+    );
+    expect(shortCodeFont).toBeGreaterThan(longCodeFont);
+  });
+
+  it("auto-fit : hauteur du badge inchangée entre ref courte et ref longue (homogénéité visuelle)", () => {
+    const shortBadge = buildBadgeSvg("R1", 1000, "standard");
+    const longBadge = buildBadgeSvg("PRT-OREILLE174-XL", 1000, "standard");
+    const shortHeight = Number(shortBadge.svg.toString().match(/<svg[^>]*height="(\d+)"/)?.[1]);
+    const longHeight = Number(longBadge.svg.toString().match(/<svg[^>]*height="(\d+)"/)?.[1]);
+    expect(shortHeight).toBe(longHeight);
+  });
 });
 
 describe("composeBrandedBuffer (minWidth)", () => {
