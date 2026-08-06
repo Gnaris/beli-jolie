@@ -71,6 +71,15 @@ vi.mock("@/lib/efashion-api", async () => {
 vi.mock("@/lib/efashion-update", () => ({
   efashionUpdateProductInPlace: efashionUpdateProductInPlaceMock,
 }));
+// Fix double stock 2026-08-06 : `linkEfashionProductManually` appelle en fin
+// de flow `cleanupOrphanEfashionStocks` pour nettoyer les lignes stock
+// fantômes avant la sync. On no-op le helper — sa logique est testée
+// séparément dans __tests__/lib/efashion-orphan-stocks.test.ts.
+vi.mock("@/lib/efashion-orphan-stocks", () => ({
+  cleanupOrphanEfashionStocks: vi
+    .fn()
+    .mockResolvedValue({ plans: [], deletedCount: 0, failedCount: 0 }),
+}));
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next-auth", () => ({ getServerSession: getServerSessionMock }));
 vi.mock("next/cache", () => ({

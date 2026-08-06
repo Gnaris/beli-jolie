@@ -31,12 +31,10 @@ import { prisma } from "@/lib/prisma";
 import {
   efashionGetMe,
   efashionListByReferenceBaseExact,
-  efashionListProduitStocks,
   type EfashionProductListItem,
-  type EfashionProduitStock,
 } from "@/lib/efashion-api";
-import { efashionRemoveProduitStock } from "@/lib/efashion-api-write";
 import { efashionUpdateProductInPlace } from "@/lib/efashion-update";
+import { cleanupOrphanEfashionStocks } from "@/lib/efashion-orphan-stocks";
 import { bindTenantId } from "@/lib/tenant-als";
 
 interface CliArgs {
@@ -119,7 +117,9 @@ async function main() {
   console.log(`📦 ${product.reference} — ${product.name}`);
   console.log(`   efashionReferenceBase = ${product.efashionReferenceBase}\n`);
 
-  // 1) Lit les ProductColor UNIT liées à eFashion + Color.efashionColorId global.
+  // 1) Lit les ProductColor UNIT liées à eFashion + Color.efashionColorId global
+  //    (uniquement pour détecter les mismatches d'override — le nettoyage des
+  //    lignes stock orphelines est délégué au helper `cleanupOrphanEfashionStocks`).
   const productColors = await prisma.productColor.findMany({
     where: {
       productId: product.id,
@@ -132,7 +132,6 @@ async function main() {
       efashionProductId: true,
       efashionColorIdOverride: true,
       color: { select: { id: true, name: true, efashionColorId: true } },
-      variantSizes: { select: { size: { select: { name: true } } } },
     },
   });
 
@@ -154,15 +153,12 @@ async function main() {
   );
   console.log(`   ${efItems.length} ligne(s) eFashion trouvée(s) pour cette référence.\n`);
 
-  // 3) Lit les lignes stock détaillées de chaque id_produit eFashion — c'est
-  // la vraie source pour identifier les lignes orphelines à supprimer (chaque
-  // ligne a un `id_produit_stock` unique qu'on peut cibler avec removeProduitStock).
-  const stocksByProductId = new Map<number, EfashionProduitStock[]>();
-  for (const efProductId of new Set(efItems.map((it) => it.id_produit))) {
-    stocksByProductId.set(efProductId, await efashionListProduitStocks(efProductId));
-  }
+  // 3) Analyse les lignes stock orphelines via le helper partagé (dry-run).
+  const cleanupPreview = await cleanupOrphanEfashionStocks(product.id, false);
+  const orphansByEfId = new Map(cleanupPreview.plans.map((p) => [p.efProductId, p]));
 
-  // 4) Pour chaque ProductColor, détecte le mismatch et planifie l'action.
+  // 4) Pour chaque ProductColor, détecte le mismatch d'override et regroupe
+  //    avec les orphelines déjà analysées.
   interface Plan {
     productColorId: string;
     colorName: string;
@@ -171,9 +167,7 @@ async function main() {
     efActualId: number;
     currentOverride: number | null;
     needsOverride: boolean;
-    /** Lignes stock côté eFashion qui pointent sur un mauvais id_couleur
-     * (à supprimer via removeProduitStock). */
-    orphanStockLines: EfashionProduitStock[];
+    orphanCount: number;
   }
   const plans: Plan[] = [];
 
@@ -190,10 +184,7 @@ async function main() {
     const efActualId = efLine.id_couleur;
     const currentEffective = pc.efashionColorIdOverride ?? globalBjId ?? null;
     const needsOverride = currentEffective !== efActualId;
-    // Toutes les lignes stock qui n'ont pas le bon id_couleur = orphelines,
-    // quel que soit leur libellé de taille (null, "TU", "Taille unique"…).
-    const allStocks = stocksByProductId.get(pc.efashionProductId) ?? [];
-    const orphanStockLines = allStocks.filter((s) => s.id_couleur !== efActualId);
+    const orphanEntry = orphansByEfId.get(pc.efashionProductId);
 
     plans.push({
       productColorId: pc.id,
@@ -203,7 +194,7 @@ async function main() {
       efActualId,
       currentOverride: pc.efashionColorIdOverride,
       needsOverride,
-      orphanStockLines,
+      orphanCount: orphanEntry?.orphanLines.length ?? 0,
     });
   }
 
@@ -223,12 +214,13 @@ async function main() {
     } else {
       console.log("    ✅ id_couleur cohérent (pas de mismatch).");
     }
-    if (p.orphanStockLines.length > 0) {
+    if (p.orphanCount > 0) {
       anyChange = true;
+      const orphanEntry = orphansByEfId.get(p.efProductId)!;
       console.log(
-        `    ↳ ${p.orphanStockLines.length} ligne(s) stock orpheline(s) à SUPPRIMER :`,
+        `    ↳ ${p.orphanCount} ligne(s) stock orpheline(s) à SUPPRIMER :`,
       );
-      for (const s of p.orphanStockLines) {
+      for (const s of orphanEntry.orphanLines) {
         console.log(
           `        - id_produit_stock=${s.id_produit_stock} (id_couleur=${s.id_couleur}, taille=${s.taille ?? "null"}, value=${s.value})`,
         );
@@ -246,10 +238,10 @@ async function main() {
     return;
   }
 
-  // 6) Applique.
+  // 6) Applique : pose les overrides manquants, puis délègue la suppression
+  //    des lignes stock orphelines au helper (même logique qu'en préventif).
   console.log("\n🚀 Application du rattrapage…\n");
   for (const p of plans) {
-    // 6a) Pose l'override sur la ProductColor si nécessaire.
     if (p.needsOverride) {
       await prisma.productColor.update({
         where: { id: p.productColorId },
@@ -259,23 +251,12 @@ async function main() {
         `   ✏️  ProductColor ${p.productColorId} → override=${p.efActualId}`,
       );
     }
-
-    // 6b) Supprime définitivement chaque ligne stock orpheline (removeProduitStock).
-    // Contrairement à upsertProduitStock(value=0), ça retire la ligne pour
-    // qu'elle ne s'affiche plus dans l'UI eFashion avec un stock=0 fantôme.
-    for (const s of p.orphanStockLines) {
-      try {
-        await efashionRemoveProduitStock(s.id_produit_stock);
-        console.log(
-          `      🗑️  ligne stock supprimée : id_produit_stock=${s.id_produit_stock} (id_couleur=${s.id_couleur}, taille=${s.taille ?? "null"})`,
-        );
-      } catch (err) {
-        console.log(
-          `      ⚠️  removeProduitStock(${s.id_produit_stock}) KO : ${err instanceof Error ? err.message : err}`,
-        );
-      }
-    }
   }
+  const cleanupResult = await cleanupOrphanEfashionStocks(product.id, true);
+  console.log(
+    `   🗑️  ${cleanupResult.deletedCount} ligne(s) stock supprimée(s) ` +
+      `(${cleanupResult.failedCount} échec(s)).`,
+  );
 
   // 7) Reset snapshot + relance la sync eFashion pour re-pousser le stock sur
   // le bon id_couleur. Prisma.DbNull car le champ est Json?.

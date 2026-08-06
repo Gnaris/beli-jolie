@@ -671,6 +671,21 @@ export async function linkEfashionProductManually(
       }
     }
 
+    // Nettoyage préventif des lignes stock orphelines côté eFashion. Sans ce
+    // pass, si les produits eFashion cibles avaient déjà du stock sur un
+    // id_couleur différent (mapping BJ obsolète, ligne manuelle via UI eFashion),
+    // le upsert de la sync qui suit CRÉE une 2ᵉ ligne → double stock affiché.
+    // Best-effort : si l'analyse échoue, on log et on continue la sync.
+    try {
+      const { cleanupOrphanEfashionStocks } = await import("@/lib/efashion-orphan-stocks");
+      await cleanupOrphanEfashionStocks(productId, true);
+    } catch (err) {
+      logger.warn("[eFashion] Cleanup orphan stocks failed (non-blocking)", {
+        productId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // Sync auto post-liaison : on pousse immédiatement stock + prix + visibilité
     // vers eFashion pour aligner les 2 côtés sans étape manuelle. C'est aussi
     // cette sync qui crée automatiquement côté eFashion les couleurs locales
