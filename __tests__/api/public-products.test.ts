@@ -40,6 +40,7 @@ const productRow = {
   id: "prod-1",
   reference: "BJ-1234",
   status: "ONLINE",
+  isIncomplete: false,
   name: "Bague acier or",
   description: "Une jolie bague",
   countryIsoCode: "CN",
@@ -119,7 +120,7 @@ describe("GET /api/public/products", () => {
 
     const p = body.products[0];
     expect(p.reference).toBe("BJ-1234");
-    expect(p.status).toBe("ONLINE");
+    expect(p.status).toBe("En ligne");
     expect(p.name).toBe("Bague acier or");
     expect(p.description).toBe("Une jolie bague");
     expect(p.category).toBe("Bague");
@@ -188,14 +189,72 @@ describe("GET /api/public/products", () => {
     expect(args?.where).toMatchObject({ reference: "BJ-9999" });
   });
 
-  it("filtre par statut quand ?status=ARCHIVED", async () => {
+  it("filtre par statut quand ?status=archive", async () => {
     vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
     vi.mocked(prisma.product.count).mockResolvedValue(0);
     vi.mocked(prisma.product.findMany).mockResolvedValue([]);
 
-    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=archived", "kebab"));
+    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=archive", "kebab"));
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
     expect(args?.where).toMatchObject({ status: "ARCHIVED" });
+  });
+
+  it("filtre par brouillon = OFFLINE + isIncomplete true", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([]);
+
+    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=brouillon", "kebab"));
+    const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
+    expect(args?.where).toMatchObject({ status: "OFFLINE", isIncomplete: true });
+  });
+
+  it("filtre hors-ligne exclut les brouillons (isIncomplete false)", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(0);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([]);
+
+    await GET(makeRequest("https://beliandjolie.com/api/public/products?status=hors-ligne", "kebab"));
+    const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
+    expect(args?.where).toMatchObject({ status: "OFFLINE", isIncomplete: false });
+  });
+
+  it("renvoie 'Brouillon' pour OFFLINE + isIncomplete true", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(1);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([
+      { ...productRow, status: "OFFLINE", isIncomplete: true },
+    ] as never);
+
+    const res = await GET(makeRequest(undefined, "kebab"));
+    const body = await res.json();
+    expect(body.products[0].status).toBe("Brouillon");
+  });
+
+  it("renvoie 'Hors ligne' pour OFFLINE + isIncomplete false", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(1);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([
+      { ...productRow, status: "OFFLINE", isIncomplete: false },
+    ] as never);
+
+    const res = await GET(makeRequest(undefined, "kebab"));
+    const body = await res.json();
+    expect(body.products[0].status).toBe("Hors ligne");
+  });
+
+  it("renvoie 'Archivé' / 'En synchronisation' selon status", async () => {
+    vi.mocked(getCurrentTenant).mockResolvedValue(beliTenant);
+    vi.mocked(prisma.product.count).mockResolvedValue(2);
+    vi.mocked(prisma.product.findMany).mockResolvedValue([
+      { ...productRow, status: "ARCHIVED" },
+      { ...productRow, status: "SYNCING" },
+    ] as never);
+
+    const res = await GET(makeRequest(undefined, "kebab"));
+    const body = await res.json();
+    expect(body.products[0].status).toBe("Archivé");
+    expect(body.products[1].status).toBe("En synchronisation");
   });
 
   it("ignore un statut invalide (renvoie tous les statuts)", async () => {
@@ -206,6 +265,7 @@ describe("GET /api/public/products", () => {
     await GET(makeRequest("https://beliandjolie.com/api/public/products?status=nimportequoi", "kebab"));
     const args = vi.mocked(prisma.product.findMany).mock.calls[0][0];
     expect(args?.where).not.toHaveProperty("status");
+    expect(args?.where).not.toHaveProperty("isIncomplete");
   });
 
   it("pagine avec perPage plafonné à 200", async () => {

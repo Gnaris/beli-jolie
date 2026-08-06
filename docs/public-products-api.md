@@ -25,7 +25,7 @@ Liste paginée des produits.
 | `page`      | int    | `1`    | Numéro de page (démarre à 1).                                     |
 | `perPage`   | int    | `50`   | Produits par page. Plafond : `200`.                               |
 | `reference` | string | —      | Filtre exact sur la référence (ex : `BJ-1234`).                   |
-| `status`    | string | —      | Filtre : `ONLINE`, `OFFLINE`, `ARCHIVED`, `SYNCING`. Sinon tous.  |
+| `status`    | string | —      | Filtre par statut. Valeurs : `en-ligne`, `hors-ligne`, `brouillon`, `archive`, `synchronisation`. Sinon tous. |
 
 ### Exemples
 
@@ -37,7 +37,10 @@ curl -H "X-API-Key: kebab" https://beliandjolie.com/api/public/products
 curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?reference=BJ-1234"
 
 # Uniquement les produits en ligne, 100 par page
-curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=ONLINE&perPage=100"
+curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=en-ligne&perPage=100"
+
+# Uniquement les brouillons (produits incomplets non publiés)
+curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=brouillon"
 ```
 
 ### Réponse
@@ -51,7 +54,7 @@ curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=
   "products": [
     {
       "reference": "BJ-1234",
-      "status": "ONLINE",
+      "status": "En ligne",
       "name": "Bague acier or fine",
       "description": "…",
       "category": "Bague",
@@ -93,7 +96,7 @@ curl -H "X-API-Key: kebab" "https://beliandjolie.com/api/public/products?status=
 
 ### Champs
 
-- `status` : état du produit dans l'admin (`ONLINE`, `OFFLINE`, `ARCHIVED`, `SYNCING`).
+- `status` : état du produit — `"En ligne"`, `"Hors ligne"`, `"Brouillon"`, `"Archivé"`, `"En synchronisation"`. Un **Brouillon** = produit hors ligne dont il manque des infos (prix, photo, poids…).
 - `dimensions` : en millimètres, `null` si non renseigné.
 - `composition[].percent` : pourcentage (ex : `100` pour 100 %).
 - `colors[].imageUrl` : URL absolue de l'image représentant la couleur (motif prioritaire, sinon 1ʳᵉ photo).

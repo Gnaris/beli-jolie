@@ -8,6 +8,33 @@ const ALLOWED_TENANT_SLUG = "beliandjolie";
 const PER_PAGE = 50;
 const MAX_PER_PAGE = 200;
 
+type ProductStatusFr =
+  | "En ligne"
+  | "Hors ligne"
+  | "Brouillon"
+  | "Archivé"
+  | "En synchronisation";
+
+function toStatusFr(status: string, isIncomplete: boolean): ProductStatusFr {
+  if (status === "ONLINE") return "En ligne";
+  if (status === "OFFLINE" && isIncomplete) return "Brouillon";
+  if (status === "OFFLINE") return "Hors ligne";
+  if (status === "ARCHIVED") return "Archivé";
+  return "En synchronisation";
+}
+
+// Filtre `?status=` : slug URL-friendly → { status, isIncomplete? }
+const STATUS_FILTER_MAP: Record<
+  string,
+  { status?: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING"; isIncomplete?: boolean }
+> = {
+  "en-ligne": { status: "ONLINE" },
+  "hors-ligne": { status: "OFFLINE", isIncomplete: false },
+  brouillon: { status: "OFFLINE", isIncomplete: true },
+  archive: { status: "ARCHIVED" },
+  synchronisation: { status: "SYNCING" },
+};
+
 const UNAUTHORIZED = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 const NOT_FOUND = NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -126,7 +153,7 @@ function shapeProduct(
 
   return {
     reference: p.reference,
-    status: p.status,
+    status: toStatusFr(p.status, p.isIncomplete ?? false),
     name: p.name,
     description: p.description,
     category: p.category?.name ?? null,
@@ -148,14 +175,13 @@ export async function GET(request: NextRequest) {
   const perPageRaw = parseInt(searchParams.get("perPage") ?? String(PER_PAGE), 10);
   const perPage = Math.min(MAX_PER_PAGE, Math.max(1, isNaN(perPageRaw) ? PER_PAGE : perPageRaw));
   const reference = searchParams.get("reference")?.trim() ?? "";
-  const statusFilter = searchParams.get("status")?.trim().toUpperCase() ?? "";
-  const ALLOWED_STATUSES = new Set(["OFFLINE", "ONLINE", "ARCHIVED", "SYNCING"]);
+  const statusFilterRaw = searchParams.get("status")?.trim().toLowerCase() ?? "";
+  const statusFilter = STATUS_FILTER_MAP[statusFilterRaw];
 
   const where = {
     ...(reference && { reference }),
-    ...(statusFilter && ALLOWED_STATUSES.has(statusFilter)
-      ? { status: statusFilter as "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING" }
-      : {}),
+    ...(statusFilter?.status && { status: statusFilter.status }),
+    ...(statusFilter?.isIncomplete !== undefined && { isIncomplete: statusFilter.isIncomplete }),
   };
 
   const [total, products] = await Promise.all([
