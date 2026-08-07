@@ -42,8 +42,18 @@ import {
   type SizeEntryInput,
 } from "@/lib/product-variant-validation";
 import { normalizeMicrostoreSubCategoryId } from "@/lib/microstore-subcategory";
-import { validateOverridesNotMatchingPrincipal } from "@/lib/pfs-color-conflicts";
-import { validateEfashionOverridesNotMatchingPrincipal } from "@/lib/efashion-color-conflicts";
+import {
+  validateOverridesNotMatchingPrincipal,
+  detectPfsColorConflicts,
+  formatConflictsMessage,
+  type VariantColorRefInput,
+} from "@/lib/pfs-color-conflicts";
+import {
+  validateEfashionOverridesNotMatchingPrincipal,
+  detectEfashionColorConflicts,
+  formatEfashionConflictsMessage,
+  type EfashionVariantColorRefInput,
+} from "@/lib/efashion-color-conflicts";
 import {
   isProtectedSizeName,
   isProtectedSizeVirtualId,
@@ -322,6 +332,142 @@ async function validateEfashionColorOverridesOrThrow(colors: ColorInput[]): Prom
   );
 }
 
+/**
+ * Refuse d'enregistrer le produit si deux couleurs différentes finissent par
+ * pointer sur le même mapping PFS effectif (mapping principal de la couleur OU
+ * override secondaire). Détecte la collision quel que soit le combo :
+ *  - principal A vs principal B (deux fiches couleur mal mappées en biblio)
+ *  - principal A vs override B (override qui écrase mais tape sur autre chose)
+ *  - override A vs override B
+ * Deux variantes/lignes de pack pointant sur la MÊME couleur BJ ne comptent
+ * pas comme un conflit (c'est juste la même couleur réutilisée).
+ * Throw un message clair listant les couleurs incriminées. Utilisé par
+ * create/updateProduct.
+ */
+async function assertNoPfsMappingConflictsOrThrow(colors: ColorInput[]): Promise<void> {
+  const colorIds = new Set<string>();
+  for (const c of colors) {
+    if (c.colorId) colorIds.add(c.colorId);
+    if (c.packLines) {
+      for (const pl of c.packLines) {
+        if (pl.colorId) colorIds.add(pl.colorId);
+      }
+    }
+  }
+  if (colorIds.size < 2) return;
+
+  const rows = await prisma.color.findMany({
+    where: { id: { in: [...colorIds] } },
+    select: { id: true, name: true, pfsColorRef: true },
+  });
+  const colorById = new Map(rows.map((r) => [r.id, r]));
+
+  const items: VariantColorRefInput[] = [];
+  let idx = 0;
+  for (const c of colors) {
+    if (c.colorId) {
+      const color = colorById.get(c.colorId);
+      if (color) {
+        items.push({
+          key: `v${idx}`,
+          colorId: c.colorId,
+          label: color.name,
+          principalRef: color.pfsColorRef,
+          overrideRef: normalizeOverride(c.pfsColorRefOverride),
+        });
+      }
+    }
+    if (c.packLines) {
+      for (const [plIdx, pl] of c.packLines.entries()) {
+        if (!pl.colorId) continue;
+        const color = colorById.get(pl.colorId);
+        if (!color) continue;
+        items.push({
+          key: `v${idx}-pl${plIdx}`,
+          colorId: pl.colorId,
+          label: color.name,
+          principalRef: color.pfsColorRef,
+          overrideRef: normalizeOverride(pl.pfsColorRefOverride),
+        });
+      }
+    }
+    idx += 1;
+  }
+
+  const conflicts = detectPfsColorConflicts(items);
+  if (conflicts.length > 0) {
+    throw new Error(
+      formatConflictsMessage(conflicts) +
+        " Modifiez le mapping secondaire depuis la section « Mapping Marketplaces » pour lever le conflit.",
+    );
+  }
+}
+
+/**
+ * Miroir eFashion de `assertNoPfsMappingConflictsOrThrow`. eFashion crée un
+ * « produit » par couleur — deux couleurs BJ qui pointent sur le même
+ * `efashionColorId` déclenchent une collision côté marketplace. On bloque au
+ * save pour ne jamais laisser un produit dans cet état invalide.
+ */
+async function assertNoEfashionMappingConflictsOrThrow(colors: ColorInput[]): Promise<void> {
+  const colorIds = new Set<string>();
+  for (const c of colors) {
+    if (c.colorId) colorIds.add(c.colorId);
+    if (c.packLines) {
+      for (const pl of c.packLines) {
+        if (pl.colorId) colorIds.add(pl.colorId);
+      }
+    }
+  }
+  if (colorIds.size < 2) return;
+
+  const rows = await prisma.color.findMany({
+    where: { id: { in: [...colorIds] } },
+    select: { id: true, name: true, efashionColorId: true },
+  });
+  const colorById = new Map(rows.map((r) => [r.id, r]));
+
+  const items: EfashionVariantColorRefInput[] = [];
+  let idx = 0;
+  for (const c of colors) {
+    if (c.colorId) {
+      const color = colorById.get(c.colorId);
+      if (color) {
+        items.push({
+          key: `v${idx}`,
+          colorId: c.colorId,
+          label: color.name,
+          principalId: color.efashionColorId,
+          overrideId: normalizeEfashionOverride(c.efashionColorIdOverride),
+        });
+      }
+    }
+    if (c.packLines) {
+      for (const [plIdx, pl] of c.packLines.entries()) {
+        if (!pl.colorId) continue;
+        const color = colorById.get(pl.colorId);
+        if (!color) continue;
+        items.push({
+          key: `v${idx}-pl${plIdx}`,
+          colorId: pl.colorId,
+          label: color.name,
+          principalId: color.efashionColorId,
+          overrideId: normalizeEfashionOverride(pl.efashionColorIdOverride),
+        });
+      }
+    }
+    idx += 1;
+  }
+
+  const conflicts = detectEfashionColorConflicts(items);
+  if (conflicts.length > 0) {
+    throw new Error(
+      formatEfashionConflictsMessage(conflicts) +
+        " Modifiez le mapping secondaire depuis la section « Mapping Marketplaces » pour lever le conflit.",
+    );
+  }
+}
+
 // ─────────────────────────────────────────────
 // SKU assignment for all variants of a product
 // ─────────────────────────────────────────────
@@ -429,6 +575,10 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   await validatePfsColorOverridesOrThrow(input.colors);
   // Idem pour les overrides eFashion.
   await validateEfashionColorOverridesOrThrow(input.colors);
+  // Blocage inter-couleurs : deux couleurs distinctes ne peuvent pas partager
+  // le même mapping PFS/eFashion effectif (que ce soit via principal ou override).
+  await assertNoPfsMappingConflictsOrThrow(input.colors);
+  await assertNoEfashionMappingConflictsOrThrow(input.colors);
 
   // Garantir une seule variante primaire avant l'écriture en BDD
   input = { ...input, colors: normalizePrimaryFlag(input.colors) };

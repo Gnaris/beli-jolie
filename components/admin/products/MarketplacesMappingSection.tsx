@@ -33,6 +33,10 @@ import {
   effectiveEfashionColorId,
   type EfashionVariantColorRefInput,
 } from "@/lib/efashion-color-conflicts";
+import {
+  detectFreeTextColorConflicts,
+  type FreeTextColorInput,
+} from "@/lib/free-text-color-conflicts";
 
 type Target = { variantTempId: string; packLineTempId?: string };
 
@@ -492,6 +496,7 @@ function PfsSubSection({
                     onChange={(v) => onChangeOverride(r.targets, v ? v : null)}
                     options={selectOptions}
                     placeholder="— (utiliser le mapping principal)"
+                    searchable
                   />
                 )}
               </div>
@@ -678,6 +683,7 @@ function EfashionSubSection({
                     }}
                     options={selectOptions}
                     placeholder="— (utiliser le mapping principal)"
+                    searchable
                   />
                 )}
               </div>
@@ -757,6 +763,24 @@ function FreeTextSubSection({
 
   const linkedCount = rows.filter((r) => r.isLinked).length;
 
+  const conflicts = useMemo(() => {
+    const items: FreeTextColorInput[] = rows.map((r) => ({
+      key: r.groupKey,
+      colorId: r.groupKey,
+      colorName: r.colorName,
+      overrideName: r.overrideName,
+    }));
+    return detectFreeTextColorConflicts(items);
+  }, [rows]);
+
+  const groupKeysInConflict = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of conflicts) for (const e of c.entries) if (e.colorId) s.add(e.colorId);
+    return s;
+  }, [conflicts]);
+
+  const marketplaceLabel = marketplace === "ankor" ? "Ankorstore" : "Faire";
+
   return (
     <section className={border ? "border-b border-border" : ""}>
       <SubHeader
@@ -766,13 +790,32 @@ function FreeTextSubSection({
         linkedCount={linkedCount}
         totalCount={rows.length}
       />
+
+      {conflicts.length > 0 && (
+        <div className="mx-4 sm:mx-6 mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-[13px] font-semibold text-amber-800 font-body mb-1.5">
+            ⚠ Conflit{conflicts.length > 1 ? "s" : ""} de nom {marketplaceLabel}
+          </p>
+          <ul className="text-xs text-amber-800 font-body space-y-1">
+            {conflicts.map((c, i) => (
+              <li key={i}>
+                {c.entries.map((e) => `« ${e.colorName} »`).join(" et ")} enverraient toutes le
+                même nom <span className="font-semibold">« {c.displayName} »</span> (la casse
+                ne compte pas).
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <TableHeader label3rdCol="Nom secondaire (facultatif)" />
       <div className="divide-y divide-border">
         {rows.map((r) => {
+          const inConflict = groupKeysInConflict.has(r.groupKey);
           const fallbackColorLabel = (r.overrideName?.trim() || r.colorName).trim();
           const liveColorLabel = r.variantId ? liveColorLabels[r.variantId] ?? null : null;
           return (
-            <div key={r.groupKey} className="grid grid-cols-12 gap-2 items-center px-4 sm:px-6 py-3">
+            <div key={r.groupKey} className={`grid grid-cols-12 gap-2 items-center px-4 sm:px-6 py-3 ${inConflict ? "bg-amber-50/60" : ""}`}>
               <div className="col-span-3 flex items-center gap-2 min-w-0 flex-wrap">
                 <ColorSwatch hex={r.colorHex} size={20} rounded="full" border />
                 <span className="text-[13px] font-body text-text-primary truncate">
@@ -809,7 +852,11 @@ function FreeTextSubSection({
                     onChangeOverride(r.targets, trimmed.length > 0 ? raw : null);
                   }}
                   placeholder={`ex: ${r.colorName === "Doré" ? "Or" : "Autre nom"} (laisser vide = « ${r.colorName} »)`}
-                  className="w-full text-[13px] font-body border border-border rounded-lg px-3 py-2 bg-bg-primary text-text-primary placeholder:text-text-muted focus:border-border-dark focus:outline-none"
+                  className={`w-full text-[13px] font-body border rounded-lg px-3 py-2 bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none ${
+                    inConflict
+                      ? "border-amber-400 focus:border-amber-500"
+                      : "border-border focus:border-border-dark"
+                  }`}
                 />
               </div>
             </div>

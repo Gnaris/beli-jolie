@@ -206,10 +206,11 @@ describe("comparePfsProduct", () => {
     });
   });
 
-  it("détecte un écart de composition (compo BJ orpheline sans équivalent PFS)", () => {
-    // Local a 2 compos (Laiton + Zircon), PFS n'a que Laiton. La compo
-    // "Zircon" est orpheline → on remonte un blocage qui demande de la
-    // corriger côté catalogue local (aucune auto-création dans PFS).
+  it("compo BJ orpheline uniquement (PFS = source de vérité) → écart pullable, pas de blocage mapping", () => {
+    // Local a 2 compos (Laiton + Zircon), PFS n'a que Laiton. Chaque matière
+    // PFS trouve son équivalent local, mais Zircon reste orpheline côté BJ.
+    // Depuis 2026-08-07, on ne bloque plus : le pull « Corriger depuis PFS »
+    // remplacera la compo par celle de PFS (Laiton seul) et retirera Zircon.
     const local = makeLocalProduct({
       compositions: [
         { percentage: 80, composition: { pfsCompositionRef: "LAITON", name: "Laiton" } },
@@ -227,10 +228,13 @@ describe("comparePfsProduct", () => {
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     const compo = issues.find((i) => i.field === "composition");
     expect(compo).toBeDefined();
-    expect(compo?.expectedValue).toContain("Zircon");
-    expect(compo?.expectedValue).toContain("Sans équivalent PFS");
+    // Écart pullable normal : les 2 valeurs sont affichées côte à côte, sans
+    // blocage mapping et sans pullBlocked (le pull retire les extras).
     expect(compo?.pfsValue).toBe("LAITON 100%");
-    expect(compo?.blockingMappingIssue).toContain("Zircon");
+    expect(compo?.expectedValue).toContain("Laiton");
+    expect(compo?.expectedValue).toContain("Zircon");
+    expect(compo?.blockingMappingIssue).toBeUndefined();
+    expect(compo?.pullBlocked).toBeUndefined();
   });
 
   it("détecte des écarts prix + stock sur une variante", () => {
@@ -414,6 +418,60 @@ describe("comparePfsProduct", () => {
     expect(heals).toEqual([]);
   });
 
+  it("ne bloque pas quand PFS est vide et BJ a plusieurs compos (pull retirera tout)", () => {
+    // Scénario reporté 2026-08-07 : PFS ne renvoie aucune composition (bug
+    // ou fiche mal remplie côté PFS) mais BJ a Élasthanne + Coton, tous deux
+    // avec leur mapping PFS. Avant, on affichait « MAPPING REQUIS » et on
+    // demandait de renseigner la référence PFS — trompeur (les mappings sont
+    // bons). Maintenant : écart pullable normal, le pull remplacera la compo
+    // BJ par celle de PFS (vide).
+    const local = makeLocalProduct({
+      compositions: [
+        { percentage: 95, composition: { id: "c-coton", pfsCompositionRef: "COTTON", name: "Coton" } },
+        { percentage: 5, composition: { id: "c-elast", pfsCompositionRef: "ELASTHANNE", name: "Élasthanne" } },
+      ],
+    });
+    const pfsProduct = makePfsProduct({ material_composition: [] });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const compoIssue = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP)
+      .find((i) => i.field === "composition");
+    expect(compoIssue).toBeDefined();
+    expect(compoIssue?.blockingMappingIssue).toBeUndefined();
+    expect(compoIssue?.pullBlocked).toBeUndefined();
+    expect(compoIssue?.pfsValue).toBe("(vide)");
+    expect(compoIssue?.expectedValue).toContain("Coton");
+    expect(compoIssue?.expectedValue).toContain("Élasthanne");
+  });
+
+  it("bloque quand PFS a une matière inconnue ET BJ a des orphelines (mentionne les 2)", () => {
+    // PFS a « CACHEMIRE » (inconnu de BJ) + « COTON ». BJ a « Coton » +
+    // « Laine » (Laine sans équivalent PFS). Cachemire déclenche le blocage
+    // (création requise), Laine est mentionnée à titre d'info seulement.
+    const local = makeLocalProduct({
+      compositions: [
+        { percentage: 80, composition: { id: "c-coton", pfsCompositionRef: "COTTON", name: "Coton" } },
+        { percentage: 20, composition: { id: "c-laine", pfsCompositionRef: "LAINE", name: "Laine" } },
+      ],
+    });
+    const pfsProduct = makePfsProduct({
+      material_composition: [
+        { id: "cm1", reference: "COTTON", percentage: 80, labels: { fr: "Coton" } },
+        { id: "cm2", reference: "CACHEMIRE", percentage: 20, labels: { fr: "Cachemire" } },
+      ],
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const compoIssue = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP)
+      .find((i) => i.field === "composition");
+    expect(compoIssue?.blockingMappingIssue).toContain("Cachemire");
+    expect(compoIssue?.blockingMappingIssue).toContain("créez-la");
+    expect(compoIssue?.expectedValue).toContain("Manque côté BJ : Cachemire");
+    expect(compoIssue?.expectedValue).toContain("En trop côté BJ : Laine");
+  });
+
   it("matche les variantes même si la casse/accents de la couleur diffèrent (Rose ↔ ROSE)", () => {
     // Local a « Rose » comme pfsColorRef, PFS renvoie « ROSE » — la même
     // variante. Avant normalizeColorRef, le match ratait et on obtenait un
@@ -585,9 +643,13 @@ describe("comparePfsProduct", () => {
     expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
   });
 
-  it("respecte la config out-of-stock pour le statut attendu (produit ONLINE mais tout en rupture → ARCHIVED attendu)", () => {
-    // Local ONLINE + toutes variantes stock=0 → attendu = ARCHIVED côté PFS
-    // (config par défaut). Si PFS est READY_FOR_SALE, on doit signaler l'écart.
+  it("ne signale pas d'écart statut quand local=ONLINE ↔ PFS=READY_FOR_SALE même si toutes les variantes locales sont à stock=0", () => {
+    // Bug reporté 2026-08-07 sur 13764-3 : depuis 2026-08-07, l'audit compare
+    // strictement `local.status` ↔ `pfs.status` sans facteur rupture. Sinon
+    // après un pull qui aligne BJ sur PFS (BJ passe OFFLINE→ONLINE), la carte
+    // productStatus persistait tant que les stocks locaux restaient à 0 →
+    // cliente pense que le pull n'a rien fait. L'auto-archive `allZero`
+    // continue de vivre côté PUSH (pfs-update / pfs-publish).
     const local = makeLocalProduct({
       colors: [
         makeLocalVariant({
@@ -608,10 +670,38 @@ describe("comparePfsProduct", () => {
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
       outOfStockProductAction: "archived",
     });
-    const statusIssue = issues.find((i) => i.field === "productStatus");
+    expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
+  });
+
+  it("signale toujours un écart quand local=OFFLINE ↔ PFS=READY_FOR_SALE (le pull ramènera BJ en ONLINE)", () => {
+    // Scénario 13764-3 : local OFFLINE, PFS en ligne. On veut voir l'écart
+    // pour que la cliente puisse cliquer « Corriger depuis PFS ». Après pull
+    // BJ passe ONLINE ; le test précédent garantit que la carte disparaît
+    // même si les stocks BJ restent à 0.
+    const local = makeLocalProduct({
+      status: "OFFLINE",
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 0,
+          weight: 0.02,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct({ status: "READY_FOR_SALE" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: false }),
+    ];
+    const statusIssue = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      outOfStockProductAction: "archived",
+    }).find((i) => i.field === "productStatus");
     expect(statusIssue).toBeDefined();
-    expect(statusIssue?.expectedValue).toBe("Archivé");
     expect(statusIssue?.pfsValue).toBe("En ligne");
+    expect(statusIssue?.expectedValue).toBe("Hors ligne (brouillon)");
   });
 
   it("fusionne les écarts catégorie + famille en un seul écart « Catégorie » avec libellés humains", () => {
@@ -863,7 +953,11 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(catIssue?.pullBlocked).toBeDefined();
   });
 
-  it("pose blockingMappingIssue quand une composition BJ n'a pas de pfsCompositionRef", () => {
+  it("pose blockingMappingIssue quand une composition PFS est absente du catalogue BJ (compo locale sans mapping mentionnée en info)", () => {
+    // BJ a « Fibre spéciale » sans pfsCompositionRef, PFS renvoie « Laiton ».
+    // Le blocage principal = créer Laiton dans le catalogue BJ. « Fibre
+    // spéciale » est mentionnée en `expectedValue` à titre d'info car elle
+    // sera retirée par le pull.
     const local = makeLocalProduct({
       compositions: [
         { percentage: 100, composition: { pfsCompositionRef: null, name: "Fibre spéciale" } },
@@ -876,8 +970,10 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     const compoIssue = issues.find((i) => i.field === "composition");
     expect(compoIssue).toBeDefined();
-    expect(compoIssue?.blockingMappingIssue).toContain("Fibre spéciale");
+    expect(compoIssue?.blockingMappingIssue).toContain("Laiton");
+    expect(compoIssue?.blockingMappingIssue).toContain("créez-la");
     expect(compoIssue?.blockingMappingIssue).toContain("relancez l'audit");
+    expect(compoIssue?.expectedValue).toContain("Fibre spéciale");
   });
 
   it("ne pose PAS blockingMappingIssue quand tous les mappings existent (écart de valeur normal)", () => {

@@ -375,6 +375,14 @@ export async function pullAddLocalVariantFromPfs(
   if (product.faireProductId) otherMarketplaceFlags.faireSyncRequired = true;
 
   await prisma.$transaction(async (tx) => {
+    // On pose `pfsColorRefOverride` sur la nouvelle ProductColor et on backfill
+    // `pfsColorRef` sur la Color locale si elle n'en a pas encore. Sans ça,
+    // l'audit suivant peut reproposer l'ajout de la même couleur : le compare
+    // matche variante par colorRef normalisé, or si la Color locale (retrouvée
+    // par nom via `resolveColorIdForPfsInfo`) n'a pas de `pfsColorRef` et que
+    // la table de labels PFS ne connaît pas ce nom, le fallback retombe sur
+    // `color.name` (ex: « Jaune ») qui ne matche pas la ref PFS (ex: « YELLOW »).
+    const pfsColorRefFromVariant = rv.primaryPfsColorRef?.trim() || null;
     const variantRow = await tx.productColor.create({
       data: {
         productId,
@@ -387,9 +395,22 @@ export async function pullAddLocalVariantFromPfs(
         packQuantity: rv.packQuantity,
         sku,
         pfsVariantId: rv.pfsVariantId,
+        pfsColorRefOverride: pfsColorRefFromVariant,
       },
       select: { id: true },
     });
+    if (pfsColorRefFromVariant) {
+      const localColor = await tx.color.findUnique({
+        where: { id: rv.colorId },
+        select: { pfsColorRef: true },
+      });
+      if (localColor && !localColor.pfsColorRef) {
+        await tx.color.update({
+          where: { id: rv.colorId },
+          data: { pfsColorRef: pfsColorRefFromVariant },
+        });
+      }
+    }
 
     if (rv.packLines.length > 0) {
       for (let li = 0; li < rv.packLines.length; li++) {

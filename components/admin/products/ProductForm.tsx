@@ -6,8 +6,8 @@ import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, Ava
 import PhotosPanel from "./PhotosPanel";
 import MarketplacesMappingSection, { type EfashionColorOption, type LiveMarketplaceColorLabels } from "./MarketplacesMappingSection";
 import { ProductMarketplaceToggles } from "./ProductMarketplaceToggles";
-import { detectPfsColorConflicts, formatConflictsMessage } from "@/lib/pfs-color-conflicts";
-import { detectEfashionColorConflicts, formatEfashionConflictsMessage } from "@/lib/efashion-color-conflicts";
+import { detectPfsColorConflicts, formatConflictsMessage, type VariantColorRefInput } from "@/lib/pfs-color-conflicts";
+import { detectEfashionColorConflicts, formatEfashionConflictsMessage, type EfashionVariantColorRefInput } from "@/lib/efashion-color-conflicts";
 import CompletenessChecklist, { computeChecklist } from "./CompletenessChecklist";
 import ProductFormNav, { ProductFormSectionKey } from "./ProductFormNav";
 import ProductFormSectionPicker from "./ProductFormSectionPicker";
@@ -1507,6 +1507,72 @@ export default function ProductForm({
       }
       seen.add(key);
     }
+
+    // Blocage inter-couleurs sur mapping PFS/eFashion : deux couleurs
+    // différentes du même produit ne peuvent pas partager le même mapping
+    // effectif (que ce soit via le mapping principal de la biblio ou via
+    // l'override secondaire). Sinon la marketplace recevrait deux fois la
+    // même couleur et rejetterait la fiche. Le serveur bloque aussi (filet
+    // de sécurité), mais on préfère intercepter côté UI pour éviter
+    // l'aller-retour et donner un message précis.
+    const pfsMappingItems: VariantColorRefInput[] = [];
+    const efaMappingItems: EfashionVariantColorRefInput[] = [];
+    for (const v of variants) {
+      if (v.saleType === "PACK" && v.packLines.length > 0) {
+        for (const pl of v.packLines) {
+          const ac = localColors.find((c) => c.id === pl.colorId);
+          pfsMappingItems.push({
+            key: `v${v.tempId}-pl${pl.tempId}`,
+            colorId: pl.colorId || null,
+            label: pl.colorName || ac?.name || "Couleur",
+            principalRef: ac?.pfsColorRef ?? null,
+            overrideRef: pl.pfsColorRefOverride ?? null,
+          });
+          efaMappingItems.push({
+            key: `v${v.tempId}-pl${pl.tempId}`,
+            colorId: pl.colorId || null,
+            label: pl.colorName || ac?.name || "Couleur",
+            principalId: ac?.efashionColorId ?? null,
+            overrideId: pl.efashionColorIdOverride ?? null,
+          });
+        }
+      } else if (v.colorId) {
+        const ac = localColors.find((c) => c.id === v.colorId);
+        pfsMappingItems.push({
+          key: `v${v.tempId}`,
+          colorId: v.colorId,
+          label: v.colorName || ac?.name || "Couleur",
+          principalRef: ac?.pfsColorRef ?? null,
+          overrideRef: v.pfsColorRefOverride ?? null,
+        });
+        efaMappingItems.push({
+          key: `v${v.tempId}`,
+          colorId: v.colorId,
+          label: v.colorName || ac?.name || "Couleur",
+          principalId: ac?.efashionColorId ?? null,
+          overrideId: v.efashionColorIdOverride ?? null,
+        });
+      }
+    }
+    if (hasPfsConfig) {
+      const pfsBlocking = detectPfsColorConflicts(pfsMappingItems);
+      if (pfsBlocking.length > 0) {
+        errors.push(
+          formatConflictsMessage(pfsBlocking) +
+            " Modifiez le mapping secondaire depuis la section « Mapping Marketplaces ».",
+        );
+      }
+    }
+    if (hasEfashionConfig && efashionEnabled) {
+      const efaBlocking = detectEfashionColorConflicts(efaMappingItems);
+      if (efaBlocking.length > 0) {
+        errors.push(
+          formatEfashionConflictsMessage(efaBlocking) +
+            " Modifiez le mapping secondaire depuis la section « Mapping Marketplaces ».",
+        );
+      }
+    }
+
     return errors;
   }
 

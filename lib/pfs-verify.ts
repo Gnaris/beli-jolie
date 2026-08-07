@@ -636,15 +636,19 @@ export function comparePfsProduct(
 
   const labels = opts.labels;
 
-  // Composition — 3 cas :
+  // Composition — 4 cas :
   //  (1) Sig identique côté BJ et PFS → aucun écart.
   //  (2) Sig différent MAIS chaque matière PFS trouve une compo locale par
   //      nom FR (le mauvais `pfsCompositionRef` local sera guéri via callback
   //      et l'écart est masqué : plus de faux positif "Coton" vs "COTTON").
-  //  (3) Sig différent avec au moins une matière introuvable côté BJ (nom
-  //      absent du catalogue local) OU une compo BJ orpheline (absente PFS)
-  //      OU un écart de % → on remonte l'écart, avec un message spécifique
-  //      quand il faut créer la composition manuellement.
+  //  (3a) `missingLocalNames` > 0 : PFS renvoie une matière absente du
+  //       catalogue BJ (par ref/uid/nom) → bloquant, création requise dans
+  //       Paramètres > Compositions (ou raccourci « Créer en 1 clic »).
+  //  (3b) `orphanLocalNames` > 0 uniquement (ou écart de % seul) : BJ a plus
+  //       de matières que PFS (ou % différents) mais chaque matière PFS a bien
+  //       été identifiée localement → aucun mapping requis, le pull « Corriger
+  //       depuis PFS » remplacera la compo BJ par celle de PFS et retirera
+  //       les extras (PFS = source de vérité côté audit).
   if (expectedP.composition !== actualP.composition) {
     const reconcile = reconcileCompositionsByLabel(
       local.compositions,
@@ -655,32 +659,18 @@ export function comparePfsProduct(
     if (reconcile.aligned) {
       // Cas (2) — même matière, mauvais code PFS local → auto-guérison.
       for (const h of reconcile.heals) opts.onCompositionAutoHeal?.(h);
-    } else if (
-      reconcile.missingLocalNames.length > 0 ||
-      reconcile.orphanLocalNames.length > 0
-    ) {
-      // Cas (3a) — au moins une matière n'a pas d'équivalent d'un côté :
-      //   - `missingLocalNames` : PFS renvoie une matière absente du catalogue BJ
-      //     → création manuelle requise, aucune auto-création automatique.
-      //   - `orphanLocalNames` : BJ a une compo sans équivalent PFS (par ref
-      //     ou par nom) → à corriger côté catalogue local.
-      // Le message couvre les 2 directions pour indiquer précisément
-      // ce que l'admin doit faire.
-      const parts: string[] = [];
-      const blockingParts: string[] = [];
-      if (reconcile.missingLocalNames.length > 0) {
-        const list = reconcile.missingLocalNames.join(" · ");
-        parts.push(`Manque côté BJ : ${list}`);
-        blockingParts.push(
-          `Composition « ${list} » présente sur PFS mais absente de votre catalogue — créez-la dans Paramètres > Compositions avec la bonne référence PFS.`,
-        );
-      }
+    } else if (reconcile.missingLocalNames.length > 0) {
+      // Cas (3a) — PFS a une matière absente du catalogue BJ. Bloquant :
+      // on ne peut pas résoudre le pull sans que la compo existe côté BJ.
+      // On ajoute les orphelines locales à titre d'information seulement.
+      const missingList = reconcile.missingLocalNames.join(" · ");
+      const blockingParts: string[] = [
+        `Composition « ${missingList} » présente sur PFS mais absente de votre catalogue — créez-la dans Paramètres > Compositions avec la bonne référence PFS.`,
+      ];
+      const parts: string[] = [`Manque côté BJ : ${missingList}`];
       if (reconcile.orphanLocalNames.length > 0) {
-        const list = reconcile.orphanLocalNames.join(" · ");
-        parts.push(`Sans équivalent PFS : ${list}`);
-        blockingParts.push(
-          `Composition « ${list} » présente côté BJ mais sans équivalent PFS — renseignez sa bonne référence PFS dans Paramètres > Compositions.`,
-        );
+        const orphanList = reconcile.orphanLocalNames.join(" · ");
+        parts.push(`En trop côté BJ : ${orphanList}`);
       }
       issues.push({
         scope: "product",
@@ -694,7 +684,9 @@ export function comparePfsProduct(
         missingLocalPfs: reconcile.missingLocalPfs.length > 0 ? reconcile.missingLocalPfs : undefined,
       });
     } else {
-      // Cas (3b) — écart de % uniquement (matières identifiées des 2 côtés).
+      // Cas (3b) — écart de % uniquement OU compo BJ orpheline (PFS = source
+      // de vérité). Le pull « Corriger depuis PFS » remplacera la compo BJ
+      // par celle de PFS et retirera les matières en trop — non bloquant.
       issues.push({
         scope: "product",
         field: "composition",
@@ -801,10 +793,16 @@ export function comparePfsProduct(
   // On IGNORE le statut si le local est SYNCING (état transitoire) ou si le
   // PFS renvoie un statut inconnu — pas d'écart affiché dans ces cas.
   if (local.status !== "SYNCING") {
-    const allZero = local.colors.every((c) => (c.stock ?? 0) <= 0);
+    // On compare STRICTEMENT `local.status` ↔ `pfs.status` (sans facteur
+    // rupture). L'auto-archive `allZero → ARCHIVED` reste appliqué côté PUSH
+    // (`lib/pfs-update.ts`, `lib/pfs-publish.ts`) mais pas ici : sinon après un
+    // pull qui aligne BJ sur PFS (READY_FOR_SALE → ONLINE), l'audit continue
+    // d'afficher un écart bidon tant que les stocks BJ sont à 0 — la cliente
+    // corrige, re-lance l'audit et voit la même carte, croit que « ça n'a pas
+    // marché » (bug reporté 2026-08-07 sur 13764-3).
     const expectedPfsStatus = mapLocalToPfsStatus(
       local.status,
-      allZero,
+      false, // ignore l'allZero dans le compare — voir raison ci-dessus
       opts.outOfStockProductAction ?? "archived",
     );
     // PFS `NEW` = produit créé mais jamais activé (invisible via listProducts,
