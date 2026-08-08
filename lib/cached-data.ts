@@ -569,23 +569,37 @@ export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-export const getCachedAnkorstoreEnabled = tenantScopedCacheWithTid(
+async function readAnkorstoreEnabledDirect(tid?: string) {
+  const rows = await prisma.siteConfig.findMany({
+    where: !tid || tid === "global"
+      ? { key: { in: ["ankors_client_id", "ankors_enabled"] } }
+      : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_enabled"] } },
+    select: { key: true, value: true },
+  });
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const hasId = map.has("ankors_client_id");
+  const enabled = map.get("ankors_enabled");
+  return hasId && enabled !== "false";
+}
+
+const _cachedAnkorstoreEnabled = tenantScopedCacheWithTid(
   "ankorstore-enabled",
-  async (tid) => {
-    const rows = await prisma.siteConfig.findMany({
-      where: tid === "global"
-        ? { key: { in: ["ankors_client_id", "ankors_enabled"] } }
-        : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_enabled"] } },
-      select: { key: true, value: true },
-    });
-    const map = new Map(rows.map((r) => [r.key, r.value]));
-    const hasId = map.has("ankors_client_id");
-    const enabled = map.get("ankors_enabled");
-    return hasId && enabled !== "false";
-  },
+  async (tid) => readAnkorstoreEnabledDirect(tid),
   ["ankorstore-enabled"],
   { revalidate: 300, tags: ["site-config"] }
 );
+
+export async function getCachedAnkorstoreEnabled() {
+  try {
+    return await _cachedAnkorstoreEnabled();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readAnkorstoreEnabledDirect(await resolveTidForFallback());
+    }
+    throw err;
+  }
+}
 
 // ─── eFashion — credentials, enabled, has-config (même pattern que PFS/Ankorstore) ──
 async function readEfashionCredentialsDirect(tid?: string) {

@@ -109,6 +109,9 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...args: unknown[]) => mockAnkorstoreOperationUpdateMany(...args),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    imageProcessingJob: {
+      count: vi.fn().mockResolvedValue(0),
+    },
     siteConfig: {
       findFirst: vi.fn().mockResolvedValue(null),
     },
@@ -146,6 +149,7 @@ function makeSnapshot(overrides?: Partial<AnkorstoreSyncSnapshot>): AnkorstoreSy
         isAlwaysInStock: false,
         optionColor: "Rouge",
         optionSize: "TU",
+        optionMaterial: null,
       },
     },
     images: {
@@ -311,15 +315,16 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     );
   });
 
-  it("Test Fix 2a: hasNewVariants + external_id AS null → refus import (anti-doublon JG6 Issyma)", async () => {
-    // Scénario reproduit : produit lié à un AS-side dont external_id = null
-    // (fiche importée hors de notre système). Ancienne variante non liée →
-    // opType = "import" — sans le fix, AS créait un doublon à chaque sync.
+  it("nouvelle variante + external_id AS null → passe en mode 'update' sans erreur (Ankor matche par UUID)", async () => {
+    // Scénario A1720 (2026-08-08) : produit legacy Ankor sans external_id.
+    // Ajout d'une nouvelle couleur locale. Puisque le mode "update" cible
+    // par UUID (jamais par external_id), zéro risque de doublon — même quand
+    // il faut créer une nouvelle variante côté AS.
     const product = makeProduct({
       colors: [
         {
           id: "variant-1",
-          ankorsVariantId: null, // → hasNewVariants=true
+          ankorsVariantId: null,
           unitPrice: 10,
           weight: 0.5,
           stock: 10,
@@ -338,21 +343,19 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
     mockGetProduct.mockResolvedValueOnce({
       id: "ank-product-1",
-      externalId: null, // ← cœur du bug JG6
-      variants: [{ id: "ank-legacy", sku: "REF001" }],
+      externalId: null,
+      variants: [],
     });
 
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
     const result = await ankorstoreKickoffUpdate("product-1");
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error).toContain("référence externe");
-    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
-    expect(mockAddProductsToOperation).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
   });
 
-  it("Test Fix 2b: hasNewVariants + external_id AS différent → refus import", async () => {
+  it("nouvelle variante + external_id AS différent de la ref BJ → passe en mode 'update' sans erreur", async () => {
     const product = makeProduct({
       colors: [
         {
@@ -383,22 +386,18 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
     const result = await ankorstoreKickoffUpdate("product-1");
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error).toContain("SOMETHING_ELSE");
-    expect(mockCreateCatalogOperation).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
   });
 
-  it("Test Fix 2c: mode update (variantes déjà liées) + external_id AS mismatch → laisse passer (safe)", async () => {
-    // Toutes les variantes sont déjà liées → opType = "update" → pas de risque
-    // de doublon (update ne fait que PATCH-er les variantes existantes par SKU).
-    // On log un warning mais on n'échoue pas.
+  it("variantes toutes liées + external_id AS mismatch → mode 'update' sans erreur", async () => {
     const prevSnapshot = makeSnapshot();
     const product = makeProduct({ ankorsLastSyncSnapshot: prevSnapshot });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
     mockGetProduct.mockResolvedValueOnce({
       id: "ank-product-1",
-      externalId: "ZZZ", // mismatch mais mode update
+      externalId: "ZZZ",
       variants: [
         { id: "ank-variant-1", sku: "REF001_red_UNIT_1" },
         { id: "ank-variant-2", sku: "REF001_blue_UNIT_2" },
@@ -546,6 +545,10 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
           images: [],
         },
       ],
+      colorImages: [
+        { path: "/uploads/produits/ref001/ref001-red-1.webp", order: 1, colorId: "color-1" },
+        { path: "/uploads/produits/ref001/ref001-vert-1.webp", order: 1, colorId: "color-3" },
+      ],
     });
     vi.mocked(prisma.product.findUnique).mockResolvedValue(product as never);
     // AS ne connaît que la variante existante → auto-link ne trouvera rien
@@ -562,9 +565,10 @@ describe("ankorstoreKickoffUpdate (callback-only)", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     // Une op asynchrone DOIT être créée juste pour pousser la nouvelle variante.
-    // Mode "import" (pas "update") car il faut créer la nouvelle variante côté AS.
+    // Mode "update" — Ankor matche par UUID donc "update" sait créer les
+    // variantes nouvelles sans risque de doublon (validé A1720 2026-08-08).
     expect(result.operationId).toBe("op-test");
-    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("import");
+    expect(mockCreateCatalogOperation).toHaveBeenCalledWith("update");
 
     // Le payload doit contenir LES DEUX variantes (la liée et la nouvelle)
     const addCall = mockAddProductsToOperation.mock.calls[0];

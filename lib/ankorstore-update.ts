@@ -633,9 +633,8 @@ export async function ankorstoreKickoffUpdate(
     // nouvelle variante au lieu de modifier celle qui existe (qui a un SKU
     // différent côté Ankorstore, ex. "A485_ Blanc"). Bug constaté 2026-05-12.
     //
-    // On récupère aussi `external_id` côté AS pour Fix 2 (refus si mismatch
-    // + hasNewVariants → sinon import créerait un doublon, incident JG6
-    // Issyma 2026-07-29).
+    // On log aussi `external_id` côté AS pour tracer les produits legacy sans
+    // référence externe (nombreux — Ankor n'exige pas cette case).
     //
     // En cas d'échec du fetch OU si une variante locale liée n'est pas
     // retrouvée côté Ankorstore, on refuse l'update : c'est plus safe que de
@@ -1142,45 +1141,18 @@ export async function ankorstoreKickoffUpdate(
       brandedBadgeApplied: brandedBadgeEnabled,
     };
 
-    // Choix du type d'opération AS :
-    //   - "update" : modifie en place les variantes déjà liées. Ne crée PAS
-    //     de nouvelles variantes (les SKU inconnus du payload sont ignorés
-    //     silencieusement).
-    //   - "import" : crée OU met à jour (superset). Nécessaire quand on a
-    //     des variantes locales sans `ankorsVariantId` à créer côté AS.
-    //
-    // On choisit dynamiquement : "import" dès qu'il y a au moins une
-    // variante locale non liée à pousser. Sinon "update" (plus léger côté AS).
-    const opType: "import" | "update" = hasNewVariants ? "import" : "update";
-
-    // Fix 2 : refus si le mode "import" est déclenché mais que l'external_id
-    // côté AS ne correspond pas à notre référence. Ankorstore matche les
-    // produits par external_id (pas par UUID) : envoyer un import avec
-    // `external_id = JG6` alors que le produit AS lié a `external_id = null`
-    // (ou différent) → AS crée un doublon. Incident JG6 Issyma 2026-07-29.
-    //
-    // Pour "update" (variantes déjà liées, pas de création à faire) le risque
-    // n'existe pas : on log une info et on laisse passer.
-    if (opType === "import") {
-      const normalizedAsExt = (asExternalId ?? "").trim().toUpperCase();
-      const normalizedBjRef = product.reference.trim().toUpperCase();
-      if (!normalizedAsExt || normalizedAsExt !== normalizedBjRef) {
-        logger.error("[Ankorstore Update] Refus import — external_id AS incohérent", {
-          ankorsProductId,
-          reference: product.reference,
-          asExternalId,
-          unlinkedVariantCount: unlinkedVariants.length,
-        });
-        return {
-          success: false,
-          error:
-            `Impossible de synchroniser « ${product.reference} » : le produit Ankorstore lié a la référence externe ` +
-            `« ${asExternalId ?? "vide"} » qui ne correspond pas. Une synchro créerait un doublon. ` +
-            "Délie et relie proprement le produit depuis la modale de liaison marketplace.",
-        };
-      }
-    } else if (asExternalId && asExternalId.trim().toUpperCase() !== product.reference.trim().toUpperCase()) {
-      logger.warn("[Ankorstore Update] external_id AS diffère (mode update — OK, PATCH SKU)", {
+    // Toujours mode "update" — Ankor matche les produits par UUID (jamais
+    // par external_id en mode "update"), donc aucun risque de doublon même
+    // en créant de nouvelles variantes. Le test A1720 (2026-08-08) a validé
+    // empiriquement que "update" accepte de créer des variantes nouvelles,
+    // contrairement à la doc Ankor. C'est aussi le seul mode qui fonctionne
+    // pour la majorité des produits (nombreux legacy sans external_id posé).
+    const opType = "update" as const;
+    if (
+      asExternalId &&
+      asExternalId.trim().toUpperCase() !== product.reference.trim().toUpperCase()
+    ) {
+      logger.info("[Ankorstore Update] external_id AS diffère de la ref BJ (sans conséquence en mode update)", {
         ankorsProductId,
         reference: product.reference,
         asExternalId,
