@@ -412,53 +412,91 @@ export async function upsertFaireOrderFromResource(
 // ─────────────────────────────────────────────
 
 /**
- * Polling incrémental : lit la 1ère page (50 dernières triées desc par
- * `updated_at`) et upsert les commandes nouvelles ou dont `updated_at` a évolué.
+ * Polling incrémental Faire.
+ *
+ * Faire trie `/orders` par `updated_at` **ascendant** (contrairement à PFS/Ankor
+ * qui trient descendant). Si on lit la page 1 sans filtre, on récupère les 50
+ * plus anciennes commandes toujours actives ; les nouvelles se retrouvent noyées
+ * loin dans la pagination. Sur Issyma (495 commandes) le worker ratait ~38
+ * commandes en 10 jours (incident diagnostiqué 2026-08-08).
+ *
+ * Fix : on passe `updated_at_min = lastSyncedAt - 15 min` (buffer de sécurité
+ * pour couvrir race entre 2 ticks), et on pagine tant que la page est pleine.
+ * La doc Faire (docs/faire-api.md §13.1) prescrit exactement ce pattern.
+ *
+ * Fallback : si `faire_orders_last_synced_at` absent (première fois), on
+ * remonte 24 h en arrière — suffisant pour le régime nominal (tick 5 min).
+ * Le rattrapage historique complet reste `importAllFaireOrdersFor()`.
  */
+const SYNC_BUFFER_MS = 15 * 60_000;
+const SYNC_FALLBACK_MS = 24 * 60 * 60_000;
+const SYNC_MAX_PAGES = 20; // 20 × 50 = 1000 commandes/tick max (rare mais safe)
+
+async function readLastSyncedAt(tenantId: string): Promise<number | null> {
+  const row = await prisma.siteConfig.findFirst({
+    where: { tenantId, key: "faire_orders_last_synced_at" },
+    select: { value: true },
+  });
+  if (!row?.value) return null;
+  const parsed = parseInt(row.value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export async function syncRecentFaireOrders(tenantId: string): Promise<{
   created: number;
   updated: number;
   scanned: number;
 }> {
-  const page1 = await faireListOrders(1, 50);
-  const orders = page1.orders ?? [];
-  if (orders.length === 0) return { created: 0, updated: 0, scanned: 0 };
-
-  const faireIds = orders.map((o) => o.id);
-  const existingRows = await prisma.faireOrder.findMany({
-    where: { tenantId, faireOrderId: { in: faireIds } },
-    select: { faireOrderId: true, updatedAtFaire: true, statusRaw: true },
-  });
-  const existingMap = new Map(
-    existingRows.map((r) => [
-      r.faireOrderId,
-      { updatedAtFaire: r.updatedAtFaire, statusRaw: r.statusRaw },
-    ]),
-  );
+  const lastSyncedAt = await readLastSyncedAt(tenantId);
+  const cutoffMs = (lastSyncedAt ?? Date.now() - SYNC_FALLBACK_MS) - SYNC_BUFFER_MS;
+  const updatedAtMin = new Date(cutoffMs).toISOString();
 
   let created = 0;
   let updated = 0;
-  for (const order of orders) {
-    const existing = existingMap.get(order.id);
-    const apiUpdated = order.updated_at ? new Date(order.updated_at).getTime() : 0;
-    const bddUpdated = existing?.updatedAtFaire?.getTime() ?? 0;
-    const statusChanged = existing && existing.statusRaw !== order.state;
-    if (!existing || apiUpdated > bddUpdated || statusChanged) {
-      try {
-        const res = await upsertFaireOrderFromResource(tenantId, order);
-        if (res.created) created++;
-        else updated++;
-      } catch (err) {
-        logger.warn("[Faire Orders Sync] Échec import commande", {
-          tenantId,
-          faireOrderId: order.id,
-          error: err,
-        });
+  let scanned = 0;
+
+  for (let page = 1; page <= SYNC_MAX_PAGES; page++) {
+    const resp = await faireListOrders(page, 50, updatedAtMin);
+    const orders = resp.orders ?? [];
+    if (orders.length === 0) break;
+    scanned += orders.length;
+
+    const faireIds = orders.map((o) => o.id);
+    const existingRows = await prisma.faireOrder.findMany({
+      where: { tenantId, faireOrderId: { in: faireIds } },
+      select: { faireOrderId: true, updatedAtFaire: true, statusRaw: true },
+    });
+    const existingMap = new Map(
+      existingRows.map((r) => [
+        r.faireOrderId,
+        { updatedAtFaire: r.updatedAtFaire, statusRaw: r.statusRaw },
+      ]),
+    );
+
+    for (const order of orders) {
+      const existing = existingMap.get(order.id);
+      const apiUpdated = order.updated_at ? new Date(order.updated_at).getTime() : 0;
+      const bddUpdated = existing?.updatedAtFaire?.getTime() ?? 0;
+      const statusChanged = existing && existing.statusRaw !== order.state;
+      if (!existing || apiUpdated > bddUpdated || statusChanged) {
+        try {
+          const res = await upsertFaireOrderFromResource(tenantId, order);
+          if (res.created) created++;
+          else updated++;
+        } catch (err) {
+          logger.warn("[Faire Orders Sync] Échec import commande", {
+            tenantId,
+            faireOrderId: order.id,
+            error: err,
+          });
+        }
       }
     }
+
+    if (orders.length < 50) break;
   }
 
-  return { created, updated, scanned: orders.length };
+  return { created, updated, scanned };
 }
 
 // ─────────────────────────────────────────────
