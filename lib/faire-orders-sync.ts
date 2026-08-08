@@ -325,7 +325,11 @@ export async function upsertFaireOrderFromResource(
     }
     const perItem: PerItem[] = items.map((it) => {
       const productIdFaire = it.product_id ?? null;
-      const variantIdFaire = it.product_option_id ?? null;
+      // Faire renvoie soit `product_option_id` (schéma récent), soit
+      // `variant_id` (schéma legacy encore utilisé par certains vendeurs comme
+      // Issyma). Fallback obligatoire — sinon la reconciliation ProductColor
+      // échoue et `productColorId` reste NULL (incident 2026-08-08).
+      const variantIdFaire = it.product_option_id ?? it.variant_id ?? null;
       const refBase = extractReferenceFromFaireSku(it.sku);
       if (productIdFaire) productIdsFaire.add(productIdFaire);
       if (variantIdFaire) variantIdsFaire.add(variantIdFaire);
@@ -392,7 +396,17 @@ export async function upsertFaireOrderFromResource(
         productId: productMatch?.id ?? null,
         productColorId: productColorMatch?.id ?? null,
         productSnapshotName: row.item.product_name ?? productMatch?.name ?? null,
-        variantOptionLabel: row.item.product_option_name ?? null,
+        // Idem : fallback `variant_name` pour couvrir le schéma legacy Faire
+        // (Issyma renvoie « Blanc / TU 38-42 » via variant_name uniquement).
+        // Filtre le sentinel "default" que Faire pose sur les produits mono-
+        // variante — pas un vrai label de couleur, on préfère null.
+        variantOptionLabel: (() => {
+          const raw = row.item.product_option_name ?? row.item.variant_name ?? null;
+          if (!raw) return null;
+          const trimmed = raw.trim();
+          if (!trimmed || trimmed.toLowerCase() === "default") return null;
+          return trimmed;
+        })(),
         quantity,
         unitPriceHT,
         totalPriceHT,
