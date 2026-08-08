@@ -1081,6 +1081,20 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     });
   });
 
+  it("ne signale pas d'écart quand PFS=DELETED et local=ARCHIVED (équivalents métier)", () => {
+    // Règle métier posée 2026-08-08 : côté BJ le seul statut « invisible »
+    // est ARCHIVED. Côté PFS l'admin peut choisir Archiver ou Supprimer.
+    // Les deux options PFS doivent matcher ARCHIVED chez nous sans faire
+    // clignoter un écart dans l'audit.
+    const local = makeLocalProduct({ status: "ARCHIVED" });
+    const pfsProduct = makePfsProduct({ status: "DELETED" });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
+  });
+
   it("classe les doublons PFS (2 variantes même colorRef) comme duplicatePfsVariant, pas comme extraVariant", () => {
     // Bug reporté 2026-08-08 (13164FLEUR / Issyma) : PFS avait 2 variantes
     // YELLOW pour ce produit. L'audit proposait à tort « Jaune sera ajoutée

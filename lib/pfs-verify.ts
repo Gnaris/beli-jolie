@@ -833,8 +833,17 @@ export function comparePfsProduct(
     // ARCHIVED côté BJ (produit invisible en vitrine). On normalise avant
     // comparaison pour ne pas générer d'écart bidon quand local=ARCHIVED ↔
     // PFS=NEW, et pour afficher un libellé cohérent (« Archivé ») dans le modal.
+    //
+    // PFS `DELETED` = produit supprimé côté PFS (invisible). BJ n'a pas de
+    // statut « supprimé » — l'équivalent est ARCHIVED. On normalise DELETED
+    // en ARCHIVED avant compare (règle métier posée 2026-08-08) pour ne pas
+    // faire clignoter un faux écart quand la cliente choisit « supprimer sur
+    // PFS » depuis Paramètres et garde son produit en ARCHIVED chez elle.
     const rawPfsStatus = String(pfsProduct.status ?? "").toUpperCase();
-    const actualPfsStatus = rawPfsStatus === "NEW" ? "ARCHIVED" : rawPfsStatus;
+    const actualPfsStatus =
+      rawPfsStatus === "NEW" || rawPfsStatus === "DELETED"
+        ? "ARCHIVED"
+        : rawPfsStatus;
     if (
       isKnownPfsStatus(actualPfsStatus) &&
       actualPfsStatus !== expectedPfsStatus
