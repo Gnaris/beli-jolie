@@ -56,7 +56,8 @@ export type PfsVerifyIssueField =
   | "weight"
   | "isActive"
   | "extraVariant"
-  | "missingVariant";
+  | "missingVariant"
+  | "duplicatePfsVariant";
 
 export interface PfsVerifyIssue {
   /** "product" : champ de la fiche · "color" : rattaché à une couleur (variante ou extra). */
@@ -1005,7 +1006,20 @@ export function comparePfsProduct(
     }
   }
 
-  // 3) Variantes PFS orphelines → à retirer
+  // 3) Variantes PFS orphelines → à retirer OU doublon PFS d'une variante
+  //    déjà présente chez nous. Cas doublon reporté 2026-08-08 sur 13164FLEUR
+  //    (Issyma) : PFS avait 2 variantes YELLOW pour ce produit. L'audit
+  //    proposait à tort « Jaune sera ajoutée sur votre site » alors qu'il
+  //    fallait juste supprimer le doublon côté PFS.
+  //
+  //    Précalcul : ensemble des (type, colorRef normalisé) des variantes PFS
+  //    déjà matchées à un local. Une orpheline qui partage cette clé est un
+  //    doublon PFS, pas une couleur nouvelle.
+  const matchedPfsSignatures = new Set<string>();
+  for (const pv of pfsVariants) {
+    if (!seenPfsIds.has(pv.id)) continue;
+    matchedPfsSignatures.add(pfsVariantMatchKey(pv));
+  }
   for (const pv of pfsVariants) {
     if (seenPfsIds.has(pv.id)) continue;
     const colorRef =
@@ -1021,6 +1035,23 @@ export function comparePfsProduct(
       pv.packs?.[0]?.color.value ??
       null;
     const type = pv.type === "ITEM" ? "UNIT" : "PACK";
+    const isDuplicate = matchedPfsSignatures.has(pfsVariantMatchKey(pv));
+    if (isDuplicate) {
+      issues.push({
+        scope: "color",
+        field: "duplicatePfsVariant",
+        fieldLabel: `Variante ${labelForVariantType(type, null).toLowerCase()} en double sur PFS`,
+        colorRef,
+        colorName,
+        colorHex,
+        variantType: type,
+        pfsVariantId: pv.id,
+        pfsValue: null,
+        expectedValue: null,
+        note: `Doublon côté PFS pour la couleur « ${colorName} » : notre site est lié à une autre variante PFS. À supprimer côté PFS.`,
+      });
+      continue;
+    }
     issues.push({
       scope: "color",
       field: "extraVariant",

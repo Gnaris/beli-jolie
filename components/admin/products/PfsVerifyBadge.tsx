@@ -37,7 +37,7 @@ export type PfsVerifyIssueField =
   | "country" | "season" | "gender" | "category" | "family" | "isBestSeller"
   | "productStatus"
   | "saleType" | "price" | "stock" | "weight" | "isActive"
-  | "extraVariant" | "missingVariant";
+  | "extraVariant" | "missingVariant" | "duplicatePfsVariant";
 
 export interface PfsVerifyIssue {
   scope: "product" | "color";
@@ -760,6 +760,14 @@ export function describeIssueForDiffRow(iss: PfsVerifyIssue): {
       rightValue: emptyBadge,
     };
   }
+  if (iss.field === "duplicatePfsVariant") {
+    return {
+      leftLabel: "Doublon présent sur PFS",
+      leftValue: describeVariant(),
+      rightLabel: "Notre site est déjà lié à cette couleur",
+      rightValue: describeVariant(),
+    };
+  }
   return {
     leftLabel: iss.fieldLabel,
     leftValue: iss.pfsValue ?? <span className="italic text-slate-400">(vide)</span>,
@@ -853,6 +861,7 @@ interface ColorBlock {
   variantGroups: VariantGroup[];
   extras: PfsVerifyIssue[];
   missing: PfsVerifyIssue[];
+  duplicates: PfsVerifyIssue[];
 }
 
 export interface GroupedIssues {
@@ -876,6 +885,7 @@ export function groupIssuesByBlock(issues: PfsVerifyIssue[]): GroupedIssues {
         variantGroups: [],
         extras: [],
         missing: [],
+        duplicates: [],
       };
       byColor.set(key, b);
     }
@@ -894,6 +904,10 @@ export function groupIssuesByBlock(issues: PfsVerifyIssue[]): GroupedIssues {
     }
     if (iss.field === "missingVariant") {
       b.missing.push(iss);
+      continue;
+    }
+    if (iss.field === "duplicatePfsVariant") {
+      b.duplicates.push(iss);
       continue;
     }
     const groupKey = `${iss.variantType}|${iss.packQuantity ?? ""}`;

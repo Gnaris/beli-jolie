@@ -1081,6 +1081,42 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     });
   });
 
+  it("classe les doublons PFS (2 variantes même colorRef) comme duplicatePfsVariant, pas comme extraVariant", () => {
+    // Bug reporté 2026-08-08 (13164FLEUR / Issyma) : PFS avait 2 variantes
+    // YELLOW pour ce produit. L'audit proposait à tort « Jaune sera ajoutée
+    // sur votre site » alors qu'il fallait supprimer le doublon côté PFS.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "YELLOW",
+          colorName: "Jaune",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 28,
+          weight: 0.02,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ id: "pv-main", type: "ITEM", colorRef: "YELLOW", colorLabelFr: "Jaune", price: 16.5, stock: 28, weight: 0.02 }),
+      makePfsVariant({ id: "pv-dup",  type: "ITEM", colorRef: "YELLOW", colorLabelFr: "Jaune", price: 16.5, stock: 30, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    // Pas de "à ajouter chez nous" — la couleur existe.
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+    // Le doublon PFS est explicitement remonté.
+    const dup = issues.find((i) => i.field === "duplicatePfsVariant");
+    expect(dup).toBeDefined();
+    expect(dup?.colorRef).toBe("YELLOW");
+    expect(dup?.note).toContain("Doublon");
+    expect(dup?.pfsVariantId).toBeDefined();
+    // Le pfsVariantId remonté est bien celui qui n'a pas été matché à la
+    // variante locale (l'un des deux — l'ordre dépend de l'écrasement Map).
+    expect(["pv-main", "pv-dup"]).toContain(dup?.pfsVariantId);
+  });
+
   it("ne matche PAS par label FR si le type diffère (UNIT vs PACK)", () => {
     // Filet : un local UNIT « Jaune » ne doit pas capturer une variante
     // PFS PACK avec labels.fr="Jaune" — les types doivent rester séparés.
