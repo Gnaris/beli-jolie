@@ -493,7 +493,6 @@ export async function ankorstoreFinalizeRefreshCreateNew(
           // Refresh complet (delete + recreate) → tout est aligné avec Ankorstore
           ankorsSyncRequired: false,
           lastRefreshedAt: new Date(),
-          ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),
       ...variantIdUpdates.map((u) =>
@@ -513,10 +512,7 @@ export async function ankorstoreFinalizeRefreshCreateNew(
     ]);
 
     revalidateTag("products", "default");
-    emitProductEvent({
-      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId: op.productId,
-    });
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId: op.productId });
 
     logger.info("[Ankorstore Refresh] Phase 2 finalized", {
       operationId: op.id,

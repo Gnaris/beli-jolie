@@ -78,34 +78,6 @@ async function countImagesByColorForProduct(productId: string): Promise<Map<stri
   return map;
 }
 
-/**
- * Auto-archivage : si toutes les variantes d'un produit ont stock=0 (et qu'il existe
- * au moins une variante), on bascule le produit en ARCHIVED. No-op si déjà ARCHIVED
- * ou si aucune variante. Renvoie le statut précédent quand un archivage a eu lieu,
- * pour que l'appelant puisse émettre l'événement temps réel adéquat.
- */
-async function autoArchiveIfAllOutOfStock(
-  productId: string,
-): Promise<{ archived: boolean; previousStatus: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING" | null }> {
-  const variants = await prisma.productColor.findMany({
-    where: { productId },
-    select: { stock: true },
-  });
-  if (variants.length === 0) return { archived: false, previousStatus: null };
-  const totalStock = variants.reduce((sum, v) => sum + v.stock, 0);
-  if (totalStock !== 0) return { archived: false, previousStatus: null };
-  const product = await prisma.product.findUnique({
-    where: { id: productId },
-    select: { status: true },
-  });
-  if (!product) return { archived: false, previousStatus: null };
-  if (product.status === "ARCHIVED") return { archived: false, previousStatus: "ARCHIVED" };
-  await prisma.product.update({
-    where: { id: productId },
-    data: { status: "ARCHIVED" },
-  });
-  return { archived: true, previousStatus: product.status as "OFFLINE" | "ONLINE" | "SYNCING" };
-}
 
 /** Collect all sizeIds referenced across UNIT sizeEntries and PACK packLines. */
 function collectSizeIds(colors: ColorInput[]): string[] {
@@ -1539,14 +1511,8 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
   }
 
-  // Auto-archivage : si toutes les variantes ont stock=0 (et qu'au moins une
-  // variante existe), on bascule en ARCHIVED. Couvre aussi le cas où le bloc
-  // de downgrade ONLINE→OFFLINE vient de passer mais que tout est vide.
-  const totalStockAfter = input.colors.reduce((sum, c) => sum + (c.stock ?? 0), 0);
-  if (input.colors.length > 0 && totalStockAfter === 0 && effectiveStatus !== "ARCHIVED") {
-    await prisma.product.update({ where: { id }, data: { status: "ARCHIVED" } });
-    effectiveStatus = "ARCHIVED";
-  }
+  // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale. L'admin
+  // garde le contrôle du statut ; un produit peut être ONLINE avec 0 en stock.
 
   revalidatePath("/admin/produits");
   // ── Drapeaux « Synchronisation nécessaire » ────────────────────────
@@ -2653,15 +2619,7 @@ export async function updateVariantQuick(
     notifyRestockAlerts(variantId).catch(() => {});
   }
 
-  // Auto-archivage : si toutes les variantes du produit sont à 0 après l'update.
-  let archivedFromOnline = false;
-  if (data.stock !== undefined) {
-    const result = await autoArchiveIfAllOutOfStock(variant.productId);
-    if (result.archived) {
-      archivedFromOnline = result.previousStatus === "ONLINE";
-      revalidateTag("products", "default");
-    }
-  }
+  // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale.
 
   // Toute modif prix/stock/poids/packQty pose un badge orange « Synchro nécessaire »
   // sur les marketplaces liées. Si la cliente annule / décoche la modale de
@@ -2696,9 +2654,6 @@ export async function updateVariantQuick(
   revalidatePath("/admin/produits");
   await revalidateProductPublicPage(variant.productId);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
-  if (archivedFromOnline) {
-    emitProductEvent({ type: "PRODUCT_OFFLINE", productId: variant.productId });
-  }
   // Marketplace stock sync removed — re-export Excel to update marketplaces.
 }
 
@@ -2800,27 +2755,12 @@ export async function bulkUpdateVariants(
 
   const productIds = [...new Set(variants.map((v) => v.productId))];
 
-  // Auto-archivage : un par produit impacté quand toutes ses variantes sont à 0.
-  const archivedFromOnlineIds = new Set<string>();
-  if (data.stock !== undefined) {
-    for (const pid of productIds) {
-      const result = await autoArchiveIfAllOutOfStock(pid);
-      if (result.archived && result.previousStatus === "ONLINE") {
-        archivedFromOnlineIds.add(pid);
-      }
-    }
-    if (archivedFromOnlineIds.size > 0) {
-      revalidateTag("products", "default");
-    }
-  }
+  // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale.
 
   revalidatePath("/admin/produits");
   for (const pid of productIds) {
     await revalidateProductPublicPage(pid);
     emitProductEvent({ type: "STOCK_CHANGED", productId: pid });
-    if (archivedFromOnlineIds.has(pid)) {
-      emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
-    }
   }
 
   return { updated: variants.length };

@@ -118,7 +118,6 @@ interface ApplyContext {
   pfsProduct: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>;
   pfsVariants: PfsVariantDetail[];
   markup: MarkupConfig | undefined;
-  outOfStockAction: "archived" | "deleted" | "draft";
   deactivateOnZeroStock: boolean;
 }
 
@@ -173,7 +172,6 @@ export async function applyPfsVerifyPullsOnly(
     pfsProduct: checkRef.product,
     pfsVariants: variantsResp.data ?? [],
     markup: markupConfigs.pfs,
-    outOfStockAction: outOfStockCfg.productAction,
     deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
   };
 
@@ -279,7 +277,6 @@ export async function applyPfsVerifyActions(
     pfsProduct: checkRef.product,
     pfsVariants: variantsResp.data ?? [],
     markup: markupConfigs.pfs,
-    outOfStockAction: outOfStockCfg.productAction,
     deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
   };
 
@@ -895,8 +892,7 @@ async function applyProductPushes(
     ]);
   }
   if (fields.has("productStatus")) {
-    const allZero = local.colors.every((c) => (c.stock ?? 0) <= 0);
-    const target = mapLocalToPfsStatus(local.status, allZero, ctx.outOfStockAction);
+    const target = mapLocalToPfsStatus(local.status);
     await pfsUpdateStatus([{ id: ctx.pfsProductId, status: target as PfsStatus }]);
   }
 }

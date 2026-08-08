@@ -1,6 +1,9 @@
 /**
- * Integration tests : auto-archivage d'un produit quand toutes ses variantes
- * ont stock=0, déclenché par updateProduct / updateVariantQuick / bulkUpdateVariants.
+ * Integration tests : depuis 2026-08-07, le statut local d'un produit n'est
+ * PLUS modifié automatiquement quand toutes ses variantes passent à stock=0.
+ * L'admin garde le contrôle (règle métier posée par la cliente pour permettre
+ * de garder un produit en ligne même en rupture, sans que le pull d'audit
+ * PFS soit blocké).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { cleanupTestData, seedTestEntities, TEST_PREFIX, prisma } from "./setup";
@@ -12,7 +15,7 @@ import {
 } from "@/app/actions/admin/products";
 import type { ProductInput } from "@/app/actions/admin/products";
 
-describe("Auto-archive when all variants stock=0", () => {
+describe("Statut préservé quand toutes les variantes passent à stock=0", () => {
   let entities: Awaited<ReturnType<typeof seedTestEntities>>;
 
   beforeAll(async () => {
@@ -25,7 +28,6 @@ describe("Auto-archive when all variants stock=0", () => {
   });
 
   beforeEach(async () => {
-    // Remove all test products between tests for isolation
     const productIds = (
       await prisma.product.findMany({
         where: { reference: { startsWith: TEST_PREFIX } },
@@ -49,11 +51,10 @@ describe("Auto-archive when all variants stock=0", () => {
     }
   });
 
-  // Helper : produit OFFLINE avec 2 variantes (couleur1 stock=10, couleur2 stock=5)
   function twoVariantsProductInput(overrides?: Partial<ProductInput>): ProductInput {
     return {
-      reference: `${TEST_PREFIX}AUTO-ARCH-001`,
-      name: "Produit auto-archive",
+      reference: `${TEST_PREFIX}NO-AUTO-ARCH-001`,
+      name: "Produit statut préservé",
       description: "Test",
       categoryId: entities.category.id,
       subCategoryIds: [],
@@ -97,74 +98,16 @@ describe("Auto-archive when all variants stock=0", () => {
     };
   }
 
-  // ───────────── updateProduct ─────────────
-
-  describe("updateProduct (full edit form)", () => {
-    it("archives the product when all variant stocks are saved to 0", async () => {
+  describe("updateProduct (formulaire complet)", () => {
+    it("ne bascule pas ARCHIVED quand tous les stocks passent à 0 (statut préservé)", async () => {
       const { id } = await createProduct(twoVariantsProductInput());
       const variants = await prisma.productColor.findMany({ where: { productId: id } });
       const [v1, v2] = variants;
 
       await updateProduct(id, twoVariantsProductInput({
         colors: [
-          {
-            dbId: v1.id,
-            colorId: entities.color1.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 0,
-            isPrimary: true,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
-          {
-            dbId: v2.id,
-            colorId: entities.color2.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 0,
-            isPrimary: false,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
-        ],
-      }));
-
-      const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("ARCHIVED");
-    });
-
-    it("does NOT archive when at least one variant still has stock", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
-      const variants = await prisma.productColor.findMany({ where: { productId: id } });
-      const [v1, v2] = variants;
-
-      await updateProduct(id, twoVariantsProductInput({
-        colors: [
-          {
-            dbId: v1.id,
-            colorId: entities.color1.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 0,
-            isPrimary: true,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
-          {
-            dbId: v2.id,
-            colorId: entities.color2.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 3,
-            isPrimary: false,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
+          { dbId: v1.id, colorId: entities.color1.id, unitPrice: 9.99, weight: 0.15, stock: 0, isPrimary: true, saleType: "UNIT", packQuantity: null, sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }] },
+          { dbId: v2.id, colorId: entities.color2.id, unitPrice: 9.99, weight: 0.15, stock: 0, isPrimary: false, saleType: "UNIT", packQuantity: null, sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }] },
         ],
       }));
 
@@ -172,74 +115,28 @@ describe("Auto-archive when all variants stock=0", () => {
       expect(product!.status).toBe("OFFLINE");
     });
 
-    it("archives even when admin saves with status=OFFLINE", async () => {
-      const { id } = await createProduct(twoVariantsProductInput({ status: "OFFLINE" }));
+    it("préserve un produit ONLINE en rupture totale", async () => {
+      const { id } = await createProduct(twoVariantsProductInput({ status: "ONLINE" }));
       const variants = await prisma.productColor.findMany({ where: { productId: id } });
       const [v1, v2] = variants;
 
       await updateProduct(id, twoVariantsProductInput({
-        status: "OFFLINE",
+        status: "ONLINE",
         colors: [
-          {
-            dbId: v1.id,
-            colorId: entities.color1.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 0,
-            isPrimary: true,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
-          {
-            dbId: v2.id,
-            colorId: entities.color2.id,
-            unitPrice: 9.99,
-            weight: 0.15,
-            stock: 0,
-            isPrimary: false,
-            saleType: "UNIT",
-            packQuantity: null,
-            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
-          },
+          { dbId: v1.id, colorId: entities.color1.id, unitPrice: 9.99, weight: 0.15, stock: 0, isPrimary: true, saleType: "UNIT", packQuantity: null, sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }] },
+          { dbId: v2.id, colorId: entities.color2.id, unitPrice: 9.99, weight: 0.15, stock: 0, isPrimary: false, saleType: "UNIT", packQuantity: null, sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }] },
         ],
       }));
 
       const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("ARCHIVED");
+      // ONLINE préservé même en rupture totale : c'est à l'admin de décider.
+      expect(product!.status).toBe("ONLINE");
     });
   });
-
-  // ───────────── updateVariantQuick ─────────────
 
   describe("updateVariantQuick (édition rapide ligne)", () => {
-    it("archives the product when the last non-zero variant becomes 0", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
-      const variants = await prisma.productColor.findMany({ where: { productId: id } });
-      const [v1, v2] = variants;
-
-      await updateVariantQuick(v1.id, { stock: 0 });
-      let product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("OFFLINE"); // pas encore archivé : v2 a encore du stock
-
-      await updateVariantQuick(v2.id, { stock: 0 });
-      product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("ARCHIVED");
-    });
-
-    it("does NOT archive when other variants still have stock", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
-      const variants = await prisma.productColor.findMany({ where: { productId: id } });
-      const [v1] = variants;
-
-      await updateVariantQuick(v1.id, { stock: 0 });
-
-      const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("OFFLINE");
-    });
-
-    it("does not re-archive when product is already ARCHIVED", async () => {
-      const { id } = await createProduct(twoVariantsProductInput({ status: "ARCHIVED" }));
+    it("ne bascule pas ARCHIVED quand la dernière variante passe à 0", async () => {
+      const { id } = await createProduct(twoVariantsProductInput({ status: "ONLINE" }));
       const variants = await prisma.productColor.findMany({ where: { productId: id } });
       const [v1, v2] = variants;
 
@@ -247,26 +144,13 @@ describe("Auto-archive when all variants stock=0", () => {
       await updateVariantQuick(v2.id, { stock: 0 });
 
       const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("ARCHIVED");
-    });
-
-    it("does not change status when only price is updated (no stock)", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
-      const variants = await prisma.productColor.findMany({ where: { productId: id } });
-      const [v1] = variants;
-
-      await updateVariantQuick(v1.id, { unitPrice: 19.99 });
-
-      const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("OFFLINE"); // pas archivé : stock inchangé
+      expect(product!.status).toBe("ONLINE");
     });
   });
 
-  // ───────────── bulkUpdateVariants ─────────────
-
   describe("bulkUpdateVariants (action en masse)", () => {
-    it("archives a product when its last variants are set to 0 in bulk", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
+    it("ne bascule pas ARCHIVED quand toutes les variantes passent à 0 en une passe", async () => {
+      const { id } = await createProduct(twoVariantsProductInput({ status: "ONLINE" }));
       const variants = await prisma.productColor.findMany({ where: { productId: id } });
 
       await bulkUpdateVariants(
@@ -275,37 +159,7 @@ describe("Auto-archive when all variants stock=0", () => {
       );
 
       const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("ARCHIVED");
-    });
-
-    it("does NOT archive when only one of two variants is zeroed in bulk", async () => {
-      const { id } = await createProduct(twoVariantsProductInput());
-      const variants = await prisma.productColor.findMany({ where: { productId: id } });
-      const [v1] = variants;
-
-      await bulkUpdateVariants([v1.id], { stock: 0 });
-
-      const product = await prisma.product.findUnique({ where: { id } });
-      expect(product!.status).toBe("OFFLINE");
-    });
-
-    it("handles multiple products in the same bulk call", async () => {
-      const a = await createProduct(twoVariantsProductInput({ reference: `${TEST_PREFIX}BULK-A` }));
-      const b = await createProduct(twoVariantsProductInput({ reference: `${TEST_PREFIX}BULK-B` }));
-
-      const variantsA = await prisma.productColor.findMany({ where: { productId: a.id } });
-      const variantsB = await prisma.productColor.findMany({ where: { productId: b.id } });
-
-      // A : on met à 0 toutes les variantes ; B : juste une variante
-      await bulkUpdateVariants(
-        [...variantsA.map((v) => v.id), variantsB[0].id],
-        { stock: 0 },
-      );
-
-      const productA = await prisma.product.findUnique({ where: { id: a.id } });
-      const productB = await prisma.product.findUnique({ where: { id: b.id } });
-      expect(productA!.status).toBe("ARCHIVED");
-      expect(productB!.status).toBe("OFFLINE");
+      expect(product!.status).toBe("ONLINE");
     });
   });
 });

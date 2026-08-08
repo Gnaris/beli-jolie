@@ -41,6 +41,10 @@ vi.mock("@/lib/prisma", () => ({
       // ne doit PLUS être appelé pour le brand_name
       findFirst: vi.fn().mockResolvedValue({ shopName: "Ne doit pas être utilisé" }),
     },
+    siteConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn(async (operations: unknown[]) => operations),
   },
 }));
@@ -74,7 +78,14 @@ vi.mock("sharp", () => ({
   }),
 }));
 
-vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
+}));
+vi.mock("@/lib/pfs-out-of-stock-config", () => ({
+  getPfsOutOfStockConfig: vi.fn().mockResolvedValue({ deactivateVariant: true }),
+  PFS_OUT_OF_STOCK_DEFAULTS: { deactivateVariant: true },
+}));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/product-primary-color", () => ({

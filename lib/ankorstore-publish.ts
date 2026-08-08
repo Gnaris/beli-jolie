@@ -786,7 +786,6 @@ export async function ankorstoreFinalizePublish(
           ankorsProductId,
           ankorsLastSyncSnapshot: Prisma.DbNull,
           ankorsSyncRequired: false,
-          ...(payload.allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),
       ...variantIdUpdates.map((u) =>
@@ -806,10 +805,7 @@ export async function ankorstoreFinalizePublish(
     ]);
 
     revalidateTag("products", "default");
-    emitProductEvent({
-      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId: op.productId,
-    });
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId: op.productId });
 
     logger.info("[Ankorstore Publish] Finalized", {
       operationId: op.id,

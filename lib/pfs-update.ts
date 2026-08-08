@@ -676,12 +676,9 @@ export async function pfsUpdateProductInPlace(
     });
     const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
-    const allVariantsOutOfStock = product.colors.every((v) => (v.stock ?? 0) === 0);
-    const targetStatus = mapLocalToPfsStatus(
-      product.status,
-      allVariantsOutOfStock,
-      outOfStockCfg.productAction,
-    );
+    // Depuis 2026-08-07 : le statut local fait foi. Plus d'auto-archive PFS
+    // sur rupture totale (l'admin garde le contrôle).
+    const targetStatus = mapLocalToPfsStatus(product.status);
 
     // Couleur principale = Product.primaryColorId (avec fallback isPrimary pour les produits non migrés).
     const primaryColorIdResolved = getProductPrimaryColorId({
@@ -765,7 +762,7 @@ export async function pfsUpdateProductInPlace(
       if (!options?.skipRevalidation) {
         revalidateTag("products", "default");
       }
-      return { success: true, archived: allVariantsOutOfStock };
+      return { success: true, archived: false };
     }
 
     // ── Step 1 : Update product fields (skippé si inchangé) ──
@@ -1364,8 +1361,6 @@ export async function pfsUpdateProductInPlace(
         report("Mise en ligne...");
       } else if (targetStatus === "ARCHIVED") {
         report("Archivage sur PFS...");
-      } else if (targetStatus === "DELETED") {
-        report("Suppression sur PFS (rupture totale)...");
       } else {
         report("Mise en brouillon sur PFS...");
       }
@@ -1373,7 +1368,6 @@ export async function pfsUpdateProductInPlace(
         pfsProductId,
         targetStatus,
         localStatus: product.status,
-        allVariantsOutOfStock,
       });
       try {
         await pfsUpdateStatus([{ id: pfsProductId, status: targetStatus }]);
@@ -1422,9 +1416,7 @@ export async function pfsUpdateProductInPlace(
       pfsLastSyncSnapshot: committedSnapshot,
       pfsSyncRequired: false,
     };
-    if (allVariantsOutOfStock && product.status === "ONLINE") {
-      dbUpdate.status = "OFFLINE";
-    }
+    // Depuis 2026-08-07 : plus d'auto-bascule OFFLINE sur rupture totale.
     await prisma.product.update({
       where: { id: productId },
       data: dbUpdate,
@@ -1433,17 +1425,14 @@ export async function pfsUpdateProductInPlace(
     if (!options?.skipRevalidation) {
       revalidateTag("products", "default");
     }
-    emitProductEvent({
-      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId,
-    });
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
 
     progress.status = "success";
     progress.step = "Terminé";
     onProgress?.(progress);
     logger.info("[PFS Update] Success", { reference: product.reference, pfsProductId });
 
-    return { success: true, archived: allVariantsOutOfStock };
+    return { success: true, archived: false };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error("[PFS Update] Error", { reference: product.reference, error: errorMsg });

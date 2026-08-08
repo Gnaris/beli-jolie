@@ -49,6 +49,10 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...a: unknown[]) => productColorUpdateManySpy(...a),
     },
     companyInfo: { findFirst: vi.fn() },
+    siteConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     $transaction: (calls: unknown[]) => Promise.all(calls as Promise<unknown>[]),
   },
 }));
@@ -84,7 +88,14 @@ vi.mock("sharp", () => ({
   default: () => ({ jpeg: () => ({ toBuffer: () => Promise.resolve(Buffer.from("j")) }) }),
 }));
 
-vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
+}));
+vi.mock("@/lib/pfs-out-of-stock-config", () => ({
+  getPfsOutOfStockConfig: vi.fn().mockResolvedValue({ deactivateVariant: true }),
+  PFS_OUT_OF_STOCK_DEFAULTS: { deactivateVariant: true },
+}));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

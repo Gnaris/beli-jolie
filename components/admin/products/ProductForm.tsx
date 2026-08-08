@@ -1843,7 +1843,6 @@ export default function ProductForm({
     // In edit mode, never downgrade to draft — only block going ONLINE.
     // Draft mode (mode="create") uses isIncomplete to track true draft state.
     const isIncomplete = mode === "create" ? completenessErrors.length > 0 : false;
-    const outOfStock = isOutOfStock();
 
     let downgradeConfirmed = false;
     if (productStatus === "ONLINE" && completenessErrors.length > 0) {
@@ -1858,18 +1857,9 @@ export default function ProductForm({
       downgradeConfirmed = true;
     }
 
-    // Warn: saving an ONLINE product with no stock → auto downgrade to OFFLINE
-    if (!downgradeConfirmed && productStatus === "ONLINE" && outOfStock) {
-      const okDowngrade = await confirmDialog({
-        type: "warning",
-        title: "Rupture de stock",
-        message: "Toutes les variantes de ce produit sont en rupture de stock. Le produit sera automatiquement mis hors ligne.",
-        confirmLabel: "Enregistrer et mettre hors ligne",
-        cancelLabel: "Annuler",
-      });
-      if (!okDowngrade) return;
-      downgradeConfirmed = true;
-    }
+    // Depuis 2026-08-07 : plus d'avertissement rupture totale ni de bascule
+    // auto OFFLINE. Le statut choisi par l'admin est appliqué tel quel — un
+    // produit peut rester ONLINE avec toutes ses variantes à 0.
 
     const finalStatus = downgradeConfirmed ? "OFFLINE" : productStatus;
 

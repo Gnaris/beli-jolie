@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   parsePfsDeactivateVariant,
-  parsePfsOutOfStockProductAction,
   PFS_OUT_OF_STOCK_DEFAULTS,
 } from "@/lib/pfs-out-of-stock-config";
 
@@ -21,26 +20,8 @@ describe("parsePfsDeactivateVariant", () => {
   });
 });
 
-describe("parsePfsOutOfStockProductAction", () => {
-  it("accepte les 3 valeurs valides", () => {
-    expect(parsePfsOutOfStockProductAction("archived")).toBe("archived");
-    expect(parsePfsOutOfStockProductAction("deleted")).toBe("deleted");
-    expect(parsePfsOutOfStockProductAction("draft")).toBe("draft");
-  });
-
-  it("null/undefined/valeur inconnue → défaut (archived)", () => {
-    expect(parsePfsOutOfStockProductAction(null)).toBe("archived");
-    expect(parsePfsOutOfStockProductAction(undefined)).toBe("archived");
-    expect(parsePfsOutOfStockProductAction("online")).toBe("archived");
-    expect(parsePfsOutOfStockProductAction("")).toBe("archived");
-  });
-});
-
 describe("PFS_OUT_OF_STOCK_DEFAULTS", () => {
-  it("garde le contrat par défaut (désactive variante + archive produit)", () => {
-    expect(PFS_OUT_OF_STOCK_DEFAULTS).toEqual({
-      deactivateVariant: true,
-      productAction: "archived",
-    });
+  it("garde le contrat par défaut (désactive variante quand stock=0)", () => {
+    expect(PFS_OUT_OF_STOCK_DEFAULTS).toEqual({ deactivateVariant: true });
   });
 });

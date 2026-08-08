@@ -667,9 +667,7 @@ describe("comparePfsProduct", () => {
     const pfsVariants = [
       makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: false }),
     ];
-    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
-      outOfStockProductAction: "archived",
-    });
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
     expect(issues.find((i) => i.field === "productStatus")).toBeUndefined();
   });
 
@@ -696,9 +694,8 @@ describe("comparePfsProduct", () => {
     const pfsVariants = [
       makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 0, weight: 0.02, isActive: false }),
     ];
-    const statusIssue = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
-      outOfStockProductAction: "archived",
-    }).find((i) => i.field === "productStatus");
+    const statusIssue = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP)
+      .find((i) => i.field === "productStatus");
     expect(statusIssue).toBeDefined();
     expect(statusIssue?.pfsValue).toBe("En ligne");
     expect(statusIssue?.expectedValue).toBe("Hors ligne (brouillon)");
@@ -974,6 +971,149 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(compoIssue?.blockingMappingIssue).toContain("créez-la");
     expect(compoIssue?.blockingMappingIssue).toContain("relancez l'audit");
     expect(compoIssue?.expectedValue).toContain("Fibre spéciale");
+  });
+
+  it("ne bloque PAS quand la compo PFS existe déjà dans la biblio locale (pull rattachera)", () => {
+    // Bug reporté 2026-08-07 (Issyma) : produit sans compo rattachée + PFS
+    // renvoie « Laine · Viscose · Nylon ». Avant, l'audit bloquait avec
+    // « créez-la dans Paramètres > Compositions » alors que les 3 compos
+    // étaient déjà dans la biblio Issyma — juste pas rattachées à ce produit.
+    // Maintenant, on vérifie la biblio globale ; si trouvées, on marque
+    // l'écart comme pullable non bloquant.
+    const local = makeLocalProduct({ compositions: [] });
+    const pfsProduct = makePfsProduct({
+      material_composition: [
+        { id: "u-wool", reference: "WOOL", percentage: 50, labels: { fr: "Laine" } },
+        { id: "u-viscose", reference: "VISCOSE", percentage: 30, labels: { fr: "Viscose" } },
+        { id: "u-nylon", reference: "NYLON", percentage: 20, labels: { fr: "Nylon" } },
+      ],
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    // Biblio locale : les 3 compos existent — matching via Uid, ref et nom.
+    const compositionLibrary = {
+      uids: new Set(["u-wool", "u-nylon"]),           // Laine par Uid, Nylon par Uid
+      refs: new Set(["VISCOSE"]),                     // Viscose par ref
+      names: new Set(["LAINE", "VISCOSE", "NYLON"]),  // fallback par nom
+    };
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      ...NO_MARKUP,
+      compositionLibrary,
+    });
+    const compo = issues.find((i) => i.field === "composition");
+    expect(compo).toBeDefined();
+    // Non bloquant : le pull « Corriger depuis PFS » rattachera les 3 compos.
+    expect(compo?.blockingMappingIssue).toBeUndefined();
+    expect(compo?.pullBlocked).toBeUndefined();
+  });
+
+  it("bloque quand la compo PFS n'est ni dans le produit ni dans la biblio locale", () => {
+    // Symétrie du test précédent : sans biblio (ou biblio vide), on doit
+    // continuer à bloquer avec le message « créez-la ». Sinon, régression
+    // sur l'ancien comportement quand la compo est vraiment inconnue.
+    const local = makeLocalProduct({ compositions: [] });
+    const pfsProduct = makePfsProduct({
+      material_composition: [
+        { id: "u-obscure", reference: "OBSCURE", percentage: 100, labels: { fr: "Fibre obscure" } },
+      ],
+    });
+    const pfsVariants = [
+      makePfsVariant({ type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 28, weight: 0.02 }),
+    ];
+    const compositionLibrary = {
+      uids: new Set<string>(),
+      refs: new Set<string>(),
+      names: new Set<string>(),
+    };
+    const compo = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      ...NO_MARKUP,
+      compositionLibrary,
+    }).find((i) => i.field === "composition");
+    expect(compo?.blockingMappingIssue).toContain("Fibre obscure");
+  });
+
+  it("matche variante par label FR quand pfsColorRef local ne matche pas la ref PFS", () => {
+    // Bug reporté 2026-08-07 (13164FLEUR / Issyma) : local a Color « Jaune »
+    // avec pfsColorRef=YELLOW, mais PFS renvoie la variante avec ref="GOLD"
+    // (ou une autre) ET labels.fr="Jaune". Avant, on affichait un extraVariant
+    // (« Jaune sera ajoutée sur votre site ») + un missingVariant (« Jaune
+    // sera supprimée de PFS »). Maintenant, on matche par label FR et on
+    // pose un heal pour aligner Color.pfsColorRef.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "YELLOW",
+          colorName: "Jaune",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 28,
+          weight: 0.02,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({
+        type: "ITEM",
+        colorRef: "GOLD",         // ref différente
+        colorLabelFr: "Jaune",    // même label FR
+        price: 16.5,
+        stock: 28,
+        weight: 0.02,
+      }),
+    ];
+    const heals: unknown[] = [];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, {
+      ...NO_MARKUP,
+      onColorAutoHeal: (h) => heals.push(h),
+    });
+    // Pas de doublon extra+missing — la variante est bien matchée.
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "missingVariant")).toBeUndefined();
+    // Heal posé pour aligner Color.pfsColorRef → GOLD.
+    expect(heals).toHaveLength(1);
+    expect(heals[0]).toMatchObject({
+      localColorName: "Jaune",
+      currentPfsRef: "YELLOW",
+      newPfsRef: "GOLD",
+    });
+  });
+
+  it("ne matche PAS par label FR si le type diffère (UNIT vs PACK)", () => {
+    // Filet : un local UNIT « Jaune » ne doit pas capturer une variante
+    // PFS PACK avec labels.fr="Jaune" — les types doivent rester séparés.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v1",
+          colorPfsRef: "YELLOW",
+          colorName: "Jaune",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 28,
+          weight: 0.02,
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({
+        type: "PACK",
+        colorRef: "GOLD",
+        colorLabelFr: "Jaune",
+        price: 16.5,
+        stock: 28,
+        weight: 0.02,
+        packs: [{ colorRef: "GOLD", sizes: [{ size: "TU", qty: 3 }] }],
+      }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    // UNIT locale n'a pas trouvé son équivalent → missingVariant.
+    expect(issues.find((i) => i.field === "missingVariant")).toBeDefined();
+    // PACK PFS orpheline (types différents) → extraVariant.
+    expect(issues.find((i) => i.field === "extraVariant")).toBeDefined();
   });
 
   it("ne pose PAS blockingMappingIssue quand tous les mappings existent (écart de valeur normal)", () => {

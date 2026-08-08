@@ -31,10 +31,6 @@ import {
   loadMarketplaceMarkupConfigs,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing";
-import {
-  getPfsOutOfStockConfig,
-  type PfsOutOfStockProductAction,
-} from "@/lib/pfs-out-of-stock-config";
 import { mapLocalToPfsStatus, type PfsTargetStatus } from "@/lib/pfs-status";
 import { countryName } from "@/lib/countries";
 import { logger } from "@/lib/logger";
@@ -546,6 +542,32 @@ export interface PfsLabelMaps {
 }
 
 /**
+ * Snapshot de la biblio Composition locale du tenant courant. Utilisé par
+ * `reconcileCompositionsByLabel` pour distinguer « compo absente de la biblio
+ * (création requise) » vs « compo présente en biblio mais pas rattachée à ce
+ * produit (le pull la rattachera automatiquement) ».
+ */
+export interface CompositionLibraryIndex {
+  /** Salesforce Uids présents dans la biblio locale. */
+  uids: Set<string>;
+  /** `normalizeCompositionRef(pfsCompositionRef)` des entrées de la biblio. */
+  refs: Set<string>;
+  /** `normalizeCompositionRef(name)` des entrées de la biblio. */
+  names: Set<string>;
+}
+
+/** Guérison automatique de `Color.pfsColorRef` détectée pendant le compare :
+ *  la couleur locale a matché une variante PFS orpheline via son label FR,
+ *  mais son `pfsColorRef` local est vide ou différent. `verifyPfsProduct`
+ *  applique ces guérisons après la compare, comme pour les compositions. */
+export interface ColorAutoHealAction {
+  localColorId: string;
+  localColorName: string;
+  currentPfsRef: string | null;
+  newPfsRef: string;
+}
+
+/**
  * Contexte préchargé partagé entre plusieurs `verifyPfsProduct` d'un même lot.
  * Regroupe les 5 tables globales PFS (colors + 4 attributs) et les 2 configs
  * BDD (markup pricing + out-of-stock) — toutes identiques d'un produit à
@@ -554,8 +576,10 @@ export interface PfsLabelMaps {
 export interface PfsVerifyContext {
   colorRefMap: Map<string, string>;
   pfsMarkup: MarkupConfig | undefined;
-  outOfStockProductAction: PfsOutOfStockProductAction;
   labels: PfsLabelMaps;
+  /** Snapshot biblio Composition (tenant scopé). Optionnel : tests sans DB
+   *  passent `undefined` et retombent sur l'ancien comportement. */
+  compositionLibrary?: CompositionLibraryIndex;
 }
 
 const GENDER_FR: Record<string, string> = {
@@ -575,9 +599,6 @@ export function comparePfsProduct(
   colorRefMap: Map<string, string>,
   opts: {
     pfsMarkup?: MarkupConfig;
-    /** Action PFS à appliquer sur produit quand toutes les variantes sont en
-     *  rupture. Sert à calculer le statut PFS attendu depuis le statut local. */
-    outOfStockProductAction?: PfsOutOfStockProductAction;
     /** Tables de correspondance pour afficher des noms humains à la place
      *  des IDs Salesforce / refs techniques. */
     labels?: PfsLabelMaps;
@@ -588,6 +609,14 @@ export function comparePfsProduct(
      * l'utilise pour auto-guérir en base. Ne pas passer = pas d'effet.
      */
     onCompositionAutoHeal?: (heal: CompositionAutoHealAction) => void;
+    /** Callback équivalent pour les couleurs — invoqué quand une variante
+     *  PFS orpheline matche une couleur locale via son libellé FR mais que
+     *  `Color.pfsColorRef` est vide ou différent. */
+    onColorAutoHeal?: (heal: ColorAutoHealAction) => void;
+    /** Biblio Composition du tenant (voir CompositionLibraryIndex). Sans
+     *  elle, le reconcile bloque sur toute compo non rattachée au produit,
+     *  même si elle est déjà dans Paramètres > Compositions. */
+    compositionLibrary?: CompositionLibraryIndex;
   },
 ): PfsVerifyIssue[] {
   const issues: PfsVerifyIssue[] = [];
@@ -654,6 +683,7 @@ export function comparePfsProduct(
       local.compositions,
       pfsProduct.material_composition ?? [],
       labels?.compositionLabelByRef,
+      opts.compositionLibrary,
     );
 
     if (reconcile.aligned) {
@@ -793,18 +823,10 @@ export function comparePfsProduct(
   // On IGNORE le statut si le local est SYNCING (état transitoire) ou si le
   // PFS renvoie un statut inconnu — pas d'écart affiché dans ces cas.
   if (local.status !== "SYNCING") {
-    // On compare STRICTEMENT `local.status` ↔ `pfs.status` (sans facteur
-    // rupture). L'auto-archive `allZero → ARCHIVED` reste appliqué côté PUSH
-    // (`lib/pfs-update.ts`, `lib/pfs-publish.ts`) mais pas ici : sinon après un
-    // pull qui aligne BJ sur PFS (READY_FOR_SALE → ONLINE), l'audit continue
-    // d'afficher un écart bidon tant que les stocks BJ sont à 0 — la cliente
-    // corrige, re-lance l'audit et voit la même carte, croit que « ça n'a pas
-    // marché » (bug reporté 2026-08-07 sur 13764-3).
-    const expectedPfsStatus = mapLocalToPfsStatus(
-      local.status,
-      false, // ignore l'allZero dans le compare — voir raison ci-dessus
-      opts.outOfStockProductAction ?? "archived",
-    );
+    // Le statut local fait foi (règle métier 2026-08-07). Rupture totale ≠
+    // auto-archive : c'est à l'admin de choisir. `mapLocalToPfsStatus` mappe
+    // seulement ONLINE/OFFLINE/ARCHIVED vers READY_FOR_SALE/DRAFT/ARCHIVED.
+    const expectedPfsStatus = mapLocalToPfsStatus(local.status);
     // PFS `NEW` = produit créé mais jamais activé (invisible via listProducts,
     // affiché « brouillon » dans l'UI PFS). Sémantiquement équivalent à
     // ARCHIVED côté BJ (produit invisible en vitrine). On normalise avant
@@ -836,6 +858,64 @@ export function comparePfsProduct(
 
   const pfsByKey = new Map<string, PfsVariantDetail>();
   for (const pv of pfsVariants) pfsByKey.set(pfsVariantMatchKey(pv), pv);
+
+  // Fallback label FR : quand un local n'a pas de match par ref, on tente
+  // par nom (colorName local ↔ labels.fr de la variante PFS). Corrige les
+  // faux positifs « extraVariant + missingVariant » quand PFS renvoie une
+  // ref différente pour la même couleur (bug reporté 2026-08-07 sur
+  // 13164FLEUR/Issyma : local « Jaune » avec pfsColorRef="YELLOW", PFS
+  // renvoyait la variante avec ref différente mais labels.fr="Jaune"). Pose
+  // un heal Color.pfsColorRef pour aligner la biblio locale.
+  const pfsLabelsMatched = new Set<string>();
+  for (const l of locals) {
+    const key = localMatchKey(l);
+    if (pfsByKey.has(key)) continue;
+    const normLocalName = normalizeColorRef(l.colorName);
+    // Recherche parmi les PFS du même type dont la ref n'est pas déjà mappée
+    // à un autre local et dont le label FR matche le nom local.
+    const candidate = pfsVariants.find((pv) => {
+      const pvType = pv.type === "ITEM" ? "UNIT" : "PACK";
+      if (pvType !== l.expected.type) return false;
+      const pvRef =
+        pv.item?.color.reference ??
+        pv.packs?.[0]?.color.reference ??
+        "";
+      const pvKey = pfsVariantMatchKey(pv);
+      // Ne pas voler une variante déjà associée à un autre local par ref.
+      if (localByKey.has(pvKey) && pvKey !== key) return false;
+      if (pfsLabelsMatched.has(pv.id)) return false;
+      const pvLabelFr =
+        pv.item?.color.labels?.fr ??
+        pv.packs?.[0]?.color.labels?.fr ??
+        "";
+      if (!pvLabelFr) return false;
+      return normalizeColorRef(pvLabelFr) === normLocalName && pvRef.length > 0;
+    });
+    if (candidate) {
+      pfsByKey.set(key, candidate);
+      pfsLabelsMatched.add(candidate.id);
+      // Heal opportuniste : on aligne la ref locale sur celle de PFS.
+      const pvRef =
+        candidate.item?.color.reference ??
+        candidate.packs?.[0]?.color.reference ??
+        "";
+      const localColorId = local.colors.find(
+        (c) => c.color && normalizeColorRef(c.color.name) === normLocalName,
+      )?.color?.id;
+      const currentPfsRef =
+        local.colors.find(
+          (c) => c.color && normalizeColorRef(c.color.name) === normLocalName,
+        )?.color?.pfsColorRef ?? null;
+      if (localColorId && normalizeColorRef(currentPfsRef ?? "") !== normalizeColorRef(pvRef)) {
+        opts.onColorAutoHeal?.({
+          localColorId,
+          localColorName: l.colorName,
+          currentPfsRef,
+          newPfsRef: pvRef,
+        });
+      }
+    }
+  }
 
   const seenPfsIds = new Set<string>();
 
@@ -996,12 +1076,17 @@ interface CompositionReconcileResult {
   /** Toutes les entrées PFS ont un équivalent local (par ref ou par nom)
    *  ET toutes les entrées locales ont un équivalent côté PFS ET les % correspondent. */
   aligned: boolean;
-  /** Noms FR (labelMap) des matières PFS sans équivalent local par nom. */
+  /** Noms FR (labelMap) des matières PFS **absentes de la biblio locale** —
+   *  vraie création requise, bloque le pull. */
   missingLocalNames: string[];
   /** Métadonnées PFS complètes des matières manquantes (Uid + Ref + suggested
    *  name + labels) — utilisé par l'UI pour proposer un raccourci « Créer cette
    *  composition » en 1 clic sans passer par l'apply. */
   missingLocalPfs: PfsMissingCompositionInfoLite[];
+  /** Noms FR des matières PFS **présentes dans la biblio locale mais non
+   *  rattachées à ce produit**. Le pull « Corriger depuis PFS » les rattachera
+   *  automatiquement via `resolvePfsCompositionsToLocal` — non bloquant. */
+  libraryOnlyNames: string[];
   /** Noms locaux des compositions sans équivalent PFS. */
   orphanLocalNames: string[];
   /** Guérisons à appliquer si aligned=true. */
@@ -1028,6 +1113,7 @@ function reconcileCompositionsByLabel(
   local: FullProduct["compositions"],
   pfs: Array<{ id?: string; reference: string; percentage: number; labels?: Record<string, string> }>,
   compositionLabelByRef: Map<string, string> | undefined,
+  library?: CompositionLibraryIndex,
 ): CompositionReconcileResult {
   // Normalisation nom pour matching : sans accents, sans espaces, uppercase.
   const normName = (s: string): string => normalizeCompositionRef(s);
@@ -1057,6 +1143,7 @@ function reconcileCompositionsByLabel(
   const heals: CompositionAutoHealAction[] = [];
   const missingLocalNames: string[] = [];
   const missingLocalPfs: PfsMissingCompositionInfoLite[] = [];
+  const libraryOnlyNames: string[] = [];
 
   for (const pfsEntry of pfs) {
     const normPfsRef = normalizeCompositionRef(pfsEntry.reference);
@@ -1076,6 +1163,22 @@ function reconcileCompositionsByLabel(
     }
 
     if (!match) {
+      // Avant de déclarer « manquant / création requise », on vérifie si la
+      // biblio Composition du tenant contient déjà cette matière (par Uid,
+      // ref ou nom FR normalisé). Si oui, le pull « Corriger depuis PFS »
+      // la rattachera automatiquement via `resolvePfsCompositionsToLocal` —
+      // on ne doit pas bloquer sur un faux « à créer » (bug reporté 2026-08-07
+      // par la cliente pour Laine · Viscose · Nylon sur Issyma, alors que
+      // les 3 compos existaient bien dans Paramètres > Compositions).
+      const inLibrary =
+        !!library &&
+        ((pfsEntry.id && library.uids.has(pfsEntry.id)) ||
+          library.refs.has(normPfsRef) ||
+          library.names.has(normPfsLabel));
+      if (inLibrary) {
+        libraryOnlyNames.push(pfsFrLabel);
+        continue;
+      }
       missingLocalNames.push(pfsFrLabel);
       // Métadonnées complètes pour raccourci UI (create-in-1-click).
       const dedupKey = pfsEntry.id || pfsEntry.reference || pfsFrLabel;
@@ -1122,9 +1225,12 @@ function reconcileCompositionsByLabel(
   });
 
   const aligned =
-    missingLocalNames.length === 0 && orphanLocalNames.length === 0 && !pctMismatch;
+    missingLocalNames.length === 0 &&
+    libraryOnlyNames.length === 0 &&
+    orphanLocalNames.length === 0 &&
+    !pctMismatch;
 
-  return { aligned, missingLocalNames, missingLocalPfs, orphanLocalNames, heals };
+  return { aligned, missingLocalNames, missingLocalPfs, libraryOnlyNames, orphanLocalNames, heals };
 }
 
 /**
@@ -1288,6 +1394,7 @@ export async function verifyPfsProduct(
   // "Coton" ↔ "COTTON"). Appliquées après la compare pour ne pas mélanger
   // une mutation dans le flux de calcul.
   const compositionHeals: CompositionAutoHealAction[] = [];
+  const colorHeals: ColorAutoHealAction[] = [];
 
   const issues = comparePfsProduct(
     product,
@@ -1296,10 +1403,13 @@ export async function verifyPfsProduct(
     ctx.colorRefMap,
     {
       pfsMarkup: ctx.pfsMarkup,
-      outOfStockProductAction: ctx.outOfStockProductAction,
       labels: ctx.labels,
+      compositionLibrary: ctx.compositionLibrary,
       onCompositionAutoHeal: (heal) => {
         compositionHeals.push(heal);
+      },
+      onColorAutoHeal: (heal) => {
+        colorHeals.push(heal);
       },
     },
   );
@@ -1337,6 +1447,40 @@ export async function verifyPfsProduct(
           oldRef: heal.currentPfsRef,
           newRef: heal.newPfsRef,
           newUid: heal.newPfsUid ?? null,
+        });
+      }),
+    );
+  }
+
+  if (colorHeals.length > 0) {
+    await Promise.allSettled(
+      colorHeals.map(async (heal) => {
+        // Anti-collision : si une autre Color du tenant porte déjà cette ref
+        // PFS, on ne l'écrase pas (garde-fou mapping couleurs marketplaces —
+        // c36b5518). L'admin gérera manuellement.
+        const collision = await prisma.color.findFirst({
+          where: { pfsColorRef: heal.newPfsRef, NOT: { id: heal.localColorId } },
+          select: { id: true, name: true },
+        });
+        if (collision) {
+          logger.warn("[PFS Verify] Auto-heal couleur skippé (collision)", {
+            productReference: product.reference,
+            localName: heal.localColorName,
+            targetRef: heal.newPfsRef,
+            collidesWithId: collision.id,
+            collidesWithName: collision.name,
+          });
+          return;
+        }
+        await prisma.color.update({
+          where: { id: heal.localColorId },
+          data: { pfsColorRef: heal.newPfsRef },
+        });
+        logger.info("[PFS Verify] Auto-guérison Color.pfsColorRef", {
+          productReference: product.reference,
+          localName: heal.localColorName,
+          oldRef: heal.currentPfsRef,
+          newRef: heal.newPfsRef,
         });
       }),
     );
@@ -1405,6 +1549,30 @@ async function buildPfsLabelMaps(): Promise<PfsLabelMaps> {
   return maps;
 }
 
+/**
+ * Snapshot des biblios Composition/Color du tenant courant (extension Prisma
+ * scope auto). Loadé une fois par `loadPfsVerifyContext`, réutilisé pour tout
+ * le lot d'audit — évite N requêtes en bulk.
+ */
+async function buildCompositionLibraryIndex(): Promise<CompositionLibraryIndex> {
+  const uids = new Set<string>();
+  const refs = new Set<string>();
+  const names = new Set<string>();
+  try {
+    const rows = await prisma.composition.findMany({
+      select: { name: true, pfsCompositionRef: true, pfsCompositionUid: true },
+    });
+    for (const r of rows) {
+      if (r.pfsCompositionUid) uids.add(r.pfsCompositionUid);
+      if (r.pfsCompositionRef) refs.add(normalizeCompositionRef(r.pfsCompositionRef));
+      if (r.name) names.add(normalizeCompositionRef(r.name));
+    }
+  } catch (err) {
+    logger.warn("[PFS Verify] Failed to load Composition library", { error: err });
+  }
+  return { uids, refs, names };
+}
+
 async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   try {
@@ -1426,16 +1594,16 @@ async function buildColorLabelToRefMap(): Promise<Map<string, string>> {
  * d'un audit / bulk verify puis à passer à chaque `verifyPfsProduct`.
  */
 export async function loadPfsVerifyContext(): Promise<PfsVerifyContext> {
-  const [colorRefMap, markupConfigs, outOfStockCfg, labelMaps] = await Promise.all([
+  const [colorRefMap, markupConfigs, labelMaps, compositionLibrary] = await Promise.all([
     buildColorLabelToRefMap(),
     loadMarketplaceMarkupConfigs(),
-    getPfsOutOfStockConfig(),
     buildPfsLabelMaps(),
+    buildCompositionLibraryIndex(),
   ]);
   return {
     colorRefMap,
     pfsMarkup: markupConfigs.pfs,
-    outOfStockProductAction: outOfStockCfg.productAction,
     labels: labelMaps,
+    compositionLibrary,
   };
 }

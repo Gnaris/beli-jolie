@@ -587,7 +587,7 @@ async function PaiementTab() {
 async function MarketplacesTab() {
   const [
     pfsConfig, markupRows, pfsBrand, pfsEnabled,
-    pfsOutOfStockDeactivateRow, pfsOutOfStockActionRow,
+    pfsOutOfStockDeactivateRow,
     hasAnkorstoreConfig, ankorstoreEnabled,
     ankorstoreWholesaleType, ankorstoreWholesaleValue, ankorstoreWholesaleRounding,
     ankorstoreRetailType, ankorstoreRetailValue, ankorstoreRetailRounding,
@@ -613,7 +613,6 @@ async function MarketplacesTab() {
     getCachedPfsBrand(),
     getCachedPfsEnabled(),
     getCachedSiteConfig("pfs_out_of_stock_deactivate_variant"),
-    getCachedSiteConfig("pfs_out_of_stock_product_action"),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
     getCachedSiteConfig("ankorstore_wholesale_markup_type"),
@@ -683,11 +682,6 @@ async function MarketplacesTab() {
       pfsBrand={pfsBrand}
       pfsOutOfStock={{
         deactivateVariant: pfsOutOfStockDeactivateRow?.value === "false" ? false : true,
-        productAction:
-          pfsOutOfStockActionRow?.value === "deleted" ||
-          pfsOutOfStockActionRow?.value === "draft"
-            ? pfsOutOfStockActionRow.value
-            : "archived",
       }}
       hasAnkorstoreConfig={hasAnkorstoreConfig}
       ankorstoreEnabled={ankorstoreEnabled}

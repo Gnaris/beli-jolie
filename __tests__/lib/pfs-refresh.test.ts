@@ -38,6 +38,10 @@ vi.mock("@/lib/prisma", () => ({
     companyInfo: {
       findFirst: (...a: unknown[]) => mockCompanyInfoFindFirst(...a),
     },
+    siteConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn(async (operations: unknown[]) => operations),
   },
 }));
@@ -72,12 +76,19 @@ vi.mock("sharp", () => ({
   }),
 }));
 
-vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
+}));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/pfs-brand", () => ({
   requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
   PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
+}));
+vi.mock("@/lib/pfs-out-of-stock-config", () => ({
+  getPfsOutOfStockConfig: vi.fn().mockResolvedValue({ deactivateVariant: true }),
+  PFS_OUT_OF_STOCK_DEFAULTS: { deactivateVariant: true },
 }));
 
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
@@ -204,14 +215,18 @@ describe("pfsRefreshProduct", () => {
     expect(data.createdAt).toBeUndefined();
   });
 
-  it("archives the new product when all variants are out of stock", async () => {
+  it("préserve le statut ONLINE local même si toutes les variantes sont à 0 (règle 2026-08-07)", async () => {
+    // Régression : avant, un produit ONLINE avec toutes les variantes à 0 était
+    // auto-basculé en OFFLINE ici (et poussé en DRAFT côté PFS). Depuis 2026-08-07,
+    // l'admin garde le contrôle du statut : ONLINE local reste ONLINE et la
+    // fiche PFS reste READY_FOR_SALE.
     const product = mkProduct({
       colors: [
         {
           id: "v-1",
           unitPrice: 10,
           weight: 0.1,
-          stock: 0, // out of stock
+          stock: 0,
           isPrimary: true,
           saleType: "UNIT",
           packQuantity: null,
@@ -222,8 +237,6 @@ describe("pfsRefreshProduct", () => {
           images: [],
         },
       ],
-      // Une image par couleur — sinon `filterVariantsWithImages` exclut
-      // toutes les variantes (cf. lib/pfs-refresh.ts).
       colorImages: [{ path: "/mock/noir.jpg", order: 0, colorId: "color-noir" }],
     });
     mockProductFindUnique.mockResolvedValue(product);
@@ -241,16 +254,16 @@ describe("pfsRefreshProduct", () => {
     const res = await pfsRefreshProduct("p-1");
 
     expect(res.success).toBe(true);
-    if (res.success) expect(res.archived).toBe(true);
+    if (res.success) expect(res.archived).toBe(false);
 
-    // Quand toutes les variantes sont à 0 stock, on pousse le produit en DRAFT
-    // côté PFS (cf. commit 31a208c : on n'archive plus, on retombe en brouillon
-    // pour permettre une remise en ligne ultérieure sans recréer le produit).
-    expect(pfsUpdateStatusSpy).toHaveBeenCalledWith([{ id: "new_pfs_id", status: "DRAFT" }]);
+    // Le statut envoyé à PFS suit le statut local ONLINE → READY_FOR_SALE.
+    expect(pfsUpdateStatusSpy).toHaveBeenCalledWith([{ id: "new_pfs_id", status: "READY_FOR_SALE" }]);
 
-    const updateCall = mockProductUpdate.mock.calls[0] as [{ data: { status?: string; lastRefreshedAt?: Date } }];
-    expect(updateCall[0].data.status).toBe("OFFLINE");
-    expect(updateCall[0].data.lastRefreshedAt).toBeInstanceOf(Date);
+    // Aucun update local ne doit forcer status: OFFLINE.
+    for (const call of mockProductUpdate.mock.calls) {
+      const data = (call[0] as { data?: { status?: string } }).data;
+      if (data?.status !== undefined) expect(data.status).not.toBe("OFFLINE");
+    }
   });
 
   it("PACK : prix unitaire = total / packQuantity, même si la somme des tailles diffère (P1-06)", async () => {

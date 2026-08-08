@@ -27,11 +27,8 @@ interface MarketplaceStats {
   lastSyncAt: string | null;
 }
 
-export type PfsOutOfStockProductAction = "archived" | "deleted" | "draft";
-
 export interface PfsOutOfStockUiConfig {
   deactivateVariant: boolean;
-  productAction: PfsOutOfStockProductAction;
 }
 
 interface Props {
@@ -624,7 +621,6 @@ export default function MarketplaceConfig({
 
   // PFS out-of-stock behavior
   const [pfsOosDeactivate, setPfsOosDeactivate] = useState<boolean>(initialPfsOutOfStock.deactivateVariant);
-  const [pfsOosAction, setPfsOosAction] = useState<PfsOutOfStockProductAction>(initialPfsOutOfStock.productAction);
   const [isSavingPfsOos, startSavingPfsOos] = useTransition();
 
   // PFS brand
@@ -808,10 +804,7 @@ export default function MarketplaceConfig({
     showLoading();
     startSavingPfsOos(async () => {
       try {
-        const r = await updatePfsOutOfStockConfig({
-          deactivateVariant: pfsOosDeactivate,
-          productAction: pfsOosAction,
-        });
+        const r = await updatePfsOutOfStockConfig({ deactivateVariant: pfsOosDeactivate });
         if (r.success) toast.success("Enregistré", "Comportement en rupture mis à jour.");
         else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
       } finally { hideLoading(); }
@@ -1459,36 +1452,6 @@ export default function MarketplaceConfig({
               </div>
             </div>
 
-            <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
-              <p className="font-body text-xs font-medium text-text-primary mb-1">
-                Toutes les variantes en rupture
-              </p>
-              <p className="font-body text-[11px] text-text-muted mb-3">
-                Ce que devient le produit sur PFS quand plus aucune couleur n'a de stock. Réversible dès qu'une variante repasse en stock.
-              </p>
-              <div className="flex rounded-lg border border-border overflow-hidden h-9">
-                {(
-                  [
-                    { value: "archived" as const, label: "Archiver" },
-                    { value: "deleted" as const, label: "Supprimer" },
-                    { value: "draft" as const, label: "Brouillon" },
-                  ]
-                ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setPfsOosAction(opt.value)}
-                    className={`flex-1 text-xs font-body font-medium transition-colors ${
-                      pfsOosAction === opt.value
-                        ? "bg-bg-dark text-text-inverse"
-                        : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
           <div className="mt-4 flex justify-end">
             <button

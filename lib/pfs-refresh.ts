@@ -544,7 +544,6 @@ export async function pfsRefreshProduct(
     }
 
     let createdVariantIds: (string | null)[] = [];
-    let allVariantsOutOfStock = false;
 
     if (variantCreateData.length === 0) {
       logger.warn("[PFS Refresh] No variant data to send — product.colors may be empty or all skipped", {
@@ -633,7 +632,6 @@ export async function pfsRefreshProduct(
             });
           }
         }
-        allVariantsOutOfStock = zeroStockPatches.length === variantCreateData.length;
       }
     }
 
@@ -842,18 +840,14 @@ export async function pfsRefreshProduct(
     await pfsUpdateProduct(newPfsProductId, { reference_code: product.reference });
     logger.info("[PFS Refresh] New product renamed to real ref", { newPfsProductId, ref: product.reference });
 
-    const targetPfsStatus = mapLocalToPfsStatus(
-      product.status,
-      allVariantsOutOfStock,
-      outOfStockCfg.productAction,
-    );
+    // Depuis 2026-08-07 : le statut local fait foi. Plus d'auto-archive sur
+    // rupture totale (l'admin garde le contrôle).
+    const targetPfsStatus = mapLocalToPfsStatus(product.status);
 
     if (targetPfsStatus === "READY_FOR_SALE") {
       report("Mise en ligne...");
     } else if (targetPfsStatus === "ARCHIVED") {
       report("Archivage sur PFS...");
-    } else if (targetPfsStatus === "DELETED") {
-      report("Suppression sur PFS (rupture totale)...");
     } else {
       report("Mise en brouillon sur PFS...");
     }
@@ -861,7 +855,6 @@ export async function pfsRefreshProduct(
       pfsProductId: newPfsProductId,
       targetStatus: targetPfsStatus,
       localStatus: product.status,
-      allVariantsOutOfStock,
     });
     await pfsUpdateStatus([{ id: newPfsProductId, status: targetPfsStatus }]);
 
@@ -906,7 +899,6 @@ export async function pfsRefreshProduct(
           pfsLastSyncSnapshot: Prisma.DbNull,
           // Refresh PFS complet → tout est aligné → on retire le drapeau.
           pfsSyncRequired: false,
-          ...(allVariantsOutOfStock ? { status: "OFFLINE" } : {}),
         },
       }),
       ...variantIdUpdates.map((u) =>
@@ -920,17 +912,14 @@ export async function pfsRefreshProduct(
     if (!options?.skipRevalidation) {
       revalidateTag("products", "default");
     }
-    emitProductEvent({
-      type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId,
-    });
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
 
     progress.status = "success";
     progress.step = "Terminé";
     onProgress?.(progress);
     logger.info("[PFS Refresh] Success", { reference: product.reference, newPfsProductId });
 
-    return { success: true, newPfsProductId, archived: allVariantsOutOfStock };
+    return { success: true, newPfsProductId, archived: false };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error("[PFS Refresh] Error", { reference: product.reference, error: errorMsg });

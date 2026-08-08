@@ -883,20 +883,16 @@ export async function ankorstoreKickoffUpdate(
           ankorsLastSyncSnapshot: committedSnapshot as unknown as Prisma.InputJsonValue,
           // Push synchrone OK → on retire le drapeau « Synchro nécessaire »
           ankorsSyncRequired: false,
-          ...(allVariantsOutOfStock && product.status === "ONLINE" ? { status: "OFFLINE" } : {}),
         },
       });
       if (!options?.skipRevalidation) {
         revalidateTag("products", "default");
       }
-      emitProductEvent({
-        type: allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-        productId,
-      });
+      emitProductEvent({ type: "PRODUCT_UPDATED", productId });
       return {
         success: true,
         operationId: null,
-        archived: allVariantsOutOfStock,
+        archived: false,
       };
     }
 
@@ -1304,14 +1300,7 @@ export async function ankorstoreFinalizeUpdate(
       // Callback Ankorstore OK → on retire le drapeau « Synchro nécessaire »
       ankorsSyncRequired: false,
     };
-    // Set OFFLINE if all variants out of stock and currently ONLINE
-    const localProduct = await prisma.product.findUnique({
-      where: { id: op.productId },
-      select: { status: true },
-    });
-    if (payload.allVariantsOutOfStock && localProduct?.status === "ONLINE") {
-      dbUpdate.status = "OFFLINE";
-    }
+    // Depuis 2026-08-07 : plus d'auto-bascule OFFLINE sur rupture totale.
 
     await prisma.$transaction([
       prisma.product.update({
@@ -1409,10 +1398,7 @@ export async function ankorstoreFinalizeUpdate(
     }
 
     revalidateTag("products", "default");
-    emitProductEvent({
-      type: payload.allVariantsOutOfStock ? "PRODUCT_OFFLINE" : "PRODUCT_UPDATED",
-      productId: op.productId,
-    });
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId: op.productId });
 
     logger.info("[Ankorstore Update] Finalized", {
       operationId: op.id,
