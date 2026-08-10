@@ -23,7 +23,6 @@ const { sentMails, loggerMock, cachedMock, prismaMock } = vi.hoisted(() => {
     },
     prismaMock: {
       order: { findUnique: vi.fn() },
-      restockAlert: { findMany: vi.fn(async () => []), update: vi.fn() },
     },
     sendMailMock: vi.fn(),
   };

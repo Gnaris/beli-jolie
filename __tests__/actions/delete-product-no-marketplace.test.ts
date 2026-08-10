@@ -47,7 +47,7 @@ vi.mock("next/cache", () => ({
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/translate", () => ({ invalidateProductTranslations: vi.fn() }));
-vi.mock("@/lib/notifications", () => ({ notifyRestockAlerts: vi.fn() }));
+vi.mock("@/lib/notifications", () => ({}));
 const { emitProductEventSpy } = vi.hoisted(() => ({ emitProductEventSpy: vi.fn() }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: emitProductEventSpy }));
 vi.mock("@/lib/auto-translate", () => ({ autoTranslateProduct: vi.fn(), autoTranslateTag: vi.fn() }));

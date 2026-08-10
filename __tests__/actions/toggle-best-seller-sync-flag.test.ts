@@ -38,7 +38,7 @@ vi.mock("@/lib/translate", () => ({
   invalidateProductTranslations: vi.fn(),
   translateTextStrict: vi.fn(),
 }));
-vi.mock("@/lib/notifications", () => ({ notifyRestockAlerts: vi.fn() }));
+vi.mock("@/lib/notifications", () => ({}));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/auto-translate", () => ({
   autoTranslateProduct: vi.fn(),

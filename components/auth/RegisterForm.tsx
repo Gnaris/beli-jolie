@@ -38,7 +38,6 @@ export default function RegisterForm({
     password: "",
     confirmPassword: "",
     registrationMessage: "",
-    marketingConsent: true,
   });
 
   const countryOptions = useMemo<SelectOption[]>(() => {
@@ -503,27 +502,6 @@ export default function RegisterForm({
 
         {/* ── CTA + Réassurance ── */}
         <div className="bg-bg-primary rounded-2xl border border-border p-6 md:p-7 shadow-card">
-          <label
-            htmlFor="marketingConsent"
-            className="flex items-start gap-3 p-4 mb-5 rounded-xl bg-bg-secondary border border-border-light cursor-pointer hover:bg-bg-tertiary transition-colors"
-          >
-            <input
-              id="marketingConsent"
-              type="checkbox"
-              checked={fields.marketingConsent}
-              onChange={(e) =>
-                setFields((prev) => ({ ...prev, marketingConsent: e.target.checked }))
-              }
-              className="mt-0.5 w-4 h-4 rounded border-border text-text-primary focus:ring-2 focus:ring-text-primary/20 cursor-pointer shrink-0"
-            />
-            <span className="text-sm font-body text-text-primary leading-relaxed">
-              Je souhaite recevoir les nouveautés et offres commerciales par email.{" "}
-              <span className="text-text-muted">
-                Vous pouvez vous désabonner à tout moment via le lien présent dans chaque email.
-              </span>
-            </span>
-          </label>
-
           <button
             type="submit" disabled={loading}
             className="btn-primary w-full justify-center text-base py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"

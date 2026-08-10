@@ -98,7 +98,6 @@ model User {
   favorites                  Favorite[]
   importDrafts               ImportDraft[]
   importJobs                 ImportJob[]
-  restockAlerts              RestockAlert[]
   stockMovements             StockMovement[]                  @relation("StockMovementCreator")
   conversations              Conversation[]
   messagesSent               Message[]
@@ -110,6 +109,7 @@ model User {
   adminClientCards           AdminClientCard[]                @relation("AdminCardCreator")
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
   microstoreOrders           MicrostoreOrder[]
+  emailSends                 EmailSend[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -1222,8 +1222,6 @@ model Product {
   tags                        ProductTag[]
   translations                ProductTranslation[]
   catalogs                    CatalogProduct[]
-  restockAlerts               RestockAlert[]
-  restockEvents               RestockEvent[]
   pfsOrderItems               PfsOrderItem[]
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
@@ -1814,8 +1812,6 @@ model ProductColor {
   images                  ProductColorImage[] // Images (UNIT seulement)
   cartItems               CartItem[]
   collectionOverrides     CollectionProduct[]
-  restockAlerts           RestockAlert[]
-  restockEvents           RestockEvent[]
   stockMovements          StockMovement[]
   priceHistory            PriceHistory[]
   pfsOrderItems           PfsOrderItem[]
@@ -2624,31 +2620,6 @@ model ImportJob {
   @@index([createdAt])
 }
 
-// ─────────────────────────────────────────────
-// Alertes de réassort (stock 0 → "Me prévenir")
-// ─────────────────────────────────────────────
-
-model RestockAlert {
-  id             String       @id @default(cuid())
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  productColorId String
-  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  notified       Boolean      @default(false) // true once email sent
-  createdAt      DateTime     @default(now())
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@unique([userId, productId, productColorId])
-  @@index([tenantId])
-  @@index([productColorId])
-  @@index([notified])
-}
-
 model ImportDraft {
   id          String            @id @default(cuid())
   type        ImportDraftType
@@ -2740,51 +2711,6 @@ enum LegalDocumentType {
   CGU
   POLITIQUE_CONFIDENTIALITE
   COOKIES
-}
-
-// ─────────────────────────────────────────────
-// Emails marketing (panier abandonné, retour en stock, bienvenue, newsletter)
-// ─────────────────────────────────────────────
-
-enum EmailScenarioKey {
-  ABANDONED_CART // Panier laissé > X heures — 2 relances configurables
-  BACK_IN_STOCK // Produit favoris/RestockAlert repasse en stock
-  WELCOME // Compte client validé par l'admin
-  NEWSLETTER // Envoi manuel depuis l'admin
-  INACTIVE_CLIENT // Client sans connexion depuis > X jours — 1 relance douce
-  MANUAL_RELANCE // Relance manuelle depuis la page /admin/utilisateurs (bouton "…")
-}
-
-enum EmailUnsubscribeScope {
-  MARKETING_ALL // Coupe tout marketing (super-scope)
-  CART_REMINDERS // Panier abandonné uniquement
-  STOCK_ALERTS // Retour en stock uniquement
-  NEWSLETTER // Nouveautés uniquement
-  INACTIVE_REMINDERS // "On ne vous a pas vu depuis…"
-}
-
-// ─────────────────────────────────────────────
-// File des retours en stock à notifier — pilotée manuellement par l'admin.
-// Chaque fois qu'une variante passe de stock=0 à stock>0, on crée un
-// enregistrement `dispatchedAt=null`. L'admin voit le compteur dans le
-// widget flottant et clique "Envoyer les notifications" quand il souhaite.
-// Le dispatch groupe par client (Favorites) et envoie 1 seul email récap
-// listant tous les produits favorisés qui viennent de repasser en stock.
-// ─────────────────────────────────────────────
-model RestockEvent {
-  id             String       @id @default(cuid())
-  tenantId       String
-  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productColorId String
-  productColor   ProductColor @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  productId      String
-  product        Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  occurredAt     DateTime     @default(now())
-  dispatchedAt   DateTime? // null = en attente
-
-  @@index([tenantId, dispatchedAt])
-  @@index([tenantId, productId])
-  @@index([productColorId])
 }
 
 model LegalDocument {
@@ -3226,7 +3152,6 @@ model Tenant {
   catalogProducts            CatalogProduct[]
   importJobs                 ImportJob[]
   importDrafts               ImportDraft[]
-  restockAlerts              RestockAlert[]
   ankorstoreOperations       AnkorstoreOperation[]
   marketplaceRefreshJobs     MarketplaceRefreshJob[]
   efashionShootingBatchItems EfashionShootingBatchItem[]
@@ -3278,14 +3203,63 @@ model Tenant {
   microstoreOrders     MicrostoreOrder[]
   microstoreOrderItems MicrostoreOrderItem[]
 
-  emailScenarios    EmailScenario[]
-  emailSends        EmailSend[]
-  emailUnsubscribes EmailUnsubscribe[]
-  restockEvents     RestockEvent[]
-
   pfsAuditResults PfsAuditResult[]
 
+  emailSends          EmailSend[]
+  newsletterTemplates NewsletterTemplate[]
+
   @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// Historique des mails semi-automatiques envoyés depuis /admin/utilisateurs
+// (Vue Mails). Alimente les 4 colonnes de dates + les avertissements
+// contextuels (« déjà envoyé il y a X »).
+//
+// scenarioKey est un String libre (pas d'enum) pour rester flexible :
+// - "ABANDONED_CART"
+// - "INACTIVE_CLIENT"
+// - "NEWSLETTER"
+// - "RESTOCK"
+// - futures clés au besoin (ex. campagnes ciblées)
+// ─────────────────────────────────────────────
+model EmailSend {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  recipientEmail String   @db.VarChar(320)
+  scenarioKey    String   @db.VarChar(50)
+  subject        String   @db.VarChar(500)
+  sentAt         DateTime @default(now())
+  metadata       Json?
+
+  @@index([tenantId, userId, scenarioKey, sentAt])
+  @@index([tenantId, scenarioKey, sentAt])
+}
+
+// ─────────────────────────────────────────────
+// Modèles de newsletter réutilisables.
+// La cliente compose plusieurs modèles à l'avance (« Nouveautés d'automne »,
+// « Nouvelle collection X »…) puis choisit lequel envoyer au moment de
+// cliquer « Envoyer newsletter » sur une sélection de clients.
+//
+// blocks = tableau JSON des blocs éditeur (banner/heading/products/…) avec
+// leur configuration. Rendu HTML côté serveur au moment de l'envoi.
+// ─────────────────────────────────────────────
+model NewsletterTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String   @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
+  subject   String   @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
+  blocks    Json     @default("[]")   // Structure des blocs de l'éditeur
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSentAt DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
+
+  @@index([tenantId, updatedAt])
 }
 
 // ─────────────────────────────────────────────
@@ -3332,71 +3306,3 @@ model TenantDomain {
   @@index([tenantId])
 }
 
-// ─────────────────────────────────────────────
-// Configuration par scénario (activé/pause + délais + réglages)
-// Un seul enregistrement par (tenant, key).
-// `config` (Json) contient les réglages spécifiques :
-//   ABANDONED_CART → { reminders: [{ afterHours: 24 }, { afterHours: 72 }] }
-//   BACK_IN_STOCK  → {}  (déclenché à la mise en stock, pas de délai)
-//   WELCOME        → {}
-//   NEWSLETTER     → {}
-// ─────────────────────────────────────────────
-model EmailScenario {
-  id        String           @id @default(cuid())
-  tenantId  String
-  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  key       EmailScenarioKey
-  enabled   Boolean          @default(false) // Par défaut désactivé — la cliente doit l'activer explicitement
-  config    Json             @default("{}")
-  updatedAt DateTime         @updatedAt
-  createdAt DateTime         @default(now())
-
-  @@unique([tenantId, key])
-  @@index([tenantId])
-}
-
-// ─────────────────────────────────────────────
-// Historique d'envoi (dédup + stats + tracking)
-// `dedupKey` permet d'éviter les doublons : ex. "cart:<userId>:stage-0" pour
-// la 1re relance panier de ce user, "back-in-stock:<productColorId>:<userId>"
-// pour retour en stock. Unique par (tenantId, scenarioKey, dedupKey).
-// ─────────────────────────────────────────────
-model EmailSend {
-  id             String           @id @default(cuid())
-  tenantId       String
-  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  scenarioKey    EmailScenarioKey
-  recipientEmail String
-  userId         String? // Renseigné si envoi lié à un compte existant
-  subject        String           @db.VarChar(500)
-  dedupKey       String           @db.VarChar(300) // Clé anti-doublon (voir commentaire ci-dessus)
-  sentAt         DateTime         @default(now())
-  openedAt       DateTime? // Rempli par le pixel de tracking (1er open)
-  clickedAt      DateTime? // Rempli par la 1re redirection cliquée
-  unsubscribedAt DateTime? // Rempli si ce destinataire s'est désabonné après cet email
-  messageId      String? // Message-ID SMTP renvoyé par nodemailer
-  metadata       Json? // { cartId, productId, productColorId, stage: 0|1… }
-
-  @@unique([tenantId, scenarioKey, dedupKey])
-  @@index([tenantId])
-  @@index([tenantId, sentAt])
-  @@index([tenantId, scenarioKey])
-  @@index([recipientEmail])
-}
-
-// ─────────────────────────────────────────────
-// Désinscriptions par scope (RGPD).
-// MARKETING_ALL = super-scope qui coupe les 3 autres.
-// ─────────────────────────────────────────────
-model EmailUnsubscribe {
-  id        String                @id @default(cuid())
-  tenantId  String
-  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  email     String                @db.VarChar(320)
-  scope     EmailUnsubscribeScope
-  createdAt DateTime              @default(now())
-
-  @@unique([tenantId, email, scope])
-  @@index([tenantId])
-  @@index([email])
-}

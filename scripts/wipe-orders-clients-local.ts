@@ -46,7 +46,6 @@ async function main() {
     favorite: await prisma.favorite.count(),
     cart: await prisma.cart.count(),
     shippingAddress: await prisma.shippingAddress.count(),
-    restockAlert: await prisma.restockAlert.count(),
   };
 
   console.log("═══ Contenu actuel ═══");
@@ -111,9 +110,8 @@ async function main() {
   console.log("  ✓ fiches admin client vidées");
 
   // 8) Ce qui pend au User CLIENT (Cart, Favorite, ShippingAddress,
-  // RestockAlert, RegistrationLog…) — supprimé en cascade quand on delete
+  // RegistrationLog…) — supprimé en cascade quand on delete
   // les Users, mais on liste ici pour être exhaustif si tables non-cascade.
-  await prisma.restockAlert.deleteMany({});
   await prisma.favorite.deleteMany({});
   await prisma.cartItem.deleteMany({});
   await prisma.cart.deleteMany({});
@@ -123,8 +121,6 @@ async function main() {
   await prisma.loginOtp.deleteMany({});
   await prisma.accountLockout.deleteMany({});
   await prisma.passwordResetToken.deleteMany({});
-  await prisma.emailSend.deleteMany({});
-  await prisma.emailUnsubscribe.deleteMany({});
   console.log("  ✓ dépendances client (cart, favoris, addr, logins…) vidées");
 
   // 9) Enfin : Users CLIENT

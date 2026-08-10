@@ -7,8 +7,6 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
-import { recordRestockEvent } from "@/lib/email-marketing/back-in-stock";
-import { notifyRestockAlerts } from "@/lib/notifications";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -1473,16 +1471,6 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     autoTranslateProduct(id, input.name, input.description);
   }
 
-  // Restock alerts: check if any variant went from stock=0 to stock>0
-  for (const colorInput of input.colors) {
-    if (colorInput.dbId) {
-      const oldStock = oldStockMap.get(colorInput.dbId) ?? 0;
-      if (oldStock === 0 && colorInput.stock > 0) {
-        recordRestockEvent(colorInput.dbId).catch(() => {});
-      }
-    }
-  }
-
   // Auto-downgrade to OFFLINE seulement si AUCUNE couleur n'a la moindre
   // image (ou aucune variante). Les couleurs partiellement sans image ne
   // bloquent plus le passage en ligne : elles sont masquées côté public et
@@ -2614,11 +2602,6 @@ export async function updateVariantQuick(
     data,
   });
 
-  // Restock alert: stock was 0 and now > 0
-  if (variant.stock === 0 && data.stock && data.stock > 0) {
-    notifyRestockAlerts(variantId).catch(() => {});
-  }
-
   // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale.
 
   // Toute modif prix/stock/poids/packQty pose un badge orange « Synchro nécessaire »
@@ -2738,20 +2721,10 @@ export async function bulkUpdateVariants(
 
   if (variants.length === 0) throw new Error("Aucune variante trouvée.");
 
-  // Track variants with stock=0 before update (for restock alerts)
-  const zeroStockVariantIds = data.stock && data.stock > 0
-    ? variants.filter((v) => v.stock === 0).map((v) => v.id)
-    : [];
-
   await prisma.productColor.updateMany({
     where: { id: { in: variantIds } },
     data,
   });
-
-  // Fire restock alerts for variants that went from 0 → >0
-  for (const vid of zeroStockVariantIds) {
-    notifyRestockAlerts(vid).catch(() => {});
-  }
 
   const productIds = [...new Set(variants.map((v) => v.productId))];
 

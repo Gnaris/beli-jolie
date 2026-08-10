@@ -106,7 +106,6 @@ export const TABLES_TO_CLEAR: string[] = [
   "PriceHistory",
   // Stock
   "StockMovement",
-  "RestockAlert",
   // Favoris
   "Favorite",
   // Catalogues partageables

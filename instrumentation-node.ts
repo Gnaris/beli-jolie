@@ -237,22 +237,6 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
-  // Worker des scénarios emails marketing (panier abandonné, etc.). Tick 15 min.
-  // Idempotent : les scanners posent leur propre verrou (contrainte unique
-  // sur EmailSend) — ré-exécuter n'envoie pas 2× le même mail.
-  setTimeout(() => {
-    void (async () => {
-      try {
-        const { startEmailMarketingWorker } = await import("@/lib/email-marketing/worker");
-        startEmailMarketingWorker();
-      } catch (err) {
-        logger.error("[EmailMarketing] Démarrage du worker échoué", {
-          error: err as Error,
-        });
-      }
-    })();
-  }, 5_000);
-
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

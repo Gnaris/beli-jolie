@@ -198,26 +198,7 @@ export default function ProductDetail({
   const [zoomedSrc, setZoomedSrc]                 = useState<string | null>(null);
   const [quantities, setQuantities]               = useState<Record<string, number>>({});
   const [addedOptId, setAddedOptId]               = useState<string | null>(null);
-  const [restockAlerts, setRestockAlerts]         = useState<Record<string, boolean>>({});
-  const [alertLoading, setAlertLoading]           = useState<Record<string, boolean>>({});
   const mainImageRef = useRef<HTMLDivElement>(null);
-
-  const toggleRestockAlert = useCallback(async (variantId: string, productColorId: string) => {
-    setAlertLoading((prev) => ({ ...prev, [variantId]: true }));
-    try {
-      const res = await fetch("/api/restock-alert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, productColorId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRestockAlerts((prev) => ({ ...prev, [variantId]: data.subscribed }));
-      }
-    } finally {
-      setAlertLoading((prev) => ({ ...prev, [variantId]: false }));
-    }
-  }, [productId]);
 
   // UNIT variants matching selected color + all PACK variants (no color to select for packs)
   const selectedVariants = variants.filter(v =>
@@ -302,27 +283,9 @@ export default function ProductDetail({
   function renderCartActions(v: VariantData, effectiveStock: number, qty: number) {
     if (effectiveStock === 0 && isAuthenticated) {
       return (
-        <button
-          type="button"
-          onClick={() => toggleRestockAlert(v.id, v.id)}
-          disabled={alertLoading[v.id]}
-          className={`w-full h-10 text-xs font-heading font-semibold transition-colors flex items-center justify-center gap-1.5 rounded-lg border ${
-            restockAlerts[v.id]
-              ? "bg-bg-secondary text-text-primary border-border"
-              : "bg-bg-dark text-text-inverse border-transparent hover:bg-primary-hover"
-          }`}
-        >
-          {alertLoading[v.id] ? (
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          ) : restockAlerts[v.id] ? (
-            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>{t("alertActive")}</>
-          ) : (
-            <><svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>{t("notifyMe")}</>
-          )}
-        </button>
+        <div className="w-full h-10 text-xs font-heading font-semibold flex items-center justify-center gap-1.5 rounded-lg border border-border bg-bg-secondary text-text-secondary">
+          {t("outOfStock")}
+        </div>
       );
     }
     return (

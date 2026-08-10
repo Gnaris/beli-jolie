@@ -52,7 +52,6 @@ const MODELS = [
   "catalogProduct",
   "importJob",
   "importDraft",
-  "restockAlert",
   "ankorstoreOperation",
   "marketplaceRefreshJob",
   "efashionShootingBatchItem",

@@ -19,7 +19,6 @@ export type RailWidgetId =
   | "images"
   | "shooting"
   | "chat"
-  | "emails"
   | "orders-import"
   | "pfs-audit"
   | "microstore-upload"

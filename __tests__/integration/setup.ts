@@ -49,7 +49,6 @@ vi.mock("@/lib/pfs-api-write", () => ({
 
 // ─── Mock notifications (avoid sending real emails) ──────────────
 vi.mock("@/lib/notifications", () => ({
-  notifyRestockAlerts: vi.fn().mockResolvedValue(undefined),
   notifyOrderStatusChange: vi.fn().mockResolvedValue(undefined),
 }));
 

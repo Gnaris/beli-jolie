@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
-import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
-import { addUnsubscribe } from "@/lib/email-marketing/unsubscribe";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { registerSchema } from "@/lib/validations/auth";
 import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
@@ -54,8 +53,6 @@ export async function POST(request: NextRequest) {
       password:            formData.get("password") as string,
       confirmPassword:     formData.get("confirmPassword") as string,
       registrationMessage: (formData.get("registrationMessage") as string | null) || undefined,
-      // Absent = opt-in par défaut (compat anciens clients qui n'envoient pas le champ)
-      marketingConsent:    formData.get("marketingConsent") !== "false",
     };
 
     // Validation Zod
@@ -257,19 +254,6 @@ export async function POST(request: NextRequest) {
         status:              "PENDING",
       },
     });
-
-    // ── Consentement marketing : si décoché, on pose l'unsubscribe MARKETING_ALL ──
-    if (!data.marketingConsent) {
-      const tid = await getCurrentTenantId();
-      if (tid) {
-        try {
-          await addUnsubscribe(tid, newUser.email, "MARKETING_ALL");
-        } catch (err) {
-          // Ne pas bloquer l'inscription si l'écriture échoue
-          logger.error("[Register] EmailUnsubscribe creation failed", { error: err });
-        }
-      }
-    }
 
     // ── Vérification VIES (fire-and-forget) ──────────────────────────────
     if (newUser.vatNumber) {

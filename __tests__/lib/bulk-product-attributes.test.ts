@@ -28,7 +28,7 @@ vi.mock("@/lib/auto-translate", () => ({
 }));
 vi.mock("@/lib/pfs-api-write", () => ({ pfsUpdateStatus: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({
-  notifyRestockAlerts: vi.fn(),
+  
   notifyOrderStatusChange: vi.fn(),
 }));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));

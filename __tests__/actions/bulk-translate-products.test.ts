@@ -39,7 +39,7 @@ vi.mock("@/lib/translate", () => ({
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@/lib/notifications", () => ({ notifyRestockAlerts: vi.fn() }));
+vi.mock("@/lib/notifications", () => ({}));
 vi.mock("@/lib/auto-translate", () => ({
   autoTranslateProduct: vi.fn(),
   autoTranslateTag: vi.fn(),

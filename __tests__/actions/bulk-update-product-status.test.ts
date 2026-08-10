@@ -49,7 +49,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 // Modules tirés par products.ts qui ne sont pas exercés par bulkUpdateProductStatus
 vi.mock("@/lib/translate", () => ({ invalidateProductTranslations: vi.fn() }));
-vi.mock("@/lib/notifications", () => ({ notifyRestockAlerts: vi.fn() }));
+vi.mock("@/lib/notifications", () => ({}));
 vi.mock("@/lib/auto-translate", () => ({
   autoTranslateProduct: vi.fn(),
   autoTranslateTag: vi.fn(),

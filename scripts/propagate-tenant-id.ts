@@ -40,7 +40,6 @@ const TARGETS = [
   "CatalogProduct",
   "ImportJob",
   "ImportDraft",
-  "RestockAlert",
   "AnkorstoreOperation",
   "MarketplaceRefreshJob",
   "EfashionShootingBatchItem",

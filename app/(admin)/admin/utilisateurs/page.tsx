@@ -12,6 +12,12 @@ import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
 import UsersSortControl from "@/components/admin/users/UsersSortControl";
 import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
 import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
+import SendMailButton from "@/components/admin/users/SendMailButton";
+import UsersViewToggle from "@/components/admin/users/UsersViewToggle";
+import { MailSelectionProvider } from "@/components/admin/users/MailSelectionContext";
+import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
+import NewsletterBulkBar from "@/components/admin/users/NewsletterBulkBar";
+import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import {
@@ -163,6 +169,7 @@ export default async function UtilisateursPage({
     q?: string;
     sort?: string;
     dir?: string;
+    view?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -176,6 +183,7 @@ export default async function UtilisateursPage({
   const sort = parseClientSort(params.sort);
   const dir = parseSortDir(params.dir, sort);
   const registeredSearch = (params.q ?? "").trim();
+  const view: "infos" | "mails" = params.view === "mails" ? "mails" : "infos";
 
   const onlineThreshold = getOnlineThreshold();
 
@@ -235,6 +243,16 @@ export default async function UtilisateursPage({
       : Promise.resolve({ clients: [], stats: new Map<string, ClientOrderStats>() }),
     currentTab === "fiches" ? loadAdminCards(params, page, perPage) : Promise.resolve(null),
   ]);
+
+  // Vue Mails : charger le dernier envoi de chaque scénario pour les clients
+  // affichés + les modèles de newsletter disponibles pour l'envoi groupé.
+  const [mailsData, newsletterTemplates] =
+    view === "mails" && currentTab === "inscrits"
+      ? await Promise.all([
+          loadLastMailSendsFor(registeredData.clients.map((c) => c.id)),
+          listNewsletterTemplates(),
+        ])
+      : [new Map<string, MailLastSends>(), []];
 
   return (
     <div className="space-y-6">
@@ -314,18 +332,23 @@ export default async function UtilisateursPage({
       <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} />
 
       {currentTab === "inscrits" ? (
-        <RegisteredPane
-          clients={registeredData.clients}
-          stats={registeredData.stats}
-          filterStatus={filterStatus}
-          counts={counts}
-          totalFiltered={filteredRegisteredCount}
-          page={page}
-          perPage={perPage}
-          sort={sort}
-          dir={dir}
-          search={registeredSearch}
-        />
+        <MailSelectionProvider>
+          <RegisteredPane
+            clients={registeredData.clients}
+            stats={registeredData.stats}
+            filterStatus={filterStatus}
+            counts={counts}
+            totalFiltered={filteredRegisteredCount}
+            page={page}
+            perPage={perPage}
+            sort={sort}
+            dir={dir}
+            search={registeredSearch}
+            view={view}
+            mails={mailsData}
+          />
+          {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
+        </MailSelectionProvider>
       ) : (
         cardsData && (
           <AdminCardsPane
@@ -396,6 +419,40 @@ function toStatsMap(grouped: GroupedOrderStats): Map<string, ClientOrderStats> {
 
 /** Commandes annulées exclues : elles ne représentent ni un volume ni un CA réel. */
 const COUNTED_ORDERS: Prisma.OrderWhereInput = { status: { not: "CANCELLED" } };
+
+// ─── Vue Mails : dernier envoi de chaque scénario par client ────────────────
+
+type MailScenario = "ABANDONED_CART" | "INACTIVE_CLIENT" | "NEWSLETTER" | "RESTOCK";
+
+export type MailLastSends = Partial<Record<MailScenario, Date>>;
+
+const MAIL_SCENARIOS: MailScenario[] = ["ABANDONED_CART", "INACTIVE_CLIENT", "NEWSLETTER", "RESTOCK"];
+
+/**
+ * Charge, pour chaque userId passé, la date la plus récente d'envoi de chacun
+ * des 4 scénarios de mail. Une seule requête groupBy — pas de N+1.
+ */
+async function loadLastMailSendsFor(userIds: string[]): Promise<Map<string, MailLastSends>> {
+  const map = new Map<string, MailLastSends>();
+  if (userIds.length === 0) return map;
+
+  const grouped = await prisma.emailSend.groupBy({
+    by: ["userId", "scenarioKey"],
+    where: {
+      userId: { in: userIds },
+      scenarioKey: { in: MAIL_SCENARIOS },
+    },
+    _max: { sentAt: true },
+  });
+
+  for (const row of grouped) {
+    if (!row.userId) continue;
+    const existing = map.get(row.userId) ?? {};
+    existing[row.scenarioKey as MailScenario] = row._max.sentAt ?? undefined;
+    map.set(row.userId, existing);
+  }
+  return map;
+}
 
 async function loadOrderStatsFor(userIds: string[]): Promise<Map<string, ClientOrderStats>> {
   if (userIds.length === 0) return new Map();
@@ -468,6 +525,7 @@ function buildListHref(opts: {
   perPage: number;
   sort: ClientSortKey;
   dir: SortDir;
+  view?: "infos" | "mails";
 }): string {
   const params = new URLSearchParams();
   if (opts.status !== "ALL") params.set("status", opts.status);
@@ -476,6 +534,7 @@ function buildListHref(opts: {
     params.set("sort", opts.sort);
     params.set("dir", opts.dir);
   }
+  if (opts.view === "mails") params.set("view", "mails");
   const qs = params.toString();
   return qs ? `/admin/utilisateurs?${qs}` : "/admin/utilisateurs";
 }
@@ -490,6 +549,7 @@ function SortableHeader({
   perPage,
   align = "left",
   alsoActiveFor,
+  view,
 }: {
   label: string;
   sortKey: ClientSortKey;
@@ -500,6 +560,7 @@ function SortableHeader({
   align?: "left" | "right";
   /** Autres critères qui portent sur cette colonne (ex. montant dépensé ↔ Commandes) */
   alsoActiveFor?: ClientSortKey[];
+  view?: "infos" | "mails";
 }) {
   const isCurrent = currentSort === sortKey;
   const isActive = isCurrent || (alsoActiveFor?.includes(currentSort) ?? false);
@@ -512,7 +573,7 @@ function SortableHeader({
 
   return (
     <Link
-      href={buildListHref({ status: filterStatus, perPage, sort: sortKey, dir: nextDir })}
+      href={buildListHref({ status: filterStatus, perPage, sort: sortKey, dir: nextDir, view })}
       prefetch={false}
       scroll={false}
       title={`Trier par ${label.toLowerCase()}`}
@@ -545,6 +606,185 @@ function SortableHeader({
   );
 }
 
+// ─── Vue Mails : tableau simplifié avec date du dernier envoi par scénario ──
+// Les 4 colonnes affichent la date du dernier envoi (depuis EmailSend). Si
+// aucun envoi n'a jamais été fait pour un scénario donné, la cellule affiche
+// "—" au lieu d'une date.
+function MailsView({
+  clients,
+  totalFiltered,
+  page,
+  perPage,
+  mails,
+}: {
+  clients: RegisteredClient[];
+  totalFiltered: number;
+  page: number;
+  perPage: number;
+  mails: Map<string, MailLastSends>;
+}) {
+  const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
+    { key: "ABANDONED_CART", label: "Panier abandonné", short: "Panier" },
+    { key: "INACTIVE_CLIENT", label: "Inactivité", short: "Inactif" },
+    { key: "NEWSLETTER", label: "Newsletter", short: "News" },
+    { key: "RESTOCK", label: "Retour en stock", short: "Réassort" },
+  ];
+
+  return (
+    <>
+      {/* Desktop */}
+      <div className="hidden lg:block bg-bg-primary rounded-2xl border border-border overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-bg-secondary">
+              <tr className="border-b border-border">
+                <th className="px-3 py-3 w-8"></th>
+                <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">
+                  Client
+                </th>
+                {MAIL_COLUMNS.map((col) => (
+                  <th
+                    key={col.key}
+                    className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap"
+                  >
+                    {col.label}
+                  </th>
+                ))}
+                <th className="px-5 py-3 text-right text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((c) => {
+                const gradient = avatarGradientFor(c.id);
+                const lastSends = mails.get(c.id) ?? {};
+                return (
+                  <tr
+                    key={c.id}
+                    className="border-b border-border last:border-0 transition-colors hover:bg-bg-secondary/60"
+                  >
+                    <td className="px-3 py-3.5">
+                      <MailRowCheckbox userId={c.id} />
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`flex items-center justify-center w-10 h-10 rounded-xl text-white text-[13px] font-heading font-bold shadow-sm shrink-0 ${gradient}`}>
+                          {initialsOf(c.firstName, c.lastName)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-body font-semibold text-text-primary truncate">
+                            {c.firstName} {c.lastName}
+                          </p>
+                          <p className="text-xs font-body text-text-muted truncate max-w-xs">
+                            {c.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    {MAIL_COLUMNS.map((col) => {
+                      const date = lastSends[col.key];
+                      return (
+                        <td key={col.key} className="px-5 py-3.5 whitespace-nowrap">
+                          {date ? (
+                            <>
+                              <p className="text-[13px] font-body text-text-primary tabular-nums leading-none">
+                                {formatShortDate(date).date}
+                              </p>
+                              <p className="text-[11px] font-body text-text-muted mt-1">
+                                {formatTimeAgo(date)}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-[13px] font-body text-text-muted/50">—</p>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                      <SendMailButton
+                        userId={c.id}
+                        userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                        userEmail={c.email}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <Pagination totalItems={totalFiltered} perPage={perPage} currentPage={page} itemLabel="clients" />
+      </div>
+
+      {/* Mobile */}
+      <div className="lg:hidden space-y-2.5">
+        {clients.map((c) => {
+          const gradient = avatarGradientFor(c.id);
+          const lastSends = mails.get(c.id) ?? {};
+          return (
+            <div
+              key={c.id}
+              className="rounded-2xl border border-border bg-bg-primary p-4 shadow-sm"
+            >
+              <div className="flex items-start gap-3">
+                <div className="pt-1 shrink-0">
+                  <MailRowCheckbox userId={c.id} />
+                </div>
+                <div className={`flex items-center justify-center w-11 h-11 rounded-xl text-white text-sm font-heading font-bold shadow-sm shrink-0 ${gradient}`}>
+                  {initialsOf(c.firstName, c.lastName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-body font-semibold text-text-primary truncate">
+                    {c.firstName} {c.lastName}
+                  </p>
+                  <p className="text-[12px] font-body text-text-muted truncate">{c.email}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {MAIL_COLUMNS.map((col) => {
+                      const date = lastSends[col.key];
+                      return (
+                        <div
+                          key={col.key}
+                          className="rounded-lg bg-bg-secondary border border-border px-2.5 py-2"
+                        >
+                          <p className="text-[10px] font-body font-bold text-text-muted uppercase tracking-[0.1em]">
+                            {col.short}
+                          </p>
+                          <p className={`text-[13px] font-body mt-0.5 ${date ? "text-text-primary font-semibold" : "text-text-muted/60"}`}>
+                            {date ? formatTimeAgo(date) : "—"}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <SendMailButton
+                      userId={c.id}
+                      userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                      userEmail={c.email}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div className="bg-bg-primary rounded-2xl border border-border overflow-hidden">
+          <Pagination totalItems={totalFiltered} perPage={perPage} currentPage={page} itemLabel="clients" />
+        </div>
+      </div>
+
+      {/* Note d'aide sous le tableau — la cliente sait que c'est vide pour l'instant */}
+      <div className="rounded-2xl border border-dashed border-border bg-bg-secondary/60 p-4 text-center">
+        <p className="text-xs font-body text-text-secondary">
+          Aucun envoi automatique pour l&apos;instant — les colonnes se rempliront quand
+          la fonctionnalité d&apos;envoi manuel groupé sera activée.
+        </p>
+      </div>
+    </>
+  );
+}
+
 function RegisteredPane({
   clients,
   stats,
@@ -556,6 +796,8 @@ function RegisteredPane({
   sort,
   dir,
   search,
+  view,
+  mails,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -567,13 +809,28 @@ function RegisteredPane({
   sort: ClientSortKey;
   dir: SortDir;
   search: string;
+  view: "infos" | "mails";
+  mails: Map<string, MailLastSends>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
+  const infosHref = buildListHref({ status: filterStatus, perPage, sort, dir, view: "infos" });
+  const mailsHref = buildListHref({ status: filterStatus, perPage, sort, dir, view: "mails" });
 
   return (
     <>
-      {/* Barre de recherche */}
-      <div className="flex justify-end">
+      {/* Toggle vue + accès modèles + barre de recherche */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <UsersViewToggle view={view} infosHref={infosHref} mailsHref={mailsHref} />
+          {view === "mails" && (
+            <Link
+              href="/admin/utilisateurs/newsletters"
+              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-body font-semibold text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100 transition-colors"
+            >
+              📢 Gérer mes modèles de newsletter
+            </Link>
+          )}
+        </div>
         <UsersSearchBar initialValue={search} />
       </div>
 
@@ -608,7 +865,7 @@ function RegisteredPane({
             return (
               <Link
                 key={filter.value}
-                href={buildListHref({ status: filter.value, perPage, sort, dir })}
+                href={buildListHref({ status: filter.value, perPage, sort, dir, view })}
                 prefetch={false}
                 className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
               >
@@ -649,6 +906,14 @@ function RegisteredPane({
             </Link>
           )}
         </div>
+      ) : view === "mails" ? (
+        <MailsView
+          clients={clients}
+          totalFiltered={totalFiltered}
+          page={page}
+          perPage={perPage}
+          mails={mails}
+        />
       ) : (
         <>
           {/* Desktop */}
@@ -773,32 +1038,24 @@ function RegisteredPane({
                           <p className="text-[11px] font-body text-text-muted">{inscription.time}</p>
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1 justify-end">
-                            {isPending ? (
-                              <Link
-                                href={`/admin/utilisateurs/${c.id}`}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
-                              >
-                                Examiner
-                              </Link>
-                            ) : (
-                              <Link
-                                href={`/admin/utilisateurs/${c.id}`}
-                                className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
-                              >
-                                Voir
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M5 12h14M13 5l7 7-7 7"/>
-                                </svg>
-                              </Link>
-                            )}
-                            <UserRowActionsMenu
-                              userId={c.id}
-                              userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
-                              userEmail={c.email}
-                              isPending={isPending}
-                            />
-                          </div>
+                          {isPending ? (
+                            <Link
+                              href={`/admin/utilisateurs/${c.id}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
+                            >
+                              Examiner
+                            </Link>
+                          ) : (
+                            <Link
+                              href={`/admin/utilisateurs/${c.id}`}
+                              className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
+                            >
+                              Voir
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M5 12h14M13 5l7 7-7 7"/>
+                              </svg>
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     );

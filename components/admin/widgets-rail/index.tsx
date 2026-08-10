@@ -11,7 +11,6 @@ import { TranslationDrawer } from "./TranslationDrawer";
 import { MarketplacesDrawer } from "./MarketplacesDrawer";
 import { ImagesDrawer } from "./ImagesDrawer";
 import { ShootingDrawer } from "./ShootingDrawer";
-import { EmailsDrawer } from "./EmailsDrawer";
 import { OrdersImportDrawer } from "./OrdersImportDrawer";
 import { PfsAuditDrawer } from "./PfsAuditDrawer";
 import { MicrostoreUploadDrawer } from "./MicrostoreUploadDrawer";
@@ -25,7 +24,6 @@ export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
       <MarketplacesDrawer />
       <ImagesDrawer />
       <ShootingDrawer />
-      <EmailsDrawer />
       {/* Un seul drawer d'import commandes — gère PFS + eFashion en parallèle.
           Il accepte aussi les clés legacy "pfs-import" / "efashion-import" pour
           garantir la rétrocompat avec les points d'ouverture existants. */}
