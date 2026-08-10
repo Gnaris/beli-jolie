@@ -14,6 +14,10 @@
  *   - update/updateMany/delete/deleteMany : filtre par tenantId
  *   - findUnique/findUniqueOrThrow : lookup par clé unique, puis vérifie
  *     que le tenantId correspond (sinon retourne null / lève)
+ *   - Nested writes (`create: { children: { create: [...] } }`) : parcours
+ *     récursif via `injectTenantIntoNestedWrites` + Prisma DMMF pour injecter
+ *     `tenantId` sur chaque enfant tenant-scoped. Sans ça, les nested inserts
+ *     génèrent des rows orphelines (tenantId=NULL) invisibles des reads scopés.
  *   - Modèles non-scopés (Color, Category, Size…) : passthrough
  *   - Hors contexte requête (scripts, cron) : passthrough (aucun filtrage)
  *
@@ -156,6 +160,165 @@ function mergeWhere(where: unknown, tenantFilter: { tenantId: string }): unknown
   return { AND: [where, tenantFilter] };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Injection récursive de `tenantId` dans les nested writes.
+//
+// Le hook Prisma `$allOperations` n'est déclenché que sur l'opération racine.
+// Un `prisma.order.create({ data: { items: { create: [...] } } })` passe bien
+// dans le case "create" pour Order (tenantId injecté), mais les OrderItem
+// insérés en cascade ne repassent PAS par l'extension → tenantId reste NULL
+// en base, l'item devient invisible pour toute query scopée par la suite.
+//
+// On règle ça en parcourant récursivement l'arg avant d'appeler `query()`,
+// et en posant `tenantId` sur chaque nested `create` / `createMany` /
+// `connectOrCreate.create` / `upsert.create` qui vise un modèle tenant-scoped.
+// On descend aussi dans `update` / `upsert.update` pour couvrir les nested
+// creates emboîtés (ex: `parent.update({ data: { child: { create: [...] } } })`).
+// ─────────────────────────────────────────────────────────────────────────
+
+interface DmmfField {
+  name: string;
+  kind: string;
+  type: string;
+  relationName?: string;
+}
+
+interface DmmfModel {
+  name: string;
+  fields: DmmfField[];
+}
+
+// Mapping model → { relationFieldName → childModelName }, construit une seule
+// fois au chargement du module depuis Prisma.dmmf.
+const NESTED_RELATIONS: Record<string, Record<string, string>> = (() => {
+  const out: Record<string, Record<string, string>> = {};
+  // Prisma.dmmf existe au runtime en Prisma 5.x mais n'est pas type-exposé.
+  const dmmf = (Prisma as unknown as { dmmf?: { datamodel?: { models?: DmmfModel[] } } }).dmmf;
+  const models = dmmf?.datamodel?.models ?? [];
+  for (const m of models) {
+    const rels: Record<string, string> = {};
+    for (const f of m.fields) {
+      if (f.kind === "object" && f.relationName) {
+        rels[f.name] = f.type;
+      }
+    }
+    out[m.name] = rels;
+  }
+  return out;
+})();
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Parcourt `data` (payload d'un create/update/upsert) et injecte `tenantId`
+ * sur tous les nested writes ciblant un modèle tenant-scoped.
+ * `parentModel` = modèle du niveau courant (nécessaire pour retrouver ses
+ * relations dans NESTED_RELATIONS).
+ */
+export function injectTenantIntoNestedWrites(
+  parentModel: string,
+  data: unknown,
+  tenantId: string,
+  seen: WeakSet<object> = new WeakSet(),
+): void {
+  if (!isPlainObject(data)) return;
+  if (seen.has(data)) return;
+  seen.add(data);
+
+  const rels = NESTED_RELATIONS[parentModel];
+  if (!rels) return;
+
+  for (const [fieldName, childModel] of Object.entries(rels)) {
+    const nested = data[fieldName];
+    if (!isPlainObject(nested)) continue;
+
+    const isTenantChild = TENANT_SCOPED_MODELS.has(childModel);
+
+    // ── create : { create: {...} } ou { create: [...] } ──
+    if ("create" in nested) {
+      const createNode = nested.create;
+      if (Array.isArray(createNode)) {
+        for (const item of createNode) {
+          if (!isPlainObject(item)) continue;
+          if (isTenantChild && item.tenantId === undefined) item.tenantId = tenantId;
+          injectTenantIntoNestedWrites(childModel, item, tenantId, seen);
+        }
+      } else if (isPlainObject(createNode)) {
+        if (isTenantChild && createNode.tenantId === undefined) createNode.tenantId = tenantId;
+        injectTenantIntoNestedWrites(childModel, createNode, tenantId, seen);
+      }
+    }
+
+    // ── createMany : { createMany: { data: [...] } } (pas de nested à l'intérieur) ──
+    if ("createMany" in nested && isPlainObject(nested.createMany)) {
+      const cmData = (nested.createMany as { data?: unknown }).data;
+      if (Array.isArray(cmData)) {
+        for (const item of cmData) {
+          if (isPlainObject(item) && isTenantChild && item.tenantId === undefined) {
+            item.tenantId = tenantId;
+          }
+        }
+      } else if (isPlainObject(cmData) && isTenantChild && cmData.tenantId === undefined) {
+        cmData.tenantId = tenantId;
+      }
+    }
+
+    // ── connectOrCreate : { connectOrCreate: { where, create } } ou tableau ──
+    if ("connectOrCreate" in nested) {
+      const coc = nested.connectOrCreate;
+      const arr = Array.isArray(coc) ? coc : isPlainObject(coc) ? [coc] : [];
+      for (const item of arr) {
+        if (!isPlainObject(item) || !isPlainObject(item.create)) continue;
+        if (isTenantChild && item.create.tenantId === undefined) item.create.tenantId = tenantId;
+        injectTenantIntoNestedWrites(childModel, item.create, tenantId, seen);
+      }
+    }
+
+    // ── upsert : { upsert: { where, create, update } } ou tableau ──
+    if ("upsert" in nested) {
+      const up = nested.upsert;
+      const arr = Array.isArray(up) ? up : isPlainObject(up) ? [up] : [];
+      for (const item of arr) {
+        if (!isPlainObject(item)) continue;
+        if (isPlainObject(item.create)) {
+          if (isTenantChild && item.create.tenantId === undefined) item.create.tenantId = tenantId;
+          injectTenantIntoNestedWrites(childModel, item.create, tenantId, seen);
+        }
+        if (isPlainObject(item.update)) {
+          injectTenantIntoNestedWrites(childModel, item.update, tenantId, seen);
+        }
+      }
+    }
+
+    // ── update : { update: { where, data } } ou { update: {...} } (1-to-1) ou tableau ──
+    if ("update" in nested) {
+      const upd = nested.update;
+      const arr = Array.isArray(upd) ? upd : isPlainObject(upd) ? [upd] : [];
+      for (const item of arr) {
+        if (!isPlainObject(item)) continue;
+        if (isPlainObject(item.data)) {
+          injectTenantIntoNestedWrites(childModel, item.data, tenantId, seen);
+        } else {
+          injectTenantIntoNestedWrites(childModel, item, tenantId, seen);
+        }
+      }
+    }
+
+    // ── updateMany : { updateMany: { where, data } } ou tableau ──
+    if ("updateMany" in nested) {
+      const um = nested.updateMany;
+      const arr = Array.isArray(um) ? um : isPlainObject(um) ? [um] : [];
+      for (const item of arr) {
+        if (isPlainObject(item) && isPlainObject(item.data)) {
+          injectTenantIntoNestedWrites(childModel, item.data, tenantId, seen);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Extension Prisma qui applique le scoping tenant. À composer avec la
  * extension health-monitoring dans `lib/prisma.ts`.
@@ -166,11 +329,26 @@ export const tenantScopeExtension = Prisma.defineExtension({
     $allModels: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       async $allOperations(this: unknown, { model, operation, args, query }: any) {
-        if (!TENANT_SCOPED_MODELS.has(model)) {
-          return query(args);
-        }
         const tenantId = await getTenantIdFromRequest();
         if (!tenantId) {
+          return query(args);
+        }
+
+        // Nested-write injection : parcourt l'arg AVANT que Prisma ne l'exécute.
+        // Doit tourner MÊME si le parent n'est pas tenant-scoped (rare mais
+        // possible qu'un parent hors-scope contienne un nested create scoped).
+        if (
+          operation === "create" ||
+          operation === "update" ||
+          operation === "updateMany"
+        ) {
+          injectTenantIntoNestedWrites(model, args?.data, tenantId);
+        } else if (operation === "upsert") {
+          injectTenantIntoNestedWrites(model, args?.create, tenantId);
+          injectTenantIntoNestedWrites(model, args?.update, tenantId);
+        }
+
+        if (!TENANT_SCOPED_MODELS.has(model)) {
           return query(args);
         }
 
