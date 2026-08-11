@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Image from "@/components/ui/SmartImage";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
@@ -12,6 +12,32 @@ import { useToast } from "@/components/ui/Toast";
 import ColorDot from "@/components/ui/ColorDot";
 import type { ProductMeta, ProductVariantMeta } from "@/app/actions/client/cart";
 import { buildProductHandle } from "@/lib/product-url";
+
+// ─────────────────────────────────────────────
+// Contexte promotions serveur (source de vérité)
+// ─────────────────────────────────────────────
+type PromoInfo = {
+  finalUnitPrice: number;
+  savedPerUnit: number;
+  displayPercent: number;
+  promotionName: string | null;
+  source: "none" | "product" | "promotion";
+};
+const PromoInfoContext = createContext<Record<string, PromoInfo>>({});
+function usePromoInfo(itemId: string | null | undefined): PromoInfo | null {
+  const map = useContext(PromoInfoContext);
+  if (!itemId) return null;
+  return map[itemId] ?? null;
+}
+function resolveItemFinalPrice(
+  itemId: string | null | undefined,
+  fallbackBase: number,
+  fallbackDiscountPercent: number | null,
+  map: Record<string, PromoInfo>,
+): number {
+  if (itemId && map[itemId]) return map[itemId].finalUnitPrice;
+  return computeUnitPrice(fallbackBase, fallbackDiscountPercent);
+}
 
 // ─────────────────────────────────────────────
 // Types
@@ -55,6 +81,8 @@ interface Props {
   productsMeta: Record<string, ProductMeta>;
   minOrderHT: number;
   stripeReady?: boolean;
+  /** Résultat serveur du moteur de promotions par cart-item-id. */
+  promoInfoByItemId?: Record<string, PromoInfo>;
 }
 
 // ─────────────────────────────────────────────
@@ -988,7 +1016,7 @@ function MobileQtyControl({
 // Page principale
 // ─────────────────────────────────────────────
 
-export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true }: Props) {
+export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true, promoInfoByItemId = {} }: Props) {
   const t = useTranslations("cart");
   const { tp } = useProductTranslation();
   const router = useRouter();
@@ -1060,8 +1088,11 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
   }, [filteredProducts]);
   const categoryCount = Object.keys(groupedByCategory).length;
 
-  // Subtotal & counters
-  const subtotal = allItems.reduce((s, item) => s + computeUnitPrice(item.variant.unitPrice, item.variant.product.discountPercent ?? null) * item.quantity, 0);
+  // Subtotal & counters — utilise le calcul serveur (promoInfoByItemId) si disponible
+  const subtotal = allItems.reduce(
+    (s, item) => s + resolveItemFinalPrice(item.id, item.variant.unitPrice, item.variant.product.discountPercent ?? null, promoInfoByItemId) * item.quantity,
+    0,
+  );
   const totalUnits = allItems.reduce((s, item) => {
     const units = item.variant.saleType === "PACK" && item.variant.packQuantity
       ? item.variant.packQuantity * item.quantity
@@ -1163,7 +1194,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
   }
 
   return (
-    <>
+    <PromoInfoContext.Provider value={promoInfoByItemId}>
       <div className="max-w-[1440px] mx-auto">
         <div className="bg-bg-primary border border-border rounded-3xl shadow-sm overflow-hidden grid grid-cols-1 lg:grid-cols-[124px_1fr_400px] min-h-[720px]">
           {/* Rail */}
@@ -1346,6 +1377,6 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
           </div>
         </div>
       )}
-    </>
+    </PromoInfoContext.Provider>
   );
 }

@@ -6,6 +6,7 @@ import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display"
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
+import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 
 import { VALID_LOCALES } from "@/i18n/locales";
 
@@ -221,6 +222,7 @@ export async function GET(request: NextRequest) {
         shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
       }
 
+      shaped = await enrichProductsWithBestPromoPercent(shaped);
       return NextResponse.json(stripPricesIfNeeded({
         products: shaped,
         hasMore: page * PER_PAGE < totalCount,
@@ -297,6 +299,7 @@ export async function GET(request: NextRequest) {
     shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
   }
 
+  shaped = await enrichProductsWithBestPromoPercent(shaped);
   return NextResponse.json(stripPricesIfNeeded({
     products: shaped,
     hasMore: products.length === PER_PAGE,

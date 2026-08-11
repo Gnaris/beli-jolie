@@ -11,6 +11,16 @@ import { COUNTRIES, isEuNonFrance } from "@/lib/vat";
 
 type FieldErrors = Partial<Record<string, string>>;
 
+const STEP_FIELDS: Record<number, readonly string[]> = {
+  1: ["firstName", "lastName", "email", "phone"],
+  2: ["company", "siret", "vatNumber"],
+  3: ["addressStreet", "addressComplement", "addressZip", "addressCity", "addressCountry"],
+  4: ["registrationMessage"],
+  5: ["password", "confirmPassword", "acceptsTerms"],
+};
+
+const TOTAL_STEPS = 5;
+
 export default function RegisterForm({
   productCount,
   todayHoursLabel,
@@ -38,6 +48,8 @@ export default function RegisterForm({
     password: "",
     confirmPassword: "",
     registrationMessage: "",
+    acceptsTerms: false,
+    acceptsNewsletter: false,
   });
 
   const countryOptions = useMemo<SelectOption[]>(() => {
@@ -62,12 +74,17 @@ export default function RegisterForm({
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
+  const [step, setStep]                   = useState(1);
+  const [maxVisited, setMaxVisited]       = useState(1);
   const fileInputRef                          = useRef<HTMLInputElement>(null);
   const docInputRef                           = useRef<HTMLInputElement>(null);
 
+  function setField<K extends keyof typeof fields>(key: K, value: (typeof fields)[K]) {
+    setFields((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => ({ ...prev, [key as string]: undefined }));
+  }
   function handleChange(field: keyof typeof fields, value: string) {
-    setFields((prev) => ({ ...prev, [field]: value }));
-    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    setField(field, value as never);
   }
 
   function handleKbisChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -116,20 +133,21 @@ export default function RegisterForm({
     setDocFile(file);
   }
 
-  async function handleSubmit(e: React.SyntheticEvent) {
-    e.preventDefault();
-    setGlobalError("");
-    setFieldErrors({});
-
-    const validation = registerSchema.safeParse(fields);
-    if (!validation.success) {
-      const errors: FieldErrors = {};
-      validation.error.issues.forEach((err) => {
-        const key = String(err.path[0]);
-        if (!errors[key]) errors[key] = err.message;
-      });
-      setFieldErrors(errors);
-      // Scroll vers la première erreur pour aider l'utilisateur
+  function validateStep(current: number): boolean {
+    const result = registerSchema.safeParse(fields);
+    if (result.success) return true;
+    const stepKeys = new Set(STEP_FIELDS[current]);
+    const errors: FieldErrors = {};
+    let hasStepError = false;
+    result.error.issues.forEach((err) => {
+      const key = String(err.path[0]);
+      if (stepKeys.has(key) && !errors[key]) {
+        errors[key] = err.message;
+        hasStepError = true;
+      }
+    });
+    if (hasStepError) {
+      setFieldErrors((prev) => ({ ...prev, ...errors }));
       const firstErrorKey = Object.keys(errors)[0];
       if (firstErrorKey) {
         setTimeout(() => {
@@ -138,6 +156,53 @@ export default function RegisterForm({
           el?.focus();
         }, 50);
       }
+      return false;
+    }
+    return true;
+  }
+
+  function goTo(target: number) {
+    if (target < 1 || target > TOTAL_STEPS) return;
+    if (target > step) {
+      if (!validateStep(step)) return;
+    }
+    setStep(target);
+    setMaxVisited((prev) => Math.max(prev, target));
+    setGlobalError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleSubmit(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setGlobalError("");
+
+    const validation = registerSchema.safeParse(fields);
+    if (!validation.success) {
+      const errors: FieldErrors = {};
+      let firstErrorStep = TOTAL_STEPS;
+      validation.error.issues.forEach((err) => {
+        const key = String(err.path[0]);
+        if (!errors[key]) errors[key] = err.message;
+        for (const [s, keys] of Object.entries(STEP_FIELDS)) {
+          if ((keys as readonly string[]).includes(key)) {
+            firstErrorStep = Math.min(firstErrorStep, Number(s));
+            break;
+          }
+        }
+      });
+      setFieldErrors(errors);
+      if (firstErrorStep !== step) {
+        setStep(firstErrorStep);
+        setMaxVisited((prev) => Math.max(prev, firstErrorStep));
+      }
+      setTimeout(() => {
+        const firstErrorKey = Object.keys(errors)[0];
+        if (firstErrorKey) {
+          const el = document.getElementById(firstErrorKey);
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+          el?.focus();
+        }
+      }, 100);
       return;
     }
 
@@ -163,12 +228,12 @@ export default function RegisterForm({
     }
   }
 
-  // ───────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────
   // ÉCRAN DE SUCCÈS
-  // ───────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────
   if (successMessage) {
     return (
-      <div className="w-full max-w-xl">
+      <div className="w-full max-w-xl mx-auto">
         <div className="bg-bg-primary rounded-3xl border border-border p-10 md:p-12 shadow-card-lg text-center">
           <div className="w-16 h-16 bg-success/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -192,15 +257,26 @@ export default function RegisterForm({
   const formattedCount = productCount
     ? new Intl.NumberFormat("fr-FR").format(productCount)
     : null;
+  const progressPct = Math.round((step / TOTAL_STEPS) * 100);
 
-  // ───────────────────────────────────────────────────────────────────────
-  // FORMULAIRE
-  // ───────────────────────────────────────────────────────────────────────
+  const steps = [
+    { n: 1, label: t("wizardStep1Label"), desc: t("wizardStep1Desc") },
+    { n: 2, label: t("wizardStep2Label"), desc: t("wizardStep2Desc") },
+    { n: 3, label: t("wizardStep3Label"), desc: t("wizardStep3Desc") },
+    { n: 4, label: t("wizardStep4Label"), desc: t("wizardStep4Desc") },
+    { n: 5, label: t("wizardStep5Label"), desc: t("wizardStep5Desc") },
+  ];
+  const currentStepMeta = steps[step - 1];
+
+  // ────────────────────────────────────────────────────────
+  // WIZARD
+  // ────────────────────────────────────────────────────────
   return (
-    <div className="w-full max-w-3xl">
+    <div className="w-full max-w-6xl mx-auto">
+
       {/* ── Hero ── */}
-      <header className="text-center mb-10">
-        <div className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-[11px] font-body font-semibold px-3.5 py-1.5 rounded-full mb-5 uppercase tracking-[0.12em]">
+      <header className="text-center mb-8 md:mb-12">
+        <div className="inline-flex items-center gap-2 bg-bg-dark text-text-inverse text-[11px] font-body font-semibold px-3.5 py-1.5 rounded-full mb-4 uppercase tracking-[0.18em]">
           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="4" />
           </svg>
@@ -214,397 +290,544 @@ export default function RegisterForm({
         </p>
       </header>
 
-      {/* ── Trust signals (3 stats) ── */}
-      <div className={`grid ${formattedCount ? "grid-cols-3" : "grid-cols-2"} gap-3 mb-6`}>
-        {formattedCount && (
-          <TrustStat
-            value={formattedCount}
-            label={t("trustReferences")}
-            icon={
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-            }
-          />
-        )}
-        <TrustStat
-          value={todayHoursLabel ?? t("trustHoursDefault")}
-          label={todayHoursLabel === "Fermé" ? t("trustToday") : t("trustValidation")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-          }
-        />
-        <TrustStat
-          value={t("trustHTPrice")}
-          label={t("trustWholesale")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
-          }
-        />
-      </div>
+      <div className="grid md:grid-cols-[260px_1fr] lg:grid-cols-[280px_1fr] gap-6 lg:gap-10">
 
-      {/* ── Disponibilité staff ── */}
-      <div className="mb-6">
-        <StaffAvailability schedule={schedule} />
-      </div>
+        {/* ── Aside desktop ── */}
+        <aside className="hidden md:block">
+          <div className="sticky top-24 space-y-5">
+            <nav aria-label={t("wizardProgressionLabel")} className="bg-bg-primary/60 border border-border rounded-2xl p-2">
+              <p className="px-3 pt-2 pb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                {t("wizardProgressionLabel")}
+              </p>
+              <ol className="space-y-1">
+                {steps.map((s) => {
+                  const state: "current" | "done" | "locked" = s.n === step
+                    ? "current"
+                    : (s.n < step ? "done" : "locked");
+                  const canGo = s.n <= maxVisited;
+                  return (
+                    <li key={s.n}>
+                      <button
+                        type="button"
+                        onClick={() => canGo && goTo(s.n)}
+                        disabled={!canGo}
+                        className={`w-full flex gap-3.5 items-start p-2.5 rounded-xl transition-colors text-left ${
+                          state === "current" ? "bg-bg-primary shadow-sm" :
+                          state === "done"    ? "hover:bg-bg-tertiary cursor-pointer" :
+                          "opacity-60 cursor-not-allowed"
+                        }`}
+                        aria-current={state === "current" ? "step" : undefined}
+                      >
+                        <span className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-heading font-bold border transition-all ${
+                          state === "current" ? "bg-text-primary text-text-inverse border-text-primary ring-4 ring-text-primary/10" :
+                          state === "done"    ? "bg-text-secondary text-text-inverse border-text-secondary" :
+                          "bg-bg-tertiary text-text-secondary border-border-dark border-dashed"
+                        }`}>
+                          {state === "done" ? (
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : String(s.n).padStart(2, "0")}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block font-heading text-[0.82rem] font-semibold text-text-primary leading-tight">
+                            {s.label}
+                          </span>
+                          <span className="block text-[0.72rem] text-text-muted mt-0.5 leading-snug">
+                            {s.desc}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
 
-      {/* ── Erreur globale ── */}
-      {globalError && (
-        <div role="alert" className="bg-red-50 border border-red-200 text-error px-4 py-3.5 text-sm font-body flex items-start gap-2.5 mb-6 rounded-xl">
-          <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
-          <span>{globalError}</span>
-        </div>
-      )}
+            <div className="space-y-2">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                {t("wizardWhyUs")}
+              </p>
+              {formattedCount && (
+                <TrustItem
+                  value={formattedCount}
+                  label={t("wizardWhyReferences")}
+                  icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />}
+                />
+              )}
+              <TrustItem
+                value={todayHoursLabel ?? t("trustHoursDefault")}
+                label={t("wizardWhyValidation")}
+                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />}
+              />
+              <TrustItem
+                value={t("trustHTPrice")}
+                label={t("wizardWhyPrice")}
+                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />}
+              />
+            </div>
 
-      {/* ── Formulaire ── */}
-      <form onSubmit={handleSubmit} noValidate encType="multipart/form-data" className="space-y-5">
-
-        {/* ── Section 1 : Vous ── */}
-        <SectionCard
-          step={1}
-          title={t("section1Title")}
-          description={t("section1Desc")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.25a7.5 7.5 0 0115 0v.75H4.5v-.75z" />
-          }
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField id="firstName" label={t("firstName")} type="text"
-              value={fields.firstName} error={fieldErrors.firstName}
-              placeholder={t("firstNamePlaceholder")} autoComplete="given-name" optional
-              onChange={(v) => handleChange("firstName", v)} />
-            <FormField id="lastName" label={t("lastName")} type="text"
-              value={fields.lastName} error={fieldErrors.lastName}
-              placeholder={t("lastNamePlaceholder")} autoComplete="family-name" optional
-              onChange={(v) => handleChange("lastName", v)} />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField id="email" label={t("email")} type="email"
-              value={fields.email} error={fieldErrors.email}
-              placeholder={t("emailPlaceholder")} autoComplete="email"
-              onChange={(v) => handleChange("email", v)} />
-            <FormField id="phone" label={t("phone")} type="tel"
-              value={fields.phone} error={fieldErrors.phone}
-              placeholder={t("phonePlaceholder")} autoComplete="tel"
-              onChange={(v) => handleChange("phone", v)} />
-          </div>
-        </SectionCard>
-
-        {/* ── Section 2 : Votre société ── */}
-        <SectionCard
-          step={2}
-          title={t("section2Title")}
-          description={t("section2Desc")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-          }
-        >
-          <FormField id="company" label={t("company")} type="text"
-            value={fields.company} error={fieldErrors.company}
-            placeholder={t("companyPlaceholder")} autoComplete="organization"
-            onChange={(v) => handleChange("company", v)} />
-          <div>
-            <FormField id="siret" label={t("siret")} type="text"
-              value={fields.siret} error={fieldErrors.siret}
-              placeholder={t("siretPlaceholder")} maxLength={14} mono optional
-              onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
-            <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
-          </div>
-
-          {/* TVA */}
-          <div>
-            <FieldLabel id="vatNumber" optional>{t("vatNumber")}</FieldLabel>
-            <input
-              id="vatNumber" type="text" value={fields.vatNumber}
-              onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
-              placeholder={t("vatPlaceholder")} maxLength={20}
-              className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
-            />
-            <p className="text-xs text-text-muted mt-1.5 font-body">{t("vatNumberHint")}</p>
-            {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
-
-            {showEuVatNotice && (
-              <div className="mt-4 flex items-start gap-3 bg-[#FFFBEB] border border-[#FCD34D] rounded-xl p-4">
-                <div className="w-8 h-8 bg-[#FCD34D]/40 rounded-lg flex items-center justify-center shrink-0">
-                  <svg className="w-4 h-4 text-[#B45309]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v3.75m0 3.75h.008v.008H12v-.008zm9-3.75a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="text-sm font-body text-[#7C2D12] leading-relaxed">
-                  <p className="font-semibold mb-1.5">{t("euVatTitle")}</p>
-                  <p className="text-xs leading-relaxed">
-                    {t("euVatDescPart1")} <strong>{t("euVatDescStrong1")}</strong>
-                    {t("euVatDescPart2")} <strong>{t("euVatDescStrong2")}</strong> {t("euVatDescPart3")}
-                  </p>
-                </div>
+            {schedule && (
+              <div className="rounded-2xl overflow-hidden">
+                <StaffAvailability schedule={schedule} />
               </div>
             )}
           </div>
-        </SectionCard>
+        </aside>
 
-        {/* ── Section 3 : Adresse ── */}
-        <SectionCard
-          step={3}
-          title={t("section3Title")}
-          description={t("section3Desc")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-          }
-        >
-          <FormField
-            id="addressStreet" label={t("addressLabel")} type="text"
-            value={fields.addressStreet} error={fieldErrors.addressStreet}
-            placeholder={t("addressStreetPlaceholder")} autoComplete="street-address"
-            onChange={(v) => handleChange("addressStreet", v)}
-          />
-          <FormField
-            id="addressComplement" label={t("addressComplement")} type="text"
-            value={fields.addressComplement} error={fieldErrors.addressComplement}
-            placeholder={t("addressComplementPlaceholder")} autoComplete="address-line2"
-            optional
-            onChange={(v) => handleChange("addressComplement", v)}
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FormField
-              id="addressZip" label={t("addressZip")} type="text"
-              value={fields.addressZip} error={fieldErrors.addressZip}
-              placeholder={t("addressZipPlaceholder")} autoComplete="postal-code"
-              onChange={(v) => handleChange("addressZip", v)}
-            />
-            <div className="sm:col-span-2">
-              <FormField
-                id="addressCity" label={t("addressCity")} type="text"
-                value={fields.addressCity} error={fieldErrors.addressCity}
-                placeholder={t("addressCityPlaceholder")} autoComplete="address-level2"
-                onChange={(v) => handleChange("addressCity", v)}
+        {/* ── Contenu wizard ── */}
+        <section>
+
+          {/* Progress mobile (md:hidden) */}
+          <div className="md:hidden mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                {t("wizardStepLabel")} {step}/{TOTAL_STEPS}
+              </span>
+              <span className="text-xs font-medium text-text-primary">{currentStepMeta.label}</span>
+            </div>
+            <div className="h-1 bg-bg-tertiary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-text-primary rounded-full transition-all duration-300"
+                style={{ width: `${progressPct}%` }}
               />
             </div>
           </div>
-          <div>
-            <FieldLabel id="addressCountry">{t("addressCountry")}</FieldLabel>
-            <CustomSelect
-              id="addressCountry"
-              value={fields.addressCountry}
-              onChange={(v) => handleChange("addressCountry", v)}
-              options={countryOptions}
-              searchable
-              placeholder={t("selectCountry")}
-              aria-label={t("countryAriaLabel")}
-            />
-            {fieldErrors.addressCountry && (
-              <p className="text-xs text-error mt-1 font-body">{fieldErrors.addressCountry}</p>
-            )}
-          </div>
-        </SectionCard>
 
-        {/* ── Section 4 : Justificatifs ── */}
-        <SectionCard
-          step={4}
-          title={t("section4Title")}
-          description={t("section4Desc")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-          }
-        >
-          <UploadField
-            id="kbis"
-            label={t("kbis")}
-            description={t("kbisFormats")}
-            file={kbisFile}
-            error={kbisError}
-            inputRef={fileInputRef}
-            accept=".pdf,.jpg,.jpeg,.png,.webp"
-            onChange={handleKbisChange}
-            onClear={() => { setKbisFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
-          />
-          <UploadField
-            id="document"
-            label={t("documentLabel")}
-            description={t("documentDesc")}
-            file={docFile}
-            error={docError}
-            inputRef={docInputRef}
-            accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
-            onChange={handleDocChange}
-            onClear={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
-          />
-
-          {/* Message libre */}
-          <div>
-            <FieldLabel id="registrationMessage" optional>{t("message")}</FieldLabel>
-            <textarea
-              id="registrationMessage"
-              value={fields.registrationMessage}
-              onChange={(e) => handleChange("registrationMessage", e.target.value)}
-              placeholder={t("messagePlaceholder")}
-              maxLength={2000}
-              rows={4}
-              className={`field-input resize-y min-h-[110px] ${fieldErrors.registrationMessage ? "border-error" : ""}`}
-            />
-            <div className="flex items-center justify-between mt-1.5">
-              <p className="text-xs text-text-muted font-body">
-                {t("messageHint")}
-              </p>
-              <span className="text-xs text-text-muted font-body tabular-nums">
-                {fields.registrationMessage.length}/2000
-              </span>
+          {/* Erreur globale */}
+          {globalError && (
+            <div role="alert" className="bg-red-50 border border-red-200 text-error px-4 py-3.5 text-sm font-body flex items-start gap-2.5 mb-6 rounded-xl">
+              <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <span>{globalError}</span>
             </div>
-            {fieldErrors.registrationMessage && (
-              <p className="text-xs text-error mt-1">{fieldErrors.registrationMessage}</p>
-            )}
-          </div>
-        </SectionCard>
+          )}
 
-        {/* ── Section 5 : Sécurité ── */}
-        <SectionCard
-          step={5}
-          title={t("section5Title")}
-          description={t("section5Desc")}
-          icon={
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-          }
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <FieldLabel id="password">{t("password")}</FieldLabel>
-              <div className="relative">
-                <input
-                  id="password" type={showPassword ? "text" : "password"}
-                  value={fields.password}
-                  onChange={(e) => handleChange("password", e.target.value)}
-                  placeholder="••••••••" autoComplete="new-password"
-                  className={`field-input pr-12 ${fieldErrors.password ? "border-error" : ""}`}
+          <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
+
+            {/* ── Étape 1 : Contact ── */}
+            {step === 1 && (
+              <StepCard eyebrow={`01 · ${t("section1Title")}`} title={t("wizardStep1Label")} description={t("section1Desc")}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField id="firstName" label={t("firstName")} type="text"
+                    value={fields.firstName} error={fieldErrors.firstName}
+                    placeholder={t("firstNamePlaceholder")} autoComplete="given-name" optional
+                    onChange={(v) => handleChange("firstName", v)} />
+                  <FormField id="lastName" label={t("lastName")} type="text"
+                    value={fields.lastName} error={fieldErrors.lastName}
+                    placeholder={t("lastNamePlaceholder")} autoComplete="family-name" optional
+                    onChange={(v) => handleChange("lastName", v)} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                  <FormField id="email" label={t("email")} type="email"
+                    value={fields.email} error={fieldErrors.email}
+                    placeholder={t("emailPlaceholder")} autoComplete="email"
+                    onChange={(v) => handleChange("email", v)} />
+                  <FormField id="phone" label={t("phone")} type="tel"
+                    value={fields.phone} error={fieldErrors.phone}
+                    placeholder={t("phonePlaceholder")} autoComplete="tel"
+                    onChange={(v) => handleChange("phone", v)} />
+                </div>
+              </StepCard>
+            )}
+
+            {/* ── Étape 2 : Société ── */}
+            {step === 2 && (
+              <StepCard eyebrow={`02 · ${t("section2Title")}`} title={t("wizardStep2Label")} description={t("section2Desc")}>
+                <FormField id="company" label={t("company")} type="text"
+                  value={fields.company} error={fieldErrors.company}
+                  placeholder={t("companyPlaceholder")} autoComplete="organization"
+                  onChange={(v) => handleChange("company", v)} />
+                <div>
+                  <FormField id="siret" label={t("siret")} type="text"
+                    value={fields.siret} error={fieldErrors.siret}
+                    placeholder={t("siretPlaceholder")} maxLength={14} mono optional
+                    onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
+                  <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
+                </div>
+                <div>
+                  <FieldLabel id="vatNumber" optional>{t("vatNumber")}</FieldLabel>
+                  <input
+                    id="vatNumber" type="text" value={fields.vatNumber}
+                    onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
+                    placeholder={t("vatPlaceholder")} maxLength={20}
+                    className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
+                  />
+                  <p className="text-xs text-text-muted mt-1.5 font-body">{t("vatNumberHint")}</p>
+                  {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
+
+                  {showEuVatNotice && (
+                    <div className="mt-4 flex items-start gap-3 bg-[#FFFBEB] border border-[#FCD34D] rounded-xl p-4">
+                      <div className="w-8 h-8 bg-[#FCD34D]/40 rounded-lg flex items-center justify-center shrink-0">
+                        <svg className="w-4 h-4 text-[#B45309]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v3.75m0 3.75h.008v.008H12v-.008zm9-3.75a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div className="text-sm font-body text-[#7C2D12] leading-relaxed">
+                        <p className="font-semibold mb-1.5">{t("euVatTitle")}</p>
+                        <p className="text-xs leading-relaxed">
+                          {t("euVatDescPart1")} <strong>{t("euVatDescStrong1")}</strong>
+                          {t("euVatDescPart2")} <strong>{t("euVatDescStrong2")}</strong> {t("euVatDescPart3")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </StepCard>
+            )}
+
+            {/* ── Étape 3 : Adresse ── */}
+            {step === 3 && (
+              <StepCard eyebrow={`03 · ${t("section3Title")}`} title={t("wizardStep3Label")} description={t("section3Desc")}>
+                <FormField id="addressStreet" label={t("addressLabel")} type="text"
+                  value={fields.addressStreet} error={fieldErrors.addressStreet}
+                  placeholder={t("addressStreetPlaceholder")} autoComplete="street-address"
+                  onChange={(v) => handleChange("addressStreet", v)} />
+                <FormField id="addressComplement" label={t("addressComplement")} type="text"
+                  value={fields.addressComplement} error={fieldErrors.addressComplement}
+                  placeholder={t("addressComplementPlaceholder")} autoComplete="address-line2" optional
+                  onChange={(v) => handleChange("addressComplement", v)} />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <FormField id="addressZip" label={t("addressZip")} type="text"
+                    value={fields.addressZip} error={fieldErrors.addressZip}
+                    placeholder={t("addressZipPlaceholder")} autoComplete="postal-code"
+                    onChange={(v) => handleChange("addressZip", v)} />
+                  <div className="sm:col-span-2">
+                    <FormField id="addressCity" label={t("addressCity")} type="text"
+                      value={fields.addressCity} error={fieldErrors.addressCity}
+                      placeholder={t("addressCityPlaceholder")} autoComplete="address-level2"
+                      onChange={(v) => handleChange("addressCity", v)} />
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel id="addressCountry">{t("addressCountry")}</FieldLabel>
+                  <CustomSelect
+                    id="addressCountry"
+                    value={fields.addressCountry}
+                    onChange={(v) => handleChange("addressCountry", v)}
+                    options={countryOptions}
+                    searchable
+                    placeholder={t("selectCountry")}
+                    aria-label={t("countryAriaLabel")}
+                  />
+                  {fieldErrors.addressCountry && (
+                    <p className="text-xs text-error mt-1 font-body">{fieldErrors.addressCountry}</p>
+                  )}
+                </div>
+              </StepCard>
+            )}
+
+            {/* ── Étape 4 : Justificatifs ── */}
+            {step === 4 && (
+              <StepCard eyebrow={`04 · ${t("section4Title")}`} title={t("wizardStep4Label")} description={t("section4Desc")}>
+                <UploadField
+                  id="kbis" label={t("kbis")} description={t("kbisFormats")}
+                  file={kbisFile} error={kbisError} inputRef={fileInputRef}
+                  accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleKbisChange}
+                  onClear={() => { setKbisFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={showPassword
-                      ? "M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"
-                      : "M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z M15 12a3 3 0 11-6 0 3 3 0 016 0z"} />
+                <UploadField
+                  id="document" label={t("documentLabel")} description={t("documentDesc")}
+                  file={docFile} error={docError} inputRef={docInputRef}
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" onChange={handleDocChange}
+                  onClear={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
+                />
+                <div>
+                  <FieldLabel id="registrationMessage" optional>{t("message")}</FieldLabel>
+                  <textarea
+                    id="registrationMessage"
+                    value={fields.registrationMessage}
+                    onChange={(e) => handleChange("registrationMessage", e.target.value)}
+                    placeholder={t("messagePlaceholder")}
+                    maxLength={2000}
+                    rows={4}
+                    className={`field-input resize-y min-h-[110px] ${fieldErrors.registrationMessage ? "border-error" : ""}`}
+                  />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className="text-xs text-text-muted font-body">{t("messageHint")}</p>
+                    <span className="text-xs text-text-muted font-body tabular-nums">
+                      {fields.registrationMessage.length}/2000
+                    </span>
+                  </div>
+                  {fieldErrors.registrationMessage && (
+                    <p className="text-xs text-error mt-1">{fieldErrors.registrationMessage}</p>
+                  )}
+                </div>
+              </StepCard>
+            )}
+
+            {/* ── Étape 5 : Sécurité + Récap + Consentements ── */}
+            {step === 5 && (
+              <div className="space-y-5">
+                <StepCard eyebrow={`05 · ${t("section5Title")}`} title={t("wizardStep5Label")} description={t("section5Desc")}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <FieldLabel id="password">{t("password")}</FieldLabel>
+                      <div className="relative">
+                        <input
+                          id="password" type={showPassword ? "text" : "password"}
+                          value={fields.password}
+                          onChange={(e) => handleChange("password", e.target.value)}
+                          placeholder="••••••••" autoComplete="new-password"
+                          className={`field-input pr-12 ${fieldErrors.password ? "border-error" : ""}`}
+                        />
+                        <button type="button" onClick={() => setShowPassword(!showPassword)}
+                          aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={showPassword
+                              ? "M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"
+                              : "M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z M15 12a3 3 0 11-6 0 3 3 0 016 0z"} />
+                          </svg>
+                        </button>
+                      </div>
+                      {fieldErrors.password && <p className="text-xs text-error mt-1">{fieldErrors.password}</p>}
+                      <PasswordStrength password={fields.password} />
+                    </div>
+                    <FormField id="confirmPassword" label={t("confirm")} type="password"
+                      value={fields.confirmPassword} error={fieldErrors.confirmPassword}
+                      placeholder="••••••••" autoComplete="new-password"
+                      onChange={(v) => handleChange("confirmPassword", v)} />
+                  </div>
+                </StepCard>
+
+                {/* Récap */}
+                <div className="bg-bg-primary border border-border rounded-2xl shadow-card p-6 md:p-8">
+                  <header className="mb-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted mb-2">
+                      {t("wizardSummaryEyebrow")}
+                    </p>
+                    <h3 className="font-heading text-lg font-bold text-text-primary">{t("wizardSummaryTitle")}</h3>
+                    <p className="text-sm text-text-muted mt-1">{t("wizardSummarySubtitle")}</p>
+                  </header>
+                  <dl className="divide-y divide-border-light text-sm">
+                    <SummaryRow label={t("wizardSummaryContact")}>
+                      {[
+                        [fields.firstName, fields.lastName].filter(Boolean).join(" ") || null,
+                        fields.email,
+                        fields.phone,
+                      ].filter(Boolean).join(" · ") || "—"}
+                    </SummaryRow>
+                    <SummaryRow label={t("wizardSummaryCompany")}>
+                      {[
+                        fields.company,
+                        fields.siret ? `SIRET ${fields.siret}` : null,
+                        fields.vatNumber ? `TVA ${fields.vatNumber}` : null,
+                      ].filter(Boolean).join(" · ") || "—"}
+                    </SummaryRow>
+                    <SummaryRow label={t("wizardSummaryAddress")}>
+                      {[
+                        fields.addressStreet,
+                        fields.addressComplement,
+                        [fields.addressZip, fields.addressCity].filter(Boolean).join(" "),
+                        fields.addressCountry,
+                      ].filter(Boolean).join(", ") || "—"}
+                    </SummaryRow>
+                    <SummaryRow label={t("wizardSummaryDocs")}>
+                      {[kbisFile?.name, docFile?.name].filter(Boolean).join(" · ") || t("wizardSummaryNoDocs")}
+                    </SummaryRow>
+                  </dl>
+                </div>
+
+                {/* Consentements + Submit */}
+                <div className="bg-bg-primary border border-border rounded-2xl shadow-card p-6 md:p-8">
+                  <header className="mb-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted mb-2">
+                      {t("wizardConsentEyebrow")}
+                    </p>
+                    <h3 className="font-heading text-lg font-bold text-text-primary">{t("wizardConsentTitle")}</h3>
+                    <p className="text-sm text-text-muted mt-1">{t("wizardConsentSubtitle")}</p>
+                  </header>
+
+                  <div className="space-y-3 mb-6">
+                    {/* CGU (obligatoire) */}
+                    <label className={`flex items-start gap-3 p-3.5 border rounded-xl cursor-pointer transition-colors ${
+                      fieldErrors.acceptsTerms ? "border-error bg-red-50" : "border-border hover:bg-bg-secondary"
+                    }`}>
+                      <input
+                        id="acceptsTerms"
+                        type="checkbox"
+                        checked={fields.acceptsTerms}
+                        onChange={(e) => setField("acceptsTerms", e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded border-border-dark accent-text-primary"
+                      />
+                      <span className="flex-1 text-sm text-text-primary">
+                        <span className="font-medium">{t("wizardTermsLabel")}</span>
+                        <span className="block text-xs text-text-muted mt-0.5">
+                          {t("wizardTermsDesc")} · {" "}
+                          <Link href="/mentions-legales" className="underline underline-offset-2">
+                            {t("wizardTermsCgu")}
+                          </Link>
+                          {" · "}
+                          <Link href="/politique-confidentialite" className="underline underline-offset-2">
+                            {t("wizardTermsPrivacy")}
+                          </Link>
+                        </span>
+                        {fieldErrors.acceptsTerms && (
+                          <span className="block text-xs text-error mt-1">{fieldErrors.acceptsTerms}</span>
+                        )}
+                      </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider bg-bg-dark text-text-inverse px-2 py-0.5 rounded-full shrink-0">
+                        {t("wizardTermsRequired")}
+                      </span>
+                    </label>
+
+                    {/* Newsletter (facultative) */}
+                    <label className="flex items-start gap-3 p-3.5 border border-border rounded-xl cursor-pointer hover:bg-bg-secondary transition-colors">
+                      <input
+                        id="acceptsNewsletter"
+                        type="checkbox"
+                        checked={fields.acceptsNewsletter}
+                        onChange={(e) => setField("acceptsNewsletter", e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded border-border-dark accent-text-primary"
+                      />
+                      <span className="flex-1 text-sm font-medium text-text-primary">
+                        {t("wizardNewsletterLabel")}
+                      </span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="submit" disabled={loading}
+                    className="btn-primary w-full justify-center text-base py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <>
+                        <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        {t("loading")}
+                      </>
+                    ) : (
+                      <>
+                        {t("submit")}
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="mt-4 flex items-center justify-center gap-1.5 text-xs font-body text-text-muted">
+                    <svg className="w-3.5 h-3.5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
+                    </svg>
+                    {t("wizardReassurance")}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Barre nav Prev / Next ── */}
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => goTo(step - 1)}
+                disabled={step === 1}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border border-border-strong bg-bg-primary text-sm font-medium text-text-primary transition-colors hover:border-text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                {t("wizardPrev")}
+              </button>
+
+              <div className="hidden sm:flex items-center gap-1.5 text-xs text-text-muted">
+                <span className="tabular-nums font-medium text-text-secondary">{step}</span>
+                <span>{t("wizardStepOf")}</span>
+                <span className="tabular-nums font-medium text-text-secondary">{TOTAL_STEPS}</span>
+              </div>
+
+              {step < TOTAL_STEPS ? (
+                <button
+                  type="button"
+                  onClick={() => goTo(step + 1)}
+                  className="btn-primary"
+                >
+                  {t("wizardNext")}
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
-              </div>
-              {fieldErrors.password && <p className="text-xs text-error mt-1">{fieldErrors.password}</p>}
-              <PasswordStrength password={fields.password} />
+              ) : (
+                <span className="text-xs text-text-muted sm:hidden">
+                  {t("hasAccount")}{" "}
+                  <Link href="/connexion" className="text-text-primary font-medium underline underline-offset-2">
+                    {t("loginLink")}
+                  </Link>
+                </span>
+              )}
             </div>
-            <FormField id="confirmPassword" label={t("confirm")} type="password"
-              value={fields.confirmPassword} error={fieldErrors.confirmPassword}
-              placeholder="••••••••" autoComplete="new-password"
-              onChange={(v) => handleChange("confirmPassword", v)} />
-          </div>
-        </SectionCard>
 
-        {/* ── CTA + Réassurance ── */}
-        <div className="bg-bg-primary rounded-2xl border border-border p-6 md:p-7 shadow-card">
-          <button
-            type="submit" disabled={loading}
-            className="btn-primary w-full justify-center text-base py-3.5 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <>
-                <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                {t("loading")}
-              </>
-            ) : (
-              <>
-                {t("submit")}
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                </svg>
-              </>
+            {step < TOTAL_STEPS && (
+              <p className="mt-6 text-center text-xs text-text-muted">
+                {t("hasAccount")}{" "}
+                <Link href="/connexion" className="text-text-primary font-medium underline underline-offset-2">
+                  {t("loginLink")}
+                </Link>
+              </p>
             )}
-          </button>
-
-          {/* Réassurance + login link */}
-          <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs font-body text-text-muted">
-            <div className="flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" />
-              </svg>
-              <span>Vos données sont chiffrées. Aucun spam — RGPD compliant.</span>
-            </div>
-            <p>
-              {t("hasAccount")}{" "}
-              <Link href="/connexion" className="text-text-primary font-medium hover:underline transition-colors">
-                {t("loginLink")}
-              </Link>
-            </p>
-          </div>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
-// Helpers visuels
-// ─────────────────────────────────────────────
-
-function TrustStat({ value, label, icon }: { value: string; label: string; icon: React.ReactNode }) {
-  return (
-    <div className="bg-bg-primary rounded-xl border border-border p-3.5 text-center">
-      <div className="flex items-center justify-center gap-1.5 mb-1">
-        <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          {icon}
-        </svg>
-        <p className="font-heading text-base font-bold text-text-primary leading-none">{value}</p>
+          </form>
+        </section>
       </div>
-      <p className="text-[11px] text-text-muted font-body">{label}</p>
     </div>
   );
 }
 
-function SectionCard({
-  step,
-  title,
-  description,
-  icon,
-  children,
+// ────────────────────────────────────────────────────────────
+// Helpers visuels
+// ────────────────────────────────────────────────────────────
+
+function StepCard({
+  eyebrow, title, description, children,
 }: {
-  step: number;
+  eyebrow: string;
   title: string;
   description: string;
-  icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-bg-primary rounded-2xl border border-border shadow-card overflow-hidden">
-      <header className="flex items-start gap-4 px-6 pt-6 pb-5 border-b border-border-light">
-        <div className="w-10 h-10 rounded-xl bg-bg-secondary flex items-center justify-center shrink-0">
-          <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {icon}
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[11px] font-body font-semibold text-text-muted tabular-nums">
-              {String(step).padStart(2, "0")}
-            </span>
-            <h2 className="font-heading text-base font-semibold text-text-primary tracking-tight">
-              {title}
-            </h2>
-          </div>
-          <p className="text-xs text-text-muted font-body mt-0.5 leading-relaxed">
-            {description}
-          </p>
-        </div>
+    <section className="bg-bg-primary border border-border rounded-2xl shadow-card p-6 md:p-8">
+      <header className="mb-6">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted mb-2">
+          {eyebrow}
+        </p>
+        <h2 className="font-heading text-xl md:text-2xl font-bold text-text-primary tracking-tight">
+          {title}
+        </h2>
+        <p className="text-sm text-text-muted mt-1 leading-relaxed">{description}</p>
       </header>
-      <div className="p-6 space-y-4">
+      <div className="space-y-4">
         {children}
       </div>
     </section>
+  );
+}
+
+function TrustItem({ value, label, icon }: { value: string; label: string; icon: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-bg-primary border border-border rounded-xl">
+      <div className="w-8 h-8 rounded-lg bg-bg-tertiary flex items-center justify-center shrink-0 text-text-primary">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {icon}
+        </svg>
+      </div>
+      <div>
+        <div className="font-heading font-bold text-sm text-text-primary leading-none">{value}</div>
+        <div className="text-[11px] text-text-muted mt-1">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[100px_1fr] sm:grid-cols-[120px_1fr] gap-3 py-2.5">
+      <dt className="text-text-muted font-medium">{label}</dt>
+      <dd className="text-text-primary break-words">{children}</dd>
+    </div>
   );
 }
 

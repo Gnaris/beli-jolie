@@ -20,23 +20,12 @@ import { buildFaireProductPayload, type FairePublishContext } from "@/lib/faire-
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
 
 describe("PFS — pfsComputeVariantIsActive", () => {
-  it("variante avec stock > 0 mais disabled=true → is_active=false", () => {
-    expect(pfsIsActive({ stock: 10, disabled: true }, true)).toBe(false);
-    expect(pfsIsActive({ stock: 10, disabled: true }, false)).toBe(false);
+  it("variante disabled=true → is_active=false", () => {
+    expect(pfsIsActive({ disabled: true })).toBe(false);
   });
 
-  it("variante avec stock > 0 et disabled=false → is_active=true", () => {
-    expect(pfsIsActive({ stock: 10, disabled: false }, true)).toBe(true);
-  });
-
-  it("réactivation : disabled repasse à false → is_active suit le stock", () => {
-    expect(pfsIsActive({ stock: 5, disabled: false }, true)).toBe(true);
-    expect(pfsIsActive({ stock: 0, disabled: false }, true)).toBe(false);
-  });
-
-  it("deactivateOnZeroStock=false : stock=0 seul ne désactive pas", () => {
-    expect(pfsIsActive({ stock: 0, disabled: false }, false)).toBe(true);
-    expect(pfsIsActive({ stock: 0, disabled: true }, false)).toBe(false);
+  it("variante disabled=false → is_active=true (stock ignoré)", () => {
+    expect(pfsIsActive({ disabled: false })).toBe(true);
   });
 });
 

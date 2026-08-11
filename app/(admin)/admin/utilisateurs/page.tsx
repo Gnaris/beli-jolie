@@ -384,6 +384,7 @@ type RegisteredClient = {
   lastLoginAt: Date | null;
   lastSeenAt: Date | null;
   createdAt: Date;
+  acceptsNewsletter: boolean;
 };
 
 const REGISTERED_SELECT = {
@@ -398,6 +399,7 @@ const REGISTERED_SELECT = {
   lastLoginAt: true,
   lastSeenAt: true,
   createdAt: true,
+  acceptsNewsletter: true,
 } as const;
 
 type GroupedOrderStats = {
@@ -706,6 +708,7 @@ function MailsView({
                         userId={c.id}
                         userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                         userEmail={c.email}
+                        acceptsNewsletter={c.acceptsNewsletter}
                       />
                     </td>
                   </tr>
@@ -762,6 +765,7 @@ function MailsView({
                       userId={c.id}
                       userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                       userEmail={c.email}
+                      acceptsNewsletter={c.acceptsNewsletter}
                     />
                   </div>
                 </div>

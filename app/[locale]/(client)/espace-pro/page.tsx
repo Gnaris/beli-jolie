@@ -8,6 +8,7 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { getAvailableCredit } from "@/lib/credits";
 import { buildProductHandle } from "@/lib/product-url";
 import AccountEditor from "@/components/client/AccountEditor";
+import NewsletterToggle from "@/components/client/NewsletterToggle";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations, getLocale } from "next-intl/server";
 
@@ -758,6 +759,9 @@ export default async function DashboardPage() {
             ].filter(Boolean).join(" — ") || null,
             vatNumber: user.vatNumber,
           }} />
+
+          {/* -- Préférences newsletter (opt-in / opt-out en 1 clic) -- */}
+          <NewsletterToggle acceptsNewsletter={user.acceptsNewsletter} />
         </div>
 
         {/* -- Colonne droite : Historique des produits commandes -- */}

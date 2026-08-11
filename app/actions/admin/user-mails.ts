@@ -20,19 +20,34 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { renderAbandonedCartMail } from "@/lib/mail-templates/abandoned-cart";
 import { renderInactiveClientMail } from "@/lib/mail-templates/inactive-client";
 import { renderRestockMail } from "@/lib/mail-templates/restock";
+import {
+  computeMailGates,
+  hasBlockers,
+  listMailConditions,
+  type MailScenario as GateMailScenario,
+  type MailGateInput,
+  type MailCondition,
+} from "@/lib/mail-gates";
 
-export type MailScenario = "ABANDONED_CART" | "INACTIVE_CLIENT" | "NEWSLETTER" | "RESTOCK";
+// Note : on ne peut PAS re-exporter des types depuis un fichier "use server".
+// Les consommateurs client doivent importer MailCondition directement depuis
+// "@/lib/mail-gates".
+export type MailScenario = GateMailScenario;
 
 export interface MailScenarioContext {
   key: MailScenario;
-  /** Peut-on techniquement envoyer ce mail ? (false = bouton grisé mais toujours cliquable si on force) */
+  /** true si tous les blockers sont passés (le bouton peut envoyer). */
   canSend: boolean;
-  /** Message d'explication de l'état (« Panier de 3 articles laissé depuis 2j » / « Panier vide »). */
+  /** Ligne descriptive de l'état actuel (« Panier de 3 articles laissé depuis 2j »). */
   contextLine: string;
   /** Date du dernier envoi de ce type à ce client, ou null. */
   lastSentAt: Date | null;
-  /** Liste d'avertissements non bloquants — affichés dans la modale. */
+  /** Blockers formatés (raisons pour lesquelles l'envoi est refusé). */
+  blockers: string[];
+  /** Warnings non-bloquants (envoyable mais douteux). */
   warnings: string[];
+  /** Liste complète des conditions applicables (grille UI ✓/✗). */
+  conditions: MailCondition[];
 }
 
 export interface CartItemPreview {
@@ -74,11 +89,7 @@ export interface ClientMailContext {
   preview: PreviewData;
 }
 
-// Seuils recommandés (non bloquants)
-const ABANDONED_CART_MIN_HOURS = 24;
-const INACTIVE_MIN_DAYS = 14;
-const NEWSLETTER_MIN_DAYS = 7;
-const RESTOCK_MIN_DAYS = 7;
+const RECENT_RESTOCK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function daysBetween(a: Date, b: Date): number {
   return Math.floor((a.getTime() - b.getTime()) / (24 * 60 * 60 * 1000));
@@ -92,13 +103,6 @@ function formatDaysAgo(days: number): string {
   if (days === 0) return "aujourd'hui";
   if (days === 1) return "hier";
   return `il y a ${days} jours`;
-}
-
-function formatHoursAgo(hours: number): string {
-  if (hours < 1) return "il y a moins d'une heure";
-  if (hours === 1) return "il y a 1 heure";
-  if (hours < 24) return `il y a ${hours} heures`;
-  return formatDaysAgo(Math.floor(hours / 24));
 }
 
 /**
@@ -122,11 +126,19 @@ export async function getClientMailContext(
         company: true,
         lastLoginAt: true,
         lastSeenAt: true,
+        acceptsNewsletter: true,
+        status: true,
       },
     });
     if (!user) return { success: false, error: "Client introuvable." };
+    const loadedUser = user;
 
-    // Panier en cours — avec les items complets (photo, prix, quantité) pour l'aperçu réel
+    // Nombre de commandes passées (nécessaire pour le gate INACTIVE_CLIENT)
+    const orderCount = await prisma.order.count({
+      where: { userId, tenantId: tenant.id },
+    });
+
+    // Panier en cours — avec les items complets (photo, prix, quantité, stock) pour l'aperçu réel
     const cart = await prisma.cart.findFirst({
       where: { userId },
       select: {
@@ -138,6 +150,7 @@ export async function getClientMailContext(
             variant: {
               select: {
                 unitPrice: true,
+                stock: true,
                 color: { select: { name: true } },
                 product: { select: { name: true } },
                 images: {
@@ -166,6 +179,8 @@ export async function getClientMailContext(
         })
       : [];
     const cartTotalCents = cartItemsPreview.reduce((s, i) => s + i.totalCents, 0);
+    const cartAllOutOfStock =
+      cart != null && cart.items.length > 0 && cart.items.every((i) => i.variant.stock <= 0);
 
     // Favoris dont au moins une variante du produit a du stock.
     // Charge les données complètes (produit, prix, photo) pour l'aperçu réel.
@@ -184,6 +199,7 @@ export async function getClientMailContext(
               where: { stock: { gt: 0 } },
               take: 1,
               select: {
+                id: true,
                 unitPrice: true,
                 color: { select: { name: true } },
                 images: {
@@ -211,6 +227,26 @@ export async function getClientMailContext(
       });
     const favoritesInStock = favoritesInStockPreview.length;
 
+    // Compte des favoris récemment revenus en stock (StockMovement + quantity dans
+    // les 7 derniers jours sur les ProductColor des favoris).
+    const favoriteColorIds = favoritesRaw
+      .flatMap((f) => f.product.colors.map((c) => c.id))
+      .filter((id): id is string => Boolean(id));
+    let recentlyRestockedCount = 0;
+    if (favoriteColorIds.length > 0) {
+      const recentPositiveMoves = await prisma.stockMovement.findMany({
+        where: {
+          tenantId: tenant.id,
+          productColorId: { in: favoriteColorIds },
+          quantity: { gt: 0 },
+          createdAt: { gte: new Date(now.getTime() - RECENT_RESTOCK_WINDOW_MS) },
+        },
+        distinct: ["productColorId"],
+        select: { productColorId: true },
+      });
+      recentlyRestockedCount = recentPositiveMoves.length;
+    }
+
     const daysSinceLastActivity = user.lastSeenAt ?? user.lastLoginAt
       ? daysBetween(now, (user.lastSeenAt ?? user.lastLoginAt) as Date)
       : null;
@@ -235,113 +271,82 @@ export async function getClientMailContext(
       lastSends[row.scenarioKey as MailScenario] = row._max.sentAt ?? null;
     }
 
-    // ═══ Scénario 1 : Panier abandonné ═══
-    const abandoned = ((): MailScenarioContext => {
-      const warnings: string[] = [];
-      const items = cartItemsPreview.length;
-      let contextLine: string;
-      const canSend = true;
+    // ─── Base d'entrée pour computeMailGates (indépendante du scenario) ───
+    const lastMarketingSentAt = (Object.values(lastSends) as (Date | null)[]).reduce<Date | null>(
+      (max, d) => (d && (!max || d > max) ? d : max),
+      null,
+    );
+    const gateInputBase: Omit<MailGateInput, "scenario"> = {
+      now,
+      acceptsNewsletter: loadedUser.acceptsNewsletter,
+      status: loadedUser.status,
+      cart: {
+        itemCount: cartItemsPreview.length,
+        updatedAt: cart?.updatedAt ?? null,
+        allOutOfStock: cartAllOutOfStock,
+      },
+      activity: {
+        lastActivityAt: loadedUser.lastSeenAt ?? loadedUser.lastLoginAt ?? null,
+        daysSinceLastActivity,
+      },
+      history: { orderCount },
+      favorites: {
+        inStockCount: favoritesInStock,
+        recentlyRestockedCount,
+      },
+      // Initial : 0 produit sélectionné. La modale recalcule les gates RESTOCK
+      // côté client au fur et à mesure que l'admin ajoute/retire des produits.
+      selectedProducts: { count: 0, allInStock: true },
+      lastSentByScenario: lastSends,
+      lastMarketingSentAt,
+    };
 
-      if (items === 0) {
-        contextLine = "Ce client n'a pas de panier en cours.";
-        warnings.push("Panier vide — le mail contiendra un message d'invitation générique.");
-      } else {
-        const ageH = cart ? hoursBetween(now, cart.updatedAt) : 0;
-        const ageLabel = ageH < 24 ? `${ageH}h` : `${Math.floor(ageH / 24)}j`;
-        contextLine = `Panier de ${items} article${items > 1 ? "s" : ""} laissé depuis ${ageLabel}.`;
-        if (ageH < ABANDONED_CART_MIN_HOURS) {
-          warnings.push(`Panier récent (moins de 24h) — recommandation : attendre au moins 24h.`);
+    // ─── ContextLine descriptif (indépendant des gates, purement informatif) ───
+    function contextLineFor(scenario: MailScenario): string {
+      switch (scenario) {
+        case "ABANDONED_CART": {
+          if (cartItemsPreview.length === 0) return "Ce client n'a pas de panier en cours.";
+          const ageH = cart ? hoursBetween(now, cart.updatedAt) : 0;
+          const ageLabel = ageH < 24 ? `${ageH}h` : `${Math.floor(ageH / 24)}j`;
+          return `Panier de ${cartItemsPreview.length} article${cartItemsPreview.length > 1 ? "s" : ""} laissé depuis ${ageLabel}.`;
         }
-      }
-
-      const last = lastSends.ABANDONED_CART;
-      if (last) {
-        const h = hoursBetween(now, last);
-        if (h < 24) {
-          warnings.push(`⚠️ Un mail « Panier abandonné » a déjà été envoyé ${formatHoursAgo(h)} — risque d'être perçu comme du spam.`);
+        case "INACTIVE_CLIENT": {
+          const lastActivity = loadedUser.lastSeenAt ?? loadedUser.lastLoginAt ?? null;
+          if (!lastActivity) return "Ce client ne s'est jamais connecté.";
+          return `Dernière connexion ${formatDaysAgo(daysBetween(now, lastActivity))}.`;
         }
+        case "NEWSLETTER":
+          return "Envoi d'un modèle newsletter enregistré.";
+        case "RESTOCK":
+          return "Sélectionnez un ou plusieurs produits à annoncer au client.";
       }
+    }
 
-      return { key: "ABANDONED_CART", canSend, contextLine, lastSentAt: last, warnings };
-    })();
+    function buildScenario(scenario: MailScenario): MailScenarioContext {
+      const gateInput = { ...gateInputBase, scenario };
+      const gates = computeMailGates(gateInput);
+      return {
+        key: scenario,
+        canSend: !hasBlockers(gates),
+        contextLine: contextLineFor(scenario),
+        lastSentAt: lastSends[scenario],
+        blockers: gates.filter((g) => g.level === "blocker").map((g) => g.message),
+        warnings: gates.filter((g) => g.level === "warning").map((g) => g.message),
+        conditions: listMailConditions(gateInput),
+      };
+    }
 
-    // ═══ Scénario 2 : Inactivité ═══
-    const inactive = ((): MailScenarioContext => {
-      const warnings: string[] = [];
-      const lastActivity = user.lastSeenAt ?? user.lastLoginAt ?? null;
-      let contextLine: string;
-      let canSend = true;
-
-      if (!lastActivity) {
-        contextLine = "Ce client ne s'est jamais connecté.";
-        warnings.push("Jamais connecté — le mail d'inactivité aura peu de contexte.");
-      } else {
-        const d = daysBetween(now, lastActivity);
-        contextLine = `Dernière connexion ${formatDaysAgo(d)}.`;
-        if (d < INACTIVE_MIN_DAYS) {
-          warnings.push(`Client encore actif (moins de 2 semaines) — recommandation : attendre au moins 14 jours d'inactivité.`);
-        }
-      }
-
-      const last = lastSends.INACTIVE_CLIENT;
-      if (last) {
-        const d = daysBetween(now, last);
-        if (d < INACTIVE_MIN_DAYS) {
-          warnings.push(`⚠️ Un mail « Inactivité » a déjà été envoyé ${formatDaysAgo(d)} — recommandation : attendre au moins 2 semaines entre 2 relances d'inactivité.`);
-        }
-      }
-
-      return { key: "INACTIVE_CLIENT", canSend, contextLine, lastSentAt: last, warnings };
-    })();
-
-    // ═══ Scénario 3 : Newsletter ═══
-    const newsletter = ((): MailScenarioContext => {
-      const warnings: string[] = [];
-      const contextLine = "Envoi d'un modèle newsletter enregistré.";
-      const canSend = true;
-
-      const last = lastSends.NEWSLETTER;
-      if (last) {
-        const d = daysBetween(now, last);
-        if (d < NEWSLETTER_MIN_DAYS) {
-          warnings.push(`⚠️ Une newsletter a déjà été envoyée à ce client ${formatDaysAgo(d)} — risque de perception spam si trop fréquent.`);
-        }
-      }
-
-      return { key: "NEWSLETTER", canSend, contextLine, lastSentAt: last, warnings };
-    })();
-
-    // ═══ Scénario 4 : Retour en stock ═══
-    const restock = ((): MailScenarioContext => {
-      const warnings: string[] = [];
-      let contextLine: string;
-      let canSend = true;
-
-      if (favoritesInStock === 0) {
-        contextLine = "Aucun favori en stock actuellement.";
-        warnings.push("Aucun favori en stock — le mail n'aura rien à mettre en avant.");
-        canSend = false;
-      } else {
-        contextLine = `${favoritesInStock} favori${favoritesInStock > 1 ? "s" : ""} disponible${favoritesInStock > 1 ? "s" : ""} en stock.`;
-      }
-
-      const last = lastSends.RESTOCK;
-      if (last) {
-        const d = daysBetween(now, last);
-        if (d < RESTOCK_MIN_DAYS) {
-          warnings.push(`⚠️ Un mail « Retour en stock » a déjà été envoyé ${formatDaysAgo(d)} — recommandation : attendre au moins 7 jours.`);
-        }
-      }
-
-      return { key: "RESTOCK", canSend, contextLine, lastSentAt: last, warnings };
-    })();
+    const abandoned  = buildScenario("ABANDONED_CART");
+    const inactive   = buildScenario("INACTIVE_CLIENT");
+    const newsletter = buildScenario("NEWSLETTER");
+    const restock    = buildScenario("RESTOCK");
 
     return {
       success: true,
       data: {
-        userId: user.id,
-        userLabel: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.company || user.email,
-        userEmail: user.email,
+        userId: loadedUser.id,
+        userLabel: `${loadedUser.firstName ?? ""} ${loadedUser.lastName ?? ""}`.trim() || loadedUser.company || loadedUser.email,
+        userEmail: loadedUser.email,
         scenarios: {
           ABANDONED_CART: abandoned,
           INACTIVE_CLIENT: inactive,
@@ -356,7 +361,7 @@ export async function getClientMailContext(
           },
           daysSinceLastActivity,
           favoritesInStock: favoritesInStockPreview,
-          firstName: (user.firstName?.trim() || user.company || "cliente").split(/\s+/)[0],
+          firstName: (loadedUser.firstName?.trim() || loadedUser.company || "cliente").split(/\s+/)[0],
         },
       },
     };
@@ -374,6 +379,7 @@ export async function getClientMailContext(
 export async function sendManualMail(
   userId: string,
   scenario: MailScenario,
+  payload?: { productIds?: string[] },
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   try {
     if (scenario === "NEWSLETTER") {
@@ -385,6 +391,71 @@ export async function sendManualMail(
     const contextResult = await getClientMailContext(userId);
     if (!contextResult.success) return { success: false, error: contextResult.error };
     const ctx = contextResult.data;
+
+    // Filet serveur : refuse l'envoi si un blocker « statique » (opt-in, statut,
+    // cooldowns) est présent. Pour RESTOCK, on ré-évalue en aval avec les
+    // produits sélectionnés (cf. gate NO_PRODUCT_SELECTED plus bas).
+    const scenarioCtx = ctx.scenarios[scenario];
+    if (scenario !== "RESTOCK" && scenarioCtx.blockers.length > 0) {
+      return { success: false, error: scenarioCtx.blockers[0] };
+    }
+    if (scenario === "RESTOCK") {
+      const staticBlockers = scenarioCtx.blockers.filter(
+        (msg) => !msg.includes("Aucun produit sélectionné"),
+      );
+      if (staticBlockers.length > 0) {
+        return { success: false, error: staticBlockers[0] };
+      }
+    }
+
+    // Charge les produits sélectionnés pour un mail RESTOCK.
+    let restockProducts: FavoritePreview[] = [];
+    if (scenario === "RESTOCK") {
+      const productIds = payload?.productIds ?? [];
+      if (productIds.length === 0) {
+        return { success: false, error: "Aucun produit sélectionné — choisissez au moins un produit à annoncer." };
+      }
+      const products = await prisma.product.findMany({
+        where: {
+          id: { in: productIds },
+          tenantId: tenant.id,
+          status: "ONLINE",
+        },
+        select: {
+          id: true,
+          name: true,
+          colors: {
+            take: 1,
+            orderBy: { isPrimary: "desc" },
+            select: {
+              stock: true,
+              unitPrice: true,
+              color: { select: { name: true } },
+              images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+            },
+          },
+        },
+      });
+      if (products.length === 0) {
+        return { success: false, error: "Aucun produit valide trouvé pour cette sélection." };
+      }
+      const outOfStock = products.filter((p) => (p.colors[0]?.stock ?? 0) <= 0);
+      if (outOfStock.length > 0) {
+        return {
+          success: false,
+          error: `« ${outOfStock[0].name} » est en rupture de stock — retirez-le de la sélection.`,
+        };
+      }
+      restockProducts = products.map((p) => {
+        const v = p.colors[0];
+        return {
+          productName: p.name,
+          colorName: v?.color?.name ?? null,
+          priceCents: v ? Math.round(Number(v.unitPrice) * 100) : 0,
+          imagePath: v?.images[0]?.path ?? null,
+        };
+      });
+    }
 
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
@@ -411,7 +482,7 @@ export async function sendManualMail(
       case "RESTOCK":
         rendered = renderRestockMail({
           firstName: ctx.preview.firstName,
-          favorites: ctx.preview.favoritesInStock,
+          favorites: restockProducts,
           shared,
         });
         break;
@@ -447,7 +518,8 @@ export async function sendManualMail(
           source: "manual",
           cartItems: scenario === "ABANDONED_CART" ? ctx.preview.cart.items.length : undefined,
           daysInactive: scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
-          favoritesCount: scenario === "RESTOCK" ? ctx.preview.favoritesInStock.length : undefined,
+          selectedProductsCount: scenario === "RESTOCK" ? restockProducts.length : undefined,
+          selectedProductIds: scenario === "RESTOCK" ? (payload?.productIds ?? []) : undefined,
         },
       },
     });
@@ -456,6 +528,80 @@ export async function sendManualMail(
     return { success: true, message: `Mail envoyé à ${ctx.userEmail}.` };
   } catch (err) {
     logger.error("[sendManualMail]", { userId, scenario, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Recherche de produits pour le mail « Retour en stock »
+// ═══════════════════════════════════════════════════════════
+
+export interface RestockSearchResult {
+  id: string;
+  name: string;
+  reference: string;
+  colorName: string | null;
+  priceCents: number;
+  imagePath: string | null;
+  stock: number;
+}
+
+/**
+ * Recherche des produits par nom/référence pour la sélection RESTOCK.
+ * Retourne les 15 premiers matches, uniquement ONLINE, avec la variante
+ * principale (stock, prix, image).
+ */
+export async function searchProductsForMail(
+  query: string,
+): Promise<{ success: true; results: RestockSearchResult[] } | { success: false; error: string }> {
+  try {
+    const { tenant } = await requireAdmin();
+    const trimmed = query.trim();
+    if (trimmed.length < 2) return { success: true, results: [] };
+
+    const products = await prisma.product.findMany({
+      where: {
+        tenantId: tenant.id,
+        status: "ONLINE",
+        OR: [
+          { name: { contains: trimmed } },
+          { reference: { contains: trimmed } },
+        ],
+      },
+      take: 15,
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        reference: true,
+        colors: {
+          take: 1,
+          orderBy: { isPrimary: "desc" },
+          select: {
+            stock: true,
+            unitPrice: true,
+            color: { select: { name: true } },
+            images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+          },
+        },
+      },
+    });
+
+    const results: RestockSearchResult[] = products.map((p) => {
+      const v = p.colors[0];
+      return {
+        id: p.id,
+        name: p.name,
+        reference: p.reference,
+        colorName: v?.color?.name ?? null,
+        priceCents: v ? Math.round(Number(v.unitPrice) * 100) : 0,
+        imagePath: v?.images[0]?.path ?? null,
+        stock: v?.stock ?? 0,
+      };
+    });
+    return { success: true, results };
+  } catch (err) {
+    logger.error("[searchProductsForMail]", { error: err as Error });
     return { success: false, error: (err as Error).message };
   }
 }

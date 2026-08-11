@@ -19,6 +19,7 @@ const baseFields = {
   addressCountry: "FR",
   password: "Passw0rdX",
   confirmPassword: "Passw0rdX",
+  acceptsTerms: true as const,
 };
 
 describe("registerSchema — SIRET facultatif", () => {

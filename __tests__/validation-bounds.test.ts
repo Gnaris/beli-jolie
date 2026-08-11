@@ -154,13 +154,13 @@ describe("validatePromotionInput — bornes promotions", () => {
     ).toMatch(/supérieure à 0/i);
   });
 
-  it("autorise FREE_SHIPPING avec valeur = 0", () => {
+  it("refuse une remise PERCENTAGE = 0 (livraison offerte se fait via scope=SHIPPING + 100 %)", () => {
     expect(
       validatePromotionInput({
-        discountKind: "FREE_SHIPPING",
+        discountKind: "PERCENTAGE",
         discountValue: 0,
       }),
-    ).toBeNull();
+    ).toMatch(/supérieure à 0/i);
   });
 
   it("refuse un montant minimum négatif", () => {

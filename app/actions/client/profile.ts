@@ -64,3 +64,22 @@ export async function updateProfile(data: {
   revalidatePath("/espace-pro");
   return { success: true };
 }
+
+/**
+ * Bascule la préférence newsletter du client authentifié.
+ * Une case unique couvre newsletter + relances panier abandonné (cf. mémoire
+ * projet & wizard d'inscription). Si `false`, aucun email marketing ne doit
+ * partir vers ce client.
+ */
+export async function setNewsletterPreference(accept: boolean) {
+  const session = await getServerSession(authOptions);
+  if (!session) throw new Error("Non autorise");
+
+  await prisma.user.update({
+    where: { id: session.user.id },
+    data: { acceptsNewsletter: Boolean(accept) },
+  });
+
+  revalidatePath("/espace-pro");
+  return { success: true, acceptsNewsletter: Boolean(accept) };
+}

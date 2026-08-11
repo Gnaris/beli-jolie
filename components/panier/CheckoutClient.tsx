@@ -161,6 +161,50 @@ function computeUnitPrice(v: VariantData): number {
   return Math.max(0, base * (1 - discountPercent / 100));
 }
 
+// Renvoie le prix unitaire avec la meilleure remise (produit manuel OU promo
+// AUTO ciblant l'item). Si aucune info promo n'est fournie, on retombe sur le
+// legacy computeUnitPrice (discountPercent uniquement).
+function pickItemUnitPrice(
+  itemId: string,
+  variant: VariantData,
+  promoMap: Record<string, { finalUnitPrice: number }>,
+): number {
+  const info = promoMap[itemId];
+  if (info) return info.finalUnitPrice;
+  return computeUnitPrice(variant);
+}
+
+// Meilleure remise livraison entre free perso + promos AUTO SHIPPING.
+function pickShippingPrice(
+  carrierPrice: number,
+  isFree: boolean,
+  shippingPromos: {
+    id: string;
+    name: string;
+    discountKind: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING";
+    discountValue: number;
+  }[],
+): { finalPrice: number; savedAmount: number; promotionName: string | null } {
+  if (carrierPrice <= 0) return { finalPrice: 0, savedAmount: 0, promotionName: null };
+  const candidates: Array<{ saved: number; promoName: string | null }> = [];
+  if (isFree) candidates.push({ saved: carrierPrice, promoName: null });
+  for (const p of shippingPromos) {
+    let saved = 0;
+    if (p.discountKind === "PERCENTAGE") saved = Math.max(0, carrierPrice * (p.discountValue / 100));
+    else if (p.discountKind === "FIXED_AMOUNT") saved = Math.min(p.discountValue, carrierPrice);
+    else saved = carrierPrice; // FREE_SHIPPING legacy
+    if (saved > 0) candidates.push({ saved, promoName: p.name });
+  }
+  if (candidates.length === 0) return { finalPrice: carrierPrice, savedAmount: 0, promotionName: null };
+  candidates.sort((a, b) => b.saved - a.saved);
+  const best = candidates[0]!;
+  return {
+    finalPrice: Math.max(0, carrierPrice - best.saved),
+    savedAmount: best.saved,
+    promotionName: best.promoName,
+  };
+}
+
 
 // ─────────────────────────────────────────────
 // Section header with completion indicator
@@ -841,11 +885,26 @@ export default function CheckoutClient({
   addresses: initialAddresses,
   user,
   clientDiscount,
+  promoInfoByItemId = {},
+  shippingPromos = [],
 }: {
   cart: CartData;
   addresses: Address[];
   user: UserInfo;
   clientDiscount?: ClientDiscount;
+  promoInfoByItemId?: Record<string, {
+    finalUnitPrice: number;
+    savedPerUnit: number;
+    displayPercent: number;
+    promotionName: string | null;
+    source: "none" | "product" | "promotion";
+  }>;
+  shippingPromos?: {
+    id: string;
+    name: string;
+    discountKind: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING";
+    discountValue: number;
+  }[];
 }) {
   const router = useRouter();
   const t = useTranslations("checkout");
@@ -959,7 +1018,7 @@ export default function CheckoutClient({
 
   // Totaux
   const subtotalHT = cart.items.reduce(
-    (s, item) => s + computeUnitPrice(item.variant) * item.quantity, 0
+    (s, item) => s + pickItemUnitPrice(item.id, item.variant, promoInfoByItemId) * item.quantity, 0
   );
 
   // Remise commerciale client
@@ -972,7 +1031,10 @@ export default function CheckoutClient({
   const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
 
   // selectedCarrier.price est le prix HT renvoyé par /api/carriers (Easy-Express c.price)
-  const effectiveCarrierPrice = clientDiscount?.freeShipping ? 0 : (selectedCarrier?.price ?? 0);
+  const _rawCarrierPrice = selectedCarrier?.price ?? 0;
+  const _shippingResolved = pickShippingPrice(_rawCarrierPrice, !!clientDiscount?.freeShipping, shippingPromos);
+  const effectiveCarrierPrice = _shippingResolved.finalPrice;
+  const shippingPromoName = _shippingResolved.promotionName;
   // TVA appliquée aussi sur les frais de port (art. 267 CGI).
   // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
   // facturation externe (et Stripe, qui charge lui aussi le floor du total).
@@ -1360,6 +1422,181 @@ export default function CheckoutClient({
   }
 
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
+
+  function renderPrivateCarrierSubOptions(idSuffix: string) {
+    if (deliveryMode !== "private") return null;
+    return (
+      <div className="space-y-3">
+        <div className="bg-bg-secondary border border-border rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-accent-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+            <div>
+              <p className="text-sm font-body font-semibold text-text-primary">
+                {t("privateSelfTitle")}
+              </p>
+              <p className="text-xs text-text-secondary font-body mt-1">
+                {t("privateSelfDesc")}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Switch entre les 2 sous-modes */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setPrivateMode("contact")}
+            className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
+              privateMode === "contact"
+                ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
+                : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                privateMode === "contact" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+              }`}
+            >
+              {privateMode === "contact" && (
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                  <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+            {t("privateContactMode")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrivateMode("bordereau")}
+            className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
+              privateMode === "bordereau"
+                ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
+                : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                privateMode === "bordereau" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
+              }`}
+            >
+              {privateMode === "bordereau" && (
+                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                  <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+            {t("privateBordereauMode")}
+          </button>
+        </div>
+
+        {/* Mode contact : email + téléphone */}
+        {privateMode === "contact" && (
+          <div className="space-y-4 border border-border rounded-xl p-4 bg-bg-primary">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
+              {t("carrierContactTitle")}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FieldInput
+                id={`pc-email${idSuffix}`}
+                label={t("carrierEmail")}
+                value={privateCarrierEmail}
+                onChange={setPrivateCarrierEmail}
+                type="email"
+                placeholder="contact@transporteur.com"
+                required
+              />
+              <FieldInput
+                id={`pc-phone${idSuffix}`}
+                label={t("carrierPhone")}
+                value={privateCarrierPhone}
+                onChange={setPrivateCarrierPhone}
+                type="tel"
+                placeholder={t("phonePlaceholder")}
+                required
+              />
+            </div>
+            <p className="text-xs text-text-muted font-body">
+              {t("carrierContactNotice")}
+            </p>
+          </div>
+        )}
+
+        {/* Mode bordereau : upload fichier */}
+        {privateMode === "bordereau" && (
+          <div className="space-y-3 border border-border rounded-xl p-4 bg-bg-primary">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
+              {t("bordereauTitle")}
+            </p>
+            {bordereauPath ? (
+              <div className="flex items-center justify-between gap-3 p-3 bg-bg-secondary border border-border rounded-lg">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className="w-5 h-5 text-success shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-sm font-body text-text-primary truncate">
+                    {bordereauName || t("bordereauSaved")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setBordereauPath(null); setBordereauName(""); setBordereauError(""); }}
+                  className="text-xs text-text-muted hover:text-error font-body transition-colors shrink-0"
+                >
+                  {t("replace")}
+                </button>
+              </div>
+            ) : (
+              <label className={`flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                bordereauUploading
+                  ? "border-text-muted bg-bg-secondary"
+                  : "border-border-dark bg-bg-secondary/40 hover:bg-bg-secondary hover:border-text-muted"
+              }`}>
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/jpg,image/png"
+                  disabled={bordereauUploading}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBordereauUpload(file);
+                    e.target.value = "";
+                  }}
+                />
+                {bordereauUploading ? (
+                  <>
+                    <svg className="animate-spin w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span className="text-sm font-body text-text-muted">{t("uploadingBordereau")}</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span className="text-sm font-body font-medium text-text-primary">
+                      {t("uploadDrop")}
+                    </span>
+                    <span className="text-xs text-text-muted font-body">
+                      {t("uploadFormatsBordereau")}
+                    </span>
+                  </>
+                )}
+              </label>
+            )}
+            {bordereauError && (
+              <p className="text-xs text-error font-body">{bordereauError}</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[1680px] mx-auto py-6 md:py-8 px-2 sm:px-4">
@@ -1894,178 +2131,8 @@ export default function CheckoutClient({
                 </div>
               )}
 
-              {/* Transporteur privé — sous-options */}
-              {deliveryMode === "private" && (
-                <div className="space-y-3">
-                  <div className="bg-bg-secondary border border-border rounded-xl p-4">
-                    <div className="flex items-start gap-3">
-                      <svg className="w-5 h-5 text-accent-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                      </svg>
-                      <div>
-                        <p className="text-sm font-body font-semibold text-text-primary">
-                          {t("privateSelfTitle")}
-                        </p>
-                        <p className="text-xs text-text-secondary font-body mt-1">
-                          {t("privateSelfDesc")}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Switch entre les 2 sous-modes */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setPrivateMode("contact")}
-                      className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
-                        privateMode === "contact"
-                          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
-                          : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
-                      }`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                          privateMode === "contact" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
-                        }`}
-                      >
-                        {privateMode === "contact" && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
-                            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </span>
-                      {t("privateContactMode")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPrivateMode("bordereau")}
-                      className={`flex items-center gap-2 p-3 border rounded-xl transition-all text-sm font-body ${
-                        privateMode === "bordereau"
-                          ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.08)] font-semibold text-text-primary"
-                          : "border-border bg-bg-primary hover:border-text-muted text-text-secondary"
-                      }`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                          privateMode === "bordereau" ? "border-text-primary bg-text-primary" : "border-text-muted bg-white"
-                        }`}
-                      >
-                        {privateMode === "bordereau" && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
-                            <polyline points="20 6 9 17 4 12" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </span>
-                      {t("privateBordereauMode")}
-                    </button>
-                  </div>
-
-                  {/* Mode contact : email + téléphone */}
-                  {privateMode === "contact" && (
-                    <div className="space-y-4 border border-border rounded-xl p-4 bg-bg-primary">
-                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
-                        {t("carrierContactTitle")}
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <FieldInput
-                          id="pc-email"
-                          label={t("carrierEmail")}
-                          value={privateCarrierEmail}
-                          onChange={setPrivateCarrierEmail}
-                          type="email"
-                          placeholder="contact@transporteur.com"
-                          required
-                        />
-                        <FieldInput
-                          id="pc-phone"
-                          label={t("carrierPhone")}
-                          value={privateCarrierPhone}
-                          onChange={setPrivateCarrierPhone}
-                          type="tel"
-                          placeholder={t("phonePlaceholder")}
-                          required
-                        />
-                      </div>
-                      <p className="text-xs text-text-muted font-body">
-                        {t("carrierContactNotice")}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Mode bordereau : upload fichier */}
-                  {privateMode === "bordereau" && (
-                    <div className="space-y-3 border border-border rounded-xl p-4 bg-bg-primary">
-                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider font-body">
-                        {t("bordereauTitle")}
-                      </p>
-                      {bordereauPath ? (
-                        <div className="flex items-center justify-between gap-3 p-3 bg-bg-secondary border border-border rounded-lg">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <svg className="w-5 h-5 text-success shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p className="text-sm font-body text-text-primary truncate">
-                              {bordereauName || t("bordereauSaved")}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => { setBordereauPath(null); setBordereauName(""); setBordereauError(""); }}
-                            className="text-xs text-text-muted hover:text-error font-body transition-colors shrink-0"
-                          >
-                            {t("replace")}
-                          </button>
-                        </div>
-                      ) : (
-                        <label className={`flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
-                          bordereauUploading
-                            ? "border-text-muted bg-bg-secondary"
-                            : "border-border-dark bg-bg-secondary/40 hover:bg-bg-secondary hover:border-text-muted"
-                        }`}>
-                          <input
-                            type="file"
-                            accept="application/pdf,image/jpeg,image/jpg,image/png"
-                            disabled={bordereauUploading}
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleBordereauUpload(file);
-                              e.target.value = "";
-                            }}
-                          />
-                          {bordereauUploading ? (
-                            <>
-                              <svg className="animate-spin w-5 h-5 text-text-muted" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              <span className="text-sm font-body text-text-muted">{t("uploadingBordereau")}</span>
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                              </svg>
-                              <span className="text-sm font-body font-medium text-text-primary">
-                                {t("uploadDrop")}
-                              </span>
-                              <span className="text-xs text-text-muted font-body">
-                                {t("uploadFormatsBordereau")}
-                              </span>
-                            </>
-                          )}
-                        </label>
-                      )}
-                      {bordereauError && (
-                        <p className="text-xs text-error font-body">{bordereauError}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Transporteur privé — sous-options (mobile, cf. panneau droit desktop) */}
+              {renderPrivateCarrierSubOptions("")}
 
               {/* Transporteurs (mode livraison uniquement) */}
               {deliveryMode === "delivery" && (
@@ -2401,6 +2468,9 @@ export default function CheckoutClient({
                     </div>
                     <span className="text-xs text-text-muted shrink-0">{t("yourCharge")}</span>
                   </button>
+
+                  {/* Sous-options transporteur privé (contact ou bordereau) — panneau droit desktop */}
+                  {renderPrivateCarrierSubOptions("-desktop")}
                 </div>
               </div>
             )}
@@ -2453,7 +2523,7 @@ export default function CheckoutClient({
             {wizardStep === 2 && (
               <SummaryPanel
                 cart={cart}
-                computeUnitPrice={computeUnitPrice}
+                computeUnitPrice={(it) => pickItemUnitPrice(it.id, it.variant, promoInfoByItemId)}
                 subtotalHT={subtotalHT}
                 clientDiscountAmt={clientDiscountAmt}
                 clientDiscount={clientDiscount}
@@ -2533,7 +2603,7 @@ export default function CheckoutClient({
         <div className="flex-1 overflow-y-auto">
           <SummaryPanel
             cart={cart}
-            computeUnitPrice={computeUnitPrice}
+            computeUnitPrice={(it) => pickItemUnitPrice(it.id, it.variant, promoInfoByItemId)}
             subtotalHT={subtotalHT}
             clientDiscountAmt={clientDiscountAmt}
             clientDiscount={clientDiscount}
@@ -2568,7 +2638,7 @@ function SummaryPanel({
   embedded = false,
 }: {
   cart: CartData;
-  computeUnitPrice: (v: VariantData) => number;
+  computeUnitPrice: (item: CartItemData) => number;
   subtotalHT: number;
   clientDiscountAmt: number;
   clientDiscount?: ClientDiscount;
@@ -2606,7 +2676,7 @@ function SummaryPanel({
             {/* Articles */}
             <div className="px-5 py-4 space-y-2 border-b border-border">
               {cart.items.map((item) => {
-                const price     = computePrice(item.variant);
+                const price     = computePrice(item);
                 const lineTotal = price * item.quantity;
                 return (
                   <div key={item.id} className="flex items-start gap-2 text-xs font-body">

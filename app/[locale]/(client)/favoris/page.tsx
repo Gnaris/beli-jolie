@@ -9,6 +9,7 @@ import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTa
 import SearchFilters from "@/components/produits/SearchFilters";
 import FavoritesGrid, { type FavoritesGridItem } from "@/components/produits/FavoritesGrid";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -189,6 +190,15 @@ export default async function FavorisPage({ searchParams }: PageProps) {
     return { ...fav, product: { ...p, colors: visibleColors } };
   });
 
+  // Enrichit chaque favori avec le meilleur % promo AUTO applicable
+  const favoritesForEnrich = favorites.map((f) => ({
+    id: f.product.id,
+    categoryId: f.product.categoryId ?? null,
+    discountPercent: f.product.discountPercent != null ? Number(f.product.discountPercent) : null,
+  }));
+  const enriched = await enrichProductsWithBestPromoPercent(favoritesForEnrich);
+  const bestPercentById = new Map(enriched.map((e) => [e.id, e.discountPercent]));
+
   const now = Date.now();
 
   return (
@@ -301,6 +311,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                     product.createdAt.getTime(),
                     product.lastRefreshedAt ? product.lastRefreshedAt.getTime() : 0,
                   ) > now - NEW_THRESHOLD_MS,
+                  discountPercent: bestPercentById.get(product.id) ?? null,
                 }))}
               />
             )}

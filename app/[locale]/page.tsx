@@ -10,6 +10,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
+import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import HeroBanner from "@/components/home/HeroBanner";
 import TrustMarquee from "@/components/home/TrustMarquee";
 import FeaturedProduct from "@/components/home/FeaturedProduct";
@@ -48,6 +49,7 @@ type PrismaProduct = {
   name: string;
   reference: string;
   discountPercent: number | null;
+  categoryId: string | null;
   primaryColorId: string | null;
   category: { name: string };
   colors: {
@@ -157,6 +159,7 @@ function serializeProducts(products: Array<Record<string, unknown>>): PrismaProd
   return products.map((p: any) => ({
     ...p,
     discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
+    categoryId: p.categoryId ?? null,
     primaryColorId: p.primaryColorId ?? null,
     colors: p.colors.map((c: any) => ({
       ...c,
@@ -180,7 +183,7 @@ const COLOR_INCLUDE = {
   },
 };
 
-const PRODUCT_SELECT = { id: true, name: true, reference: true, discountPercent: true, primaryColorId: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
+const PRODUCT_SELECT = { id: true, name: true, reference: true, discountPercent: true, categoryId: true, primaryColorId: true, category: { select: { name: true } }, ...COLOR_INCLUDE };
 
 // ─────────────────────────────────────────────
 // Reassort fetcher (needs userId)
@@ -305,15 +308,22 @@ export default async function HomePage() {
     }
   }
 
+  // Enrichit chaque produit avec le meilleur % promo AUTO applicable — override
+  // du discountPercent manuel. Fait une seule fois pour tous les carousels.
+  const allProductsFlat = carouselProducts.flatMap((cp) => cp.products);
+  const enrichedFlat = await enrichProductsWithBestPromoPercent(allProductsFlat);
+  const enrichedById = new Map(enrichedFlat.map((p) => [p.id, p]));
+
   const carouselList: CarouselData[] = [];
   for (const { carousel, products } of carouselProducts) {
     if (products.length === 0) continue;
     // Skip reassort for guests
     if (carousel.type === "reassort" && !session) continue;
+    const productsWithPromo = products.map((p) => enrichedById.get(p.id) ?? p);
     carouselList.push({
       id: carousel.id,
       title: carousel.title,
-      products: toCarousel(products, imageMap),
+      products: toCarousel(productsWithPromo, imageMap),
       isPromo: carousel.type === "promo",
       viewMoreHref: buildViewMoreHref(carousel),
     });

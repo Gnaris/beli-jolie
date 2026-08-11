@@ -15,20 +15,29 @@ export default async function EditPromotionPage({ params }: { params: Promise<{ 
   const promo = await getPromotion(id);
   if (!promo) notFound();
 
+  // Legacy : les vieilles promos peuvent avoir discountKind=FREE_SHIPPING.
+  // On les affiche en tant que scope=SHIPPING + PERCENTAGE 100 pour rester
+  // éditables dans le nouveau formulaire.
+  const isLegacyFreeShipping = promo.discountKind === "FREE_SHIPPING";
   const initial = {
     id: promo.id,
     name: promo.name,
     type: promo.type as "CODE" | "AUTO",
     code: promo.code || "",
-    discountKind: promo.discountKind as "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING",
-    discountValue: String(Number(promo.discountValue)),
+    scope: (isLegacyFreeShipping ? "SHIPPING" : promo.scope) as
+      "ALL_PRODUCTS" | "PRODUCTS" | "CATEGORIES" | "COLLECTIONS" | "SHIPPING",
+    discountKind: (isLegacyFreeShipping ? "PERCENTAGE" : promo.discountKind) as
+      "PERCENTAGE" | "FIXED_AMOUNT",
+    discountValue: isLegacyFreeShipping ? "100" : String(Number(promo.discountValue)),
     minOrderAmount: promo.minOrderAmount ? String(Number(promo.minOrderAmount)) : "",
     maxUses: promo.maxUses ? String(promo.maxUses) : "",
     maxUsesPerUser: promo.maxUsesPerUser ? String(promo.maxUsesPerUser) : "",
     firstOrderOnly: promo.firstOrderOnly,
-    appliesToAll: promo.appliesToAll,
     startsAt: new Date(promo.startsAt).toISOString().slice(0, 16),
     endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString().slice(0, 16) : "",
+    productIds:    promo.products.map((r) => r.product.id),
+    categoryIds:   promo.categories.map((r) => r.category.id),
+    collectionIds: promo.collections.map((r) => r.collection.id),
   };
 
   return (

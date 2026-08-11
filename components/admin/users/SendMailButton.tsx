@@ -3,6 +3,9 @@
 /**
  * Bouton « Envoyer un mail » affiché dans la colonne Action de la Vue Mails
  * (/admin/utilisateurs?view=mails). Ouvre <SendMailModal>.
+ *
+ * Bloqué (grisé + tooltip) si le client n'a pas accepté la newsletter — la
+ * case unique couvre newsletter + relances panier + retour en stock (RGPD).
  */
 
 import { useState } from "react";
@@ -12,10 +15,34 @@ interface Props {
   userId: string;
   userLabel: string;
   userEmail: string;
+  acceptsNewsletter: boolean;
 }
 
-export default function SendMailButton({ userId, userLabel, userEmail }: Props) {
+export default function SendMailButton({
+  userId,
+  userLabel,
+  userEmail,
+  acceptsNewsletter,
+}: Props) {
   const [open, setOpen] = useState(false);
+
+  if (!acceptsNewsletter) {
+    return (
+      <button
+        type="button"
+        disabled
+        title="Ce client n'a pas accepté de recevoir des emails marketing (RGPD). Envoi bloqué."
+        aria-label="Envoi bloqué — client désinscrit de la newsletter"
+        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-body font-bold bg-bg-tertiary text-text-muted border border-border cursor-not-allowed"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18.36 6.64a9 9 0 11-12.73 0" />
+          <line x1="12" y1="2" x2="12" y2="12" />
+        </svg>
+        Désinscrit
+      </button>
+    );
+  }
 
   return (
     <>

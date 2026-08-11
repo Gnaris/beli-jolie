@@ -327,30 +327,6 @@ export async function togglePfsEnabled(enabled: boolean): Promise<{ success: boo
   }
 }
 
-/**
- * Enregistre le comportement PFS en rupture de stock :
- *  - `deactivateVariant` : désactive la variante sur PFS quand stock=0
- *
- * Le statut PRODUIT n'est plus impacté par la rupture depuis 2026-08-07
- * (règle métier : l'admin garde le contrôle du statut).
- */
-export async function updatePfsOutOfStockConfig(config: {
-  deactivateVariant: boolean;
-}): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await setSiteConfig(
-      "pfs_out_of_stock_deactivate_variant",
-      config.deactivateVariant ? "true" : "false",
-    );
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
 export async function validatePfsCredentials(config: {
   email: string;
   password: string;

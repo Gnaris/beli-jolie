@@ -10,7 +10,6 @@ import {
   toggleMicrostoreEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
-  updatePfsOutOfStockConfig,
 } from "@/app/actions/admin/site-config";
 import { applyMarketplaceMarkup, applyFaireMarkupWithClamp } from "@/lib/marketplace-pricing-shared";
 import { MarkupRow, type MarkupState } from "@/components/admin/settings/MarkupRow";
@@ -27,15 +26,10 @@ interface MarketplaceStats {
   lastSyncAt: string | null;
 }
 
-export interface PfsOutOfStockUiConfig {
-  deactivateVariant: boolean;
-}
-
 interface Props {
   hasPfsConfig: boolean;
   pfsEnabled: boolean;
   pfsBrand: { id: string; name: string } | null;
-  pfsOutOfStock: PfsOutOfStockUiConfig;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
   hasEfashionConfig: boolean;
@@ -593,7 +587,6 @@ export default function MarketplaceConfig({
   hasPfsConfig,
   pfsEnabled: initialPfsEnabled,
   pfsBrand: initialPfsBrand,
-  pfsOutOfStock: initialPfsOutOfStock,
   hasAnkorstoreConfig,
   ankorstoreEnabled: initialAnkorstoreEnabled,
   hasEfashionConfig,
@@ -618,10 +611,6 @@ export default function MarketplaceConfig({
   const [pfsMarkup, setPfsMarkup] = useState<MarkupState>(markupSettings.pfs);
   const [pfsEnabled, setPfsEnabled] = useState(initialPfsEnabled);
   const [isTogglingPfs, startTogglingPfs] = useTransition();
-
-  // PFS out-of-stock behavior
-  const [pfsOosDeactivate, setPfsOosDeactivate] = useState<boolean>(initialPfsOutOfStock.deactivateVariant);
-  const [isSavingPfsOos, startSavingPfsOos] = useTransition();
 
   // PFS brand
   const [pfsBrand, setPfsBrand] = useState<{ id: string; name: string } | null>(initialPfsBrand);
@@ -800,17 +789,6 @@ export default function MarketplaceConfig({
       } finally { hideLoading(); }
     });
   }
-  function handlePfsOosSave() {
-    showLoading();
-    startSavingPfsOos(async () => {
-      try {
-        const r = await updatePfsOutOfStockConfig({ deactivateVariant: pfsOosDeactivate });
-        if (r.success) toast.success("Enregistré", "Comportement en rupture mis à jour.");
-        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
-      } finally { hideLoading(); }
-    });
-  }
-
   function handlePfsToggle(v: boolean) {
     startTogglingPfs(async () => {
       const r = await togglePfsEnabled(v);
@@ -1415,54 +1393,6 @@ export default function MarketplaceConfig({
         <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix HT" subtitle="Appliquée à tous les prix envoyés à PFS.">
           <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
-        </DrawerSection>
-
-        <DrawerSection
-          icon={<Icons.Box className="w-4 h-4" />}
-          title="Comportement en rupture de stock"
-          subtitle="Ce qui se passe côté Paris Fashion Shops quand le stock d'une variante — ou de toutes les variantes d'un produit — passe à 0."
-        >
-          <div className="space-y-3">
-            <div className="rounded-xl border border-border-light bg-bg-secondary/40 p-3.5">
-              <p className="font-body text-xs font-medium text-text-primary mb-1">
-                Variante à stock 0
-              </p>
-              <p className="font-body text-[11px] text-text-muted mb-3">
-                Désactiver = la couleur disparaît de la fiche PFS. Laisser active = la couleur reste visible, marquée en rupture.
-              </p>
-              <div className="flex rounded-lg border border-border overflow-hidden h-9">
-                <button
-                  type="button"
-                  onClick={() => setPfsOosDeactivate(true)}
-                  className={`flex-1 text-xs font-body font-medium transition-colors ${
-                    pfsOosDeactivate ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-                  }`}
-                >
-                  Désactiver la variante
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPfsOosDeactivate(false)}
-                  className={`flex-1 text-xs font-body font-medium transition-colors ${
-                    !pfsOosDeactivate ? "bg-bg-dark text-text-inverse" : "bg-bg-primary text-text-secondary hover:bg-bg-secondary"
-                  }`}
-                >
-                  Laisser active
-                </button>
-              </div>
-            </div>
-
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={handlePfsOosSave}
-              disabled={isSavingPfsOos}
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-            >
-              {isSavingPfsOos ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Sauvegarder"}
-            </button>
-          </div>
         </DrawerSection>
       </Drawer>
 

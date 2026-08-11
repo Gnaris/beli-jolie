@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { getCart, getShippingAddresses } from "@/app/actions/client/cart";
 import CheckoutClient from "@/components/panier/CheckoutClient";
 import { isStripeConfigured } from "@/lib/stripe";
+import { loadActivePromotions } from "@/lib/promotions";
+import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
+import { resolveBestItemDiscount } from "@/lib/promotion-engine";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -54,23 +57,53 @@ export default async function CommandePage() {
 
   if (!(await isStripeConfigured())) return redirect({href: "/panier", locale});
 
+  // Charger les promotions actives + contexte items (source de vérité serveur)
+  const [activePromos, promoContexts] = await Promise.all([
+    loadActivePromotions(),
+    buildCartPromoContexts(cart.items),
+  ]);
+
+  const promoInfoByItemId: Record<string, {
+    finalUnitPrice: number;
+    savedPerUnit: number;
+    displayPercent: number;
+    promotionName: string | null;
+    source: "none" | "product" | "promotion";
+  }> = {};
+  for (const item of cart.items) {
+    const ctx = promoContexts.get(item.id);
+    if (!ctx) continue;
+    const resolved = resolveBestItemDiscount(ctx.context, activePromos, null);
+    promoInfoByItemId[item.id] = {
+      finalUnitPrice: resolved.finalUnitPrice,
+      savedPerUnit: resolved.savedPerUnit,
+      displayPercent: resolved.displayPercent,
+      promotionName: resolved.promotion?.name ?? null,
+      source: resolved.source,
+    };
+  }
+
   // Vérification minimum commande (couche serveur — ne peut pas être contournée)
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minOrderHT > 0) {
     let subtotalHT = 0;
     for (const item of cart.items) {
-      const v = item.variant;
-      const up = Number(v.unitPrice);
-      const base = v.saleType === "UNIT" ? up : up * (v.packQuantity ?? 1);
-      let price = base;
-      const dp = v.product?.discountPercent != null ? Number(v.product.discountPercent) : null;
-      if (dp && dp > 0) {
-        price = Math.max(0, base * (1 - dp / 100));
-      }
+      const price = promoInfoByItemId[item.id]?.finalUnitPrice ?? Number(item.variant.unitPrice);
       subtotalHT += price * item.quantity;
     }
     if (subtotalHT < minOrderHT) redirect({href: "/panier", locale});
   }
+
+  // Promotions AUTO ciblant la livraison (pour recalcul dynamique côté client
+  // quand le transporteur change).
+  const shippingPromos = activePromos
+    .filter((p) => p.scope === "SHIPPING" && p.type === "AUTO")
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      discountKind: p.discountKind,
+      discountValue: p.discountValue,
+    }));
 
   // Sérialiser les Decimal Prisma en number pour le client component
   const serializedCart = {
@@ -99,6 +132,8 @@ export default async function CommandePage() {
         discountValue: user!.discountValue != null ? Number(user!.discountValue) : null,
         freeShipping:  user!.freeShipping,
       }}
+      promoInfoByItemId={promoInfoByItemId}
+      shippingPromos={shippingPromos}
     />
   );
 }

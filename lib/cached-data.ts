@@ -1078,19 +1078,45 @@ export const getCachedActiveClaimsCount = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["claims"] }
 );
 
+// Retourne les promotions actives complètes (avec relations produits/catégories/
+// collections). Consommé par le moteur `lib/promotions.ts` côté panier, checkout
+// et product cards. TTL 5 min, invalide via revalidateTag("promotions", "default").
 export const getCachedActivePromotions = tenantScopedCacheWithTid(
   "active-promotions",
   async (tid) => {
     const now = new Date();
-    return prisma.promotion.findMany({
+    const rows = await prisma.promotion.findMany({
       where: {
         ...(tid === "global" ? {} : { tenantId: tid }),
         isActive: true,
         startsAt: { lte: now },
         OR: [{ endsAt: null }, { endsAt: { gte: now } }],
       },
-      select: { id: true, name: true, type: true, code: true, discountKind: true, discountValue: true, currentUses: true, maxUses: true },
+      include: {
+        products: { select: { productId: true } },
+        categories: { select: { categoryId: true } },
+        collections: { select: { collectionId: true } },
+      },
     });
+    return rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      code: p.code,
+      scope: p.scope,
+      discountKind: p.discountKind,
+      discountValue: Number(p.discountValue),
+      minOrderAmount: p.minOrderAmount != null ? Number(p.minOrderAmount) : null,
+      maxUses: p.maxUses,
+      maxUsesPerUser: p.maxUsesPerUser,
+      firstOrderOnly: p.firstOrderOnly,
+      currentUses: p.currentUses,
+      startsAt: p.startsAt,
+      endsAt: p.endsAt,
+      productIds: p.products.map((r) => r.productId),
+      categoryIds: p.categories.map((r) => r.categoryId),
+      collectionIds: p.collections.map((r) => r.collectionId),
+    }));
   },
   ["active-promotions"],
   { revalidate: 300, tags: ["promotions"] }

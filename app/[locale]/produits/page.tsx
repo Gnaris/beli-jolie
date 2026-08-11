@@ -12,6 +12,7 @@ import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant les caches tenant-scopés
@@ -313,6 +314,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     totalCount = count;
     initialHasMore = rawProducts.length === PER_PAGE && rawProducts.length < count;
   }
+
+  // Enrichit avec le meilleur % promo AUTO applicable à chaque produit
+  // (override du discountPercent manuel si une promo est plus forte).
+  products = await enrichProductsWithBestPromoPercent(products);
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">

@@ -531,11 +531,9 @@ describe("comparePfsProduct", () => {
   });
 
   it("ne signale pas d'écart isActive quand disabled=false même si stock=0 (align push semantics)", () => {
-    // Bug 2026-07-24 : quand la config `pfs_out_of_stock_deactivate_variant`
-    // était true, une variante disabled=false + stock=0 générait un écart
-    // isActive (expected=false calculé depuis stock=0) que le pull ne pouvait
-    // pas résoudre (pull écrit disabled=false, valeur déjà présente). Le
-    // compare est désormais aligné sur le push (`enable: !disabled`).
+    // Le compare est aligné sur le push (`enable: !disabled`) — le stock
+    // n'entre plus en compte pour is_active, une variante en rupture mais
+    // toujours activée reste active côté PFS.
     const local = makeLocalProduct({
       colors: [
         makeLocalVariant({

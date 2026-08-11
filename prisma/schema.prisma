@@ -66,6 +66,9 @@ model User {
   vatValidatedAt                DateTime?
   vatValidatedBy                String? // id de l'admin qui a validé
   stripeCustomerId              String? // cus_xxx — requis pour le virement bancaire
+  // Consentement RGPD : englobe newsletter + relances panier abandonné (case
+  // unique à l'inscription, cf. docs multi-tenant / mémoire projet).
+  acceptsNewsletter             Boolean             @default(false)
   role                          Role                @default(CLIENT)
   status                        UserStatus          @default(PENDING)
   // Remise commerciale
@@ -2098,7 +2101,19 @@ enum PromotionType {
 enum DiscountKind {
   PERCENTAGE
   FIXED_AMOUNT
-  FREE_SHIPPING
+  FREE_SHIPPING // deprecated — représenté par scope=SHIPPING + PERCENTAGE 100 depuis 2026-08-11
+}
+
+// Portée de la promotion. Détermine sur QUOI la remise s'applique.
+// ALL_PRODUCTS : catalogue entier. Une seule promo AUTO active à la fois (garde-fou).
+// PRODUCTS / CATEGORIES / COLLECTIONS : sélection ciblée via les tables pivot.
+// SHIPPING : sur les frais de port. Une seule promo AUTO active à la fois.
+enum PromotionScope {
+  ALL_PRODUCTS
+  PRODUCTS
+  CATEGORIES
+  COLLECTIONS
+  SHIPPING
 }
 
 // Commande validée par le client
@@ -2941,14 +2956,16 @@ model Promotion {
   id             String                @id @default(cuid())
   name           String
   type           PromotionType
-  code           String?               @unique
+  code           String?
   discountKind   DiscountKind
   discountValue  Decimal               @db.Decimal(10, 2)
   minOrderAmount Decimal?              @db.Decimal(10, 2)
   maxUses        Int?
   maxUsesPerUser Int?
   firstOrderOnly Boolean               @default(false)
+  // Deprecated depuis 2026-08-11 : remplacé par `scope`. Conservé pour compat migration.
   appliesToAll   Boolean               @default(true)
+  scope          PromotionScope        @default(ALL_PRODUCTS)
   startsAt       DateTime
   endsAt         DateTime?
   isActive       Boolean               @default(true)
@@ -2964,9 +2981,11 @@ model Promotion {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, code])
   @@index([tenantId])
   @@index([type, isActive])
   @@index([code])
+  @@index([scope, isActive])
   @@index([startsAt, endsAt])
 }
 

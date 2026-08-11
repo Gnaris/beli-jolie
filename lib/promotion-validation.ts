@@ -29,7 +29,7 @@ export function validatePromotionInput(
   if (input.discountKind === "PERCENTAGE" && v > 100) {
     return "Une remise en pourcentage ne peut pas dépasser 100 %.";
   }
-  if (input.discountKind !== "FREE_SHIPPING" && v === 0) {
+  if (v === 0) {
     return "La valeur de la remise doit être supérieure à 0.";
   }
   if (input.minOrderAmount != null) {

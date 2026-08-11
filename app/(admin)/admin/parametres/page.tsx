@@ -587,7 +587,6 @@ async function PaiementTab() {
 async function MarketplacesTab() {
   const [
     pfsConfig, markupRows, pfsBrand, pfsEnabled,
-    pfsOutOfStockDeactivateRow,
     hasAnkorstoreConfig, ankorstoreEnabled,
     ankorstoreWholesaleType, ankorstoreWholesaleValue, ankorstoreWholesaleRounding,
     ankorstoreRetailType, ankorstoreRetailValue, ankorstoreRetailRounding,
@@ -612,7 +611,6 @@ async function MarketplacesTab() {
     }),
     getCachedPfsBrand(),
     getCachedPfsEnabled(),
-    getCachedSiteConfig("pfs_out_of_stock_deactivate_variant"),
     getCachedHasAnkorstoreConfig(),
     getCachedAnkorstoreEnabled(),
     getCachedSiteConfig("ankorstore_wholesale_markup_type"),
@@ -680,9 +678,6 @@ async function MarketplacesTab() {
       hasPfsConfig={!!pfsConfig}
       pfsEnabled={pfsEnabled}
       pfsBrand={pfsBrand}
-      pfsOutOfStock={{
-        deactivateVariant: pfsOutOfStockDeactivateRow?.value === "false" ? false : true,
-      }}
       hasAnkorstoreConfig={hasAnkorstoreConfig}
       ankorstoreEnabled={ankorstoreEnabled}
       hasEfashionConfig={hasEfashionConfig}

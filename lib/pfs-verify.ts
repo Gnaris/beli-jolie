@@ -476,13 +476,9 @@ function buildLocalVariantsForCompare(
         stock: v.stock ?? 0,
         weight: v.weight,
         // On compare l'état ACTIF/INACTIF sur le seul flag `disabled` — c'est
-        // ce même flag que le push renvoie à PFS (`enable: !disabled` dans
-        // `applyVariantPushes`). Autrefois on incluait aussi `stock === 0`
-        // quand `deactivateOnZeroStock=true`, mais cette logique était
-        // asymétrique : une variante disabled=false + stock=0 générait un
-        // écart isActive qu'aucun pull ne pouvait résoudre (pull écrivait
-        // disabled=false, valeur déjà présente). Si l'auto-désactivation en
-        // rupture est activée, le compare stock détectera déjà l'écart.
+        // ce même flag que le push renvoie à PFS (`enable: !disabled`). Le
+        // stock n'entre plus en compte : une variante en rupture reste active
+        // côté PFS tant qu'elle n'est pas explicitement désactivée localement.
         isActive: !v.disabled,
         packSignature: packSignatureFromLocalVariant(v, colorRefMap),
         packQuantity: v.packQuantity,

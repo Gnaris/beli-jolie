@@ -41,7 +41,6 @@ vi.mock("@/lib/pfs-api-write", () => ({
   pfsUpdateStatus: vi.fn(),
 }));
 vi.mock("@/lib/pfs-status", () => ({ mapLocalToPfsStatus: vi.fn() }));
-vi.mock("@/lib/pfs-out-of-stock-config", () => ({ getPfsOutOfStockConfig: vi.fn() }));
 vi.mock("@/lib/marketplace-pricing", () => ({
   applyMarketplaceMarkup: vi.fn(),
   loadMarketplaceMarkupConfigs: vi.fn(),

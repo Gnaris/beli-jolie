@@ -28,7 +28,6 @@ import {
   type PfsStatus,
 } from "@/lib/pfs-api-write";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
-import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
 import {
   applyMarketplaceMarkup,
   loadMarketplaceMarkupConfigs,
@@ -118,7 +117,6 @@ interface ApplyContext {
   pfsProduct: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>;
   pfsVariants: PfsVariantDetail[];
   markup: MarkupConfig | undefined;
-  deactivateOnZeroStock: boolean;
 }
 
 // ─── Entrée principale ─────────────────────────────────────────────────────
@@ -160,10 +158,7 @@ export async function applyPfsVerifyPullsOnly(
   await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
-  const [markupConfigs, outOfStockCfg] = await Promise.all([
-    loadMarketplaceMarkupConfigs(),
-    getPfsOutOfStockConfig(),
-  ]);
+  const markupConfigs = await loadMarketplaceMarkupConfigs();
 
   const ctx: ApplyContext = {
     productId,
@@ -172,7 +167,6 @@ export async function applyPfsVerifyPullsOnly(
     pfsProduct: checkRef.product,
     pfsVariants: variantsResp.data ?? [],
     markup: markupConfigs.pfs,
-    deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
   };
 
   const productPullActions: ParsedAction[] = [];
@@ -265,10 +259,7 @@ export async function applyPfsVerifyActions(
   await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
-  const [markupConfigs, outOfStockCfg] = await Promise.all([
-    loadMarketplaceMarkupConfigs(),
-    getPfsOutOfStockConfig(),
-  ]);
+  const markupConfigs = await loadMarketplaceMarkupConfigs();
 
   const ctx: ApplyContext = {
     productId,
@@ -277,7 +268,6 @@ export async function applyPfsVerifyActions(
     pfsProduct: checkRef.product,
     pfsVariants: variantsResp.data ?? [],
     markup: markupConfigs.pfs,
-    deactivateOnZeroStock: outOfStockCfg.deactivateVariant,
   };
 
   // ── PHASE 1 : Trier + valider ───────────────────────────────────────────

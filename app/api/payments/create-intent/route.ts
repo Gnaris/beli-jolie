@@ -7,24 +7,26 @@ import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
-import { resolveVatRate } from "@/lib/vat";
+import { loadActivePromotions, validatePromoCode } from "@/lib/promotions";
+import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
+import { computeOrderPricing } from "@/lib/order-pricing";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
   carrierId: z.string().min(1),
   carrierName: z.string().min(1),
   carrierPrice: z.number().min(0),
+  promoCode: z.string().optional(),
 });
 
 /**
  * POST /api/payments/create-intent
  * Crée un Stripe Payment Intent pour le montant TTC de la commande (carte uniquement).
  *
- * Body: { addressId, carrierId, carrierName, carrierPrice, tvaRate }
+ * Body: { addressId, carrierId, carrierName, carrierPrice, promoCode? }
  * Returns: { clientSecret, paymentIntentId }
  */
 export async function POST(req: Request) {
-  // Rate limit : 5 req/min par IP (protection abus de paiement)
   const rateLimited = checkRateLimit(req, "create-intent", 5, 60_000);
   if (rateLimited) return rateLimited;
 
@@ -36,11 +38,10 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { addressId, carrierId, carrierName, carrierPrice } = parsed.data;
+  const { addressId, carrierId, carrierName, carrierPrice, promoCode } = parsed.data;
 
   const userId = session.user.id;
 
-  // Récupérer panier + adresse + user
   const [cart, address, user] = await Promise.all([
     prisma.cart.findUnique({
       where: { userId },
@@ -49,9 +50,12 @@ export async function POST(req: Request) {
           include: {
             variant: {
               select: {
-                id: true, unitPrice: true, saleType: true, packQuantity: true,
+                id: true,
+                unitPrice: true,
+                saleType: true,
+                packQuantity: true,
                 weight: true,
-                product: { select: { discountPercent: true } },
+                product: { select: { id: true, discountPercent: true } },
               },
             },
           },
@@ -78,80 +82,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Adresse introuvable." }, { status: 400 });
   }
 
-  // Recalculer le total côté serveur (sécurité)
-  const cartItems = cart.items;
-  type Variant = (typeof cartItems)[0]["variant"];
+  const [activePromos, promoContexts] = await Promise.all([
+    loadActivePromotions(),
+    buildCartPromoContexts(cart.items),
+  ]);
 
-  function computeUnitPrice(v: Variant): number {
-    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
-    const base = Number(v.unitPrice);
-    const discountPercent = v.product?.discountPercent != null ? Number(v.product.discountPercent) : null;
-    if (!discountPercent || discountPercent <= 0) return base;
-    return Math.max(0, base * (1 - discountPercent / 100));
+  const pricingItems = cart.items
+    .map((i) => {
+      const ctx = promoContexts.get(i.id);
+      if (!ctx) return null;
+      return { id: i.id, quantity: i.quantity, promoContext: ctx.context };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+
+  // Valider le code promo si fourni
+  let appliedCodePromo = null;
+  if (promoCode && promoCode.trim()) {
+    const subtotalPreCode = pricingItems.reduce((s, it) => {
+      const resolved = computeOrderPricing({
+        items: [it],
+        carrierId,
+        carrierPrice: 0,
+        addressCountry: address.country,
+        user: userToPricing(user),
+        activePromos,
+        appliedCodePromo: null,
+      });
+      return s + resolved.subtotalHT;
+    }, 0);
+    const check = await validatePromoCode(
+      promoCode.trim(),
+      {
+        items: pricingItems.map((i) => ({ ...i.promoContext, quantity: i.quantity })),
+        subtotalHT: subtotalPreCode,
+        carrierPrice,
+        userId,
+        userShipping: { isFree: user?.freeShipping ?? false, savedAmount: 0 },
+      },
+      activePromos,
+    );
+    if (!check.valid) {
+      return NextResponse.json({ error: check.error }, { status: 400 });
+    }
+    appliedCodePromo = activePromos.find((p) => p.id === check.result.promotionId) ?? null;
   }
 
-  const subtotalHT = cartItems.reduce(
-    (s, item) => s + computeUnitPrice(item.variant) * item.quantity,
-    0
-  );
-
-  // Remise commerciale client (check mode THRESHOLD with quantity)
-  const totalItemQuantity = cartItems.reduce((s, item) => s + item.quantity, 0);
-  const clientDiscountAmt = (() => {
-    if (!user?.discountType || !user.discountValue) return 0;
-    const mode = user.discountMode ?? "PERMANENT";
-    if (mode === "THRESHOLD") {
-      const minAmount = user.discountMinAmount != null ? Number(user.discountMinAmount) : 0;
-      const minQty = user.discountMinQuantity ?? 0;
-      if ((minAmount > 0 && subtotalHT < minAmount) || (minQty > 0 && totalItemQuantity < minQty)) return 0;
-    }
-    const dv = Number(user.discountValue);
-    if (user.discountType === "PERCENT")
-      return Math.min(subtotalHT, subtotalHT * (dv / 100));
-    return Math.min(subtotalHT, dv);
-  })();
-  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
-  const effectiveCarrierPrice = (() => {
-    if (user?.freeShipping) return 0;
-    if (user?.shippingDiscountType && user.shippingDiscountValue != null) {
-      // Respecter le mode livraison (PERMANENT / THRESHOLD / NEXT_ORDER)
-      const shipMode = user.shippingDiscountMode ?? "PERMANENT";
-      if (shipMode === "THRESHOLD") {
-        const minAmount = user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : 0;
-        const minQty    = user.shippingDiscountMinQuantity ?? 0;
-        if ((minAmount > 0 && subtotalHT < minAmount) || (minQty > 0 && totalItemQuantity < minQty)) return carrierPrice;
-      }
-      const sdv = Number(user.shippingDiscountValue);
-      if (user.shippingDiscountType === "PERCENT") return Math.max(0, carrierPrice * (1 - sdv / 100));
-      return Math.max(0, carrierPrice - sdv);
-    }
-    return carrierPrice;
-  })();
-
-  // Taux TVA recalculé côté serveur (jamais l'input client) :
-  // exonération B2B intracom appliquée même en retrait si l'admin a validé.
-  // Le mode "private_carrier" est traité comme une livraison (TVA selon adresse).
-  const isPickup = carrierId === "pickup_store";
-  const tvaRate = resolveVatRate({
-    countryCode: address.country,
-    isPickup,
-    vatExempt: user?.vatExempt ?? false,
+  const pricing = computeOrderPricing({
+    items: pricingItems,
+    carrierId,
+    carrierPrice,
+    addressCountry: address.country,
+    user: userToPricing(user),
+    activePromos,
+    appliedCodePromo,
   });
 
-  // Transporteur privé : le client gère lui-même l'expédition, frais = 0
-  const isPrivateCarrier = carrierId === "private_carrier";
-  const finalCarrierPrice = isPrivateCarrier ? 0 : effectiveCarrierPrice;
-
-  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
-  // le port suit le même régime TVA que les biens vendus).
-  // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
-  // facturation externe (qui arrondit aussi vers le bas).
-  const rawTotalTTC = subtotalAfterDiscount + finalCarrierPrice + (subtotalAfterDiscount + finalCarrierPrice) * tvaRate;
-  const totalTTC = Math.floor(rawTotalTTC * 100) / 100;
-
-  const amountCents = Math.floor(rawTotalTTC * 100);
-
-  if (amountCents < 50) {
+  if (pricing.totalTTCCents < 50) {
     return NextResponse.json({ error: "Le montant minimum est de 0,50 €." }, { status: 400 });
   }
 
@@ -172,7 +158,7 @@ export async function POST(req: Request) {
     const statementDescriptor = buildStatementDescriptor(shopName);
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountCents,
+      amount: pricing.totalTTCCents,
       currency: "eur",
       payment_method_types: ["card"],
       metadata: {
@@ -181,19 +167,52 @@ export async function POST(req: Request) {
         carrierId,
         carrierName,
         carrierPrice: String(carrierPrice),
-        tvaRate: String(tvaRate),
+        tvaRate: String(pricing.tvaRate),
+        promoCode: appliedCodePromo?.code ?? "",
       },
       receipt_email: user?.email ?? undefined,
-      description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${(totalTTC).toFixed(2)} € TTC`,
+      description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${pricing.totalTTC.toFixed(2)} € TTC`,
       ...(statementDescriptor ? { statement_descriptor_suffix: statementDescriptor } : {}),
     });
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
+      totalTTC: pricing.totalTTC,
+      promoDiscount: pricing.promoCodeSaved,
     });
   } catch (err) {
     logger.error("[create-intent] Erreur création PI", { error: err });
     return NextResponse.json({ error: "Impossible de créer le paiement." }, { status: 500 });
   }
+}
+
+function userToPricing(u: {
+  discountType:  "PERCENT" | "AMOUNT" | null;
+  discountValue: unknown;
+  discountMode?: "PERMANENT" | "THRESHOLD" | "NEXT_ORDER" | null;
+  discountMinAmount: unknown;
+  discountMinQuantity: number | null;
+  vatExempt: boolean;
+  freeShipping: boolean;
+  shippingDiscountType:  "PERCENT" | "AMOUNT" | null;
+  shippingDiscountValue: unknown;
+  shippingDiscountMode?: "PERMANENT" | "THRESHOLD" | "NEXT_ORDER" | null;
+  shippingDiscountMinAmount: unknown;
+  shippingDiscountMinQuantity: number | null;
+} | null) {
+  return {
+    discountType:  u?.discountType ?? null,
+    discountValue: u?.discountValue != null ? Number(u.discountValue) : null,
+    discountMode:  u?.discountMode ?? "PERMANENT",
+    discountMinAmount:  u?.discountMinAmount != null ? Number(u.discountMinAmount) : null,
+    discountMinQuantity: u?.discountMinQuantity ?? null,
+    vatExempt:     u?.vatExempt ?? false,
+    freeShipping:  u?.freeShipping ?? false,
+    shippingDiscountType:  u?.shippingDiscountType ?? null,
+    shippingDiscountValue: u?.shippingDiscountValue != null ? Number(u.shippingDiscountValue) : null,
+    shippingDiscountMode:  u?.shippingDiscountMode ?? "PERMANENT",
+    shippingDiscountMinAmount: u?.shippingDiscountMinAmount != null ? Number(u.shippingDiscountMinAmount) : null,
+    shippingDiscountMinQuantity: u?.shippingDiscountMinQuantity ?? null,
+  };
 }

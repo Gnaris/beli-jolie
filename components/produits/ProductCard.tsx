@@ -307,9 +307,18 @@ export default function ProductCard({
           {showPrices && priceStats ? (
             <div className="flex items-baseline gap-1.5 flex-wrap">
               {priceStats.hasRange ? (
-                <span className="font-heading font-semibold text-base sm:text-lg text-bg-dark">
-                  {t("fromPrice", { price: priceStats.minFinal.toFixed(2) })}
-                </span>
+                <>
+                  <span className={`font-heading font-semibold text-base sm:text-lg ${
+                    anyVariantHasDiscount ? "text-error" : "text-bg-dark"
+                  }`}>
+                    {t("fromPrice", { price: priceStats.minFinal.toFixed(2) })}
+                  </span>
+                  {anyVariantHasDiscount && (
+                    <span className="font-body text-xs text-text-muted line-through">
+                      {priceStats.minRaw.toFixed(2)} &euro;
+                    </span>
+                  )}
+                </>
               ) : (
                 <>
                   <span className={`font-heading font-semibold text-base sm:text-lg ${

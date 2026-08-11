@@ -1,33 +1,49 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createPromotion, updatePromotion } from "@/app/actions/admin/promotions";
+import { createPromotion, updatePromotion, getPromotionTargets } from "@/app/actions/admin/promotions";
 import { useToast } from "@/components/ui/Toast";
 import { formatDiscountDisplay } from "@/lib/promotion-status";
 
-interface PromotionData {
+type Scope = "ALL_PRODUCTS" | "PRODUCTS" | "CATEGORIES" | "COLLECTIONS" | "SHIPPING";
+type Kind = "PERCENTAGE" | "FIXED_AMOUNT";
+
+export interface PromotionData {
   id?: string;
   name: string;
   type: "CODE" | "AUTO";
   code: string;
-  discountKind: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING";
+  scope: Scope;
+  discountKind: Kind;
   discountValue: string;
   minOrderAmount: string;
   maxUses: string;
   maxUsesPerUser: string;
   firstOrderOnly: boolean;
-  appliesToAll: boolean;
   startsAt: string;
   endsAt: string;
+  productIds: string[];
+  categoryIds: string[];
+  collectionIds: string[];
 }
 
 const DEFAULT_DATA: PromotionData = {
-  name: "", type: "CODE", code: "", discountKind: "PERCENTAGE",
-  discountValue: "", minOrderAmount: "", maxUses: "", maxUsesPerUser: "",
-  firstOrderOnly: false, appliesToAll: true,
+  name: "",
+  type: "CODE",
+  code: "",
+  scope: "ALL_PRODUCTS",
+  discountKind: "PERCENTAGE",
+  discountValue: "",
+  minOrderAmount: "",
+  maxUses: "",
+  maxUsesPerUser: "",
+  firstOrderOnly: false,
   startsAt: new Date().toISOString().slice(0, 16),
   endsAt: "",
+  productIds: [],
+  categoryIds: [],
+  collectionIds: [],
 };
 
 /* ── Toggle switch ──────────────────────────── */
@@ -62,7 +78,6 @@ function ToggleSwitch({ checked, onChange, label, description }: {
   );
 }
 
-/* ── Section wrapper ────────────────────────── */
 function FormSection({ icon, title, description, children, accent = "neutral" }: {
   icon: React.ReactNode;
   title: string;
@@ -93,7 +108,6 @@ function FormSection({ icon, title, description, children, accent = "neutral" }:
   );
 }
 
-/* ── Input field ────────────────────────────── */
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <div>
@@ -106,7 +120,6 @@ function Field({ label, children, hint }: { label: string; children: React.React
 
 const inputClass = "w-full border border-border bg-bg-primary px-3.5 py-2.5 text-sm rounded-xl text-text-primary font-body placeholder:text-text-muted/50 transition-all focus:outline-none focus:ring-4 focus:ring-text-primary/8 focus:border-text-primary hover:border-border-dark";
 
-/* ── Icons (inline SVG) ─────────────────────── */
 const Icons = {
   tag: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -116,6 +129,11 @@ const Icons = {
   percent: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
       <line x1="19" y1="5" x2="5" y2="19" /><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" />
+    </svg>
+  ),
+  scope: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /><line x1="12" y1="3" x2="12" y2="7" /><line x1="12" y1="17" x2="12" y2="21" /><line x1="3" y1="12" x2="7" y2="12" /><line x1="17" y1="12" x2="21" y2="12" />
     </svg>
   ),
   shield: (
@@ -145,7 +163,6 @@ const Icons = {
   ),
 };
 
-/* ── Segmented control ───────────────────────── */
 function Segmented<T extends string>({ value, options, onChange }: {
   value: T;
   options: { value: T; label: React.ReactNode }[];
@@ -171,13 +188,142 @@ function Segmented<T extends string>({ value, options, onChange }: {
   );
 }
 
-/* ── Preview ticket (colonne droite, sticky) ───────────────────────────── */
-function PromotionPreview({ data }: { data: PromotionData }) {
+/* ── Scope picker (grille 5 cartes) ─────────────────── */
+function ScopePicker({ value, onChange }: { value: Scope; onChange: (v: Scope) => void }) {
+  const options: { value: Scope; title: string; desc: string; emoji: string }[] = [
+    { value: "ALL_PRODUCTS", title: "Tous les produits", desc: "Applique à tout le catalogue", emoji: "🛍️" },
+    { value: "PRODUCTS",     title: "Produits ciblés",   desc: "Uniquement les produits choisis", emoji: "📦" },
+    { value: "CATEGORIES",   title: "Catégories",        desc: "Toute une famille de produits",   emoji: "🗂️" },
+    { value: "COLLECTIONS",  title: "Collections",       desc: "Une ou plusieurs collections",    emoji: "✨" },
+    { value: "SHIPPING",     title: "Livraison",         desc: "Réduit les frais de port",        emoji: "🚚" },
+  ];
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={`text-left p-3 rounded-xl border transition-all ${
+            value === opt.value
+              ? "border-text-primary bg-gradient-to-br from-slate-50 to-white shadow-sm ring-2 ring-text-primary/10"
+              : "border-border bg-bg-primary hover:border-border-dark hover:bg-bg-secondary/40"
+          }`}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg leading-none">{opt.emoji}</span>
+            <span className="text-[13px] font-body font-semibold text-text-primary">{opt.title}</span>
+          </div>
+          <p className="text-[11px] text-text-muted font-body leading-snug">{opt.desc}</p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Picker multi-items (recherche + checkbox list) ─────────────── */
+interface PickableItem { id: string; name: string; secondary?: string | null }
+function MultiItemPicker({ items, selected, onChange, emptyLabel }: {
+  items: PickableItem[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  emptyLabel: string;
+}) {
+  const [query, setQuery] = useState("");
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const filtered = useMemo(() => {
+    const q = norm(query.trim());
+    if (!q) return items;
+    return items.filter((it) =>
+      norm(it.name).includes(q) || (it.secondary ? norm(it.secondary).includes(q) : false)
+    );
+  }, [items, query]);
+
+  function toggle(id: string) {
+    if (selected.includes(id)) onChange(selected.filter((x) => x !== id));
+    else onChange([...selected, id]);
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-text-muted font-body border border-dashed border-border rounded-xl">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Rechercher…"
+        className={inputClass}
+      />
+      <div className="flex items-center justify-between text-[11px] font-body text-text-muted px-1">
+        <span>{selected.length} sélectionné{selected.length > 1 ? "s" : ""} sur {items.length}</span>
+        {selected.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-text-primary hover:underline"
+          >
+            Tout désélectionner
+          </button>
+        )}
+      </div>
+      <div className="max-h-64 overflow-y-auto border border-border rounded-xl divide-y divide-border-light">
+        {filtered.length === 0 ? (
+          <div className="p-4 text-center text-sm text-text-muted font-body">Aucun résultat.</div>
+        ) : (
+          filtered.map((it) => {
+            const checked = selected.includes(it.id);
+            return (
+              <label
+                key={it.id}
+                className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                  checked ? "bg-emerald-50/60" : "hover:bg-bg-secondary/40"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggle(it.id)}
+                  className="w-4 h-4 rounded border-border accent-text-primary"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-body text-text-primary truncate">{it.name}</div>
+                  {it.secondary && (
+                    <div className="text-[11px] text-text-muted font-mono truncate">{it.secondary}</div>
+                  )}
+                </div>
+              </label>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Preview ───────────────────────────────────────────── */
+function PromotionPreview({ data, targetsCount }: { data: PromotionData; targetsCount: number | null }) {
   const value = parseFloat(data.discountValue) || 0;
   const display = useMemo(
     () => formatDiscountDisplay(data.discountKind, value),
     [data.discountKind, value],
   );
+
+  const scopeLabel = (() => {
+    switch (data.scope) {
+      case "ALL_PRODUCTS": return "Tous les produits";
+      case "PRODUCTS":     return targetsCount != null ? `${targetsCount} produit${targetsCount > 1 ? "s" : ""} ciblé${targetsCount > 1 ? "s" : ""}` : "Produits ciblés";
+      case "CATEGORIES":   return targetsCount != null ? `${targetsCount} catégorie${targetsCount > 1 ? "s" : ""}` : "Catégories";
+      case "COLLECTIONS":  return targetsCount != null ? `${targetsCount} collection${targetsCount > 1 ? "s" : ""}` : "Collections";
+      case "SHIPPING":     return "Frais de livraison";
+    }
+  })();
 
   const formatDate = (d: string) => {
     if (!d) return "—";
@@ -188,7 +334,6 @@ function PromotionPreview({ data }: { data: PromotionData }) {
 
   return (
     <aside className="lg:sticky lg:top-6 bg-bg-primary border border-border rounded-3xl shadow-sm overflow-hidden">
-      {/* Header sombre */}
       <div className="px-5 py-3 bg-gradient-to-br from-text-primary to-text-secondary text-white flex items-center gap-2">
         <span className="relative inline-flex w-1.5 h-1.5">
           <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-70" />
@@ -197,9 +342,7 @@ function PromotionPreview({ data }: { data: PromotionData }) {
         <span className="text-[11px] font-body font-bold uppercase tracking-[0.18em]">Aperçu en direct</span>
       </div>
 
-      {/* Ticket géant */}
       <div className="relative mx-5 my-5 rounded-2xl overflow-hidden bg-gradient-to-br from-text-primary to-text-secondary text-white text-center px-5 py-6 shadow-lg">
-        {/* Encoches latérales */}
         <span className="absolute left-[-11px] top-1/2 -translate-y-1/2 w-[22px] h-[22px] rounded-full bg-bg-primary" />
         <span className="absolute right-[-11px] top-1/2 -translate-y-1/2 w-[22px] h-[22px] rounded-full bg-bg-primary" />
 
@@ -229,7 +372,6 @@ function PromotionPreview({ data }: { data: PromotionData }) {
         )}
       </div>
 
-      {/* Résumé */}
       <div className="px-5 pb-5 space-y-2 text-[13px] font-body">
         <div className="flex justify-center gap-1.5 pb-3">
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] font-body font-bold uppercase tracking-[0.05em] ${
@@ -239,6 +381,11 @@ function PromotionPreview({ data }: { data: PromotionData }) {
           }`}>
             {data.type === "CODE" ? "Code promo" : "Remise automatique"}
           </span>
+        </div>
+
+        <div className="flex items-center justify-between py-1.5 border-b border-border-light">
+          <span className="text-text-muted">Portée</span>
+          <span className="font-medium text-text-primary text-right">{scopeLabel}</span>
         </div>
 
         {data.minOrderAmount && parseFloat(data.minOrderAmount) > 0 && (
@@ -264,10 +411,6 @@ function PromotionPreview({ data }: { data: PromotionData }) {
           </div>
         )}
         <div className="flex items-center justify-between py-1.5 border-b border-border-light">
-          <span className="text-text-muted">Produits</span>
-          <span className="font-medium text-text-primary">{data.appliesToAll ? "Tous" : "Sélection"}</span>
-        </div>
-        <div className="flex items-center justify-between py-1.5 border-b border-border-light">
           <span className="text-text-muted">Début</span>
           <span className="font-medium text-text-primary text-[11.5px]">{formatDate(data.startsAt)}</span>
         </div>
@@ -275,13 +418,6 @@ function PromotionPreview({ data }: { data: PromotionData }) {
           <span className="text-text-muted">Fin</span>
           <span className="font-medium text-text-primary text-[11.5px]">{data.endsAt ? formatDate(data.endsAt) : "Sans fin"}</span>
         </div>
-
-        {data.name.trim() && (data.discountKind === "FREE_SHIPPING" || parseFloat(data.discountValue) > 0) && (
-          <div className="mt-4 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-[12px] text-emerald-800 font-medium flex items-start gap-2">
-            <svg className="mt-0.5 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
-            <div>Conditions remplies. La promotion sera active dès sa création.</div>
-          </div>
-        )}
       </div>
     </aside>
   );
@@ -294,8 +430,17 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
   const [data, setData] = useState<PromotionData>({ ...DEFAULT_DATA, ...initial });
   const [isPending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
+  const [targets, setTargets] = useState<{
+    products: { id: string; name: string; reference: string }[];
+    categories: { id: string; name: string }[];
+    collections: { id: string; name: string }[];
+  } | null>(null);
   const toast = useToast();
   const router = useRouter();
+
+  useEffect(() => {
+    getPromotionTargets().then(setTargets).catch(() => setTargets({ products: [], categories: [], collections: [] }));
+  }, []);
 
   function update<K extends keyof PromotionData>(key: K, value: PromotionData[K]) {
     setData((prev) => ({ ...prev, [key]: value }));
@@ -315,6 +460,13 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
     setTimeout(() => setCopied(false), 1500);
   }
 
+  const targetsCount = (() => {
+    if (data.scope === "PRODUCTS")    return data.productIds.length;
+    if (data.scope === "CATEGORIES")  return data.categoryIds.length;
+    if (data.scope === "COLLECTIONS") return data.collectionIds.length;
+    return null;
+  })();
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -322,15 +474,18 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
       name: data.name,
       type: data.type,
       code: data.type === "CODE" ? data.code : undefined,
+      scope: data.scope,
       discountKind: data.discountKind,
       discountValue: parseFloat(data.discountValue) || 0,
       minOrderAmount: data.minOrderAmount ? parseFloat(data.minOrderAmount) : undefined,
       maxUses: data.maxUses ? parseInt(data.maxUses) : undefined,
       maxUsesPerUser: data.maxUsesPerUser ? parseInt(data.maxUsesPerUser) : undefined,
       firstOrderOnly: data.firstOrderOnly,
-      appliesToAll: data.appliesToAll,
       startsAt: data.startsAt,
       endsAt: data.endsAt || undefined,
+      productIds:   data.scope === "PRODUCTS"    ? data.productIds    : [],
+      categoryIds:  data.scope === "CATEGORIES"  ? data.categoryIds   : [],
+      collectionIds: data.scope === "COLLECTIONS" ? data.collectionIds : [],
     };
 
     startTransition(async () => {
@@ -347,9 +502,18 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
     });
   }
 
+  const productItems: PickableItem[] = (targets?.products ?? []).map((p) => ({
+    id: p.id, name: p.name, secondary: p.reference,
+  }));
+  const categoryItems: PickableItem[] = (targets?.categories ?? []).map((c) => ({
+    id: c.id, name: c.name,
+  }));
+  const collectionItems: PickableItem[] = (targets?.collections ?? []).map((c) => ({
+    id: c.id, name: c.name,
+  }));
+
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6 items-start">
-      {/* ── Colonne formulaire ── */}
       <div className="space-y-4">
         {/* Section 1 : Informations */}
         <FormSection
@@ -419,47 +583,89 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
           )}
         </FormSection>
 
-        {/* Section 2 : Remise */}
+        {/* Section 2 : Portée */}
+        <FormSection
+          icon={Icons.scope}
+          title="À quoi s'applique la promotion ?"
+          description="Vous ne pouvez avoir qu'une seule promo automatique « tous produits » ou « livraison » à la fois."
+        >
+          <ScopePicker value={data.scope} onChange={(v) => update("scope", v)} />
+
+          {data.scope === "PRODUCTS" && (
+            <Field label="Produits ciblés">
+              <MultiItemPicker
+                items={productItems}
+                selected={data.productIds}
+                onChange={(ids) => update("productIds", ids)}
+                emptyLabel="Aucun produit en ligne pour le moment."
+              />
+            </Field>
+          )}
+          {data.scope === "CATEGORIES" && (
+            <Field label="Catégories ciblées">
+              <MultiItemPicker
+                items={categoryItems}
+                selected={data.categoryIds}
+                onChange={(ids) => update("categoryIds", ids)}
+                emptyLabel="Aucune catégorie créée."
+              />
+            </Field>
+          )}
+          {data.scope === "COLLECTIONS" && (
+            <Field label="Collections ciblées">
+              <MultiItemPicker
+                items={collectionItems}
+                selected={data.collectionIds}
+                onChange={(ids) => update("collectionIds", ids)}
+                emptyLabel="Aucune collection créée."
+              />
+            </Field>
+          )}
+          {data.scope === "SHIPPING" && (
+            <div className="text-[12px] text-text-muted font-body px-1">
+              💡 Astuce : pour offrir totalement la livraison, choisissez « Pourcentage » et mettez 100 %.
+            </div>
+          )}
+        </FormSection>
+
+        {/* Section 3 : Remise */}
         <FormSection
           icon={Icons.percent}
           title="Remise"
           description="Ce que le client économise sur sa commande."
         >
           <Field label="Type de remise">
-            <Segmented<"PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING">
+            <Segmented<Kind>
               value={data.discountKind}
               onChange={(v) => update("discountKind", v)}
               options={[
-                { value: "PERCENTAGE",    label: "Pourcentage %" },
-                { value: "FIXED_AMOUNT",  label: "Montant fixe €" },
-                { value: "FREE_SHIPPING", label: "Livraison offerte" },
+                { value: "PERCENTAGE",   label: "Pourcentage %" },
+                { value: "FIXED_AMOUNT", label: "Montant fixe €" },
               ]}
             />
           </Field>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {data.discountKind !== "FREE_SHIPPING" && (
-              <Field
-                label={data.discountKind === "PERCENTAGE" ? "Pourcentage de remise" : "Montant de la remise"}
-                hint={data.discountKind === "PERCENTAGE" ? "Entre 1 et 100" : "Montant en euros"}
-              >
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max={data.discountKind === "PERCENTAGE" ? "100" : undefined}
-                    step={data.discountKind === "PERCENTAGE" ? "1" : "0.01"}
-                    value={data.discountValue}
-                    onChange={(e) => update("discountValue", e.target.value)}
-                    placeholder="0"
-                    className={`${inputClass} pr-10 tabular-nums`}
-                  />
-                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-text-muted font-body font-medium">
-                    {data.discountKind === "PERCENTAGE" ? "%" : "€"}
-                  </span>
-                </div>
-              </Field>
-            )}
+            <Field
+              label={data.discountKind === "PERCENTAGE" ? "Pourcentage de remise" : "Montant de la remise"}
+              hint={data.discountKind === "PERCENTAGE" ? "Entre 1 et 100" : "Montant en euros"}
+            >
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max={data.discountKind === "PERCENTAGE" ? "100" : undefined}
+                  step={data.discountKind === "PERCENTAGE" ? "1" : "0.01"}
+                  value={data.discountValue}
+                  onChange={(e) => update("discountValue", e.target.value)}
+                  placeholder="0"
+                  className={`${inputClass} pr-10 tabular-nums`}
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-text-muted font-body font-medium">
+                  {data.discountKind === "PERCENTAGE" ? "%" : "€"}
+                </span>
+              </div>
+            </Field>
 
             <Field label="Commande minimum (HT)" hint="Laissez vide pour aucun minimum">
               <div className="relative">
@@ -478,7 +684,7 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
           </div>
         </FormSection>
 
-        {/* Section 3 : Restrictions */}
+        {/* Section 4 : Restrictions */}
         <FormSection
           icon={Icons.shield}
           title="Restrictions"
@@ -514,16 +720,10 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
               label="Première commande uniquement"
               description="Seuls les nouveaux clients pourront l'utiliser"
             />
-            <ToggleSwitch
-              checked={data.appliesToAll}
-              onChange={(v) => update("appliesToAll", v)}
-              label="S'applique à tous les produits"
-              description="Sinon, choisissez une sélection ciblée"
-            />
           </div>
         </FormSection>
 
-        {/* Section 4 : Dates */}
+        {/* Section 5 : Dates */}
         <FormSection
           icon={Icons.calendar}
           title="Période de validité"
@@ -555,7 +755,6 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
           )}
         </FormSection>
 
-        {/* Submit */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
           <button
             type="submit"
@@ -584,9 +783,8 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
         </div>
       </div>
 
-      {/* ── Colonne aperçu ── */}
       <div className="hidden xl:block">
-        <PromotionPreview data={data} />
+        <PromotionPreview data={data} targetsCount={targetsCount} />
       </div>
     </form>
   );

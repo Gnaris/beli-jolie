@@ -22,17 +22,20 @@
  * définitifs et l'envoi réel viennent à l'étape 3.
  */
 
-import { useEffect, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 import { useRouter } from "next/navigation";
 import {
   getClientMailContext,
   sendManualMail,
+  searchProductsForMail,
   type ClientMailContext,
   type MailScenario,
   type PreviewData,
+  type RestockSearchResult,
 } from "@/app/actions/admin/user-mails";
+import type { MailCondition } from "@/lib/mail-gates";
 
 interface Props {
   userId: string;
@@ -94,11 +97,147 @@ function imageUrl(path: string | null): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-function EmptyStatePreview({ text }: { text: string }) {
+/**
+ * Chip visuel d'une condition d'envoi mail.
+ *  - Passed → fond vert, flèche verte
+ *  - Failed bloquant → fond rouge, croix rouge
+ *  - Failed soft (warning) → fond amber, triangle amber
+ */
+function ConditionChip({ condition }: { condition: MailCondition }) {
+  const { passed, isSoft, label } = condition;
+
+  let bg = "bg-emerald-50 border-emerald-200 text-emerald-800";
+  let icon = "✓";
+  let iconColor = "text-emerald-600";
+
+  if (!passed && isSoft) {
+    bg = "bg-amber-50 border-amber-200 text-amber-800";
+    icon = "⚠";
+    iconColor = "text-amber-600";
+  } else if (!passed && !isSoft) {
+    bg = "bg-red-50 border-red-200 text-red-800";
+    icon = "✕";
+    iconColor = "text-red-600";
+  }
+
   return (
-    <div style={{ background: "#f8fafc", border: "2px dashed #cbd5e1", borderRadius: "10px", padding: "16px 14px", textAlign: "center", margin: "12px 0" }}>
-      <div style={{ fontSize: "22px", marginBottom: "4px" }}>⚠️</div>
-      <p style={{ fontSize: "12px", color: "#64748b", margin: 0, lineHeight: 1.5, wordBreak: "break-word", overflowWrap: "anywhere" }}>{text}</p>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11.5px] font-body font-medium leading-tight ${bg}`}
+      style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+    >
+      <span className={`font-bold ${iconColor} shrink-0`} aria-hidden>{icon}</span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+/**
+ * Sélecteur de produits pour le mail RESTOCK.
+ * - Search input (debounced côté parent)
+ * - Liste de résultats cliquables
+ * - Chips des produits déjà sélectionnés avec bouton ✕
+ */
+function RestockProductPicker({
+  selected,
+  query,
+  onQueryChange,
+  results,
+  searching,
+  onAdd,
+  onRemove,
+}: {
+  selected: RestockSearchResult[];
+  query: string;
+  onQueryChange: (q: string) => void;
+  results: RestockSearchResult[];
+  searching: boolean;
+  onAdd: (p: RestockSearchResult) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-bg-primary p-4 space-y-3">
+      {/* Chips des produits sélectionnés */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {selected.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-[12px] font-body font-medium text-slate-800 max-w-full"
+              style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+              title={`${p.name} (stock : ${p.stock})`}
+            >
+              {p.imagePath && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imageUrl(p.imagePath)} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+              )}
+              <span className="min-w-0 truncate">{p.name}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(p.id)}
+                aria-label={`Retirer ${p.name}`}
+                className="shrink-0 text-slate-500 hover:text-red-600 transition-colors"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Search input */}
+      <div className="relative">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Rechercher un produit à annoncer (nom ou référence)…"
+          className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary transition-colors"
+        />
+        {searching && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin" />
+        )}
+      </div>
+
+      {/* Résultats */}
+      {results.length > 0 && (
+        <div className="rounded-lg border border-border bg-bg-secondary max-h-60 overflow-y-auto divide-y divide-border">
+          {results.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => onAdd(r)}
+              disabled={r.stock <= 0}
+              className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-bg-tertiary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {r.imagePath ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imageUrl(r.imagePath)} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+              ) : (
+                <div className="w-9 h-9 rounded bg-bg-tertiary shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-body font-medium text-text-primary truncate">{r.name}</div>
+                <div className="text-[11px] text-text-muted font-mono">{r.reference} · Stock : {r.stock}</div>
+              </div>
+              <span className="text-[12px] font-body font-semibold text-text-primary shrink-0 tabular-nums">
+                {(r.priceCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {query.trim().length >= 2 && !searching && results.length === 0 && (
+        <p className="text-[12px] text-text-muted italic text-center py-2">
+          Aucun produit ne correspond à « {query} ».
+        </p>
+      )}
+
+      {selected.length === 0 && query.trim().length < 2 && (
+        <p className="text-[11.5px] text-text-muted italic">
+          Tapez au moins 2 caractères pour rechercher un produit.
+        </p>
+      )}
     </div>
   );
 }
@@ -106,9 +245,12 @@ function EmptyStatePreview({ text }: { text: string }) {
 function MailPreview({
   scenario,
   preview,
+  restockProducts,
 }: {
   scenario: MailScenario | null;
   preview: PreviewData;
+  /** Produits sélectionnés par l'admin pour le mail RESTOCK (remplace preview.favoritesInStock) */
+  restockProducts?: RestockSearchResult[];
 }) {
   if (!scenario) {
     return (
@@ -126,7 +268,15 @@ function MailPreview({
 
   const name = preview.firstName;
   const cartItems = preview.cart.items;
-  const favorites = preview.favoritesInStock;
+  // Pour RESTOCK : on utilise la sélection admin (adaptée au format FavoritePreview).
+  const favorites = scenario === "RESTOCK"
+    ? (restockProducts ?? []).map((p) => ({
+        productName: p.name,
+        colorName: p.colorName,
+        priceCents: p.priceCents,
+        imagePath: p.imagePath,
+      }))
+    : preview.favoritesInStock;
   const daysInactive = preview.daysSinceLastActivity;
 
   return (
@@ -155,7 +305,7 @@ function MailPreview({
         }
         .mail-preview-root img { max-width: 100% !important; height: auto !important; }
       `}</style>
-      <div className="w-full max-w-full rounded-lg bg-white shadow-sm overflow-hidden" style={{ fontFamily: "Roboto, sans-serif", boxSizing: "border-box" }}>
+      <div className="w-full max-w-full rounded-lg bg-white shadow-sm overflow-hidden" style={{ fontFamily: "Roboto, sans-serif", boxSizing: "border-box", textAlign: "center" }}>
 
         {/* ═══ PANIER ABANDONNÉ ═══ */}
         {scenario === "ABANDONED_CART" && (
@@ -163,55 +313,42 @@ function MailPreview({
             <div style={{ background: "linear-gradient(135deg,#d4a574,#b8895d)", padding: "32px 24px", color: "white", textAlign: "center" }}>
               <div style={{ fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85 }}>Beli &amp; Jolie</div>
               <h1 style={{ fontFamily: "Poppins", fontSize: "22px", fontWeight: 700, margin: "8px 0 0" }}>
-                {cartItems.length > 0 ? "Votre panier vous attend 🛒" : "On vous a pas vu depuis un moment 👋"}
+                Votre panier vous attend 🛒
               </h1>
             </div>
             <div style={{ padding: "24px 20px" }}>
               <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-
-              {cartItems.length === 0 ? (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "12px" }}>
-                    Vous n&apos;avez actuellement <strong>rien dans votre panier</strong>. Nos nouveautés
-                    vous attendent — venez jeter un œil à notre catalogue !
-                  </p>
-                  <EmptyStatePreview text="Panier vide — le mail ne contient aucune liste d'articles, uniquement un message d'invitation générique." />
-                </>
-              ) : (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
-                    Vous avez laissé <strong>{cartItems.length} article{cartItems.length > 1 ? "s" : ""}</strong>{" "}
-                    dans votre panier.
-                  </p>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                    Ils vous attendent toujours !
-                  </p>
-                  <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "12px", marginBottom: "16px" }}>
-                    {cartItems.map((it, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0", borderBottom: i < cartItems.length - 1 ? "1px solid #e2e8f0" : "none" }}>
-                        {it.imagePath && (
-                          <img src={imageUrl(it.imagePath)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", flexShrink: 0 }} />
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.productName}</div>
-                          {it.colorName && (
-                            <div style={{ fontSize: "10.5px", color: "#64748b" }}>{it.colorName} · x{it.quantity}</div>
-                          )}
-                        </div>
-                        <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 700, whiteSpace: "nowrap" }}>{formatEuros(it.totalCents)}</div>
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", justifyContent: "space-between", borderTop: "2px solid #cbd5e1", paddingTop: "8px", marginTop: "8px" }}>
-                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>Total</span>
-                      <span style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>{formatEuros(preview.cart.totalCents)}</span>
+              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
+                Vous avez laissé <strong>{cartItems.length} article{cartItems.length > 1 ? "s" : ""}</strong>{" "}
+                dans votre panier.
+              </p>
+              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
+                Ils vous attendent toujours !
+              </p>
+              <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "12px", marginBottom: "16px" }}>
+                {cartItems.map((it, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0", borderBottom: i < cartItems.length - 1 ? "1px solid #e2e8f0" : "none" }}>
+                    {it.imagePath && (
+                      <img src={imageUrl(it.imagePath)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.productName}</div>
+                      {it.colorName && (
+                        <div style={{ fontSize: "10.5px", color: "#64748b" }}>{it.colorName} · x{it.quantity}</div>
+                      )}
                     </div>
+                    <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 700, whiteSpace: "nowrap" }}>{formatEuros(it.totalCents)}</div>
                   </div>
-                </>
-              )}
+                ))}
+                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "2px solid #cbd5e1", paddingTop: "8px", marginTop: "8px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>Total</span>
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>{formatEuros(preview.cart.totalCents)}</span>
+                </div>
+              </div>
 
               <div style={{ textAlign: "center" }}>
                 <a href="#" style={{ display: "inline-block", background: "#0f172a", color: "white", padding: "12px 28px", borderRadius: "8px", fontFamily: "Poppins", fontWeight: 600, fontSize: "13px", textDecoration: "none" }}>
-                  {cartItems.length > 0 ? "Reprendre ma commande →" : "Découvrir nos nouveautés →"}
+                  Reprendre ma commande →
                 </a>
               </div>
             </div>
@@ -230,25 +367,13 @@ function MailPreview({
             </div>
             <div style={{ padding: "24px 20px" }}>
               <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-              {daysInactive === null ? (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "12px" }}>
-                    Vous n&apos;avez encore jamais visité notre boutique en ligne.
-                    Nos nouveautés vous attendent !
-                  </p>
-                  <EmptyStatePreview text="Ce client ne s'est jamais connecté — le mail dira simplement « nous vous attendons »." />
-                </>
-              ) : (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
-                    Cela fait <strong>{daysInactive} jour{daysInactive > 1 ? "s" : ""}</strong>{" "}
-                    qu&apos;on ne vous a pas vu sur notre boutique.
-                  </p>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                    Nous avons plein de nouveautés à vous montrer !
-                  </p>
-                </>
-              )}
+              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
+                Cela fait <strong>{daysInactive ?? 0} jour{(daysInactive ?? 0) > 1 ? "s" : ""}</strong>{" "}
+                qu&apos;on ne vous a pas vu sur notre boutique.
+              </p>
+              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
+                Nous avons plein de nouveautés à vous montrer !
+              </p>
               <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px" }}>
                 <li style={{ padding: "6px 0", fontSize: "13px", color: "#334155", borderBottom: "1px solid #f1f5f9" }}>✨ Nouvelle collection automne</li>
                 <li style={{ padding: "6px 0", fontSize: "13px", color: "#334155", borderBottom: "1px solid #f1f5f9" }}>💎 Nouveaux modèles en stock</li>
@@ -287,47 +412,34 @@ function MailPreview({
             <div style={{ background: "linear-gradient(135deg,#6ee7b7,#10b981)", padding: "32px 24px", color: "white", textAlign: "center" }}>
               <div style={{ fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85 }}>Beli &amp; Jolie</div>
               <h1 style={{ fontFamily: "Poppins", fontSize: "22px", fontWeight: 700, margin: "8px 0 0" }}>
-                {favorites.length > 0 ? "Vos favoris sont revenus 🔔" : "Vos favoris ne sont pas encore là"}
+                Vos favoris sont revenus 🔔
               </h1>
             </div>
             <div style={{ padding: "24px 20px" }}>
               <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-
-              {favorites.length === 0 ? (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "12px" }}>
-                    Aucun de vos favoris n&apos;est actuellement disponible en stock.
-                    Nous vous préviendrons dès qu&apos;ils reviendront !
-                  </p>
-                  <EmptyStatePreview text="Ce client n'a aucun favori en stock — le mail n'a rien de concret à mettre en avant." />
-                </>
-              ) : (
-                <>
-                  <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                    Bonne nouvelle :{" "}
-                    <strong>{favorites.length} de vos favoris</strong>{" "}
-                    {favorites.length > 1 ? "sont de nouveau disponibles" : "est de nouveau disponible"}.
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-                    {favorites.slice(0, 6).map((f, i) => (
-                      <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "8px" }}>
-                        {f.imagePath ? (
-                          <img src={imageUrl(f.imagePath)} alt="" style={{ width: "100%", height: "70px", objectFit: "cover", borderRadius: "6px", marginBottom: "6px", display: "block" }} />
-                        ) : (
-                          <div style={{ height: "70px", background: "#f1f5f9", borderRadius: "6px", marginBottom: "6px" }} />
-                        )}
-                        <div style={{ fontSize: "11px", fontFamily: "Poppins", fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.productName}</div>
-                        {f.colorName && <div style={{ fontSize: "10px", color: "#64748b" }}>{f.colorName}</div>}
-                        <div style={{ fontSize: "11px", color: "#0f172a", fontWeight: 700, marginTop: "2px" }}>{formatEuros(f.priceCents)}</div>
-                      </div>
-                    ))}
+              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
+                Bonne nouvelle :{" "}
+                <strong>{favorites.length} de vos favoris</strong>{" "}
+                {favorites.length > 1 ? "sont de nouveau disponibles" : "est de nouveau disponible"}.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
+                {favorites.slice(0, 6).map((f, i) => (
+                  <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "8px" }}>
+                    {f.imagePath ? (
+                      <img src={imageUrl(f.imagePath)} alt="" style={{ width: "100%", height: "70px", objectFit: "cover", borderRadius: "6px", marginBottom: "6px", display: "block" }} />
+                    ) : (
+                      <div style={{ height: "70px", background: "#f1f5f9", borderRadius: "6px", marginBottom: "6px" }} />
+                    )}
+                    <div style={{ fontSize: "11px", fontFamily: "Poppins", fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.productName}</div>
+                    {f.colorName && <div style={{ fontSize: "10px", color: "#64748b" }}>{f.colorName}</div>}
+                    <div style={{ fontSize: "11px", color: "#0f172a", fontWeight: 700, marginTop: "2px" }}>{formatEuros(f.priceCents)}</div>
                   </div>
-                </>
-              )}
+                ))}
+              </div>
 
               <div style={{ textAlign: "center" }}>
                 <a href="#" style={{ display: "inline-block", background: "#0f172a", color: "white", padding: "12px 28px", borderRadius: "8px", fontFamily: "Poppins", fontWeight: 600, fontSize: "13px", textDecoration: "none" }}>
-                  {favorites.length > 0 ? "Voir tous mes favoris →" : "Parcourir le catalogue →"}
+                  Voir tous mes favoris →
                 </a>
               </div>
             </div>
@@ -387,9 +499,64 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     mouseDownOnBackdrop.current = false;
   };
 
-  const canConfirm = !!selected && !loading && !error;
   const selectedMeta = selected ? SCENARIOS.find((s) => s.key === selected) : null;
   const selectedCtx = ctx && selected ? ctx.scenarios[selected as MailScenario] : null;
+
+  // ─── Sélection de produits pour RESTOCK ───────────────────────
+  const [restockProducts, setRestockProducts] = useState<RestockSearchResult[]>([]);
+  const [productQuery, setProductQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<RestockSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  // Debounce la recherche produits
+  useEffect(() => {
+    if (selected !== "RESTOCK") { setSearchResults([]); return; }
+    const q = productQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      const res = await searchProductsForMail(q);
+      if (cancelled) return;
+      setSearching(false);
+      if (res.success) {
+        // Filtre ceux déjà sélectionnés
+        const selectedIds = new Set(restockProducts.map((p) => p.id));
+        setSearchResults(res.results.filter((r) => !selectedIds.has(r.id)));
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [productQuery, selected, restockProducts]);
+
+  // Reset sélection quand on change de scenario
+  useEffect(() => {
+    if (selected !== "RESTOCK") {
+      setRestockProducts([]);
+      setProductQuery("");
+      setSearchResults([]);
+    }
+  }, [selected]);
+
+  // Override des conditions RESTOCK côté client (les 2 gates liées à la sélection)
+  const displayedConditions = useMemo<MailCondition[]>(() => {
+    if (!selectedCtx) return [];
+    if (selected !== "RESTOCK") return selectedCtx.conditions;
+    const count = restockProducts.length;
+    const allInStock = count === 0 || restockProducts.every((p) => p.stock > 0);
+    return selectedCtx.conditions.map((c) => {
+      if (c.code === "PRODUCTS_SELECTED") return { ...c, passed: count > 0 };
+      if (c.code === "PRODUCTS_IN_STOCK") return { ...c, passed: count === 0 || allInStock };
+      return c;
+    });
+  }, [selectedCtx, selected, restockProducts]);
+
+  const displayedBlockers = useMemo(
+    () => displayedConditions.filter((c) => !c.passed && !c.isSoft),
+    [displayedConditions],
+  );
+  const blockersCount = displayedBlockers.length;
+  const isBlocked = blockersCount > 0;
+  const canConfirm = !!selected && !loading && !error && !isBlocked;
 
   function onSend() {
     if (!selected) return;
@@ -406,7 +573,10 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     }
 
     startSending(async () => {
-      const res = await sendManualMail(userId, selected as MailScenario);
+      const payload = selected === "RESTOCK"
+        ? { productIds: restockProducts.map((p) => p.id) }
+        : undefined;
+      const res = await sendManualMail(userId, selected as MailScenario, payload);
       if (!res.success) {
         toast.error("Envoi refusé", res.error);
         return;
@@ -430,16 +600,18 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
           <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950" />
           <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full blur-3xl bg-violet-500/20 pointer-events-none" />
           <div className="absolute -bottom-16 -left-8 w-64 h-64 rounded-full blur-3xl bg-sky-500/15 pointer-events-none" />
-          <div className="relative p-6 text-white">
+          <div className="relative p-6 text-white text-left">
             <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/10 backdrop-blur text-[10px] font-body font-bold uppercase tracking-[0.18em]">
               <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
               Envoyer un mail
             </div>
-            <h2 className="mt-3 font-heading font-bold text-2xl">Envoi manuel d&apos;un mail à un client</h2>
-            <div className="mt-2 text-sm text-white/70" style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>
-              Destinataire :{" "}
-              <span className="font-semibold text-white">{userLabel}</span>{" "}
-              <span className="text-white/60">({userEmail})</span>
+            <h2 className="mt-3 font-heading font-bold text-2xl text-left">Envoi manuel d&apos;un mail à un client</h2>
+            <div className="mt-2 text-sm text-white/70 text-left" style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>
+              <span className="block">
+                Destinataire :{" "}
+                <span className="font-semibold text-white">{userLabel}</span>
+              </span>
+              <span className="block text-white/60 text-xs mt-0.5">{userEmail}</span>
             </div>
           </div>
         </div>
@@ -487,69 +659,85 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
               {selected && selectedCtx && selectedMeta ? (
                 <div className="space-y-5 min-w-0">
 
-                  {/* 2. Contexte client */}
+                  {/* Sélecteur produits — uniquement pour RESTOCK */}
+                  {selected === "RESTOCK" && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
+                        2. Produits à annoncer
+                      </div>
+                      <RestockProductPicker
+                        selected={restockProducts}
+                        query={productQuery}
+                        onQueryChange={setProductQuery}
+                        results={searchResults}
+                        searching={searching}
+                        onAdd={(p) => {
+                          setRestockProducts((prev) => [...prev, p]);
+                          setProductQuery("");
+                          setSearchResults([]);
+                        }}
+                        onRemove={(id) => setRestockProducts((prev) => prev.filter((p) => p.id !== id))}
+                      />
+                    </div>
+                  )}
+
+                  {/* Conditions à réunir (grille) — numérotation dynamique */}
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                      2. Contexte du client
+                      {selected === "RESTOCK" ? "3." : "2."} Conditions à réunir
                     </div>
-                    <div className="rounded-xl bg-bg-secondary border border-border p-4">
-                      <p className="text-[13.5px] font-body text-text-primary leading-relaxed" style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>
-                        {selectedCtx.contextLine}
-                      </p>
-                      {selectedCtx.lastSentAt && (
-                        <p className="text-[12px] font-body text-text-muted mt-2 pt-2 border-t border-border">
-                          <span className="font-semibold">Dernier envoi :</span>{" "}
-                          {selectedCtx.lastSentAt.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      )}
+                    <div className="flex flex-wrap gap-2">
+                      {displayedConditions.map((c) => (
+                        <ConditionChip key={c.code} condition={c} />
+                      ))}
                     </div>
                   </div>
 
-                  {/* 3. Avertissements */}
-                  {selectedCtx.warnings.length > 0 && (
+                  {/* Blocages (bloque l'envoi) — utilise displayedBlockers (recomputé côté client pour RESTOCK) */}
+                  {isBlocked && (
                     <div>
-                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-amber-700 mb-2 flex items-center gap-1.5">
+                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-red-700 mb-2 flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.591c.75 1.335-.213 2.98-1.742 2.98H3.483c-1.53 0-2.493-1.645-1.743-2.98L8.257 3.1z" />
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                         </svg>
-                        3. {selectedCtx.warnings.length} avertissement{selectedCtx.warnings.length > 1 ? "s" : ""}
+                        Envoi bloqué — détail{blockersCount > 1 ? "s" : ""}
                       </div>
                       <div className="space-y-2">
-                        {selectedCtx.warnings.map((w, i) => (
-                          <div
-                            key={i}
-                            className="flex items-start gap-2.5 rounded-xl bg-amber-50 border border-amber-100 px-3.5 py-2.5 text-[12.5px] font-body text-amber-800 leading-relaxed"
-                            style={{ wordBreak: "break-word", overflowWrap: "anywhere" }}
+                        {displayedBlockers.map((b) => (
+                          <p
+                            key={b.code}
+                            className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-[12.5px] font-body text-red-800 leading-relaxed text-center"
+                            style={{
+                              overflowWrap: "anywhere",
+                              wordBreak: "break-word",
+                              whiteSpace: "normal",
+                              margin: 0,
+                            }}
                           >
-                            <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
-                              <path d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l6.516 11.591c.75 1.335-.213 2.98-1.742 2.98H3.483c-1.53 0-2.493-1.645-1.743-2.98L8.257 3.1zM11 13a1 1 0 10-2 0 1 1 0 002 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" />
-                            </svg>
-                            <span className="flex-1">{w}</span>
-                          </div>
+                            <span className="font-bold text-red-600 mr-1">✕</span>
+                            {b.label}
+                          </p>
                         ))}
                       </div>
-                      <p className="mt-2 text-[11px] font-body text-text-muted italic leading-relaxed">
-                        Aucun blocage — les avertissements sont juste pour t&apos;alerter.
+                      <p className="mt-2 text-[11px] font-body text-red-700 italic leading-relaxed">
+                        L&apos;envoi est refusé tant qu&apos;au moins une raison bloquante subsiste.
                       </p>
                     </div>
                   )}
 
-                  {selectedCtx.warnings.length === 0 && (
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3.5 py-2.5 text-[12.5px] font-body text-emerald-800 flex items-center gap-2">
-                      <svg className="w-4 h-4 shrink-0 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" fillRule="evenodd" />
-                      </svg>
-                      Aucun avertissement — tout va bien.
+                  {/* Aperçu du mail (masqué si envoi bloqué — inutile) */}
+                  {!isBlocked && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
+                        {selected === "RESTOCK" ? "4." : "3."} Aperçu du mail
+                      </div>
+                      <MailPreview
+                        scenario={selected as MailScenario}
+                        preview={ctx.preview}
+                        restockProducts={selected === "RESTOCK" ? restockProducts : undefined}
+                      />
                     </div>
                   )}
-
-                  {/* 4. Aperçu du mail */}
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                      {selectedCtx.warnings.length > 0 ? "4." : "3."} Aperçu du mail
-                    </div>
-                    <MailPreview scenario={selected as MailScenario} preview={ctx.preview} />
-                  </div>
                 </div>
               ) : (
                 <div className="rounded-2xl border-2 border-dashed border-border p-10 text-center">
@@ -580,6 +768,7 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
             type="button"
             onClick={onSend}
             disabled={!canConfirm || sending}
+            title={isBlocked ? "Envoi bloqué — corrigez les raisons ci-dessus." : undefined}
             className="px-5 py-2.5 rounded-lg text-sm font-body font-bold bg-gradient-to-br from-slate-800 to-slate-900 text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity inline-flex items-center gap-2"
           >
             {sending ? (
@@ -589,6 +778,14 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 Envoi…
+              </>
+            ) : isBlocked ? (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                </svg>
+                Envoi bloqué
               </>
             ) : (
               <>

@@ -91,6 +91,14 @@ export const registerSchema = z.object({
     .max(2000, "Le message ne doit pas dépasser 2000 caractères.")
     .optional()
     .or(z.literal("")),
+  // Consentement CGU obligatoire (wizard étape 5). Sans coche = z.literal(true)
+  // renvoie une erreur bloquante.
+  acceptsTerms: z.literal(true, {
+    message: "Vous devez accepter les CGU pour créer votre compte.",
+  }),
+  // Newsletter facultative. Défaut false. Couvre nouveautés + promos +
+  // relances panier abandonné (case unique, cf. mémoire projet).
+  acceptsNewsletter: z.boolean().optional().default(false),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Les mots de passe ne correspondent pas.",
   path: ["confirmPassword"],

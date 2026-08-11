@@ -12,6 +12,7 @@ import VatExemptionToggle from "@/components/admin/users/VatExemptionToggle";
 import ClientCartPanel from "@/components/admin/users/ClientCartPanel";
 import ClientOrdersPanel from "@/components/admin/users/ClientOrdersPanel";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
+import AdminNewsletterToggle from "@/components/admin/users/AdminNewsletterToggle";
 import { getCountry } from "@/lib/vat";
 import { isOnline } from "@/lib/online-status";
 import type { UserStatus } from "@prisma/client";
@@ -427,6 +428,25 @@ export default async function ClientDetailPage({
             </div>
           </div>
         )}
+
+        {/* Communications marketing (newsletter opt-in / opt-out) */}
+        <div className="card overflow-hidden mt-6">
+          <CardHeader
+            title="Communications marketing"
+            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>}
+            badge={
+              <span className={user.acceptsNewsletter ? "badge badge-success text-[11px]" : "badge badge-neutral text-[11px]"}>
+                {user.acceptsNewsletter ? "Abonné(e)" : "Désinscrit(e)"}
+              </span>
+            }
+          />
+          <div className="p-5">
+            <AdminNewsletterToggle userId={user.id} initial={user.acceptsNewsletter} />
+            <p className="text-[11px] text-text-muted mt-3 leading-relaxed">
+              RGPD — cette case couvre la newsletter, les promotions et les relances de panier abandonné. Désinscription verbale par téléphone : basculer ci-dessus.
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* ═══════════════════════ SECTION 2 : COMMERCE ═══════════════════════ */}

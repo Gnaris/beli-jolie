@@ -30,7 +30,7 @@ export async function sendNewsletterToUsers({
   templateId: string;
   userIds: string[];
 }): Promise<
-  | { success: true; sent: number; failed: number; details: Array<{ userId: string; email: string; ok: boolean; error?: string }> }
+  | { success: true; sent: number; failed: number; excluded: number; details: Array<{ userId: string; email: string; ok: boolean; error?: string }> }
   | { success: false; error: string }
 > {
   try {
@@ -83,18 +83,27 @@ export async function sendNewsletterToUsers({
       }
     }
 
-    // 3. Emails des clients sélectionnés
+    // 3. Emails des clients sélectionnés — filtre RGPD strict :
+    // seuls les clients APPROVED + acceptsNewsletter=true reçoivent la newsletter.
+    // Les autres sont exclus silencieusement mais comptés pour retour visuel.
     const users = await prisma.user.findMany({
       where: {
         id: { in: userIds },
         tenantId: tenant.id,
         role: "CLIENT",
         status: "APPROVED",
+        acceptsNewsletter: true,
       },
       select: { id: true, email: true },
     });
+    const excludedCount = userIds.length - users.length;
     if (users.length === 0) {
-      return { success: false, error: "Aucun client valide trouvé parmi la sélection." };
+      return {
+        success: false,
+        error: excludedCount > 0
+          ? `Aucun destinataire valide : ${excludedCount} client${excludedCount > 1 ? "s" : ""} exclu${excludedCount > 1 ? "s" : ""} (désinscrit${excludedCount > 1 ? "s" : ""} ou compte non-approuvé).`
+          : "Aucun client valide trouvé parmi la sélection.",
+      };
     }
 
     // 4. Rendu HTML (une seule fois — même contenu pour tous)
@@ -162,6 +171,7 @@ export async function sendNewsletterToUsers({
       success: true,
       sent: sentCount,
       failed: users.length - sentCount,
+      excluded: excludedCount,
       details,
     };
   } catch (err) {

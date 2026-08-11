@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -9,6 +10,14 @@ import { reinstateStockForOrder } from "@/lib/stock";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
 import { floorMoney } from "@/lib/order-totals";
+import {
+  loadActivePromotions,
+  validatePromoCode,
+  recordPromoUsage,
+  type AppliedCodePromo,
+} from "@/lib/promotions";
+import { resolveBestItemDiscount, resolveBestShippingDiscount } from "@/lib/promotion-engine";
+import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -76,6 +85,8 @@ export interface PlaceOrderInput {
   privateCarrierEmail?:     string;
   privateCarrierPhone?:     string;
   privateCarrierBordereau?: string; // path retourné par uploadBordereau
+  // Code promo saisi par le client (facultatif). Re-validé côté serveur.
+  promoCode?: string;
 }
 
 export interface PlaceOrderResult {
@@ -232,16 +243,85 @@ export async function placeOrder(
 
   // ── 2. Calculs ─────────────────────────────────────────────────────────
 
-  function computeUnitPrice(variant: (typeof cartItems)[0]["variant"]): number {
-    // unitPrice en BDD = prix total déjà calculé (UNIT = prix unité, PACK = prix total du pack)
-    const base = Number(variant.unitPrice);
-    const discountPercent = variant.product.discountPercent != null ? Number(variant.product.discountPercent) : null;
-    if (!discountPercent || discountPercent <= 0) return base;
-    return Math.max(0, base * (1 - discountPercent / 100));
+  // Charger les promotions actives + contexte de chaque item (catégorie +
+  // collections) pour appliquer le moteur "meilleure gagne".
+  const [activePromos, promoContexts] = await Promise.all([
+    loadActivePromotions(),
+    buildCartPromoContexts(cart.items),
+  ]);
+
+  const itemPriceResolutions = new Map<
+    string,
+    { finalUnitPrice: number; savedPerUnit: number; promotionId: string | null; promotionName: string | null; source: "none" | "product" | "promotion" }
+  >();
+
+  function resolveItemFinalPrice(itemId: string): number {
+    const cached = itemPriceResolutions.get(itemId);
+    if (cached) return cached.finalUnitPrice;
+    return 0;
+  }
+
+  for (const item of cart.items) {
+    const ctx = promoContexts.get(item.id);
+    if (!ctx) continue;
+    const resolved = resolveBestItemDiscount(ctx.context, activePromos, null);
+    itemPriceResolutions.set(item.id, {
+      finalUnitPrice: resolved.finalUnitPrice,
+      savedPerUnit: resolved.savedPerUnit,
+      promotionId: resolved.promotion?.id ?? null,
+      promotionName: resolved.promotion?.name ?? null,
+      source: resolved.source,
+    });
+  }
+
+  // Validation code promo (si fourni). Confronté au panier après remises AUTO.
+  let appliedCode: AppliedCodePromo | null = null;
+  if (input.promoCode && input.promoCode.trim()) {
+    const contextItems = cart.items
+      .map((i) => {
+        const c = promoContexts.get(i.id);
+        return c ? { ...c.context, quantity: i.quantity } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x != null);
+    const subtotalForCode = contextItems.reduce(
+      (s, it) => s + resolveBestItemDiscount(it, activePromos, null).finalUnitPrice * it.quantity,
+      0,
+    );
+    const check = await validatePromoCode(
+      input.promoCode.trim(),
+      {
+        items: contextItems,
+        subtotalHT: subtotalForCode,
+        carrierPrice: input.carrierPrice,
+        userId,
+        userShipping: { isFree: user.freeShipping, savedAmount: 0 },
+      },
+      activePromos,
+    );
+    if (!check.valid) {
+      return { success: false, error: check.error };
+    }
+    appliedCode = check.result;
+
+    // Recalcule les items avec le code appliqué pour figer les finalUnitPrice.
+    for (const item of cart.items) {
+      const ctx = promoContexts.get(item.id);
+      if (!ctx) continue;
+      const codePromo = activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null;
+      const resolved = resolveBestItemDiscount(ctx.context, activePromos, codePromo);
+      itemPriceResolutions.set(item.id, {
+        finalUnitPrice: resolved.finalUnitPrice,
+        savedPerUnit: resolved.savedPerUnit,
+        promotionId: resolved.promotion?.id ?? null,
+        promotionName: resolved.promotion?.name ?? null,
+        source: resolved.source,
+      });
+    }
   }
 
   const subtotalHT = cart.items.reduce(
-    (s, item) => s + computeUnitPrice(item.variant) * item.quantity, 0
+    (s, item) => s + resolveItemFinalPrice(item.id) * item.quantity,
+    0,
   );
 
   // Remise commerciale client
@@ -298,18 +378,30 @@ export async function placeOrder(
     return true; // PERMANENT et NEXT_ORDER : appliquée si présente
   })();
 
-  const effectiveCarrierPrice = (() => {
-    if (isPrivateCarrier) return 0;
-    if (clientFreeShipping) return 0;
+  // Économie livraison venant du client (permanent / seuil / next_order)
+  const userShippingSaved = (() => {
+    if (clientFreeShipping) return input.carrierPrice;
     if (shippingDiscountApplies && user.shippingDiscountType && user.shippingDiscountValue != null) {
       const sdv = Number(user.shippingDiscountValue);
       if (user.shippingDiscountType === "PERCENT") {
-        return Math.max(0, input.carrierPrice * (1 - sdv / 100));
+        return Math.min(input.carrierPrice, input.carrierPrice * (sdv / 100));
       }
-      return Math.max(0, input.carrierPrice - sdv);
+      return Math.min(input.carrierPrice, sdv);
     }
-    return input.carrierPrice;
+    return 0;
   })();
+
+  const shippingResolution = isPrivateCarrier
+    ? { finalPrice: 0, savedAmount: input.carrierPrice, isFree: true, source: "none" as const, promotion: null }
+    : resolveBestShippingDiscount(
+        input.carrierPrice,
+        activePromos,
+        { isFree: clientFreeShipping, savedAmount: userShippingSaved },
+        appliedCode?.scope === "SHIPPING"
+          ? activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null
+          : null,
+      );
+  const effectiveCarrierPrice = shippingResolution.finalPrice;
 
   // Taux de TVA recalculé côté serveur (jamais confiance à l'input client) :
   // exonération B2B intracom appliquée même en retrait si l'admin a validé.
@@ -357,7 +449,7 @@ export async function placeOrder(
   const orderNumber = await generateOrderNumber();
 
   const orderItems: OrderItemPDF[] = cart.items.map((item) => {
-    const unitPrice = computeUnitPrice(item.variant);
+    const unitPrice = resolveItemFinalPrice(item.id);
     const imgKey = `${item.variant.productId}__${item.variant.colorId}`;
 
     const isMultiPack = item.variant.saleType === "PACK" && item.variant.packLines.length > 0;
@@ -509,6 +601,9 @@ export async function placeOrder(
       clientDiscountValue: clientDiscountValue,
       clientDiscountAmt,
       clientFreeShipping,
+      // Promotion (code saisi manuellement)
+      promoCode:     appliedCode?.code ?? null,
+      promoDiscount: appliedCode?.totalSaved ?? 0,
       // CGV
       cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
       // TVA
@@ -647,6 +742,29 @@ export async function placeOrder(
       );
     }
   }
+
+  // ── 6.5 Enregistrer les usages de promotions (AUTO + code) ─────────────
+  // Une promo est enregistrée UNE fois par commande, même si elle a gagné
+  // sur plusieurs items. Le montant écrit = somme des économies réalisées
+  // grâce à elle.
+  const promoSavingsById = new Map<string, number>();
+  for (const item of cart.items) {
+    const res = itemPriceResolutions.get(item.id);
+    if (!res || !res.promotionId) continue;
+    const acc = promoSavingsById.get(res.promotionId) ?? 0;
+    promoSavingsById.set(res.promotionId, acc + res.savedPerUnit * item.quantity);
+  }
+  if (shippingResolution.promotion) {
+    const acc = promoSavingsById.get(shippingResolution.promotion.id) ?? 0;
+    promoSavingsById.set(shippingResolution.promotion.id, acc + shippingResolution.savedAmount);
+  }
+  for (const [promoId, savedTotal] of promoSavingsById) {
+    if (savedTotal <= 0) continue;
+    await recordPromoUsage(promoId, userId, order.id, savedTotal).catch((err) =>
+      logger.error("[placeOrder] recordPromoUsage error", { error: err, promoId }),
+    );
+  }
+  if (promoSavingsById.size > 0) revalidateTag("promotions", "default");
 
   // ── 7. Auto-suppression remises NEXT_ORDER ──────────────────────────────
 

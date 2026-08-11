@@ -26,6 +26,8 @@ interface Props {
   initialLabelUrl: string | null;
   /** True si la livraison est hors UE (FR + UE + DOM-TOM exclus). */
   isOutsideEu: boolean;
+  /** ID transporteur choisi par le client — sert à masquer la génération Easy-Express pour "pickup_store" et "private_carrier". */
+  carrierId: string | null;
 }
 
 export default function ShippingSection({
@@ -34,7 +36,11 @@ export default function ShippingSection({
   initialTrackingId,
   initialLabelUrl,
   isOutsideEu,
+  carrierId,
 }: Props) {
+  const isPickup = carrierId === "pickup_store";
+  const isPrivateCarrier = carrierId === "private_carrier";
+  const skipEasyExpress = isPickup || isPrivateCarrier;
   const router = useRouter();
   const { showLoading, hideLoading } = useLoadingOverlay();
   const toast = useToast();
@@ -250,7 +256,19 @@ export default function ShippingSection({
   // ─────────────────────────────────────────────
   return (
     <div className="px-5 py-4 space-y-4 text-sm font-body">
-      {isOutsideEu && (
+      {isPickup && (
+        <div className="rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary">
+          <strong>Retrait en boutique</strong> — pas de bordereau à générer, le client vient récupérer sa commande.
+        </div>
+      )}
+
+      {isPrivateCarrier && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-text-primary">
+          <strong>Transporteur privé du client</strong> — les coordonnées ou le bordereau fourni sont affichés dans l&apos;encadré « Transporteur privé du client » plus bas. Vous pouvez saisir un numéro de suivi à la main si le transporteur en communique un.
+        </div>
+      )}
+
+      {isOutsideEu && !skipEasyExpress && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-text-primary">
           Livraison <strong>hors UE</strong> : générez le bordereau directement depuis le portail
           Easy-Express (la déclaration douanière doit être remplie là-bas), puis recopiez le
@@ -265,7 +283,7 @@ export default function ShippingSection({
         <p className="text-text-primary">{initialCarrierName}</p>
       </div>
 
-      {!isOutsideEu && (
+      {!isOutsideEu && !skipEasyExpress && (
         <button
           type="button"
           onClick={handleAutoGenerate}
@@ -276,8 +294,9 @@ export default function ShippingSection({
         </button>
       )}
 
-      <div className={isOutsideEu ? "" : "border-t border-border pt-4"}>
-        {!showManual && !isOutsideEu ? (
+      {isPickup ? null : (
+      <div className={isOutsideEu || skipEasyExpress ? "" : "border-t border-border pt-4"}>
+        {!showManual && !isOutsideEu && !skipEasyExpress ? (
           <button
             type="button"
             onClick={() => setShowManual(true)}
@@ -286,7 +305,7 @@ export default function ShippingSection({
           >
             Saisir un suivi à la main
           </button>
-        ) : !showManual && isOutsideEu ? (
+        ) : !showManual && (isOutsideEu || skipEasyExpress) ? (
           <button
             type="button"
             onClick={() => setShowManual(true)}
@@ -350,6 +369,7 @@ export default function ShippingSection({
           </form>
         )}
       </div>
+      )}
     </div>
   );
 }

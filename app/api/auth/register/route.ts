@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
       password:            formData.get("password") as string,
       confirmPassword:     formData.get("confirmPassword") as string,
       registrationMessage: (formData.get("registrationMessage") as string | null) || undefined,
+      // Checkboxes : FormData renvoie "true"/"false" (chaîne). Zod attend un booléen.
+      acceptsTerms:        formData.get("acceptsTerms") === "true",
+      acceptsNewsletter:   formData.get("acceptsNewsletter") === "true",
     };
 
     // Validation Zod
@@ -263,6 +266,7 @@ export async function POST(request: NextRequest) {
         kbisPath,
         documentPath,
         registrationMessage: data.registrationMessage?.trim() || null,
+        acceptsNewsletter:   data.acceptsNewsletter ?? false,
         role:                "CLIENT",
         status:              "PENDING",
       },

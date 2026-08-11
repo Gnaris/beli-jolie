@@ -43,7 +43,6 @@ import {
   applyMarketplaceMarkup,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing";
-import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
 import { logger } from "@/lib/logger";
 import {
   resolveVariant,
@@ -122,10 +121,9 @@ export async function pushAddPfsVariantFromLocal(
   if (!product) return { ok: false, error: "Produit introuvable." };
   if (!product.pfsProductId) return { ok: false, error: "Produit non publié sur PFS." };
 
-  const [colorRefMap, markupConfigs, outOfStockCfg] = await Promise.all([
+  const [colorRefMap, markupConfigs] = await Promise.all([
     buildColorLabelToRefMap(),
     loadMarketplaceMarkupConfigs(),
-    getPfsOutOfStockConfig(),
   ]);
   const markup = markupConfigs.pfs;
 
@@ -147,7 +145,7 @@ export async function pushAddPfsVariantFromLocal(
     };
   }
 
-  const createData = buildPfsVariantCreatePayload(local, colorRefMap, markup, outOfStockCfg.deactivateVariant);
+  const createData = buildPfsVariantCreatePayload(local, colorRefMap, markup);
   if (!createData) {
     return { ok: false, error: `Impossible de construire les données PFS pour ${colorRef}.` };
   }
@@ -645,9 +643,8 @@ function buildPfsVariantCreatePayload(
   },
   colorRefMap: Map<string, string>,
   markup: MarkupConfig | undefined,
-  deactivateOnZeroStock: boolean,
 ): PfsVariantCreateData | null {
-  const isActive = deactivateOnZeroStock ? (variant.stock ?? 0) > 0 : true;
+  const isActive = !variant.disabled;
   const rawPrice = Number(variant.unitPrice);
   const qty = variant.saleType === "PACK" && variant.packQuantity ? variant.packQuantity : 1;
   const unitBase = variant.saleType === "PACK" ? Math.round((rawPrice / qty) * 100) / 100 : rawPrice;

@@ -16,6 +16,8 @@ import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
+import { loadActivePromotions } from "@/lib/promotions";
+import { resolveBestPercentForProductBadge } from "@/lib/promotion-engine";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { buildProductHandle, parseProductHandle } from "@/lib/product-url";
 
@@ -164,6 +166,25 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   ]);
 
   if (!product) notFound();
+
+  // Meilleur % de remise applicable au produit (manuel vs promos AUTO ciblantes)
+  const [activePromos, productCollections] = await Promise.all([
+    loadActivePromotions(),
+    prisma.collectionProduct.findMany({
+      where: { productId: product.id },
+      select: { collectionId: true },
+    }),
+  ]);
+  const manualDiscountPercent = product.discountPercent != null ? Number(product.discountPercent) : 0;
+  const bestDiscountPercent = resolveBestPercentForProductBadge(
+    {
+      productId: product.id,
+      categoryId: product.categoryId,
+      collectionIds: productCollections.map((c) => c.collectionId),
+      productDiscountPercent: manualDiscountPercent,
+    },
+    activePromos,
+  );
 
   // Redirection 301 permanente vers l'URL canonique (slug + reference) :
   // - cuid legacy `/produits/{cuid}` posé par l'ancien schéma → nouvel URL SEO
@@ -424,7 +445,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
               bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
               sizeDetailsTu={product.sizeDetailsTu}
-              discountPercent={product.discountPercent != null ? Number(product.discountPercent) : null}
+              discountPercent={bestDiscountPercent > 0 ? bestDiscountPercent : (manualDiscountPercent > 0 ? manualDiscountPercent : null)}
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}
               showPrices={canSeePrices(session)}

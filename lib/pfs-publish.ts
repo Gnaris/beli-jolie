@@ -40,7 +40,6 @@ import { emitProductEvent } from "@/lib/product-events";
 import { requirePfsBrand } from "@/lib/pfs-brand";
 import { matchPfsFamilyId, matchPfsCategoryId } from "@/lib/pfs-family-resolve";
 import { mapLocalToPfsStatus } from "@/lib/pfs-status";
-import { getPfsOutOfStockConfig } from "@/lib/pfs-out-of-stock-config";
 import { assertNoPfsColorConflicts } from "@/lib/pfs-color-conflicts";
 import { filterVariantsWithImages } from "@/lib/variant-image-coverage";
 
@@ -160,19 +159,14 @@ function resolvePfsColorRef(
 /**
  * Décide du flag `is_active` PFS d'une variante.
  *
- * - Variante `disabled` localement (case décochée dans le tiroir) → toujours
- *   `false`, indépendamment du stock. PFS n'exposera plus la variante côté
- *   vitrine partenaire, mais le vrai stock BDD reste intact — réactiver la
- *   variante repousse `is_active: true` (et son stock) au prochain sync.
- * - `deactivateOnZeroStock` = true (config PFS par défaut) → `stock > 0`
- *   suffit. Sinon, `is_active` est toujours vrai tant que non désactivée.
+ * Seul le flag local `disabled` (case décochée dans le tiroir) compte : une
+ * variante en rupture mais toujours activée reste `is_active: true` sur PFS
+ * (elle s'affiche marquée en rupture côté vitrine partenaire).
  */
 export function pfsComputeVariantIsActive(
-  variant: { stock: number | null; disabled: boolean },
-  deactivateOnZeroStock: boolean,
+  variant: { disabled: boolean },
 ): boolean {
-  if (variant.disabled) return false;
-  return deactivateOnZeroStock ? (variant.stock ?? 0) > 0 : true;
+  return !variant.disabled;
 }
 
 function getPfsUnitPrice(variant: FullVariant, markup?: MarkupConfig): number {
@@ -376,7 +370,6 @@ export async function pfsPublishProduct(
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
   const pfsMarkup = markupConfigs.pfs;
-  const outOfStockCfg = await getPfsOutOfStockConfig();
 
   // Load PFS color label → reference mapping (e.g. "Doré" → "DORE")
   const colorRefMap = await buildColorLabelToRefMap();
@@ -457,7 +450,7 @@ export async function pfsPublishProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: pfsComputeVariantIsActive(variant, outOfStockCfg.deactivateVariant),
+            is_active: pfsComputeVariantIsActive(variant),
           },
         });
       }
@@ -509,7 +502,7 @@ export async function pfsPublishProduct(
             price_eur_ex_vat: getPfsUnitPrice(variant, pfsMarkup),
             weight: variant.weight,
             stock_qty: variant.stock ?? 0,
-            is_active: pfsComputeVariantIsActive(variant, outOfStockCfg.deactivateVariant),
+            is_active: pfsComputeVariantIsActive(variant),
             packs: packEntries,
           },
         });
@@ -582,18 +575,14 @@ export async function pfsPublishProduct(
       }
 
       // PFS peut réécrire stock=300 lors du create quand on envoie stock_qty=0
-      // → on repatche systématiquement. Le `is_active` dépend de la config
-      // (désactiver la variante ou la laisser visible marquée en rupture).
+      // → on repatche le stock à 0. `is_active` reste tel quel côté PFS
+      // (variante en rupture mais toujours activée si non désactivée localement).
       if (createdVariantIds.length === variantCreateData.length) {
         const zeroStockPatches: PfsVariantUpdateData[] = [];
         for (let i = 0; i < variantCreateData.length; i++) {
           const vid = createdVariantIds[i];
           if (variantCreateData[i].pfsData.stock_qty === 0 && vid) {
-            zeroStockPatches.push({
-              variant_id: vid,
-              stock_qty: 0,
-              is_active: outOfStockCfg.deactivateVariant ? false : true,
-            });
+            zeroStockPatches.push({ variant_id: vid, stock_qty: 0 });
           }
         }
         if (zeroStockPatches.length > 0) {

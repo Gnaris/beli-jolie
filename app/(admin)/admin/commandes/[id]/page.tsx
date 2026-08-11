@@ -176,6 +176,7 @@ export default async function AdminCommandeDetailPage({
               initialTrackingId={order.eeTrackingId}
               initialLabelUrl={order.eeLabelUrl}
               isOutsideEu={isOutsideEu}
+              carrierId={order.carrierId}
             />
           </div>
         </div>

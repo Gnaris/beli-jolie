@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { getCartWithProductVariants } from "@/app/actions/client/cart";
 import CartPageClient from "@/components/panier/CartPageClient";
 import { isStripeConfigured } from "@/lib/stripe";
+import { loadActivePromotions } from "@/lib/promotions";
+import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
+import { resolveBestItemDiscount } from "@/lib/promotion-engine";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -70,12 +73,41 @@ export default async function PanierPage() {
     })),
   } : null;
 
+  // Calculer les promotions applicables par item (source de vérité serveur)
+  const promoInfoByItemId: Record<string, {
+    finalUnitPrice: number;
+    savedPerUnit: number;
+    displayPercent: number;
+    promotionName: string | null;
+    source: "none" | "product" | "promotion";
+  }> = {};
+
+  if (cart && cart.items.length > 0) {
+    const [activePromos, promoContexts] = await Promise.all([
+      loadActivePromotions(),
+      buildCartPromoContexts(cart.items),
+    ]);
+    for (const item of cart.items) {
+      const ctx = promoContexts.get(item.id);
+      if (!ctx) continue;
+      const resolved = resolveBestItemDiscount(ctx.context, activePromos, null);
+      promoInfoByItemId[item.id] = {
+        finalUnitPrice: resolved.finalUnitPrice,
+        savedPerUnit: resolved.savedPerUnit,
+        displayPercent: resolved.displayPercent,
+        promotionName: resolved.promotion?.name ?? null,
+        source: resolved.source,
+      };
+    }
+  }
+
   return (
     <CartPageClient
       cart={serializedCart as Parameters<typeof CartPageClient>[0]["cart"]}
       productsMeta={productsMeta}
       minOrderHT={minOrderHT}
       stripeReady={stripeReady}
+      promoInfoByItemId={promoInfoByItemId}
     />
   );
 }

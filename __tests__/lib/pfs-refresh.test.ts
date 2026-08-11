@@ -86,10 +86,6 @@ vi.mock("@/lib/pfs-brand", () => ({
   requirePfsBrand: vi.fn().mockResolvedValue({ id: "BRAND-1", name: "Beli & Jolie" }),
   PfsBrandRequiredError: class PfsBrandRequiredError extends Error {},
 }));
-vi.mock("@/lib/pfs-out-of-stock-config", () => ({
-  getPfsOutOfStockConfig: vi.fn().mockResolvedValue({ deactivateVariant: true }),
-  PFS_OUT_OF_STOCK_DEFAULTS: { deactivateVariant: true },
-}));
 
 import { pfsRefreshProduct } from "@/lib/pfs-refresh";
 

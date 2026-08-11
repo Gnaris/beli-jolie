@@ -62,7 +62,6 @@ describe("buildPfsVariantCreatePayload — UNIT", () => {
       },
       new Map(),
       undefined, // pas de markup
-      true, // deactivateOnZeroStock
     );
     expect(payload).toEqual({
       type: "ITEM",
@@ -75,7 +74,7 @@ describe("buildPfsVariantCreatePayload — UNIT", () => {
     });
   });
 
-  it("désactive une variante si stock=0 avec deactivateOnZeroStock", () => {
+  it("stock=0 mais disabled=false → reste is_active=true (variante en rupture visible sur PFS)", () => {
     const payload = buildPfsVariantCreatePayload(
       {
         unitPrice: 12,
@@ -92,7 +91,28 @@ describe("buildPfsVariantCreatePayload — UNIT", () => {
       },
       new Map(),
       undefined,
-      true,
+    );
+    expect(payload?.is_active).toBe(true);
+    expect(payload?.stock_qty).toBe(0);
+  });
+
+  it("disabled=true → is_active=false quel que soit le stock", () => {
+    const payload = buildPfsVariantCreatePayload(
+      {
+        unitPrice: 12,
+        weight: 0.02,
+        stock: 10,
+        saleType: "UNIT",
+        packQuantity: null,
+        disabled: true,
+        colorId: "c1",
+        color: { name: "Rose", hex: null, pfsColorRef: "ROSE" },
+        pfsColorRefOverride: null,
+        variantSizes: [{ size: { name: "TU", pfsSizeRef: null }, quantity: 1 }],
+        packLines: [],
+      },
+      new Map(),
+      undefined,
     );
     expect(payload?.is_active).toBe(false);
   });
@@ -114,7 +134,6 @@ describe("buildPfsVariantCreatePayload — UNIT", () => {
       },
       new Map(),
       { type: "percent", value: 20, rounding: "none" },
-      false,
     );
     // 10 + 20% = 12
     expect(payload?.price_eur_ex_vat).toBeCloseTo(12, 2);
@@ -137,7 +156,6 @@ describe("buildPfsVariantCreatePayload — UNIT", () => {
       },
       new Map(),
       undefined,
-      true,
     );
     expect(payload).toBeNull();
   });
@@ -161,7 +179,6 @@ describe("buildPfsVariantCreatePayload — PACK", () => {
       },
       new Map(),
       undefined,
-      true,
     );
     expect(payload?.type).toBe("PACK");
     expect(payload?.color).toBe("GOLDEN");
@@ -200,7 +217,6 @@ describe("buildPfsVariantCreatePayload — PACK", () => {
       },
       new Map(),
       undefined,
-      true,
     );
     expect(payload?.type).toBe("PACK");
     // Prix pack unitaire = 24 / 3 = 8
