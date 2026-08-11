@@ -265,6 +265,16 @@ describe("lib/security", () => {
       await checkRegistrationSpam("1.1.1.1", "a@b.com", "06", "123");
       expect(mockPrisma.registrationLog.count).toHaveBeenCalledTimes(4);
     });
+
+    it("should skip SIRET check when SIRET is null (clients hors France)", async () => {
+      mockPrisma.registrationLog.count.mockResolvedValue(0);
+      await checkRegistrationSpam("1.1.1.1", "a@b.com", "06", null);
+      // IP + phone + email = 3 calls, siret est skip
+      expect(mockPrisma.registrationLog.count).toHaveBeenCalledTimes(3);
+      expect(mockPrisma.registrationLog.count).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ siret: expect.anything() }) }),
+      );
+    });
   });
 
   // ─── logRegistration ───────────────────────────────────────────
@@ -280,6 +290,20 @@ describe("lib/security", () => {
           phone: "06",
           siret: "123",
           company: "MyCompany",
+        },
+      });
+    });
+
+    it("should accept null SIRET (client hors France)", async () => {
+      mockPrisma.registrationLog.create.mockResolvedValue({});
+      await logRegistration("1.2.3.4", "foreign@test.com", "06", null, "GmbH DE");
+      expect(mockPrisma.registrationLog.create).toHaveBeenCalledWith({
+        data: {
+          ip: "1.2.3.4",
+          email: "foreign@test.com",
+          phone: "06",
+          siret: null,
+          company: "GmbH DE",
         },
       });
     });

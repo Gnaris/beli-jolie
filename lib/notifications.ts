@@ -63,7 +63,7 @@ interface NewClientInfo {
   company: string;
   email: string;
   phone: string;
-  siret: string;
+  siret: string | null;
   kbisPath?: string; // chemin relatif stocké en base, ex: private/uploads/kbis/kbis_XXX.pdf
   documentPath?: string; // document complémentaire, ex: private/uploads/documents/doc_XXX.pdf
   registrationMessage?: string; // message libre saisi lors de l'inscription
@@ -136,7 +136,7 @@ export async function notifyNewClientRegistration(
           </tr>
           <tr style="background:#F3F4F6;">
             <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
-            <td style="padding:10px 14px;">${escapeHtml(client.siret)}</td>
+            <td style="padding:10px 14px;">${client.siret ? escapeHtml(client.siret) : "<em style='color:#9CA3AF;'>Non renseigné (client hors France)</em>"}</td>
           </tr>
           ${messageBlock}
         </table>

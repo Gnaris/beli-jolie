@@ -308,10 +308,13 @@ export default function RegisterForm({
             value={fields.company} error={fieldErrors.company}
             placeholder={t("companyPlaceholder")} autoComplete="organization"
             onChange={(v) => handleChange("company", v)} />
-          <FormField id="siret" label={t("siret")} type="text"
-            value={fields.siret} error={fieldErrors.siret}
-            placeholder={t("siretPlaceholder")} maxLength={14} mono
-            onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
+          <div>
+            <FormField id="siret" label={t("siret")} type="text"
+              value={fields.siret} error={fieldErrors.siret}
+              placeholder={t("siretPlaceholder")} maxLength={14} mono optional
+              onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
+            <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
+          </div>
 
           {/* TVA */}
           <div>

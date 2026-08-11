@@ -148,13 +148,15 @@ export async function checkRegistrationSpam(
   ip: string,
   email: string,
   phone: string,
-  siret: string,
+  siret: string | null,
 ): Promise<string | null> {
   if (!REGISTRATION_SPAM_CHECK_ENABLED) return null;
 
   const since = new Date(Date.now() - REGISTRATION_COOLDOWN_MS);
 
-  // Vérifier chaque critère en parallèle
+  // Vérifier chaque critère en parallèle — la vérif SIRET est skip si absent
+  // (clients hors France sans SIRET) : count() sur `null` ne rejouerait pas
+  // le cooldown de toute façon, autant l'éviter.
   const [byIp, byPhone, bySiret, byEmail] = await Promise.all([
     prisma.registrationLog.count({
       where: { ip, createdAt: { gte: since } },
@@ -162,9 +164,11 @@ export async function checkRegistrationSpam(
     prisma.registrationLog.count({
       where: { phone, createdAt: { gte: since } },
     }),
-    prisma.registrationLog.count({
-      where: { siret, createdAt: { gte: since } },
-    }),
+    siret
+      ? prisma.registrationLog.count({
+          where: { siret, createdAt: { gte: since } },
+        })
+      : Promise.resolve(0),
     prisma.registrationLog.count({
       where: { email: email.toLowerCase().trim(), createdAt: { gte: since } },
     }),
@@ -193,7 +197,7 @@ export async function logRegistration(
   ip: string,
   email: string,
   phone: string,
-  siret: string,
+  siret: string | null,
   company: string
 ): Promise<void> {
   await prisma.registrationLog.create({

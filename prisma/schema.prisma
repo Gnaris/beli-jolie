@@ -44,7 +44,7 @@ model User {
   lastName                      String
   company                       String
   phone                         String
-  siret                         String
+  siret                         String?
   kbisPath                      String?
   documentPath                  String? // Document libre envoyé lors de l'inscription
   registrationMessage           String? // Message libre lors de l'inscription
@@ -2125,7 +2125,7 @@ model Order {
   clientCompany   String
   clientEmail     String
   clientPhone     String
-  clientSiret     String
+  clientSiret     String?
   clientVatNumber String?
 
   // Transporteur
@@ -2552,7 +2552,7 @@ model RegistrationLog {
   ip        String
   email     String
   phone     String
-  siret     String
+  siret     String?
   company   String
   createdAt DateTime @default(now())
 

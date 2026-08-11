@@ -379,7 +379,7 @@ type RegisteredClient = {
   company: string;
   email: string;
   phone: string;
-  siret: string;
+  siret: string | null;
   status: UserStatus;
   lastLoginAt: Date | null;
   lastSeenAt: Date | null;

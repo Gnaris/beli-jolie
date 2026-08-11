@@ -77,6 +77,7 @@
       "email": "Adresse e-mail",
       "phone": "Téléphone",
       "siret": "Numéro SIRET",
+      "siretHint": "Uniquement pour les entreprises françaises. Laissez vide si votre société est hors de France.",
       "vatNumber": "N° TVA intracommunautaire",
       "vatNumberOptional": "(optionnel)",
       "vatNumberHint": "Requis pour les entreprises UE hors France (exonération TVA par autoliquidation)",

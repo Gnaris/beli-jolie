@@ -45,10 +45,13 @@ export const registerSchema = z.object({
       /^(\+\d{1,3}|0)[1-9]\d{7,12}$/,
       "Format de téléphone invalide (ex: 0612345678, +33612345678, +49301234567).",
     ),
+  // Facultatif : les clients étrangers n'ont pas de SIRET. Si présent, on
+  // exige le format français à 14 chiffres pour éviter les saisies bidon.
   siret: z
     .string()
-    .length(14, "Le SIRET doit contenir exactement 14 chiffres.")
-    .regex(/^\d{14}$/, "Le SIRET ne doit contenir que des chiffres."),
+    .regex(/^\d{14}$/, "Le SIRET doit contenir exactement 14 chiffres.")
+    .optional()
+    .or(z.literal("")),
   vatNumber: z
     .string()
     .regex(

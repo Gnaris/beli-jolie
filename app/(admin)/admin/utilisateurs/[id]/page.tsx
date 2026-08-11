@@ -351,7 +351,7 @@ export default async function ClientDetailPage({
               <div>
                 <SubsectionTitle>Entreprise</SubsectionTitle>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 sm:gap-x-6 gap-y-3 sm:gap-y-4">
-                  <Field label="SIRET" value={user.siret} mono />
+                  <Field label="SIRET" value={user.siret || "—"} mono />
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted mb-1">N° TVA intra</p>
                     <VerifyViesInline

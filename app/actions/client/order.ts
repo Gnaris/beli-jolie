@@ -494,7 +494,7 @@ export async function placeOrder(
       clientCompany:   user.company,
       clientEmail:     user.email,
       clientPhone:     user.phone,
-      clientSiret:     user.siret,
+      clientSiret:     user.siret ?? null,
       clientVatNumber: user.vatNumber ?? null,
       // Transporteur
       carrierId:    input.carrierId,

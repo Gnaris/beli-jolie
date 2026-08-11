@@ -100,7 +100,7 @@ interface UserInfo {
   company: string;
   email: string;
   phone: string;
-  siret: string;
+  siret: string | null;
   vatNumber: string | null;
   vatExempt: boolean;
   addressStreet:     string | null;
@@ -871,7 +871,7 @@ export default function CheckoutClient({
     company:   user.company,
     email:     user.email,
     phone:     user.phone,
-    siret:     user.siret,
+    siret:     user.siret ?? "",
     vatNumber: user.vatNumber ?? "",
     address1:  user.addressStreet     ?? "",
     address2:  user.addressComplement ?? "",

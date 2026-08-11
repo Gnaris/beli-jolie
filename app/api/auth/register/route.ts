@@ -66,6 +66,12 @@ export async function POST(request: NextRequest) {
 
     const data = validation.data;
 
+    // SIRET facultatif : normalisé en `null` si vide (les clients étrangers
+    // n'ont pas de SIRET). Un tenant peut alors héberger plusieurs comptes
+    // sans SIRET grâce au NULL — le @@unique composite Postgres/MySQL
+    // autorise plusieurs NULL.
+    const normalizedSiret = data.siret?.trim() ? data.siret.trim() : null;
+
     // Vérification unicité de l'email
     const existingEmail = await prisma.user.findFirst({
       where: { email: data.email.toLowerCase().trim() },
@@ -77,15 +83,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Vérification unicité du SIRET
-    const existingSiret = await prisma.user.findFirst({
-      where: { siret: data.siret },
-    });
-    if (existingSiret) {
-      return NextResponse.json(
-        { error: "Un compte existe déjà avec ce numéro SIRET." },
-        { status: 409 }
-      );
+    // Vérification unicité du SIRET (uniquement s'il est renseigné)
+    if (normalizedSiret) {
+      const existingSiret = await prisma.user.findFirst({
+        where: { siret: normalizedSiret },
+      });
+      if (existingSiret) {
+        return NextResponse.json(
+          { error: "Un compte existe déjà avec ce numéro SIRET." },
+          { status: 409 }
+        );
+      }
     }
 
     // ── Anti-spam : cooldown 3h par IP/phone/siret/email ─────────────
@@ -94,7 +102,7 @@ export async function POST(request: NextRequest) {
       clientIp,
       data.email,
       data.phone,
-      data.siret,
+      normalizedSiret,
     );
     if (spamError) {
       return NextResponse.json({ error: spamError }, { status: 429 });
@@ -166,7 +174,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const safeSiret = slugify(data.siret.replace(/\D/g, ""));
+      // Fallback sur l'email quand le SIRET est absent (client hors France)
+      const safeSiret = normalizedSiret
+        ? slugify(normalizedSiret.replace(/\D/g, ""))
+        : slugify(data.email.toLowerCase().trim());
       const dir = kbisDir(safeSiret, tenantSlug);
       const timestamp = Date.now();
       const filename = `kbis-${timestamp}.${ext}`;
@@ -217,7 +228,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const safeSiret = slugify(data.siret.replace(/\D/g, ""));
+      const safeSiret = normalizedSiret
+        ? slugify(normalizedSiret.replace(/\D/g, ""))
+        : slugify(data.email.toLowerCase().trim());
       const docDir = clientDocumentsDir(safeSiret, tenantSlug);
       const timestamp = Date.now();
       const docFilename = `document-${timestamp}.${docExt}`;
@@ -240,7 +253,7 @@ export async function POST(request: NextRequest) {
         lastName:            data.lastName?.trim() || "",
         company:             data.company.trim(),
         phone:               data.phone.trim(),
-        siret:               data.siret.trim(),
+        siret:               normalizedSiret,
         vatNumber:           data.vatNumber?.trim() || null,
         addressStreet:       data.addressStreet.trim(),
         addressComplement:   data.addressComplement?.trim() || null,
@@ -276,7 +289,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Log anti-spam (cooldown 3h) ─────────────────────────────────────
-    await logRegistration(clientIp, data.email, data.phone, data.siret, data.company);
+    await logRegistration(clientIp, data.email, data.phone, normalizedSiret, data.company);
 
     // Notification admin (email + Kbis en pièce jointe si fourni) — non bloquant
     notifyNewClientRegistration({
@@ -285,7 +298,7 @@ export async function POST(request: NextRequest) {
       company:             newUser.company,
       email:               newUser.email,
       phone:               newUser.phone,
-      siret:               newUser.siret,
+      siret:               newUser.siret ?? null,
       kbisPath:            newUser.kbisPath ?? undefined,
       documentPath:        newUser.documentPath ?? undefined,
       registrationMessage: newUser.registrationMessage ?? undefined,

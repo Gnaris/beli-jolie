@@ -12,7 +12,7 @@ interface AccountEditorProps {
     email: string;
     company: string;
     phone: string;
-    siret: string;
+    siret: string | null;
     fullAddress: string | null;
     vatNumber: string | null;
   };
@@ -129,7 +129,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
         {/* Email + SIRET + Adresse (non editable) */}
         {[
           { label: t("email"), value: user.email },
-          { label: t("siret"), value: user.siret, mono: true },
+          { label: t("siret"), value: user.siret || t("notProvided"), mono: true },
           { label: t("address"), value: user.fullAddress || t("notProvided") },
         ].map(({ label, value, mono }) => (
           <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">

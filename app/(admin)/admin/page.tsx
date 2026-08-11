@@ -397,7 +397,7 @@ export default async function AdminDashboardPage() {
                       <p className="font-body text-xs text-text-secondary mt-0.5">{user.firstName} {user.lastName}</p>
                       <p className="font-body text-xs text-text-muted mt-1 truncate">{user.email}</p>
                       <div className="flex items-center justify-between mt-2.5">
-                        <span className="font-mono text-[11px] text-text-muted">{user.siret}</span>
+                        <span className="font-mono text-[11px] text-text-muted">{user.siret || "—"}</span>
                         <span className="font-body text-[11px] text-text-muted">
                           {new Date(user.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
                         </span>
@@ -440,7 +440,7 @@ export default async function AdminDashboardPage() {
                           <p className="font-body text-sm text-text-secondary">{user.email}</p>
                         </td>
                         <td className="px-5 py-4 whitespace-nowrap">
-                          <p className="font-mono text-sm text-text-secondary">{user.siret}</p>
+                          <p className="font-mono text-sm text-text-secondary">{user.siret || "—"}</p>
                         </td>
                         <td className="px-5 py-4 whitespace-nowrap">
                           <p className="font-body text-xs text-text-secondary">

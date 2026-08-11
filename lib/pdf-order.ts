@@ -67,7 +67,7 @@ export interface OrderPDFData {
   clientLastName: string;
   clientEmail:    string;
   clientPhone:    string;
-  clientSiret:    string;
+  clientSiret:    string | null;
   clientVatNumber:string | null;
   // Livraison
   shipLabel:      string;
@@ -307,9 +307,11 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
     ay += 14;
 
     doc.font("Helvetica").fontSize(7.5).fillColor(rgb(C.muted));
-    doc.text(`SIRET : ${data.clientSiret}`, ML + 14, ay, { width: addrColW - 28 });
+    if (data.clientSiret) {
+      doc.text(`SIRET : ${data.clientSiret}`, ML + 14, ay, { width: addrColW - 28 });
+    }
     if (data.clientVatNumber) {
-      ay += 10;
+      if (data.clientSiret) ay += 10;
       doc.text(`TVA Intra. : ${data.clientVatNumber}`, ML + 14, ay, { width: addrColW - 28 });
     }
 
