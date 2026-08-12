@@ -20,7 +20,10 @@ import {
   ankorstoreAddProductsToOperation,
   ankorstoreStartOperation,
   ankorstoreFetchOperationResults,
+  ankorstoreLookupProductIdBySku,
+  AnkorstoreSharedOperationError,
 } from "@/lib/ankorstore-api-write";
+import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import { ankorstoreKickoffMutex } from "@/lib/ankorstore-kickoff-mutex";
 import { translateAnkorstoreErrorBundle } from "@/lib/ankorstore-error-fr";
 import {
@@ -111,17 +114,25 @@ export async function finalizeBatchRefreshDeleteOld(
           return operationId;
         });
 
-        // Persister la nouvelle op CREATE_NEW de manière idempotente (P2002
-        // silent si double webhook Ankor arrivait pour le même batch) et
-        // rebrancher le job du produit dessus.
+        // Persister la nouvelle op CREATE_NEW. En cas de P2002 avec un autre
+        // productId, on est victime d'un opId partagé — ne PAS rebrancher le
+        // job dessus (sinon orphelin : le webhook finalisera l'autre produit
+        // et le nôtre restera AWAITING_CALLBACK à jamais).
         const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
-        await persistAnkorstoreOperation({
+        const persistResult = await persistAnkorstoreOperation({
           id: newOpId,
           productId: member.productId,
           type: "REFRESH_CREATE_NEW",
           payload: member.nextPublishPayload as unknown as Prisma.InputJsonValue,
           context: "Ankorstore Batch Refresh Phase 2",
         });
+
+        if (!persistResult.inserted && !persistResult.sameProduct) {
+          // Opération Ankor partagée avec un autre produit → même traitement
+          // que AnkorstoreSharedOperationError : fail explicite.
+          throw new AnkorstoreSharedOperationError(newOpId, 1, 2);
+        }
+
         await prisma.marketplaceRefreshJob.updateMany({
           where: {
             productId: member.productId,
@@ -141,9 +152,31 @@ export async function finalizeBatchRefreshDeleteOld(
         succeededCount++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // Phase 1 OK côté Ankor (delete fait) mais phase 2 refusée. On lâche
-        // le lien local (ankorsProductId = null) pour permettre un « Publier »
-        // manuel après correction.
+        const isShared = err instanceof AnkorstoreSharedOperationError;
+
+        // Cas fusion Ankor : la fiche est peut-être bien créée chez eux via
+        // l'op fusionnée. Tenter un lookup par SKU avant d'unlink — si trouvé,
+        // on rebranche proprement et on marque le job SUCCEEDED.
+        if (isShared) {
+          const recovered = await tryRecoverBySku(op.id, member);
+          if (recovered) {
+            logger.info(
+              "[Ankorstore Batch Refresh] Récupéré via lookup SKU après fusion Ankor",
+              {
+                batchOpId: op.id,
+                productId: member.productId,
+                reference: member.reference,
+                newAnkorsProductId: recovered.ankorsProductId,
+              },
+            );
+            succeededCount++;
+            continue;
+          }
+        }
+
+        // Phase 1 OK côté Ankor (delete fait) mais phase 2 refusée sans
+        // récupération possible. On lâche le lien local (ankorsProductId =
+        // null) pour permettre un « Publier » manuel après correction.
         await prisma.$transaction([
           prisma.product.update({
             where: { id: member.productId },
@@ -160,7 +193,9 @@ export async function finalizeBatchRefreshDeleteOld(
         await failMemberJob(
           op.id,
           member,
-          `Phase 1 OK mais phase 2 (création) refusée : ${msg}. Vous pouvez relancer via « Publier ».`,
+          isShared
+            ? `Ankorstore a fusionné cette création avec un autre kickoff et la fiche est introuvable. Cliquez « Publier » pour recréer.`
+            : `Phase 1 OK mais phase 2 (création) refusée : ${msg}. Vous pouvez relancer via « Publier ».`,
         );
         failedCount++;
       }
@@ -225,6 +260,88 @@ async function failEntireBatch(
       member,
       `Suppression Ankorstore refusée pour tout le lot : ${reason}`,
     );
+  }
+}
+
+/**
+ * Récupération inline quand Ankor a fusionné notre kickoff avec un autre.
+ * On lookup le nouveau ankorsProductId via le firstSku figé dans le member
+ * (identique à ce qu'on a envoyé à Ankor), puis on rebranche Product +
+ * ProductColor et on finalise le job. Retourne null si le SKU n'est pas
+ * indexé chez Ankor (donc la fusion a en fait rejeté notre produit).
+ */
+async function tryRecoverBySku(
+  batchOpId: string,
+  member: AnkorstoreBatchRefreshMember,
+): Promise<{ ankorsProductId: string } | null> {
+  try {
+    const firstSku = member.nextPublishPayload.firstSku;
+    const skuToBjVariantId = member.nextPublishPayload.skuToBjVariantId;
+    if (!firstSku || !skuToBjVariantId) return null;
+
+    const ankorsProductId = await ankorstoreLookupProductIdBySku(firstSku, {
+      maxAttempts: 3,
+      initialDelayMs: 2000,
+      pollDelayMs: 3000,
+    });
+    if (!ankorsProductId) return null;
+
+    const variants = await ankorstoreGetVariants(ankorsProductId);
+    const variantBySku = new Map(
+      variants.filter((v) => v.sku != null).map((v) => [v.sku as string, v.id]),
+    );
+
+    const variantIdUpdates: { localVariantId: string; ankorsVariantId: string }[] = [];
+    for (const [sku, bjVariantId] of Object.entries(skuToBjVariantId)) {
+      const ankorsVariantId = variantBySku.get(sku);
+      if (ankorsVariantId) {
+        variantIdUpdates.push({ localVariantId: bjVariantId, ankorsVariantId });
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: member.productId },
+        data: {
+          ankorsProductId,
+          ankorsLastSyncSnapshot: Prisma.DbNull,
+          ankorsSyncRequired: false,
+          lastRefreshedAt: new Date(),
+        },
+      }),
+      ...variantIdUpdates.map((u) =>
+        prisma.productColor.update({
+          where: { id: u.localVariantId },
+          data: { ankorsVariantId: u.ankorsVariantId },
+        }),
+      ),
+      prisma.marketplaceRefreshJob.updateMany({
+        where: {
+          productId: member.productId,
+          marketplace: "ANKORSTORE",
+          status: "AWAITING_CALLBACK",
+          ankorsOperationId: batchOpId,
+        },
+        data: {
+          status: "SUCCEEDED",
+          ankorsOutcome: {
+            ok: true,
+            archived: false,
+            warning: "Ankorstore avait fusionné l'opération — synchronisé via SKU.",
+          } as unknown as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      }),
+    ]);
+
+    return { ankorsProductId };
+  } catch (err) {
+    logger.warn("[Ankorstore Batch Refresh] Recovery by SKU failed", {
+      batchOpId,
+      productId: member.productId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
   }
 }
 

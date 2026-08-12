@@ -127,6 +127,28 @@ class AnkorstoreNonRetryableError extends Error {
   }
 }
 
+/**
+ * L'opération renvoyée par POST /operations est déjà partagée avec un autre
+ * kickoff en cours (Ankor a dédupliqué). Notre appel `addProducts` a agrégé
+ * les produits des kickoffs précédents. Le caller doit abandonner cette
+ * tentative — poursuivre créerait des jobs orphelins pointant sur un opId
+ * dont le webhook a déjà été consommé par un autre produit.
+ */
+export class AnkorstoreSharedOperationError extends Error {
+  readonly operationId: string;
+  readonly sent: number;
+  readonly acknowledged: number;
+  constructor(operationId: string, sent: number, acknowledged: number) {
+    super(
+      `Ankorstore a fusionné l'opération ${operationId} avec un kickoff concurrent (envoyé ${sent}, ${acknowledged} produits déjà présents chez Ankor). Le mutex a été relâché trop tôt sur un start [pending]→[started] non résolu.`,
+    );
+    this.name = "AnkorstoreSharedOperationError";
+    this.operationId = operationId;
+    this.sent = sent;
+    this.acknowledged = acknowledged;
+  }
+}
+
 async function ankorstoreFetchJson<T>(
   path: string,
   init?: RequestInit,
@@ -369,8 +391,30 @@ export async function ankorstoreAddProductsToOperation(
   );
 
   const totalProductsCount = resp?.meta?.totalProductsCount ?? 0;
-  if (totalProductsCount !== products.length) {
-    logger.warn("[Ankorstore] addProducts mismatch", {
+  // Acknowledged < sent = payload rejeté (bug ancien : Ankor renvoyait 200 avec
+  // un compteur nul). On log en warn, le caller vérifie totalProductsCount === 0.
+  // Acknowledged > sent = opération partagée avec un autre kickoff (Ankor a
+  // dédupliqué notre POST /operations et l'op contient déjà les produits d'un
+  // kickoff précédent). C'est le bug racine du 2026-08-12 : notre code
+  // continuait, appelait `start` (403 pending→started swallowed), persistait
+  // l'opId contre notre productId (silent P2002 vs le vrai propriétaire), et
+  // laissait le job MarketplaceRefreshJob AWAITING_CALLBACK à jamais parce que
+  // le webhook n'arrive qu'une fois pour l'opId partagé. On throw pour que le
+  // caller marque son job FAILED avec un message clair.
+  if (totalProductsCount > products.length) {
+    logger.warn("[Ankorstore] addProducts mismatch — shared operation detected", {
+      operationId,
+      sent: products.length,
+      acknowledged: totalProductsCount,
+    });
+    throw new AnkorstoreSharedOperationError(
+      operationId,
+      products.length,
+      totalProductsCount,
+    );
+  }
+  if (totalProductsCount < products.length) {
+    logger.warn("[Ankorstore] addProducts partial ack", {
       operationId,
       sent: products.length,
       acknowledged: totalProductsCount,
@@ -384,11 +428,13 @@ export async function ankorstoreAddProductsToOperation(
  * products to a `created` operation.
  *
  * Retry backoff sur le 403 « cannot be updated from [pending] to [started] » :
- * Ankor met parfois quelques centaines de ms à passer une op de `created` à
- * `pending` côté leur backend et refuse le PATCH → started tant que la
- * transition n'est pas stabilisée. Constaté 2026-08-12 sur les phase 2
- * CREATE_NEW après un batch REFRESH : 3 produits sur 5 ont perdu leur fiche
- * Ankor à cause de ce timing. Backoffs : 500 ms, 1 s, 2 s, 4 s (max ~7,5 s).
+ * Ankor met parfois quelques secondes à passer une op de `created` à `pending`
+ * côté leur backend et refuse le PATCH → started tant que la transition n'est
+ * pas stabilisée. Constaté 2026-08-12 sur les phase 2 CREATE_NEW après un
+ * batch REFRESH : produits perdus parce que le mutex kickoff était relâché
+ * avant qu'Ankor n'ait quitté `pending`, du coup le kickoff suivant recevait
+ * le MÊME opId (dédup Ankor). Backoffs longs : total cumulé ~2 min pour
+ * garantir que l'op est vraiment `started` avant de relâcher le mutex.
  */
 export async function ankorstoreStartOperation(operationId: string): Promise<void> {
   const path = `/catalog/integrations/operations/${encodeURIComponent(operationId)}`;
@@ -400,9 +446,11 @@ export async function ankorstoreStartOperation(operationId: string): Promise<voi
     },
   });
 
-  // Backoffs plus généreux : Ankor peut prendre >10s à stabiliser la
-  // transition created→pending quand le batch delete est encore en cours.
-  const backoffs = [500, 1500, 3000, 6000, 12000];
+  // Total cumulé : 500ms + 1.5s + 3s + 6s + 12s + 20s + 30s + 45s = ~118s.
+  // On accepte de tenir le mutex jusqu'à 2 min pour ne PAS relâcher sur un
+  // start qui pourrait encore aboutir — sinon Ankor déduplique le prochain
+  // POST /operations et on crée des jobs orphelins.
+  const backoffs = [500, 1500, 3000, 6000, 12000, 20000, 30000, 45000];
   for (let attempt = 0; ; attempt++) {
     try {
       await ankorstoreFetchJson<unknown>(path, { method: "PATCH", body });
