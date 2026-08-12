@@ -24,12 +24,13 @@ import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 8;
-// 5 slots Ankorstore : la phase kickoff (create → add → start) est sérialisée
-// par lib/ankorstore-kickoff-mutex.ts pour éviter la dédup côté Ankor, mais la
-// longue phase AWAITING_CALLBACK (30-60 s) reste parallèle → 5 produits en vol
-// simultanément. Validé en local le 2026-08-12 (script test-ankor-mutex-parallel).
-const ANKORSTORE_CONCURRENCY = 5;
+const TOTAL_CONCURRENCY = 5;
+// ROLLBACK 2026-08-12 : concurrence 5 remise à 1. Le mutex kickoff a été
+// validé pour import/update mais l'endpoint DELETE d'Ankor
+// (/catalog/integrations/operations/delete) dedupe même en séquentiel :
+// 5 REFRESH → 4 se sont collés au même opId. Le mutex ne suffit donc pas
+// pour REFRESH (qui fait un delete). À creuser avant de retenter.
+const ANKORSTORE_CONCURRENCY = 1;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
@@ -88,7 +89,7 @@ export function startMarketplaceQueueWorker(): void {
     });
   }, POLL_MS);
 
-  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 8 slots, 5 Ankorstore avec mutex kickoff)");
+  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 1 Ankorstore — rollback dédup delete)");
 }
 
 async function runStartupSweep(): Promise<void> {
