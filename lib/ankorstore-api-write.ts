@@ -407,6 +407,19 @@ export async function ankorstoreStartOperation(operationId: string): Promise<voi
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Ankor a déjà passé l'op à `started` automatiquement (auto-start côté
+      // leur backend). Notre PATCH → started est donc un no-op déguisé en
+      // 403. Le produit sera bien traité — on considère ça comme un succès.
+      // Constaté 2026-08-12 sur les phase 2 CREATE_NEW : 2/5 ont eu ce cas
+      // alors que la fiche a bien été créée chez Ankor.
+      if (/cannot be updated from \[started\] to \[started\]/i.test(msg)) {
+        logger.info("[Ankorstore] Start operation déjà démarrée par Ankor (no-op)", {
+          operationId,
+        });
+        return;
+      }
+      // L'op est encore en `pending` côté Ankor (transition create → pending
+      // pas encore stable). On retente avec backoff. Voir doc ci-dessus.
       const pendingRace = /cannot be updated from \[pending\]/i.test(msg);
       if (!pendingRace || attempt >= backoffs.length) throw err;
       logger.warn("[Ankorstore] Start operation encore en [pending] — retry après backoff", {
