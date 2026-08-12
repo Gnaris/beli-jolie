@@ -443,6 +443,14 @@ export async function ankorstoreFinalizeRefreshCreateNew(
     return;
   }
 
+  // Aiguillage batch vs single : le payload d'un batch CREATE_NEW a `batch: true`.
+  const { isBatchCreateNewPayload } = await import("@/lib/ankorstore-refresh-batch");
+  if (isBatchCreateNewPayload(op.payload)) {
+    const { finalizeBatchRefreshCreateNew } = await import("@/lib/ankorstore-refresh-batch-finalize");
+    await finalizeBatchRefreshCreateNew(op, callbackPayload);
+    return;
+  }
+
   const callbackStatus = readCallbackStatus(callbackPayload);
   const payload = op.payload as unknown as AnkorstorePublishPayload;
 

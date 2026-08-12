@@ -24,11 +24,14 @@ import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 10;
-// 10 slots Ankorstore : le mutex kickoff sérialise les POST côté import/update,
-// et les REFRESH sont maintenant groupés en batch delete (voir ANKOR_REFRESH_BATCH_SIZE).
-// Une fois le kickoff fait, la phase AWAITING_CALLBACK est parallèle sans limite.
-const ANKORSTORE_CONCURRENCY = 10;
+const TOTAL_CONCURRENCY = 20;
+// 20 slots Ankorstore : le mutex kickoff sérialise les POST côté import/update,
+// et les REFRESH sont maintenant groupés en batch delete + batch import
+// (voir ANKOR_REFRESH_BATCH_SIZE). Une fois le kickoff fait, la phase
+// AWAITING_CALLBACK est parallèle sans limite. Bumpé 10→20 le 2026-08-12 pour
+// gagner en throughput sur les gros lots de refresh — 4 batches en parallèle
+// au lieu de 2. Ankor documente 7000 req/h → très large marge.
+const ANKORSTORE_CONCURRENCY = 20;
 /**
  * Taille maximum d'un batch REFRESH côté Ankorstore. L'endpoint
  * `/catalog/integrations/operations/delete` supporte plusieurs produits dans
@@ -401,14 +404,29 @@ async function runBatchRefreshJob(claimedJobIds: string[]): Promise<void> {
   const { ankorstoreKickoffBatchRefresh } = await import("@/lib/ankorstore-refresh-batch");
   const res = await ankorstoreKickoffBatchRefresh(productIds);
 
+  // Levier 1 : produits shortcut'és via UPDATE (refresh raccourci) → leurs
+  // jobs ont déjà été marqués par ankorstoreKickoffBatchRefresh. On revalide
+  // juste leurs paths pour rafraîchir l'UI.
+  const shortcutIds = res.shortcutUpdatedProductIds ?? [];
+  for (const productId of shortcutIds) {
+    await revalidateProductPaths(productId);
+  }
+
   if (!res.success) {
-    // Kickoff global échoué → tous les jobs en FAILED avec les raisons.
+    // Kickoff global échoué → tous les jobs restants (hors shortcut) en FAILED.
+    const shortcutSet = new Set(shortcutIds);
     for (const j of jobs) {
+      if (shortcutSet.has(j.productId)) continue;
       const reason =
         res.rejectedByProductId[j.productId] ?? res.error ?? "Erreur inconnue";
       await markAnkorstoreFailed(j.id, "error", reason);
       await revalidateProductPaths(j.productId);
     }
+    return;
+  }
+
+  // Cas où TOUS les produits ont été shortcut'és : pas de batch delete réel.
+  if (res.operationId === "shortcut-update-only") {
     return;
   }
 

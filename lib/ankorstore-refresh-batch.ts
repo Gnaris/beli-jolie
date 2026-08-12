@@ -40,6 +40,7 @@ import {
   buildPublishProductInput,
   type AnkorstorePublishPayload,
 } from "@/lib/ankorstore-publish";
+import { ankorstoreKickoffUpdate } from "@/lib/ankorstore-update";
 
 // ─────────────────────────────────────────────
 // Types (partagés avec le finalize webhook)
@@ -60,14 +61,42 @@ export interface AnkorstoreBatchRefreshDeleteOldPayload {
   members: AnkorstoreBatchRefreshMember[];
 }
 
+/**
+ * Payload persisté sur la row REFRESH_CREATE_NEW batch (post-DELETE_OLD).
+ * Contient uniquement les membres pour lesquels le delete a réussi — on
+ * enchaîne la phase 2 sur ces produits seulement, en 1 seul POST import.
+ */
+export interface AnkorstoreBatchRefreshCreateNewPayload {
+  batch: true;
+  members: AnkorstoreBatchRefreshMember[];
+}
+
+/** Type guard pour le payload batch CREATE_NEW (même forme que DELETE_OLD). */
+export function isBatchCreateNewPayload(
+  payload: unknown,
+): payload is AnkorstoreBatchRefreshCreateNewPayload {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { batch?: unknown }).batch === true &&
+    Array.isArray((payload as { members?: unknown }).members)
+  );
+}
+
 export type AnkorstoreBatchRefreshResult =
   | {
       success: true;
       operationId: string;
       memberProductIds: string[]; // les produits effectivement inclus
       rejectedByProductId: Record<string, string>; // { productId: raison } — produits filtrés
+      shortcutUpdatedProductIds?: string[]; // produits shortcut'és via UPDATE (pas de refresh full)
     }
-  | { success: false; error: string; rejectedByProductId: Record<string, string> };
+  | {
+      success: false;
+      error: string;
+      rejectedByProductId: Record<string, string>;
+      shortcutUpdatedProductIds?: string[];
+    };
 
 // ─────────────────────────────────────────────
 // Kickoff
@@ -107,8 +136,69 @@ export async function ankorstoreKickoffBatchRefresh(
   const rejected: Record<string, string> = {};
   const members: AnkorstoreBatchRefreshMember[] = [];
   const deletePayload: { externalId: string; variantSkus: string[] }[] = [];
+  const shortcutUpdatedProductIds: string[] = [];
 
+  // Levier 1 : essayer UPDATE d'abord sur chaque produit. Si l'update passe
+  // (sync-only ou async), le produit est déjà à jour côté Ankor → on l'exclut
+  // du batch delete/create (beaucoup plus rapide, pas de reindexation SKU).
+  // Full refresh (delete+create) reste le fallback quand l'update échoue.
   for (const productId of productIds) {
+    try {
+      const updateRes = await ankorstoreKickoffUpdate(productId, {
+        skipRevalidation: true,
+      });
+      if (updateRes.success) {
+        // Update a réussi (soit sync-only, soit op async lancée). Marquer le
+        // job SUCCEEDED tout de suite si sync-only, sinon laisser reconcile
+        // le fermer quand le webhook UPDATE arrivera.
+        if (updateRes.operationId === null) {
+          await prisma.marketplaceRefreshJob.updateMany({
+            where: {
+              productId,
+              marketplace: "ANKORSTORE",
+              status: { in: ["QUEUED", "IN_PROGRESS", "AWAITING_CALLBACK"] },
+            },
+            data: {
+              status: "SUCCEEDED",
+              ankorsOutcome: {
+                ok: true,
+                archived: updateRes.archived,
+                warning: "Aucun changement à envoyer — refresh raccourci en update.",
+              } as unknown as Prisma.InputJsonValue,
+              completedAt: new Date(),
+            },
+          });
+        } else {
+          // Update async en vol : lier le job à l'update op pour que reconcile
+          // le finalise à la réception du webhook UPDATE.
+          await prisma.marketplaceRefreshJob.updateMany({
+            where: {
+              productId,
+              marketplace: "ANKORSTORE",
+              status: { in: ["QUEUED", "IN_PROGRESS"] },
+            },
+            data: {
+              status: "AWAITING_CALLBACK",
+              ankorsOperationId: updateRes.operationId,
+            },
+          });
+        }
+        shortcutUpdatedProductIds.push(productId);
+        continue; // ne pas inclure dans le batch refresh
+      }
+      // updateRes.success === false → on tombe dans le flow refresh full
+      logger.info("[Batch Refresh] Update shortcut échoué, fallback full refresh", {
+        productId,
+        error: updateRes.error,
+      });
+    } catch (err) {
+      // Update a levé une exception → fallback silencieux vers le batch refresh.
+      logger.warn("[Batch Refresh] Update shortcut a throw, fallback full refresh", {
+        productId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const product = await prisma.product.findUnique({
       where: { id: productId },
       select: { id: true, reference: true, ankorsProductId: true },
@@ -184,10 +274,27 @@ export async function ankorstoreKickoffBatchRefresh(
   }
 
   if (members.length === 0) {
+    // Cas nominal quand TOUS les produits ont été shortcut'és via UPDATE :
+    // aucun batch delete/create à faire, tous les jobs sont déjà en cours de
+    // finalisation via l'update flow. On considère ça comme un succès.
+    if (shortcutUpdatedProductIds.length > 0) {
+      logger.info(
+        "[Ankorstore Batch Refresh] Tous les produits shortcut'és via UPDATE — aucun refresh full nécessaire",
+        { shortcutCount: shortcutUpdatedProductIds.length },
+      );
+      return {
+        success: true,
+        operationId: "shortcut-update-only", // sentinelle : pas d'op batch réelle
+        memberProductIds: [],
+        rejectedByProductId: rejected,
+        shortcutUpdatedProductIds,
+      };
+    }
     return {
       success: false,
       error: "Aucun produit valide dans le batch",
       rejectedByProductId: rejected,
+      shortcutUpdatedProductIds,
     };
   }
 
@@ -230,6 +337,7 @@ export async function ankorstoreKickoffBatchRefresh(
       operationId,
       memberProductIds: members.map((m) => m.productId),
       rejectedByProductId: rejected,
+      shortcutUpdatedProductIds,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -241,6 +349,7 @@ export async function ankorstoreKickoffBatchRefresh(
       success: false,
       error: errorMsg,
       rejectedByProductId: rejected,
+      shortcutUpdatedProductIds,
     };
   }
 }
