@@ -18,6 +18,7 @@ import {
   ankorstoreLookupProductIdBySku,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
+import { ankorstoreKickoffMutex } from "@/lib/ankorstore-kickoff-mutex";
 import { ankorstoreGetVariants } from "@/lib/ankorstore-api";
 import {
   loadAnkorstorePricingConfig,
@@ -666,29 +667,35 @@ export async function ankorstoreKickoffPublish(
   if (!built.ok) return { success: false, error: built.error };
 
   try {
-    const { operationId } = await ankorstoreCreateCatalogOperation("import");
-    const addResp = await ankorstoreAddProductsToOperation(operationId, [built.input]);
-    if (addResp.totalProductsCount === 0) {
-      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
-    }
+    // Mutex : Ankor renvoie le même opId à tout create tant que la précédente
+    // n'est pas started. Sérialiser create → add → persist → start évite les
+    // collisions inter-threads (worker à ANKORSTORE_CONCURRENCY > 1).
+    const operationId = await ankorstoreKickoffMutex(async () => {
+      const { operationId } = await ankorstoreCreateCatalogOperation("import");
+      const addResp = await ankorstoreAddProductsToOperation(operationId, [built.input]);
+      if (addResp.totalProductsCount === 0) {
+        throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
+      }
 
-    // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
-    // avant l'insert et être ignoré (« unknown_operation »).
-    logger.info("[Ankorstore Publish] Persisting PUBLISH row", {
-      operationId,
-      productId,
-      reference: built.payload.reference,
-    });
-    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
-    await persistAnkorstoreOperation({
-      id: operationId,
-      productId,
-      type: "PUBLISH",
-      payload: built.payload as unknown as Prisma.InputJsonValue,
-      context: "Ankorstore Publish",
-    });
+      // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
+      // avant l'insert et être ignoré (« unknown_operation »).
+      logger.info("[Ankorstore Publish] Persisting PUBLISH row", {
+        operationId,
+        productId,
+        reference: built.payload.reference,
+      });
+      const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+      await persistAnkorstoreOperation({
+        id: operationId,
+        productId,
+        type: "PUBLISH",
+        payload: built.payload as unknown as Prisma.InputJsonValue,
+        context: "Ankorstore Publish",
+      });
 
-    await ankorstoreStartOperation(operationId);
+      await ankorstoreStartOperation(operationId);
+      return operationId;
+    });
 
     logger.info("[Ankorstore Publish] Kicked off", {
       operationId,

@@ -25,6 +25,7 @@ import {
   ankorstorePatchVariantPrices,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
+import { ankorstoreKickoffMutex } from "@/lib/ankorstore-kickoff-mutex";
 import { autoLinkAnkorstoreVariants } from "@/lib/ankorstore-variant-link";
 import {
   loadAnkorstorePricingConfig,
@@ -1158,19 +1159,10 @@ export async function ankorstoreKickoffUpdate(
         asExternalId,
       });
     }
-    const { operationId } = await ankorstoreCreateCatalogOperation(opType);
-    logger.info("[Ankorstore Update] Creating catalog operation", {
-      operationId,
-      opType,
-      productId,
-      reference: product.reference,
-      hasNewVariants,
-      unlinkedVariantCount: unlinkedVariants.length,
-    });
+    // Garde-fou anti-doublons AVANT le mutex (fail-fast, pas besoin de bloquer
+    // les autres kickoffs pour une validation locale).
     // Même garde-fou anti-doublons que côté publish : Ankorstore refuse deux
-    // variantes qui partagent la paire (color, size). Détecté ici après la
-    // construction du payload complet (les variantes déjà liées peuvent avoir
-    // reçu un SKU réel AS qui masquerait le doublon si on regardait plus tôt).
+    // variantes qui partagent la paire (color, size).
     const dupOptions = findDuplicateAnkorstoreOptions(
       productInput.variants.map((v) => ({ sku: v.sku, options: v.options })),
     );
@@ -1178,34 +1170,50 @@ export async function ankorstoreKickoffUpdate(
       return { success: false, error: formatDuplicateOptionsError(dupOptions) };
     }
 
-    const addResp = await ankorstoreAddProductsToOperation(operationId, [productInput]);
-    if (addResp.totalProductsCount === 0) {
-      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
-    }
+    // Mutex : sérialise la phase kickoff (create → add → persist → start) car
+    // Ankor renvoie le même opId à tout create tant que la précédente n'est
+    // pas started. Voir lib/ankorstore-kickoff-mutex.ts.
+    const operationId = await ankorstoreKickoffMutex(async () => {
+      const { operationId } = await ankorstoreCreateCatalogOperation(opType);
+      logger.info("[Ankorstore Update] Creating catalog operation", {
+        operationId,
+        opType,
+        productId,
+        reference: product.reference,
+        hasNewVariants,
+        unlinkedVariantCount: unlinkedVariants.length,
+      });
 
-    const payload: AnkorstoreUpdatePayload = {
-      committedSnapshot: committedAfterAsync,
-      allVariantsOutOfStock,
-      reference: product.reference,
-    };
+      const addResp = await ankorstoreAddProductsToOperation(operationId, [productInput]);
+      if (addResp.totalProductsCount === 0) {
+        throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
+      }
 
-    // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
-    // avant l'insert et être ignoré (« unknown_operation »).
-    logger.info("[Ankorstore Update] Persisting UPDATE row", {
-      operationId,
-      productId,
-      reference: product.reference,
+      const payload: AnkorstoreUpdatePayload = {
+        committedSnapshot: committedAfterAsync,
+        allVariantsOutOfStock,
+        reference: product.reference,
+      };
+
+      // Persister l'op en PENDING AVANT le start — sinon le webhook peut arriver
+      // avant l'insert et être ignoré (« unknown_operation »).
+      logger.info("[Ankorstore Update] Persisting UPDATE row", {
+        operationId,
+        productId,
+        reference: product.reference,
+      });
+      const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+      await persistAnkorstoreOperation({
+        id: operationId,
+        productId,
+        type: "UPDATE",
+        payload: payload as unknown as Prisma.InputJsonValue,
+        context: "Ankorstore Update",
+      });
+
+      await ankorstoreStartOperation(operationId);
+      return operationId;
     });
-    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
-    await persistAnkorstoreOperation({
-      id: operationId,
-      productId,
-      type: "UPDATE",
-      payload: payload as unknown as Prisma.InputJsonValue,
-      context: "Ankorstore Update",
-    });
-
-    await ankorstoreStartOperation(operationId);
 
     logger.info("[Ankorstore Update] Kicked off", {
       operationId,

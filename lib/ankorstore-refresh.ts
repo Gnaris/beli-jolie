@@ -27,6 +27,7 @@ import {
   ankorstoreLookupProductIdBySku,
   type AnkorstoreCatalogProductInput,
 } from "@/lib/ankorstore-api-write";
+import { ankorstoreKickoffMutex } from "@/lib/ankorstore-kickoff-mutex";
 import {
   ankorstoreGetProduct,
   ankorstoreGetVariants,
@@ -183,30 +184,35 @@ export async function ankorstoreKickoffRefresh(
       return { success: false, reason: "error", error: built.error };
     }
 
-    // Step 4: Kick off the delete operation
-    const { operationId } = await ankorstoreKickoffDelete(oldExternalId, oldVariantSkus);
+    // Step 4: Kick off the delete operation sous mutex (l'endpoint delete a
+    // sa propre logique côté Ankor, mais on sérialise par prudence — coût
+    // marginal et couvre un éventuel piège équivalent au bug create).
+    const operationId = await ankorstoreKickoffMutex(async () => {
+      const { operationId } = await ankorstoreKickoffDelete(oldExternalId, oldVariantSkus);
 
-    const payload: AnkorstoreRefreshDeleteOldPayload = {
-      oldAnkorsProductId,
-      reference: product.reference,
-      nextProductInput: built.input,
-      nextPublishPayload: built.payload,
-      oldVariantSkus,
-      archiveRetryCount: 0,
-    };
+      const payload: AnkorstoreRefreshDeleteOldPayload = {
+        oldAnkorsProductId,
+        reference: product.reference,
+        nextProductInput: built.input,
+        nextPublishPayload: built.payload,
+        oldVariantSkus,
+        archiveRetryCount: 0,
+      };
 
-    logger.info("[Ankorstore Refresh] Persisting REFRESH_DELETE_OLD row", {
-      operationId,
-      productId,
-      reference: product.reference,
-    });
-    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
-    await persistAnkorstoreOperation({
-      id: operationId,
-      productId,
-      type: "REFRESH_DELETE_OLD",
-      payload: payload as unknown as Prisma.InputJsonValue,
-      context: "Ankorstore Refresh",
+      logger.info("[Ankorstore Refresh] Persisting REFRESH_DELETE_OLD row", {
+        operationId,
+        productId,
+        reference: product.reference,
+      });
+      const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+      await persistAnkorstoreOperation({
+        id: operationId,
+        productId,
+        type: "REFRESH_DELETE_OLD",
+        payload: payload as unknown as Prisma.InputJsonValue,
+        context: "Ankorstore Refresh",
+      });
+      return operationId;
     });
 
     logger.info("[Ankorstore Refresh] Kicked off (DELETE_OLD)", {
@@ -258,12 +264,15 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
     const currentRetry = payload.archiveRetryCount ?? 0;
 
     if (isArchiveFailure && currentRetry < MAX_ARCHIVE_RETRIES) {
-      // Re-kick une nouvelle DELETE_OLD avec compteur incrémenté
+      // Re-kick une nouvelle DELETE_OLD avec compteur incrémenté (sous mutex).
       try {
-        const { operationId: retryOpId } = await ankorstoreKickoffDelete(
-          payload.reference,
-          payload.oldVariantSkus,
-        );
+        const retryOpId = await ankorstoreKickoffMutex(async () => {
+          const { operationId } = await ankorstoreKickoffDelete(
+            payload.reference,
+            payload.oldVariantSkus,
+          );
+          return operationId;
+        });
         const nextPayload: AnkorstoreRefreshDeleteOldPayload = {
           ...payload,
           archiveRetryCount: currentRetry + 1,
@@ -329,12 +338,17 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
 
   // Old deleted. Mark phase 1 done and kick off phase 2.
   try {
-    const { operationId: newOpId } = await ankorstoreCreateCatalogOperation("import");
-    const addResp = await ankorstoreAddProductsToOperation(newOpId, [payload.nextProductInput]);
-    if (addResp.totalProductsCount === 0) {
-      throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
-    }
-    await ankorstoreStartOperation(newOpId);
+    // Mutex : sérialiser create+add+start car Ankor renvoie le même opId à
+    // tout create tant que la précédente n'est pas started.
+    const newOpId = await ankorstoreKickoffMutex(async () => {
+      const { operationId } = await ankorstoreCreateCatalogOperation("import");
+      const addResp = await ankorstoreAddProductsToOperation(operationId, [payload.nextProductInput]);
+      if (addResp.totalProductsCount === 0) {
+        throw new Error("Ankorstore n'a accepté aucun produit (payload silencieusement rejeté).");
+      }
+      await ankorstoreStartOperation(operationId);
+      return operationId;
+    });
 
     logger.info("[Ankorstore Refresh] Persisting REFRESH_CREATE_NEW row", {
       operationId: newOpId,
