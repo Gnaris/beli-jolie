@@ -24,13 +24,18 @@ import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 5;
-// ROLLBACK 2026-08-12 : concurrence 5 remise à 1. Le mutex kickoff a été
-// validé pour import/update mais l'endpoint DELETE d'Ankor
-// (/catalog/integrations/operations/delete) dedupe même en séquentiel :
-// 5 REFRESH → 4 se sont collés au même opId. Le mutex ne suffit donc pas
-// pour REFRESH (qui fait un delete). À creuser avant de retenter.
-const ANKORSTORE_CONCURRENCY = 1;
+const TOTAL_CONCURRENCY = 10;
+// 10 slots Ankorstore : le mutex kickoff sérialise les POST côté import/update,
+// et les REFRESH sont maintenant groupés en batch delete (voir ANKOR_REFRESH_BATCH_SIZE).
+// Une fois le kickoff fait, la phase AWAITING_CALLBACK est parallèle sans limite.
+const ANKORSTORE_CONCURRENCY = 10;
+/**
+ * Taille maximum d'un batch REFRESH côté Ankorstore. L'endpoint
+ * `/catalog/integrations/operations/delete` supporte plusieurs produits dans
+ * un seul POST (validé 2026-08-12) — c'est le SEUL moyen de paralléliser les
+ * refresh, car des POST séquentiels sont silencieusement fusionnés côté Ankor.
+ */
+const ANKOR_REFRESH_BATCH_SIZE = 5;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
 const g = globalThis as Record<symbol, unknown>;
@@ -89,7 +94,11 @@ export function startMarketplaceQueueWorker(): void {
     });
   }, POLL_MS);
 
-  logger.info("[Marketplace Queue] Worker démarré (poll 1s, 5 slots, 1 Ankorstore — rollback dédup delete)");
+  logger.info(
+    "[Marketplace Queue] Worker démarré (poll 1s, 10 slots, 10 Ankorstore avec batch REFRESH taille " +
+      String(ANKOR_REFRESH_BATCH_SIZE) +
+      ")",
+  );
 }
 
 async function runStartupSweep(): Promise<void> {
@@ -260,7 +269,51 @@ async function startQueued(): Promise<void> {
     toStart.push(job);
   }
 
+  // ─── Batch REFRESH Ankorstore par tenant ───
+  // On extrait les REFRESH Ankor éligibles au batching : mode=REFRESH,
+  // marketplace=ANKORSTORE, options.ankorstore≠false. On les groupe par
+  // tenantId puis on lance un batch delete par groupe (max
+  // ANKOR_REFRESH_BATCH_SIZE produits par appel).
+  const batchable: JobRow[] = [];
+  const single: JobRow[] = [];
   for (const job of toStart) {
+    if (isBatchableRefresh(job)) {
+      batchable.push(job);
+    } else {
+      single.push(job);
+    }
+  }
+  const byTenant = new Map<string, JobRow[]>();
+  for (const job of batchable) {
+    const key = job.tenantId ?? "__notenant__";
+    if (!byTenant.has(key)) byTenant.set(key, []);
+    byTenant.get(key)!.push(job);
+  }
+
+  for (const [tenantKey, tenantJobs] of byTenant.entries()) {
+    if (tenantJobs.length >= 2) {
+      // Groupement en lots de ANKOR_REFRESH_BATCH_SIZE.
+      for (let i = 0; i < tenantJobs.length; i += ANKOR_REFRESH_BATCH_SIZE) {
+        const chunk = tenantJobs.slice(i, i + ANKOR_REFRESH_BATCH_SIZE);
+        if (chunk.length < 2) {
+          // Reste isolé — traiter en single.
+          single.push(...chunk);
+        } else {
+          void claimAndProcessBatchRefresh(chunk).catch((err: unknown) => {
+            logger.error("[Marketplace Queue] batch refresh unexpected error", {
+              tenantKey,
+              jobCount: chunk.length,
+              error: err as Error,
+            });
+          });
+        }
+      }
+    } else {
+      single.push(...tenantJobs);
+    }
+  }
+
+  for (const job of single) {
     const claim = await prisma.marketplaceRefreshJob.updateMany({
       where: { id: job.id, status: "QUEUED" },
       data: { status: "IN_PROGRESS", startedAt: new Date() },
@@ -273,6 +326,105 @@ async function startQueued(): Promise<void> {
         error: err as Error,
       });
     });
+  }
+}
+
+function isBatchableRefresh(job: JobRow): boolean {
+  if (job.marketplace !== "ANKORSTORE") return false;
+  if (job.mode !== "REFRESH") return false;
+  const payload = job.payload as unknown as QueueJobPayload | null;
+  if (!payload) return false;
+  if (payload.options?.ankorstore === false) return false;
+  // Les jobs avec verifyActions (PFS tooltip) ne sont pas Ankor mais on double-check.
+  if (payload.verifyActions && payload.verifyActions.length > 0) return false;
+  return true;
+}
+
+/**
+ * Claim (mark IN_PROGRESS) tous les jobs du batch en une transaction, puis
+ * lance le kickoff batch. Les jobs qui ne peuvent pas être claim (déjà pris
+ * par un autre tick, ce qui ne devrait pas arriver) sont ignorés.
+ */
+async function claimAndProcessBatchRefresh(jobs: JobRow[]): Promise<void> {
+  const now = new Date();
+  const claimedJobIds: string[] = [];
+  for (const job of jobs) {
+    const claim = await prisma.marketplaceRefreshJob.updateMany({
+      where: { id: job.id, status: "QUEUED" },
+      data: { status: "IN_PROGRESS", startedAt: now },
+    });
+    if (claim.count === 1) claimedJobIds.push(job.id);
+  }
+  if (claimedJobIds.length === 0) return;
+  if (claimedJobIds.length === 1) {
+    // Un seul survivant → traiter en single, plus fiable qu'un batch de 1.
+    void processJob(claimedJobIds[0]).catch((err: unknown) => {
+      logger.error("[Marketplace Queue] processJob (batch fallback) error", {
+        jobId: claimedJobIds[0],
+        error: err as Error,
+      });
+    });
+    return;
+  }
+
+  // Le tenantId doit être identique pour tous (garanti par le groupement) —
+  // on wrap dans tenantALS pour que le cache Ankor résolve le bon compte.
+  const tenantId = jobs[0].tenantId;
+  const run = async () => {
+    await runBatchRefreshJob(claimedJobIds);
+  };
+  if (tenantId) {
+    await tenantALS.run(tenantId, run);
+  } else {
+    await run();
+  }
+}
+
+/**
+ * Traite un batch de N ≥ 2 jobs REFRESH Ankor : appelle le kickoff batch,
+ * pose ankorsOperationId + AWAITING_CALLBACK sur tous les jobs, ou marque
+ * FAILED ceux que le kickoff rejette.
+ */
+async function runBatchRefreshJob(claimedJobIds: string[]): Promise<void> {
+  const jobs = await prisma.marketplaceRefreshJob.findMany({
+    where: { id: { in: claimedJobIds } },
+    select: { id: true, productId: true },
+  });
+  const productIds = jobs.map((j) => j.productId);
+  const jobIdByProductId = new Map(jobs.map((j) => [j.productId, j.id]));
+
+  logger.info("[Marketplace Queue] Batch REFRESH Ankor kickoff", {
+    jobCount: jobs.length,
+    productIds,
+  });
+
+  const { ankorstoreKickoffBatchRefresh } = await import("@/lib/ankorstore-refresh-batch");
+  const res = await ankorstoreKickoffBatchRefresh(productIds);
+
+  if (!res.success) {
+    // Kickoff global échoué → tous les jobs en FAILED avec les raisons.
+    for (const j of jobs) {
+      const reason =
+        res.rejectedByProductId[j.productId] ?? res.error ?? "Erreur inconnue";
+      await markAnkorstoreFailed(j.id, "error", reason);
+      await revalidateProductPaths(j.productId);
+    }
+    return;
+  }
+
+  // Les produits acceptés dans le batch → AWAITING_CALLBACK sur l'opId.
+  for (const productId of res.memberProductIds) {
+    const jobId = jobIdByProductId.get(productId);
+    if (!jobId) continue;
+    await markAnkorstoreAwaiting(jobId, res.operationId);
+    await revalidateProductPaths(productId);
+  }
+  // Les produits rejetés (SKUs manquants, archivé, etc.) → FAILED individuel.
+  for (const [productId, reason] of Object.entries(res.rejectedByProductId)) {
+    const jobId = jobIdByProductId.get(productId);
+    if (!jobId) continue;
+    await markAnkorstoreFailed(jobId, "error", reason);
+    await revalidateProductPaths(productId);
   }
 }
 

@@ -251,6 +251,14 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
     return;
   }
 
+  // Aiguillage batch vs single : le payload d'un batch a `batch: true`.
+  const { isBatchRefreshPayload } = await import("@/lib/ankorstore-refresh-batch");
+  if (isBatchRefreshPayload(op.payload)) {
+    const { finalizeBatchRefreshDeleteOld } = await import("@/lib/ankorstore-refresh-batch-finalize");
+    await finalizeBatchRefreshDeleteOld(op, callbackPayload);
+    return;
+  }
+
   const callbackStatus = readCallbackStatus(callbackPayload);
   const payload = op.payload as unknown as AnkorstoreRefreshDeleteOldPayload;
 

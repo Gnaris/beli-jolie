@@ -441,6 +441,54 @@ export async function ankorstoreKickoffDelete(
   return { operationId: resp.data.id };
 }
 
+/**
+ * Kick off a BATCH deletion : N produits en un seul POST. Retourne l'opId
+ * unique côté Ankor. Le callback contiendra les résultats des N produits
+ * dans `/operations/{id}/results`.
+ *
+ * Validé en réel 2026-08-12 : Ankor accepte `products: [...]` avec plusieurs
+ * éléments et l'op a `totalProductsCount = N`. C'est la SEULE façon de
+ * paralléliser les delete côté Ankor — les POST séquentiels même espacés de
+ * 10 s sont fusionnés dans la même op et les payloads suivants sont ignorés.
+ */
+export async function ankorstoreKickoffBatchDelete(
+  products: { externalId: string; variantSkus: string[] }[],
+): Promise<{ operationId: string }> {
+  if (products.length === 0) {
+    throw new Error("[Ankorstore Batch Delete] Empty product list");
+  }
+  for (const p of products) {
+    if (!p.externalId) {
+      throw new Error("[Ankorstore Batch Delete] externalId requis pour chaque produit");
+    }
+    if (!p.variantSkus || p.variantSkus.length === 0) {
+      throw new Error(
+        `[Ankorstore Batch Delete] SKU requis pour ${p.externalId} — Ankor ignore silencieusement les produits sans SKU`,
+      );
+    }
+  }
+
+  const resp = await ankorstoreFetchJson<{ data: { id: string } }>(
+    `/catalog/integrations/operations/delete`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        source: "other",
+        callbackUrl: buildAnkorstoreCallbackUrl(),
+        products: products.map((p) => ({
+          type: "catalog-integration-product",
+          attributes: {
+            external_id: p.externalId,
+            variants: p.variantSkus.map((sku) => ({ sku })),
+          },
+        })),
+      }),
+    },
+  );
+
+  return { operationId: resp.data.id };
+}
+
 // ─────────────────────────────────────────────
 // Webhook-side helpers (called from /api/webhooks/ankorstore)
 // ─────────────────────────────────────────────
