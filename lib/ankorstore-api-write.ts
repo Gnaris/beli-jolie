@@ -382,21 +382,41 @@ export async function ankorstoreAddProductsToOperation(
 /**
  * Start (trigger) a catalog-integration operation. Required after adding
  * products to a `created` operation.
+ *
+ * Retry backoff sur le 403 « cannot be updated from [pending] to [started] » :
+ * Ankor met parfois quelques centaines de ms à passer une op de `created` à
+ * `pending` côté leur backend et refuse le PATCH → started tant que la
+ * transition n'est pas stabilisée. Constaté 2026-08-12 sur les phase 2
+ * CREATE_NEW après un batch REFRESH : 3 produits sur 5 ont perdu leur fiche
+ * Ankor à cause de ce timing. Backoffs : 500 ms, 1 s, 2 s, 4 s (max ~7,5 s).
  */
 export async function ankorstoreStartOperation(operationId: string): Promise<void> {
-  await ankorstoreFetchJson<unknown>(
-    `/catalog/integrations/operations/${encodeURIComponent(operationId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        data: {
-          type: "catalog-integration-operation",
-          id: operationId,
-          attributes: { status: "started" },
-        },
-      }),
+  const path = `/catalog/integrations/operations/${encodeURIComponent(operationId)}`;
+  const body = JSON.stringify({
+    data: {
+      type: "catalog-integration-operation",
+      id: operationId,
+      attributes: { status: "started" },
+    },
+  });
+
+  const backoffs = [500, 1000, 2000, 4000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await ankorstoreFetchJson<unknown>(path, { method: "PATCH", body });
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const pendingRace = /cannot be updated from \[pending\]/i.test(msg);
+      if (!pendingRace || attempt >= backoffs.length) throw err;
+      logger.warn("[Ankorstore] Start operation encore en [pending] — retry après backoff", {
+        operationId,
+        attempt: attempt + 1,
+        delayMs: backoffs[attempt],
+      });
+      await new Promise((r) => setTimeout(r, backoffs[attempt]));
     }
-  );
+  }
 }
 
 /**
