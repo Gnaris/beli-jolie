@@ -400,34 +400,45 @@ export async function ankorstoreStartOperation(operationId: string): Promise<voi
     },
   });
 
-  const backoffs = [500, 1000, 2000, 4000];
+  // Backoffs plus généreux : Ankor peut prendre >10s à stabiliser la
+  // transition created→pending quand le batch delete est encore en cours.
+  const backoffs = [500, 1500, 3000, 6000, 12000];
   for (let attempt = 0; ; attempt++) {
     try {
       await ankorstoreFetchJson<unknown>(path, { method: "PATCH", body });
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Ankor a déjà passé l'op à `started` automatiquement (auto-start côté
-      // leur backend). Notre PATCH → started est donc un no-op déguisé en
-      // 403. Le produit sera bien traité — on considère ça comme un succès.
-      // Constaté 2026-08-12 sur les phase 2 CREATE_NEW : 2/5 ont eu ce cas
-      // alors que la fiche a bien été créée chez Ankor.
-      if (/cannot be updated from \[started\] to \[started\]/i.test(msg)) {
-        logger.info("[Ankorstore] Start operation déjà démarrée par Ankor (no-op)", {
-          operationId,
-        });
+      // Ankor a déjà démarré/traité l'op automatiquement. Notre PATCH →
+      // started est un no-op déguisé en 403 :
+      //   - [started] to [started] : op déjà en train de tourner
+      //   - [succeeded] to [started] : op déjà terminée avec succès
+      //   - [pending] to [started] : op en cours (auto-promoted)
+      // Dans tous ces cas, le produit sera bien créé côté Ankor.
+      // Constaté 2026-08-12 (batch REFRESH phase 2 CREATE_NEW).
+      if (
+        /cannot be updated from \[(started|succeeded|pending)\] to \[started\]/i.test(
+          msg,
+        )
+      ) {
+        // Pour [pending] uniquement, on veut d'abord retenter avec backoff
+        // avant de considérer no-op — car la transition pending→created peut
+        // encore se produire.
+        if (/from \[pending\]/i.test(msg) && attempt < backoffs.length) {
+          logger.warn(
+            "[Ankorstore] Start operation encore en [pending] — retry après backoff",
+            { operationId, attempt: attempt + 1, delayMs: backoffs[attempt] },
+          );
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+          continue;
+        }
+        logger.info(
+          "[Ankorstore] Start operation déjà avancée par Ankor (no-op)",
+          { operationId, message: msg.slice(0, 200) },
+        );
         return;
       }
-      // L'op est encore en `pending` côté Ankor (transition create → pending
-      // pas encore stable). On retente avec backoff. Voir doc ci-dessus.
-      const pendingRace = /cannot be updated from \[pending\]/i.test(msg);
-      if (!pendingRace || attempt >= backoffs.length) throw err;
-      logger.warn("[Ankorstore] Start operation encore en [pending] — retry après backoff", {
-        operationId,
-        attempt: attempt + 1,
-        delayMs: backoffs[attempt],
-      });
-      await new Promise((r) => setTimeout(r, backoffs[attempt]));
+      throw err;
     }
   }
 }

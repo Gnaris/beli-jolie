@@ -111,29 +111,26 @@ export async function finalizeBatchRefreshDeleteOld(
           return operationId;
         });
 
-        // Persister la nouvelle op CREATE_NEW et rebrancher le job du produit
-        // dessus.
-        await prisma.$transaction([
-          prisma.ankorstoreOperation.create({
-            data: {
-              id: newOpId,
-              productId: member.productId,
-              type: "REFRESH_CREATE_NEW",
-              status: "PENDING",
-              payload: member.nextPublishPayload as unknown as Prisma.InputJsonValue,
-              tenantId: op.tenantId ?? null,
-            },
-          }),
-          prisma.marketplaceRefreshJob.updateMany({
-            where: {
-              productId: member.productId,
-              marketplace: "ANKORSTORE",
-              status: "AWAITING_CALLBACK",
-              ankorsOperationId: op.id,
-            },
-            data: { ankorsOperationId: newOpId },
-          }),
-        ]);
+        // Persister la nouvelle op CREATE_NEW de manière idempotente (P2002
+        // silent si double webhook Ankor arrivait pour le même batch) et
+        // rebrancher le job du produit dessus.
+        const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+        await persistAnkorstoreOperation({
+          id: newOpId,
+          productId: member.productId,
+          type: "REFRESH_CREATE_NEW",
+          payload: member.nextPublishPayload as unknown as Prisma.InputJsonValue,
+          context: "Ankorstore Batch Refresh Phase 2",
+        });
+        await prisma.marketplaceRefreshJob.updateMany({
+          where: {
+            productId: member.productId,
+            marketplace: "ANKORSTORE",
+            status: "AWAITING_CALLBACK",
+            ankorsOperationId: op.id,
+          },
+          data: { ankorsOperationId: newOpId },
+        });
 
         logger.info("[Ankorstore Batch Refresh] Phase 2 kicked off", {
           batchOpId: op.id,
