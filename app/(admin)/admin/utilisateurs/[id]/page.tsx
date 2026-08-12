@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
+import UserStatusActions from "@/components/admin/users/UserStatusActions";
 import DeleteUserButton from "@/components/admin/users/DeleteUserButton";
 import ClientDiscountsPanel from "@/components/admin/users/ClientDiscountsPanel";
 import VerifyViesInline from "@/components/admin/users/VerifyViesInline";
@@ -265,32 +265,7 @@ export default async function ClientDetailPage({
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            {user.status === "PENDING" && (
-              <>
-                <form action={updateUserStatus.bind(null, user.id, "APPROVED")}>
-                  <button type="submit" className="btn-primary text-sm">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    Approuver
-                  </button>
-                </form>
-                <form action={updateUserStatus.bind(null, user.id, "REJECTED")}>
-                  <button type="submit" className="btn-danger text-sm">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    Rejeter
-                  </button>
-                </form>
-              </>
-            )}
-            {user.status === "APPROVED" && (
-              <form action={updateUserStatus.bind(null, user.id, "REJECTED")}>
-                <button type="submit" className="btn-danger text-sm">Révoquer</button>
-              </form>
-            )}
-            {user.status === "REJECTED" && (
-              <form action={updateUserStatus.bind(null, user.id, "APPROVED")}>
-                <button type="submit" className="btn-primary text-sm">Approuver</button>
-              </form>
-            )}
+            <UserStatusActions userId={user.id} status={user.status} />
           </div>
         </div>
 

@@ -3,6 +3,11 @@
  *
  * On vérifie que l'admin reçoit bien un email quand on approuve OU refuse
  * un compte client — et qu'on n'envoie PAS d'email si le statut ne change pas.
+ *
+ * Depuis 2026-08-12 : l'action ne fait plus `redirect()` (bug manifest
+ * Next.js 16 sur `/admin/utilisateurs/[id]`). Elle renvoie
+ * `{ success: true }` ou `{ success: false, error }` et c'est le composant
+ * client `UserStatusActions` qui navigue.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -32,13 +37,6 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/notifications", () => mockNotifications);
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({
-  // redirect lance une erreur spéciale Next — on la simule avec un throw
-  // qu'on attrape dans les tests.
-  redirect: vi.fn(() => {
-    throw new Error("NEXT_REDIRECT");
-  }),
-}));
 
 import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
 
@@ -58,10 +56,9 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
   it("envoie l'email d'approbation quand on passe PENDING → APPROVED", async () => {
     mockPrisma.user.findUnique.mockResolvedValue(baseClient);
 
-    await expect(updateUserStatus("user-1", "APPROVED")).rejects.toThrow(
-      "NEXT_REDIRECT",
-    );
+    const result = await updateUserStatus("user-1", "APPROVED");
 
+    expect(result).toEqual({ success: true });
     expect(mockNotifications.notifyClientAccountApproved).toHaveBeenCalledWith({
       email: "client@test.fr",
       firstName: "Marie",
@@ -72,10 +69,9 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
   it("envoie l'email de refus quand on passe PENDING → REJECTED", async () => {
     mockPrisma.user.findUnique.mockResolvedValue(baseClient);
 
-    await expect(updateUserStatus("user-1", "REJECTED")).rejects.toThrow(
-      "NEXT_REDIRECT",
-    );
+    const result = await updateUserStatus("user-1", "REJECTED");
 
+    expect(result).toEqual({ success: true });
     expect(mockNotifications.notifyClientAccountRejected).toHaveBeenCalledWith({
       email: "client@test.fr",
       firstName: "Marie",
@@ -89,10 +85,9 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
       status: "APPROVED",
     });
 
-    await expect(updateUserStatus("user-1", "APPROVED")).rejects.toThrow(
-      "NEXT_REDIRECT",
-    );
+    const result = await updateUserStatus("user-1", "APPROVED");
 
+    expect(result).toEqual({ success: true });
     expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
     expect(mockNotifications.notifyClientAccountRejected).not.toHaveBeenCalled();
   });
@@ -103,10 +98,12 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
       role: "ADMIN",
     });
 
-    await expect(updateUserStatus("user-1", "REJECTED")).rejects.toThrow(
-      /administrateur/,
-    );
+    const result = await updateUserStatus("user-1", "REJECTED");
 
+    expect(result).toEqual({
+      success: false,
+      error: "Impossible de modifier le statut d'un administrateur.",
+    });
     expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
     expect(mockNotifications.notifyClientAccountRejected).not.toHaveBeenCalled();
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
