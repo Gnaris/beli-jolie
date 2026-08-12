@@ -24,20 +24,20 @@ import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 20;
-// 20 slots Ankorstore : le mutex kickoff sérialise les POST côté import/update,
-// et les REFRESH sont maintenant groupés en batch delete + batch import
-// (voir ANKOR_REFRESH_BATCH_SIZE). Une fois le kickoff fait, la phase
-// AWAITING_CALLBACK est parallèle sans limite. Bumpé 10→20 le 2026-08-12 pour
-// gagner en throughput sur les gros lots de refresh — 4 batches en parallèle
-// au lieu de 2. Ankor documente 7000 req/h → très large marge.
-const ANKORSTORE_CONCURRENCY = 20;
+const TOTAL_CONCURRENCY = 10;
+// 1 slot Ankorstore = 1 refresh à la fois. ROLLBACK 2026-08-12 après incident
+// où le parallélisme + batch faisaient déclencher la dédup Ankor et
+// ralentissaient tout. Le mode 1-par-1 est prévisible et n'a jamais de fusion.
+// Autres marketplaces gardent leur budget via TOTAL_CONCURRENCY.
+const ANKORSTORE_CONCURRENCY = 1;
 /**
- * Taille maximum d'un batch REFRESH côté Ankorstore. L'endpoint
- * `/catalog/integrations/operations/delete` supporte plusieurs produits dans
- * un seul POST (validé 2026-08-12) — c'est le SEUL moyen de paralléliser les
- * refresh, car des POST séquentiels sont silencieusement fusionnés côté Ankor.
+ * Batch REFRESH désactivé par flag depuis le rollback 2026-08-12. Le mode
+ * batch (5 produits par POST) restait exposé aux fusions Ankor quand plusieurs
+ * batches se chevauchaient dans le temps. En 1-par-1 avec le mutex kickoff,
+ * aucune fusion possible et le comportement est prévisible.
+ * Pour réactiver plus tard : passer à `true` + ANKORSTORE_CONCURRENCY > 1.
  */
+const ANKOR_BATCH_REFRESH_ENABLED = false;
 const ANKOR_REFRESH_BATCH_SIZE = 5;
 
 const STARTUP_GUARD = Symbol.for("beliandjolie.marketplaceQueueWorker.started");
@@ -98,9 +98,7 @@ export function startMarketplaceQueueWorker(): void {
   }, POLL_MS);
 
   logger.info(
-    "[Marketplace Queue] Worker démarré (poll 1s, 10 slots, 10 Ankorstore avec batch REFRESH taille " +
-      String(ANKOR_REFRESH_BATCH_SIZE) +
-      ")",
+    `[Marketplace Queue] Worker démarré (poll 1s, ${TOTAL_CONCURRENCY} slots, ${ANKORSTORE_CONCURRENCY} Ankorstore, batch REFRESH ${ANKOR_BATCH_REFRESH_ENABLED ? `taille ${ANKOR_REFRESH_BATCH_SIZE}` : "désactivé"})`,
   );
 }
 
@@ -294,7 +292,7 @@ async function startQueued(): Promise<void> {
   }
 
   for (const [tenantKey, tenantJobs] of byTenant.entries()) {
-    if (tenantJobs.length >= 2) {
+    if (ANKOR_BATCH_REFRESH_ENABLED && tenantJobs.length >= 2) {
       // Groupement en lots de ANKOR_REFRESH_BATCH_SIZE.
       for (let i = 0; i < tenantJobs.length; i += ANKOR_REFRESH_BATCH_SIZE) {
         const chunk = tenantJobs.slice(i, i + ANKOR_REFRESH_BATCH_SIZE);
@@ -312,6 +310,8 @@ async function startQueued(): Promise<void> {
         }
       }
     } else {
+      // Batch REFRESH désactivé (rollback) → tous les Ankor REFRESH partent en
+      // single, un à la fois grâce à ANKORSTORE_CONCURRENCY=1.
       single.push(...tenantJobs);
     }
   }
