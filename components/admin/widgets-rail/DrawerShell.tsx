@@ -121,13 +121,17 @@ export function DrawerShell({
   const visible = open && mounted;
   // "wide" : jusqu'à 1500 px (5 colonnes marketplace) — la hauteur suit la
   // fenêtre pour ne jamais forcer de scroll (cliente : « pas de scroll »).
-  // "fullscreen" : viewport entier, sans radius ni marges (audit PFS).
+  // "fullscreen" : quasi plein écran. Sur ≥ lg (1024 px, quand la sidebar
+  // admin apparaît), on décale de 300 px à gauche pour la laisser visible et
+  // on garde 20 px de marge en haut, bas et à droite (demande cliente
+  // 2026-08-12 : « laisser respirer »). Sous lg, la sidebar est déjà cachée
+  // (AdminMobileNav) donc on garde inset-0.
   // Depuis le 2026-07-31, quand un tiroir est ouvert le FAB étoile est
   // masqué : les tiroirs "default" et "wide" collent donc au coin bas-droit
   // (1.5 rem de marge) au lieu de laisser un vide de 96 px pour le FAB.
   const wideClasses =
     size === "fullscreen"
-      ? "md:inset-0"
+      ? "md:inset-0 lg:inset-auto lg:top-5 lg:right-5 lg:bottom-5 lg:left-[300px]"
       : size === "wide"
         ? "md:bottom-6 md:right-6 md:w-[min(1500px,calc(100vw-3rem))] md:h-[calc(100vh-3rem)]"
         : "md:bottom-6 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-3rem)]";
@@ -149,7 +153,7 @@ export function DrawerShell({
     >
       <div
         className={`h-full bg-white shadow-2xl shadow-slate-900/25 border border-slate-200 overflow-hidden flex flex-col
-                      ${isFullscreen ? "md:rounded-none" : "md:rounded-3xl"}
+                      ${isFullscreen ? "md:rounded-none lg:rounded-3xl" : "md:rounded-3xl"}
                       max-md:rounded-none`}
       >
         {/* Header aurora coloré */}
