@@ -269,6 +269,10 @@ async function failEntireBatch(
  * (identique à ce qu'on a envoyé à Ankor), puis on rebranche Product +
  * ProductColor et on finalise le job. Retourne null si le SKU n'est pas
  * indexé chez Ankor (donc la fusion a en fait rejeté notre produit).
+ *
+ * Constaté prod 2026-08-12 : Ankor met parfois 15-20s à indexer un SKU
+ * après le succès de l'op import. Retries généreux (jusqu'à ~40s) pour
+ * laisser le temps à l'index.
  */
 async function tryRecoverBySku(
   batchOpId: string,
@@ -279,10 +283,11 @@ async function tryRecoverBySku(
     const skuToBjVariantId = member.nextPublishPayload.skuToBjVariantId;
     if (!firstSku || !skuToBjVariantId) return null;
 
+    // maxAttempts=6, delays cumul : 3+5+8+8+8+8 = 40s
     const ankorsProductId = await ankorstoreLookupProductIdBySku(firstSku, {
-      maxAttempts: 3,
-      initialDelayMs: 2000,
-      pollDelayMs: 3000,
+      maxAttempts: 6,
+      initialDelayMs: 3000,
+      pollDelayMs: 8000,
     });
     if (!ankorsProductId) return null;
 

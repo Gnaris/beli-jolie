@@ -58,12 +58,23 @@ async function main() {
   console.log(`\n${DRY ? "DRY RUN — " : ""}Récupération jobs Ankor stuck…\n`);
 
   const cutoff = new Date(Date.now() - STUCK_MIN_AGE_MIN * 60 * 1000);
+  // Cible 2 populations :
+  //   1. AWAITING_CALLBACK depuis > X min (jobs jamais finalisés)
+  //   2. FAILED récents avec message "Ankorstore a fusionné" — le fix inline
+  //      a échoué (SKU pas encore indexé) mais on peut souvent réussir en
+  //      relançant plus tard
   const stuck = await rawPrisma.marketplaceRefreshJob.findMany({
     where: {
-      status: "AWAITING_CALLBACK",
       marketplace: "ANKORSTORE",
-      createdAt: { lt: cutoff },
       ankorsOperationId: { not: null },
+      OR: [
+        { status: "AWAITING_CALLBACK", createdAt: { lt: cutoff } },
+        {
+          status: "FAILED",
+          createdAt: { gt: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+          errorMessage: { contains: "a fusionné" },
+        },
+      ],
     },
     orderBy: { createdAt: "asc" },
   });
@@ -287,6 +298,7 @@ async function main() {
                       warning:
                         "Récupéré manuellement — Ankorstore avait fusionné plusieurs demandes.",
                     } as unknown as Prisma.InputJsonValue,
+                    errorMessage: null,
                     completedAt: new Date(),
                   },
                 }),
