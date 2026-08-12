@@ -290,26 +290,25 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
           previousOpId: op.id,
           productId: op.productId,
         });
-        await prisma.$transaction([
-          prisma.ankorstoreOperation.update({
-            where: { id: op.id },
-            data: {
-              status: "CANCELLED",
-              callbackPayload: callbackPayload as Prisma.InputJsonValue,
-              errorMessage: `Retry archive (${currentRetry + 1}/${MAX_ARCHIVE_RETRIES})`,
-              completedAt: new Date(),
-            },
-          }),
-          prisma.ankorstoreOperation.create({
-            data: {
-              id: retryOpId,
-              productId: op.productId,
-              type: "REFRESH_DELETE_OLD",
-              status: "PENDING",
-              payload: nextPayload as unknown as Prisma.InputJsonValue,
-            },
-          }),
-        ]);
+        // Idempotent : Ankor peut retry le webhook, ce finalize se
+        // ré-exécuter → double create de la retry-op sinon.
+        await prisma.ankorstoreOperation.update({
+          where: { id: op.id },
+          data: {
+            status: "CANCELLED",
+            callbackPayload: callbackPayload as Prisma.InputJsonValue,
+            errorMessage: `Retry archive (${currentRetry + 1}/${MAX_ARCHIVE_RETRIES})`,
+            completedAt: new Date(),
+          },
+        });
+        const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+        await persistAnkorstoreOperation({
+          id: retryOpId,
+          productId: op.productId,
+          type: "REFRESH_DELETE_OLD",
+          payload: nextPayload as unknown as Prisma.InputJsonValue,
+          context: "Ankorstore Refresh retry archive",
+        });
         logger.info("[Ankorstore Refresh] Delete-old retry kicked off", {
           previousOpId: op.id,
           newOpId: retryOpId,
@@ -363,25 +362,24 @@ export async function ankorstoreFinalizeRefreshDeleteOld(
       deleteOpId: op.id,
       productId: op.productId,
     });
-    await prisma.$transaction([
-      prisma.ankorstoreOperation.update({
-        where: { id: op.id },
-        data: {
-          status: "SUCCEEDED",
-          callbackPayload: callbackPayload as Prisma.InputJsonValue,
-          completedAt: new Date(),
-        },
-      }),
-      prisma.ankorstoreOperation.create({
-        data: {
-          id: newOpId,
-          productId: op.productId,
-          type: "REFRESH_CREATE_NEW",
-          status: "PENDING",
-          payload: payload.nextPublishPayload as unknown as Prisma.InputJsonValue,
-        },
-      }),
-    ]);
+    // Persist idempotent (P2002 silent) : Ankor peut retry le webhook du
+    // DELETE_OLD et ce finalize se ré-exécuter → double create sinon.
+    await prisma.ankorstoreOperation.update({
+      where: { id: op.id },
+      data: {
+        status: "SUCCEEDED",
+        callbackPayload: callbackPayload as Prisma.InputJsonValue,
+        completedAt: new Date(),
+      },
+    });
+    const { persistAnkorstoreOperation } = await import("@/lib/ankorstore-persist");
+    await persistAnkorstoreOperation({
+      id: newOpId,
+      productId: op.productId,
+      type: "REFRESH_CREATE_NEW",
+      payload: payload.nextPublishPayload as unknown as Prisma.InputJsonValue,
+      context: "Ankorstore Refresh Phase 2",
+    });
 
     logger.info("[Ankorstore Refresh] Phase 1 done, Phase 2 kicked off", {
       deleteOpId: op.id,
