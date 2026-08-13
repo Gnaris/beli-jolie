@@ -26,6 +26,49 @@ import {
   searchEfashionCompositions,
   type EfashionAnnexes,
 } from "@/lib/efashion-annexes";
+import {
+  buildMappingImpactSummary,
+  type MappingChangeSummary,
+} from "@/lib/mapping-impact";
+
+/**
+ * Retour standard des 4 actions de mapping eFashion : succès avec un impact
+ * marketplace éventuel (modale « X produits impactés ») ou échec.
+ */
+type EfashionMappingUpdateResult =
+  | { success: true; impact: MappingChangeSummary | null }
+  | { success: false; error: string };
+
+/**
+ * Résout le libellé humain d'une entrée eFashion (catégorie / saison /
+ * composition / couleur) via les annexes cachées. Fallback `id N` si la
+ * ressource n'est pas trouvable (annexes indisponibles ou id inconnu).
+ */
+async function resolveEfashionLabel(
+  kind: "category" | "season" | "composition" | "color",
+  id: number | null,
+): Promise<string | null> {
+  if (id == null) return null;
+  try {
+    const annexes = await getEfashionAnnexes();
+    if (kind === "category") {
+      const hit = annexes.categories.find((c) => c.id === id && c.isLeaf);
+      return hit?.path ?? `id ${id}`;
+    }
+    if (kind === "season") {
+      const hit = annexes.collections.find((c) => c.id === id);
+      return hit?.label ?? `id ${id}`;
+    }
+    if (kind === "composition") {
+      const hit = annexes.compositions.find((c) => c.id === id);
+      return hit?.label ?? `id ${id}`;
+    }
+    const hit = annexes.colors.find((c) => c.id === id);
+    return hit?.fr ?? `id ${id}`;
+  } catch {
+    return `id ${id}`;
+  }
+}
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -64,16 +107,39 @@ export async function searchEfashionCompositionsAction(
 export async function updateCategoryEfashionMapping(
   categoryId: string,
   efashionCategorieId: number | null,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<EfashionMappingUpdateResult> {
   try {
     await requireAdmin();
+    const before = await prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { name: true, efashionCategorieId: true },
+    });
+    if (!before) return { success: false, error: "Catégorie introuvable." };
+
     await prisma.category.update({
       where: { id: categoryId },
       data: { efashionCategorieId },
     });
     revalidatePath("/admin/categories");
     revalidateTag("categories", "default");
-    return { success: true };
+
+    if (before.efashionCategorieId === efashionCategorieId) {
+      return { success: true, impact: null };
+    }
+    const [oldLabel, newLabel] = await Promise.all([
+      resolveEfashionLabel("category", before.efashionCategorieId),
+      resolveEfashionLabel("category", efashionCategorieId),
+    ]);
+    const impact = await buildMappingImpactSummary({
+      attribute: "category",
+      marketplace: "efashion",
+      localId: categoryId,
+      localName: before.name,
+      oldValueLabel: oldLabel,
+      newValueLabel: newLabel,
+      rollbackFields: { efashionCategorieId: before.efashionCategorieId },
+    });
+    return { success: true, impact };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
@@ -83,16 +149,39 @@ export async function updateCategoryEfashionMapping(
 export async function updateSeasonEfashionMapping(
   seasonId: string,
   efashionCollectionId: number | null,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<EfashionMappingUpdateResult> {
   try {
     await requireAdmin();
+    const before = await prisma.season.findUnique({
+      where: { id: seasonId },
+      select: { name: true, efashionCollectionId: true },
+    });
+    if (!before) return { success: false, error: "Saison introuvable." };
+
     await prisma.season.update({
       where: { id: seasonId },
       data: { efashionCollectionId },
     });
     revalidatePath("/admin/saisons");
     revalidateTag("seasons", "default");
-    return { success: true };
+
+    if (before.efashionCollectionId === efashionCollectionId) {
+      return { success: true, impact: null };
+    }
+    const [oldLabel, newLabel] = await Promise.all([
+      resolveEfashionLabel("season", before.efashionCollectionId),
+      resolveEfashionLabel("season", efashionCollectionId),
+    ]);
+    const impact = await buildMappingImpactSummary({
+      attribute: "season",
+      marketplace: "efashion",
+      localId: seasonId,
+      localName: before.name,
+      oldValueLabel: oldLabel,
+      newValueLabel: newLabel,
+      rollbackFields: { efashionCollectionId: before.efashionCollectionId },
+    });
+    return { success: true, impact };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
@@ -101,16 +190,39 @@ export async function updateSeasonEfashionMapping(
 export async function updateCompositionEfashionMapping(
   compositionId: string,
   efashionId: number | null,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<EfashionMappingUpdateResult> {
   try {
     await requireAdmin();
+    const before = await prisma.composition.findUnique({
+      where: { id: compositionId },
+      select: { name: true, efashionId: true },
+    });
+    if (!before) return { success: false, error: "Composition introuvable." };
+
     await prisma.composition.update({
       where: { id: compositionId },
       data: { efashionId },
     });
     revalidatePath("/admin/compositions");
     revalidateTag("compositions", "default");
-    return { success: true };
+
+    if (before.efashionId === efashionId) {
+      return { success: true, impact: null };
+    }
+    const [oldLabel, newLabel] = await Promise.all([
+      resolveEfashionLabel("composition", before.efashionId),
+      resolveEfashionLabel("composition", efashionId),
+    ]);
+    const impact = await buildMappingImpactSummary({
+      attribute: "composition",
+      marketplace: "efashion",
+      localId: compositionId,
+      localName: before.name,
+      oldValueLabel: oldLabel,
+      newValueLabel: newLabel,
+      rollbackFields: { efashionId: before.efashionId },
+    });
+    return { success: true, impact };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }
@@ -119,9 +231,15 @@ export async function updateCompositionEfashionMapping(
 export async function updateColorEfashionMapping(
   colorId: string,
   efashionColorId: number | null,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<EfashionMappingUpdateResult> {
   try {
     await requireAdmin();
+    const before = await prisma.color.findUnique({
+      where: { id: colorId },
+      select: { name: true, efashionColorId: true },
+    });
+    if (!before) return { success: false, error: "Couleur introuvable." };
+
     await prisma.color.update({
       where: { id: colorId },
       data: { efashionColorId },
@@ -154,7 +272,24 @@ export async function updateColorEfashionMapping(
 
     revalidatePath("/admin/couleurs");
     revalidateTag("colors", "default");
-    return { success: true };
+
+    if (before.efashionColorId === efashionColorId) {
+      return { success: true, impact: null };
+    }
+    const [oldLabel, newLabel] = await Promise.all([
+      resolveEfashionLabel("color", before.efashionColorId),
+      resolveEfashionLabel("color", efashionColorId),
+    ]);
+    const impact = await buildMappingImpactSummary({
+      attribute: "color",
+      marketplace: "efashion",
+      localId: colorId,
+      localName: before.name,
+      oldValueLabel: oldLabel,
+      newValueLabel: newLabel,
+      rollbackFields: { efashionColorId: before.efashionColorId },
+    });
+    return { success: true, impact };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
   }

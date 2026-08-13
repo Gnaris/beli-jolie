@@ -31,66 +31,9 @@ if (!g[GUARD]) {
     });
   }
 
-  // Précharge le catalogue Ankorstore en arrière-plan pour chaque tenant
-  // ayant la marketplace activée. Évite la 1re attente de ~30s-1min à
-  // l'ouverture de la modale « Lier à un produit Ankorstore » après un
-  // redémarrage pm2.
-  // Multi-tenant : chaque tenant a son propre compte Ankorstore
-  // (client_id/secret) → un cache et un préchargement par tenant, wrappés
-  // dans `tenantALS.run(tenantId, …)` pour que l'auth trouve les bonnes
-  // credentials (le cache d'auth Ankorstore est indexé par tenantId).
-  // Non bloquant : lancé après 5s pour laisser le serveur finir de démarrer.
-  setTimeout(() => {
-    void (async () => {
-      try {
-        const { prisma } = await import("@/lib/prisma");
-        const { tenantALS } = await import("@/lib/tenant-als");
-        const { preloadCatalogInBackground, startCatalogAutoReload } = await import(
-          "@/lib/ankorstore-catalog-cache"
-        );
-
-        const tenants = await prisma.tenant.findMany({
-          where: { isActive: true },
-          select: { id: true, name: true },
-        });
-
-        for (const t of tenants) {
-          try {
-            const rows = await prisma.siteConfig.findMany({
-              where: {
-                tenantId: t.id,
-                key: { in: ["ankors_client_id", "ankors_enabled"] },
-              },
-              select: { key: true, value: true },
-            });
-            const map = new Map(rows.map((r) => [r.key, r.value]));
-            const hasId = (map.get("ankors_client_id") ?? "").trim().length > 0;
-            const enabled = map.get("ankors_enabled") !== "false";
-            if (!hasId || !enabled) continue;
-
-            await tenantALS.run(t.id, async () => {
-              logger.info("[Ankorstore Catalog] Préchargement au démarrage déclenché", {
-                tenantId: t.id,
-                tenant: t.name,
-              });
-              preloadCatalogInBackground(t.id);
-              startCatalogAutoReload(t.id);
-            });
-          } catch (err) {
-            logger.warn("[Ankorstore Catalog] Préchargement échoué pour un tenant", {
-              tenantId: t.id,
-              tenant: t.name,
-              error: err as Error,
-            });
-          }
-        }
-      } catch (err) {
-        logger.warn("[Ankorstore Catalog] Préchargement au démarrage échoué", {
-          error: err as Error,
-        });
-      }
-    })();
-  }, 5_000);
+  // Ankorstore : préchargement catalogue désactivé — remplacé par le module
+  // lib/ankorstore-bo (reverse back-office) qui n'a pas besoin de cache global.
+  // À supprimer avec le reste du legacy Ankorstore lors du grand nettoyage.
 
   // Worker de la file de rafraîchissement marketplace (pilote MarketplaceRefreshJob).
   // Démarré aussi après 5s pour laisser le serveur initialiser ses routes et son
@@ -189,20 +132,12 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
-  // Worker de polling des commandes Ankorstore. Même mécanique que PFS/eFashion,
-  // décalé au démarrage pour ne pas taper les 3 APIs en même temps.
-  setTimeout(() => {
-    void (async () => {
-      try {
-        const { startAnkorstoreOrdersWorker } = await import("@/lib/ankorstore-orders-worker");
-        startAnkorstoreOrdersWorker();
-      } catch (err) {
-        logger.error("[Ankorstore Orders] Démarrage du worker échoué", {
-          error: err as Error,
-        });
-      }
-    })();
-  }, 5_000);
+  // Ankorstore Orders : DÉSACTIVÉ temporairement (2026-08-13). L'ancien worker
+  // OAuth2 est démonté, le nouveau (reverse back-office) viendra dans une
+  // itération ultérieure. Aucun impact commande côté cliente : les commandes
+  // saisies sur Ankorstore ne sont plus synchronisées automatiquement pendant
+  // cette période — à traiter manuellement depuis le back-office Ankorstore
+  // le temps qu'on reverse cet endpoint.
 
   // Worker de polling des commandes Faire. Même mécanique que les autres
   // marketplaces. Faire ne fournit AUCUN webhook (§13 docs/faire-api.md) —

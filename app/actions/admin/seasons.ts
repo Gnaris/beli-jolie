@@ -6,6 +6,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateSeason } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import {
+  buildMappingImpactSummary,
+  type MappingChangeSummary,
+} from "@/lib/mapping-impact";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -76,16 +80,42 @@ export async function updateSeasonDirect(
 /**
  * Update the PFS ref for a season.
  * Multiple seasons can share the same PFS ref.
+ *
+ * Retourne un `impact` non-null si le mapping a réellement changé ET si des
+ * produits publiés sur PFS utilisent cette saison → l'UI ouvre la modale
+ * « X produits impactés » (voir `MappingChangeImpactModal`).
  */
-export async function updateSeasonPfsRef(id: string, pfsRef: string | null) {
+export async function updateSeasonPfsRef(
+  id: string,
+  pfsRef: string | null,
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
   await requireAdmin();
 
   const normalized = pfsRef?.trim().toUpperCase() || null;
+
+  const before = await prisma.season.findUnique({
+    where: { id },
+    select: { name: true, pfsRef: true },
+  });
+  if (!before) throw new Error("Saison introuvable.");
 
   await prisma.season.update({ where: { id }, data: { pfsRef: normalized } });
 
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
+
+  if (before.pfsRef === normalized) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "season",
+    marketplace: "pfs",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.pfsRef,
+    newValueLabel: normalized,
+    rollbackFields: { pfsRef: before.pfsRef },
+  });
+  return { success: true, impact };
 }
 
 export async function deleteSeason(id: string) {

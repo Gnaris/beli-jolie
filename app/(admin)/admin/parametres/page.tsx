@@ -41,8 +41,11 @@ import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatus
 import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
 import PersonalEmailCard from "@/components/admin/settings/PersonalEmailCard";
+import AdminThemeToggle from "@/components/admin/settings/AdminThemeToggle";
 import { getMailForwardStatus, getSmtpPublicConfig } from "@/app/actions/admin/mail-notify";
 import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
+import { cookies } from "next/headers";
+import { ADMIN_THEME_COOKIE, parseAdminTheme } from "@/lib/admin-theme";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -71,6 +74,7 @@ const Ico = {
   card:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>,
   bell:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
   tag:       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13 21l-9-9V4h8l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>,
+  moon:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -150,6 +154,7 @@ export default async function ParametresPage({
           {activeTab === "traduction"   && <TraductionTab />}
           {activeTab === "seo"          && <SeoTab />}
           {activeTab === "messagerie"   && <MessagerieTab />}
+          {activeTab === "affichage"    && <AffichageTab />}
         </div>
       </div>
     </div>
@@ -950,6 +955,30 @@ async function MessagerieTab() {
         accent="dark"
       >
         <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={smtpPublic.user || null} />
+      </SettingCard>
+    </CardsStack>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB : Affichage — mode clair / sombre pour toutes les pages admin
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function AffichageTab() {
+  const store = await cookies();
+  const currentTheme = parseAdminTheme(store.get(ADMIN_THEME_COOKIE)?.value ?? null);
+
+  return (
+    <CardsStack>
+      <SettingCard
+        icon={Ico.moon}
+        title="Mode d'affichage"
+        description="Bascule l'interface d'administration entre un fond clair ou un fond sombre. Uniquement pour vous — la boutique publique reste inchangée."
+        accent="dark"
+        status={currentTheme === "dark"
+          ? { tone: "ok", label: "Sombre" }
+          : { tone: "off", label: "Clair" }}
+      >
+        <AdminThemeToggle initialTheme={currentTheme} />
       </SettingCard>
     </CardsStack>
   );

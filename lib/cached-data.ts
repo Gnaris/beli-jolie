@@ -559,8 +559,14 @@ export async function getCachedAnkorstoreCredentials() {
 export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
   "has-ankorstore-config",
   async (tid) => {
+    // Depuis 2026-08-13, on stocke email/password (nouvelle intégration back-office
+    // reverse-engineered). On garde une lecture croisée qui reconnaît aussi les
+    // anciennes clés OAuth2 pour ne pas casser les tenants encore migrés.
     const row = await prisma.siteConfig.findFirst({
-      where: tid === "global" ? { key: "ankors_client_id" } : { tenantId: tid, key: "ankors_client_id" },
+      where:
+        tid === "global"
+          ? { key: { in: ["ankorstore_bo_email", "ankors_client_id"] } }
+          : { tenantId: tid, key: { in: ["ankorstore_bo_email", "ankors_client_id"] } },
       select: { key: true },
     });
     return !!row;
@@ -572,14 +578,15 @@ export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
 async function readAnkorstoreEnabledDirect(tid?: string) {
   const rows = await prisma.siteConfig.findMany({
     where: !tid || tid === "global"
-      ? { key: { in: ["ankors_client_id", "ankors_enabled"] } }
-      : { tenantId: tid, key: { in: ["ankors_client_id", "ankors_enabled"] } },
+      ? { key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankors_enabled"] } }
+      : { tenantId: tid, key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankors_enabled"] } },
     select: { key: true, value: true },
   });
   const map = new Map(rows.map((r) => [r.key, r.value]));
-  const hasId = map.has("ankors_client_id");
+  // Compat : accepte les identifiants back-office OU les vieux client_id OAuth2.
+  const hasCreds = map.has("ankorstore_bo_email") || map.has("ankors_client_id");
   const enabled = map.get("ankors_enabled");
-  return hasId && enabled !== "false";
+  return hasCreds && enabled !== "false";
 }
 
 const _cachedAnkorstoreEnabled = tenantScopedCacheWithTid(

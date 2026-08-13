@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { VariantState, ColorImageState } from "./ColorVariantManager";
 import { imageGroupKeyFromVariant, isMultiColorPack } from "./ColorVariantManager";
-import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/marketplace-description";
 
 const DESCRIPTION_MIN_CHARS = 30;
 

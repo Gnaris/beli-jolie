@@ -144,23 +144,62 @@ describe("findLastFilledBasics", () => {
   it("renvoie les valeurs de la dernière variante remplie", () => {
     const a = makeVariant({ colorId: "rouge", unitPrice: "10", stock: "5", weight: "0.250" });
     const b = makeVariant({ colorId: "bleu", unitPrice: "12", stock: "3", weight: "0.300" });
-    expect(findLastFilledBasics([a, b])).toEqual({ unitPrice: "12", stock: "3", weight: "0.300" });
+    expect(findLastFilledBasics([a, b])).toEqual({
+      unitPrice: "12", stock: "3", weight: "0.300", sizeEntries: [], saleType: "UNIT",
+    });
   });
 
   it("retient la dernière variante remplie même si la toute dernière est vide", () => {
     const filled = makeVariant({ colorId: "rouge", unitPrice: "20", stock: "8", weight: "0.5" });
     const empty = makeVariant({ colorId: "bleu" });
-    expect(findLastFilledBasics([filled, empty])).toEqual({ unitPrice: "20", stock: "8", weight: "0.5" });
+    expect(findLastFilledBasics([filled, empty])).toEqual({
+      unitPrice: "20", stock: "8", weight: "0.5", sizeEntries: [], saleType: "UNIT",
+    });
   });
 
   it("ignore les variantes désactivées", () => {
     const disabled = makeVariant({ colorId: "rouge", unitPrice: "99", stock: "9", weight: "9", disabled: true });
     const active = makeVariant({ colorId: "bleu", unitPrice: "12", stock: "3", weight: "0.300" });
-    expect(findLastFilledBasics([disabled, active])).toEqual({ unitPrice: "12", stock: "3", weight: "0.300" });
+    expect(findLastFilledBasics([disabled, active])).toEqual({
+      unitPrice: "12", stock: "3", weight: "0.300", sizeEntries: [], saleType: "UNIT",
+    });
   });
 
   it("considère qu'une variante avec seulement le stock rempli compte aussi", () => {
     const stockOnly = makeVariant({ colorId: "rouge", stock: "4" });
-    expect(findLastFilledBasics([stockOnly])).toEqual({ unitPrice: "", stock: "4", weight: "" });
+    expect(findLastFilledBasics([stockOnly])).toEqual({
+      unitPrice: "", stock: "4", weight: "", sizeEntries: [], saleType: "UNIT",
+    });
+  });
+
+  it("renvoie aussi les tailles et le saleType du donneur (pour recopier la taille)", () => {
+    const filled = makeVariant({
+      colorId: "rouge",
+      unitPrice: "12",
+      stock: "3",
+      weight: "0.300",
+      saleType: "UNIT",
+      sizeEntries: [{ tempId: "s-orig", sizeId: "size-m", sizeName: "M", quantity: "1" }],
+    });
+    const basics = findLastFilledBasics([filled]);
+    expect(basics?.saleType).toBe("UNIT");
+    expect(basics?.sizeEntries).toEqual([
+      { tempId: "s-orig", sizeId: "size-m", sizeName: "M", quantity: "1" },
+    ]);
+  });
+
+  it("expose le saleType PACK d'un donneur PACK (le caller décide s'il recopie)", () => {
+    const pack = makeVariant({
+      colorId: "rouge",
+      unitPrice: "30",
+      stock: "5",
+      weight: "1.0",
+      saleType: "PACK",
+      packQuantity: "10",
+      sizeEntries: [{ tempId: "s-pack", sizeId: "size-tu", sizeName: "TU", quantity: "10" }],
+    });
+    const basics = findLastFilledBasics([pack]);
+    expect(basics?.saleType).toBe("PACK");
+    expect(basics?.sizeEntries).toHaveLength(1);
   });
 });

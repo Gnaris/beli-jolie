@@ -1,0 +1,753 @@
+/**
+ * Server actions Ankorstore back-office (reverse-engineered).
+ *
+ * Remplace la pile OAuth2 callback-only par des appels synchrones directs
+ * au back-office https://fr.ankorstore.com. Tout est immédiat — plus de
+ * table `AnkorstoreOperation`, plus de webhook, plus de polling.
+ */
+
+"use server";
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
+import { requireCurrentTenant } from "@/lib/tenant";
+import { tenantALS } from "@/lib/tenant-als";
+import { logger } from "@/lib/logger";
+import { revalidateTag as _revalidateTag } from "next/cache";
+import { emitProductEvent as _emitProductEvent } from "@/lib/product-events";
+
+/**
+ * Wrappers safe pour les fonctions Next.js qui exigent un contexte requête.
+ * Dans un worker/script, on skip silencieusement l'invalidation cache/SSE.
+ */
+function revalidateTag(tag: string): void {
+  try {
+    _revalidateTag(tag);
+  } catch {
+    /* hors requête — worker ou script */
+  }
+}
+function emitProductEvent(evt: { type: string; productId: string }): void {
+  try {
+    _emitProductEvent(evt as never);
+  } catch {
+    /* hors requête */
+  }
+}
+import {
+  getBoSession,
+  invalidateBoSession,
+  primeBoCredentials,
+  uploadImage,
+  uploadImagesSequential,
+  waitForUploadsIngestion,
+  createProduct,
+  updateProduct,
+  readProductById,
+  readProductByIdWithRetry,
+  enableProducts,
+  disableProducts,
+  archiveProducts,
+  findLinkCandidates,
+  buildProductPayloadFromBjProduct,
+  type BjColorInputForBo,
+  type BjProductInputForBo,
+} from "@/lib/ankorstore-bo";
+import { loadAnkorstorePricingConfig } from "@/lib/ankorstore-pricing";
+
+async function requireAdmin() {
+  // Skip silencieusement quand on est appelé hors contexte requête HTTP (workers,
+  // scripts CLI, jobs background) — `getServerSession` throw "headers outside
+  // request scope" dans ce cas. Le tenantId est déjà scopé par l'ALS/BDD.
+  try {
+    const session = await getServerSession(authOptions);
+    if (session && session.user.role !== "ADMIN") throw new Error("Non autorisé");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Non autorisé")) throw err;
+    // ignore "headers was called outside a request scope" — worker context
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Configuration : email / mot de passe
+// ─────────────────────────────────────────────────────────────
+
+export interface AnkorstoreBoCredentialsInput {
+  email: string;
+  password: string;
+}
+
+/**
+ * Enregistre email + mot de passe Ankorstore chiffrés en SiteConfig.
+ * (Les clés sont marquées "sensibles" dans lib/encryption.ts — chiffrées automatiquement.)
+ */
+export async function updateAnkorstoreBoCredentials(
+  input: AnkorstoreBoCredentialsInput
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const email = input.email.trim();
+    const password = input.password.trim();
+    if (!email || !password) {
+      return { success: false, error: "Email et mot de passe requis" };
+    }
+    await setSiteConfig("ankorstore_bo_email", email);
+    await setSiteConfig("ankorstore_bo_password", password);
+    // Invalide la session en cache (au cas où on avait déjà loggué avec les anciens)
+    invalidateBoSession();
+    revalidateTag("site-config");
+    return { success: true };
+  } catch (err) {
+    logger.error("[ankorstore-bo] updateAnkorstoreBoCredentials", { error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/** Efface les identifiants. */
+export async function clearAnkorstoreBoCredentials(): Promise<{ success: boolean }> {
+  await requireAdmin();
+  await unsetSiteConfig("ankorstore_bo_email");
+  await unsetSiteConfig("ankorstore_bo_password");
+  invalidateBoSession();
+  revalidateTag("site-config");
+  return { success: true };
+}
+
+/**
+ * Teste la connexion : login réel avec email/pwd fournis (sans les persister).
+ * Renvoie `valid: true` si login OK. Utile pour le bouton « Vérifier » de l'UI.
+ */
+export async function validateAnkorstoreBoCredentials(
+  input: AnkorstoreBoCredentialsInput
+): Promise<{ valid: boolean; error?: string; brandName?: string }> {
+  try {
+    await requireAdmin();
+    const tenant = await requireCurrentTenant();
+    const email = input.email.trim();
+    const password = input.password.trim();
+    if (!email || !password) return { valid: false, error: "Email et mot de passe requis" };
+    // On prime les creds en mémoire pour le tenant courant, on invalide toute
+    // session cache, puis on wrap l'appel `getBoSession` dans tenantALS.run
+    // pour garantir que `getCurrentTenantIdSync()` retourne bien le tenant BJ
+    // au moment où `readCredentials` cherche les creds primed.
+    primeBoCredentials(tenant.id, email, password);
+    invalidateBoSession(tenant.id);
+    try {
+      const session = await tenantALS.run(tenant.id, () => getBoSession());
+      return { valid: true, brandName: `Compte marque #${session.brandId}` };
+    } finally {
+      // Nettoie la session cache pour ne pas garder l'auth en RAM (sécurité).
+      invalidateBoSession(tenant.id);
+    }
+  } catch (err) {
+    logger.error("[ankorstore-bo] validateBoCredentials", { error: err as Error });
+    return { valid: false, error: (err as Error).message };
+  }
+}
+
+/** Toggle Ankorstore actif / en pause. */
+export async function toggleAnkorstoreBoEnabled(
+  enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await setSiteConfig("ankorstore_bo_enabled", enabled ? "true" : "false");
+    revalidateTag("site-config");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Helper — charger produit BJ et le convertir en BjProductInputForBo
+// ─────────────────────────────────────────────────────────────
+
+async function loadBjProductForBo(productId: string): Promise<BjProductInputForBo> {
+  const p = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      reference: true,
+      name: true,
+      description: true,
+      status: true,
+      hsCode: { select: { code: true } },
+      countryIsoCode: true,
+      dimensionLength: true,
+      dimensionWidth: true,
+      dimensionHeight: true,
+      dimensionDiameter: true,
+      isBestSeller: true,
+      primaryColorId: true,
+      compositions: {
+        select: {
+          percentage: true,
+          composition: { select: { name: true } },
+        },
+      },
+      colorImages: {
+        select: { path: true, order: true, colorId: true },
+        orderBy: { order: "asc" as const },
+      },
+      colors: {
+        select: {
+          id: true,
+          saleType: true,
+          disabled: true,
+          unitPrice: true,
+          packQuantity: true,
+          stock: true,
+          weight: true,
+          ankorsColorNameOverride: true,
+          colorId: true,
+          color: { select: { name: true } },
+          images: {
+            select: { path: true, order: true },
+            orderBy: { order: "asc" as const },
+          },
+        },
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+  });
+
+  if (!p) throw new Error(`Produit ${productId} introuvable`);
+
+  const compositionText = p.compositions
+    .map((c) => `${Number(c.percentage)}% ${c.composition.name}`)
+    .join(" ");
+
+  const dimensionsText = formatDimensions(
+    Number(p.dimensionLength ?? 0),
+    Number(p.dimensionWidth ?? 0),
+    Number(p.dimensionHeight ?? 0)
+  );
+
+  // Colors (UNIT only pour le MVP)
+  const colors: BjColorInputForBo[] = p.colors.map((c) => {
+    // Images de la variante : uniques ordonnées, préférence images spécifiques → sinon photos couleur communes
+    const specificImages = c.images.map((im) => im.path);
+    const sharedImages = p.colorImages
+      .filter((im) => im.colorId === c.colorId)
+      .map((im) => im.path);
+    const imagePaths = specificImages.length > 0 ? specificImages : sharedImages;
+    return {
+      id: c.id,
+      saleType: c.saleType as "UNIT" | "PACK",
+      disabled: c.disabled,
+      unitPrice: Number(c.unitPrice),
+      packQuantity: c.packQuantity,
+      stock: c.stock,
+      weight: c.weight ? Number(c.weight) : null,
+      colorName: c.color?.name ?? null,
+      ankorsColorNameOverride: c.ankorsColorNameOverride,
+      imageKeys: imagePaths as unknown as string[], // remplacés par les keys après upload
+    };
+  });
+
+  // Product-level image = UNE SEULE image = la première photo de la couleur
+  // principale (Product.primaryColorId). Quand la cliente change de couleur
+  // principale, la photo produit chez Ankor change automatiquement au prochain
+  // Rafraîchir.
+  //
+  // Fallback si primaryColorId absent ou aucune photo pour cette couleur :
+  // on prend la première image du produit tout court.
+  const productImagePaths: string[] = [];
+  if (p.primaryColorId) {
+    const primaryImg = p.colorImages.find((im) => im.colorId === p.primaryColorId);
+    if (primaryImg) productImagePaths.push(primaryImg.path);
+  }
+  if (productImagePaths.length === 0 && p.colorImages.length > 0) {
+    productImagePaths.push(p.colorImages[0].path);
+  }
+
+  return {
+    reference: p.reference,
+    name: p.name,
+    description: p.description || p.name,
+    status: p.status as BjProductInputForBo["status"],
+    hsCode: p.hsCode?.code ?? null,
+    countryIsoCode: p.countryIsoCode,
+    isBestSeller: p.isBestSeller,
+    dimensionsText,
+    compositionText,
+    productImageKeys: productImagePaths, // à remplacer par keys post-upload
+    colors,
+  };
+}
+
+function formatDimensions(l: number, w: number, h: number): string {
+  const parts = [l, w, h].filter((v) => v > 0).map((v) => `${v}`);
+  return parts.length > 0 ? parts.join("x") : "";
+}
+
+/**
+ * Lit une image sur le disque local depuis un dbPath (`/uploads/…`).
+ * Retourne buffer + filename. Ignore les erreurs — retourne null si absent.
+ */
+async function readImageFromDisk(
+  dbPath: string
+): Promise<{ buffer: Buffer; filename: string } | null> {
+  try {
+    // dbPath commence par `/uploads/...` → correspond à `public/uploads/...`
+    const abs = path.join(process.cwd(), "public", dbPath.replace(/^\//, ""));
+    const buffer = await readFile(abs);
+    const filename = path.basename(dbPath);
+    return { buffer, filename };
+  } catch (err) {
+    logger.warn("[ankorstore-bo] image introuvable sur disque", { dbPath, err });
+    return null;
+  }
+}
+
+/**
+ * Upload toutes les images d'un input BJ, retourne un input où les `imageKeys`
+ * sont remplacées par les vraies keys `file-upload:...` d'Ankor.
+ * Séquentiel + délai — impératif à cause du bug d'ingestion Ankor sur upload parallèle.
+ */
+async function uploadAllProductImages(
+  input: BjProductInputForBo
+): Promise<BjProductInputForBo> {
+  // Rassemble tous les paths uniques à uploader
+  const uniquePaths = new Set<string>();
+  for (const path of input.productImageKeys) uniquePaths.add(path);
+  for (const c of input.colors) for (const path of c.imageKeys) uniquePaths.add(path);
+
+  const pathList = Array.from(uniquePaths);
+  const uploadables = [] as { buffer: Buffer; filename: string; originalPath: string }[];
+  for (const p of pathList) {
+    const img = await readImageFromDisk(p);
+    if (img) uploadables.push({ ...img, originalPath: p });
+  }
+
+  const results = await uploadImagesSequential(uploadables);
+  await waitForUploadsIngestion();
+
+  const pathToKey = new Map<string, string>();
+  for (let i = 0; i < uploadables.length; i++) {
+    pathToKey.set(uploadables[i].originalPath, results[i].key);
+  }
+
+  return {
+    ...input,
+    productImageKeys: input.productImageKeys.map((p) => pathToKey.get(p)).filter(Boolean) as string[],
+    colors: input.colors.map((c) => ({
+      ...c,
+      imageKeys: c.imageKeys.map((p) => pathToKey.get(p)).filter(Boolean) as string[],
+    })),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Publier / Mettre à jour / Rafraîchir / Archiver
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Publie un produit BJ chez Ankorstore (créer ou mettre à jour).
+ * Si `ankorsProductId` existe déjà (au format INT du back-office), fait un PUT.
+ * Sinon POST (crée un nouveau).
+ *
+ * Note migration : les vieux `ankorsProductId` de l'API partenaire OAuth étaient
+ * au format UUID (`1f13aa03-…`). Ces liens ne sont plus utilisables directement —
+ * on les traite comme "non lié" et on essaie une recherche par référence pour
+ * retrouver le produit correspondant côté back-office.
+ */
+export async function publishProductToAnkorstoreBo(
+  productId: string
+): Promise<{ success: boolean; ankorProductId?: number; error?: string }> {
+  try {
+    await requireAdmin();
+
+    const existing = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { ankorsProductId: true, reference: true },
+    });
+    if (!existing) return { success: false, error: "Produit introuvable" };
+
+    // Détecte le format d'ID : INT = nouveau back-office, autre chose = vieux UUID legacy.
+    const legacyLinkedId = existing.ankorsProductId;
+    const isNewFormat = legacyLinkedId ? /^\d+$/.test(legacyLinkedId) : false;
+
+    const session = await getBoSession();
+    const input = await loadBjProductForBo(productId);
+    const inputWithKeys = await uploadAllProductImages(input);
+    const pricingConfig = await loadAnkorstorePricingConfig();
+    const payload = buildProductPayloadFromBjProduct(inputWithKeys, {
+      brandId: session.brandId,
+      pricingConfig,
+    });
+
+    let ankorProductId: number;
+    if (isNewFormat && legacyLinkedId) {
+      // Cas standard — lien back-office valide. On lit les variantes existantes
+      // chez Ankor et on injecte leur id dans le payload — sinon Ankor traite
+      // le PUT comme une recréation et refuse 422 "SKU already assigned".
+      const existingAnkor = await readProductById(Number(legacyLinkedId));
+      if (existingAnkor) {
+        const skuToId = new Map<string, number>();
+        for (const v of existingAnkor.variants ?? []) if (v.sku) skuToId.set(v.sku, v.id);
+        payload.variants = payload.variants.map((v) => {
+          const existingId = skuToId.get(v.sku);
+          return existingId ? { ...v, id: existingId } : v;
+        });
+      }
+      const updated = await updateProduct(Number(legacyLinkedId), payload);
+      ankorProductId = updated.id;
+    } else if (legacyLinkedId && !isNewFormat) {
+      // Migration : ancien lien UUID → on essaie de retrouver le produit chez Ankor
+      // par référence + SKU. Si trouvé, on rebranche + PUT. Sinon on POST un nouveau.
+      logger.info("[ankorstore-bo] migration lien legacy UUID", {
+        productId,
+        legacyId: legacyLinkedId,
+        reference: existing.reference,
+      });
+      const candidates = await findLinkCandidates(existing.reference);
+      const bestMatch = candidates.find((c) => c.confidence === "high") ?? candidates[0];
+      if (bestMatch) {
+        const updated = await updateProduct(bestMatch.product.id, payload);
+        ankorProductId = updated.id;
+      } else {
+        // Rien trouvé côté Ankor — créer un nouveau
+        const created = await createProduct(payload);
+        ankorProductId = created.id;
+      }
+    } else {
+      // Pas de lien : POST création
+      const created = await createProduct(payload);
+      ankorProductId = created.id;
+    }
+
+    // Synchronise l'état actif/inactif chez Ankor en fonction du statut BJ.
+    // - BJ ONLINE  → enable (produit visible chez les acheteuses)
+    // - BJ OFFLINE → disable (produit caché du catalogue Ankor)
+    // - BJ ARCHIVED → disable aussi (l'archivage effectif se fait via deleteProductFromAnkorstoreBo)
+    try {
+      if (input.status === "ONLINE") {
+        await enableProducts([ankorProductId]);
+      } else {
+        await disableProducts([ankorProductId]);
+      }
+    } catch (visErr) {
+      logger.warn("[ankorstore-bo] mass-action visibility failed (produit publié, à corriger manuellement)", {
+        productId,
+        ankorProductId,
+        status: input.status,
+        error: visErr,
+      });
+    }
+
+    // Peuple ankorsProductId + ankorsVariantId
+    const readBack = await readProductByIdWithRetry(ankorProductId);
+    await prisma.product.update({
+      where: { id: productId },
+      data: {
+        ankorsProductId: String(ankorProductId),
+        ankorsSyncRequired: false,
+        ankorsLastRefreshedAt: new Date(),
+      },
+    });
+    if (readBack) {
+      const skuToVid = new Map<string, number>();
+      for (const v of readBack.variants ?? []) if (v.sku) skuToVid.set(v.sku, v.id);
+      const bjColors = await prisma.productColor.findMany({
+        where: { productId, saleType: "UNIT" },
+        select: {
+          id: true,
+          color: { select: { name: true } },
+          ankorsColorNameOverride: true,
+        },
+      });
+      const { buildAnkorstoreBoSku } = await import("@/lib/ankorstore-bo/sku");
+      for (const c of bjColors) {
+        const nameToUse = c.ankorsColorNameOverride?.trim() || c.color?.name || "Standard";
+        const expectedSku = buildAnkorstoreBoSku(existing.reference, nameToUse);
+        const vid = skuToVid.get(expectedSku);
+        if (vid) {
+          await prisma.productColor.update({
+            where: { id: c.id },
+            data: { ankorsVariantId: String(vid) },
+          });
+        }
+      }
+    }
+    revalidateTag("products");
+    emitProductEvent({ type: "product-updated", productId });
+    return { success: true, ankorProductId };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : undefined;
+    logger.error("[ankorstore-bo] publishProduct", { productId, errMsg, errStack });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/** Alias sémantique — pour l'admin qui pense « rafraîchir » = envoyer l'état BJ actuel chez Ankor. */
+export const refreshProductOnAnkorstoreBo = publishProductToAnkorstoreBo;
+
+/** Archive (soft-delete) un produit chez Ankor. Efface les IDs BJ. */
+export async function deleteProductFromAnkorstoreBo(
+  productId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const p = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { ankorsProductId: true },
+    });
+    if (!p?.ankorsProductId) {
+      return { success: false, error: "Produit pas encore publié chez Ankorstore" };
+    }
+    // Ignore les vieux liens au format UUID — on ne peut plus les archiver côté Ankor,
+    // on se contente de nettoyer les IDs BJ.
+    if (!/^\d+$/.test(p.ankorsProductId)) {
+      logger.warn("[ankorstore-bo] archive skip lien UUID legacy", {
+        productId,
+        legacyId: p.ankorsProductId,
+      });
+      await prisma.product.update({
+        where: { id: productId },
+        data: { ankorsProductId: null, ankorsSyncRequired: false },
+      });
+      await prisma.productColor.updateMany({
+        where: { productId },
+        data: { ankorsVariantId: null },
+      });
+      return { success: true };
+    }
+    await archiveProducts([Number(p.ankorsProductId)]);
+    await prisma.product.update({
+      where: { id: productId },
+      data: { ankorsProductId: null, ankorsSyncRequired: false },
+    });
+    await prisma.productColor.updateMany({
+      where: { productId },
+      data: { ankorsVariantId: null },
+    });
+    revalidateTag("products");
+    emitProductEvent({ type: "product-updated", productId });
+    return { success: true };
+  } catch (err) {
+    logger.error("[ankorstore-bo] deleteProduct", { productId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/** Mise en ligne / hors ligne chez Ankor. */
+export async function setProductVisibilityOnAnkorstoreBo(
+  productId: string,
+  enabled: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const p = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { ankorsProductId: true },
+    });
+    if (!p?.ankorsProductId) {
+      return { success: false, error: "Produit pas encore publié chez Ankorstore" };
+    }
+    if (!/^\d+$/.test(p.ankorsProductId)) {
+      return {
+        success: false,
+        error: "Lien Ankorstore obsolète (ancien format). Republie le produit pour régénérer le lien.",
+      };
+    }
+    const id = Number(p.ankorsProductId);
+    if (enabled) await enableProducts([id]);
+    else await disableProducts([id]);
+    revalidateTag("products");
+    emitProductEvent({ type: "product-updated", productId });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Liaison manuelle
+// ─────────────────────────────────────────────────────────────
+
+export interface AnkorstoreBoLinkCandidate {
+  ankorProductId: number;
+  ankorProductUuid: string;
+  name: string;
+  link: string;
+  variants: Array<{ id: number; sku: string; colorValue: string | null }>;
+  confidence: "high" | "medium" | "low";
+  matchedVariantCount: number;
+}
+
+/**
+ * Cherche des candidats de liaison pour un produit BJ (par sa référence).
+ * Renvoie la liste triée par pertinence — l'admin choisit dans la modale.
+ */
+export async function searchAnkorstoreBoCandidatesForBjProduct(
+  bjProductId: string
+): Promise<{ success: true; candidates: AnkorstoreBoLinkCandidate[] } | { success: false; error: string }> {
+  try {
+    await requireAdmin();
+    const bj = await prisma.product.findUnique({
+      where: { id: bjProductId },
+      select: { reference: true },
+    });
+    if (!bj) return { success: false, error: "Produit BJ introuvable" };
+
+    const candidates = await findLinkCandidates(bj.reference);
+    return {
+      success: true,
+      candidates: candidates.map((c) => ({
+        ankorProductId: c.product.id,
+        ankorProductUuid: c.product.uuid,
+        name: c.product.name,
+        link: c.product.link,
+        variants: (c.product.variants ?? []).map((v) => ({
+          id: v.id,
+          sku: v.sku,
+          colorValue: v.options.find((o) => o.name === "color")?.value ?? null,
+        })),
+        confidence: c.confidence,
+        matchedVariantCount: c.matchedVariantCount,
+      })),
+    };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Lie un produit BJ à un produit Ankor existant.
+ *
+ * Séquence :
+ *  1. Vérifie que le produit Ankor existe.
+ *  2. Peuple `ankorsProductId` côté BJ.
+ *  3. Déclenche IMMÉDIATEMENT un `publishProductToAnkorstoreBo` — qui va faire
+ *     un PUT complet chez Ankor pour ÉCRASER les SKU legacy au nouveau format
+ *     `A1720_DORE_CLAIR`. Après ce PUT, les variantes Ankor sont uniformes et
+ *     les `ankorsVariantId` sont peuplés correctement.
+ *
+ * En cas d'échec du PUT, le lien produit reste posé (l'admin peut re-cliquer
+ * sur « Publier » pour retenter).
+ */
+export async function linkBjProductToAnkorstoreBo(
+  bjProductId: string,
+  ankorProductId: number
+): Promise<{ success: boolean; linkedVariants?: number; error?: string }> {
+  try {
+    await requireAdmin();
+    const ankorProduct = await readProductById(ankorProductId);
+    if (!ankorProduct) return { success: false, error: `Produit Ankor #${ankorProductId} introuvable` };
+
+    // 1. Poser le lien produit (sans encore matcher les variantes — le publish qui suit s'en occupe).
+    await prisma.product.update({
+      where: { id: bjProductId },
+      data: {
+        ankorsProductId: String(ankorProductId),
+        ankorsSyncRequired: false,
+      },
+    });
+
+    // 2. Écraser les SKU côté Ankor au nouveau format en publiant l'état BJ actuel.
+    //    Le PUT (update) renomme les variantes existantes chez Ankor et purge les vieux SKU.
+    const publishResult = await publishProductToAnkorstoreBo(bjProductId);
+    if (!publishResult.success) {
+      // Le lien reste posé mais on remonte l'avertissement à l'admin.
+      return {
+        success: true,
+        linkedVariants: 0,
+        error:
+          "Liaison OK mais la synchro initiale a échoué : " +
+          (publishResult.error ?? "erreur inconnue") +
+          " — clique sur « Publier » pour retenter.",
+      };
+    }
+
+    // 3. Compter les variantes réellement liées (le publish a peuplé ankorsVariantId).
+    const linked = await prisma.productColor.count({
+      where: { productId: bjProductId, ankorsVariantId: { not: null } },
+    });
+
+    revalidateTag("products");
+    emitProductEvent({ type: "product-updated", productId: bjProductId });
+    return { success: true, linkedVariants: linked };
+  } catch (err) {
+    logger.error("[ankorstore-bo] linkBjProduct", { bjProductId, ankorProductId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Délie TOUS les produits BJ de leur lien Ankorstore côté BJ (aucun appel Ankor).
+ * Utile pour repartir à zéro et refaire toutes les liaisons via le nouveau flow.
+ */
+export async function unlinkAllBjProductsFromAnkorstoreBo(): Promise<{
+  success: boolean;
+  productsUnlinked: number;
+  variantsUnlinked: number;
+  error?: string;
+}> {
+  try {
+    await requireAdmin();
+    const r1 = await prisma.product.updateMany({
+      where: { ankorsProductId: { not: null } },
+      data: { ankorsProductId: null, ankorsSyncRequired: false },
+    });
+    const r2 = await prisma.productColor.updateMany({
+      where: { ankorsVariantId: { not: null } },
+      data: { ankorsVariantId: null },
+    });
+    revalidateTag("products");
+    return {
+      success: true,
+      productsUnlinked: r1.count,
+      variantsUnlinked: r2.count,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      productsUnlinked: 0,
+      variantsUnlinked: 0,
+      error: (err as Error).message,
+    };
+  }
+}
+
+/** Défait la liaison BJ ↔ Ankor (n'archive PAS chez Ankor). */
+export async function unlinkBjProductFromAnkorstoreBo(
+  bjProductId: string
+): Promise<{ success: boolean }> {
+  await requireAdmin();
+  await prisma.product.update({
+    where: { id: bjProductId },
+    data: { ankorsProductId: null, ankorsSyncRequired: false },
+  });
+  await prisma.productColor.updateMany({
+    where: { productId: bjProductId },
+    data: { ankorsVariantId: null },
+  });
+  revalidateTag("products");
+  emitProductEvent({ type: "product-updated", productId: bjProductId });
+  return { success: true };
+}
+
+/** Ajoute juste une image test (utile pour valider config depuis Paramètres). */
+export async function uploadTestImageToAnkorstoreBo(): Promise<
+  { success: boolean; url?: string; error?: string }
+> {
+  try {
+    await requireAdmin();
+    // PNG 1×1 rouge (moins de 100 octets — pour tester le pipeline sans effet secondaire)
+    const buf = Buffer.from(
+      "89504E470D0A1A0A0000000D49484452000000010000000108020000009077 3DDE0000000C4944415478DA63F84F00000005010102A9AB19AB0000000049454E44AE426082".replace(/\s/g, ""),
+      "hex"
+    );
+    const r = await uploadImage({ buffer: buf, filename: "test-1x1.png" });
+    return { success: true, url: r.url };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}

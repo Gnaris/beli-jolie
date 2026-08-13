@@ -95,7 +95,7 @@ export default function ProductFormSectionPicker({
                                         : "text-[#EF4444]"
                                   }`}
                                 >
-                                  {p.done} / {p.total}
+                                  {p.done} / {p.total} champs OK
                                 </span>
                               )}
                             </span>

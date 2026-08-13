@@ -6,6 +6,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateCategory, autoTranslateSubCategory } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import {
+  buildMappingImpactSummary,
+  type MappingChangeSummary,
+} from "@/lib/mapping-impact";
 
 /** Génère un slug à partir d'un nom */
 function toSlug(name: string): string {
@@ -89,24 +93,67 @@ export async function updateCategoryPfsId(
  * Lightweight alternative used by the mapping UI — only updates Genre + Famille
  * (the two fields the Excel exporter actually needs). Leaves the legacy
  * pfsCategoryId/pfsFamilyId in place for the DELETE API path.
+ *
+ * Retourne un `impact` non-null si l'un des trois champs a réellement changé
+ * ET si des produits publiés sur PFS utilisent cette catégorie.
  */
 export async function updateCategoryPfsTaxonomy(
   id: string,
   pfsGender: string | null,
   pfsFamilyName: string | null,
   pfsCategoryName?: string | null,
-) {
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
   await requireAdmin();
+  const newGender = pfsGender?.trim() || null;
+  const newFamily = pfsFamilyName?.trim() || null;
+  const newCategory = pfsCategoryName?.trim() || null;
+
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true, pfsGender: true, pfsFamilyName: true, pfsCategoryName: true },
+  });
+  if (!before) throw new Error("Catégorie introuvable.");
+
   await prisma.category.update({
     where: { id },
     data: {
-      pfsGender: pfsGender?.trim() || null,
-      pfsFamilyName: pfsFamilyName?.trim() || null,
-      pfsCategoryName: pfsCategoryName?.trim() || null,
+      pfsGender: newGender,
+      pfsFamilyName: newFamily,
+      pfsCategoryName: newCategory,
     },
   });
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
+
+  const unchanged =
+    before.pfsGender === newGender &&
+    before.pfsFamilyName === newFamily &&
+    before.pfsCategoryName === newCategory;
+  if (unchanged) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "category",
+    marketplace: "pfs",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: formatPfsTaxonomyLabel(before.pfsGender, before.pfsFamilyName, before.pfsCategoryName),
+    newValueLabel: formatPfsTaxonomyLabel(newGender, newFamily, newCategory),
+    rollbackFields: {
+      pfsGender: before.pfsGender,
+      pfsFamilyName: before.pfsFamilyName,
+      pfsCategoryName: before.pfsCategoryName,
+    },
+  });
+  return { success: true, impact };
+}
+
+function formatPfsTaxonomyLabel(
+  gender: string | null,
+  family: string | null,
+  category: string | null,
+): string | null {
+  const parts = [gender, family, category].filter((p): p is string => !!p);
+  return parts.length ? parts.join(" > ") : null;
 }
 
 export async function deleteCategory(id: string) {
@@ -121,19 +168,43 @@ export async function deleteCategory(id: string) {
  * "tx_jewelry_bracelets") pour une catégorie BJ. La taxonomie Faire est
  * figée et non exposée via API publique — l'admin va chercher l'ID dans
  * son portail brand. Voir docs/faire-api.md §12.
+ *
+ * Retourne un `impact` non-null si le mapping a réellement changé ET si des
+ * produits publiés sur Faire utilisent cette catégorie.
  */
 export async function updateCategoryFaireTaxonomy(
   id: string,
   faireTaxonomyId: string | null,
-) {
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
   await requireAdmin();
+  const normalized = faireTaxonomyId?.trim() || null;
+
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true, faireTaxonomyId: true },
+  });
+  if (!before) throw new Error("Catégorie introuvable.");
+
   await prisma.category.update({
     where: { id },
-    data: { faireTaxonomyId: faireTaxonomyId?.trim() || null },
+    data: { faireTaxonomyId: normalized },
   });
   revalidatePath("/admin/categories");
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
+
+  if (before.faireTaxonomyId === normalized) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "category",
+    marketplace: "faire",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.faireTaxonomyId,
+    newValueLabel: normalized,
+    rollbackFields: { faireTaxonomyId: before.faireTaxonomyId },
+  });
+  return { success: true, impact };
 }
 
 /**

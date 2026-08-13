@@ -120,107 +120,10 @@ async function runStartupSweep(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  await reconcileAwaitingCallback();
+  // Ankorstore : plus de reconcileAwaitingCallback depuis le passage au reverse
+  // back-office synchrone (2026-08-13). Les jobs sont marqués SUCCEEDED/FAILED
+  // directement dans processAnkorstoreJob.
   await startQueued();
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Réconciliation des Ankorstore en AWAITING_CALLBACK
-// ─────────────────────────────────────────────────────────────────────
-async function reconcileAwaitingCallback(): Promise<void> {
-  const awaiting = await prisma.marketplaceRefreshJob.findMany({
-    where: {
-      status: "AWAITING_CALLBACK",
-      marketplace: "ANKORSTORE",
-    },
-    select: { id: true, productId: true },
-  });
-  if (awaiting.length === 0) return;
-
-  const productIds = Array.from(new Set(awaiting.map((j) => j.productId)));
-  // Pour chaque produit, on récupère la dernière opération non-CANCELLED.
-  // Elle suit la chaîne DELETE_OLD → CREATE_NEW automatiquement.
-  const ops = await prisma.ankorstoreOperation.findMany({
-    where: { productId: { in: productIds }, status: { not: "CANCELLED" } },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      productId: true,
-      type: true,
-      status: true,
-      errorMessage: true,
-    },
-  });
-  const latestByProduct = new Map<string, (typeof ops)[number]>();
-  for (const op of ops) {
-    if (!latestByProduct.has(op.productId)) latestByProduct.set(op.productId, op);
-  }
-
-  // Prépare la liste des updates à faire, puis lance tout en parallèle. Avant :
-  // chaque `await prisma.update()` faisait un round-trip DB séquentiel — sur 20
-  // jobs en attente, ça bloquait le tick 2-4 s. En parallélisant, on descend à
-  // <500 ms même sur 100 jobs.
-  type PendingUpdate = {
-    jobId: string;
-    productId: string;
-    data: Prisma.MarketplaceRefreshJobUpdateInput;
-    emitSuccess: boolean;
-  };
-  const pending: PendingUpdate[] = [];
-
-  for (const job of awaiting) {
-    const latest = latestByProduct.get(job.productId);
-    if (!latest || latest.status === "PENDING") continue;
-
-    if (latest.status === "SUCCEEDED" || latest.status === "PARTIALLY_FAILED") {
-      const outcome: TargetOutcome = {
-        ok: true,
-        archived: false,
-        warning:
-          latest.status === "PARTIALLY_FAILED"
-            ? "Succès partiel — vérifiez le tableau de bord Ankorstore."
-            : undefined,
-      };
-      pending.push({
-        jobId: job.id,
-        productId: job.productId,
-        data: {
-          status: "SUCCEEDED",
-          ankorsOutcome: outcome as Prisma.InputJsonValue,
-          completedAt: new Date(),
-        },
-        emitSuccess: true,
-      });
-    } else if (latest.status === "FAILED") {
-      const message = latest.errorMessage ?? "Opération échouée sur Ankorstore.";
-      const outcome: TargetOutcome = { ok: false, kind: "error", message };
-      pending.push({
-        jobId: job.id,
-        productId: job.productId,
-        data: {
-          status: "FAILED",
-          ankorsOutcome: outcome as Prisma.InputJsonValue,
-          errorMessage: message,
-          completedAt: new Date(),
-        },
-        emitSuccess: false,
-      });
-    }
-  }
-
-  if (pending.length === 0) return;
-
-  await Promise.all(
-    pending.map((p) =>
-      prisma.marketplaceRefreshJob.update({ where: { id: p.jobId }, data: p.data }),
-    ),
-  );
-
-  // Revalidation / SSE : hors update DB, séquentiel mais rapide (cache tag reset).
-  for (const p of pending) {
-    await revalidateProductPaths(p.productId);
-    if (p.emitSuccess) emitProductUpdated(p.productId);
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -384,65 +287,40 @@ async function claimAndProcessBatchRefresh(jobs: JobRow[]): Promise<void> {
 }
 
 /**
- * Traite un batch de N ≥ 2 jobs REFRESH Ankor : appelle le kickoff batch,
- * pose ankorsOperationId + AWAITING_CALLBACK sur tous les jobs, ou marque
- * FAILED ceux que le kickoff rejette.
+ * Traite un batch de N ≥ 2 jobs REFRESH Ankor : maintenant que le flow est
+ * 100 % synchrone (back-office reverse), on boucle simplement séquentiellement
+ * sur chaque produit via publishProductToAnkorstoreBo.
+ * L'ancien kickoff batch async avec callback n'existe plus.
  */
 async function runBatchRefreshJob(claimedJobIds: string[]): Promise<void> {
   const jobs = await prisma.marketplaceRefreshJob.findMany({
     where: { id: { in: claimedJobIds } },
     select: { id: true, productId: true },
   });
-  const productIds = jobs.map((j) => j.productId);
-  const jobIdByProductId = new Map(jobs.map((j) => [j.productId, j.id]));
 
-  logger.info("[Marketplace Queue] Batch REFRESH Ankor kickoff", {
+  logger.info("[Marketplace Queue] Batch REFRESH Ankor (sync)", {
     jobCount: jobs.length,
-    productIds,
+    productIds: jobs.map((j) => j.productId),
   });
 
-  const { ankorstoreKickoffBatchRefresh } = await import("@/lib/ankorstore-refresh-batch");
-  const res = await ankorstoreKickoffBatchRefresh(productIds);
-
-  // Levier 1 : produits shortcut'és via UPDATE (refresh raccourci) → leurs
-  // jobs ont déjà été marqués par ankorstoreKickoffBatchRefresh. On revalide
-  // juste leurs paths pour rafraîchir l'UI.
-  const shortcutIds = res.shortcutUpdatedProductIds ?? [];
-  for (const productId of shortcutIds) {
-    await revalidateProductPaths(productId);
-  }
-
-  if (!res.success) {
-    // Kickoff global échoué → tous les jobs restants (hors shortcut) en FAILED.
-    const shortcutSet = new Set(shortcutIds);
-    for (const j of jobs) {
-      if (shortcutSet.has(j.productId)) continue;
-      const reason =
-        res.rejectedByProductId[j.productId] ?? res.error ?? "Erreur inconnue";
-      await markAnkorstoreFailed(j.id, "error", reason);
-      await revalidateProductPaths(j.productId);
+  const { publishProductToAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
+  for (const j of jobs) {
+    try {
+      const res = await publishProductToAnkorstoreBo(j.productId);
+      if (res.success) {
+        await markAnkorstoreSuccess(j.id, false);
+      } else {
+        await markAnkorstoreFailed(j.id, "error", res.error ?? "Erreur inconnue");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("[Marketplace Queue] Ankorstore batch item failed", {
+        productId: j.productId,
+        error: message,
+      });
+      await markAnkorstoreFailed(j.id, "error", message);
     }
-    return;
-  }
-
-  // Cas où TOUS les produits ont été shortcut'és : pas de batch delete réel.
-  if (res.operationId === "shortcut-update-only") {
-    return;
-  }
-
-  // Les produits acceptés dans le batch → AWAITING_CALLBACK sur l'opId.
-  for (const productId of res.memberProductIds) {
-    const jobId = jobIdByProductId.get(productId);
-    if (!jobId) continue;
-    await markAnkorstoreAwaiting(jobId, res.operationId);
-    await revalidateProductPaths(productId);
-  }
-  // Les produits rejetés (SKUs manquants, archivé, etc.) → FAILED individuel.
-  for (const [productId, reason] of Object.entries(res.rejectedByProductId)) {
-    const jobId = jobIdByProductId.get(productId);
-    if (!jobId) continue;
-    await markAnkorstoreFailed(jobId, "error", reason);
-    await revalidateProductPaths(productId);
+    await revalidateProductPaths(j.productId);
   }
 }
 
@@ -765,62 +643,16 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
   }
 
   try {
-    if (job.mode === "REFRESH") {
-      const { ankorstoreKickoffRefresh } = await import("@/lib/ankorstore-refresh");
-      const res = await ankorstoreKickoffRefresh(job.productId);
-      if (res.success) {
-        await markAnkorstoreAwaiting(job.id, res.operationId);
-      } else if (res.reason === "not_found") {
-        await markAnkorstoreFailed(job.id, "not_found", res.error);
-      } else {
-        await markAnkorstoreFailed(job.id, "error", res.error);
-      }
-    } else if (job.mode === "PUBLISH") {
-      const product = await prisma.product.findUnique({
-        where: { id: job.productId },
-        select: { ankorsProductId: true },
-      });
-      if (product?.ankorsProductId) {
-        const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffUpdate(job.productId, { skipRevalidation: true });
-        if (!res.success) {
-          await markAnkorstoreFailed(job.id, "error", res.error);
-        } else if (res.operationId === null) {
-          // Tout est passé en PATCH synchrone — pas de callback à attendre
-          await markAnkorstoreSuccess(job.id, res.archived ?? false);
-        } else {
-          await markAnkorstoreAwaiting(job.id, res.operationId);
-        }
-      } else {
-        const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-        const res = await ankorstoreKickoffPublish(job.productId);
-        if (res.success) {
-          await markAnkorstoreAwaiting(job.id, res.operationId);
-        } else {
-          await markAnkorstoreFailed(job.id, "error", res.error);
-        }
-      }
-    } else if (job.mode === "RESYNC") {
-      const product = await prisma.product.findUnique({
-        where: { id: job.productId },
-        select: { ankorsProductId: true },
-      });
-      if (!product?.ankorsProductId) {
-        await markAnkorstoreFailed(job.id, "error", "Produit non publié sur Ankorstore.");
-      } else {
-        const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-        const res = await ankorstoreKickoffUpdate(job.productId, {
-          forceFullSync: true,
-          skipRevalidation: true,
-        });
-        if (!res.success) {
-          await markAnkorstoreFailed(job.id, "error", res.error);
-        } else if (res.operationId === null) {
-          await markAnkorstoreSuccess(job.id, res.archived ?? false);
-        } else {
-          await markAnkorstoreAwaiting(job.id, res.operationId);
-        }
-      }
+    // Toutes les branches convergent vers le même appel BO — 100 % synchrone,
+    // pas de callback. Le mode REFRESH/PUBLISH/RESYNC ne change plus rien :
+    // c'est toujours "envoyer l'état BJ actuel chez Ankor" (POST si pas de lien
+    // INT, PUT sinon). Voir app/actions/admin/ankorstore-bo.ts.
+    const { publishProductToAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
+    const res = await publishProductToAnkorstoreBo(job.productId);
+    if (res.success) {
+      await markAnkorstoreSuccess(job.id, false);
+    } else {
+      await markAnkorstoreFailed(job.id, "error", res.error ?? "Erreur inconnue");
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

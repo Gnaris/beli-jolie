@@ -177,28 +177,14 @@ export async function publishProductToMarketplaces(
       };
     } else {
       try {
-        if (product.ankorsProductId) {
-          const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-          const res = await ankorstoreKickoffUpdate(productId);
-          if (!res.success) {
-            outcome.ankorstore = { status: "error", message: res.error };
-          } else if (res.operationId === null) {
-            // No async work was needed (only sync PATCHes ran successfully)
-            outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
-          } else {
-            outcome.ankorstore = {
-              status: "queued",
-              mode: "update",
-              operationId: res.operationId,
-            };
-          }
-        } else {
-          const { ankorstoreKickoffPublish } = await import("@/lib/ankorstore-publish");
-          const res = await ankorstoreKickoffPublish(productId);
-          outcome.ankorstore = res.success
-            ? { status: "queued", mode: "create", operationId: res.operationId }
-            : { status: "error", message: res.error };
-        }
+        // Ankorstore back-office reverse-engineered — 100 % synchrone.
+        // Un seul appel : publie (POST) si pas d'ankorsProductId, sinon met à jour (PUT).
+        const mode: "create" | "update" = product.ankorsProductId ? "update" : "create";
+        const { publishProductToAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
+        const res = await publishProductToAnkorstoreBo(productId);
+        outcome.ankorstore = res.success
+          ? { status: "ok", mode }
+          : { status: "error", message: res.error ?? "Erreur inconnue" };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error("[Marketplace Publish] Ankorstore unexpected error", {

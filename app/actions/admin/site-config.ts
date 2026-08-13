@@ -419,53 +419,59 @@ export async function updatePfsBrand(config: {
 
 // ─── Ankorstore Configuration ────────────────────────────────────────────────
 
+/**
+ * NOUVEAU (2026-08-13) — Ankorstore back-office reverse-engineered.
+ * On garde les mêmes noms de server actions (`updateAnkorstoreCredentials`,
+ * `toggleAnkorstoreEnabled`, `validateAnkorstoreCredentials`) pour ne pas
+ * casser l'UI existante (MarketplaceConfig.tsx), mais on accepte désormais
+ * `{ email, password }` au lieu de `{ clientId, clientSecret }`.
+ */
 export async function updateAnkorstoreCredentials(config: {
-  clientId: string;
-  clientSecret: string;
+  email?: string;
+  password?: string;
+  /** @deprecated ancien schéma OAuth2 — ignoré depuis le passage au back-office. */
+  clientId?: string;
+  /** @deprecated ancien schéma OAuth2 — ignoré depuis le passage au back-office. */
+  clientSecret?: string;
 }): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const clientId = config.clientId.trim();
-    const clientSecret = config.clientSecret.trim();
-    await setSiteConfig("ankors_client_id", encryptIfSensitive("ankors_client_id", clientId));
-    await setSiteConfig("ankors_client_secret", encryptIfSensitive("ankors_client_secret", clientSecret));
-    revalidateTag("site-config", "default");
-    // Invalide aussi le token OAuth en RAM pour le tenant courant : sinon le
-    // vieux access_token cache continue d'être utilisé et Ankor renvoie 401
-    // sur les endpoints qui n'ont pas de rattrapage (ex. /orders lors du
-    // premier appel). Doit être fait APRÈS le revalidateTag pour que le
-    // prochain refresh OAuth relise bien les nouveaux identifiants.
-    const { invalidateAnkorstoreToken } = await import("@/lib/ankorstore-auth");
-    await invalidateAnkorstoreToken();
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
+  const { updateAnkorstoreBoCredentials } = await import(
+    "@/app/actions/admin/ankorstore-bo"
+  );
+  const email = (config.email ?? config.clientId ?? "").trim();
+  const password = (config.password ?? config.clientSecret ?? "").trim();
+  return updateAnkorstoreBoCredentials({ email, password });
 }
 
 export async function toggleAnkorstoreEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+  const { toggleAnkorstoreBoEnabled } = await import(
+    "@/app/actions/admin/ankorstore-bo"
+  );
+  // Écriture croisée : on maintient AUSSI `ankors_enabled` pour compat lecture par
+  // `getCachedAnkorstoreEnabled`, plus la nouvelle clé `ankorstore_bo_enabled`.
   try {
     await requireAdmin();
     await setSiteConfig("ankors_enabled", enabled ? "true" : "false");
     revalidateTag("site-config", "default");
-    return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
   }
+  return toggleAnkorstoreBoEnabled(enabled);
 }
 
 export async function validateAnkorstoreCredentials(config: {
-  clientId: string;
-  clientSecret: string;
+  email?: string;
+  password?: string;
+  /** @deprecated */
+  clientId?: string;
+  /** @deprecated */
+  clientSecret?: string;
 }): Promise<{ valid: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    // Import dynamique pour éviter de charger le module Ankorstore quand pas appelé
-    const { testAnkorstoreCredentials } = await import("@/lib/ankorstore-auth");
-    return testAnkorstoreCredentials(config.clientId.trim(), config.clientSecret.trim());
-  } catch {
-    return { valid: false, error: "Impossible de valider les identifiants Ankorstore." };
-  }
+  const { validateAnkorstoreBoCredentials } = await import(
+    "@/app/actions/admin/ankorstore-bo"
+  );
+  const email = (config.email ?? config.clientId ?? "").trim();
+  const password = (config.password ?? config.clientSecret ?? "").trim();
+  return validateAnkorstoreBoCredentials({ email, password });
 }
 
 // ─── eFashion Paris Configuration ────────────────────────────────────────────

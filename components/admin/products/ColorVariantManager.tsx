@@ -440,12 +440,24 @@ export function applyDonorAutofill(target: VariantState, donor: VariantState, ma
  */
 export function findLastFilledBasics(
   variants: VariantState[]
-): { unitPrice: string; weight: string; stock: string } | null {
+): {
+  unitPrice: string;
+  weight: string;
+  stock: string;
+  sizeEntries: SizeEntryState[];
+  saleType: "UNIT" | "PACK";
+} | null {
   for (let i = variants.length - 1; i >= 0; i--) {
     const v = variants[i];
     if (v.disabled) continue;
     if (v.unitPrice.trim() || v.weight.trim() || v.stock.trim()) {
-      return { unitPrice: v.unitPrice, weight: v.weight, stock: v.stock };
+      return {
+        unitPrice: v.unitPrice,
+        weight: v.weight,
+        stock: v.stock,
+        sizeEntries: v.sizeEntries,
+        saleType: v.saleType,
+      };
     }
   }
   return null;
@@ -1236,7 +1248,13 @@ function QuickAddModal({
       setUnitPrice(basics?.unitPrice ?? "");
       setStock(basics?.stock ?? "");
       setWeight(basics?.weight ?? "");
-      setSizeEntries([]);
+      // Le modal démarre en UNIT — on recopie les tailles seulement depuis un
+      // donneur UNIT (le PACK a un modèle structurel différent).
+      setSizeEntries(
+        basics?.saleType === "UNIT"
+          ? basics.sizeEntries.map((se) => ({ ...se, tempId: uid() }))
+          : [],
+      );
     }
   }, [open, existingVariants]);
 
@@ -1626,7 +1644,19 @@ export default function ColorVariantManager({
     const isPrimary = variants.length === 0;
     const basics = findLastFilledBasics(variants);
     const next: VariantState = basics
-      ? { ...def, isPrimary, unitPrice: basics.unitPrice, weight: basics.weight, stock: basics.stock }
+      ? {
+          ...def,
+          isPrimary,
+          unitPrice: basics.unitPrice,
+          weight: basics.weight,
+          stock: basics.stock,
+          // Nouvelle variante toujours créée en UNIT — on ne recopie les tailles
+          // que depuis une variante donneuse UNIT (les tailles d'un PACK sont
+          // structurellement différentes et gérées via packLines).
+          sizeEntries: basics.saleType === "UNIT"
+            ? basics.sizeEntries.map((se) => ({ ...se, tempId: uid() }))
+            : def.sizeEntries,
+        }
       : { ...def, isPrimary };
     onChange([...variants, next]);
   }

@@ -28,6 +28,7 @@ import {
   addEfashionColorToVendor,
 } from "@/app/actions/admin/efashion-mappings";
 import type { EfashionAnnexes } from "@/lib/efashion-annexes";
+import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 
 export type EmbeddedPickerKind = "category" | "country" | "season" | "composition" | "color";
 
@@ -114,6 +115,7 @@ export default function EfashionMappingPicker({
 }: Props) {
   const toast = useToast();
   const router = useRouter();
+  const { showMappingImpact } = useMappingImpact();
   const [value, setValue] = useState<number | null>(initialValue);
 
   // Re-synchronise la valeur affichée si le parent passe une nouvelle valeur
@@ -163,6 +165,9 @@ export default function EfashionMappingPicker({
         // Rollback visuel
         setValue(initialValue);
       } else {
+        // Impact non-null → modale « X produits impactés sur eFashion ».
+        // Ouverte AVANT le refresh pour éviter le clignotement de la valeur.
+        if (res.impact) showMappingImpact(res.impact);
         // Forcer le re-render du Server Component parent pour que la valeur
         // sauvegardée soit visible immédiatement (badge tableau, prochaine
         // réouverture de la modale).

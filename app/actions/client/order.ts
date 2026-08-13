@@ -740,6 +740,18 @@ export async function placeOrder(
           logger.error("[placeOrder] Microstore stock push error", { error: err }),
         ),
       );
+
+      // Rotation auto couleur principale : après décrémentation de stock, si
+      // la couleur principale d'un produit vient de tomber entièrement à 0,
+      // on bascule vers une autre couleur dispo. Fire-and-forget, tenantId
+      // capturé pour l'ALS (contexte HTTP peut être clos avant que ça tourne).
+      import("@/lib/rotate-primary-service").then(({ rotatePrimaryIfNeeded }) => {
+        for (const pid of impactedProductIds) {
+          rotatePrimaryIfNeeded(pid, { tenantId }).catch((err) =>
+            logger.error("[placeOrder] rotatePrimary error", { error: err, productId: pid }),
+          );
+        }
+      });
     }
   }
 

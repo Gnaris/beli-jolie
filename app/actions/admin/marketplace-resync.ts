@@ -157,20 +157,13 @@ export async function resyncProductOnAnkorstore(
   }
 
   try {
-    const { ankorstoreKickoffUpdate } = await import("@/lib/ankorstore-update");
-    const res = await ankorstoreKickoffUpdate(productId, { forceFullSync: true });
-    if (!res.success) {
-      outcome.ankorstore = { status: "error", message: res.error };
-    } else if (res.operationId === null) {
-      // No async work needed (only sync PATCHes ran)
-      outcome.ankorstore = { status: "ok", mode: "update", archived: res.archived };
-    } else {
-      outcome.ankorstore = {
-        status: "queued",
-        mode: "update",
-        operationId: res.operationId,
-      };
-    }
+    // Back-office reverse : le "resync forcé" = re-envoyer l'état BJ chez Ankor
+    // (POST si pas de lien INT, PUT sinon). Synchrone.
+    const { publishProductToAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
+    const res = await publishProductToAnkorstoreBo(productId);
+    outcome.ankorstore = res.success
+      ? { status: "ok", mode: "update" }
+      : { status: "error", message: res.error ?? "Erreur inconnue" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("[Ankorstore Resync] unexpected error", { productId, error: message });

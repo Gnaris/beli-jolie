@@ -9,7 +9,7 @@
 export const SETTINGS_TABS = [
   "general", "societe", "catalogue", "carrousels", "stock", "maintenance",
   "livraison", "paiement", "marketplaces", "horaires", "traduction", "seo",
-  "messagerie",
+  "messagerie", "affichage",
 ] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -30,6 +30,7 @@ const METADATA: Record<SettingsTab, Metadata> = {
   traduction:  { label: "Traduction",    description: "Traduction automatique français → anglais des noms de produits, descriptions et attributs (via votre compte PFS)." },
   seo:         { label: "Référencement", description: "Textes descriptifs utilisés par Google pour comprendre votre site et bien vous référencer." },
   messagerie:  { label: "Messagerie",    description: "Notifications par mail des messages non lus dans votre boîte pro." },
+  affichage:   { label: "Affichage",     description: "Choisissez le mode clair ou sombre pour l'ensemble des pages d'administration." },
 };
 
 export function settingsTabMetadata(tab: SettingsTab): Metadata {

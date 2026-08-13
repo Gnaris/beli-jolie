@@ -569,6 +569,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsCheckedAt:   p.pfsCheckedAt   ? p.pfsCheckedAt.toISOString() : null,
     pfsCheckStatus: (p.pfsCheckStatus as "ok" | "diff" | null) ?? null,
     pfsCheckIssues: (p.pfsCheckIssues as unknown) ?? null,
+    primaryColorId: p.primaryColorId ?? null,
     pfsLastExportedAt:        p.pfsLastExportedAt        ? p.pfsLastExportedAt.toISOString()        : null,
     efashionLastExportedAt:   p.efashionLastExportedAt   ? p.efashionLastExportedAt.toISOString()   : null,
     microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,

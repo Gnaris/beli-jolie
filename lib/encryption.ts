@@ -19,6 +19,8 @@ export const SENSITIVE_KEYS = new Set([
   "pfs_password",
   "ankors_client_id",
   "ankors_client_secret",
+  "ankorstore_bo_email",
+  "ankorstore_bo_password",
   "efashion_email",
   "efashion_password",
   "faire_api_key",

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createStockMovement } from "@/lib/stock";
+import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import { revalidateTag } from "next/cache";
 
 async function requireAdmin() {
@@ -35,6 +36,13 @@ export async function adjustStock(
       reason: reason.trim(),
       createdById: session.user.id,
     });
+
+    // Rotation auto couleur principale après changement de stock manuel.
+    const variant = await prisma.productColor.findUnique({
+      where: { id: productColorId },
+      select: { productId: true },
+    });
+    if (variant) await rotatePrimaryIfNeeded(variant.productId);
 
     revalidateTag("products", "default");
     return { success: true };

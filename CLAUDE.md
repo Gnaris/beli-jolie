@@ -49,8 +49,8 @@ Clé publique correspondante déjà ajoutée dans `/root/.ssh/authorized_keys` d
 **Pré-flight AVANT push prod (obligatoire, sans demander)** — un `pm2 restart` tue tous les workers en cours (image queue, translation, marketplace queue, PFS refresh, chat, shooting eFashion…) ; **ne jamais** déclencher un restart si un travail est en vol côté cliente. Vérifs à faire dans cet ordre, et **remonter à la cliente** si l'une répond « occupé » — attendre son go explicite avant de continuer :
 1. **Widget flottant marketplaces** — SQL sur le VPS : `mysql beliandjolie -e "SELECT status, marketplace, COUNT(*) FROM MarketplaceRefreshJob WHERE status IN ('QUEUED','IN_PROGRESS','AWAITING_CALLBACK') GROUP BY status, marketplace;"`. Si ≥ 1 ligne → « Il y a X jobs marketplace en cours (Rafraîchir/Publier/Resync), tu veux que j'attende ? ».
 2. **Widget flottant images** — `mysql beliandjolie -e "SELECT status, COUNT(*) FROM ImageProcessingJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status;"`. Si > 0 → même question. Un restart met tous les PROCESSING en PENDING (idempotent) mais l'attente utilisateur devient plus longue et un job Sharp/WebP en cours peut foirer.
-3. **Callbacks Ankorstore en attente** — `mysql beliandjolie -e "SELECT status, type, COUNT(*) FROM AnkorstoreOperation WHERE status='PENDING' GROUP BY status, type;"`. Si > 0 → prévenir. Un callback perdu = ré-cliquer sur « Publier » côté BJ pour relancer.
-4. **Ankorstore catalog / imports en cours** — grep bref des dernières 60 s de logs (`tail -200 /root/.pm2/logs/beliandjolie-out.log | grep -E "Ankorstore Catalog|Chargement|Import|Preview job"`). Si activité récente → attendre.
+3. **Ankorstore désormais synchrone** — plus de check à faire (les ops se terminent avant le prochain clic). L'ancien check `AnkorstoreOperation WHERE status='PENDING'` est obsolète, la table n'existe plus.
+4. **Ankorstore catalog / imports en cours** — grep bref des dernières 60 s de logs (`tail -200 /root/.pm2/logs/beliandjolie-out.log | grep -E "Ankorstore|Chargement|Import|Preview job"`). Si activité récente → attendre.
 5. **Traductions / mails** — `mysql beliandjolie -e "SELECT status, COUNT(*) FROM TranslationJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status; SELECT status, COUNT(*) FROM EmailQueueJob WHERE status IN ('PENDING','PROCESSING') GROUP BY status;"`. Si > 0 → prévenir.
 
 Une fois **tout** confirmé calme (ou go explicite de la cliente), on enchaîne backup + deploy. Après restart, refaire le SELECT MarketplaceRefreshJob pour vérifier qu'aucun job n'est resté bloqué en IN_PROGRESS (le startup sweep du worker les marque FAILED, mais un race condition rare peut en laisser un — nettoyer manuellement si besoin).
@@ -128,14 +128,17 @@ Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on s
   - Garde-fou UI supplémentaire : refus si `orphansToDelete` couvre TOUTES les variantes marketplace ET aucune couleur BJ n'est mappée/à-créer (fiche marketplace se retrouverait vide).
   - Retour `LinkResult` étendu : `autoCreatedOnMarketplace` + `deletedOnMarketplace` + `importedFromMarketplace`, affichés dans le widget flottant Marketplaces après la job.
 
-### Ankorstore callback-only
-Toutes ops (publish/update/refresh/delete) **async** : kickoff → `operationId` → webhook `/api/webhooks/ankorstore`. **Aucun polling.**
-- Table `AnkorstoreOperation`.
-- `ANKORSTORE_WEBHOOK_SECRET` en query string du callback.
-- **Dev local** : Ankorstore ne hitte pas localhost → PENDING. Tests prod uniquement.
-- UI poll `/api/admin/ankorstore-operations` toutes les 3s.
-- Callback perdu → re-cliquer « Publier » relance (annule anciennes PENDING).
-- PATCH stock/prices restent synchrones.
+### Ankorstore back-office reverse-engineered (2026-08-13)
+Toutes ops (publish/update/refresh/delete, enable/disable, liaison, commandes) **100 % synchrones** via l'API interne du back-office `fr.ankorstore.com`. **Plus de callback**, plus de table `AnkorstoreOperation`, plus de webhook, plus de polling UI.
+- Module : `lib/ankorstore-bo/` (auth session cookie + CSRF, referentials hardcodés, publish/update/read/mass-action/link/images/orders/builder/sku).
+- Server actions : `app/actions/admin/ankorstore-bo.ts` (`publishProductToAnkorstoreBo`, `deleteProductFromAnkorstoreBo`, `setProductVisibilityOnAnkorstoreBo`, `searchAnkorstoreBoCandidatesForBjProduct`, `linkBjProductToAnkorstoreBo`, `unlinkAllBjProductsFromAnkorstoreBo`).
+- Auth : email + mot de passe compte marque, stockés chiffrés dans SiteConfig (`ankorstore_bo_email`, `ankorstore_bo_password`). Configurable via `/admin/parametres?tab=marketplaces`.
+- **Dev local marche** — plus de dépendance callback.
+- SKU nouveau format `{REFERENCE}_{COULEUR_NORMALISEE}` (ex : `A1720_VERT_DEAU`) — cf. `lib/ankorstore-bo/sku.ts`.
+- Statut BJ → Ankor : ONLINE = mass-action `enable`, OFFLINE/ARCHIVED = mass-action `disable`. Stock BJ vrai stock envoyé peu importe le statut.
+- Image produit-père Ankor = première image de la couleur principale (`Product.primaryColorId`).
+- Bug 422 SKU sur PUT contourné en injectant les `variant.id` connus.
+- **Commandes** : lecture (list + détail + tracking) via `lib/ankorstore-bo/orders.ts`. Worker orders désactivé — à réactiver après reverse des POST tracking/reject.
 
 ### Refresh produit
 Bouton « Rafraîchir » + bulk. Modale : boutique (bump `lastRefreshedAt`) + PFS + Ankorstore. Parallèle 5 max via `MarketplaceRefreshWidget`. `pfsRefreshProduct()` crée ref TEMP, archive l'ancien, renomme. Rollback auto.
@@ -180,7 +183,15 @@ next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. A
 - Mapping PFS pays/compo : libellé FR. Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
 
 ### Styling
-**Tailwind v4** — theme dans `app/globals.css` `@theme {}`, pas de config JS. **Pas de dark mode**. Flat design + ombres subtiles. Utilities standard.
+**Tailwind v4** — theme dans `app/globals.css` `@theme {}`, pas de config JS. **Pas de dark mode côté public** (boutique clients toujours en clair). **Mode sombre admin uniquement** (voir bloc dédié ci-dessous). Flat design + ombres subtiles. Utilities standard.
+
+#### Mode sombre admin (2026-08-13)
+Bascule dispo dans **Paramètres → Affichage** (onglet dédié). Préférence stockée dans un cookie `bj_admin_theme` (`light` | `dark`, 5 ans, path `/`, `SameSite=Lax`).
+- Lecture serveur : `app/(admin)/layout.tsx` lit le cookie via `next/headers.cookies()`, résout via `parseAdminTheme()` (`lib/admin-theme.ts`) et pose la classe `admin-dark` sur `#admin-theme-wrapper` — pas de flash au chargement.
+- Bascule client : `AdminThemeToggle` (`components/admin/settings/`) applique la classe à chaud puis persiste via server action `setAdminTheme` (`app/actions/admin/admin-theme.ts`).
+- Portée : CSS scopé strict `#admin-theme-wrapper.admin-dark { … }` dans `app/globals.css` (fin du fichier). Les pages `/admin/*` sont concernées, jamais la boutique publique ni les pages auth.
+- Approche pragmatique — on **redéfinit les variables du design system** (`--color-bg-primary` etc.) + on **surcharge les classes Tailwind figées** les plus courantes (`.bg-white`, `.bg-zinc-*`, `.text-zinc-*`, `.border-zinc-*`, `.bg-slate-*`, dégradés `from-*-50`). Certaines cartes au look très particulier (aurora du hero, badges pastels) peuvent nécessiter un ajustement au 2ᵉ passage — retoucher au cas par cas.
+- Test Vitest : `__tests__/lib/admin-theme.test.ts` verrouille les helpers.
 
 #### Style espace pro / public (obligatoire hors `/admin`)
 Réf : `app/[locale]/(client)/commandes/page.tsx` + `components/client/orders/OrdersTableClient.tsx` (2026-07-17, validé par la cliente).
@@ -291,7 +302,7 @@ Prod sert 2 boutiques depuis 1 seul Next.js/PM2/DB : **beliandjolie.com** (tenan
 - Badges : `badge badge-*` (success/warning/error/neutral/info/purple).
 - Dropdowns : `CustomSelect`, jamais `<select>` natif.
 - `useConfirm()` / `useToast()` (context, pas de default).
-- Pas de dark mode : vars CSS (`bg-bg-primary`, `text-text-primary`, `border-border`).
+- Pas de dark mode côté public : vars CSS (`bg-bg-primary`, `text-text-primary`, `border-border`). Le mode sombre existe uniquement dans l'admin — bloc « Mode sombre admin » ci-dessus.
 - Touch min 44px, `prefers-reduced-motion` respecté.
 
 ### Produits / Variantes
@@ -350,8 +361,7 @@ Prod sert 2 boutiques depuis 1 seul Next.js/PM2/DB : **beliandjolie.com** (tenan
 - **Obligatoires** : `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENCRYPTION_KEY`.
 - **Stripe** : 3 clés (`stripe_secret_key`, `stripe_publishable_key`, `stripe_webhook_secret`) en BDD **par tenant** (SiteConfig chiffré). **Plus aucune clé Stripe dans `.env`** depuis 2026-08-05 — un tenant sans Stripe configuré déclenche « Paiement indisponible » côté checkout au lieu de retomber sur les clés du tenant historique (mismatch pk/sk garanti). `readStripeConfig()` (lib/stripe.ts) est strict BDD-only, scopé au tenant courant via ALS/headers. `updateStripeConfig()` (app/actions/admin/stripe-config.ts) distingue `undefined` (« ne touche pas » — placeholder « déjà en place ») de `""` (« vider ») pour éviter de wipe une clé conservée lors d'un save partiel.
 - **Email** : `SMTP_*` retirés des `.env` depuis 2026-07-13 — chaque tenant a sa **propre config SMTP en BDD** (SiteConfig chiffré). Envoi via serveur mail interne Postfix/Dovecot sur `mail.beliandjolie.com:587`. Boîtes `contact@beliandjolie.com` et `contact@issyma.fr` avec quota 5 Go/boîte. `provisionShopMailbox()` (app/actions/admin/mailbox-provision.ts) sait créer une boîte + config auto pour un **nouveau tenant** — **nécessite `scripts/deploy/add-mail-domain.sh` (à créer, cf. TODO ci-dessous)**. **Roundcube retiré du VPS le 2026-08-04** — plus de webmail navigateur, la cliente lit ses mails pro directement dans Gmail via le transfert instantané (`lib/mail-notify-worker.ts` → IMAP Dovecot → forward vers `admin_personal_email`) et répond en tant que `contact@…` via la config Gmail « Send As » (tutoriel dans `/admin/parametres?tab=messagerie`). Le vhost nginx `mail.beliandjolie.com` reste comme coquille vide (juste pour cert renewal certbot) — voir backup `/root/backups/pre-roundcube-removal-20260804-144048/` si rollback nécessaire.
-- **Ankorstore webhook** : `ANKORSTORE_WEBHOOK_SECRET`.
-- **Via UI (chiffrés BDD)** : clé Easy-Express, identifiants PFS (email + mdp — réutilisés pour traduction auto).
+- **Via UI (chiffrés BDD)** : clé Easy-Express, identifiants PFS (email + mdp — réutilisés pour traduction auto), identifiants Ankorstore back-office (email + mdp), identifiants eFashion / Faire.
 
 ---
 

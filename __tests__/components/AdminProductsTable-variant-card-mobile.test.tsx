@@ -234,4 +234,43 @@ describe("VariantCardMobile — carte verticale pour la modale mobile", () => {
     );
     expect(screen.getByText(/Variante ×12 par paquet/)).toBeInTheDocument();
   });
+
+  it("n'affiche pas le badge « Couleur principale » quand isPrimaryColor est absent (défaut false)", () => {
+    render(
+      <VariantCardMobile
+        variant={baseVariant}
+        editsForVariant={{}}
+        onCommitCell={() => {}}
+      />,
+    );
+    expect(screen.queryByText("Couleur principale")).toBeNull();
+  });
+
+  it("n'affiche pas le badge « Couleur principale » quand isPrimaryColor=false", () => {
+    render(
+      <VariantCardMobile
+        variant={baseVariant}
+        editsForVariant={{}}
+        onCommitCell={() => {}}
+        isPrimaryColor={false}
+      />,
+    );
+    expect(screen.queryByText("Couleur principale")).toBeNull();
+  });
+
+  it("affiche le badge noir « Couleur principale » quand isPrimaryColor=true", () => {
+    render(
+      <VariantCardMobile
+        variant={baseVariant}
+        editsForVariant={{}}
+        onCommitCell={() => {}}
+        isPrimaryColor
+      />,
+    );
+    const badge = screen.getByText("Couleur principale");
+    expect(badge).toBeInTheDocument();
+    // Fond noir + texte blanc — vérif rapide via classes utilitaires
+    expect(badge.className).toContain("bg-black");
+    expect(badge.className).toContain("text-white");
+  });
 });

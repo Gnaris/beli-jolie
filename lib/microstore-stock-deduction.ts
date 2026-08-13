@@ -185,6 +185,14 @@ export async function deductStockFromMicrostoreOrders(
       where: { tenantId, id: { in: Array.from(touchedProductIds) } },
       data: { important: true },
     });
+
+    // Rotation auto couleur principale après déduction de stock côté Microstore.
+    const { rotatePrimaryIfNeeded } = await import("@/lib/rotate-primary-service");
+    for (const pid of touchedProductIds) {
+      await rotatePrimaryIfNeeded(pid, { tenantId }).catch((err) =>
+        logger.error("[Microstore Stock] rotatePrimary error", { error: err, productId: pid }),
+      );
+    }
   }
 
   logger.info(

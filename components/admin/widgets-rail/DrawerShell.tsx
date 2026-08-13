@@ -119,22 +119,28 @@ export function DrawerShell({
 
   const acc = ACCENT_CLASSES[accent];
   const visible = open && mounted;
-  // "wide" : jusqu'à 1500 px (5 colonnes marketplace) — la hauteur suit la
-  // fenêtre pour ne jamais forcer de scroll (cliente : « pas de scroll »).
-  // "fullscreen" : quasi plein écran. Sur ≥ lg (1024 px, quand la sidebar
-  // admin apparaît), on décale de 300 px à gauche pour la laisser visible et
-  // on garde 20 px de marge en haut, bas et à droite (demande cliente
-  // 2026-08-12 : « laisser respirer »). Sous lg, la sidebar est déjà cachée
-  // (AdminMobileNav) donc on garde inset-0.
-  // Depuis le 2026-07-31, quand un tiroir est ouvert le FAB étoile est
-  // masqué : les tiroirs "default" et "wide" collent donc au coin bas-droit
-  // (1.5 rem de marge) au lieu de laisser un vide de 96 px pour le FAB.
+  // "wide" : tiroir calé DANS la zone de contenu de la page — la sidebar
+  // admin (≥ lg) et la barre de nav mobile (< lg) restent visibles à côté
+  // (demande cliente 2026-08-13 : « je veux au moins la barre de navigation
+  // entière visible »). Le contenu du tiroir se cape lui-même (scroll
+  // horizontal des colonnes marketplaces).
+  // "fullscreen" : quasi plein écran, réservé aux tiroirs qui ont besoin de
+  // voir un maximum d'info d'un coup (Audit PFS, Import commandes). Sur ≥ lg
+  // on décale de 300 px à gauche pour laisser la sidebar visible + 20 px de
+  // marge en haut/bas/droite. Sous lg, sidebar déjà cachée (AdminMobileNav)
+  // donc inset-0.
+  // Depuis le 2026-08-13, le FAB étoile + le mini-menu restent visibles
+  // pendant qu'un tiroir est ouvert (demande cliente). On réserve donc
+  // 360 px sur la droite pour laisser respirer le rail (label pill +
+  // pastille colorée) même sur les tiroirs `wide` / `fullscreen`. Le
+  // tiroir `default` (440 px de large) se cale à gauche du rail plutôt
+  // qu'au bord droit.
   const wideClasses =
     size === "fullscreen"
-      ? "md:inset-0 lg:inset-auto lg:top-5 lg:right-5 lg:bottom-5 lg:left-[300px]"
+      ? "md:inset-0 lg:inset-auto lg:top-5 lg:right-[360px] lg:bottom-5 lg:left-[300px]"
       : size === "wide"
-        ? "md:bottom-6 md:right-6 md:w-[min(1500px,calc(100vw-3rem))] md:h-[calc(100vh-3rem)]"
-        : "md:bottom-6 md:right-6 md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-3rem)]";
+        ? "md:top-[76px] md:right-[360px] md:bottom-5 md:left-5 lg:top-5 lg:left-[300px]"
+        : "md:bottom-6 md:right-[360px] md:w-[440px] md:h-[760px] md:max-h-[calc(100vh-3rem)]";
   const isFullscreen = size === "fullscreen";
 
   return (
@@ -156,8 +162,11 @@ export function DrawerShell({
                       ${isFullscreen ? "md:rounded-none lg:rounded-3xl" : "md:rounded-3xl"}
                       max-md:rounded-none`}
       >
-        {/* Header aurora coloré */}
-        <div className={`relative overflow-hidden bg-gradient-to-br ${acc.headerGrad} flex-shrink-0`}>
+        {/* Header aurora coloré. `data-drawer-accent` : marqueur utilisé
+            par les overrides CSS du mode sombre (globals.css) pour flipper
+            le dégradé vers une version « nuit » plus profonde et moins
+            criarde, tout en gardant l'identité colorée du widget. */}
+        <div data-drawer-accent={accent} className={`relative overflow-hidden bg-gradient-to-br ${acc.headerGrad} flex-shrink-0`}>
           <div className={`absolute -top-10 -right-10 w-32 h-32 rounded-full ${acc.halo} blur-3xl pointer-events-none`} />
           <div className="relative px-4 py-3.5 flex items-center justify-between text-white">
             <div className="flex items-center gap-3 min-w-0">
@@ -225,3 +234,4 @@ export function DrawerShell({
     </div>
   );
 }
+

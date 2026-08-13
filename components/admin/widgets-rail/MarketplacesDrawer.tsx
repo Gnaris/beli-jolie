@@ -233,7 +233,7 @@ export function MarketplacesDrawer() {
       onClose={close}
       accent="sky"
       eyebrow="Marketplaces"
-      size="fullscreen"
+      size="wide"
       title={
         <span className="flex items-center gap-1.5">
           {activeCount > 0 && (

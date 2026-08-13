@@ -17,6 +17,7 @@ import {
   updateCategoryFaireTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
+import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 
 type Sub = { id: string; name: string; translations: Record<string, string> };
 
@@ -57,6 +58,7 @@ export default function CategoriesMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   const urlSelectedId = searchParams.get("cat");
@@ -183,11 +185,15 @@ export default function CategoriesMasterDetail({
     const newFamily = pfs?.pfsFamilyName ?? null;
     const newCategory = pfs?.pfsCategoryName ?? null;
     if (newGender !== editCat.pfsGender || newFamily !== editCat.pfsFamilyName || newCategory !== editCat.pfsCategoryName) {
-      await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
+      const res = await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
+      // Impact non-null → modale « X produits impactés sur PFS ».
+      if (res.impact) showMappingImpact(res.impact);
     }
     const newFaireTaxonomy = faire?.taxonomyId ?? null;
     if (newFaireTaxonomy !== (editCat.faireTaxonomyId ?? null)) {
-      await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
+      const res = await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
+      // Impact non-null → modale « X produits impactés sur Faire ».
+      if (res.impact) showMappingImpact(res.impact);
     }
     router.refresh();
   }

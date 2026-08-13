@@ -8,6 +8,7 @@ import SeasonEditorModal from "./SeasonEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef, reorderSeasons } from "@/app/actions/admin/seasons";
+import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 
 export type SeasonRow = {
   id: string;
@@ -37,6 +38,7 @@ export default function SeasonsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   // Copie locale pour permettre l'optimistic update lors du drag & drop.
@@ -140,7 +142,9 @@ export default function SeasonsMasterDetail({
     await updateSeasonDirect(editTarget.id, name, translations);
     const newRef = extra?.ref || null;
     if (newRef !== (editTarget.pfsRef ?? null)) {
-      await updateSeasonPfsRef(editTarget.id, newRef);
+      const res = await updateSeasonPfsRef(editTarget.id, newRef);
+      // Impact non-null → modale « X produits impactés sur PFS ».
+      if (res.impact) showMappingImpact(res.impact);
     }
     router.refresh();
   }

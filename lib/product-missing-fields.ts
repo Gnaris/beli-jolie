@@ -1,4 +1,4 @@
-import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/marketplace-description";
 
 const DESCRIPTION_MIN_CHARS = 30;
 const COMPOSITION_TOTAL_TOLERANCE = 0.5;

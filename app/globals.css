@@ -1272,3 +1272,728 @@ h1, h2, h3, h4, h5, h6 {
     transform: translateY(0);
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════
+   ADMIN DARK MODE
+   Deux scopes :
+   - `#admin-theme-wrapper.admin-dark` (posé SSR via cookie) — évite le
+     flash de contenu clair sur le premier paint pour la zone principale.
+   - `html.admin-dark` (posé côté client par AdminHtmlThemeSync) —
+     couvre les widgets flottants (marketplaces / PFS audit / eFashion
+     shooting / import images / chat) montés comme siblings du wrapper
+     à l'intérieur de <body>.
+   Les deux sont désactivés dès qu'on quitte /admin (cookie ignoré hors
+   layout admin + cleanup du useEffect).
+   ═════════════════════════════════════════════════════════════════════════ */
+html.admin-dark,
+#admin-theme-wrapper.admin-dark {
+  color-scheme: dark;
+
+  /* Palette légèrement remontée en luminosité (demande cliente 2026-08-13 :
+     « ne pas descendre à 100 % noir »). Hiérarchie : page < cartes
+     principales < surfaces internes. */
+  --color-bg-primary:    #1e1e22;
+  --color-bg-secondary:  #26262b;
+  --color-bg-tertiary:   #2d2d33;
+  --color-bg-muted:      #2d2d33;
+  /* bg-dark reste noir en sombre (btn-primary, boutons « Rafraîchir »,
+     tuile « Total visiteurs ») avec texte-inverse clair — le CTA garde
+     la lisibilité classique « bouton sombre, texte clair » qu'on a en
+     mode clair. */
+  --color-bg-dark:       #141417;
+  --color-bg-darker:     #000000;
+
+  /* Texte : blanc adouci pour éviter la brûlure d'œil sur fond sombre.
+     `#d4d4d8` = zinc-300, la valeur recommandée par les design systems
+     modernes (GitHub, Linear) pour du texte principal en dark mode. */
+  --color-text-primary:   #d4d4d8;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted:     #71717a;
+  --color-text-inverse:   #f4f4f5;
+
+  --color-border:        #2f2f34;
+  --color-border-strong: #3f3f46;
+  --color-border-light:  #27272a;
+  --color-border-dark:   #52525b;
+
+  --color-ink:           #d4d4d8;
+  --color-accent:        #a1a1aa;
+  --color-accent-light:  #2d2d33;
+  --color-accent-dark:   #141417;
+
+  --color-surface:        #1e1e22;
+  --color-surface-alt:    #26262b;
+  --color-white:          #1e1e22;
+  --color-primary:        #141417;
+  --color-primary-hover:  #000000;
+  --color-primary-light:  #2d2d33;
+  --color-muted:          #71717a;
+
+  /* ─── Redéfinition de la palette Tailwind (zinc/slate/blue/sky/violet…)
+     Les utilities `bg-*-100`, `text-*-700`, `border-*-200` compilent en
+     `background-color: var(--color-*-100)`. En redéfinissant les
+     variables ici, les surfaces prennent leur teinte sombre dès le
+     premier paint SSR (via le scope `#admin-theme-wrapper.admin-dark`)
+     sans attendre l'hydratation client. Objectif : éliminer le flash
+     de couleurs pastel claires visible pendant les ~100 ms suivant un
+     refresh. */
+
+  /* Neutrals — plus discrets que le stock Tailwind */
+  --color-zinc-50:   #18181b;
+  --color-zinc-100:  #26262b;
+  --color-zinc-200:  #2d2d33;
+  --color-zinc-700:  #b5b5bb;
+  --color-zinc-800:  #c8c8ce;
+  --color-zinc-900:  #d4d4d8;
+  --color-slate-50:  #18181b;
+  --color-slate-100: #26262b;
+  --color-slate-200: #2d2d33;
+  --color-slate-300: #3f3f46;
+  --color-slate-400: #71717a;
+  --color-slate-500: #97979f;
+  --color-slate-600: #a1a1aa;
+  --color-slate-700: #d4d4d8;
+  --color-slate-800: #e4e4e7;
+  --color-slate-900: #f4f4f5;
+
+  /* Bleu / Sky (Publication + Refresh) */
+  --color-blue-50:   #172554;
+  --color-blue-100:  #1e3a8a;
+  --color-blue-200:  #1e40af;
+  --color-blue-700:  #60a5fa;
+  --color-blue-800:  #93c5fd;
+  --color-sky-50:    #0f2436;
+  --color-sky-100:   #0f314a;
+  --color-sky-200:   #075985;
+  --color-sky-700:   #38bdf8;
+  --color-sky-800:   #7dd3fc;
+
+  /* Vert (Publish + statuts « en ligne ») */
+  --color-emerald-50:   #0f2a1e;
+  --color-emerald-100:  #0f3d2b;
+  --color-emerald-200:  #064e3b;
+  --color-emerald-700:  #34d399;
+  --color-emerald-800:  #6ee7b7;
+  --color-green-700:    #4ade80;
+  --color-green-800:    #86efac;
+
+  /* Violet / Indigo / Fuchsia (Resync + brouillon + drawers violets) */
+  --color-violet-50:    #211037;
+  --color-violet-100:   #2a154a;
+  --color-violet-200:   #4c1d95;
+  --color-violet-700:   #a78bfa;
+  --color-violet-800:   #c4b5fd;
+  --color-violet-900:   #ddd6fe;
+  --color-indigo-50:    #1e1b4b;
+  --color-indigo-100:   #312e81;
+  --color-indigo-200:   #312e81;
+  --color-indigo-700:   #a5b4fc;
+  --color-indigo-800:   #c7d2fe;
+  --color-fuchsia-50:   #3a0f38;
+  --color-fuchsia-700:  #e879f9;
+
+  /* Chaud (amber / orange / rose / pink) */
+  --color-amber-50:   #3b2a08;
+  --color-amber-100:  #4a370b;
+  --color-amber-200:  #78350f;
+  --color-amber-300:  #92400e;
+  --color-amber-600:  #f59e0b;
+  --color-amber-700:  #fbbf24;
+  --color-amber-800:  #fcd34d;
+  --color-amber-900:  #fef3c7;
+  --color-orange-50:   #3a1e05;
+  --color-orange-100:  #4a2708;
+  --color-orange-200:  #9a3412;
+  --color-orange-700:  #fdba74;
+  --color-orange-800:  #fed7aa;
+  --color-rose-50:     #3a1024;
+  --color-rose-100:    #4a1024;
+  --color-rose-200:    #831843;
+  --color-rose-300:    #9f1239;
+  --color-rose-600:    #f43f5e;
+  --color-rose-700:    #fb7185;
+  --color-rose-800:    #fda4af;
+  --color-rose-900:    #fecdd3;
+  --color-pink-50:     #401025;
+  --color-pink-700:    #f472b6;
+
+  /* Rouge (danger) */
+  --color-red-50:    #3a1414;
+  --color-red-100:   #4a1414;
+  --color-red-200:   #7f1d1d;
+  --color-red-300:   #991b1b;
+  --color-red-600:   #ef4444;
+  --color-red-700:   #f87171;
+  --color-red-800:   #fca5a5;
+  --color-red-900:   #fecaca;
+
+  /* Teal / Cyan (Microstore + widgets cyan) */
+  --color-teal-50:   #0d322e;
+  --color-teal-100:  #134e4a;
+  --color-teal-700:  #2dd4bf;
+  --color-cyan-50:   #0e3140;
+  --color-cyan-100:  #164e63;
+  --color-cyan-700:  #22d3ee;
+
+  --shadow-card:    0 1px 3px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.4);
+  --shadow-pop:     0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -8px rgba(0,0,0,0.55);
+  --shadow-modal:   0 25px 60px -10px rgba(0,0,0,0.7), 0 6px 16px rgba(0,0,0,0.5);
+  --shadow-card-md: 0 4px 6px -1px rgba(0,0,0,0.45), 0 2px 4px -2px rgba(0,0,0,0.3);
+  --shadow-card-lg: 0 10px 15px -3px rgba(0,0,0,0.5), 0 4px 6px -4px rgba(0,0,0,0.35);
+  --shadow-sm:      0 1px 2px rgba(0,0,0,0.4);
+
+  background-color: #141417 !important;
+}
+
+/* ─── Fonds figés (bg-white, bg-zinc-*, bg-slate-*) ───────────────────── */
+html.admin-dark .bg-white,
+html.admin-dark .bg-bg-primary { background-color: #1e1e22 !important; }
+html.admin-dark .bg-white\/70 { background-color: rgba(28,28,31,0.7) !important; }
+html.admin-dark .bg-white\/60 { background-color: rgba(28,28,31,0.6) !important; }
+html.admin-dark .bg-white\/20 { background-color: rgba(255,255,255,0.14) !important; }
+html.admin-dark .bg-white\/14 { background-color: rgba(255,255,255,0.14) !important; }
+html.admin-dark .bg-white\/12 { background-color: rgba(255,255,255,0.12) !important; }
+html.admin-dark .lg\:bg-white { background-color: #141417 !important; }
+
+html.admin-dark .bg-zinc-50 { background-color: #18181b !important; }
+html.admin-dark .bg-zinc-50\/60 { background-color: rgba(24,24,27,0.6) !important; }
+html.admin-dark .bg-zinc-100 { background-color: #26262b !important; }
+html.admin-dark .bg-zinc-200 { background-color: #2d2d33 !important; }
+html.admin-dark .bg-zinc-800 { background-color: #f4f4f5 !important; }
+html.admin-dark .bg-zinc-900 { background-color: #ececee !important; }
+
+html.admin-dark .bg-slate-50 { background-color: #18181b !important; }
+html.admin-dark .bg-slate-100 { background-color: #26262b !important; }
+
+/* Fonds Bs sémantiques déjà pastel → assombrir un peu pour rester lisibles */
+html.admin-dark .bg-amber-50 { background-color: #3b2a08 !important; }
+html.admin-dark .bg-amber-100 { background-color: #4a370b !important; }
+html.admin-dark .bg-red-50 { background-color: #3a1414 !important; }
+html.admin-dark .bg-emerald-50 { background-color: #0f2a1e !important; }
+html.admin-dark .bg-sky-50 { background-color: #0f2436 !important; }
+html.admin-dark .bg-violet-50 { background-color: #211037 !important; }
+html.admin-dark .bg-rose-50 { background-color: #3a1024 !important; }
+
+/* ─── Textes figés (text-zinc-*, text-slate-*) ──────────────────────────
+   Palette adoucie : on ne monte jamais au-dessus de #d4d4d8 (zinc-300)
+   pour éviter que le blanc pur agresse l'œil sur fond sombre. */
+html.admin-dark .text-zinc-900,
+html.admin-dark .text-slate-900 { color: #d4d4d8 !important; }
+html.admin-dark .text-zinc-800,
+html.admin-dark .text-slate-800 { color: #c8c8ce !important; }
+html.admin-dark .text-zinc-700,
+html.admin-dark .text-slate-700 { color: #b5b5bb !important; }
+html.admin-dark .text-zinc-600,
+html.admin-dark .text-slate-600 { color: #a1a1aa !important; }
+html.admin-dark .text-zinc-500,
+html.admin-dark .text-slate-500 { color: #97979f !important; }
+html.admin-dark .text-zinc-400,
+html.admin-dark .text-slate-400 { color: #71717a !important; }
+
+/* Blanc pur (ex: badges gradient, texte inverse) — adouci hors des zones
+   où le contraste est vraiment recherché. */
+html.admin-dark .text-white { color: #e4e4e7 !important; }
+html.admin-dark .text-white\/90 { color: rgba(228,228,231,0.9) !important; }
+html.admin-dark .text-white\/80 { color: rgba(228,228,231,0.8) !important; }
+html.admin-dark .text-white\/70 { color: rgba(228,228,231,0.7) !important; }
+
+/* ─── text-{color}-100 : rétablis leur valeur claire d'origine ─────────
+   Les eyebrow des DrawerShell headers (widgets flottants) et divers
+   sous-titres sur bg coloré utilisent `text-{color}-100`. Mais on a
+   redéfini `--color-{color}-100` en sombre pour couvrir les usages en
+   `bg-{color}-100` (pastel background). Résultat : le texte devenait
+   sombre et disparaissait sur les headers aurora colorés. On force les
+   valeurs d'origine ici pour préserver le contraste. */
+html.admin-dark .text-sky-100 { color: #e0f2fe !important; }
+html.admin-dark .text-blue-100 { color: #dbeafe !important; }
+html.admin-dark .text-indigo-100 { color: #e0e7ff !important; }
+html.admin-dark .text-violet-100 { color: #ede9fe !important; }
+html.admin-dark .text-fuchsia-100 { color: #fae8ff !important; }
+html.admin-dark .text-emerald-100 { color: #d1fae5 !important; }
+html.admin-dark .text-teal-100 { color: #ccfbf1 !important; }
+html.admin-dark .text-cyan-100 { color: #cffafe !important; }
+html.admin-dark .text-amber-100 { color: #fef3c7 !important; }
+html.admin-dark .text-rose-100 { color: #ffe4e6 !important; }
+html.admin-dark .text-pink-100 { color: #fce7f3 !important; }
+/* Variantes /85 /90 utilisées pour compteurs légers */
+html.admin-dark .text-sky-100\/85 { color: rgba(224,242,254,0.85) !important; }
+html.admin-dark .text-violet-100\/85 { color: rgba(237,233,254,0.85) !important; }
+
+/* ─── FAB widgets (bas à droite) — reset thème clair ───────────────────
+   La cliente veut que le FAB étoile + le mini-menu (Marketplaces / Chat /
+   Traduction / etc.) gardent leur apparence claire d'origine en mode
+   sombre admin (2026-08-13). On force les couleurs à leurs valeurs
+   d'origine à l'intérieur de `.admin-fab-preserve`. */
+html.admin-dark .admin-fab-preserve .bg-white,
+html.admin-dark .admin-fab-preserve.bg-white { background-color: #ffffff !important; }
+html.admin-dark .admin-fab-preserve .text-white { color: #ffffff !important; }
+html.admin-dark .admin-fab-preserve .text-slate-900 { color: #0f172a !important; }
+html.admin-dark .admin-fab-preserve .text-slate-200 { color: #e2e8f0 !important; }
+html.admin-dark .admin-fab-preserve .ring-slate-200 { --tw-ring-color: #e2e8f0 !important; }
+html.admin-dark .admin-fab-preserve .ring-white { --tw-ring-color: #ffffff !important; }
+html.admin-dark .admin-fab-preserve .bg-slate-800 { background-color: #1e293b !important; }
+html.admin-dark .admin-fab-preserve .bg-slate-900 { background-color: #0f172a !important; }
+html.admin-dark .admin-fab-preserve .bg-slate-900\/10 { background-color: rgba(15,23,42,0.1) !important; }
+html.admin-dark .admin-fab-preserve .from-slate-800 { --tw-gradient-from: #1e293b !important; }
+html.admin-dark .admin-fab-preserve .via-slate-900 { --tw-gradient-via: #0f172a !important; }
+/* Textes badge sur pastilles blanches — nuances -600/-700 gardées vives. */
+html.admin-dark .admin-fab-preserve .text-violet-600 { color: #7c3aed !important; }
+html.admin-dark .admin-fab-preserve .text-sky-600 { color: #0284c7 !important; }
+html.admin-dark .admin-fab-preserve .text-indigo-600 { color: #4f46e5 !important; }
+html.admin-dark .admin-fab-preserve .text-amber-600 { color: #d97706 !important; }
+html.admin-dark .admin-fab-preserve .text-emerald-600 { color: #059669 !important; }
+html.admin-dark .admin-fab-preserve .text-emerald-700 { color: #047857 !important; }
+html.admin-dark .admin-fab-preserve .text-cyan-600 { color: #0891b2 !important; }
+html.admin-dark .admin-fab-preserve .text-rose-600 { color: #e11d48 !important; }
+
+/* ─── Headers aurora des tiroirs (DrawerShell) — version nuit ─────────
+   Les dégradés d'origine (500 → 700) sont trop lumineux sur un fond
+   noir : ils créent un contraste violent qui « brûle » l'œil et se
+   marie mal avec le contenu sombre du tiroir. On les remplace par des
+   dégradés 800 → 950 qui gardent la couleur identitaire du widget
+   mais s'intègrent au thème. Le texte blanc reste lisible.
+   Ciblé via `data-drawer-accent` posé par DrawerShell. */
+html.admin-dark [data-drawer-accent="violet"] {
+  background-image: linear-gradient(to bottom right, #4c1d95, #581c87, #4a044e) !important;
+}
+html.admin-dark [data-drawer-accent="sky"] {
+  background-image: linear-gradient(to bottom right, #075985, #1e3a8a, #1e1b4b) !important;
+}
+html.admin-dark [data-drawer-accent="emerald"] {
+  background-image: linear-gradient(to bottom right, #064e3b, #134e4a, #164e63) !important;
+}
+html.admin-dark [data-drawer-accent="amber"] {
+  background-image: linear-gradient(to bottom right, #78350f, #7c2d12, #7f1d1d) !important;
+}
+html.admin-dark [data-drawer-accent="rose"] {
+  background-image: linear-gradient(to bottom right, #881337, #831843, #701a75) !important;
+}
+html.admin-dark [data-drawer-accent="indigo"] {
+  background-image: linear-gradient(to bottom right, #312e81, #3730a3, #4c1d95) !important;
+}
+html.admin-dark [data-drawer-accent="fuchsia"] {
+  background-image: linear-gradient(to bottom right, #701a75, #831843, #881337) !important;
+}
+html.admin-dark [data-drawer-accent="cyan"] {
+  background-image: linear-gradient(to bottom right, #164e63, #115e59, #064e3b) !important;
+}
+/* Halo décoratif du header — plus discret en sombre (garde le halo mais
+   moins agressif visuellement). */
+html.admin-dark [data-drawer-accent] > .blur-3xl {
+  opacity: 0.25 !important;
+}
+
+/* ─── Bordures figées ─────────────────────────────────────────────────── */
+html.admin-dark .border-zinc-100,
+html.admin-dark .border-slate-100 { border-color: #27272a !important; }
+html.admin-dark .border-zinc-200,
+html.admin-dark .border-slate-200 { border-color: #2f2f34 !important; }
+html.admin-dark .border-zinc-300,
+html.admin-dark .border-slate-300 { border-color: #3f3f46 !important; }
+
+/* ─── Divides (tableaux, listes) ─────────────────────────────────────── */
+html.admin-dark .divide-zinc-100 > * + *,
+html.admin-dark .divide-slate-100 > * + * { border-color: #27272a !important; }
+html.admin-dark .divide-zinc-200 > * + *,
+html.admin-dark .divide-slate-200 > * + * { border-color: #2f2f34 !important; }
+
+/* ─── Hover états courants ────────────────────────────────────────────── */
+html.admin-dark .hover\:bg-zinc-50:hover { background-color: #26262b !important; }
+html.admin-dark .hover\:bg-zinc-100:hover { background-color: #2d2d33 !important; }
+html.admin-dark .hover\:text-zinc-900:hover { color: #f4f4f5 !important; }
+html.admin-dark .hover\:border-zinc-900:hover { border-color: #f4f4f5 !important; }
+
+/* ─── Aurora headers (dégradés pastels des heros admin) ──────────────── */
+/* En sombre, on force les gradients "from-*-50" à devenir transparents pour
+   ne pas afficher une bande pastel criarde sur un fond noir. */
+html.admin-dark [class*="from-slate-50"],
+html.admin-dark [class*="from-zinc-50"],
+html.admin-dark [class*="from-emerald-50"],
+html.admin-dark [class*="from-sky-50"],
+html.admin-dark [class*="from-violet-50"],
+html.admin-dark [class*="from-amber-50"],
+html.admin-dark [class*="from-rose-50"] {
+  --tw-gradient-from: transparent !important;
+  --tw-gradient-stops: transparent, var(--tw-gradient-to, transparent) !important;
+}
+
+/* Halos décoratifs blur-3xl → atténués */
+html.admin-dark .blur-3xl { opacity: 0.4; }
+
+/* ─── Champs (input/select/textarea) ─────────────────────────────────── */
+html.admin-dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+html.admin-dark textarea,
+html.admin-dark select {
+  background-color: #26262b;
+  color: #f4f4f5;
+  border-color: #3f3f46;
+}
+html.admin-dark input::placeholder,
+html.admin-dark textarea::placeholder { color: #71717a; }
+
+/* Field-input custom du design system : la variable a bougé, on force la
+   couleur du fond aussi (safety net). */
+html.admin-dark .field-input { background-color: #26262b; color: #f4f4f5; }
+
+/* ─── Custom checkbox : garder l'aspect check, inverser le fond ──────── */
+html.admin-dark .checkbox-custom {
+  background-color: #26262b;
+  border-color: #52525b;
+}
+html.admin-dark .checkbox-custom:checked {
+  background-color: #f4f4f5;
+  border-color: #f4f4f5;
+}
+html.admin-dark .checkbox-custom:checked::after { border-color: #18181b; }
+
+/* ─── Focus ring visible sur fond sombre ─────────────────────────────── */
+html.admin-dark .focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #1e1e22, 0 0 0 4px #f4f4f5;
+}
+
+/* ─── Drawer variantes (produits) : palette hardcodée à adapter ──────── */
+html.admin-dark .drawer-variant-container {
+  background:
+    radial-gradient(ellipse 500px 300px at 90% 0%, rgba(16, 185, 129, 0.15), transparent 60%),
+    radial-gradient(ellipse 400px 250px at 10% 100%, rgba(139, 92, 246, 0.12), transparent 60%),
+    linear-gradient(180deg, #18181b 0%, #1e1e22 50%);
+  border-top-color: #2f2f34;
+  border-bottom-color: #2f2f34;
+}
+html.admin-dark .drawer-variant-table-wrap {
+  background: #1e1e22;
+  border-color: #2f2f34;
+}
+html.admin-dark .drawer-variant-th {
+  background: rgba(35,35,39,0.7);
+  border-bottom-color: #2f2f34;
+}
+
+/* ─── Ligne produit sélectionnée (mobile/desktop) ────────────────────── */
+html.admin-dark .product-row-selected > td { background-color: #3f3f46 !important; }
+@media (min-width: 768px) {
+  html.admin-dark .product-row-selected > td { background-color: #1e293b !important; }
+}
+html.admin-dark .product-row-dirty > td { background-color: #3f2a08 !important; }
+
+/* ─── Sidebar admin : les bulles et user card ────────────────────────── */
+html.admin-dark aside .bg-white,
+html.admin-dark aside .bg-zinc-50\/60 { background-color: #18181b !important; }
+
+/* ─── AnimateBadges (badge-* déjà stylé) : on ne touche pas les 4
+   couleurs pastel des badges de statut car ils restent lisibles sur fond
+   sombre grâce à leur border coloré ─── */
+
+/* ─── Scrollbars ───────────────────────────────────────────────────────
+   Deux cas à gérer distinctement :
+   1. La sidebar admin utilise la classe `.scrollbar-light` (thumb clair
+      sur transparent) — en mode sombre on la remappe sur un thumb foncé.
+   2. La barre de scroll de la fenêtre (droite du navigateur) reste par
+      défaut celle de l'OS. On la force en sombre via `:has()` sur `<html>`
+      (chrome/edge/safari/firefox ≥ 2023). Cette règle sort du scope du
+      wrapper puisqu'elle cible html, mais elle est déclenchée UNIQUEMENT
+      quand le wrapper porte `.admin-dark`, donc jamais côté public. */
+
+html.admin-dark .scrollbar-light {
+  scrollbar-color: #52525b transparent;
+}
+html.admin-dark .scrollbar-light::-webkit-scrollbar-thumb {
+  background: #52525b;
+  background-clip: content-box;
+}
+html.admin-dark .scrollbar-light::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+  background-clip: content-box;
+}
+
+html.admin-dark {
+  color-scheme: dark;
+  scrollbar-color: #52525b #141417;
+}
+html.admin-dark body {
+  background-color: #141417;
+}
+html.admin-dark::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+html.admin-dark::-webkit-scrollbar-track {
+  background: #141417;
+}
+html.admin-dark::-webkit-scrollbar-thumb {
+  background: #52525b;
+  border-radius: 6px;
+  border: 2px solid #141417;
+}
+html.admin-dark::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+html.admin-dark::-webkit-scrollbar-corner {
+  background: #141417;
+}
+
+/* ─── Wrapper : fond page (plus foncé que les cartes) ─────────────────── */
+html.admin-dark #admin-theme-wrapper { background-color: #141417 !important; }
+
+/* ─── Utility Tailwind `bg-bg-dark` / `border-bg-dark` : en clair c'est
+   la couleur des CTA sombres, en sombre on veut une carte PLUS SOMBRE
+   que bg-primary pour que la tuile « Total visiteurs » reste noire comme
+   les autres tuiles à côté. On dissocie `.bg-bg-dark` (utility) de la
+   variable `--color-bg-dark` (lue par btn-primary via var() dans une
+   règle CSS custom, donc pas affectée par cette ligne). ─── */
+html.admin-dark .bg-bg-dark { background-color: #141417 !important; }
+html.admin-dark .border-bg-dark { border-color: #27272a !important; }
+
+/* ─── Textes pastel Tailwind (amber/rose/emerald/sky/violet 700-800) ───
+   Les AlertPill et « Action requise » posent du texte foncé pastel
+   (text-amber-800, text-rose-700…) prévu pour un fond crème clair. En
+   sombre je flip vers les nuances 300/400 de la même famille pour
+   rester lisible sur les fonds pastel assombris. */
+html.admin-dark .text-amber-900,
+html.admin-dark .text-amber-800 { color: #fcd34d !important; } /* amber-300 */
+html.admin-dark .text-amber-700 { color: #fbbf24 !important; } /* amber-400 */
+html.admin-dark .text-amber-600 { color: #f59e0b !important; }
+html.admin-dark .text-rose-900,
+html.admin-dark .text-rose-800  { color: #fda4af !important; } /* rose-300 */
+html.admin-dark .text-rose-700  { color: #fb7185 !important; } /* rose-400 */
+html.admin-dark .text-rose-600  { color: #f43f5e !important; }
+html.admin-dark .text-emerald-900,
+html.admin-dark .text-emerald-800 { color: #6ee7b7 !important; }
+html.admin-dark .text-emerald-700 { color: #34d399 !important; }
+html.admin-dark .text-sky-900,
+html.admin-dark .text-sky-800  { color: #7dd3fc !important; }
+html.admin-dark .text-sky-700  { color: #38bdf8 !important; }
+html.admin-dark .text-violet-900,
+html.admin-dark .text-violet-800 { color: #c4b5fd !important; }
+html.admin-dark .text-violet-700 { color: #a78bfa !important; }
+html.admin-dark .text-red-900,
+html.admin-dark .text-red-800  { color: #fca5a5 !important; }
+html.admin-dark .text-red-700  { color: #f87171 !important; }
+html.admin-dark .text-red-600  { color: #ef4444 !important; }
+html.admin-dark .text-green-800 { color: #86efac !important; }
+html.admin-dark .text-green-700 { color: #4ade80 !important; }
+
+/* Bordures pastel utilisées en trio (bg-*-50 + text-*-800 + border-*-200)
+   → on assombrit la bordure pour qu'elle reste visible. */
+html.admin-dark .border-amber-200 { border-color: #78350f !important; }
+html.admin-dark .border-amber-300 { border-color: #92400e !important; }
+html.admin-dark .border-rose-200  { border-color: #831843 !important; }
+html.admin-dark .border-rose-300  { border-color: #9f1239 !important; }
+html.admin-dark .border-emerald-200 { border-color: #064e3b !important; }
+html.admin-dark .border-sky-200   { border-color: #075985 !important; }
+html.admin-dark .border-violet-200 { border-color: #4c1d95 !important; }
+html.admin-dark .border-red-200   { border-color: #7f1d1d !important; }
+html.admin-dark .border-red-300   { border-color: #991b1b !important; }
+
+/* ─── Hover pastel (AlertPill: hover:bg-amber-100 / hover:bg-rose-100) ── */
+html.admin-dark .hover\:bg-amber-100:hover { background-color: #4a370b !important; }
+html.admin-dark .hover\:bg-rose-100:hover  { background-color: #4a1024 !important; }
+html.admin-dark .hover\:bg-emerald-100:hover { background-color: #0f3d2b !important; }
+html.admin-dark .hover\:bg-sky-100:hover   { background-color: #0f314a !important; }
+html.admin-dark .hover\:bg-violet-100:hover { background-color: #2a154a !important; }
+
+/* ─── Portails widgets (DrawerShell, RightRail) : ombres slate-900/25
+   deviennent invisibles sur fond sombre → renforcer + border. */
+html.admin-dark .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8) !important; }
+html.admin-dark .shadow-slate-900\/25 { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8) !important; }
+
+/* ─── Bordures figées supplémentaires courantes ───────────────────────── */
+html.admin-dark .border-white\/30 { border-color: rgba(228,228,231,0.3) !important; }
+html.admin-dark .border-white\/20 { border-color: rgba(228,228,231,0.2) !important; }
+html.admin-dark .ring-white\/30 { --tw-ring-color: rgba(228,228,231,0.3) !important; }
+
+/* ─── Tableau produits — colonnes Marketplace & État ──────────────────
+   Les cartes marketplace utilisent souvent des `bg-{color}-50` + `text-{color}-700`
+   pour signaler l'état (bouton Publier violet, Rafraîchir sky, En attente amber,
+   Synchro nécessaire orange). Déjà couverts par les règles pastel ci-dessus,
+   mais on ajoute quelques safety nets. */
+html.admin-dark .bg-indigo-50 { background-color: #1e1b4b !important; }
+html.admin-dark .bg-indigo-100 { background-color: #312e81 !important; }
+html.admin-dark .text-indigo-700 { color: #a5b4fc !important; }
+html.admin-dark .text-indigo-800 { color: #c7d2fe !important; }
+html.admin-dark .border-indigo-200 { border-color: #312e81 !important; }
+html.admin-dark .bg-orange-50 { background-color: #3a1e05 !important; }
+html.admin-dark .bg-orange-100 { background-color: #4a2708 !important; }
+html.admin-dark .text-orange-700 { color: #fdba74 !important; }
+html.admin-dark .text-orange-800 { color: #fed7aa !important; }
+html.admin-dark .border-orange-200 { border-color: #9a3412 !important; }
+
+/* Sky (colonne Refresh dans MarketplacesDrawer) */
+html.admin-dark .bg-sky-100 { background-color: #0f314a !important; }
+html.admin-dark .border-sky-200 { border-color: #075985 !important; }
+html.admin-dark .text-sky-700 { color: #38bdf8 !important; }
+html.admin-dark .text-sky-800 { color: #7dd3fc !important; }
+
+/* Blue (colonne Publication) */
+html.admin-dark .bg-blue-50 { background-color: #172554 !important; }
+html.admin-dark .bg-blue-100 { background-color: #1e3a8a !important; }
+html.admin-dark .border-blue-200 { border-color: #1e40af !important; }
+html.admin-dark .text-blue-700 { color: #60a5fa !important; }
+html.admin-dark .text-blue-800 { color: #93c5fd !important; }
+
+/* Violet (colonne Resync) */
+html.admin-dark .bg-violet-100 { background-color: #2a154a !important; }
+html.admin-dark .border-violet-200 { border-color: #4c1d95 !important; }
+html.admin-dark .text-violet-700 { color: #a78bfa !important; }
+html.admin-dark .text-violet-800 { color: #c4b5fd !important; }
+
+/* Emerald (colonne Publish) */
+html.admin-dark .bg-emerald-100 { background-color: #0f3d2b !important; }
+html.admin-dark .border-emerald-200 { border-color: #064e3b !important; }
+html.admin-dark .text-emerald-700 { color: #34d399 !important; }
+html.admin-dark .text-emerald-800 { color: #6ee7b7 !important; }
+
+/* Rose (bouton « Arrêter les suivants » + accent rose général) */
+html.admin-dark .bg-rose-100 { background-color: #4a1024 !important; }
+html.admin-dark .border-rose-200 { border-color: #831843 !important; }
+html.admin-dark .text-rose-700 { color: #fb7185 !important; }
+html.admin-dark .text-rose-800 { color: #fda4af !important; }
+html.admin-dark .hover\:bg-rose-200:hover { background-color: #6b1338 !important; }
+
+/* Teal / Cyan (widgets Microstore et divers) */
+html.admin-dark .bg-teal-50 { background-color: #0d322e !important; }
+html.admin-dark .bg-teal-100 { background-color: #134e4a !important; }
+html.admin-dark .text-teal-700 { color: #2dd4bf !important; }
+html.admin-dark .bg-cyan-50 { background-color: #0e3140 !important; }
+html.admin-dark .bg-cyan-100 { background-color: #164e63 !important; }
+html.admin-dark .text-cyan-700 { color: #22d3ee !important; }
+
+/* Fuchsia / Pink (drawers eFashion + widgets pink) */
+html.admin-dark .bg-fuchsia-50 { background-color: #3a0f38 !important; }
+html.admin-dark .bg-pink-50 { background-color: #401025 !important; }
+html.admin-dark .text-pink-700 { color: #f472b6 !important; }
+html.admin-dark .text-fuchsia-700 { color: #e879f9 !important; }
+
+/* Slate (fonds neutres). Nuances 700/800/900 conservées en sombre pour
+   que les CTA (« Tout vider » MarketplacesDrawer, boutons foncés) restent
+   des boutons sombres à texte clair — idiome cohérent avec le reste.
+   `text-white` dessus reste blanc adouci `#e4e4e7` via l'override plus
+   haut → bien lisible. */
+html.admin-dark .bg-slate-200 { background-color: #2d2d33 !important; }
+html.admin-dark .bg-slate-700 { background-color: #334155 !important; }
+html.admin-dark .bg-slate-800 { background-color: #1e293b !important; }
+html.admin-dark .bg-slate-900 { background-color: #0f172a !important; }
+html.admin-dark .hover\:bg-slate-900:hover { background-color: #020617 !important; }
+html.admin-dark .hover\:bg-slate-200:hover { background-color: #3f3f46 !important; }
+html.admin-dark .focus\:ring-slate-400:focus { --tw-ring-color: #71717a !important; }
+
+/* Dégradés header de colonne (from-{color}-50/40 to-white) — le côté
+   `to-white` devient sombre via l'override .bg-white, le côté pastel-50
+   est déjà couvert par les règles bg-*-50 ci-dessus. Le résultat est un
+   dégradé subtil du côté coloré vers le sombre général. */
+
+/* ─── Tableau produits — hex arbitraires (bg-[#…]/text-[#…]/border-[#…])
+   utilisés par MarketplaceStatusButtons et les badges de statut. Ces
+   classes NE passent PAS par les variables CSS (Tailwind les compile en
+   valeurs littérales), donc les variables du dark mode ne les touchent
+   pas. Ici on cible juste les hex précis en usage, en assombrissant
+   « léger » comme demandé (2026-08-13) — on garde la teinte de famille
+   pour que la lecture d'un coup d'œil reste identique au clair.
+
+   Convention : bg pastel clair → tint sombre de la même famille (~20 %
+   de luminance), border → tint intermédiaire (~35 %), texte foncé →
+   tint clair (~75 %). */
+
+/* Bleu/indigo (état loading, publication en cours) */
+html.admin-dark .bg-\[\#EEF2FF\] { background-color: #262a45 !important; }
+html.admin-dark .border-\[\#C7D2FE\] { border-color: #3730a3 !important; }
+html.admin-dark .text-\[\#4F46E5\] { color: #a5b4fc !important; }
+
+/* Jaune (état awaiting shooting eFashion) */
+html.admin-dark .bg-\[\#FEF08A\] { background-color: #3a3010 !important; }
+html.admin-dark .border-\[\#EAB308\] { border-color: #a16207 !important; }
+html.admin-dark .text-\[\#713F12\] { color: #fde68a !important; }
+
+/* Amber (état « synchro nécessaire ») */
+html.admin-dark .bg-\[\#FEF3C7\] { background-color: #3a2e12 !important; }
+html.admin-dark .border-\[\#FDE68A\] { border-color: #92400e !important; }
+html.admin-dark .text-\[\#B45309\] { color: #fbbf24 !important; }
+html.admin-dark .text-\[\#78350F\] { color: #fbbf24 !important; }
+
+/* Vert (état en ligne) */
+html.admin-dark .bg-\[\#DCFCE7\] { background-color: #14321e !important; }
+html.admin-dark .border-\[\#BBF7D0\] { border-color: #166534 !important; }
+html.admin-dark .text-\[\#15803D\] { color: #86efac !important; }
+
+/* Rouge / danger (état hors ligne critique) */
+html.admin-dark .text-\[\#DC2626\] { color: #fca5a5 !important; }
+html.admin-dark .border-\[\#FECACA\] { border-color: #7f1d1d !important; }
+
+/* Warning générique (bg-white → text-[#92400E] +hover:bg-[#FFFBEB]) */
+html.admin-dark .text-\[\#92400E\] { color: #fcd34d !important; }
+html.admin-dark .bg-\[\#F0FDF4\] { background-color: #14321e !important; }
+html.admin-dark .bg-\[\#FFFBEB\] { background-color: #3a2e12 !important; }
+html.admin-dark .bg-\[\#FEF2F2\] { background-color: #331414 !important; }
+
+/* Violet — badge « Brouillon » (colonne Marketplace + colonne État) */
+html.admin-dark .bg-\[\#F3E8FF\] { background-color: #2a1e45 !important; }
+html.admin-dark .border-\[\#DDD6FE\] { border-color: #5b21b6 !important; }
+html.admin-dark .text-\[\#7C3AED\] { color: #c4b5fd !important; }
+/* La pastille dot bg-[#8B5CF6] reste éclatante — c'est un indicateur. */
+
+/* ─── Badges design system (badge-info / badge-purple / badge-neutral
+   / badge-success / badge-warning / badge-error) — définis en dur avec
+   des hex dans les classes CSS custom, pas des utilities Tailwind →
+   override léger pour le dark mode. */
+html.admin-dark .badge-success  { background-color: #14321e !important; color: #86efac !important; border-color: #166534 !important; }
+html.admin-dark .badge-warning  { background-color: #3a2e12 !important; color: #fbbf24 !important; border-color: #92400e !important; }
+html.admin-dark .badge-error    { background-color: #331414 !important; color: #fca5a5 !important; border-color: #7f1d1d !important; }
+html.admin-dark .badge-neutral  { background-color: #26262b !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
+html.admin-dark .badge-info     { background-color: #26262b !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
+html.admin-dark .badge-purple   { background-color: #262a45 !important; color: #a5b4fc !important; border-color: #3730a3 !important; }
+
+/* ─── Switches (role="switch") — ON vert vif, OFF gris moyen, boule
+   toujours blanche. Sans ça, ON et OFF sont deux nuances de sombre
+   indiscernables l'une de l'autre.
+   Ciblé via attribut aria-checked posé par MarketplaceRefreshDialog +
+   MicrostoreConnectCard + autres toggles admin. */
+html.admin-dark [role="switch"] {
+  background-color: #52525b !important;
+}
+html.admin-dark [role="switch"][aria-checked="true"] {
+  background-color: #10b981 !important;
+}
+/* La boule intérieure reste blanche pour être visible dans les deux
+   états (elle glisse gauche→droite). */
+html.admin-dark [role="switch"] > span {
+  background-color: #ffffff !important;
+}
+
+/* ─── hover:bg-black : dans le bouton « Rafraîchir » du modal push,
+   le hover passe à noir pur — sur fond déjà sombre, on veut du gris
+   plus visible (pas noir). */
+html.admin-dark .hover\:bg-black:hover { background-color: #27272a !important; }
+
+/* ─── Widgets flottants (DrawerShell) — la coquille bg-white devient
+   sombre via l'override .bg-white, l'aurora colorée du header reste
+   volontairement vibrante. Ici on adoucit le contenu :
+   - Sections `<details>` internes des drawers utilisent un fond crème
+   - Boutons secondaires (bg-white border-slate-200) déjà couverts par
+     les overrides bg-white + border-slate-200
+   - Colonnes marketplace du MarketplacesDrawer utilisent bg-slate-50 →
+     déjà rassemblé
+   Ajouts spécifiques : */
+html.admin-dark .drawer-variant-container,
+html.admin-dark [data-drawer-content],
+html.admin-dark [role="dialog"] .bg-slate-50 { background-color: #18181b !important; }
+html.admin-dark [role="dialog"] .bg-slate-100 { background-color: #26262b !important; }
+html.admin-dark [role="dialog"] hr,
+html.admin-dark [role="dialog"] .border-t { border-color: #2f2f34 !important; }
+
+/* Fond du footer des drawers (souvent bg-slate-50) */
+html.admin-dark [role="dialog"] footer,
+html.admin-dark [role="dialog"] .footer,
+html.admin-dark [role="dialog"] [class*="border-t"] { background-color: transparent; }
+
+/* Reduce-motion protégé par la règle globale, rien à ajouter ici. */
+
+
+
+
+
+
+
+
+
+
+/* trigger */

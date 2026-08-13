@@ -17,7 +17,8 @@ import { MicrostoreStatusCard } from "./MicrostoreStatusCard";
 
 // Modales lourdes — chargées à l'ouverture pour alléger le bundle initial.
 const LinkPfsProductModal = dynamic(() => import("./LinkMarketplaceModal"));
-const LinkAnkorstoreProductModal = LinkPfsProductModal;
+// Ankorstore utilise sa propre modale (nouveau flow back-office reverse), pas le modale unifié.
+const LinkAnkorstoreProductModal = dynamic(() => import("./LinkAnkorstoreProductModal"));
 const LinkEfashionProductModal = LinkPfsProductModal;
 const LinkFaireProductModal = LinkPfsProductModal;
 import { useConfirm } from "@/components/ui/ConfirmDialog";

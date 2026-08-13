@@ -145,9 +145,11 @@ export function RightRail() {
   const anyPulse = ITEMS.some((i) => getBadge(i.id).pulse);
   const somethingOpen = openWidget !== null;
 
-  // Ouvrir un tiroir referme le menu de sélection
+  // Ouvrir un tiroir garde le menu ouvert pour permettre de basculer
+  // rapidement vers un autre widget (demande cliente 2026-08-13). Si un
+  // tiroir s'ouvre alors que le menu était fermé, on l'ouvre.
   useEffect(() => {
-    if (openWidget) setMenuOpen(false);
+    if (openWidget) setMenuOpen(true);
   }, [openWidget]);
 
   // ESC ferme le menu (les tiroirs gèrent leur propre ESC via DrawerShell)
@@ -170,9 +172,10 @@ export function RightRail() {
   return (
     <>
       {/* Backdrop léger derrière le mini-menu — clic pour fermer.
-          Pas de backdrop derrière les tiroirs (comportement voulu : page cliquable
-          pendant qu'une tâche tourne). */}
-      {menuOpen && (
+          Uniquement quand AUCUN tiroir n'est ouvert : sinon on veut que la
+          page derrière le tiroir reste cliquable ET que le menu reste
+          ouvert pour permettre de basculer d'un widget à l'autre. */}
+      {menuOpen && !somethingOpen && (
         <button
           type="button"
           aria-label="Fermer le menu de raccourcis"
@@ -182,11 +185,16 @@ export function RightRail() {
         />
       )}
 
-      {/* Container widget — plus compact sur mobile (FAB + mini-boutons réduits, gap serré) */}
-      <div className="fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3">
+      {/* Container widget — plus compact sur mobile (FAB + mini-boutons réduits, gap serré).
+          `admin-fab-preserve` : la cliente veut que le FAB + les mini-boutons
+          gardent leur apparence claire d'origine même quand le dark mode admin
+          est actif (2026-08-13). CSS reset dans app/globals.css. */}
+      <div className="admin-fab-preserve fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3">
 
-        {/* Mini-menu (visible uniquement quand menuOpen ET aucun tiroir ouvert) */}
-        {menuOpen && !somethingOpen && (
+        {/* Mini-menu — reste visible même quand un tiroir est ouvert pour
+            permettre à la cliente de basculer d'un widget à l'autre en un
+            clic (2026-08-13). */}
+        {menuOpen && (
           <div className="flex flex-col items-end gap-2 md:gap-3">
             {ITEMS.map((item, idx) => (
               <MiniButton
@@ -200,11 +208,9 @@ export function RightRail() {
           </div>
         )}
 
-        {/* Bouton principal FAB — masqué dès qu'un tiroir est ouvert
-            (demande cliente 2026-07-31 : plus de croix flottante par-dessus,
-            la fermeture passe par le bouton « Fermer » du header du tiroir
-            ou par la touche Échap). */}
-        {!somethingOpen && (
+        {/* Bouton principal FAB — reste visible même quand un tiroir est
+            ouvert (demande cliente 2026-08-13). Clic sur le FAB avec un
+            tiroir ouvert = ferme le tiroir. Sans tiroir = toggle le menu. */}
         <button
           type="button"
           aria-label={
@@ -252,7 +258,6 @@ export function RightRail() {
             </span>
           )}
         </button>
-        )}
       </div>
 
       <style jsx global>{`

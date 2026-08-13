@@ -30,6 +30,7 @@ import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
 import { getCountryByIso, listManufacturingCountries } from "@/lib/countries";
 import { anyVariantHasImage } from "@/lib/variant-image-coverage";
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
+import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import {
   validateVariants,
   validateVariantBounds,
@@ -2638,6 +2639,12 @@ export async function updateVariantQuick(
   await revalidateProductPublicPage(variant.productId);
   emitProductEvent({ type: "STOCK_CHANGED", productId: variant.productId });
   // Marketplace stock sync removed — re-export Excel to update marketplaces.
+
+  // Rotation auto couleur principale : si cette modif a mis la couleur
+  // principale du produit entièrement en rupture, on bascule vers une autre.
+  if (data.stock !== undefined || data.disabled !== undefined) {
+    await rotatePrimaryIfNeeded(variant.productId);
+  }
 }
 
 // ─────────────────────────────────────────────

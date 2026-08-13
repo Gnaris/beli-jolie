@@ -278,6 +278,14 @@ export async function deductStockFromEfashionOrders(
       where: { tenantId, id: { in: Array.from(touchedProductIds) } },
       data: { important: true },
     });
+
+    // Rotation auto couleur principale après déduction de stock côté eFashion.
+    const { rotatePrimaryIfNeeded } = await import("@/lib/rotate-primary-service");
+    for (const pid of touchedProductIds) {
+      await rotatePrimaryIfNeeded(pid, { tenantId }).catch((err) =>
+        logger.error("[eFashion Stock] rotatePrimary error", { error: err, productId: pid }),
+      );
+    }
   }
 
   logger.info(

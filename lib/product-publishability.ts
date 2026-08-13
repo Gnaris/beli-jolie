@@ -9,7 +9,7 @@
  * Prisma (avec ses relations).
  */
 
-import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/marketplace-description";
 
 export const DESCRIPTION_MIN_CHARS = 30;
 

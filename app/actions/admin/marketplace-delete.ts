@@ -4,7 +4,6 @@ import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
-import { ankorstoreKickoffStandaloneDelete } from "@/lib/ankorstore-delete";
 import { efashionDeleteShootingProduct } from "@/lib/efashion-shootings";
 import { faireHardDeleteProduct } from "@/lib/faire-delete";
 import {
@@ -153,29 +152,28 @@ export async function deleteProductsOnAnkorstore(
     }
 
     try {
-      const res = await ankorstoreKickoffStandaloneDelete({
-        productId,
-        reference: item.reference,
-        ankorsProductId: item.ankorsProductId,
-      });
+      // Reverse back-office : archive synchrone (mass-action action=archive).
+      const { deleteProductFromAnkorstoreBo } = await import(
+        "@/app/actions/admin/ankorstore-bo"
+      );
+      const res = await deleteProductFromAnkorstoreBo(productId);
       if (res.success) {
         results.push({
           ankorsProductId: item.ankorsProductId,
           reference: item.reference,
           status: "ok",
-          operationId: res.operationId,
         });
       } else {
         results.push({
           ankorsProductId: item.ankorsProductId,
           reference: item.reference,
           status: "error",
-          message: res.error,
+          message: res.error ?? "Erreur inconnue",
         });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error("[Marketplace Delete] Ankorstore kickoff failed", {
+      logger.error("[Marketplace Delete] Ankorstore delete failed", {
         ankorsProductId: item.ankorsProductId,
         reference: item.reference,
         error: message,

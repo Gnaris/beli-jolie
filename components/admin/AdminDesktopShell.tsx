@@ -156,7 +156,7 @@ export default function AdminDesktopShell({
   return (
     <>
       <aside
-        className={`shrink-0 hidden lg:flex flex-col fixed z-40 top-5 bottom-5 left-5 ${transitionCls} bg-white border border-zinc-200 rounded-[22px] shadow-[0_20px_40px_-20px_rgba(9,9,11,0.18),0_6px_16px_-8px_rgba(9,9,11,0.08)] ${collapsed ? "w-[76px]" : "w-[260px]"}`}
+        className={`shrink-0 hidden lg:flex flex-col fixed z-40 top-0 bottom-0 left-0 ${transitionCls} bg-white border-r border-zinc-200 ${collapsed ? "w-[76px]" : "w-[260px]"}`}
       >
         {/* Brand */}
         <div className={`border-b border-zinc-100 ${collapsed ? "px-3 py-5 flex items-center justify-center" : "px-5 py-5"}`}>
@@ -450,7 +450,7 @@ export default function AdminDesktopShell({
         </nav>
 
         {/* User profile + logout */}
-        <div className={`relative border-t border-zinc-100 py-4 ${collapsed ? "px-2" : "px-3"} bg-zinc-50/60 rounded-b-[22px]`}>
+        <div className={`relative border-t border-zinc-100 py-4 ${collapsed ? "px-2" : "px-3"} bg-zinc-50/60`}>
           {collapsed ? (
             <div title={`${userName} — Administrateur`} className="flex items-center justify-center mb-1.5">
               <div
@@ -504,7 +504,7 @@ export default function AdminDesktopShell({
         onClick={toggle}
         aria-label={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
         title={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
-        className={`hidden lg:flex fixed top-[48px] w-6 h-6 rounded-full bg-white border border-zinc-200 shadow-sm items-center justify-center text-zinc-500 hover:text-zinc-900 hover:border-zinc-900 transition-[left,color,border-color] z-50 ${collapsed ? "left-[84px]" : "left-[268px]"} ${transitionCls}`}
+        className={`hidden lg:flex fixed top-[48px] w-6 h-6 rounded-full bg-white border border-zinc-200 shadow-sm items-center justify-center text-zinc-500 hover:text-zinc-900 hover:border-zinc-900 transition-[left,color,border-color] z-50 ${collapsed ? "left-[64px]" : "left-[248px]"} ${transitionCls}`}
       >
         <svg
           className={`w-3 h-3 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}
@@ -515,7 +515,7 @@ export default function AdminDesktopShell({
       </button>
 
       <div
-        className={`flex-1 flex flex-col min-w-0 ${transitionCls} ${collapsed ? "lg:ml-[116px]" : "lg:ml-[300px]"}`}
+        className={`flex-1 flex flex-col min-w-0 ${transitionCls} ${collapsed ? "lg:ml-[76px]" : "lg:ml-[260px]"}`}
       >
         {children}
       </div>

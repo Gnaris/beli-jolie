@@ -71,7 +71,10 @@ const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
 const LinkPfsProductModal = dynamic(
   () => import("@/components/admin/products/LinkMarketplaceModal"),
 );
-const LinkAnkorstoreProductModal = LinkPfsProductModal;
+// Ankorstore utilise sa propre modale (nouveau flow back-office reverse), pas le modale unifié.
+const LinkAnkorstoreProductModal = dynamic(
+  () => import("@/components/admin/products/LinkAnkorstoreProductModal"),
+);
 const LinkEfashionProductModal = LinkPfsProductModal;
 const LinkFaireProductModal = LinkPfsProductModal;
 const BulkPublishDraftsModal = dynamic(
@@ -1056,6 +1059,9 @@ interface AdminProduct {
   pfsCheckedAt: string | null;
   pfsCheckStatus: "ok" | "diff" | null;
   pfsCheckIssues: unknown | null; // typé côté PfsVerifyBadge (PfsVerifyIssue[])
+  /** Couleur principale du produit (source de vérité pour le badge « Couleur principale »
+   *  affiché dans le tiroir de variantes). Peut être null si aucune n'est encore désignée. */
+  primaryColorId: string | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -1406,10 +1412,13 @@ const VariantRow = React.memo(function VariantRow({
   variant,
   editsForVariant,
   onCommitCell,
+  isPrimaryColor = false,
 }: {
   variant: ColorVariant;
   editsForVariant: Partial<Record<VariantField, VariantEditValue>>;
   onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
+  /** Vrai si la couleur de cette variante correspond à Product.primaryColorId. */
+  isPrimaryColor?: boolean;
 }) {
   const priceOrig = variant.unitPrice;
   const stockOrig = variant.stock;
@@ -1508,6 +1517,14 @@ const VariantRow = React.memo(function VariantRow({
           >
             {disabledCurrent ? "Désactivée" : "Activée"}
           </button>
+          {isPrimaryColor && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-black text-white"
+              title="Couleur principale du produit"
+            >
+              Couleur principale
+            </span>
+          )}
         </div>
       </td>
 
@@ -1641,10 +1658,13 @@ export const VariantCardMobile = React.memo(function VariantCardMobile({
   variant,
   editsForVariant,
   onCommitCell,
+  isPrimaryColor = false,
 }: {
   variant: ColorVariant;
   editsForVariant: Partial<Record<VariantField, VariantEditValue>>;
   onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
+  /** Vrai si la couleur de cette variante correspond à Product.primaryColorId. */
+  isPrimaryColor?: boolean;
 }) {
   const priceOrig = variant.unitPrice;
   const stockOrig = variant.stock;
@@ -1765,6 +1785,14 @@ export const VariantCardMobile = React.memo(function VariantCardMobile({
           />
           {disabledCurrent ? "Désactivée" : "Activée"}
         </button>
+        {isPrimaryColor && (
+          <span
+            className="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-black text-white"
+            title="Couleur principale du produit"
+          >
+            Couleur principale
+          </span>
+        )}
       </div>
 
       {/* Row 2 — badges Unité/Pack + tailles sur leur propre ligne */}
@@ -3861,6 +3889,7 @@ function ProductRow({
                         variant={variant}
                         editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
                         onCommitCell={onCommitCell}
+                        isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
                       />
                     ))}
                   </tbody>
@@ -4014,6 +4043,7 @@ function ProductRow({
                     variant={variant}
                     editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
                     onCommitCell={onCommitCell}
+                    isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
                   />
                 ))}
               </div>

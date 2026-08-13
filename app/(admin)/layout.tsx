@@ -1,17 +1,20 @@
 import React from "react";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
+import { ADMIN_THEME_COOKIE, parseAdminTheme, adminThemeBodyClass } from "@/lib/admin-theme";
 import { getCachedAdminWarnings, getCachedShopName } from "@/lib/cached-data";
 import { isOnboardingCompleted } from "@/lib/onboarding";
 import type { Metadata } from "next";
 import AdminMobileNav from "@/components/admin/AdminMobileNav";
 import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
+import AdminHtmlThemeSync from "@/components/admin/AdminHtmlThemeSync";
 
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
 import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
+import { MappingImpactProvider } from "@/components/admin/mapping/MappingImpactContext";
 import { MarketplaceLinkProvider } from "@/components/admin/products/MarketplaceLinkContext";
 import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
@@ -23,6 +26,8 @@ import { MarketplaceMaintenanceProvider } from "@/components/admin/products/Mark
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
 import { getCurrentTenant } from "@/lib/tenant";
 import { getMarketplaceMaintenance } from "@/lib/platform-config";
+import { getMicrostoreSessionExpirations } from "@/lib/microstore-session-status";
+import MicrostoreSessionAlerts from "@/components/admin/MicrostoreSessionAlerts";
 
 /** Slugs du tenant "maître" — voit l'entrée "Contrôle plateforme" dans la sidebar.
  *  Prod = "beliandjolie", dev-local = "beli-jolie". */
@@ -63,6 +68,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     autoTranslateConfig,
     currentTenant,
     maintenance,
+    microstoreExpirations,
+    cookieStore,
   ] = await Promise.all([
     getCachedShopName(),
     getCachedAdminWarnings(),
@@ -70,7 +77,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     getCachedSiteConfig("auto_translate_enabled"),
     getCurrentTenant(),
     getMarketplaceMaintenance(),
+    getMicrostoreSessionExpirations(),
+    cookies(),
   ]);
+
+  const adminTheme = parseAdminTheme(cookieStore.get(ADMIN_THEME_COOKIE)?.value ?? null);
+  const themeClass = adminThemeBodyClass(adminTheme);
 
   const isPlatformAdmin = !!currentTenant && PLATFORM_ADMIN_TENANT_SLUGS.has(currentTenant.slug);
 
@@ -107,13 +119,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <MarketplaceMaintenanceProvider value={{ ...maintenance, microstore: false }}>
     <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
+    <MappingImpactProvider>
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
     <IneligibleRefreshProvider>
     <RefreshMarketplacePromptProvider>
     <PfsAuditActiveProvider>
     <AdminWidgetsRail>
-    <div id="admin-theme-wrapper" className="min-h-screen flex bg-[#EEEEF1] pb-24">
+    <MicrostoreSessionAlerts
+      bossExpiresAtIso={microstoreExpirations.bossExpiresAtIso}
+      pictureStationExpiresAtIso={microstoreExpirations.pictureStationExpiresAtIso}
+    />
+    <AdminHtmlThemeSync theme={adminTheme} />
+    <div id="admin-theme-wrapper" data-admin-theme={adminTheme} className={`min-h-screen flex bg-white pb-24 ${themeClass}`}>
 
       <AdminDesktopShell
         shopName={shopName}
@@ -138,7 +156,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           isPlatformAdmin={isPlatformAdmin}
         />
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8 lg:my-5 lg:mr-5 lg:rounded-[22px] lg:bg-white lg:border lg:border-zinc-200 lg:shadow-[0_20px_40px_-20px_rgba(9,9,11,0.15),0_6px_16px_-8px_rgba(9,9,11,0.06)] lg:min-h-[calc(100vh-40px)]">
+        <main className="flex-1 p-4 md:p-6 lg:p-8 lg:bg-white lg:min-h-screen">
           {children}
         </main>
       </AdminDesktopShell>
@@ -151,6 +169,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </IneligibleRefreshProvider>
     </RefreshWarningProvider>
     </EfashionShootingBatchProvider>
+    </MappingImpactProvider>
     </MarketplaceRefreshProvider>
     </MarketplaceLinkProvider>
     </MarketplaceMaintenanceProvider>

@@ -28,7 +28,7 @@ import {
 } from "@/lib/efashion-api";
 import { logger } from "@/lib/logger";
 import { getCountryByIso } from "@/lib/countries";
-import { canonicalColorKey } from "@/lib/ankorstore-color-synonyms";
+import { canonicalColorKey } from "@/lib/color-synonyms";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);

@@ -1313,7 +1313,6 @@ model Product {
   ankorsProductId        String?
   ankorsLastSyncSnapshot Json?
   ankorsLastRefreshedAt  DateTime?
-  ankorstoreOperations   AnkorstoreOperation[]
   marketplaceRefreshJobs MarketplaceRefreshJob[]
   efashionShootingBatch  EfashionShootingBatchItem?
   imageProcessingJobs    ImageProcessingJob[]
@@ -1411,58 +1410,8 @@ model Product {
   @@index([tenantId, efashionReferenceBase]) // NON unique : plusieurs produits BJ (1 par couleur) peuvent partager la même reference_base eFashion
 }
 
-// ─────────────────────────────────────────────
-// Ankorstore — opérations asynchrones (mode callback-only, plus de polling)
-// ─────────────────────────────────────────────
-enum AnkorstoreOpType {
-  PUBLISH
-  REFRESH_DELETE_OLD // étape 1 du refresh : on attend la confirmation de suppression de l'ancien
-  REFRESH_CREATE_NEW // étape 2 du refresh : on attend la confirmation de création du nouveau
-  UPDATE
-  DELETE
-}
-
-enum AnkorstoreOpStatus {
-  PENDING // envoyé à Ankorstore, on attend le callback
-  SUCCEEDED // callback reçu, status terminal succeeded
-  PARTIALLY_FAILED // callback reçu, status terminal partially_failed
-  FAILED // callback reçu, status terminal failed (ou skipped)
-  CANCELLED // annulé manuellement / superseded par une nouvelle opération
-}
-
-// Suivi des opérations d'intégration catalogue Ankorstore en attente de callback.
-// La row est créée au kickoff et finalisée par le webhook. Contient toutes les
-// données nécessaires pour que le webhook puisse faire le post-processing sans
-// re-deriver l'état local (idempotent même si le webhook arrive en double).
-model AnkorstoreOperation {
-  id              String             @id // UUID Ankorstore de l'opération
-  productId       String
-  product         Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
-  type            AnkorstoreOpType
-  status          AnkorstoreOpStatus @default(PENDING)
-  // Données figées au kickoff pour permettre la finalisation depuis le webhook :
-  //   PUBLISH/REFRESH_CREATE_NEW : { firstSku, skuToBjVariantId, allVariantsOutOfStock, oldAnkorsProductId? }
-  //   REFRESH_DELETE_OLD         : { externalId, oldVariantSkus, productInput (sérialisé pour la phase suivante) }
-  //   UPDATE                     : { committedSnapshot, allVariantsOutOfStock }
-  //   DELETE                     : {}
-  payload         Json
-  // Données du callback Ankorstore (event, topic, occurredAt, data)
-  callbackPayload Json?
-  // Message d'erreur lisible pour l'admin (issues du /results ou erreur réseau)
-  errorMessage    String?            @db.Text
-  createdAt       DateTime           @default(now())
-  completedAt     DateTime?
-
-  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-  @@index([tenantId, status]) // liste des ops en attente par tenant (worker reconcile)
-  @@index([productId])
-  @@index([status])
-  @@index([createdAt])
-}
+// AnkorstoreOperation supprimé le 2026-08-13 : le mode callback-only OAuth2 est
+// remplacé par le back-office reverse (synchrone). Plus de suivi d'opération.
 
 // ─────────────────────────────────────────────
 // File de rafraîchissement marketplace — pilotée côté serveur (temps réel)
@@ -2886,17 +2835,17 @@ model MessageAttachment {
 // Si le client répond après clôture → repasse automatiquement en OPEN
 // (voir app/actions/client/claims.ts).
 model Claim {
-  id                     String       @id @default(cuid())
-  reference              String
-  subject                String       @default("")
-  status                 ClaimStatus  @default(OPEN)
-  userId                 String
-  user                   User         @relation(fields: [userId], references: [id])
-  conversation           Conversation?
-  closedAt               DateTime?
-  lastNotifiedClientAt   DateTime?
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  id                   String        @id @default(cuid())
+  reference            String
+  subject              String        @default("")
+  status               ClaimStatus   @default(OPEN)
+  userId               String
+  user                 User          @relation(fields: [userId], references: [id])
+  conversation         Conversation?
+  closedAt             DateTime?
+  lastNotifiedClientAt DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
@@ -3171,7 +3120,6 @@ model Tenant {
   catalogProducts            CatalogProduct[]
   importJobs                 ImportJob[]
   importDrafts               ImportDraft[]
-  ankorstoreOperations       AnkorstoreOperation[]
   marketplaceRefreshJobs     MarketplaceRefreshJob[]
   efashionShootingBatchItems EfashionShootingBatchItem[]
   imageProcessingJobs        ImageProcessingJob[]
@@ -3268,14 +3216,14 @@ model EmailSend {
 // leur configuration. Rendu HTML côté serveur au moment de l'envoi.
 // ─────────────────────────────────────────────
 model NewsletterTemplate {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name      String   @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
-  subject   String   @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
-  blocks    Json     @default("[]")   // Structure des blocs de l'éditeur
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String    @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
+  subject    String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
+  blocks     Json      @default("[]") // Structure des blocs de l'éditeur
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   lastSentAt DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
 
   @@index([tenantId, updatedAt])
@@ -3324,4 +3272,3 @@ model TenantDomain {
 
   @@index([tenantId])
 }
-

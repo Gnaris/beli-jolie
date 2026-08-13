@@ -213,15 +213,12 @@ export async function refreshProductOnMarketplaces(
       };
     } else {
       try {
-        const { ankorstoreKickoffRefresh } = await import("@/lib/ankorstore-refresh");
-        const res = await ankorstoreKickoffRefresh(productId);
-        if (res.success) {
-          outcome.ankorstore = { status: "queued", operationId: res.operationId };
-        } else if (res.reason === "not_found") {
-          outcome.ankorstore = { status: "not_found", message: res.error };
-        } else {
-          outcome.ankorstore = { status: "error", message: res.error };
-        }
+        // Reverse back-office : le "refresh" = re-envoyer l'état BJ chez Ankor (PUT complet).
+        const { refreshProductOnAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
+        const res = await refreshProductOnAnkorstoreBo(productId);
+        outcome.ankorstore = res.success
+          ? { status: "ok" }
+          : { status: "error", message: res.error ?? "Erreur inconnue" };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error("[Marketplace Refresh] Ankorstore unexpected error", {

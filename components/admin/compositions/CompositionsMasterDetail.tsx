@@ -8,6 +8,7 @@ import CompositionEditorModal from "./CompositionEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef, reorderCompositions } from "@/app/actions/admin/compositions";
+import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 
 export type CompositionRow = {
   id: string;
@@ -37,6 +38,7 @@ export default function CompositionsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
+  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   // Copie locale pour permettre l'optimistic update lors du drag & drop.
@@ -142,7 +144,9 @@ export default function CompositionsMasterDetail({
     await updateCompositionDirect(editTarget.id, name, translations);
     const newRef = extra?.ref || null;
     if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
-      await updateCompositionPfsRef(editTarget.id, newRef);
+      const res = await updateCompositionPfsRef(editTarget.id, newRef);
+      // Impact non-null → modale « X produits impactés sur PFS ».
+      if (res.impact) showMappingImpact(res.impact);
     }
     router.refresh();
   }

@@ -620,9 +620,9 @@ export default function MarketplaceConfig({
   const [isSavingBrand, startSavingBrand] = useTransition();
   const [brandPickerOpen, setBrandPickerOpen] = useState(false);
 
-  // ── Ankorstore state ────────────────────────────────────────────────────────
-  const [ankClientId, setAnkClientId] = useState("");
-  const [ankClientSecret, setAnkClientSecret] = useState("");
+  // ── Ankorstore state (migré email + mot de passe pour le back-office) ──────
+  const [ankEmail, setAnkEmail] = useState("");
+  const [ankPassword, setAnkPassword] = useState("");
   const [ankStatus, setAnkStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasAnkorstoreConfig ? "valid" : "none");
   const [ankEditing, setAnkEditing] = useState(!hasAnkorstoreConfig);
   const [isSavingAnk, startSavingAnk] = useTransition();
@@ -674,9 +674,13 @@ export default function MarketplaceConfig({
   // le tiroir Microstore pour que <MicrostoreConnectCard> se monte et consomme
   // le fragment (sinon le token reste dans l'URL et la vignette reste "Non
   // connecté").
+  // Ancre `#microstore` : utilisée par la barre d'alerte session Microstore
+  // (composants/admin/MicrostoreSessionAlerts.tsx) pour amener l'admin
+  // directement sur le tiroir de renouvellement.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (window.location.hash.startsWith("#mc_import=")) {
+    const hash = window.location.hash;
+    if (hash.startsWith("#mc_import=") || hash === "#microstore") {
       setDrawerKey("microstore");
     }
   }, []);
@@ -797,14 +801,14 @@ export default function MarketplaceConfig({
     });
   }
 
-  // ── Ankorstore handlers ─────────────────────────────────────────────────────
+  // ── Ankorstore handlers (email + mot de passe back-office) ─────────────────
   function handleAnkValidate() {
-    if (!ankClientId.trim() || !ankClientSecret.trim()) return;
+    if (!ankEmail.trim() || !ankPassword.trim()) return;
     showLoading();
     startValidatingAnk(async () => {
       try {
         setAnkStatus("checking");
-        const r = await validateAnkorstoreCredentials({ clientId: ankClientId.trim(), clientSecret: ankClientSecret.trim() });
+        const r = await validateAnkorstoreCredentials({ email: ankEmail.trim(), password: ankPassword.trim() });
         if (r.valid) { setAnkStatus("valid"); toast.success("Connexion réussie", "Identifiants Ankorstore valides."); }
         else { setAnkStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Identifiants invalides."); }
       } finally { hideLoading(); }
@@ -814,8 +818,8 @@ export default function MarketplaceConfig({
     showLoading();
     startSavingAnk(async () => {
       try {
-        const r = await updateAnkorstoreCredentials({ clientId: ankClientId.trim(), clientSecret: ankClientSecret.trim() });
-        if (r.success) { toast.success("Enregistré", "Identifiants Ankorstore sauvegardés."); setAnkEditing(false); setAnkClientId(""); setAnkClientSecret(""); }
+        const r = await updateAnkorstoreCredentials({ email: ankEmail.trim(), password: ankPassword.trim() });
+        if (r.success) { toast.success("Enregistré", "Identifiants Ankorstore sauvegardés."); setAnkEditing(false); setAnkEmail(""); setAnkPassword(""); }
         else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
       } finally { hideLoading(); }
     });
@@ -1397,7 +1401,7 @@ export default function MarketplaceConfig({
       </Drawer>
 
       <Drawer open={drawerKey === "ankorstore"} onClose={() => setDrawerKey(null)} brandKey="ankorstore">
-        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Identifiants API" subtitle="Client ID et Client Secret de votre app Ankorstore.">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Identifiants Ankorstore" subtitle="Email et mot de passe de votre compte marque sur fr.ankorstore.com.">
           <CredentialBlock
             hasConfig={hasAnkorstoreConfig}
             editing={ankEditing}
@@ -1407,10 +1411,10 @@ export default function MarketplaceConfig({
             saving={isSavingAnk}
             onValidate={handleAnkValidate}
             onSave={handleAnkSave}
-            canSave={!!ankClientId.trim() && !!ankClientSecret.trim()}
+            canSave={!!ankEmail.trim() && !!ankPassword.trim()}
             fields={<>
-              <Field label="Client ID" type="text" value={ankClientId} onChange={(v) => { setAnkClientId(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="votre-client-id" disabled={isValidatingAnk || isSavingAnk} />
-              <Field label="Client Secret" type="password" value={ankClientSecret} onChange={(v) => { setAnkClientSecret(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="••••••••" disabled={isValidatingAnk || isSavingAnk} />
+              <Field label="Email" type="text" value={ankEmail} onChange={(v) => { setAnkEmail(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="boutique@exemple.com" disabled={isValidatingAnk || isSavingAnk} />
+              <Field label="Mot de passe" type="password" value={ankPassword} onChange={(v) => { setAnkPassword(v); if (ankStatus === "valid" || ankStatus === "invalid") setAnkStatus("none"); }} placeholder="••••••••" disabled={isValidatingAnk || isSavingAnk} />
             </>}
           />
         </DrawerSection>
@@ -1432,6 +1436,39 @@ export default function MarketplaceConfig({
             </div>
           </div>
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.X className="w-4 h-4" />}
+          title="Zone de danger"
+          subtitle="Casse tous les liens BJ ↔ Ankorstore côté BJ. Les produits restent chez Ankor mais devront être re-liés un par un pour se synchroniser à nouveau."
+        >
+          <button
+            type="button"
+            onClick={async () => {
+              if (!confirm("Délier TOUS les produits BJ d'Ankorstore ? Les produits Ankor restent en ligne — vous devrez les re-lier un par un ensuite.")) return;
+              showLoading();
+              try {
+                const { unlinkAllBjProductsFromAnkorstoreBo } = await import(
+                  "@/app/actions/admin/ankorstore-bo"
+                );
+                const r = await unlinkAllBjProductsFromAnkorstoreBo();
+                if (r.success) {
+                  toast.success(
+                    "Déliaison terminée",
+                    `${r.productsUnlinked} produit(s) et ${r.variantsUnlinked} variante(s) déliés.`
+                  );
+                } else {
+                  toast.error("Erreur", r.error ?? "Erreur inconnue");
+                }
+              } finally {
+                hideLoading();
+              }
+            }}
+            className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-800 hover:bg-red-100"
+          >
+            Délier tous les produits BJ d&apos;Ankorstore
+          </button>
         </DrawerSection>
       </Drawer>
 

@@ -17,6 +17,7 @@ const TABS = [
   { key: "traduction",   label: "Traduction",    icon: "M4 5h7M9 3v2M4 9c0 5 4 8 8 8M9 9c-2 4 0 8 4 8M14 5l6 14M17 15h6" },
   { key: "seo",          label: "Référencement", icon: "M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" },
   { key: "messagerie",   label: "Messagerie",    icon: "M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" },
+  { key: "affichage",    label: "Affichage",     icon: "M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -26,6 +27,7 @@ const GROUPS: { label: string; keys: TabKey[] }[] = [
   { label: "Intégrations", keys: ["livraison", "paiement", "marketplaces", "traduction"] },
   { label: "Communication", keys: ["messagerie"] },
   { label: "Référencement", keys: ["seo"] },
+  { label: "Personnel",    keys: ["affichage"] },
 ];
 
 const TAB_MAP = new Map(TABS.map((t) => [t.key, t]));

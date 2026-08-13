@@ -18,12 +18,6 @@ const envSchema = z.object({
   NEXTAUTH_URL: z.url("NEXTAUTH_URL must be a valid URL"),
   ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required"),
 
-  // ── Ankorstore webhook secret ─────────────────────────────────────────────
-  // Used as a query-string token on the callback URL we send to Ankorstore so
-  // we can authenticate inbound callbacks. Optional in dev (callbacks never
-  // arrive on localhost anyway); required in production.
-  ANKORSTORE_WEBHOOK_SECRET: z.string().optional(),
-
   // ── Optional — configurable via admin settings UI ─────────────────────────
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),

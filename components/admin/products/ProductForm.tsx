@@ -35,7 +35,7 @@ import { LOCALE_FULL_NAMES } from "@/i18n/locales";
 import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { getAnkorstoreReferenceSuffixLength } from "@/lib/ankorstore-description";
+import { getAnkorstoreReferenceSuffixLength } from "@/lib/marketplace-description";
 import { buildProductMarketplaceSnapshot, buildProductMarketplaceSnapshotExcludingMicrostore } from "@/lib/product-marketplace-snapshot";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 

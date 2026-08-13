@@ -6,6 +6,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { autoTranslateComposition } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import {
+  buildMappingImpactSummary,
+  type MappingChangeSummary,
+} from "@/lib/mapping-impact";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -71,21 +75,47 @@ export async function updateCompositionDirect(
 /**
  * Update the PFS composition reference for an existing composition.
  * Used when linking a BJ composition to a PFS composition for reverse sync.
+ *
+ * Retourne un `impact` non-null si le mapping a réellement changé ET si des
+ * produits publiés sur PFS utilisent cette composition.
  */
-export async function updateCompositionPfsRef(id: string, pfsCompositionRef: string | null) {
+export async function updateCompositionPfsRef(
+  id: string,
+  pfsCompositionRef: string | null,
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
   await requireAdmin();
-  if (pfsCompositionRef) {
+  const normalized = pfsCompositionRef?.trim() || null;
+  if (normalized) {
     const conflict = await prisma.composition.findFirst({
-      where: { pfsCompositionRef, id: { not: id } },
+      where: { pfsCompositionRef: normalized, id: { not: id } },
       select: { id: true, name: true },
     });
     if (conflict) {
       throw new Error(`Cette référence PFS est déjà utilisée par la composition « ${conflict.name} ».`);
     }
   }
-  await prisma.composition.update({ where: { id }, data: { pfsCompositionRef } });
+  const before = await prisma.composition.findUnique({
+    where: { id },
+    select: { name: true, pfsCompositionRef: true },
+  });
+  if (!before) throw new Error("Composition introuvable.");
+
+  await prisma.composition.update({ where: { id }, data: { pfsCompositionRef: normalized } });
   revalidatePath("/admin/produits");
   revalidateTag("compositions", "default");
+
+  if (before.pfsCompositionRef === normalized) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "composition",
+    marketplace: "pfs",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.pfsCompositionRef,
+    newValueLabel: normalized,
+    rollbackFields: { pfsCompositionRef: before.pfsCompositionRef },
+  });
+  return { success: true, impact };
 }
 
 export async function deleteComposition(id: string) {
