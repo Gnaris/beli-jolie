@@ -56,11 +56,16 @@ import {
   buildProductPayloadFromBjProduct,
   buildAnkorstoreBoSku,
   BoApiError,
+  computeAnkorImageSyncPlan,
+  type AnkorImageSnapshot,
+  type AnkorImageSyncPlan,
   type BjColorInputForBo,
   type BjProductInputForBo,
   type BoProductPayload,
   type BoProductSummary,
 } from "@/lib/ankorstore-bo";
+import { Prisma } from "@prisma/client";
+import { normalizeColorForSku, normalizeReferenceForSku } from "@/lib/ankorstore-bo/sku";
 import { loadAnkorstorePricingConfig } from "@/lib/ankorstore-pricing";
 
 async function requireAdmin() {
@@ -314,41 +319,109 @@ async function readImageFromDisk(
 }
 
 /**
- * Upload toutes les images d'un input BJ, retourne un input où les `imageKeys`
- * sont remplacées par les vraies keys `file-upload:...` d'Ankor.
- * Séquentiel + délai — impératif à cause du bug d'ingestion Ankor sur upload parallèle.
+ * Extrait de la réponse `readProductById` l'état images actuel chez Ankor,
+ * mappé par ProductColor.id BJ via le SKU persisté (`ankorsSku`).
+ *
+ * - `productImageUrls` : URLs images produit-père (format `/products/images/…`)
+ *   telles que renvoyées par Ankor.
+ * - `variantImageUrlsByColorId` : URLs images de chaque variante Ankor,
+ *   rattachées au ProductColor.id BJ correspondant (matching via SKU).
+ *
+ * Si `existingAnkor` est null (pas de lien confirmé — POST création ou lien
+ * UUID legacy non résolu), on retourne des tableaux vides → le plan bascule
+ * en "replace" partout et on upload tout comme avant.
  */
-async function uploadAllProductImages(
-  input: BjProductInputForBo
-): Promise<BjProductInputForBo> {
-  // Rassemble tous les paths uniques à uploader
-  const uniquePaths = new Set<string>();
-  for (const path of input.productImageKeys) uniquePaths.add(path);
-  for (const c of input.colors) for (const path of c.imageKeys) uniquePaths.add(path);
+function extractAnkorCurrentImages(
+  existingAnkor: BoProductSummary | null,
+  enabledColors: BjColorInputForBo[],
+): { productImageUrls: string[]; variantImageUrlsByColorId: Record<string, string[]> } {
+  if (!existingAnkor) {
+    return { productImageUrls: [], variantImageUrlsByColorId: {} };
+  }
+  const productImageUrls = existingAnkor.images ?? [];
+  const skuToVariantImages = new Map<string, string[]>();
+  for (const v of existingAnkor.variants ?? []) {
+    if (v.sku) skuToVariantImages.set(v.sku, v.images ?? []);
+  }
+  const variantImageUrlsByColorId: Record<string, string[]> = {};
+  for (const c of enabledColors) {
+    if (!c.sku) continue;
+    const urls = skuToVariantImages.get(c.sku);
+    if (urls) variantImageUrlsByColorId[c.id] = urls;
+  }
+  return { productImageUrls, variantImageUrlsByColorId };
+}
 
-  const pathList = Array.from(uniquePaths);
+/**
+ * Applique un plan de sync images à l'input BJ :
+ *  1. Upload UNIQUEMENT `plan.pathsToUpload` (paths qui ont réellement changé)
+ *  2. Remplace `productImageKeys` et `colors[].imageKeys` par :
+ *      - URLs Ankor existantes (`/products/images/…`) pour les scopes en "keep"
+ *      - keys `file-upload:…` fraîchement uploadées pour les scopes en "replace"
+ *
+ * Résultat : le PUT envoyé à Ankor est un mix de "conserve celle-là" +
+ * "remplace par cette nouvelle" — Ankor n'accumule plus les doublons.
+ */
+async function applyImageSyncPlan(
+  input: BjProductInputForBo,
+  plan: AnkorImageSyncPlan,
+): Promise<BjProductInputForBo> {
+  // Upload sélectif — seulement les paths BJ marqués "replace"
   const uploadables = [] as { buffer: Buffer; filename: string; originalPath: string }[];
-  for (const p of pathList) {
+  for (const p of plan.pathsToUpload) {
     const img = await readImageFromDisk(p);
     if (img) uploadables.push({ ...img, originalPath: p });
   }
-
-  const results = await uploadImagesSequential(uploadables);
-  await waitForUploadsIngestion();
-
-  const pathToKey = new Map<string, string>();
-  for (let i = 0; i < uploadables.length; i++) {
-    pathToKey.set(uploadables[i].originalPath, results[i].key);
+  const bjPathToAnkorKey = new Map<string, string>();
+  if (uploadables.length > 0) {
+    const results = await uploadImagesSequential(uploadables);
+    await waitForUploadsIngestion();
+    for (let i = 0; i < uploadables.length; i++) {
+      bjPathToAnkorKey.set(uploadables[i].originalPath, results[i].key);
+    }
   }
 
-  return {
-    ...input,
-    productImageKeys: input.productImageKeys.map((p) => pathToKey.get(p)).filter(Boolean) as string[],
-    colors: input.colors.map((c) => ({
+  // Image produit-père
+  let productImageKeys: string[] = [];
+  if (plan.productImage.action === "keep") {
+    productImageKeys = plan.productImage.urls;
+  } else if (plan.productImage.action === "replace") {
+    productImageKeys = plan.productImage.bjPaths
+      .map((p) => bjPathToAnkorKey.get(p))
+      .filter(Boolean) as string[];
+  }
+
+  // Images par variante
+  const colorPlanById = new Map(plan.colors.map((c) => [c.colorId, c]));
+  const colors = input.colors.map((c) => {
+    const cp = colorPlanById.get(c.id);
+    if (!cp || cp.action === "none") return { ...c, imageKeys: [] };
+    if (cp.action === "keep") return { ...c, imageKeys: cp.urls };
+    return {
       ...c,
-      imageKeys: c.imageKeys.map((p) => pathToKey.get(p)).filter(Boolean) as string[],
-    })),
-  };
+      imageKeys: cp.bjPaths.map((p) => bjPathToAnkorKey.get(p)).filter(Boolean) as string[],
+    };
+  });
+
+  return { ...input, productImageKeys, colors };
+}
+
+/** Parse `Product.ankorsLastSyncSnapshot` en `AnkorImageSnapshot` (défensif). */
+function parseSnapshot(raw: unknown): AnkorImageSnapshot | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!("productImagePath" in r) || !("colorImagePaths" in r)) return null;
+  const productImagePath =
+    typeof r.productImagePath === "string" ? r.productImagePath : null;
+  const colorImagePathsRaw = r.colorImagePaths;
+  if (!colorImagePathsRaw || typeof colorImagePathsRaw !== "object") return null;
+  const colorImagePaths: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(colorImagePathsRaw as Record<string, unknown>)) {
+    if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
+      colorImagePaths[k] = v as string[];
+    }
+  }
+  return { productImagePath, colorImagePaths };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -526,7 +599,7 @@ export async function publishProductToAnkorstoreBo(
 
     const existing = await prisma.product.findUnique({
       where: { id: productId },
-      select: { ankorsProductId: true, reference: true },
+      select: { ankorsProductId: true, reference: true, ankorsLastSyncSnapshot: true },
     });
     if (!existing) return { success: false, error: "Produit introuvable" };
 
@@ -536,11 +609,45 @@ export async function publishProductToAnkorstoreBo(
 
     const session = await getBoSession();
     const input = await loadBjProductForBo(productId);
-    const inputWithKeys = await uploadAllProductImages(input);
-    // Pré-résout les SKU (réutilisation BDD ou génération + persistance) AVANT
-    // de builder le payload — le builder exige que chaque BjColorInputForBo.sku
-    // soit non vide.
-    await resolveAndPersistAnkorsSkus(inputWithKeys);
+    // Pré-résout les SKU AVANT toute lecture Ankor : les SKU BJ persistés
+    // servent à matcher les variants Ankor lus via readProductById (pour
+    // récupérer leurs images existantes et éviter les doublons).
+    await resolveAndPersistAnkorsSkus(input);
+    const enabledColorsRaw = input.colors.filter(
+      (c) => c.saleType === "UNIT" && !c.disabled,
+    );
+
+    // Lit l'état Ankor actuel une fois (utile pour : mapping SKU→variant.id
+    // pour éviter le 422, ET pour récupérer les URLs images existantes à
+    // réutiliser dans le PUT au lieu de tout ré-uploader).
+    let existingAnkor: BoProductSummary | null = null;
+    if (isNewFormat && legacyLinkedId) {
+      existingAnkor = await readProductById(Number(legacyLinkedId));
+    }
+
+    // Construit le plan de sync images à partir du snapshot précédent et
+    // de l'état Ankor. Sans snapshot ni état Ankor, le plan bascule en
+    // "replace" partout — comportement identique à l'ancienne version.
+    const ankorCurrent = extractAnkorCurrentImages(existingAnkor, enabledColorsRaw);
+    const snapshot = parseSnapshot(existing.ankorsLastSyncSnapshot);
+    const imagePlan = computeAnkorImageSyncPlan({
+      bjProductImagePath: input.productImageKeys[0] ?? null,
+      bjColors: enabledColorsRaw.map((c) => ({ colorId: c.id, imagePaths: c.imageKeys })),
+      snapshot,
+      ankor: ankorCurrent,
+    });
+    logger.info("[ankorstore-bo] image sync plan", {
+      productId,
+      reference: existing.reference,
+      uploads: imagePlan.pathsToUpload.length,
+      productImageAction: imagePlan.productImage.action,
+      colorActions: imagePlan.colors.map((c) => `${c.colorId}:${c.action}`),
+    });
+
+    // Applique le plan : upload sélectif + remplacement des imageKeys par
+    // un mix d'URLs Ankor existantes (keep) + de keys upload (replace).
+    const inputWithKeys = await applyImageSyncPlan(input, imagePlan);
+
     const pricingConfig = await loadAnkorstorePricingConfig();
 
     // Fabrique le payload à la demande — nécessaire pour rebuilder après re-roll
@@ -556,10 +663,9 @@ export async function publishProductToAnkorstoreBo(
 
     let ankorProductId: number;
     if (isNewFormat && legacyLinkedId) {
-      // Cas standard — lien back-office valide. On lit les variantes existantes
-      // chez Ankor et on injecte leur id dans le payload — sinon Ankor traite
-      // le PUT comme une recréation et refuse 422 "SKU already assigned".
-      const existingAnkor = await readProductById(Number(legacyLinkedId));
+      // Cas standard — lien back-office valide. On injecte les variant.id
+      // connus dans le payload — sinon Ankor traite le PUT comme une
+      // recréation et refuse 422 "SKU already assigned".
       const skuToId = new Map<string, number>();
       if (existingAnkor) {
         for (const v of existingAnkor.variants ?? []) if (v.sku) skuToId.set(v.sku, v.id);
@@ -643,6 +749,10 @@ export async function publishProductToAnkorstoreBo(
         ankorsProductId: String(ankorProductId),
         ankorsSyncRequired: false,
         ankorsLastRefreshedAt: new Date(),
+        // Snapshot des paths BJ envoyés → sert au prochain publish pour
+        // décider quelles images sont inchangées (keep = pas d'upload) vs
+        // touchées (replace = upload + écrasement). Évite les doublons chez Ankor.
+        ankorsLastSyncSnapshot: imagePlan.nextSnapshot as unknown as Prisma.InputJsonValue,
       },
     });
     if (readBack) {
@@ -772,23 +882,82 @@ export interface AnkorstoreBoLinkCandidate {
 }
 
 /**
+ * Aperçu d'une couleur BJ prête à être envoyée chez Ankorstore lors de la liaison.
+ * Utilisé côté modale pour montrer à l'admin, avant liaison, quels SKU vont
+ * apparaître chez Ankor et à quelle couleur BJ ils correspondent.
+ */
+export interface AnkorstoreBoLocalColorPreview {
+  productColorId: string;
+  colorName: string;
+  hex: string | null;
+  patternImage: string | null;
+  /** SKU que Ankorstore verra après liaison. Suffixe `_?????` si à générer. */
+  skuPreview: string;
+  /** true = SKU pas encore persisté (5 chars aléatoires seront ajoutés). */
+  isNewSku: boolean;
+}
+
+export interface AnkorstoreBoLinkSearchResult {
+  candidates: AnkorstoreBoLinkCandidate[];
+  bjReference: string;
+  localColorsPreview: AnkorstoreBoLocalColorPreview[];
+}
+
+/**
  * Cherche des candidats de liaison pour un produit BJ (par sa référence).
  * Renvoie la liste triée par pertinence — l'admin choisit dans la modale.
+ * Renvoie aussi les couleurs BJ actives + preview SKU pour l'affichage.
  */
 export async function searchAnkorstoreBoCandidatesForBjProduct(
   bjProductId: string
-): Promise<{ success: true; candidates: AnkorstoreBoLinkCandidate[] } | { success: false; error: string }> {
+): Promise<
+  | ({ success: true } & AnkorstoreBoLinkSearchResult)
+  | { success: false; error: string }
+> {
   try {
     await requireAdmin();
     const bj = await prisma.product.findUnique({
       where: { id: bjProductId },
-      select: { reference: true },
+      select: {
+        reference: true,
+        colors: {
+          where: { saleType: "UNIT", disabled: false },
+          select: {
+            id: true,
+            ankorsColorNameOverride: true,
+            ankorsSku: true,
+            color: {
+              select: { name: true, hex: true, patternImage: true },
+            },
+          },
+          orderBy: { createdAt: "asc" as const },
+        },
+      },
     });
     if (!bj) return { success: false, error: "Produit BJ introuvable" };
+
+    const refNorm = normalizeReferenceForSku(bj.reference);
+    const localColorsPreview: AnkorstoreBoLocalColorPreview[] = bj.colors.map((c) => {
+      const colorName =
+        c.ankorsColorNameOverride?.trim() || c.color?.name?.trim() || "Standard";
+      const skuPreview = c.ankorsSku
+        ? c.ankorsSku
+        : `${refNorm}_${normalizeColorForSku(colorName) || "COULEUR"}_?????`;
+      return {
+        productColorId: c.id,
+        colorName: c.color?.name ?? "Sans nom",
+        hex: c.color?.hex ?? null,
+        patternImage: c.color?.patternImage ?? null,
+        skuPreview,
+        isNewSku: !c.ankorsSku,
+      };
+    });
 
     const candidates = await findLinkCandidates(bj.reference);
     return {
       success: true,
+      bjReference: bj.reference,
+      localColorsPreview,
       candidates: candidates.map((c) => ({
         ankorProductId: c.product.id,
         ankorProductUuid: c.product.uuid,

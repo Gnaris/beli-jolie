@@ -5,12 +5,20 @@
 // n'est PAS branché — cf. memory 2026-06-30 : la cliente choisit elle-même
 // dans le formulaire).
 //
-// Flow :
+// Debounce (2026-08-14) : la fonction publique rotatePrimaryIfNeeded est
+// debouncée par produit. Plusieurs appels rapprochés sur le même produit
+// (ex: cliente met plusieurs variantes en rupture d'affilée) fusionnent en
+// une seule rotation évaluée sur l'état FINAL. Sans ça, une rotation
+// intermédiaire pouvait basculer la principale vers une couleur qui allait
+// juste après passer à 0 aussi — apparence de rotation "gratuite" côté UI.
+//
+// Flow interne :
 //   1) Lit le produit + variantes + IDs marketplace
 //   2) Appelle decidePrimaryRotation() pour trancher
 //   3) Si rotation → update Product.primaryColorId (idempotent via WHERE)
-//   4) Enqueue 1 MarketplaceRefreshJob (mode REFRESH) par marketplace lié+activé
-//      → la queue widget flottant orchestre, respecte le mutex Ankorstore, etc.
+//   4) Enqueue 1 MarketplaceRefreshJob (mode PUBLISH = colonne "Modifications"
+//      du widget) par marketplace lié+activé → la queue widget flottant
+//      orchestre, respecte le mutex Ankorstore, etc.
 //   5) revalidateTag pour rafraîchir l'admin
 //
 // Marketplaces poussés : PFS, Ankorstore, eFashion, Faire. Microstore n'a pas
@@ -21,6 +29,7 @@ import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
+import { getCurrentTenantIdSafe } from "@/lib/tenant";
 import { decidePrimaryRotation } from "@/lib/auto-rotate-primary";
 
 export interface RotationResult {
@@ -30,26 +39,70 @@ export interface RotationResult {
   enqueuedJobs?: number;
 }
 
+/** Fenêtre de debounce — plusieurs appels sur le même produit fusionnent. */
+const DEBOUNCE_MS = 2000;
+
+interface PendingRotation {
+  timer: NodeJS.Timeout;
+  tenantId: string | null;
+}
+
+/** Timers en vol, indexés par productId. Global (module-scope) = partagé par toute l'app. */
+const pendingRotations = new Map<string, PendingRotation>();
+
 /**
- * Vérifie si la couleur principale du produit doit basculer et applique la
- * rotation le cas échéant. Idempotent : si aucune rotation n'est nécessaire,
- * ne fait rien. Ne throw jamais — les erreurs sont loggées et le retour vaut
- * `{ rotated: false }` pour ne pas casser le flow appelant (mutation stock,
- * commande, etc.).
+ * Programme une évaluation de rotation pour ce produit. Debounced à
+ * `DEBOUNCE_MS` : si un autre appel arrive avant la fin du délai, le timer
+ * précédent est annulé et re-programmé. Résultat : sur une rafale de
+ * mutations, on n'évalue la rotation qu'UNE FOIS sur l'état final.
+ *
+ * Retour immédiat `{ rotated: false }` — l'évaluation est fire-and-forget.
+ * Les callsites qui ont besoin d'un vrai retour synchrone doivent passer
+ * `opts.immediate = true` (utilisé par les tests).
  *
  * @param productId - Product.id de la fiche à évaluer
  * @param opts.tenantId - Optionnel. Si fourni, wrap l'exécution dans
- *   tenantALS.run() pour les appels hors contexte HTTP (workers, webhooks).
+ *   tenantALS.run() au tick du timer. Sinon on résout via ALS/headers courants
+ *   AVANT le setTimeout (le contexte HTTP est mort au tick).
+ * @param opts.immediate - Bypass le debounce, exécute tout de suite (tests).
  */
 export async function rotatePrimaryIfNeeded(
   productId: string,
-  opts: { tenantId?: string | null } = {},
+  opts: { tenantId?: string | null; immediate?: boolean } = {},
 ): Promise<RotationResult> {
-  const run = () => rotatePrimaryInner(productId);
-  if (opts.tenantId) {
-    return tenantALS.run(opts.tenantId, run);
+  // Résout tenantId AVANT de programmer le timer : le contexte HTTP peut
+  // être clos au moment du tick, donc `headers()` ne fonctionnera plus.
+  let tenantId: string | null = opts.tenantId ?? null;
+  if (!tenantId) {
+    tenantId = await getCurrentTenantIdSafe();
   }
-  return run();
+
+  const runWithTenant = async (): Promise<RotationResult> => {
+    if (tenantId) {
+      return tenantALS.run(tenantId, () => rotatePrimaryInner(productId));
+    }
+    return rotatePrimaryInner(productId);
+  };
+
+  if (opts.immediate) {
+    return runWithTenant();
+  }
+
+  const existing = pendingRotations.get(productId);
+  if (existing) clearTimeout(existing.timer);
+
+  const timer = setTimeout(() => {
+    pendingRotations.delete(productId);
+    runWithTenant().catch((err) =>
+      logger.error("[RotatePrimary] tick debounced error", { productId, error: err }),
+    );
+  }, DEBOUNCE_MS);
+  // Le timer ne doit pas bloquer l'arrêt du process (worker, dev restart).
+  timer.unref?.();
+
+  pendingRotations.set(productId, { timer, tenantId });
+
+  return { rotated: false };
 }
 
 async function rotatePrimaryInner(productId: string): Promise<RotationResult> {
@@ -99,9 +152,9 @@ async function rotatePrimaryInner(productId: string): Promise<RotationResult> {
       return { rotated: false };
     }
 
-    // Enqueue REFRESH marketplace pour chaque cible liée + activée. Reprend la
-    // sérialisation du POST /api/admin/marketplace-queue (payload identique
-    // pour l'affichage widget). Un job par marketplace.
+    // Enqueue en mode PUBLISH (= colonne "Modifications" du widget) : la
+    // rotation est une conséquence d'une modif locale, pas un "Rafraîchir"
+    // volontaire. Un job par marketplace cible liée + activée.
     const basePayload = {
       reference: product.reference,
       productName: product.name,
@@ -131,7 +184,7 @@ async function rotatePrimaryInner(productId: string): Promise<RotationResult> {
             data: {
               productId,
               marketplace: j.marketplace,
-              mode: "REFRESH",
+              mode: "PUBLISH",
               status: "QUEUED",
               payload: { ...basePayload, options: j.options },
             },
