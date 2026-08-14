@@ -46,6 +46,13 @@ export interface ClientEnqueueInput {
   verifyActions?: QueueVerifyAction[];
 }
 
+/**
+ * Intention métier du job — routage vers l'onglet correspondant du widget
+ * marketplaces (voir MarketplacesDrawer). Optionnel : les vieux jobs pré-2026-08
+ * n'ont pas d'intent, le client tombe alors en fallback "update".
+ */
+export type ClientJobIntent = "create" | "update" | "refresh" | "scheduled" | "link";
+
 export interface SerializedJob {
   id: string;
   productId: string;
@@ -56,6 +63,9 @@ export interface SerializedJob {
   mode: ClientMode;
   marketplace: ClientMarketplace;
   status: ClientStatus;
+  intent?: ClientJobIntent;
+  /** Progression étape par étape (voir lib/marketplace-job-steps.ts). */
+  steps?: unknown[];
   localOutcome?: unknown;
   pfsOutcome?: unknown;
   ankorsOutcome?: unknown;
@@ -65,6 +75,7 @@ export interface SerializedJob {
   createdAt: string;
   /** ISO string. Absent = démarrage immédiat. Présent = heure prévue de départ. */
   scheduledFor?: string;
+  startedAt?: string;
   completedAt?: string;
 }
 
@@ -81,6 +92,26 @@ export function mapModeToDb(value: ClientMode): "PUBLISH" | "REFRESH" | "RESYNC"
   if (value === "publish") return "PUBLISH";
   if (value === "resync") return "RESYNC";
   return "REFRESH";
+}
+
+export function mapIntentToDb(
+  value: ClientJobIntent,
+): "CREATE" | "UPDATE" | "REFRESH" | "SCHEDULED" | "LINK" {
+  if (value === "create") return "CREATE";
+  if (value === "refresh") return "REFRESH";
+  if (value === "scheduled") return "SCHEDULED";
+  if (value === "link") return "LINK";
+  return "UPDATE";
+}
+
+function mapIntentToClient(value: JobRow["intent"] | null | undefined): ClientJobIntent | undefined {
+  if (!value) return undefined;
+  if (value === "CREATE") return "create";
+  if (value === "UPDATE") return "update";
+  if (value === "REFRESH") return "refresh";
+  if (value === "SCHEDULED") return "scheduled";
+  if (value === "LINK") return "link";
+  return undefined;
 }
 
 function mapMarketplaceToClient(value: JobRow["marketplace"]): ClientMarketplace {
@@ -131,6 +162,8 @@ export function serializeJob(job: JobRow): SerializedJob {
     mode: mapModeToClient(job.mode),
     marketplace: mapMarketplaceToClient(job.marketplace),
     status: mapStatusToClient(job.status),
+    intent: mapIntentToClient(job.intent),
+    steps: Array.isArray(job.steps) ? (job.steps as unknown[]) : undefined,
     localOutcome: (job.localOutcome as unknown) ?? undefined,
     pfsOutcome: (job.pfsOutcome as unknown) ?? undefined,
     ankorsOutcome: (job.ankorsOutcome as unknown) ?? undefined,
@@ -139,6 +172,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
     scheduledFor: job.scheduledFor ? job.scheduledFor.toISOString() : undefined,
+    startedAt: job.startedAt ? job.startedAt.toISOString() : undefined,
     completedAt: job.completedAt ? job.completedAt.toISOString() : undefined,
   };
 }

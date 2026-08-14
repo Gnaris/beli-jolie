@@ -139,6 +139,173 @@ export function columnKeyFromItem(item: MarketplaceRefreshItem): ColumnKey {
   return item.mode;
 }
 
+// ────────────────────────────────────────────────────────────────
+// Vues du drawer 2026-08-14 (Création / Modification / Liaison /
+// Rafraîchissement / Rafraîchissement sur étalement). Résout un item
+// vers une des 5 vues à partir de son `intent` (BDD, autoritatif) avec
+// fallback sur `mode` + heuristique client pour les anciens jobs sans intent.
+// ────────────────────────────────────────────────────────────────
+
+export type ViewKey = "creation" | "update" | "link" | "refresh" | "scheduled";
+
+export const VIEW_ORDER: ViewKey[] = [
+  "creation",
+  "update",
+  "link",
+  "refresh",
+  "scheduled",
+];
+
+export const VIEW_LABEL: Record<ViewKey, { title: string; subtitle: string; short: string }> = {
+  creation: {
+    title: "Création",
+    subtitle: "Nouvelle fiche chez la marketplace",
+    short: "création",
+  },
+  update: {
+    title: "Modification",
+    subtitle: "Modifs poussées sur fiches existantes",
+    short: "modification",
+  },
+  link: {
+    title: "Liaison",
+    subtitle: "Rattachement produit ↔ marketplace",
+    short: "liaison",
+  },
+  refresh: {
+    title: "Rafraîchissement",
+    subtitle: "Renouvellement immédiat de la fiche",
+    short: "rafraîchissement",
+  },
+  scheduled: {
+    title: "Rafraîchissement étalé",
+    subtitle: "Lot programmé toutes les X min",
+    short: "rafraîchissement étalé",
+  },
+};
+
+/**
+ * Résout la vue d'appartenance d'un item. Priorité à `intent` (posé en base
+ * à l'enqueue depuis 2026-08-14) — les anciens jobs sans intent tombent sur
+ * une heuristique : mode + scheduledFor.
+ */
+export function viewKeyFromItem(item: MarketplaceRefreshItem, now: number = Date.now()): ViewKey {
+  const scheduled = itemIsScheduledFuture(item, now);
+  if (item.intent === "create") return "creation";
+  if (item.intent === "update") return "update";
+  if (item.intent === "link") return "link";
+  if (item.intent === "scheduled") return "scheduled";
+  if (item.intent === "refresh") return scheduled ? "scheduled" : "refresh";
+  // Fallback pour les anciens jobs sans intent.
+  if (item.mode === "refresh") return scheduled ? "scheduled" : "refresh";
+  if (item.mode === "resync") return "update";
+  // mode === "publish" sans intent : on n'a pas l'info d'ID marketplace côté
+  // client sans re-fetch — on suppose "update" (cas majoritaire), au pire
+  // l'admin voit la carte dans la mauvaise vue jusqu'à la prochaine session.
+  return "update";
+}
+
+function itemIsScheduledFuture(item: MarketplaceRefreshItem, now: number): boolean {
+  if (!item.scheduledFor) return false;
+  const t = Date.parse(item.scheduledFor);
+  return Number.isFinite(t) && t > now;
+}
+
+export interface ViewBucketProduct {
+  key: ViewKey;
+  groups: ProductGroup[];
+  linkJobs: LinkJobLike[];
+  kpi: ColumnKpi;
+  /** Somme des items queued arrêtables. */
+  queuedItemCount: number;
+  /** Vrai s'il y a au moins un scheduledFor futur (uniquement vue "scheduled"). */
+  hasScheduled: boolean;
+}
+
+/**
+ * Range les groupes de produits et les jobs de liaison dans les 5 vues
+ * (Création / Modification / Liaison / Rafraîchissement / Étalement).
+ * Retourne toujours 5 buckets dans VIEW_ORDER.
+ *
+ * Différence vs `bucketColumns` : ici on regarde `intent` en priorité pour
+ * décider de la vue, on distingue « rafraîchissement immédiat » vs « étalé »,
+ * et on n'a plus la colonne « resync » — les resync sont classées dans
+ * « Modification » (elles réécrivent la même fiche).
+ */
+export function bucketViews(
+  groups: ProductGroup[],
+  linkJobs: ReadonlyArray<LinkJobLike>,
+  now: number = Date.now(),
+): ViewBucketProduct[] {
+  const byView = new Map<ViewKey, ProductGroup[]>();
+  for (const g of groups) {
+    // On classe le groupe selon la vue de son item dominant, dérivée via
+    // viewKeyFromItem. Un groupe est déjà "product+mode" (voir
+    // groupItemsByProductAndMode) donc on ne mélange pas deux vues.
+    const dominant = g.items[0];
+    const view = dominant ? viewKeyFromItem(dominant, now) : "update";
+    const arr = byView.get(view);
+    if (arr) arr.push(g);
+    else byView.set(view, [g]);
+  }
+
+  return VIEW_ORDER.map<ViewBucketProduct>((key) => {
+    if (key === "link") {
+      // La vue Liaison agrège :
+      //   - les LinkJob du contexte client (in-memory)
+      //   - les jobs marketplace avec intent === "link" (persistés)
+      const persistedLinkGroups = byView.get("link") ?? [];
+      const linkArr = [...linkJobs];
+      let errors = persistedLinkGroups.filter((g) => g.section === "errors").length;
+      let active = persistedLinkGroups.filter(
+        (g) => g.section === "active" || g.section === "queued" || g.section === "scheduled",
+      ).length;
+      let done = persistedLinkGroups.filter((g) => g.section === "done").length;
+      for (const j of linkArr) {
+        if (j.status === "error") errors += 1;
+        else if (j.status === "in_progress") active += 1;
+        else if (j.status === "done") done += 1;
+      }
+      let queuedItemCount = 0;
+      for (const g of persistedLinkGroups) {
+        for (const it of g.items) if (it.status === "queued") queuedItemCount += 1;
+      }
+      return {
+        key,
+        groups: persistedLinkGroups,
+        linkJobs: linkArr,
+        kpi: { errors, active, queued: 0, done },
+        queuedItemCount,
+        hasScheduled: false,
+      };
+    }
+
+    const viewGroups = byView.get(key) ?? [];
+    let errors = 0;
+    let active = 0;
+    let queued = 0;
+    let done = 0;
+    let queuedItemCount = 0;
+    let hasScheduled = false;
+    for (const g of viewGroups) {
+      if (g.section === "errors") errors += 1;
+      else if (g.section === "active") active += 1;
+      else if (g.section === "scheduled" || g.section === "queued") queued += 1;
+      else if (g.section === "done") done += 1;
+      if (g.earliestScheduledFor) hasScheduled = true;
+      for (const it of g.items) if (it.status === "queued") queuedItemCount += 1;
+    }
+    return {
+      key,
+      groups: viewGroups,
+      linkJobs: [],
+      kpi: { errors, active, queued, done },
+      queuedItemCount,
+      hasScheduled,
+    };
+  });
+}
+
 /**
  * Variante utilisée par le tiroir marketplaces pour la vue en catégories :
  * un produit qui a subi plusieurs actions (par ex. une modification puis un

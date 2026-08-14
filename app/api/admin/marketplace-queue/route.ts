@@ -27,6 +27,7 @@ import {
   getProductsMarketplaceEnabled,
   type MarketplaceKey,
 } from "@/lib/marketplace-enabled";
+import { resolveJobIntentsBulk } from "@/lib/marketplace-job-intent";
 
 const LIST_WINDOW_HOURS = 24;
 // Borne large : ~30 jours. Empêche les intervalles absurdes qui feraient
@@ -111,6 +112,18 @@ export async function POST(req: NextRequest) {
     new Date(),
   );
 
+  // Résolution de l'intention métier (CREATE/UPDATE/REFRESH/SCHEDULED/LINK).
+  // Utilisée par le widget marketplaces pour router chaque job vers l'onglet
+  // correspondant. Groupé pour minimiser les requêtes produit.
+  const intents = await resolveJobIntentsBulk(
+    kept.map((input, index) => ({
+      productId: input.productId,
+      marketplace: input.marketplace ?? "pfs",
+      mode: input.mode ?? "refresh",
+      scheduled: schedule[index] !== null,
+    })),
+  );
+
   const created = await prisma.$transaction(
     kept.map((input, index) =>
       prisma.marketplaceRefreshJob.create({
@@ -118,6 +131,7 @@ export async function POST(req: NextRequest) {
           productId: input.productId,
           marketplace: mapMarketplaceToDb(input.marketplace ?? "pfs"),
           mode: mapModeToDb(input.mode ?? "refresh"),
+          intent: intents[index],
           payload: {
             reference: input.reference,
             productName: input.productName,

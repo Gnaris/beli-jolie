@@ -1433,6 +1433,22 @@ enum MarketplaceJobMode {
   RESYNC
 }
 
+/// Intention métier d'un job. Sert au widget marketplaces à trier chaque job
+/// dans la bonne vue (Création / Modification / Rafraîchissement / Étalement).
+/// Posé à l'enqueue :
+///  - CREATE     : première publication (aucun ID marketplace connu)
+///  - UPDATE     : mise à jour d'une fiche déjà liée (PATCH incrémental)
+///  - REFRESH    : renouvellement (archive + recréation, mode REFRESH standard)
+///  - SCHEDULED  : rafraîchissement planifié (étalement via scheduledFor)
+///  - LINK       : job né d'un flow de liaison manuelle (import/sync post-link)
+enum MarketplaceJobIntent {
+  CREATE
+  UPDATE
+  REFRESH
+  SCHEDULED
+  LINK
+}
+
 enum MarketplaceJobStatus {
   QUEUED // en attente du worker
   IN_PROGRESS // en cours de traitement par le worker
@@ -1457,6 +1473,18 @@ model MarketplaceRefreshJob {
   ankorsOutcome     Json?
   efashionOutcome   Json?
   faireOutcome      Json?
+  /// Intention métier (Création / Modification / Rafraîchissement / Étalement / Liaison).
+  /// Résolue à l'enqueue (voir lib/marketplace-job-intent.ts). Sert au widget
+  /// marketplaces à router chaque job vers l'onglet correspondant. Nullable
+  /// tant que la migration progressive n'a pas backfillé les anciens jobs :
+  /// une valeur absente est traitée comme "UPDATE" par défaut côté client.
+  intent            MarketplaceJobIntent?
+  /// Progression étape par étape (array de StepEntry sérialisé, voir
+  /// lib/marketplace-job-steps.ts). Poussée par le worker au fur et à mesure
+  /// (Validation → Auth → Création produit → Variantes → Images → Publish →
+  /// Sauvegarde IDs). Utilisée par le widget pour afficher la timeline
+  /// détaillée style modale de liaison.
+  steps             Json?
   /// Opération Ankorstore liée quand status == AWAITING_CALLBACK (suit la chaîne 2 phases)
   ankorsOperationId String?
   errorMessage      String?              @db.Text

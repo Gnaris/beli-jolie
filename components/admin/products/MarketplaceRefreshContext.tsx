@@ -28,6 +28,25 @@ export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
   | { ok: false; kind: "not_found" | "error"; message: string };
 
+/**
+ * Une étape sérialisée dans job.steps par le worker marketplace.
+ * Miroir de lib/marketplace-job-steps.ts::StepEntry — dupliqué ici pour
+ * garder MarketplaceRefreshContext utilisable côté client sans dépendance
+ * transitive vers Prisma. Toute évolution serveur (nouveau kind, nouveau
+ * status) doit être répercutée ici et dans STEP_LABELS_FR ci-dessous.
+ */
+export interface JobStepEntry {
+  kind: string;
+  label?: string;
+  status: "pending" | "in_progress" | "done" | "error" | "skipped";
+  startedAt?: string;
+  completedAt?: string;
+  message?: string;
+  current?: number;
+  total?: number;
+  data?: Record<string, unknown>;
+}
+
 export interface MarketplaceRefreshItem {
   id: string;
   productId: string;
@@ -46,15 +65,25 @@ export interface MarketplaceRefreshItem {
   ankorsOperationId?: string;
   /** ISO date. Présent quand le job attend une heure de départ future (étalement). */
   scheduledFor?: string;
+  startedAt?: string;
   completedAt?: string;
   /**
-   * Intention du push (client-side uniquement, tracké dans le context).
-   * "create" = première publication chez le marketplace (aucun ID connu),
-   * "update" ou absent = mise à jour / re-sync d'une fiche existante.
-   * Sert au drawer marketplaces pour router vers la colonne « Publication »
-   * (create) ou « Modifications » (update).
+   * Intention métier du job — sert au drawer marketplaces à router chaque
+   * job vers l'onglet correspondant (Création / Modification / Liaison /
+   * Rafraîchissement / Étalement).
+   * Depuis 2026-08-14 : posé serveur-side à l'enqueue et persisté en base
+   * (colonne MarketplaceRefreshJob.intent). Fallback client "create"/"update"
+   * ancien reste supporté pour compat retro tant que l'ancien code appelant
+   * pose l'intent côté enqueue().
    */
-  intent?: "create" | "update";
+  intent?: "create" | "update" | "refresh" | "scheduled" | "link";
+  /**
+   * Progression étape par étape poussée par le worker au fur et à mesure
+   * (validation → auth → création produit → variantes → images → publish →
+   * sauvegarde IDs). Absent = job antérieur à l'instrumentation ou branche
+   * pas encore instrumentée — le drawer affiche alors juste le statut global.
+   */
+  steps?: JobStepEntry[];
 }
 
 export interface MarketplaceRefreshEnqueueInput {
@@ -68,9 +97,10 @@ export interface MarketplaceRefreshEnqueueInput {
   /** Marketplace cible — défaut "pfs". */
   marketplace?: MarketplaceTarget;
   /** Intention client — "create" = première publication (fiche non existante
-   *  chez le marketplace), sinon "update" par défaut. Ne franchit pas la
-   *  frontière serveur : mémorisé dans une map locale du context et
-   *  ré-appliqué à chaque item polled. */
+   *  chez le marketplace), sinon "update" par défaut. Depuis 2026-08-14 le
+   *  serveur re-résout systématiquement l'intent à l'enqueue (via présence
+   *  d'un ID marketplace) et le persiste ; le hint client reste posé dans la
+   *  Map locale pour l'affichage optimiste avant le premier poll. */
   intent?: "create" | "update";
   /**
    * Optionnel : actions ciblées produites par le tooltip « PFS Verify » (envoi

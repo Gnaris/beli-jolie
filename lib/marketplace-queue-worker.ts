@@ -22,6 +22,7 @@ import { logger } from "@/lib/logger";
 import { emitProductEvent } from "@/lib/product-events";
 import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
+import { markStep } from "@/lib/marketplace-job-steps";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 10;
@@ -394,6 +395,8 @@ async function processJobBody(job: any): Promise<void> {
 }
 
 export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+
   // Local bump (bouton « Boutique »)
   let localOutcome: TargetOutcomeOk | undefined;
   if (payload.options.local) {
@@ -516,32 +519,47 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
         });
       }
     } else if (job.mode === "REFRESH") {
+      await markStep(job.id, { kind: "AUTH", status: "done", message: "Session PFS établie" });
+      await markStep(job.id, { kind: "ARCHIVE_OLD", status: "in_progress" });
       const { pfsRefreshProduct } = await import("@/lib/pfs-refresh");
       const res = await pfsRefreshProduct(job.productId, undefined, { skipRevalidation: true });
       if (res.success) {
         pfsOutcome = { ok: true, archived: res.archived };
+        await markStep(job.id, { kind: "ARCHIVE_OLD", status: "done", message: "Ancienne fiche archivée" });
+        await markStep(job.id, { kind: "CREATE_PRODUCT", status: "done", message: "Nouvelle fiche créée" });
+        await markStep(job.id, { kind: "RENAME", status: "done", message: "Référence renommée" });
       } else if (res.reason === "not_found") {
         pfsOutcome = { ok: false, kind: "not_found", message: res.error };
+        await markStep(job.id, { kind: "ARCHIVE_OLD", status: "error", message: res.error });
       } else {
         pfsOutcome = { ok: false, kind: "error", message: res.error };
+        await markStep(job.id, { kind: "ARCHIVE_OLD", status: "error", message: res.error });
       }
     } else if (job.mode === "PUBLISH") {
       const product = await prisma.product.findUnique({
         where: { id: job.productId },
         select: { pfsProductId: true },
       });
+      await markStep(job.id, { kind: "AUTH", status: "done", message: "Session PFS établie" });
       if (product?.pfsProductId) {
         // Produit déjà lié à une fiche PFS → PATCH (modification seulement).
         // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça effacerait
         // le lien pfsProductId en base et retenterait un create sur la même
         // reference_code, ce que PFS refuse (« Référence non valide »). Cas
         // vu en réel sur A264 le 03/08 après un abort du fetch d'update.
+        await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "in_progress" });
         const { pfsUpdateProductInPlace } = await import("@/lib/pfs-update");
         const res = await pfsUpdateProductInPlace(job.productId, undefined, {
           skipRevalidation: true,
         });
         if (res.success) {
           pfsOutcome = { ok: true, archived: res.archived };
+          await markStep(job.id, {
+            kind: "UPDATE_PRODUCT",
+            status: "done",
+            message: `Fiche PFS mise à jour (id ${product.pfsProductId})`,
+            data: { pfsProductId: product.pfsProductId },
+          });
         } else {
           logger.error("[Marketplace Queue] PFS update failed (no fallback)", {
             productId: job.productId,
@@ -555,16 +573,28 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
               `Aucun produit n'a été recréé pour éviter un doublon ou un lien cassé. ` +
               `Vérifiez le contenu puis re-tentez.`,
           };
+          await markStep(job.id, {
+            kind: "UPDATE_PRODUCT",
+            status: "error",
+            message: res.error ?? "Erreur inconnue",
+          });
         }
       } else {
+        await markStep(job.id, { kind: "CREATE_PRODUCT", status: "in_progress" });
         const { pfsPublishProduct } = await import("@/lib/pfs-publish");
         const res = await pfsPublishProduct(job.productId, undefined, {
           skipRevalidation: true,
         });
         if (res.success) {
           pfsOutcome = { ok: true, archived: res.archived };
+          await markStep(job.id, {
+            kind: "CREATE_PRODUCT",
+            status: "done",
+            message: "Produit créé sur PFS",
+          });
         } else {
           pfsOutcome = { ok: false, kind: "error", message: res.error };
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message: res.error });
         }
       }
     } else if (job.mode === "RESYNC") {
@@ -572,13 +602,20 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
         where: { id: job.productId },
         select: { pfsProductId: true },
       });
+      await markStep(job.id, { kind: "AUTH", status: "done", message: "Session PFS établie" });
       if (!product?.pfsProductId) {
         pfsOutcome = {
           ok: false,
           kind: "error",
           message: "Produit non publié sur Paris Fashion Shop.",
         };
+        await markStep(job.id, {
+          kind: "UPDATE_PRODUCT",
+          status: "error",
+          message: "Produit non publié sur Paris Fashion Shop.",
+        });
       } else {
+        await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "in_progress", label: "Sync complète (forceFullSync)" });
         const { pfsUpdateProductInPlace } = await import("@/lib/pfs-update");
         const res = await pfsUpdateProductInPlace(job.productId, undefined, {
           skipRevalidation: true,
@@ -586,8 +623,14 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
         });
         if (res.success) {
           pfsOutcome = { ok: true, archived: res.archived };
+          await markStep(job.id, {
+            kind: "UPDATE_PRODUCT",
+            status: "done",
+            message: "Sync complète effectuée",
+          });
         } else {
           pfsOutcome = { ok: false, kind: "error", message: res.error };
+          await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message: res.error });
         }
       }
     }
@@ -613,6 +656,9 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
       completedAt: new Date(),
     },
   });
+  if (errorMessage === null) {
+    await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+  }
 
   emitProductUpdated(job.productId);
 }
@@ -642,16 +688,40 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
     return;
   }
 
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+  await markStep(job.id, { kind: "AUTH", status: "done", message: "Session back-office Ankorstore établie" });
+
   try {
     // Toutes les branches convergent vers le même appel BO — 100 % synchrone,
     // pas de callback. Le mode REFRESH/PUBLISH/RESYNC ne change plus rien :
     // c'est toujours "envoyer l'état BJ actuel chez Ankor" (POST si pas de lien
     // INT, PUT sinon). Voir app/actions/admin/ankorstore-bo.ts.
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { ankorsProductId: true },
+    });
+    const stepKind = product?.ankorsProductId ? "UPDATE_PRODUCT" : "CREATE_PRODUCT";
+    await markStep(job.id, { kind: stepKind, status: "in_progress" });
+
     const { publishProductToAnkorstoreBo } = await import("@/app/actions/admin/ankorstore-bo");
     const res = await publishProductToAnkorstoreBo(job.productId);
     if (res.success) {
+      await markStep(job.id, {
+        kind: stepKind,
+        status: "done",
+        message: product?.ankorsProductId
+          ? `Fiche Ankorstore mise à jour (id ${product.ankorsProductId})`
+          : "Produit créé sur Ankorstore",
+        data: product?.ankorsProductId ? { ankorsProductId: product.ankorsProductId } : undefined,
+      });
       await markAnkorstoreSuccess(job.id, false);
+      await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
     } else {
+      await markStep(job.id, {
+        kind: stepKind,
+        status: "error",
+        message: res.error ?? "Erreur inconnue",
+      });
       await markAnkorstoreFailed(job.id, "error", res.error ?? "Erreur inconnue");
     }
   } catch (err) {
@@ -661,6 +731,7 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
       jobId: job.id,
       error: message,
     });
+    await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message });
     await markAnkorstoreFailed(job.id, "error", message);
   }
 }
@@ -733,48 +804,55 @@ async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<vo
     return;
   }
 
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+  await markStep(job.id, { kind: "AUTH", status: "done", message: "Session eFashion établie" });
+
   try {
     const product = await prisma.product.findUnique({
       where: { id: job.productId },
       select: { efashionReferenceBase: true },
     });
     const isLinked = !!product?.efashionReferenceBase;
+    const stepKind = isLinked ? "UPDATE_PRODUCT" : "CREATE_PRODUCT";
+
+    const finalize = async (
+      res: { success: true } | { success: false; error?: string | null },
+    ) => {
+      if (res.success) {
+        await markStep(job.id, {
+          kind: stepKind,
+          status: "done",
+          message: isLinked
+            ? `Fiche eFashion mise à jour (${product?.efashionReferenceBase ?? ""})`
+            : "Produit créé sur eFashion",
+        });
+        await markEfashionSuccess(job.id, false);
+        await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+      } else {
+        const err = res.error ?? "Erreur inconnue";
+        await markStep(job.id, { kind: stepKind, status: "error", message: err });
+        await markEfashionFailed(job.id, "error", err);
+      }
+    };
 
     if (job.mode === "RESYNC") {
       if (!isLinked) {
-        await markEfashionFailed(
-          job.id,
-          "error",
-          "Produit non lié à eFashion — impossible de resynchroniser.",
-        );
+        const msg = "Produit non lié à eFashion — impossible de resynchroniser.";
+        await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message: msg });
+        await markEfashionFailed(job.id, "error", msg);
         return;
       }
+      await markStep(job.id, { kind: stepKind, status: "in_progress", label: "Sync complète (forceFullSync)" });
       const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
-      const res = await efashionUpdateProductInPlace(job.productId, { forceFullSync: true });
-      if (res.success) {
-        await markEfashionSuccess(job.id, false);
-      } else {
-        await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
-      }
+      await finalize(await efashionUpdateProductInPlace(job.productId, { forceFullSync: true }));
     } else if (job.mode === "PUBLISH") {
+      await markStep(job.id, { kind: stepKind, status: "in_progress" });
       if (isLinked) {
-        // Déjà publié → update incrémental (équivalent du fallback PFS).
         const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
-        const res = await efashionUpdateProductInPlace(job.productId);
-        if (res.success) {
-          await markEfashionSuccess(job.id, false);
-        } else {
-          await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
-        }
+        await finalize(await efashionUpdateProductInPlace(job.productId));
       } else {
-        // 1ʳᵉ publication via workflow shooting
         const { efashionPublishProduct } = await import("@/lib/efashion-publish");
-        const res = await efashionPublishProduct(job.productId);
-        if (res.success) {
-          await markEfashionSuccess(job.id, false);
-        } else {
-          await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
-        }
+        await finalize(await efashionPublishProduct(job.productId));
       }
     } else if (job.mode === "REFRESH") {
       // REFRESH = renommer + soft-delete + republier (workflow PFS-like)
@@ -782,15 +860,33 @@ async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<vo
       // côté eFashion → elles remontent en premier dans le catalogue vendeur.
       // Si pas lié, on bascule sur PUBLISH classique.
       if (isLinked) {
+        await markStep(job.id, { kind: "ARCHIVE_OLD", status: "in_progress" });
         const { efashionRefreshProduct } = await import("@/lib/efashion-refresh");
         const res = await efashionRefreshProduct(job.productId);
-        if (res.success) await markEfashionSuccess(job.id, false);
-        else await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+        if (res.success) {
+          await markStep(job.id, { kind: "ARCHIVE_OLD", status: "done", message: "Ancienne fiche archivée" });
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "done", message: "Nouvelle fiche créée" });
+          await markStep(job.id, { kind: "RENAME", status: "done", message: "Référence renommée" });
+          await markEfashionSuccess(job.id, false);
+          await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+        } else {
+          const err = res.error ?? "Erreur inconnue";
+          await markStep(job.id, { kind: "ARCHIVE_OLD", status: "error", message: err });
+          await markEfashionFailed(job.id, "error", err);
+        }
       } else {
+        await markStep(job.id, { kind: "CREATE_PRODUCT", status: "in_progress" });
         const { efashionPublishProduct } = await import("@/lib/efashion-publish");
         const res = await efashionPublishProduct(job.productId);
-        if (res.success) await markEfashionSuccess(job.id, false);
-        else await markEfashionFailed(job.id, "error", res.error ?? "Erreur inconnue");
+        if (res.success) {
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "done", message: "Produit créé sur eFashion" });
+          await markEfashionSuccess(job.id, false);
+          await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+        } else {
+          const err = res.error ?? "Erreur inconnue";
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message: err });
+          await markEfashionFailed(job.id, "error", err);
+        }
       }
     }
   } catch (err) {
@@ -800,6 +896,7 @@ async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<vo
       jobId: job.id,
       error: message,
     });
+    await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message });
     await markEfashionFailed(job.id, "error", message);
   }
 }
@@ -860,28 +957,53 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
     return;
   }
 
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+  await markStep(job.id, { kind: "AUTH", status: "done", message: "Session Faire établie" });
+
   try {
     const product = await prisma.product.findUnique({
       where: { id: job.productId },
       select: { faireProductId: true, status: true },
     });
     const isLinked = !!product?.faireProductId;
+    const stepKind = isLinked ? "UPDATE_PRODUCT" : "CREATE_PRODUCT";
     // Faire crée par défaut en DRAFT (invisible sur Faire). Si le produit BJ
     // est en ligne, on publie directement en PUBLISHED pour qu'il apparaisse
     // dans le catalogue Faire.
     const lifecycleState: "DRAFT" | "PUBLISHED" =
       product?.status === "ONLINE" ? "PUBLISHED" : "DRAFT";
 
+    const finalizeOk = async () => {
+      await markStep(job.id, {
+        kind: stepKind,
+        status: "done",
+        message: isLinked
+          ? `Fiche Faire mise à jour (id ${product?.faireProductId})`
+          : "Produit créé sur Faire",
+        data: isLinked && product?.faireProductId ? { faireProductId: product.faireProductId } : undefined,
+      });
+      await markFaireSuccess(job.id);
+      await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+    };
+    const finalizeError = async (err: string) => {
+      await markStep(job.id, { kind: stepKind, status: "error", message: err });
+      await markFaireFailed(job.id, "error", err);
+    };
+
     if (job.mode === "RESYNC") {
       if (!isLinked) {
-        await markFaireFailed(job.id, "error", "Produit non publié sur Faire.");
+        const msg = "Produit non publié sur Faire.";
+        await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message: msg });
+        await markFaireFailed(job.id, "error", msg);
         return;
       }
+      await markStep(job.id, { kind: stepKind, status: "in_progress", label: "Sync complète (forceFullSync)" });
       const { faireUpdateProduct } = await import("@/lib/faire-update");
       const res = await faireUpdateProduct(job.productId, { forceFullSync: true });
-      if (res.success) await markFaireSuccess(job.id);
-      else await markFaireFailed(job.id, "error", res.error);
+      if (res.success) await finalizeOk();
+      else await finalizeError(res.error);
     } else if (job.mode === "PUBLISH") {
+      await markStep(job.id, { kind: stepKind, status: "in_progress" });
       if (isLinked) {
         // Produit déjà lié à une fiche Faire → PATCH (modification seulement).
         // ⚠️ PAS de fallback "publish" auto si le PATCH échoue : ça créerait
@@ -890,15 +1012,13 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
         const { faireUpdateProduct } = await import("@/lib/faire-update");
         const res = await faireUpdateProduct(job.productId);
         if (res.success) {
-          await markFaireSuccess(job.id);
+          await finalizeOk();
         } else {
           logger.error("[Marketplace Queue] Faire update failed (no fallback)", {
             productId: job.productId,
             error: res.error,
           });
-          await markFaireFailed(
-            job.id,
-            "error",
+          await finalizeError(
             `Modification Faire refusée : ${res.error ?? "erreur inconnue"}. ` +
               `Aucun produit n'a été recréé pour éviter un doublon. ` +
               `Vérifiez le contenu (caractères spéciaux, champs trop longs) puis re-tentez.`,
@@ -907,20 +1027,35 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
       } else {
         const { fairePublishProduct } = await import("@/lib/faire-publish");
         const res = await fairePublishProduct(job.productId, { lifecycleState });
-        if (res.success) await markFaireSuccess(job.id);
-        else await markFaireFailed(job.id, "error", res.error);
+        if (res.success) await finalizeOk();
+        else await finalizeError(res.error);
       }
     } else if (job.mode === "REFRESH") {
       if (isLinked) {
+        await markStep(job.id, { kind: "ARCHIVE_OLD", status: "in_progress" });
         const { faireRefreshProduct } = await import("@/lib/faire-refresh");
         const res = await faireRefreshProduct(job.productId);
-        if (res.success) await markFaireSuccess(job.id);
-        else await markFaireFailed(job.id, "error", res.error);
+        if (res.success) {
+          await markStep(job.id, { kind: "ARCHIVE_OLD", status: "done", message: "Ancienne fiche archivée" });
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "done", message: "Nouvelle fiche créée" });
+          await markFaireSuccess(job.id);
+          await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+        } else {
+          await markStep(job.id, { kind: "ARCHIVE_OLD", status: "error", message: res.error });
+          await markFaireFailed(job.id, "error", res.error);
+        }
       } else {
+        await markStep(job.id, { kind: "CREATE_PRODUCT", status: "in_progress" });
         const { fairePublishProduct } = await import("@/lib/faire-publish");
         const res = await fairePublishProduct(job.productId, { lifecycleState });
-        if (res.success) await markFaireSuccess(job.id);
-        else await markFaireFailed(job.id, "error", res.error);
+        if (res.success) {
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "done", message: "Produit créé sur Faire" });
+          await markFaireSuccess(job.id);
+          await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+        } else {
+          await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message: res.error });
+          await markFaireFailed(job.id, "error", res.error);
+        }
       }
     }
   } catch (err) {
@@ -930,6 +1065,7 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
       jobId: job.id,
       error: message,
     });
+    await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message });
     await markFaireFailed(job.id, "error", message);
   }
 }
