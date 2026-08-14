@@ -1019,12 +1019,15 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
 
       {isRefreshing && (
         <div
-          className="fixed inset-0 bg-slate-900/25 backdrop-blur-[1px] flex items-center justify-center z-[100]"
+          className="loading-overlay-backdrop fixed inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center z-[100]"
           aria-live="polite"
         >
-          <div className="rounded-full bg-slate-900/90 text-white text-sm font-medium px-5 py-2.5 flex items-center gap-2.5 shadow-2xl">
-            <span className="inline-block w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-            Chargement…
+          <div className="loading-overlay-pill flex items-center gap-3 bg-bg-primary border border-border rounded-2xl px-6 py-4 shadow-lg">
+            <svg className="loading-overlay-spinner w-5 h-5 animate-spin text-bg-dark" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-sm font-medium font-body text-text-primary">Chargement…</span>
           </div>
         </div>
       )}

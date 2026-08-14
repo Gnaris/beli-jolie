@@ -4,6 +4,7 @@ import { Poppins, Roboto } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { getServerSession } from "next-auth";
+import { cookies, headers } from "next/headers";
 import { RTL_LOCALES } from "@/i18n/request";
 import { authOptions } from "@/lib/auth";
 import SessionProvider from "@/components/providers/SessionProvider";
@@ -14,6 +15,7 @@ import { LoadingOverlayProvider } from "@/components/ui/LoadingOverlay";
 import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
 import { getCurrentTenantId } from "@/lib/tenant";
+import { ADMIN_THEME_COOKIE, parseAdminTheme } from "@/lib/admin-theme";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
@@ -96,7 +98,7 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   // Idem generateMetadata : bind ALS avant caches.
   await getCurrentTenantId();
-  const [locale, messages, shopName, businessHours, session, announcementRow, seoConfig] = await Promise.all([
+  const [locale, messages, shopName, businessHours, session, announcementRow, seoConfig, cookieStore, headerStore] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
@@ -104,7 +106,19 @@ export default async function RootLayout({
     getServerSession(authOptions),
     getCachedSiteConfig("announcement_banner"),
     getCachedSeoConfig(),
+    cookies(),
+    headers(),
   ]);
+
+  // Dark mode admin : on pose la classe `admin-dark` sur <html> en SSR
+  // pour supprimer le flash de mode clair au reload. Scopé aux visites
+  // /admin uniquement (via le header `x-current-path` posé par le
+  // middleware) — les visiteurs publics qui auraient encore le cookie
+  // ne voient jamais le dark hors admin.
+  const currentPath = headerStore.get("x-current-path") ?? "";
+  const isAdminRoute = currentPath.startsWith("/admin");
+  const adminTheme = parseAdminTheme(cookieStore.get(ADMIN_THEME_COOKIE)?.value ?? null);
+  const htmlThemeClass = isAdminRoute && adminTheme === "dark" ? "admin-dark" : "";
 
   const organizationJsonLd = buildOrganizationSchema({
     name: shopName,
@@ -131,7 +145,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={isRTL ? "rtl" : "ltr"}
-      className={`${poppins.variable} ${roboto.variable}`}
+      className={`${poppins.variable} ${roboto.variable} ${htmlThemeClass}`.trim()}
       style={announcement ? ({ "--announcement-height": `${ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX}px` } as React.CSSProperties) : undefined}
       suppressHydrationWarning
     >

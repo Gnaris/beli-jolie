@@ -136,7 +136,7 @@ export function buildProductPayloadFromBjProduct(
       stock: {
         stock_quantity: effectiveStock,
         is_always_in_stock: false,
-        inventory_policy: "continue",
+        inventory_policy: "deny",
       },
       shape_properties: {
         capacity: null,

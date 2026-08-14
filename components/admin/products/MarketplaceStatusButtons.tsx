@@ -236,9 +236,9 @@ function getCardStateClasses({
   }
   if (state.syncRequired) {
     return {
-      cardClasses: "bg-[#FEF3C7] border-[#FDE68A]",
-      textClasses: "text-[#B45309]",
-      dividerClass: "border-[#FDE68A]",
+      cardClasses: "sync-required-card bg-[#FEF3C7] border-[#FDE68A]",
+      textClasses: "sync-required-text text-[#B45309]",
+      dividerClass: "sync-required-divider border-[#FDE68A]",
     };
   }
   if (state.online) {

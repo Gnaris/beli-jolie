@@ -108,12 +108,12 @@ describe("buildProductPayloadFromBjProduct", () => {
     expect(archived.variants[0].stock.stock_quantity).toBe(42);
   });
 
-  it("inventory_policy toujours 'continue' (jamais deny — évite blocage vente rupture)", () => {
+  it("inventory_policy toujours 'deny' (refuse commande si rupture stock)", () => {
     const p = buildProductPayloadFromBjProduct(baseInput, {
       brandId: 51370,
       pricingConfig,
     });
-    expect(p.variants[0].stock.inventory_policy).toBe("continue");
+    expect(p.variants[0].stock.inventory_policy).toBe("deny");
   });
 
   it("categories vide (Ankor auto-classifie par nom/description)", () => {

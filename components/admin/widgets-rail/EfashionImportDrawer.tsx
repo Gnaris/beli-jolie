@@ -152,6 +152,7 @@ export function EfashionImportDrawer() {
       eyebrow="Import commandes eFashion"
       icon={EFASHION_ICON}
       accent="rose"
+      autoScrollFullscreen
       footer={
         <div className="flex items-center gap-2">
           {!running && (

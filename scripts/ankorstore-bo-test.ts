@@ -268,7 +268,7 @@ async function main() {
         sku,
         ian: null,
         images: [{ filename: imageKey, order: 0 }],
-        stock: { stock_quantity: 1, is_always_in_stock: false, inventory_policy: "continue" },
+        stock: { stock_quantity: 1, is_always_in_stock: false, inventory_policy: "deny" },
         shape_properties: {
           capacity: null, capacity_unit: null,
           height: null, length: null, width: null, dimensions_unit: null,

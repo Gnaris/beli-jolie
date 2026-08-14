@@ -177,6 +177,20 @@ export async function toggleAnkorstoreBoEnabled(
 // Helper — charger produit BJ et le convertir en BjProductInputForBo
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Normalise une valeur de couleur (BJ ou Ankor) pour permettre le matching
+ * cross-source : supprime les accents et met en majuscules. Sert au fallback
+ * de mapping variant.id quand les SKUs BJ ↔ Ankor ne coïncident pas (produit
+ * renommé, SKU stale côté Ankor…).
+ */
+function normalizeColorKey(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Mn}/gu, "")
+    .trim()
+    .toUpperCase();
+}
+
 async function loadBjProductForBo(productId: string): Promise<BjProductInputForBo> {
   const p = await prisma.product.findUnique({
     where: { id: productId },
@@ -666,16 +680,33 @@ export async function publishProductToAnkorstoreBo(
       // Cas standard — lien back-office valide. On injecte les variant.id
       // connus dans le payload — sinon Ankor traite le PUT comme une
       // recréation et refuse 422 "SKU already assigned".
+      //
+      // Deux passages complémentaires :
+      //  1) match SKU exact — cas nominal (SKU BJ = SKU Ankor).
+      //  2) match par valeur de l'option "color" — indispensable quand le
+      //     produit a été renommé côté BJ (nouvelle référence → nouveau SKU
+      //     généré) alors qu'Ankor a gardé l'ancienne SKU. Sans ça, la PUT
+      //     part sans variant.id sur cette couleur, Ankor considère « nouvelle
+      //     variante » et laisse l'ancienne intacte — la case « Continuer à
+      //     vendre » (inventory_policy=continue) ne se met jamais à jour.
       const skuToId = new Map<string, number>();
+      const colorOptionToId = new Map<string, number>();
       if (existingAnkor) {
-        for (const v of existingAnkor.variants ?? []) if (v.sku) skuToId.set(v.sku, v.id);
+        for (const v of existingAnkor.variants ?? []) {
+          if (v.sku) skuToId.set(v.sku, v.id);
+          const colorOpt = v.options.find((o) => o.name === "color")?.value;
+          if (colorOpt) colorOptionToId.set(normalizeColorKey(colorOpt), v.id);
+        }
       }
       // Wrap le payload builder pour injecter l'id de variante connue chez Ankor.
       const buildPayloadWithVariantIds = (): BoProductPayload => {
         const p = buildPayload();
         p.variants = p.variants.map((v) => {
-          const existingId = skuToId.get(v.sku);
-          return existingId ? { ...v, id: existingId } : v;
+          const bySku = skuToId.get(v.sku);
+          if (bySku) return { ...v, id: bySku };
+          const colorOpt = v.options.find((o) => o.name === "color")?.value;
+          const byColor = colorOpt ? colorOptionToId.get(normalizeColorKey(colorOpt)) : null;
+          return byColor ? { ...v, id: byColor } : v;
         });
         return p;
       };

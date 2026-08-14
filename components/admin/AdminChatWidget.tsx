@@ -391,10 +391,12 @@ export default function AdminChatWidget() {
       {/* ── Chat panel ── */}
       {isOpen && (
         <div className="admin-drawer-frame fixed z-[9000] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
-          /* Desktop + tablette ≥ md : panneau flottant 400 × 620 px, décalé de
-             360 px depuis le bord droit pour laisser le rail FAB étoile +
-             mini-boutons visibles à côté (2026-08-14, aligné sur DrawerShell). */
-          md:bottom-6 md:right-[360px] md:w-[400px] md:h-[620px] md:max-h-[calc(100vh-3rem)] md:rounded-3xl md:border md:border-border
+          /* Desktop + tablette ≥ md : mode fullscreen aligné sur DrawerShell —
+             tous les tiroirs du widget flottant partagent la même dimension
+             depuis 2026-08-14 (demande cliente). Sur ≥ lg on garde la sidebar
+             admin (300 px) et le rail FAB (360 px) visibles. */
+          md:inset-0 md:border md:border-border
+          lg:inset-auto lg:top-5 lg:right-[360px] lg:bottom-5 lg:left-[300px] lg:rounded-3xl
           /* Mobile < md : plein écran */
           max-md:inset-0">
           {/* ── Header ── */}

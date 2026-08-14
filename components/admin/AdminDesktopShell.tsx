@@ -504,7 +504,7 @@ export default function AdminDesktopShell({
         onClick={toggle}
         aria-label={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
         title={collapsed ? "Ouvrir la barre latérale" : "Réduire la barre latérale"}
-        className={`hidden lg:flex fixed top-[48px] w-6 h-6 rounded-full bg-white border border-zinc-200 shadow-sm items-center justify-center text-zinc-500 hover:text-zinc-900 hover:border-zinc-900 transition-[left,color,border-color] z-50 ${collapsed ? "left-[64px]" : "left-[248px]"} ${transitionCls}`}
+        className={`sidebar-collapse-btn hidden lg:flex fixed top-[48px] w-6 h-6 rounded-full bg-white border border-zinc-200 shadow-sm items-center justify-center text-zinc-500 hover:text-zinc-900 hover:border-zinc-900 transition-[left,color,border-color] z-50 ${collapsed ? "left-[64px]" : "left-[248px]"} ${transitionCls}`}
       >
         <svg
           className={`w-3 h-3 transition-transform duration-200 ${collapsed ? "rotate-180" : ""}`}

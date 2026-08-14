@@ -140,6 +140,7 @@ export function TranslationDrawer() {
         </span>
       }
       icon={TRANSLATION_ICON}
+      autoScrollFullscreen
       footer={
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-slate-500">Vous pouvez continuer à travailler</span>

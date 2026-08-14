@@ -154,7 +154,7 @@ async function main() {
         sku,
         ian: null,
         images: uploads.map((u, i) => ({ filename: u.key, order: i })),
-        stock: { stock_quantity: 1, is_always_in_stock: false, inventory_policy: "continue" },
+        stock: { stock_quantity: 1, is_always_in_stock: false, inventory_policy: "deny" },
         shape_properties: {
           capacity: null, capacity_unit: null,
           height: null, length: null, width: null, dimensions_unit: null,

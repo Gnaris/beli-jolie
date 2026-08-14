@@ -89,21 +89,21 @@ export function MicrostoreStatusCard({
   const cardClasses = disabled
     ? "bg-[#FAFAFA] border-border-dark"
     : syncRequired
-      ? "bg-[#FEF3C7] border-[#FDE68A]"
+      ? "sync-required-card bg-[#FEF3C7] border-[#FDE68A]"
       : online
         ? "bg-[#DCFCE7] border-[#BBF7D0]"
         : "bg-[#f3f4f6] border-[#e5e7eb]";
   const textColor = disabled
     ? "text-text-muted"
     : syncRequired
-      ? "text-[#92400E]"
+      ? "sync-required-text text-[#92400E]"
       : online
         ? "text-[#15803D]"
         : "text-text-secondary";
   const dividerClass = disabled
     ? "border-border-dark/60"
     : syncRequired
-      ? "border-[#FDE68A]"
+      ? "sync-required-divider border-[#FDE68A]"
       : online
         ? "border-[#BBF7D0]"
         : "border-[#e5e7eb]";

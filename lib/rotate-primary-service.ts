@@ -31,6 +31,7 @@ import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { getCurrentTenantIdSafe } from "@/lib/tenant";
 import { decidePrimaryRotation } from "@/lib/auto-rotate-primary";
+import { emitProductEvent } from "@/lib/product-events";
 
 export interface RotationResult {
   rotated: boolean;
@@ -194,6 +195,11 @@ async function rotatePrimaryInner(productId: string): Promise<RotationResult> {
     }
 
     revalidateTag("admin-products", "default");
+    // Notifie les UI qui écoutent le stream SSE (fiche produit, tableau
+    // catalogue admin) que le produit vient de changer — sans ça, la cliente
+    // resterait sur l'ancien affichage de la couleur principale jusqu'à un
+    // refresh manuel de la page.
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
     logger.info("[RotatePrimary] rotation appliquée", {
       productId,
       reference: product.reference,

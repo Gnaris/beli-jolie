@@ -317,6 +317,7 @@ export function MarketplacesDrawer() {
       onClose={close}
       accent="sky"
       eyebrow="Marketplaces"
+      size="fullscreen"
       title={
         <span className="flex items-center gap-1.5">
           {activeCount > 0 && (
@@ -357,8 +358,8 @@ export function MarketplacesDrawer() {
       <div className="flex flex-col h-full min-h-0 bg-slate-50/60">
         {/* ─── Bandeau KPI aurora sky compact ─── */}
         {!isEmpty && (
-          <div className="flex-shrink-0 px-4 pt-3 pb-2">
-            <div className="grid grid-cols-4 gap-1.5">
+          <div className="flex-shrink-0 px-6 pt-4 pb-3">
+            <div className="mx-auto max-w-3xl grid grid-cols-4 gap-2">
               <KpiTile label="En cours" value={activeCount - queuedCount} tone="sky" pulse={activeCount > 0} />
               <KpiTile label="En attente" value={queuedCount} tone="slate" />
               <KpiTile label="Erreurs" value={errorCount + linkErrorCount} tone="rose" />
@@ -368,8 +369,8 @@ export function MarketplacesDrawer() {
         )}
 
         {/* ─── Onglets (5 vues) ─── */}
-        <div className="flex-shrink-0 px-3 border-b border-slate-200 overflow-x-auto scrollbar-none">
-          <div className="flex gap-1">
+        <div className="flex-shrink-0 px-6 border-b border-slate-200 overflow-x-auto scrollbar-none">
+          <div className="mx-auto max-w-6xl flex gap-1">
             {VIEW_ORDER.map((key) => {
               const view = views.find((v) => v.key === key);
               const badge =
@@ -422,7 +423,7 @@ export function MarketplacesDrawer() {
 
         {/* ─── Filtres marketplace + statut ─── */}
         {activeView && (activeView.groups.length > 0 || activeView.linkJobs.length > 0) && (
-          <div className="flex-shrink-0 px-4 py-2 bg-white border-b border-slate-200 flex items-center gap-3 flex-wrap">
+          <div className="flex-shrink-0 px-6 py-2.5 bg-white border-b border-slate-200 flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1">
               <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mr-1">Marketplaces</span>
               <FilterChip
@@ -684,23 +685,25 @@ function ViewContent({
   }
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-6 space-y-4">
       {view.key === "scheduled" && (
         <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
       )}
-      {filteredGroups.map((group) => (
-        <ProductJobCard
-          key={`${group.productId}::${group.dominantMode}`}
-          group={group}
-          view={view.key}
-          nowMs={nowMs}
-          onRetry={() => onRetry(group)}
-          onDismiss={() => onDismiss(group)}
-        />
-      ))}
-      {filteredLinkJobs.map((job) => (
-        <LinkJobCard key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
-      ))}
+      <div className="grid items-start grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+        {filteredGroups.map((group) => (
+          <ProductJobCard
+            key={`${group.productId}::${group.dominantMode}`}
+            group={group}
+            view={view.key}
+            nowMs={nowMs}
+            onRetry={() => onRetry(group)}
+            onDismiss={() => onDismiss(group)}
+          />
+        ))}
+        {filteredLinkJobs.map((job) => (
+          <LinkJobCard key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -742,7 +745,7 @@ function ScheduleHeader({
   if (!nextSlot) return null;
 
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-amber-50 via-white to-amber-50 border-2 border-amber-200 p-4 shadow-sm">
+    <div className="mx-auto max-w-4xl rounded-2xl bg-gradient-to-br from-amber-50 via-white to-amber-50 border-2 border-amber-200 p-4 shadow-sm">
       <div className="flex items-start gap-3">
         <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-700">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

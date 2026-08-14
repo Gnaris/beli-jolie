@@ -252,6 +252,7 @@ export function PfsImportDrawer() {
       eyebrow="Import commandes PFS"
       title={title}
       icon={PFS_ICON}
+      autoScrollFullscreen
       footer={
         state && (isRunning || showFinal) ? (
           <div className="flex items-center justify-between gap-2">

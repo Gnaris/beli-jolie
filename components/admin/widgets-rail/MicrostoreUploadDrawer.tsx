@@ -137,6 +137,7 @@ export function MicrostoreUploadDrawer() {
         </span>
       }
       icon={ICON}
+      autoScrollFullscreen
       footer={
         <div className="text-[11px] text-slate-500 flex items-center justify-between">
           <span>Envoi Station de Transfert</span>

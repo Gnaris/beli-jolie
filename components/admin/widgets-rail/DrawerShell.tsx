@@ -29,8 +29,15 @@ export interface DrawerShellProps {
   /** "wide" élargit le panneau desktop pour héberger plusieurs colonnes
    *  côte à côte (widget import commandes / clients). "fullscreen" prend
    *  toute la fenêtre (utilisé pour l'audit PFS où il faut voir un maximum
-   *  d'écarts d'un coup). Défaut = "default". */
+   *  d'écarts d'un coup). Défaut = "fullscreen" (tous les tiroirs partagent
+   *  la même taille depuis 2026-08-14 — demande cliente). */
   size?: "default" | "wide" | "fullscreen";
+  /** Par défaut, "wide" et "fullscreen" désactivent le scroll auto de la
+   *  coque pour laisser les enfants gérer leurs propres sticky headers
+   *  (Audit PFS, Marketplaces, Import commandes). Mettre à `true` pour
+   *  restaurer le scroll auto — utile pour les tiroirs simples qui n'ont
+   *  pas leur propre gestion de scroll (Traduction, Images, Shooting…). */
+  autoScrollFullscreen?: boolean;
 }
 
 // Dégradés aurora du header (foncé, texte blanc).
@@ -86,7 +93,8 @@ export function DrawerShell({
   icon,
   footer,
   children,
-  size = "default",
+  size = "fullscreen",
+  autoScrollFullscreen = false,
 }: DrawerShellProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -213,12 +221,17 @@ export function DrawerShell({
           </div>
         </div>
 
-        {/* Body — pour size="wide" et "fullscreen" on empêche tout scroll
-            interne, les enfants doivent se caper eux-mêmes (widget import
-            commandes/clients, audit PFS, marketplaces). Pour "default", scroll
-            auto comme avant. */}
+        {/* Body — pour size="wide" et "fullscreen" on empêche par défaut le
+            scroll interne, les enfants doivent se caper eux-mêmes (widget
+            import commandes/clients, audit PFS, marketplaces). Les tiroirs
+            simples peuvent restaurer le scroll auto en passant
+            `autoScrollFullscreen`. Pour "default", scroll auto comme avant. */}
         <div
-          className={`flex-1 bg-slate-50/60 ${size === "wide" || size === "fullscreen" ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
+          className={`flex-1 bg-slate-50/60 ${
+            size === "default" || autoScrollFullscreen
+              ? "overflow-y-auto overscroll-contain"
+              : "overflow-hidden"
+          }`}
         >
           {children}
         </div>

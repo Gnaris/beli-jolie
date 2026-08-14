@@ -1624,6 +1624,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // Marketplace republication is no longer automatic on edit.
   void oldVariantMap;
 
+  // Rotation auto couleur principale : si la sauvegarde a laissé la principale
+  // sur une couleur entièrement en rupture (toutes ses variantes stock=0 ou
+  // disabled) alors qu'une autre couleur a du stock, on bascule la principale
+  // vers cette autre. Mode immédiat car c'est une seule action explicite
+  // (pas de rafale à fusionner comme sur updateVariantQuick).
+  await rotatePrimaryIfNeeded(id, { immediate: true });
+
   // Return variant DB IDs in the same order as input.colors
   // so the client can update its local state without a page reload.
   return {

@@ -1611,18 +1611,44 @@ html.admin-dark .hover\:bg-zinc-100:hover { background-color: #2d2d33 !important
 html.admin-dark .hover\:text-zinc-900:hover { color: #f4f4f5 !important; }
 html.admin-dark .hover\:border-zinc-900:hover { border-color: #f4f4f5 !important; }
 
-/* ─── Aurora headers (dégradés pastels des heros admin) ──────────────── */
-/* En sombre, on force les gradients "from-*-50" à devenir transparents pour
-   ne pas afficher une bande pastel criarde sur un fond noir. */
-html.admin-dark [class*="from-slate-50"],
-html.admin-dark [class*="from-zinc-50"],
-html.admin-dark [class*="from-emerald-50"],
-html.admin-dark [class*="from-sky-50"],
-html.admin-dark [class*="from-violet-50"],
-html.admin-dark [class*="from-amber-50"],
-html.admin-dark [class*="from-rose-50"] {
-  --tw-gradient-from: transparent !important;
-  --tw-gradient-stops: transparent, var(--tw-gradient-to, transparent) !important;
+/* ─── Fonds dégradés pastel — neutralisés en mode sombre ────────────
+   Demande cliente (2026-08-14) : « enlève tous les fonds dégradés,
+   ça ne rend pas beau sur le thème sombre ».
+   On coupe l'image de fond des gradients pastels (`from-*-50`,
+   `from-*-100`, `from-*-200`) partout dans l'admin — heros, KPI
+   tiles, cartes de stats, panneaux de mapping, sections marketing.
+   Exceptions préservées :
+   - `data-drawer-accent`  : headers aurora de tiroir (version nuit
+     déjà définie plus haut).
+   - `admin-fab-preserve`  : FAB étoile + mini-boutons colorés du
+     rail flottant.
+   Les gradients vifs (from-*-400/500/600/700 utilisés sur boutons,
+   badges, initiales marketplaces) restent intacts car ils portent
+   l'identité colorée du composant. */
+html.admin-dark :is(
+  [class*="from-slate-50"],  [class*="from-slate-100"],  [class*="from-slate-200"],
+  [class*="from-zinc-50"],   [class*="from-zinc-100"],   [class*="from-zinc-200"],
+  [class*="from-neutral-50"],[class*="from-neutral-100"],
+  [class*="from-stone-50"],  [class*="from-stone-100"],
+  [class*="from-emerald-50"],[class*="from-emerald-100"],[class*="from-emerald-200"],
+  [class*="from-green-50"],  [class*="from-green-100"],
+  [class*="from-teal-50"],   [class*="from-teal-100"],
+  [class*="from-cyan-50"],   [class*="from-cyan-100"],
+  [class*="from-sky-50"],    [class*="from-sky-100"],    [class*="from-sky-200"],
+  [class*="from-blue-50"],   [class*="from-blue-100"],
+  [class*="from-indigo-50"], [class*="from-indigo-100"],
+  [class*="from-violet-50"], [class*="from-violet-100"], [class*="from-violet-200"],
+  [class*="from-purple-50"], [class*="from-purple-100"],
+  [class*="from-fuchsia-50"],[class*="from-fuchsia-100"],
+  [class*="from-pink-50"],   [class*="from-pink-100"],
+  [class*="from-rose-50"],   [class*="from-rose-100"],   [class*="from-rose-200"],
+  [class*="from-red-50"],    [class*="from-red-100"],
+  [class*="from-orange-50"], [class*="from-orange-100"],
+  [class*="from-amber-50"],  [class*="from-amber-100"],  [class*="from-amber-200"],
+  [class*="from-yellow-50"], [class*="from-yellow-100"],
+  [class*="from-lime-50"],   [class*="from-lime-100"]
+):not([data-drawer-accent]):not(.admin-fab-preserve):not(.admin-fab-preserve *) {
+  background-image: none !important;
 }
 
 /* Halos décoratifs blur-3xl → atténués */
@@ -1882,6 +1908,19 @@ html.admin-dark .bg-slate-700 { background-color: #334155 !important; }
 html.admin-dark .bg-slate-800 { background-color: #1e293b !important; }
 html.admin-dark .bg-slate-900 { background-color: #0f172a !important; }
 html.admin-dark .hover\:bg-slate-900:hover { background-color: #020617 !important; }
+/* Variantes opacity : Tailwind v4 génère `color-mix(--color-slate-900 X%)`
+   et en dark on a redéfini `--color-slate-900 = #f4f4f5` (blanc). Résultat :
+   `bg-slate-900/25` devient blanc translucide au lieu de marine translucide.
+   Cas concret : overlay « Chargement… » de MarketplacesOrdersView (backdrop
+   bg-slate-900/25 + pill bg-slate-900/90) devenait un pill blanc sur backdrop
+   blanc — le texte blanc du pill était invisible. On force les variantes
+   d'opacité vers du vrai marine foncé. */
+html.admin-dark .bg-slate-900\/25.bg-slate-900\/25 { background-color: rgba(15, 23, 42, 0.55) !important; }
+html.admin-dark .bg-slate-900\/50.bg-slate-900\/50 { background-color: rgba(15, 23, 42, 0.65) !important; }
+html.admin-dark .bg-slate-900\/70.bg-slate-900\/70 { background-color: rgba(15, 23, 42, 0.8) !important; }
+html.admin-dark .bg-slate-900\/90.bg-slate-900\/90 { background-color: rgba(15, 23, 42, 0.95) !important; }
+html.admin-dark .bg-slate-900\/90 .text-white,
+html.admin-dark .bg-slate-900\/90.bg-slate-900\/90 { color: #f4f4f5; }
 html.admin-dark .hover\:bg-slate-200:hover { background-color: #3f3f46 !important; }
 html.admin-dark .focus\:ring-slate-400:focus { --tw-ring-color: #71717a !important; }
 
@@ -1993,6 +2032,181 @@ html.admin-dark [role="dialog"] footer,
 html.admin-dark [role="dialog"] .footer,
 html.admin-dark [role="dialog"] [class*="border-t"] { background-color: transparent; }
 
+/* ─── Ombre douce sur les cartes admin en mode sombre ───────────────
+   Demande cliente (2026-08-14) : « ajoute une ombre grosse mais
+   discrète (peu opaque) sur tous les éléments admin en mode sombre,
+   ça rendra mieux ». Objectif : sortir les cartes du fond sombre
+   uni sans agressivité — on garde l'esthétique flat mais on donne
+   de la profondeur.
+   Ciblage : toutes les cartes avec fond bg-bg-primary/bg-white et
+   coins arrondis xl/2xl/3xl, scopé au wrapper admin.
+   Exceptions : `.admin-drawer-frame` (les tiroirs ont déjà leur
+   ombre dédiée), `.admin-fab-preserve *` (rail flottant préservé). */
+html.admin-dark #admin-theme-wrapper :is(.bg-bg-primary, .bg-white):is(
+  [class*="rounded-xl"],
+  [class*="rounded-2xl"],
+  [class*="rounded-3xl"]
+):not(.admin-drawer-frame):not(.admin-fab-preserve):not(.admin-fab-preserve *) {
+  box-shadow:
+    0 24px 60px -20px rgba(0,0,0,0.7),
+    0 6px 18px -6px rgba(0,0,0,0.35);
+}
+
+/* ─── Fonds dégradés en style inline (page /admin/commandes) ─────────
+   La page /admin/commandes utilise `style={{background:"linear-gradient(
+   … #F5F3EE …)"}}` sur son hero + ses KPI tiles + son EmptyState — un
+   beige/écru qui ressort criard sur le fond sombre. On les neutralise
+   via un attribute selector qui matche la chaîne `F5F3EE` dans le
+   style inline. Le fond retombe sur `bg-bg-primary` (déjà remappé
+   sombre en admin-dark).
+   Idem pour le dégradé `rgba(24,24,27,0.03)` de l'EmptyState : trop
+   clair sur fond sombre. */
+html.admin-dark [style*="F5F3EE"],
+html.admin-dark [style*="F5F5F4"],
+html.admin-dark [style*="rgba(24,24,27,0.03)"] {
+  background: var(--color-bg-primary) !important;
+}
+
+/* ─── Fonds pastels hex figés (composants Paramètres/Carrousels) ──────
+   Beaucoup de sous-composants (CatalogDisplayConfig, HomepageCarouselsConfig,
+   StockDisplayConfig, PromotionForm, etc.) utilisent des hex figés
+   `#FAFAFA`, `#F3F4F6`, `#F9FAFB`, `#E5E7EB`, `#D1D5DB` pour les fonds
+   secondaires et bordures. En dark mode ces couleurs restent blanches
+   et illisibles. On les remappe vers la palette sombre. */
+html.admin-dark [class*="bg-\[\#FAFAFA\]"] { background-color: #26262b !important; }
+html.admin-dark [class*="bg-\[\#F3F4F6\]"] { background-color: #26262b !important; }
+html.admin-dark [class*="bg-\[\#F9FAFB\]"] { background-color: #26262b !important; }
+html.admin-dark [class*="bg-\[\#F5F5F4\]"] { background-color: #26262b !important; }
+html.admin-dark [class*="bg-\[\#E5E5E5\]"] { background-color: #2d2d33 !important; }
+html.admin-dark [class*="bg-\[\#E5E7EB\]"] { background-color: #2d2d33 !important; }
+html.admin-dark [class*="bg-\[\#D1D5DB\]"] { background-color: #52525b !important; }
+html.admin-dark [class*="hover\:bg-\[\#E5E5E5\]"]:hover { background-color: #3f3f46 !important; }
+html.admin-dark [class*="hover\:bg-\[\#E5E7EB\]"]:hover { background-color: #3f3f46 !important; }
+html.admin-dark [class*="hover\:bg-\[\#F3F4F6\]"]:hover { background-color: #3f3f46 !important; }
+
+/* Textes gris moyen figés → passer en clair pour rester lisibles. */
+html.admin-dark [class*="text-\[\#1F2937\]"] { color: #e4e4e7 !important; }
+html.admin-dark [class*="text-\[\#374151\]"] { color: #d4d4d8 !important; }
+html.admin-dark [class*="text-\[\#4B5563\]"] { color: #a1a1aa !important; }
+html.admin-dark [class*="text-\[\#6B7280\]"] { color: #a1a1aa !important; }
+
+/* Bordures figées → foncer en dark */
+html.admin-dark [class*="border-\[\#D1D5DB\]"] { border-color: #52525b !important; }
+html.admin-dark [class*="border-\[\#E5E7EB\]"] { border-color: #3f3f46 !important; }
+
+/* ─── Toggle « peer » (StockDisplayConfig et similaires) ─────────────
+   Pattern : `<input type=checkbox class=peer /> <div class=peer-checked:bg-bg-dark />`.
+   En dark, `bg-bg-dark` est quasi noir → invisible sur fond sombre. On
+   force emerald quand coché, zinc quand décoché. La pastille (bg-bg-primary)
+   passe en blanc franc. */
+html.admin-dark .peer:checked ~ [class*="peer-checked\:bg-bg-dark"] {
+  background-color: #10b981 !important;
+}
+html.admin-dark [class*="bg-\[\#D1D5DB\]"].rounded-full {
+  background-color: #52525b !important;
+}
+html.admin-dark [class*="bg-bg-primary"].rounded-full {
+  background-color: #f4f4f5 !important;
+}
+
+/* ─── Bouton de réduction/expansion de la sidebar admin ─────────────
+   Le petit bouton rond entre la sidebar et le contenu est en `bg-white`
+   avec bord clair — en dark il disparaissait quasi. On passe à un
+   gris/noir bien visible. */
+html.admin-dark .sidebar-collapse-btn {
+  background-color: #26262b !important;
+  border-color: #52525b !important;
+  color: #a1a1aa !important;
+}
+html.admin-dark .sidebar-collapse-btn:hover {
+  background-color: #3f3f46 !important;
+  color: #f4f4f5 !important;
+  border-color: #71717a !important;
+}
+
+/* ─── Toggle switches (Paramètres — AutoTranslate, Stock, etc.) ──────
+   Les toggles utilisent bg-bg-dark quand ON (#141417 en dark = quasi
+   invisible sur fond sombre) et bg-[#D1D1D1] quand OFF (gris clair
+   trop lumineux en dark). On repasse sur du zinc calibré pour le dark. */
+html.admin-dark [role="switch"] {
+  transition: background-color 0.2s ease !important;
+}
+html.admin-dark [role="switch"][aria-checked="true"] {
+  background-color: #10b981 !important;   /* emerald-500 : ON franc */
+}
+html.admin-dark [role="switch"][aria-checked="false"] {
+  background-color: #52525b !important;   /* zinc-600 : OFF gris */
+}
+html.admin-dark [role="switch"] > span {
+  background-color: #f4f4f5 !important;   /* pastille blanche */
+}
+
+/* ─── Badge « Archivé » (produits) ────────────────────────────────────
+   Fond orange pastel (#FFF7ED) trop clair en dark mode. On l'assombrit
+   dans la même famille ambrée que les autres badges statuts.
+   Double ciblage : par la classe hook `.status-badge-archived` ET par
+   l'attribut style Tailwind arbitraire, au cas où le HMR CSS n'aurait
+   pas encore rechargé la nouvelle classe. */
+html.admin-dark .status-badge-archived,
+html.admin-dark [class*="bg-\[\#FFF7ED\]"][class*="text-\[\#C2410C\]"] {
+  background-color: #3a1e05 !important;
+  border-color: #9a3412 !important;
+  color: #fdba74 !important;
+}
+html.admin-dark .status-badge-archived:hover,
+html.admin-dark [class*="bg-\[\#FFF7ED\]"][class*="text-\[\#C2410C\]"]:hover {
+  background-color: #4a2708 !important;
+}
+
+/* ─── Boutons/pilules `from-text-primary to-text-secondary` ───────────
+   Ce dégradé s'appuie sur les variables sémantiques du design system.
+   En dark, `text-primary` = #d4d4d8 (gris clair) → le bouton se retrouve
+   quasi blanc avec un texte blanc dessus, illisible. On repasse sur un
+   dégradé zinc-600/zinc-700 qui garde le look « CTA sombre » avec le
+   texte blanc dessus. Utilisé notamment par le bouton « Examiner » de la
+   liste utilisateurs, la pagination, les onglets settings. */
+html.admin-dark [class*="from-text-primary"][class*="to-text-secondary"] {
+  background-image: linear-gradient(to bottom right, #3f3f46, #52525b) !important;
+  color: #f4f4f5 !important;
+}
+/* Bordure `border-text-primary` : en dark elle devient blanche (car
+   text-primary = #d4d4d8 = clair). On la remap sur du zinc foncé
+   pour ne pas cerner le tab actif d'un liseré blanc criard. */
+html.admin-dark .border-text-primary {
+  border-color: #52525b !important;
+}
+
+/* ─── Badges marketplace « synchro nécessaire » ───────────────────────
+   Les couleurs pastel orange (#FFF7ED / #FED7AA / #9A3412) restent
+   éclatantes sur fond sombre. On les remplace par une variante nuit
+   (fond brun ambré profond + bord orange foncé + texte ambré vif)
+   pour rester lisible sans brûler l'œil.
+   `sync-required-badge` = petits badges du tableau produits (AdminProductsTable).
+   `sync-required-card`  = cartes format fiche produit (MarketplaceStatusButtons + Microstore).
+
+   Note : on double la classe (`.foo.foo`) pour hausser la spécificité au
+   dessus des utilities arbitraires Tailwind v4 (`bg-[#FFF7ED]`) qui,
+   selon l'ordre de génération, peuvent gagner malgré `!important`. */
+html.admin-dark .sync-required-badge.sync-required-badge {
+  background-color: #3a1e05 !important;
+  border-color: #9a3412 !important;
+  color: #fdba74 !important;
+}
+html.admin-dark .sync-required-badge.sync-required-badge:hover {
+  background-color: #4a2708 !important;
+  border-color: #c2410c !important;
+}
+html.admin-dark .sync-required-card.sync-required-card {
+  background-color: #3b2a08 !important;
+  border-color: #78350f !important;
+}
+html.admin-dark .sync-required-text.sync-required-text {
+  color: #fbbf24 !important;
+}
+html.admin-dark .sync-required-divider.sync-required-divider {
+  border-color: #78350f !important;
+}
+
 /* ─── Délimiteur des drawers de widgets ───────────────────────────────
    En dark mode, la border par défaut (border-slate-200 → #2f2f34) et
    le fond blanc du drawer se confondent avec le fond de page très
@@ -2012,13 +2226,43 @@ html.admin-dark .admin-drawer-frame {
    dark, quasi indiscernable de la page (#141417). On le remonte à un
    gris plus clair et on éclaircit le spinner (par défaut text-bg-dark
    = noir pur, invisible sur fond sombre). */
-html.admin-dark .loading-overlay-pill {
+html.admin-dark .loading-overlay-pill.loading-overlay-pill {
   background-color: #52525b !important;
   border-color: #71717a !important;
+  color: #f4f4f5 !important;
   box-shadow: 0 10px 30px -8px rgba(0,0,0,0.7), 0 4px 12px rgba(0,0,0,0.5) !important;
 }
-html.admin-dark .loading-overlay-pill .loading-overlay-spinner { color: #f4f4f5 !important; }
-html.admin-dark .loading-overlay-pill span { color: #f4f4f5 !important; }
+html.admin-dark .loading-overlay-pill .loading-overlay-spinner,
+html.admin-dark .loading-overlay-pill svg { color: #f4f4f5 !important; }
+html.admin-dark .loading-overlay-pill span,
+html.admin-dark .loading-overlay-pill p { color: #f4f4f5 !important; }
+
+/* ─── Modale de liaison Ankorstore (LinkAnkorstoreProductModal.tsx) ──
+   L'en-tête aurora sky (bleu vif) devient bleu marine en mode sombre —
+   demande cliente 2026-08-14, le sky vif brûle les yeux sur fond
+   #1e1e22 alors que le marine se fond au thème sans perdre le rappel
+   « Ankorstore = bleu ». Halos et rond d'initiale suivent. */
+.ankor-link-header-bg { background: linear-gradient(135deg, #0ea5e9, #38bdf8); }
+.ankor-link-halo-primary   { background: #38bdf8; }
+.ankor-link-halo-secondary { background: #0ea5e9; }
+.ankor-link-avatar-bg { background: linear-gradient(135deg, #0369a1, #0ea5e9); }
+
+#admin-theme-wrapper.admin-dark .ankor-link-header-bg,
+html.admin-dark .ankor-link-header-bg {
+  background: linear-gradient(135deg, #0a1929, #142c47);
+}
+#admin-theme-wrapper.admin-dark .ankor-link-halo-primary,
+html.admin-dark .ankor-link-halo-primary {
+  background: #1e3a5f;
+}
+#admin-theme-wrapper.admin-dark .ankor-link-halo-secondary,
+html.admin-dark .ankor-link-halo-secondary {
+  background: #0c223f;
+}
+#admin-theme-wrapper.admin-dark .ankor-link-avatar-bg,
+html.admin-dark .ankor-link-avatar-bg {
+  background: linear-gradient(135deg, #06172e, #1e3a5f);
+}
 
 /* Reduce-motion protégé par la règle globale, rien à ajouter ici. */
 

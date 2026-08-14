@@ -379,7 +379,7 @@ function MarketplaceBadge({
             e.stopPropagation();
             onSyncClick?.();
           }}
-          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
         >
           <span className="relative inline-flex">
@@ -492,7 +492,7 @@ function AnkorstoreBadge({
             e.stopPropagation();
             onSyncClick?.();
           }}
-          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
         >
           <span className="relative inline-flex">
@@ -635,7 +635,7 @@ function EfashionBadge({
             e.stopPropagation();
             onSyncClick?.();
           }}
-          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
         >
           <span className="relative inline-flex">
@@ -748,7 +748,7 @@ function FaireBadge({
             e.stopPropagation();
             onSyncClick?.();
           }}
-          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
         >
           <span className="relative inline-flex">
@@ -844,7 +844,7 @@ function MicrostoreBadge({
             e.stopPropagation();
             onSyncClick?.();
           }}
-          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Microstore"
         >
           <span className="relative inline-flex">
@@ -1990,7 +1990,7 @@ function StatusBadge({
   const badgeCls = {
     ONLINE: "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0] hover:bg-[#DCFCE7]",
     OFFLINE: "bg-bg-secondary text-text-secondary border-border hover:bg-bg-tertiary",
-    ARCHIVED: "bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFEDD5]",
+    ARCHIVED: "status-badge-archived bg-[#FFF7ED] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFEDD5]",
     SYNCING: "bg-blue-50 text-blue-700 border-blue-200",
   } as const;
 
@@ -6401,7 +6401,7 @@ function MpDot({
   // Pas lié + non cliquable (marketplace non opérationnelle) → gris passif.
   const canAct = !active && !!onClick;
   const cls = isSync
-    ? "bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"
+    ? "sync-required-badge bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"
     : active
       ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
       : canAct

@@ -236,6 +236,91 @@ describe("Refonte couleurs au niveau produit (real DB)", () => {
       expect(product?.primaryColorId).toBe(entities.color2.id);
     });
 
+    it("rotation auto : bascule primaryColorId quand la principale actuelle est en rupture et qu'une autre couleur a du stock", async () => {
+      // Contexte : la cliente sauvegarde le formulaire complet avec primaryColorId
+      // pointant sur color1 dont la variante est à stock=0. Une autre variante
+      // (color2) a encore du stock. Le service de rotation doit basculer
+      // primaryColorId vers color2 immédiatement (mode immediate=true depuis
+      // updateProduct — pas de debounce car c'est une action explicite).
+      const created = await createProduct(
+        baseInput({
+          reference: `${TEST_PREFIX}PRIM-ROTATE`,
+          primaryColorId: entities.color1.id,
+          colors: [
+            {
+              colorId: entities.color1.id,
+              unitPrice: 9.99,
+              weight: 0.1,
+              stock: 5,
+              isPrimary: true,
+              saleType: "UNIT",
+              packQuantity: null,
+              sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+            },
+            {
+              colorId: entities.color2.id,
+              unitPrice: 9.99,
+              weight: 0.1,
+              stock: 5,
+              isPrimary: false,
+              saleType: "UNIT",
+              packQuantity: null,
+              sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+            },
+          ],
+        }),
+      );
+
+      // Récupère les dbIds pour ne pas recréer les variantes au save suivant.
+      const withVariants = await prisma.product.findUnique({
+        where: { id: created.id },
+        select: { colors: { select: { id: true, colorId: true } } },
+      });
+      const c1Db = withVariants!.colors.find((c) => c.colorId === entities.color1.id)!.id;
+      const c2Db = withVariants!.colors.find((c) => c.colorId === entities.color2.id)!.id;
+
+      // La cliente met la principale (color1) à 0 → elle est en rupture. Elle
+      // garde primaryColorId sur color1 par défaut (le formulaire ne change
+      // pas la principale automatiquement pendant la saisie). color2 reste
+      // dispo. La rotation doit basculer vers color2.
+      await updateProduct(created.id, {
+        ...baseInput({
+          reference: `${TEST_PREFIX}PRIM-ROTATE`,
+          primaryColorId: entities.color1.id,
+        }),
+        colors: [
+          {
+            dbId: c1Db,
+            colorId: entities.color1.id,
+            unitPrice: 9.99,
+            weight: 0.1,
+            stock: 0,
+            isPrimary: true,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+          {
+            dbId: c2Db,
+            colorId: entities.color2.id,
+            unitPrice: 9.99,
+            weight: 0.1,
+            stock: 5,
+            isPrimary: false,
+            saleType: "UNIT",
+            packQuantity: null,
+            sizeEntries: [{ sizeId: entities.size.id, quantity: 1 }],
+          },
+        ],
+      });
+
+      const after = await prisma.product.findUnique({
+        where: { id: created.id },
+        select: { primaryColorId: true },
+      });
+      expect(after?.primaryColorId).toBe(entities.color2.id);
+    });
+
     it("réassigne primaryColorId sur la 1ʳᵉ couleur restante quand la variante portant la principale est supprimée", async () => {
       const created = await createProduct(
         baseInput({

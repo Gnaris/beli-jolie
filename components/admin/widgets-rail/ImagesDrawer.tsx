@@ -155,6 +155,7 @@ export function ImagesDrawer() {
         </span>
       }
       icon={IMAGES_ICON}
+      autoScrollFullscreen
       footer={
         <div className="text-[11px] text-slate-500 flex items-center justify-between">
           <span>3 en parallèle</span>
