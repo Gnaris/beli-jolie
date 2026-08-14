@@ -17,7 +17,7 @@ import type { PfsSyncSnapshot } from "@/lib/pfs-sync-diff";
 import type { FaireSyncSnapshot } from "@/lib/faire-sync-diff";
 // Type minimal repris du legacy pour ne pas casser la lecture du snapshot BJ existant.
 type AnkorstoreSyncSnapshot = {
-  variants?: Array<{ ankorsVariantId?: string | null; ankorsColorName?: string | null }>;
+  variants?: Record<string, { optionColor?: string | null; ankorsColorName?: string | null }>;
 };
 import type { PfsColorOption } from "@/components/admin/products/ColorVariantManager";
 

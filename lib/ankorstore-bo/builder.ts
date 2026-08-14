@@ -9,7 +9,6 @@
  */
 
 import type { BoProductPayload, BoProductImage, BoVariantPayload, BoOptionPayload } from "./types";
-import { buildAnkorstoreBoSku } from "./sku";
 import {
   ANKORSTORE_OPTION_IDS,
   ANKORSTORE_TAG_IDS,
@@ -37,6 +36,12 @@ export interface BjColorInputForBo {
   imageKeys: string[];
   /** SKU IAN/EAN optionnel. */
   ian?: string | null;
+  /**
+   * SKU final à envoyer à Ankorstore. Doit être pré-résolu par l'appelant :
+   * réutilisé depuis ProductColor.ankorsSku si présent (update), sinon fraîchement
+   * généré + persisté avant l'appel (nouvelle publication ou re-publish après delete).
+   */
+  sku: string;
 }
 
 export interface BjProductInputForBo {
@@ -95,7 +100,12 @@ export function buildProductPayloadFromBjProduct(
 
   const variants: BoVariantPayload[] = enabledColors.map((c) => {
     const colorName = resolveColorName(c);
-    const sku = buildAnkorstoreBoSku(bj.reference, colorName);
+    if (!c.sku) {
+      throw new Error(
+        `SKU manquant pour la variante ${c.id} — l'appelant doit pré-résoudre ankorsSku avant de builder le payload.`
+      );
+    }
+    const sku = c.sku;
 
     const wholesaleEUR = getAnkorstorePackedPrice(
       Number(c.unitPrice),

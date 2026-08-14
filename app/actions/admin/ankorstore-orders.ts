@@ -32,6 +32,7 @@ export interface AnkorstoreOrderDetailFull {
 }
 
 export interface AnkorstoreImportState {
+  status: "IDLE" | "RUNNING" | "COMPLETED" | "FAILED";
   running: boolean;
   lastRunAt: string | null;
   errorMessage: string | null;
@@ -44,7 +45,12 @@ export async function listAnkorstoreOrders(): Promise<AnkorstoreOrderDetailFull[
 
 /** STUB — retourne toujours "non-running / jamais lancé". */
 export async function getAnkorstoreImportState(): Promise<AnkorstoreImportState> {
-  return { running: false, lastRunAt: null, errorMessage: "Ankorstore désactivé temporairement" };
+  return {
+    status: "IDLE",
+    running: false,
+    lastRunAt: null,
+    errorMessage: "Ankorstore désactivé temporairement",
+  };
 }
 
 /** STUB — no-op. */
@@ -72,7 +78,10 @@ export async function deductAnkorstoreStock(): Promise<{ success: false; error: 
 }
 
 /** STUB — no-op, aligne signature avec MarketplacesOrdersView. */
-export async function syncAnkorstoreOrdersNow(): Promise<{ success: false; error: string }> {
+export async function syncAnkorstoreOrdersNow(): Promise<
+  | { success: false; error: string }
+  | { success: true; created: number; updated: number }
+> {
   return { success: false, error: "Ankorstore désactivé temporairement" };
 }
 
@@ -86,7 +95,7 @@ export async function getAnkorstoreImportStateAction(): Promise<AnkorstoreImport
   return getAnkorstoreImportState();
 }
 
-/** STUB — aligne signature avec MarketplacesOrdersView. */
-export async function getAnkorstoreOrderDetail(): Promise<AnkorstoreOrderDetailFull | null> {
+/** STUB — aligne signature avec MarketplacesOrdersView (accepte l'id ignoré). */
+export async function getAnkorstoreOrderDetail(_id?: string): Promise<AnkorstoreOrderDetailFull | null> {
   return null;
 }

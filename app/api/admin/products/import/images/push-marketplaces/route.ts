@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         else { messages.push(`PFS : ${outcome.pfs.message}`); success = false; }
       }
       if (outcome.ankorstore) {
-        if (outcome.ankorstore.status === "queued") messages.push("Ankorstore : en file d'attente");
+        if (outcome.ankorstore.status === "ok") messages.push("Ankorstore : OK");
         else { messages.push(`Ankorstore : ${outcome.ankorstore.message}`); success = false; }
       }
     } catch (err) {

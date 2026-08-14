@@ -3,7 +3,9 @@ import {
   buildAnkorstoreBoSku,
   normalizeColorForSku,
   normalizeReferenceForSku,
+  generateAnkorstoreBoSkuSuffix,
   MAX_SKU_LENGTH,
+  SKU_SUFFIX_LENGTH,
 } from "@/lib/ankorstore-bo/sku";
 
 describe("normalizeColorForSku", () => {
@@ -21,7 +23,6 @@ describe("normalizeColorForSku", () => {
   it("gère les apostrophes (cas 'Vert D'eau')", () => {
     expect(normalizeColorForSku("Vert D'eau")).toBe("VERT_DEAU");
     expect(normalizeColorForSku("Vert d'eau")).toBe("VERT_DEAU");
-    // Apostrophe courbe unicode ’
     expect(normalizeColorForSku("Vert D’eau")).toBe("VERT_DEAU");
   });
 
@@ -43,7 +44,6 @@ describe("normalizeColorForSku", () => {
   });
 
   it("fournit un fallback si couleur totalement exotique", () => {
-    // La normalisation elle-même renvoie "" — c'est buildAnkorstoreBoSku qui fait le fallback
     expect(normalizeColorForSku("!!!")).toBe("");
   });
 });
@@ -56,32 +56,55 @@ describe("normalizeReferenceForSku", () => {
   });
 });
 
-describe("buildAnkorstoreBoSku", () => {
+describe("generateAnkorstoreBoSkuSuffix", () => {
+  it(`renvoie ${SKU_SUFFIX_LENGTH} caractères dans l'alphabet safe`, () => {
+    for (let i = 0; i < 100; i++) {
+      const s = generateAnkorstoreBoSkuSuffix();
+      expect(s).toHaveLength(SKU_SUFFIX_LENGTH);
+      // Alphabet sans O/0/I/1/L
+      expect(s).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]+$/);
+    }
+  });
+
+  it("ne produit pas de doublon massif sur 1000 tirages", () => {
+    const set = new Set<string>();
+    for (let i = 0; i < 1000; i++) set.add(generateAnkorstoreBoSkuSuffix());
+    // 1000 tirages sur ~28M combinaisons — collision quasi impossible.
+    // On tolère 1 collision au cas où (test flaky à zéro tolérance sinon).
+    expect(set.size).toBeGreaterThanOrEqual(999);
+  });
+});
+
+describe("buildAnkorstoreBoSku (nouveau format {REF}_{COULEUR}_{5chars})", () => {
   it("cas nominal — cliente : A1555 + Vert D'eau", () => {
-    expect(buildAnkorstoreBoSku("A1555", "Vert D'eau")).toBe("A1555_VERT_DEAU");
+    const sku = buildAnkorstoreBoSku("A1555", "Vert D'eau");
+    expect(sku).toMatch(/^A1555_VERT_DEAU_[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/);
   });
 
   it("cas nominal — cliente : A1555 + Multicolore - Bleu", () => {
-    expect(buildAnkorstoreBoSku("A1555", "Multicolore - Bleu")).toBe("A1555_MULTICOLORE_BLEU");
+    const sku = buildAnkorstoreBoSku("A1555", "Multicolore - Bleu");
+    expect(sku).toMatch(/^A1555_MULTICOLORE_BLEU_[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/);
   });
 
   it("supporte les couleurs simples", () => {
-    expect(buildAnkorstoreBoSku("A1555", "Doré")).toBe("A1555_DORE");
-    expect(buildAnkorstoreBoSku("A1555", "Argent")).toBe("A1555_ARGENT");
-    expect(buildAnkorstoreBoSku("A1555", "Rouge")).toBe("A1555_ROUGE");
+    expect(buildAnkorstoreBoSku("A1555", "Doré")).toMatch(/^A1555_DORE_.{5}$/);
+    expect(buildAnkorstoreBoSku("A1555", "Argent")).toMatch(/^A1555_ARGENT_.{5}$/);
+    expect(buildAnkorstoreBoSku("A1555", "Rouge")).toMatch(/^A1555_ROUGE_.{5}$/);
   });
 
   it("fallback quand couleur normalisée est vide", () => {
-    expect(buildAnkorstoreBoSku("A1555", "")).toBe("A1555_COULEUR");
-    expect(buildAnkorstoreBoSku("A1555", "!!!")).toBe("A1555_COULEUR");
+    expect(buildAnkorstoreBoSku("A1555", "")).toMatch(/^A1555_COULEUR_.{5}$/);
+    expect(buildAnkorstoreBoSku("A1555", "!!!")).toMatch(/^A1555_COULEUR_.{5}$/);
   });
 
-  it("tronque la couleur si dépasse MAX_SKU_LENGTH", () => {
+  it("tronque la couleur si dépasse MAX_SKU_LENGTH mais garde le suffixe intact", () => {
     const longColor = "Vert Bleu Rouge Multicolore Special Edition Limited";
     const sku = buildAnkorstoreBoSku("A1555", longColor);
     expect(sku.length).toBeLessThanOrEqual(MAX_SKU_LENGTH);
     expect(sku.startsWith("A1555_")).toBe(true);
-    expect(sku).not.toMatch(/_$/); // ne finit pas par _
+    expect(sku).not.toMatch(/_$/);
+    // Le suffixe (les 5 derniers chars alphanum de l'alphabet safe) doit être intact
+    expect(sku).toMatch(/_[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/);
   });
 
   it("throw si la référence est vide après normalisation", () => {
@@ -89,9 +112,29 @@ describe("buildAnkorstoreBoSku", () => {
     expect(() => buildAnkorstoreBoSku("!!!", "Rouge")).toThrow(/référence vide/i);
   });
 
+  it("réutilise un suffixe existant si fourni (mode update)", () => {
+    const sku = buildAnkorstoreBoSku("A1720", "Rouge", "ABCDE");
+    expect(sku).toBe("A1720_ROUGE_ABCDE");
+  });
+
+  it("génère un nouveau suffixe si `existingSuffix` invalide (mauvaise longueur)", () => {
+    // Suffixe trop court → ignoré, on regénère un neuf.
+    const sku = buildAnkorstoreBoSku("A1720", "Rouge", "AB");
+    expect(sku).toMatch(/^A1720_ROUGE_.{5}$/);
+    expect(sku).not.toContain("_AB");
+  });
+
+  it("2 appels sans suffixe donnent des SKU différents (unicité par appel)", () => {
+    const a = buildAnkorstoreBoSku("A1720", "Rouge");
+    const b = buildAnkorstoreBoSku("A1720", "Rouge");
+    expect(a).not.toBe(b);
+  });
+
   it("respecte l'exemple étendu de la cliente pour une ref complexe", () => {
-    // Vérifie que les cas variés dérivés des références BJ marchent
-    expect(buildAnkorstoreBoSku("ZC1234", "Vert D'eau clair")).toBe("ZC1234_VERT_DEAU_CLAIR");
-    expect(buildAnkorstoreBoSku("A1720", "Bleu / Vert")).toBe("A1720_BLEU_VERT");
+    expect(buildAnkorstoreBoSku("ZC1234", "Vert D'eau clair")).toMatch(
+      /^ZC1234_VERT_DEAU_CLAIR_.{5}$/
+    );
+    expect(buildAnkorstoreBoSku("A1720", "Bleu / Vert")).toMatch(/^A1720_BLEU_VERT_.{5}$/);
   });
 });
+

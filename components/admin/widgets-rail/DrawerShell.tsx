@@ -158,7 +158,7 @@ export function DrawerShell({
       role="dialog"
     >
       <div
-        className={`h-full bg-white shadow-2xl shadow-slate-900/25 border border-slate-200 overflow-hidden flex flex-col
+        className={`admin-drawer-frame h-full bg-white shadow-2xl shadow-slate-900/25 border border-slate-200 overflow-hidden flex flex-col
                       ${isFullscreen ? "md:rounded-none lg:rounded-3xl" : "md:rounded-3xl"}
                       max-md:rounded-none`}
       >

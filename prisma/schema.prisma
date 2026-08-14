@@ -1794,6 +1794,12 @@ model ProductColor {
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel (Ankor n'a pas
   // de bibliothèque de couleurs formelle, le match se fait par nom).
   ankorsColorNameOverride String?
+  // SKU réel envoyé à Ankorstore : {REF}_{COULEUR}_{5 chars aléatoires}.
+  // Persisté à la 1re publication et RÉUTILISÉ à chaque update pour que Ankor reconnaisse
+  // la même variante. Vidé quand on delete/archive côté Ankor → un futur re-publish
+  // regénère un nouveau suffixe (contourne le refus « SKU already assigned » sur produits
+  // archivés Ankor).
+  ankorsSku               String?
   // Override du nom de couleur envoyé à Faire pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
   faireColorNameOverride  String?

@@ -17,9 +17,10 @@ import type { AnkorstoreLinkPreview } from "@/app/actions/admin/ankorstore";
 const DISABLED_ERROR =
   "Recherche Ankorstore désactivée temporairement pendant le chantier reverse-engineering. Utilise la modale mise à jour dès qu'elle sera disponible.";
 
-export async function searchAndPreviewAnkorstoreByQuery(): Promise<
-  { success: false; error: string }
-> {
+export async function searchAndPreviewAnkorstoreByQuery(
+  _productId?: string,
+  _query?: string
+): Promise<{ success: false; error: string }> {
   return { success: false, error: DISABLED_ERROR };
 }
 

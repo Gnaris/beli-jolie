@@ -312,7 +312,7 @@ function MiniButton({
           />
         )}
         <span
-          className={`relative w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white group-hover:scale-110 transition-transform [&>svg]:w-5 [&>svg]:h-5 md:[&>svg]:w-6 md:[&>svg]:h-6`}
+          className={`admin-fab-mini-ring relative w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br ${item.gradient} text-white shadow-xl flex items-center justify-center ring-2 ring-white group-hover:scale-110 transition-transform [&>svg]:w-5 [&>svg]:h-5 md:[&>svg]:w-6 md:[&>svg]:h-6`}
         >
           {item.icon}
         </span>

@@ -264,9 +264,12 @@ export async function fetchLinkPreview(
     return { success: true, data: normalizePfs(res.data) };
   }
   if (marketplace === "ankorstore") {
-    const res = await searchAndPreviewAnkorstoreByQuery(productId, query);
-    if (!res.success) return res;
-    return { success: true, data: normalizeAnkorstore(productId, query, res.data) };
+    // Flow legacy désactivé — la nouvelle modale d'Ankor v2 remplace ce chemin.
+    return {
+      success: false,
+      error:
+        "Recherche Ankorstore désactivée — utiliser la nouvelle modale de liaison v2.",
+    };
   }
   if (marketplace === "efashion") {
     const res = await previewEfashionMatchByReference(productId, query);
@@ -308,21 +311,11 @@ export async function fetchLinkCandidates(
   | { success: false; error: string }
 > {
   if (marketplace === "ankorstore") {
-    const res = await searchAnkorstoreCandidatesList(query, productId);
-    if (!res.success) return res;
+    // Flow legacy désactivé — la nouvelle modale d'Ankor v2 remplace ce chemin.
     return {
-      success: true,
-      data: {
-        candidates: res.data.candidates.map((c) => ({
-          id: c.id,
-          name: c.name,
-          imageUrl: c.imageUrl,
-          sampleSku: c.sampleSku,
-          variantCount: c.variantCount,
-          lifecycleState: c.lifecycleState,
-        })),
-        truncated: res.data.truncated,
-      },
+      success: false,
+      error:
+        "Picker Ankorstore désactivé — utiliser la nouvelle modale de liaison v2.",
     };
   }
   // faire
@@ -352,9 +345,12 @@ export async function fetchLinkPreviewByMarketplaceProductId(
   query: string,
 ): Promise<{ success: true; data: LinkPreview } | { success: false; error: string }> {
   if (marketplace === "ankorstore") {
-    const res = await previewAnkorstoreProductForLinking(productId, marketplaceProductId);
-    if (!res.success) return res;
-    return { success: true, data: normalizeAnkorstore(productId, query, res.data) };
+    // Flow legacy désactivé — la nouvelle modale d'Ankor v2 remplace ce chemin.
+    return {
+      success: false,
+      error:
+        "Preview Ankorstore désactivée — utiliser la nouvelle modale de liaison v2.",
+    };
   }
   // faire
   const res = await previewFaireByProductId(productId, marketplaceProductId);
@@ -411,20 +407,12 @@ export async function executeLink(
   }
 
   if (preview.marketplace === "ankorstore") {
-    const links = entries.map(([localColorId, ankorstoreVariantId]) => ({
-      ankorstoreVariantId,
-      localColorId,
-    }));
-    return linkAnkorstoreProductWithMapping(
-      preview.productId,
-      preview.marketplaceProductId,
-      links,
-      {
-        colorsToCreate: intents.colorsToCreate,
-        orphansToDelete: intents.orphansToDelete,
-        orphansToImport: intents.orphansToImport,
-      },
-    );
+    // Flow legacy désactivé — la nouvelle modale d'Ankor v2 remplace ce chemin.
+    return {
+      success: false,
+      error:
+        "Liaison Ankorstore V1 désactivée — utiliser la nouvelle modale de liaison v2.",
+    };
   }
 
   if (preview.marketplace === "efashion") {
@@ -536,80 +524,9 @@ function normalizePfs(p: PfsLinkPreview): LinkPreview {
   };
 }
 
-/** Ankorstore ne renvoie pas de « type » (UNIT/PACK) : tout est traité comme UNIT côté modale. */
-type AkPreview = Awaited<
-  ReturnType<typeof searchAndPreviewAnkorstoreByQuery>
-> extends infer T
-  ? T extends { success: true; data: infer D }
-    ? D
-    : never
-  : never;
-
-export function normalizeAnkorstore(productId: string, query: string, p: AkPreview): LinkPreview {
-  const existingLinks: Record<string, string> = {};
-  for (const c of p.localColors) {
-    if (c.existingAnkorstoreVariantId) {
-      existingLinks[c.productColorId] = c.existingAnkorstoreVariantId;
-    }
-  }
-  return {
-    marketplace: "ankorstore",
-    productId,
-    productName: "",
-    reference: query,
-    searchQuery: query,
-    marketplaceProductId: p.ankorstoreProduct.id,
-    marketplaceProductName: p.ankorstoreProduct.name,
-    marketplaceProductImage: p.ankorstoreProduct.mainImage,
-    localColors: p.localColors.map((c) => ({
-      productColorId: c.productColorId,
-      colorId: c.colorId,
-      name: c.name,
-      hex: c.hex,
-      patternImage: c.patternImage,
-      productImage: c.productImage,
-      saleType: "UNIT",
-      sizes: c.sizeName ? [c.sizeName] : [],
-      unitPrice: c.unitPrice,
-      packQuantity: null,
-      stock: c.stock,
-      weightKg: c.weightKg,
-    })),
-    candidates: p.variants.map((v) => {
-      // ⚠️ L'API GET Ankorstore renvoie les prix en CENTIMES (integer), pas
-      // en euros — cf. spec OpenAPI (docs/ankorstore-spec-2026-05.yaml ligne
-      // 3690 : `wholesalePrice: integer` = "wholesale price AFTER discount").
-      // Un produit à 4,80 € revient donc en `wholesalePrice: 480`. On divise
-      // par 100 pour retomber en euros et éviter d'afficher « 480,00 € »
-      // au lieu de « 4,80 € » dans la modale.
-      const wholesalePriceEur = (v.wholesalePrice ?? 0) / 100;
-      const retailPriceEur = (v.retailPrice ?? 0) / 100;
-      return {
-        id: v.ankorstoreVariantId,
-        type: "UNIT" as const,
-        colorName: v.colorOption ?? v.sku ?? "—",
-        colorHex: null,
-        colorImage: null,
-        sizeLabel: v.sizeOption ?? "TU",
-        packSizes: [],
-        packQuantity: null,
-        priceUnit: wholesalePriceEur,
-        priceTotal: wholesalePriceEur,
-        retailPriceUnit: retailPriceEur > 0 ? retailPriceEur : null,
-        stockQty: v.stockQuantity,
-        weightKg: v.weightKg > 0 ? v.weightKg : null,
-        isActive: true,
-        imageUrl: v.imageUrl,
-        suggestedLocalColorId: v.suggestedLocalColorId,
-      };
-    }),
-    existingLinks,
-    alreadyLinked: p.localColors.some((c) => c.isAlreadyLinked),
-    missingAttributes: [],
-    extras: {},
-    weightIsProductLevel: true,
-  };
-}
+// normalizeAnkorstore supprimé — le flow legacy est désactivé, la nouvelle
+// modale de liaison Ankorstore v2 (LinkAnkorstoreProductModal.tsx) ne passe
+// plus par les adaptateurs unifiés.
 
 type EfPreview = Awaited<
   ReturnType<typeof previewEfashionMatchByReference>

@@ -38,8 +38,8 @@ export interface MarketplaceRefreshOutcome {
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };
   ankorstore?:
-    // Ankorstore is callback-only — kickoff returns immediately.
-    | { status: "queued"; operationId: string }
+    // Ankorstore reverse back-office : 100 % synchrone maintenant.
+    | { status: "ok" }
     | { status: "not_found"; message: string }
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };

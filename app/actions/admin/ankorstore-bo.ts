@@ -26,7 +26,7 @@ import { emitProductEvent as _emitProductEvent } from "@/lib/product-events";
  */
 function revalidateTag(tag: string): void {
   try {
-    _revalidateTag(tag);
+    _revalidateTag(tag, "default");
   } catch {
     /* hors requête — worker ou script */
   }
@@ -54,8 +54,12 @@ import {
   archiveProducts,
   findLinkCandidates,
   buildProductPayloadFromBjProduct,
+  buildAnkorstoreBoSku,
+  BoApiError,
   type BjColorInputForBo,
   type BjProductInputForBo,
+  type BoProductPayload,
+  type BoProductSummary,
 } from "@/lib/ankorstore-bo";
 import { loadAnkorstorePricingConfig } from "@/lib/ankorstore-pricing";
 
@@ -204,6 +208,7 @@ async function loadBjProductForBo(productId: string): Promise<BjProductInputForB
           stock: true,
           weight: true,
           ankorsColorNameOverride: true,
+          ankorsSku: true,
           colorId: true,
           color: { select: { name: true } },
           images: {
@@ -247,6 +252,9 @@ async function loadBjProductForBo(productId: string): Promise<BjProductInputForB
       colorName: c.color?.name ?? null,
       ankorsColorNameOverride: c.ankorsColorNameOverride,
       imageKeys: imagePaths as unknown as string[], // remplacés par les keys après upload
+      // SKU sera pré-résolu (persisté ou fraîchement généré) par resolveAndPersistAnkorsSkus()
+      // juste après cet appel — on part avec la valeur BDD actuelle.
+      sku: c.ankorsSku ?? "",
     };
   });
 
@@ -344,6 +352,159 @@ async function uploadAllProductImages(
 }
 
 // ─────────────────────────────────────────────────────────────
+// Resolution + persistance des SKU Ankor par variante
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Resout le SKU final a envoyer pour chaque variante et le persiste en BDD.
+ *
+ * - Si ProductColor.ankorsSku est deja rempli : on le reutilise tel quel
+ *   (indispensable pour que l'update Ankor reconnaisse la meme variante).
+ * - Sinon : on genere un nouveau {REF}_{COULEUR}_{5 chars aleatoires} et on
+ *   persiste immediatement dans ProductColor.ankorsSku.
+ *
+ * Modifie input.colors[].sku en place et renvoie l'input.
+ */
+async function resolveAndPersistAnkorsSkus(
+  input: BjProductInputForBo
+): Promise<BjProductInputForBo> {
+  for (const c of input.colors) {
+    if (c.sku && c.sku.trim().length > 0) continue;
+    const colorName =
+      c.ankorsColorNameOverride?.trim() || c.colorName?.trim() || "Standard";
+    const fresh = buildAnkorstoreBoSku(input.reference, colorName);
+    await prisma.productColor.update({
+      where: { id: c.id },
+      data: { ankorsSku: fresh },
+    });
+    c.sku = fresh;
+  }
+  return input;
+}
+
+/**
+ * Regenere un nouveau suffixe pour les variantes designees, persiste en BDD
+ * et remplace dans input.colors[].sku. Utilise apres une erreur 422
+ * "SKU already assigned" pour retenter avec des suffixes frais.
+ */
+async function rerollSkusForColors(
+  input: BjProductInputForBo,
+  colorIds: Set<string>
+): Promise<void> {
+  for (const c of input.colors) {
+    if (!colorIds.has(c.id)) continue;
+    const colorName =
+      c.ankorsColorNameOverride?.trim() || c.colorName?.trim() || "Standard";
+    const fresh = buildAnkorstoreBoSku(input.reference, colorName);
+    await prisma.productColor.update({
+      where: { id: c.id },
+      data: { ankorsSku: fresh },
+    });
+    c.sku = fresh;
+  }
+}
+
+/**
+ * Detecte une erreur Ankor "SKU already assigned" et renvoie la liste
+ * des indices de variante impactes (0-based tels qu'ils apparaissent dans le
+ * payload envoye). Renvoie null si l'erreur n'est pas ce cas.
+ */
+function extractSkuCollisionVariantIndexes(err: unknown): number[] | null {
+  if (!(err instanceof BoApiError) || err.status !== 422 || !err.validation) return null;
+  const impacted = new Set<number>();
+  let matched = false;
+  for (const [key, msgs] of Object.entries(err.validation.errors)) {
+    const isSku = /^variants\.(\d+)\.sku$/.exec(key);
+    if (!isSku) continue;
+    const idx = Number(isSku[1]);
+    const joined = msgs.join(" ").toLowerCase();
+    if (
+      joined.includes("already assigned") ||
+      joined.includes("already been taken") ||
+      joined.includes("deja")
+    ) {
+      impacted.add(idx);
+      matched = true;
+    }
+  }
+  return matched ? Array.from(impacted).sort((a, b) => a - b) : null;
+}
+
+/** Nombre max de re-rolls sur collision SKU (collision aleatoire = quasi-impossible). */
+const MAX_SKU_COLLISION_RETRIES = 3;
+
+/**
+ * Wrapper createProduct + retry automatique sur collision de SKU.
+ * enabledColors = les couleurs qui ont fini dans le payload, dans le meme
+ * ordre que payload.variants (donc l'index i du payload = enabledColors[i]).
+ */
+async function createProductWithSkuRetry(
+  input: BjProductInputForBo,
+  buildPayload: () => BoProductPayload,
+  enabledColors: BjColorInputForBo[]
+): Promise<BoProductSummary> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await createProduct(buildPayload());
+    } catch (err) {
+      const impactedIdx = extractSkuCollisionVariantIndexes(err);
+      if (!impactedIdx || attempt >= MAX_SKU_COLLISION_RETRIES) throw err;
+      const colorIds = new Set(
+        impactedIdx.map((i) => enabledColors[i]?.id).filter((v): v is string => !!v)
+      );
+      if (colorIds.size === 0) throw err;
+      logger.warn(
+        "[ankorstore-bo] collision SKU chez Ankor - regeneration suffixe + retry",
+        {
+          reference: input.reference,
+          impactedColorIds: Array.from(colorIds),
+          attempt: attempt + 1,
+        }
+      );
+      await rerollSkusForColors(input, colorIds);
+      attempt++;
+    }
+  }
+}
+
+/**
+ * Wrapper updateProduct + retry automatique sur collision de SKU.
+ * Meme logique que createProductWithSkuRetry mais pour un PUT.
+ */
+async function updateProductWithSkuRetry(
+  ankorId: number,
+  input: BjProductInputForBo,
+  buildPayload: () => BoProductPayload,
+  enabledColors: BjColorInputForBo[]
+): Promise<BoProductSummary> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await updateProduct(ankorId, buildPayload());
+    } catch (err) {
+      const impactedIdx = extractSkuCollisionVariantIndexes(err);
+      if (!impactedIdx || attempt >= MAX_SKU_COLLISION_RETRIES) throw err;
+      const colorIds = new Set(
+        impactedIdx.map((i) => enabledColors[i]?.id).filter((v): v is string => !!v)
+      );
+      if (colorIds.size === 0) throw err;
+      logger.warn(
+        "[ankorstore-bo] collision SKU chez Ankor (update) - regeneration + retry",
+        {
+          ankorId,
+          reference: input.reference,
+          impactedColorIds: Array.from(colorIds),
+          attempt: attempt + 1,
+        }
+      );
+      await rerollSkusForColors(input, colorIds);
+      attempt++;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Publier / Mettre à jour / Rafraîchir / Archiver
 // ─────────────────────────────────────────────────────────────
 
@@ -376,11 +537,22 @@ export async function publishProductToAnkorstoreBo(
     const session = await getBoSession();
     const input = await loadBjProductForBo(productId);
     const inputWithKeys = await uploadAllProductImages(input);
+    // Pré-résout les SKU (réutilisation BDD ou génération + persistance) AVANT
+    // de builder le payload — le builder exige que chaque BjColorInputForBo.sku
+    // soit non vide.
+    await resolveAndPersistAnkorsSkus(inputWithKeys);
     const pricingConfig = await loadAnkorstorePricingConfig();
-    const payload = buildProductPayloadFromBjProduct(inputWithKeys, {
-      brandId: session.brandId,
-      pricingConfig,
-    });
+
+    // Fabrique le payload à la demande — nécessaire pour rebuilder après re-roll
+    // de SKU sur collision. Filtre identique à celui du builder.
+    const enabledColors = inputWithKeys.colors.filter(
+      (c) => c.saleType === "UNIT" && !c.disabled
+    );
+    const buildPayload = (): BoProductPayload =>
+      buildProductPayloadFromBjProduct(inputWithKeys, {
+        brandId: session.brandId,
+        pricingConfig,
+      });
 
     let ankorProductId: number;
     if (isNewFormat && legacyLinkedId) {
@@ -388,15 +560,25 @@ export async function publishProductToAnkorstoreBo(
       // chez Ankor et on injecte leur id dans le payload — sinon Ankor traite
       // le PUT comme une recréation et refuse 422 "SKU already assigned".
       const existingAnkor = await readProductById(Number(legacyLinkedId));
+      const skuToId = new Map<string, number>();
       if (existingAnkor) {
-        const skuToId = new Map<string, number>();
         for (const v of existingAnkor.variants ?? []) if (v.sku) skuToId.set(v.sku, v.id);
-        payload.variants = payload.variants.map((v) => {
+      }
+      // Wrap le payload builder pour injecter l'id de variante connue chez Ankor.
+      const buildPayloadWithVariantIds = (): BoProductPayload => {
+        const p = buildPayload();
+        p.variants = p.variants.map((v) => {
           const existingId = skuToId.get(v.sku);
           return existingId ? { ...v, id: existingId } : v;
         });
-      }
-      const updated = await updateProduct(Number(legacyLinkedId), payload);
+        return p;
+      };
+      const updated = await updateProductWithSkuRetry(
+        Number(legacyLinkedId),
+        inputWithKeys,
+        buildPayloadWithVariantIds,
+        enabledColors
+      );
       ankorProductId = updated.id;
     } else if (legacyLinkedId && !isNewFormat) {
       // Migration : ancien lien UUID → on essaie de retrouver le produit chez Ankor
@@ -409,16 +591,28 @@ export async function publishProductToAnkorstoreBo(
       const candidates = await findLinkCandidates(existing.reference);
       const bestMatch = candidates.find((c) => c.confidence === "high") ?? candidates[0];
       if (bestMatch) {
-        const updated = await updateProduct(bestMatch.product.id, payload);
+        const updated = await updateProductWithSkuRetry(
+          bestMatch.product.id,
+          inputWithKeys,
+          buildPayload,
+          enabledColors
+        );
         ankorProductId = updated.id;
       } else {
-        // Rien trouvé côté Ankor — créer un nouveau
-        const created = await createProduct(payload);
+        const created = await createProductWithSkuRetry(
+          inputWithKeys,
+          buildPayload,
+          enabledColors
+        );
         ankorProductId = created.id;
       }
     } else {
       // Pas de lien : POST création
-      const created = await createProduct(payload);
+      const created = await createProductWithSkuRetry(
+        inputWithKeys,
+        buildPayload,
+        enabledColors
+      );
       ankorProductId = created.id;
     }
 
@@ -454,19 +648,11 @@ export async function publishProductToAnkorstoreBo(
     if (readBack) {
       const skuToVid = new Map<string, number>();
       for (const v of readBack.variants ?? []) if (v.sku) skuToVid.set(v.sku, v.id);
-      const bjColors = await prisma.productColor.findMany({
-        where: { productId, saleType: "UNIT" },
-        select: {
-          id: true,
-          color: { select: { name: true } },
-          ankorsColorNameOverride: true,
-        },
-      });
-      const { buildAnkorstoreBoSku } = await import("@/lib/ankorstore-bo/sku");
-      for (const c of bjColors) {
-        const nameToUse = c.ankorsColorNameOverride?.trim() || c.color?.name || "Standard";
-        const expectedSku = buildAnkorstoreBoSku(existing.reference, nameToUse);
-        const vid = skuToVid.get(expectedSku);
+      // On match sur ankorsSku persisté — c'est LA valeur qu'on vient d'envoyer,
+      // pas besoin de la recomputer par nom de couleur (fragile si override changé).
+      for (const c of enabledColors) {
+        if (!c.sku) continue;
+        const vid = skuToVid.get(c.sku);
         if (vid) {
           await prisma.productColor.update({
             where: { id: c.id },
@@ -513,9 +699,12 @@ export async function deleteProductFromAnkorstoreBo(
         where: { id: productId },
         data: { ankorsProductId: null, ankorsSyncRequired: false },
       });
+      // Vide ankorsVariantId ET ankorsSku : un futur re-publish générera
+      // un nouveau suffixe (contourne le refus « SKU already assigned » sur
+      // la variante archivée côté Ankor).
       await prisma.productColor.updateMany({
         where: { productId },
-        data: { ankorsVariantId: null },
+        data: { ankorsVariantId: null, ankorsSku: null },
       });
       return { success: true };
     }
@@ -526,7 +715,7 @@ export async function deleteProductFromAnkorstoreBo(
     });
     await prisma.productColor.updateMany({
       where: { productId },
-      data: { ankorsVariantId: null },
+      data: { ankorsVariantId: null, ankorsSku: null },
     });
     revalidateTag("products");
     emitProductEvent({ type: "product-updated", productId });
@@ -697,8 +886,8 @@ export async function unlinkAllBjProductsFromAnkorstoreBo(): Promise<{
       data: { ankorsProductId: null, ankorsSyncRequired: false },
     });
     const r2 = await prisma.productColor.updateMany({
-      where: { ankorsVariantId: { not: null } },
-      data: { ankorsVariantId: null },
+      where: { OR: [{ ankorsVariantId: { not: null } }, { ankorsSku: { not: null } }] },
+      data: { ankorsVariantId: null, ankorsSku: null },
     });
     revalidateTag("products");
     return {
@@ -727,7 +916,7 @@ export async function unlinkBjProductFromAnkorstoreBo(
   });
   await prisma.productColor.updateMany({
     where: { productId: bjProductId },
-    data: { ankorsVariantId: null },
+    data: { ankorsVariantId: null, ankorsSku: null },
   });
   revalidateTag("products");
   emitProductEvent({ type: "product-updated", productId: bjProductId });

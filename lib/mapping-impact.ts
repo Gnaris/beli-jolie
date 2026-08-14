@@ -26,7 +26,13 @@ export type {
 } from "@/lib/mapping-impact-types";
 export { marketplaceLabel } from "@/lib/mapping-impact-types";
 
-import type { MappingMarketplace, MappingAttribute } from "@/lib/mapping-impact-types";
+import type {
+  MappingMarketplace,
+  MappingAttribute,
+  MappingImpactResult,
+  MappingImpactedProduct,
+  MappingChangeSummary,
+} from "@/lib/mapping-impact-types";
 
 const MARKETPLACE_ID_FIELD: Record<MappingMarketplace, string> = {
   pfs: "pfsProductId",

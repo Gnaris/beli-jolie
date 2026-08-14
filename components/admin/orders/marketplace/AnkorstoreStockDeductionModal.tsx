@@ -5,13 +5,16 @@
 "use client";
 
 interface Props {
-  open: boolean;
+  open?: boolean;
+  orderId?: string;
   onClose: () => void;
+  onDeducted?: () => void;
   [key: string]: unknown;
 }
 
-export default function AnkorstoreStockDeductionModal({ open, onClose }: Props) {
-  if (!open) return null;
+export default function AnkorstoreStockDeductionModal({ open, orderId, onClose }: Props) {
+  const isOpen = open ?? !!orderId;
+  if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="max-w-md rounded-2xl bg-white p-6 text-center shadow-xl" onClick={(e) => e.stopPropagation()}>

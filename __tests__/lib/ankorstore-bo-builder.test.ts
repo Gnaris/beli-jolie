@@ -20,6 +20,8 @@ const baseColor = {
   ankorsColorNameOverride: null,
   imageKeys: ["file-upload:abc.jpg"],
   ian: null,
+  // SKU pré-résolu par le caller — le builder ne le construit plus lui-même.
+  sku: "A1720_ROUGE_ABCDE",
 };
 
 const baseInput: BjProductInputForBo = {
@@ -54,12 +56,21 @@ describe("buildProductPayloadFromBjProduct", () => {
     expect(p.options[0].values).toEqual(["Rouge"]);
   });
 
-  it("SKU au format A1720_ROUGE", () => {
+  it("SKU envoyé tel quel depuis c.sku (pré-résolu par le caller)", () => {
     const p = buildProductPayloadFromBjProduct(baseInput, {
       brandId: 51370,
       pricingConfig,
     });
-    expect(p.variants[0].sku).toBe("A1720_ROUGE");
+    expect(p.variants[0].sku).toBe("A1720_ROUGE_ABCDE");
+  });
+
+  it("throw si c.sku manquant (le caller doit avoir pré-résolu)", () => {
+    expect(() =>
+      buildProductPayloadFromBjProduct(
+        { ...baseInput, colors: [{ ...baseColor, sku: "" }] },
+        { brandId: 51370, pricingConfig }
+      )
+    ).toThrow(/SKU manquant/i);
   });
 
   it("BestSeller ajoute le tag 8", () => {
@@ -137,13 +148,20 @@ describe("buildProductPayloadFromBjProduct", () => {
         ...baseInput,
         colors: [
           baseColor,
-          { ...baseColor, id: "c2", colorName: "Bleu", disabled: true, imageKeys: [] },
+          {
+            ...baseColor,
+            id: "c2",
+            colorName: "Bleu",
+            disabled: true,
+            imageKeys: [],
+            sku: "A1720_BLEU_XYZAB",
+          },
         ],
       },
       { brandId: 51370, pricingConfig }
     );
     expect(p.variants).toHaveLength(1);
-    expect(p.variants[0].sku).toBe("A1720_ROUGE");
+    expect(p.variants[0].sku).toBe("A1720_ROUGE_ABCDE");
   });
 
   it("Throw si aucune couleur UNIT active", () => {
@@ -155,16 +173,22 @@ describe("buildProductPayloadFromBjProduct", () => {
     ).toThrow(/aucune variante unit active/i);
   });
 
-  it("Utilise ankorsColorNameOverride si présent", () => {
+  it("Utilise ankorsColorNameOverride si présent (option value uniquement — SKU vient de c.sku)", () => {
     const p = buildProductPayloadFromBjProduct(
       {
         ...baseInput,
-        colors: [{ ...baseColor, ankorsColorNameOverride: "Bordeaux" }],
+        colors: [
+          {
+            ...baseColor,
+            ankorsColorNameOverride: "Bordeaux",
+            sku: "A1720_BORDEAUX_XYZAB",
+          },
+        ],
       },
       { brandId: 51370, pricingConfig }
     );
     expect(p.options[0].values).toEqual(["Bordeaux"]);
-    expect(p.variants[0].sku).toBe("A1720_BORDEAUX");
+    expect(p.variants[0].sku).toBe("A1720_BORDEAUX_XYZAB");
   });
 
   it("Pays Chine (CN) → id 46", () => {

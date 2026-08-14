@@ -271,7 +271,8 @@ export async function getOrderItems(uuid: string): Promise<BoOrderItem[]> {
     if (inc.type === "ordered-products") products.set(inc.id, inc);
   }
   return raw.data.map((item) => {
-    const productId = item.relationships?.orderedProduct?.data?.id;
+    const rel = item.relationships?.orderedProduct?.data;
+    const productId = Array.isArray(rel) ? rel[0]?.id : rel?.id;
     const product = productId ? products.get(productId) : undefined;
     const a = (item.attributes ?? {}) as Record<string, unknown>;
     const p = (product?.attributes ?? {}) as Record<string, unknown>;

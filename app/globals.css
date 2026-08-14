@@ -1534,8 +1534,16 @@ html.admin-dark .admin-fab-preserve .ring-white { --tw-ring-color: #ffffff !impo
 html.admin-dark .admin-fab-preserve .bg-slate-800 { background-color: #1e293b !important; }
 html.admin-dark .admin-fab-preserve .bg-slate-900 { background-color: #0f172a !important; }
 html.admin-dark .admin-fab-preserve .bg-slate-900\/10 { background-color: rgba(15,23,42,0.1) !important; }
-html.admin-dark .admin-fab-preserve .from-slate-800 { --tw-gradient-from: #1e293b !important; }
-html.admin-dark .admin-fab-preserve .via-slate-900 { --tw-gradient-via: #0f172a !important; }
+/* FAB étoile principal : en dark mode, le gradient d'origine (slate-800 →
+   slate-900 → black) se fond dans le fond de page très sombre. On remonte
+   d'un cran vers un gris moyen pour que le bouton reste bien visible. */
+html.admin-dark .admin-fab-preserve .from-slate-800 { --tw-gradient-from: #64748b !important; }
+html.admin-dark .admin-fab-preserve .via-slate-900 { --tw-gradient-via: #475569 !important; }
+html.admin-dark .admin-fab-preserve .to-black { --tw-gradient-to: #334155 !important; }
+/* Bordure blanche autour des mini-pastilles colorées : la cliente veut
+   la retirer en dark mode (bruit visuel sur fond très sombre). Le FAB
+   principal garde sa ring-white. */
+html.admin-dark .admin-fab-preserve .admin-fab-mini-ring { --tw-ring-color: transparent !important; }
 /* Textes badge sur pastilles blanches — nuances -600/-700 gardées vives. */
 html.admin-dark .admin-fab-preserve .text-violet-600 { color: #7c3aed !important; }
 html.admin-dark .admin-fab-preserve .text-sky-600 { color: #0284c7 !important; }
@@ -1984,6 +1992,33 @@ html.admin-dark [role="dialog"] .border-t { border-color: #2f2f34 !important; }
 html.admin-dark [role="dialog"] footer,
 html.admin-dark [role="dialog"] .footer,
 html.admin-dark [role="dialog"] [class*="border-t"] { background-color: transparent; }
+
+/* ─── Délimiteur des drawers de widgets ───────────────────────────────
+   En dark mode, la border par défaut (border-slate-200 → #2f2f34) et
+   le fond blanc du drawer se confondent avec le fond de page très
+   sombre — la fenêtre n'a plus de contour visible. On force une
+   border plus claire + un léger ring blanc translucide pour bien
+   dessiner le contour de chaque widget. */
+html.admin-dark .admin-drawer-frame {
+  border-color: #52525b !important;
+  box-shadow:
+    0 25px 60px -10px rgba(0,0,0,0.85),
+    0 6px 20px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(255,255,255,0.06) !important;
+}
+
+/* ─── Overlay de chargement (LoadingOverlay.tsx) ─────────────────────
+   Le pill « Chargement… » utilise `bg-bg-primary` qui devient #1e1e22 en
+   dark, quasi indiscernable de la page (#141417). On le remonte à un
+   gris plus clair et on éclaircit le spinner (par défaut text-bg-dark
+   = noir pur, invisible sur fond sombre). */
+html.admin-dark .loading-overlay-pill {
+  background-color: #52525b !important;
+  border-color: #71717a !important;
+  box-shadow: 0 10px 30px -8px rgba(0,0,0,0.7), 0 4px 12px rgba(0,0,0,0.5) !important;
+}
+html.admin-dark .loading-overlay-pill .loading-overlay-spinner { color: #f4f4f5 !important; }
+html.admin-dark .loading-overlay-pill span { color: #f4f4f5 !important; }
 
 /* Reduce-motion protégé par la règle globale, rien à ajouter ici. */
 
