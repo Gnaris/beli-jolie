@@ -1996,25 +1996,9 @@ export async function bulkDeductMarketplaceOrders(
           }
         })()
       : Promise.resolve(),
-    ankorstoreIds.length > 0
-      ? (async () => {
-          try {
-            const { deductStockFromAnkorstoreOrders } = await import(
-              "@/lib/ankorstore-stock-deduction"
-            );
-            const r = await deductStockFromAnkorstoreOrders(tenant.id, actorId, ankorstoreIds);
-            processedCount += r.processedCount;
-            skippedCount += r.skipped.length;
-            if (r.touchedProductIds.length > 0) touched = true;
-          } catch (err) {
-            logger.error("[Bulk Stock] Ankorstore échec", { error: err as Error });
-            errors.push({
-              source: "ANKORSTORE",
-              message: err instanceof Error ? err.message : "Erreur inconnue",
-            });
-          }
-        })()
-      : Promise.resolve(),
+    // Ankorstore stock deduction : désactivé pendant chantier reverse back-office.
+    // À réactiver quand le module orders sera complet côté back-office.
+    Promise.resolve(),
     faireIds.length > 0
       ? (async () => {
           try {
