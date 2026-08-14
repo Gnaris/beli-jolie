@@ -132,12 +132,21 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
-  // Ankorstore Orders : DÉSACTIVÉ temporairement (2026-08-13). L'ancien worker
-  // OAuth2 est démonté, le nouveau (reverse back-office) viendra dans une
-  // itération ultérieure. Aucun impact commande côté cliente : les commandes
-  // saisies sur Ankorstore ne sont plus synchronisées automatiquement pendant
-  // cette période — à traiter manuellement depuis le back-office Ankorstore
-  // le temps qu'on reverse cet endpoint.
+  // Worker de polling des commandes Ankorstore (back-office reverse-engineered).
+  // Tick 5 min. Ne fait AUCUNE mutation côté Ankor — lit page 1 puis re-fetch
+  // le détail des commandes nouvelles ou dont le statut a changé.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startAnkorstoreOrdersWorker } = await import("@/lib/ankorstore-orders-worker");
+        startAnkorstoreOrdersWorker();
+      } catch (err) {
+        logger.error("[Ankorstore Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
 
   // Worker de polling des commandes Faire. Même mécanique que les autres
   // marketplaces. Faire ne fournit AUCUN webhook (§13 docs/faire-api.md) —

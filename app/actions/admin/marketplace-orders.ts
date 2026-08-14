@@ -1824,7 +1824,7 @@ export async function getMarketplaceSyncMeta(): Promise<{
     prisma.siteConfig.findMany({
       where: {
         tenantId: tenant.id,
-        key: { in: ["ankors_client_id", "ankors_client_secret"] },
+        key: { in: ["ankorstore_bo_email", "ankorstore_bo_password"] },
       },
       select: { key: true, value: true },
     }),
@@ -1876,8 +1876,8 @@ export async function getMarketplaceSyncMeta(): Promise<{
         : null,
       totalOrdersInDb: ankorstoreCount,
       hasCredentials:
-        (ankorstoreMap.get("ankors_client_id") || "").trim().length > 0 &&
-        (ankorstoreMap.get("ankors_client_secret") || "").trim().length > 0,
+        (ankorstoreMap.get("ankorstore_bo_email") || "").trim().length > 0 &&
+        (ankorstoreMap.get("ankorstore_bo_password") || "").trim().length > 0,
       autoSyncEnabled: autoStates.ANKORSTORE,
     },
     faire: {
