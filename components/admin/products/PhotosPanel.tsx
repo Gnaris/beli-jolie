@@ -540,12 +540,24 @@ function PhotoRow({
   brandedBadgeEnabled = false,
   onZoom,
 }: PhotoRowProps) {
+  const toast = useToast();
   const state = colorImages.find((c) => c.groupKey === groupKey);
   const opt = availableColors.find((c) => c.id === colorId);
   const patternImage = opt?.patternImage ?? null;
   const swatchHex = colorHex || opt?.hex || "#9CA3AF";
   const hasNoPhoto = !state || state.imagePreviews.length === 0;
   const [isDragOver, setIsDragOver] = useState(false);
+
+  function handleSetPrimary() {
+    if (hasNoPhoto) {
+      toast.error(
+        "Impossible de définir comme principale",
+        `La couleur « ${colorName} » n'a aucune photo. Ajoutez au moins une image avant de la définir comme couleur principale.`,
+      );
+      return;
+    }
+    onSetPrimary();
+  }
 
   function addFile(file: File, position: number) {
     if (!state) return;
@@ -700,10 +712,19 @@ function PhotoRow({
             ) : (
               <button
                 type="button"
-                onClick={onSetPrimary}
-                title="Définir cette couleur comme couleur principale du produit"
+                onClick={handleSetPrimary}
+                title={
+                  hasNoPhoto
+                    ? "Ajoutez au moins une photo à cette couleur avant de la définir comme principale"
+                    : "Définir cette couleur comme couleur principale du produit"
+                }
                 aria-label={`Définir ${colorName} comme couleur principale du produit`}
-                className="inline-flex items-center gap-1 self-start rounded-full border border-border bg-bg-primary px-2 py-0.5 text-[10.5px] font-medium text-text-secondary font-body hover:border-[#F59E0B] hover:bg-[#FEF3C7]/40 hover:text-[#92400E] transition-colors cursor-pointer"
+                aria-disabled={hasNoPhoto}
+                className={`inline-flex items-center gap-1 self-start rounded-full border border-border bg-bg-primary px-2 py-0.5 text-[10.5px] font-medium text-text-secondary font-body transition-colors ${
+                  hasNoPhoto
+                    ? "opacity-60 cursor-not-allowed"
+                    : "hover:border-[#F59E0B] hover:bg-[#FEF3C7]/40 hover:text-[#92400E] cursor-pointer"
+                }`}
               >
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.539 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.539-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
