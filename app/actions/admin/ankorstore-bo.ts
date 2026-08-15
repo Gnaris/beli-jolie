@@ -67,6 +67,7 @@ import {
 } from "@/lib/ankorstore-bo";
 import { Prisma } from "@prisma/client";
 import { normalizeColorForSku, normalizeReferenceForSku } from "@/lib/ankorstore-bo/sku";
+import { ankorImageBelongsToProduct } from "@/lib/ankorstore-bo/image-url-guard";
 import { loadAnkorstorePricingConfig } from "@/lib/ankorstore-pricing";
 
 async function requireAdmin() {
@@ -362,10 +363,30 @@ function extractAnkorCurrentImages(
   if (!existingAnkor) {
     return { productImageUrls: [], variantImageUrlsByColorId: {} };
   }
-  const productImageUrls = existingAnkor.images ?? [];
+  // Garde-fou anti-contamination : filtre les URLs dont le préfixe numérique
+  // ne matche pas l'ID du produit courant. Une URL orpheline peut arriver ici
+  // quand une sync précédente a été polluée par le bug filters[id] (produit
+  // 7302182 se retrouve avec /products/images/7302183-*.jpg). Sans ce filtre,
+  // le plan de sync décide "keep" et réinjecte l'URL contaminée dans le PUT.
+  const targetId = existingAnkor.id;
+  const belongsToTarget = (url: string): boolean =>
+    ankorImageBelongsToProduct(url, targetId);
+
+  const rawProductImages = existingAnkor.images ?? [];
+  const productImageUrls = rawProductImages.filter(belongsToTarget);
+  if (productImageUrls.length !== rawProductImages.length) {
+    logger.warn(
+      "[ankorstore-bo] URL image produit orpheline écartée (contamination bug filters[id])",
+      {
+        ankorProductId: targetId,
+        dropped: rawProductImages.filter((u) => !belongsToTarget(u)),
+      },
+    );
+  }
+
   const skuToVariantImages = new Map<string, string[]>();
   for (const v of existingAnkor.variants ?? []) {
-    if (v.sku) skuToVariantImages.set(v.sku, v.images ?? []);
+    if (v.sku) skuToVariantImages.set(v.sku, (v.images ?? []).filter(belongsToTarget));
   }
   const variantImageUrlsByColorId: Record<string, string[]> = {};
   for (const c of enabledColors) {
