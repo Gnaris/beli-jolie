@@ -695,7 +695,6 @@ function ViewContent({
             key={`${group.productId}::${group.dominantMode}`}
             group={group}
             view={view.key}
-            nowMs={nowMs}
             onRetry={() => onRetry(group)}
             onDismiss={() => onDismiss(group)}
           />
@@ -811,13 +810,11 @@ function ScheduleHeader({
 function ProductJobCard({
   group,
   view,
-  nowMs,
   onRetry,
   onDismiss,
 }: {
   group: ProductGroup;
   view: ViewKey;
-  nowMs: number;
   onRetry: () => void;
   onDismiss: () => void;
 }) {
@@ -832,15 +829,10 @@ function ProductJobCard({
   const steps = Array.isArray(dominantItem?.steps) ? dominantItem?.steps ?? [] : [];
   const targetedMarketplaces = uniqueMarketplaces(group.items);
 
-  // Durée écoulée si actif, ou durée totale si terminé
+  // Durée écoulée si actif, ou durée totale si terminé.
+  // Le compteur en direct est géré par <LiveDuration> (tick 100 ms tant qu'actif).
   const startedAtMs = dominantItem?.startedAt ? Date.parse(dominantItem.startedAt) : null;
   const completedAtMs = dominantItem?.completedAt ? Date.parse(dominantItem.completedAt) : null;
-  const durationMs =
-    startedAtMs !== null && completedAtMs !== null
-      ? completedAtMs - startedAtMs
-      : startedAtMs !== null
-        ? nowMs - startedAtMs
-        : null;
 
   const cardBorder = isError ? "border-2 border-rose-200" : "border border-slate-200";
   const cardShadow = isError ? "shadow-sm shadow-rose-100" : "";
@@ -873,9 +865,10 @@ function ProductJobCard({
               const cell = group.cells[m];
               return <MarketplaceChip key={m} target={m} cell={cell} />;
             })}
-            {durationMs !== null && (
+            {startedAtMs !== null && (
               <span className="ml-auto text-[10px] text-slate-400 tabular-nums">
-                {isDone ? "en " : ""}{formatDurationHuman(durationMs)}
+                {isDone ? "en " : ""}
+                <LiveDuration startedAtMs={startedAtMs} completedAtMs={completedAtMs} />
               </span>
             )}
           </div>
@@ -894,15 +887,22 @@ function ProductJobCard({
         <ErrorPanel group={group} onRetry={onRetry} onDismiss={onDismiss} />
       )}
 
-      {/* Timeline détaillée des étapes */}
+      {/* Timeline détaillée des étapes — pliable, fermée par défaut */}
       {steps.length > 0 && (
         <div className="px-3 pb-3">
-          <div className="rounded-xl bg-slate-50/50 border border-slate-100 p-3">
-            <div className="text-[10px] uppercase tracking-widest font-bold text-slate-400 mb-2.5">
-              Étapes détaillées
+          <details className="group rounded-xl bg-slate-50/50 border border-slate-100">
+            <summary className="flex items-center justify-between gap-2 p-3 cursor-pointer list-none select-none hover:bg-slate-100/60 rounded-xl transition-colors">
+              <span className="text-[10px] uppercase tracking-widest font-bold text-slate-400">
+                Étapes détaillées
+              </span>
+              <span className="text-slate-400 group-open:rotate-180 transition-transform text-[10px]">
+                ▼
+              </span>
+            </summary>
+            <div className="px-3 pb-3">
+              <StepsTimeline steps={steps} />
             </div>
-            <StepsTimeline steps={steps} />
-          </div>
+          </details>
         </div>
       )}
 
@@ -1079,7 +1079,8 @@ function StepsTimeline({ steps }: { steps: JobStepEntry[] }) {
 
 function StepRow({ step, isLast }: { step: JobStepEntry; isLast: boolean }) {
   const label = step.label ?? STEP_LABELS_FR[step.kind] ?? step.kind;
-  const durationMs = stepDuration(step);
+  const stepStartMs = step.startedAt ? Date.parse(step.startedAt) : null;
+  const stepEndMs = step.completedAt ? Date.parse(step.completedAt) : null;
 
   let dot: React.ReactNode;
   let line: string;
@@ -1153,9 +1154,12 @@ function StepRow({ step, isLast }: { step: JobStepEntry; isLast: boolean }) {
               {step.current}/{step.total}
             </span>
           )}
-          {durationMs !== null && (
+          {stepStartMs !== null && Number.isFinite(stepStartMs) && (
             <span className="ml-auto text-[10px] text-slate-400 tabular-nums">
-              {formatDurationHuman(durationMs)}
+              <LiveDuration
+                startedAtMs={stepStartMs}
+                completedAtMs={stepEndMs !== null && Number.isFinite(stepEndMs) ? stepEndMs : null}
+              />
             </span>
           )}
         </div>
@@ -1171,15 +1175,6 @@ function StepRow({ step, isLast }: { step: JobStepEntry; isLast: boolean }) {
       </div>
     </li>
   );
-}
-
-function stepDuration(step: JobStepEntry): number | null {
-  if (!step.startedAt) return null;
-  const start = Date.parse(step.startedAt);
-  if (!Number.isFinite(start)) return null;
-  const end = step.completedAt ? Date.parse(step.completedAt) : Date.now();
-  if (!Number.isFinite(end) || end < start) return null;
-  return end - start;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1342,6 +1337,43 @@ function useNowTick(intervalMs: number | null): number {
     return () => clearInterval(id);
   }, [intervalMs]);
   return now;
+}
+
+/**
+ * Compteur de durée en direct. Tick 100 ms tant que `completedAtMs` est null,
+ * puis se fige sur la valeur finale. Format : X.Y s < 1 min, sinon X min YY s.
+ * Isolé dans son propre composant pour ne pas re-render l'arbre entier.
+ */
+function LiveDuration({
+  startedAtMs,
+  completedAtMs,
+}: {
+  startedAtMs: number;
+  completedAtMs: number | null;
+}) {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (completedAtMs !== null) return;
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, [completedAtMs]);
+  const ms =
+    completedAtMs !== null ? completedAtMs - startedAtMs : Math.max(0, now - startedAtMs);
+  return <>{formatDurationLive(ms)}</>;
+}
+
+export function formatDurationLive(ms: number): string {
+  if (ms < 1000) return `${Math.floor(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 3600) {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m} min ${String(s).padStart(2, "0")} s`;
+  }
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  return `${h} h ${String(m).padStart(2, "0")} min`;
 }
 
 function formatCountdownMMSS(ms: number): string {
