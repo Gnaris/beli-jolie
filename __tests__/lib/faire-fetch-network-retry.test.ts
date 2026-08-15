@@ -52,7 +52,7 @@ describe("faireFetch — retry sur erreur réseau (TypeError: fetch failed)", ()
     expect(res.status).toBe(200);
   });
 
-  it("re-throw avec le code de la cause bas niveau quand les 3 essais échouent", async () => {
+  it("re-throw avec le code de la cause bas niveau quand tous les essais échouent", async () => {
     const netError = new TypeError("fetch failed");
     (netError as TypeError & { cause?: unknown }).cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
 
@@ -63,7 +63,9 @@ describe("faireFetch — retry sur erreur réseau (TypeError: fetch failed)", ()
     await vi.runAllTimersAsync();
 
     await expect(promise).rejects.toThrow(/ECONNRESET/);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // MAX_FAIRE_ATTEMPTS = 5 (relevé depuis 3 le 2026-08-15 pour absorber
+    // les blocages Cloudflare 1015).
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("ne réessaie PAS sur 4xx client (non-429) — renvoie immédiatement", async () => {
@@ -86,6 +88,6 @@ describe("faireFetch — retry sur erreur réseau (TypeError: fetch failed)", ()
     const res = await promise;
 
     expect(res.status).toBe(502);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });

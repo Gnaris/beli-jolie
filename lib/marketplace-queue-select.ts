@@ -8,6 +8,8 @@
  * Règles :
  *  - Respect du budget total (tous marketplaces confondus).
  *  - Respect du budget Ankorstore (sous-limite dédiée).
+ *  - Respect du budget Faire (sous-limite dédiée, protection Cloudflare
+ *    rate-limit — 2026-08-15).
  *  - **Sérialisation par produit côté Ankorstore** : un seul job Ankor à la
  *    fois par `productId` (2026-08-15). Sans ce verrou, deux jobs Ankor
  *    concurrents sur le même produit orphelinent les SKU (cf. incident
@@ -32,11 +34,18 @@ export interface SelectJobsInput<T extends SelectableJob> {
   totalBudget: number;
   /** Budget Ankor restant (limite dédiée). */
   ankorsBudget: number;
+  /**
+   * Budget Faire restant (limite dédiée). Optionnel — si absent, aucun
+   * plafond spécifique à Faire n'est appliqué (les tests unitaires qui ne
+   * ciblent pas Faire peuvent omettre ce champ).
+   */
+  fairesBudget?: number;
 }
 
 export function selectJobsToStart<T extends SelectableJob>(input: SelectJobsInput<T>): T[] {
   const lockedAnkorProductIds = new Set(input.inFlightAnkorProductIds);
   let ankorsBudget = input.ankorsBudget;
+  let fairesBudget = input.fairesBudget ?? Infinity;
   const toStart: T[] = [];
   for (const job of input.queued) {
     if (toStart.length >= input.totalBudget) break;
@@ -45,6 +54,9 @@ export function selectJobsToStart<T extends SelectableJob>(input: SelectJobsInpu
       if (lockedAnkorProductIds.has(job.productId)) continue;
       lockedAnkorProductIds.add(job.productId);
       ankorsBudget--;
+    } else if (job.marketplace === "FAIRE") {
+      if (fairesBudget <= 0) continue;
+      fairesBudget--;
     }
     toStart.push(job);
   }

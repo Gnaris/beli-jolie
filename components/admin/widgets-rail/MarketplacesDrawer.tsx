@@ -962,17 +962,19 @@ function ProductImage({
       : "ring-1 ring-slate-200";
   const imgSrc = src ? getImageSrc(src) : null;
   return (
-    <div className={`relative w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 ${halo} bg-gradient-to-br from-slate-100 to-slate-200`}>
-      {imgSrc ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={imgSrc} alt={alt} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 font-medium">
-          IMG
-        </div>
-      )}
+    <div className="relative w-14 h-14 flex-shrink-0">
+      <div className={`w-full h-full rounded-xl overflow-hidden ${halo} bg-gradient-to-br from-slate-100 to-slate-200`}>
+        {imgSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imgSrc} alt={alt} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 font-medium">
+            IMG
+          </div>
+        )}
+      </div>
       {active && (
-        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-500 ring-2 ring-white flex items-center justify-center">
+        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-500 ring-2 ring-white flex items-center justify-center z-10">
           <svg className="w-2.5 h-2.5 text-white animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6" />
           </svg>

@@ -22,18 +22,48 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.floor(n)));
 }
 
+const MAX_FAIRE_ATTEMPTS = 5;
+const FAIRE_MAX_RETRY_DELAY_MS = 300_000;
+
 /**
- * Wrapper fetch avec retry simple sur 429/5xx **ET** sur erreurs réseau
- * (max 2 retries, backoff 500ms → 2s). On reste très conservateur pour ne pas
- * surcharger Faire — pas de chiffre officiel sur les rate limits (voir
- * docs/faire-api.md §15).
+ * Calcule le délai avant le prochain essai pour une réponse HTTP à rejouer.
  *
- * Le retry réseau est indispensable : undici (client fetch de Node) lève un
- * `TypeError: fetch failed` opaque dès qu'un socket est coupé (ECONNRESET,
- * socket hang up, DNS ponctuel). Sans ce retry, un simple glitch faisait
- * échouer un PATCH complet côté cliente (incidents 2026-08-02 sur issyma
- * JG41 / JG53). La vraie cause bas niveau est exposée dans le message final
- * quand tous les retries ont échoué (via `err.cause.code`).
+ * Sur **429** (rate-limit Cloudflare 1015 côté Faire) : le blocage dure 30–60s
+ * en pratique. On respecte `Retry-After` si présent (secondes OU date HTTP),
+ * sinon on applique un backoff long : 30s / 60s / 90s / 120s. Cap à 5 min.
+ *
+ * Sur **5xx** : backoff court exponentiel 500ms → 8s.
+ */
+export function computeFaireRetryDelayMs(response: Response, attempt: number): number {
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min(seconds * 1000, FAIRE_MAX_RETRY_DELAY_MS);
+      }
+      const dateMs = Date.parse(retryAfter);
+      if (!Number.isNaN(dateMs)) {
+        return Math.max(0, Math.min(dateMs - Date.now(), FAIRE_MAX_RETRY_DELAY_MS));
+      }
+    }
+    return Math.min((attempt + 1) * 30_000, 120_000);
+  }
+  return 500 * Math.pow(2, attempt);
+}
+
+/**
+ * Wrapper fetch avec retry sur 429/5xx **ET** sur erreurs réseau.
+ *
+ * - 5 tentatives max (1 essai + 4 retries).
+ * - **429** : backoff long (30–120s ou `Retry-After`) pour laisser Cloudflare
+ *   1015 se relâcher. L'ancien backoff 500ms→2s laissait 14/20 jobs FAIRE en
+ *   échec lors d'un refresh en masse (incident 2026-08-15).
+ * - **5xx** : backoff court exponentiel 500ms → 8s.
+ * - **Erreur réseau** (undici `TypeError: fetch failed` — ECONNRESET,
+ *   socket hang up, DNS ponctuel) : backoff court 500ms → 8s. La cause bas
+ *   niveau (`err.cause.code`) est propagée dans le message final quand tous
+ *   les retries ont échoué (incidents 2026-08-02 sur issyma JG41 / JG53).
  *
  * Exporté car réutilisé par tous les modules d'écriture (publish/update/
  * delete/inventory) — un seul wrapper = un seul endroit où ajuster les
@@ -48,13 +78,13 @@ export async function faireFetch(path: string, init?: RequestInit): Promise<Resp
   } satisfies RequestInit;
 
   let lastNetworkError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < MAX_FAIRE_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, mergedInit);
       if (res.status !== 429 && res.status < 500) return res;
-      if (attempt === 2) return res;
-      const wait = 500 * Math.pow(2, attempt);
-      logger.warn("[Faire] retry", { path, status: res.status, wait });
+      if (attempt === MAX_FAIRE_ATTEMPTS - 1) return res;
+      const wait = computeFaireRetryDelayMs(res, attempt);
+      logger.warn("[Faire] retry", { path, status: res.status, attempt, wait });
       await new Promise((r) => setTimeout(r, wait));
     } catch (err) {
       // Erreur réseau (undici : TypeError: fetch failed). Extraire la cause
@@ -64,7 +94,7 @@ export async function faireFetch(path: string, init?: RequestInit): Promise<Resp
       const causeCode = causeObj instanceof Error
         ? (causeObj as Error & { code?: string }).code ?? causeObj.name
         : undefined;
-      if (attempt === 2) {
+      if (attempt === MAX_FAIRE_ATTEMPTS - 1) {
         logger.error("[Faire] fetch network error (retries épuisés)", {
           path,
           attempt,

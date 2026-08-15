@@ -7,11 +7,13 @@
  * Architecture :
  *  - Loop d'1 seconde (`POLL_MS`) qui scan la table à chaque tick
  *  - Au premier démarrage : sweep des jobs `IN_PROGRESS` orphelins (process tué)
- *  - Concurrence : 5 jobs total en vol, dont au plus 3 Ankorstore
- *    (Ankorstore comptabilise IN_PROGRESS + AWAITING_CALLBACK)
- *  - Réconciliation : pour les jobs `AWAITING_CALLBACK` Ankorstore, on suit la
- *    dernière `AnkorstoreOperation` du produit (qui chaîne automatiquement
- *    REFRESH_DELETE_OLD → REFRESH_CREATE_NEW)
+ *  - Concurrence **par tenant** : `PER_TENANT_TOTAL_CONCURRENCY` jobs en vol
+ *    par boutique, dont au plus `PER_TENANT_ANKORSTORE_CONCURRENCY` Ankorstore
+ *    et `PER_TENANT_FAIRE_CONCURRENCY` Faire. Chaque tenant a son propre
+ *    compte marketplace donc pas de collision entre boutiques.
+ *  - Sélection : on itère sur les tenants qui ont des jobs QUEUED, chacun
+ *    reçoit son propre budget → une boutique qui pousse 100 produits ne bloque
+ *    plus les autres boutiques.
  *  - Idempotence : transitions QUEUED → IN_PROGRESS via updateMany WHERE status,
  *    pour qu'un éventuel double-tick ne lance pas deux fois le même job
  */
@@ -26,14 +28,28 @@ import { markStep } from "@/lib/marketplace-job-steps";
 import { selectJobsToStart } from "@/lib/marketplace-queue-select";
 
 const POLL_MS = 1000;
-const TOTAL_CONCURRENCY = 10;
-// 5 slots Ankorstore max en parallèle, avec verrou de sérialisation par
+// Concurrence **par tenant** (2026-08-15) : chaque boutique a son propre
+// budget de jobs marketplace en vol, isolé des autres. Sans ça, un tenant qui
+// enqueue 100 produits monopolisait la file globale et bloquait les autres
+// boutiques jusqu'à la fin de son batch. Chaque tenant a son propre compte sur
+// chaque marketplace → les 5 slots Ankor par tenant ne se marchent pas dessus
+// (comptes différents côté Ankor).
+const PER_TENANT_TOTAL_CONCURRENCY = 5;
+// 5 slots Ankorstore max par tenant, avec verrou de sérialisation par
 // productId dans `selectJobsToStart` : 2 jobs Ankor ne peuvent JAMAIS toucher
 // le même produit simultanément (sinon collision SKU / écrasement d'état
 // pendant read-modify-write). Sur des produits distincts, aucune API Ankor
 // ne bronche — le rollback 2026-08-12 était dû aux batches REFRESH qui se
 // chevauchaient sur le MÊME produit, pas au parallélisme en soi.
-const ANKORSTORE_CONCURRENCY = 5;
+const PER_TENANT_ANKORSTORE_CONCURRENCY = 5;
+/**
+ * Faire limité à 2 jobs en parallèle par tenant : au-delà, Cloudflare 1015
+ * (front API Faire) coupe les requêtes avec HTTP 429 pendant 30–60s.
+ * Incident 2026-08-15 — refresh en masse de 20 produits → 14 échecs FAIRE,
+ * aucun autre marketplace. Combiné au backoff long dans `faireFetch`, on
+ * absorbe les blocages sans remonter l'erreur à la cliente.
+ */
+const PER_TENANT_FAIRE_CONCURRENCY = 2;
 /**
  * Batch REFRESH désactivé par flag depuis le rollback 2026-08-12. Le mode
  * batch (5 produits par POST) restait exposé aux fusions Ankor quand plusieurs
@@ -102,7 +118,7 @@ export function startMarketplaceQueueWorker(): void {
   }, POLL_MS);
 
   logger.info(
-    `[Marketplace Queue] Worker démarré (poll 1s, ${TOTAL_CONCURRENCY} slots, ${ANKORSTORE_CONCURRENCY} Ankorstore, batch REFRESH ${ANKOR_BATCH_REFRESH_ENABLED ? `taille ${ANKOR_REFRESH_BATCH_SIZE}` : "désactivé"})`,
+    `[Marketplace Queue] Worker démarré (poll 1s, ${PER_TENANT_TOTAL_CONCURRENCY} slots/tenant, ${PER_TENANT_ANKORSTORE_CONCURRENCY} Ankorstore/tenant, ${PER_TENANT_FAIRE_CONCURRENCY} Faire/tenant, batch REFRESH ${ANKOR_BATCH_REFRESH_ENABLED ? `taille ${ANKOR_REFRESH_BATCH_SIZE}` : "désactivé"})`,
   );
 }
 
@@ -131,43 +147,88 @@ async function tick(): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Démarrage des jobs queued en respectant la concurrence
+// Démarrage des jobs queued en respectant la concurrence PAR TENANT
 // ─────────────────────────────────────────────────────────────────────
-async function startQueued(): Promise<void> {
+/**
+ * Exporté pour tests seulement — appelé en interne par `tick()`.
+ */
+export async function startQueued(): Promise<void> {
+  const now = new Date();
+
+  // Étape 1 : trouver tous les tenants qui ont au moins 1 job QUEUED éligible.
+  // On boucle ensuite sur chaque tenant avec son propre budget → une boutique
+  // qui pousse 100 produits ne monopolise plus la file globale.
+  const tenantsRows = await prisma.marketplaceRefreshJob.findMany({
+    where: {
+      status: "QUEUED",
+      OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
+    },
+    select: { tenantId: true },
+    distinct: ["tenantId"],
+  });
+  if (tenantsRows.length === 0) return;
+
+  for (const { tenantId } of tenantsRows) {
+    await startQueuedForTenant(tenantId, now);
+  }
+}
+
+/**
+ * Alloue et démarre jusqu'à `PER_TENANT_TOTAL_CONCURRENCY` jobs pour un
+ * tenant donné, dont au plus `PER_TENANT_ANKORSTORE_CONCURRENCY` Ankorstore.
+ * Les jobs restent isolés entre tenants : chaque compte marketplace
+ * (Ankor/PFS/eFa/Faire) est propre à sa boutique donc pas de collision.
+ */
+async function startQueuedForTenant(
+  tenantId: string | null,
+  now: Date,
+): Promise<void> {
+  const tenantWhere = { tenantId };
+
   const inFlight = await prisma.marketplaceRefreshJob.count({
     where: {
+      ...tenantWhere,
       OR: [
         { status: "IN_PROGRESS" },
         { status: "AWAITING_CALLBACK", marketplace: "ANKORSTORE" },
       ],
     },
   });
-  const totalBudget = Math.max(0, TOTAL_CONCURRENCY - inFlight);
+  const totalBudget = Math.max(0, PER_TENANT_TOTAL_CONCURRENCY - inFlight);
   if (totalBudget <= 0) return;
 
-  // On récupère à la fois le count Ankor (pour le budget) et la liste des
-  // productId Ankor en vol (pour le verrou de sérialisation par produit) en
-  // une seule requête.
+  // Count Ankor du tenant + verrou de sérialisation par produit (Ankor↔Ankor).
   const ankorsInFlightRows = await prisma.marketplaceRefreshJob.findMany({
     where: {
+      ...tenantWhere,
       marketplace: "ANKORSTORE",
       status: { in: ["IN_PROGRESS", "AWAITING_CALLBACK"] },
     },
     select: { productId: true },
   });
-  const ankorsBudget = Math.max(0, ANKORSTORE_CONCURRENCY - ankorsInFlightRows.length);
+  const ankorsBudget = Math.max(
+    0,
+    PER_TENANT_ANKORSTORE_CONCURRENCY - ankorsInFlightRows.length,
+  );
   const inFlightAnkorProductIds = new Set(ankorsInFlightRows.map((r) => r.productId));
 
-  // On prend un peu plus de jobs queued pour pouvoir filtrer les Ankorstore au-delà du budget.
-  // scheduledFor = null → démarrage immédiat. Sinon on attend l'heure prévue (étalement).
-  const now = new Date();
+  // Count Faire du tenant (budget dédié — Cloudflare rate-limit).
+  const faireInFlightCount = await prisma.marketplaceRefreshJob.count({
+    where: {
+      ...tenantWhere,
+      marketplace: "FAIRE",
+      status: "IN_PROGRESS",
+    },
+  });
+  const fairesBudget = Math.max(0, PER_TENANT_FAIRE_CONCURRENCY - faireInFlightCount);
+
+  // scheduledFor = null → démarrage immédiat. Sinon on attend l'heure prévue.
   const queued = await prisma.marketplaceRefreshJob.findMany({
     where: {
+      ...tenantWhere,
       status: "QUEUED",
       OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }],
     },
-    // Tri par heure prévue puis par ordre d'arrivée : les jobs planifiés partent
-    // à leur heure, les immédiats sortent dans l'ordre où ils ont été créés.
     orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }],
     take: Math.max(totalBudget * 2, 10),
   });
@@ -177,13 +238,12 @@ async function startQueued(): Promise<void> {
     inFlightAnkorProductIds,
     totalBudget,
     ankorsBudget,
+    fairesBudget,
   });
 
-  // ─── Batch REFRESH Ankorstore par tenant ───
-  // On extrait les REFRESH Ankor éligibles au batching : mode=REFRESH,
-  // marketplace=ANKORSTORE, options.ankorstore≠false. On les groupe par
-  // tenantId puis on lance un batch delete par groupe (max
-  // ANKOR_REFRESH_BATCH_SIZE produits par appel).
+  // ─── Batch REFRESH Ankorstore ───
+  // Tous les jobs de toStart appartiennent au même tenant maintenant, plus
+  // besoin de re-grouper. On extrait les REFRESH Ankor éligibles au batching.
   const batchable: JobRow[] = [];
   const single: JobRow[] = [];
   for (const job of toStart) {
@@ -193,36 +253,25 @@ async function startQueued(): Promise<void> {
       single.push(job);
     }
   }
-  const byTenant = new Map<string, JobRow[]>();
-  for (const job of batchable) {
-    const key = job.tenantId ?? "__notenant__";
-    if (!byTenant.has(key)) byTenant.set(key, []);
-    byTenant.get(key)!.push(job);
-  }
 
-  for (const [tenantKey, tenantJobs] of byTenant.entries()) {
-    if (ANKOR_BATCH_REFRESH_ENABLED && tenantJobs.length >= 2) {
-      // Groupement en lots de ANKOR_REFRESH_BATCH_SIZE.
-      for (let i = 0; i < tenantJobs.length; i += ANKOR_REFRESH_BATCH_SIZE) {
-        const chunk = tenantJobs.slice(i, i + ANKOR_REFRESH_BATCH_SIZE);
-        if (chunk.length < 2) {
-          // Reste isolé — traiter en single.
-          single.push(...chunk);
-        } else {
-          void claimAndProcessBatchRefresh(chunk).catch((err: unknown) => {
-            logger.error("[Marketplace Queue] batch refresh unexpected error", {
-              tenantKey,
-              jobCount: chunk.length,
-              error: err as Error,
-            });
+  if (ANKOR_BATCH_REFRESH_ENABLED && batchable.length >= 2) {
+    for (let i = 0; i < batchable.length; i += ANKOR_REFRESH_BATCH_SIZE) {
+      const chunk = batchable.slice(i, i + ANKOR_REFRESH_BATCH_SIZE);
+      if (chunk.length < 2) {
+        single.push(...chunk);
+      } else {
+        void claimAndProcessBatchRefresh(chunk).catch((err: unknown) => {
+          logger.error("[Marketplace Queue] batch refresh unexpected error", {
+            tenantId,
+            jobCount: chunk.length,
+            error: err as Error,
           });
-        }
+        });
       }
-    } else {
-      // Batch REFRESH désactivé (rollback) → tous les Ankor REFRESH partent en
-      // single, un à la fois grâce à ANKORSTORE_CONCURRENCY=1.
-      single.push(...tenantJobs);
     }
+  } else {
+    // Batch REFRESH désactivé (rollback 2026-08-12) → tous en single.
+    single.push(...batchable);
   }
 
   for (const job of single) {

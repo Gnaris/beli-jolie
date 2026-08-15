@@ -165,6 +165,71 @@ describe("selectJobsToStart", () => {
     expect(res).toEqual([]);
   });
 
+  it("respecte le budget Faire dédié (max 2 jobs Faire en parallèle)", () => {
+    const queued: Job[] = Array.from({ length: 5 }, (_, i) =>
+      job(`f${i}`, "FAIRE", `p${i}`),
+    );
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      fairesBudget: 2,
+    });
+    expect(res.map((j) => j.id)).toEqual(["f0", "f1"]);
+  });
+
+  it("saute les jobs Faire quand fairesBudget = 0 mais laisse passer les autres", () => {
+    const queued: Job[] = [
+      job("f1", "FAIRE", "p1"), // skip (budget Faire 0)
+      job("p1", "PFS", "p2"),
+      job("f2", "FAIRE", "p3"), // skip
+      job("a1", "ANKORSTORE", "p4"),
+    ];
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      fairesBudget: 0,
+    });
+    expect(res.map((j) => j.id)).toEqual(["p1", "a1"]);
+  });
+
+  it("fairesBudget omis → aucune limite Faire (rétro-compat avec anciens callsites)", () => {
+    const queued: Job[] = Array.from({ length: 6 }, (_, i) =>
+      job(`f${i}`, "FAIRE", `p${i}`),
+    );
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      // fairesBudget absent volontairement
+    });
+    expect(res).toHaveLength(6);
+  });
+
+  it("les budgets Ankor et Faire sont indépendants", () => {
+    const queued: Job[] = [
+      job("a1", "ANKORSTORE", "pA1"),
+      job("f1", "FAIRE", "pF1"),
+      job("a2", "ANKORSTORE", "pA2"),
+      job("f2", "FAIRE", "pF2"),
+      job("a3", "ANKORSTORE", "pA3"),
+      job("f3", "FAIRE", "pF3"), // skip (Faire budget épuisé après f1/f2)
+      job("p1", "PFS", "pP1"),
+    ];
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      fairesBudget: 2,
+    });
+    expect(res.map((j) => j.id)).toEqual(["a1", "f1", "a2", "f2", "a3", "p1"]);
+  });
+
   it("ne mute pas le Set inFlight passé en entrée", () => {
     const inFlight = new Set(["prodA"]);
     selectJobsToStart({

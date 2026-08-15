@@ -48,7 +48,7 @@
       color: white;
     }
     .container {
-      max-width: 1100px;
+      max-width: 1600px;
       margin: 0 auto;
       padding: 24px;
     }
@@ -58,11 +58,8 @@
       box-shadow: 0 1px 3px rgba(0,0,0,.08);
       overflow: hidden;
       display: grid;
-      grid-template-columns: 1fr 1.4fr;
+      grid-template-columns: 1fr;
       gap: 0;
-    }
-    @media (max-width: 900px) {
-      .product-card { grid-template-columns: 1fr; }
     }
     .image-section {
       background: #fafaf9;
@@ -71,11 +68,11 @@
       flex-direction: column;
       align-items: center;
       gap: 16px;
-      border-right: 1px solid #e7e5e4;
+      border-bottom: 1px solid #e7e5e4;
     }
     .product-image {
       width: 100%;
-      max-width: 380px;
+      max-width: 1520px;
       aspect-ratio: 1;
       object-fit: contain;
       background: white;
@@ -114,7 +111,7 @@
     .ref-line strong { color: #1c1917; font-size: 16px; }
     .current-meta {
       width: 100%;
-      max-width: 380px;
+      max-width: 1520px;
       background: #fafaf9;
       border: 1px dashed #d6d3d1;
       border-radius: 8px;
@@ -466,24 +463,24 @@
       gap: 16px;
       margin-bottom: 24px;
     }
-    @media (min-width: 1000px) {
-      .hints-grid { grid-template-columns: 1fr 1fr; }
-    }
     .hint-card {
       background: white;
       border-radius: 12px;
       box-shadow: 0 1px 3px rgba(0,0,0,.08);
       padding: 16px;
       display: grid;
-      grid-template-columns: 160px 1fr;
+      grid-template-columns: 1fr;
       gap: 16px;
       transition: border-color .15s, background .15s;
       border: 1px solid transparent;
     }
     .hint-card.filled { border-color: #86efac; background: #f7fef9; }
     .hint-card-image {
-      width: 160px;
-      height: 160px;
+      width: 100%;
+      max-width: 640px;
+      aspect-ratio: 1;
+      height: auto;
+      justify-self: center;
       object-fit: contain;
       background: #fafaf9;
       border-radius: 8px;
@@ -567,9 +564,8 @@
       box-shadow: none;
       transform: none;
     }
-    @media (max-width: 700px) {
-      .hint-card { grid-template-columns: 1fr; }
-      .hint-card-image { width: 100%; height: 220px; }
+    @media (max-width: 900px) {
+      .hint-card-image { max-width: 100%; }
     }
 
     /* AWAITING GENERATION — étape 1.5 : modale d'attente pendant que Claude analyse */
