@@ -43,6 +43,7 @@ import {
   applyMarketplaceMarkup,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing";
+import { detectPfsDuplicate } from "@/lib/pfs-verify";
 import { logger } from "@/lib/logger";
 import {
   resolveVariant,
@@ -280,6 +281,27 @@ export async function pullAddLocalVariantFromPfs(
     pfsGetVariants(product.pfsProductId),
     pfsCheckReference(product.reference),
   ]);
+
+  // Doublon PFS : détection partagée avec l'audit (cf. `detectPfsDuplicate`).
+  // Refus dur ici — l'audit surface la même erreur, donc la cliente sait
+  // qu'il faut nettoyer PFS avant de retenter.
+  if (checkRef?.exists && checkRef.product?.id) {
+    const dup = detectPfsDuplicate({
+      reference: product.reference,
+      localPfsProductId: product.pfsProductId,
+      remotePfsProductId: checkRef.product.id,
+    });
+    if (dup.isDuplicate) {
+      logger.warn("[PFS Verify Ops] Doublon PFS détecté — pull annulé", {
+        productId,
+        reference: product.reference,
+        localPfsProductId: product.pfsProductId,
+        pfsCheckReferenceId: checkRef.product.id,
+      });
+      return { ok: false, error: dup.message };
+    }
+  }
+
   const pfsVariants: PfsVariantDetail[] = variantsResp.data ?? [];
   const pv = pfsVariants.find((v) => v.id === pfsVariantId);
   if (!pv) {

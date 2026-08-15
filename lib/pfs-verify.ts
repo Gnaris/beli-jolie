@@ -140,7 +140,36 @@ export type PfsVerifyError =
   | { kind: "not_linked"; message: string }
   | { kind: "not_found_on_pfs"; message: string }
   | { kind: "pfs_unreachable"; message: string }
-  | { kind: "local_missing"; message: string };
+  | { kind: "local_missing"; message: string }
+  | { kind: "pfs_duplicate"; message: string };
+
+/**
+ * Détecte un doublon côté PFS : deux produits différents partagent la même
+ * référence. `pfsCheckReference` en renvoie un (le "premier trouvé"), mais
+ * notre lien local pointe vers l'autre — l'audit propose alors des variantes
+ * venues du doublon que le pull cherche dans NOTRE produit et échoue en
+ * silence à chaque clic (cf. ref 15187 Issyma, 8 tentatives entre 11 et
+ * 15/08/2026). Helper partagé entre `verifyPfsProduct` et
+ * `pullAddLocalVariantFromPfs` pour uniformiser le message.
+ */
+export function detectPfsDuplicate(args: {
+  reference: string;
+  localPfsProductId: string;
+  remotePfsProductId: string;
+}):
+  | { isDuplicate: true; message: string }
+  | { isDuplicate: false } {
+  if (args.localPfsProductId === args.remotePfsProductId) {
+    return { isDuplicate: false };
+  }
+  return {
+    isDuplicate: true,
+    message:
+      `Doublon détecté côté PFS pour la référence ${args.reference} : ` +
+      `deux produits différents portent cette référence. Nettoyez PFS ` +
+      `(supprimez ${args.remotePfsProductId}) puis relancez l'audit.`,
+  };
+}
 
 // ─── Types internes (mêmes formes que dans pfs-update / pfs-refresh) ───────
 
@@ -1382,6 +1411,18 @@ export async function verifyPfsProduct(
       ok: false,
       error: { kind: "not_found_on_pfs", message: `Référence ${product.reference} inexistante sur PFS` },
     };
+  }
+
+  // Doublon PFS : voir `detectPfsDuplicate` — comparer les variantes n'a
+  // plus de sens quand `pfsCheckReference` renvoie un produit différent
+  // de notre lien local.
+  const dup = detectPfsDuplicate({
+    reference: product.reference,
+    localPfsProductId: product.pfsProductId,
+    remotePfsProductId: checkRef.product.id,
+  });
+  if (dup.isDuplicate) {
+    return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
   }
 
   // Fallback API admin (mobile PFS) : le wholesaler renvoie parfois compo

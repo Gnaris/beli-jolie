@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { comparePfsProduct, type PfsVerifyIssue } from "@/lib/pfs-verify";
+import { comparePfsProduct, detectPfsDuplicate, type PfsVerifyIssue } from "@/lib/pfs-verify";
 import { groupIssuesByBlock } from "@/components/admin/products/PfsVerifyBadge";
 import type { PfsCheckReferenceResponse, PfsVariantDetail } from "@/lib/pfs-api";
 
@@ -1188,5 +1188,42 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(catIssue?.blockingMappingIssue).toBeUndefined();
     // pullBlocked reste posé (Lot C) mais pas de mapping missing.
     expect(catIssue?.pullBlocked).toBeDefined();
+  });
+});
+
+describe("detectPfsDuplicate", () => {
+  it("renvoie isDuplicate=false quand les 2 ids sont identiques", () => {
+    const r = detectPfsDuplicate({
+      reference: "15187",
+      localPfsProductId: "pro_same",
+      remotePfsProductId: "pro_same",
+    });
+    expect(r.isDuplicate).toBe(false);
+  });
+
+  it("renvoie isDuplicate=true avec un message contenant la ref et l'id distant", () => {
+    const r = detectPfsDuplicate({
+      reference: "15187",
+      localPfsProductId: "pro_f57b5da8",
+      remotePfsProductId: "pro_3f7c5077",
+    });
+    expect(r.isDuplicate).toBe(true);
+    if (r.isDuplicate) {
+      expect(r.message).toContain("15187");
+      expect(r.message).toContain("pro_3f7c5077");
+      // Le message doit expliquer QUOI faire, pas juste décrire le bug.
+      expect(r.message).toMatch(/supprimez/i);
+    }
+  });
+
+  it("ne mentionne pas l'id local dans le message (secret d'implémentation)", () => {
+    const r = detectPfsDuplicate({
+      reference: "REF-X",
+      localPfsProductId: "pro_local_secret",
+      remotePfsProductId: "pro_remote_visible",
+    });
+    if (r.isDuplicate) {
+      expect(r.message).not.toContain("pro_local_secret");
+    }
   });
 });

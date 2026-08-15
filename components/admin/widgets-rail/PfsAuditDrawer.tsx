@@ -569,6 +569,19 @@ export function PfsAuditDrawer() {
           return;
         }
       }
+      // Rien d'appliqué + au moins une erreur → toast d'erreur avec la vraie
+      // cause. Sinon la cliente voyait « corrigé depuis PFS » pour un pull qui
+      // avait silencieusement échoué à chaque écart (cas des doublons PFS :
+      // ref 15187 Issyma a subi 8 clics « Modifier » sans jamais rien créer,
+      // toast success à chaque fois).
+      if (res.result.appliedCount === 0 && res.result.errorCount > 0) {
+        toast.error(
+          `Correction impossible pour « ${r.name} »`,
+          res.result.firstError ?? "Aucune correction appliquée.",
+        );
+        router.refresh();
+        return;
+      }
       toast.success(
         `« ${r.name} » corrigé depuis PFS`,
         res.result.appliedCount > 0
@@ -861,12 +874,19 @@ export function PfsAuditDrawer() {
       }
     }
 
-    toast.success(
-      `${totalApplied} produit${totalApplied > 1 ? "s" : ""} corrigé${totalApplied > 1 ? "s" : ""} depuis PFS`,
-      totalFailed > 0
-        ? `${totalFailed} en erreur — ${firstError ?? ""}`
-        : undefined,
-    );
+    if (totalApplied === 0 && totalFailed > 0) {
+      toast.error(
+        `Aucun produit corrigé — ${totalFailed} en erreur`,
+        firstError ?? undefined,
+      );
+    } else {
+      toast.success(
+        `${totalApplied} produit${totalApplied > 1 ? "s" : ""} corrigé${totalApplied > 1 ? "s" : ""} depuis PFS`,
+        totalFailed > 0
+          ? `${totalFailed} en erreur — ${firstError ?? ""}`
+          : undefined,
+      );
+    }
 
     // Propagation en masse aux autres marketplaces. On ne propose que les
     // marketplaces où AU MOINS UN produit corrigé est éligible. Pour chaque
