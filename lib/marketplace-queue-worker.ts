@@ -23,14 +23,17 @@ import { emitProductEvent } from "@/lib/product-events";
 import { tenantALS } from "@/lib/tenant-als";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 import { markStep } from "@/lib/marketplace-job-steps";
+import { selectJobsToStart } from "@/lib/marketplace-queue-select";
 
 const POLL_MS = 1000;
 const TOTAL_CONCURRENCY = 10;
-// 1 slot Ankorstore = 1 refresh à la fois. ROLLBACK 2026-08-12 après incident
-// où le parallélisme + batch faisaient déclencher la dédup Ankor et
-// ralentissaient tout. Le mode 1-par-1 est prévisible et n'a jamais de fusion.
-// Autres marketplaces gardent leur budget via TOTAL_CONCURRENCY.
-const ANKORSTORE_CONCURRENCY = 1;
+// 5 slots Ankorstore max en parallèle, avec verrou de sérialisation par
+// productId dans `selectJobsToStart` : 2 jobs Ankor ne peuvent JAMAIS toucher
+// le même produit simultanément (sinon collision SKU / écrasement d'état
+// pendant read-modify-write). Sur des produits distincts, aucune API Ankor
+// ne bronche — le rollback 2026-08-12 était dû aux batches REFRESH qui se
+// chevauchaient sur le MÊME produit, pas au parallélisme en soi.
+const ANKORSTORE_CONCURRENCY = 5;
 /**
  * Batch REFRESH désactivé par flag depuis le rollback 2026-08-12. Le mode
  * batch (5 produits par POST) restait exposé aux fusions Ankor quand plusieurs
@@ -142,13 +145,18 @@ async function startQueued(): Promise<void> {
   const totalBudget = Math.max(0, TOTAL_CONCURRENCY - inFlight);
   if (totalBudget <= 0) return;
 
-  const ankorsInFlight = await prisma.marketplaceRefreshJob.count({
+  // On récupère à la fois le count Ankor (pour le budget) et la liste des
+  // productId Ankor en vol (pour le verrou de sérialisation par produit) en
+  // une seule requête.
+  const ankorsInFlightRows = await prisma.marketplaceRefreshJob.findMany({
     where: {
       marketplace: "ANKORSTORE",
       status: { in: ["IN_PROGRESS", "AWAITING_CALLBACK"] },
     },
+    select: { productId: true },
   });
-  let ankorsBudget = Math.max(0, ANKORSTORE_CONCURRENCY - ankorsInFlight);
+  const ankorsBudget = Math.max(0, ANKORSTORE_CONCURRENCY - ankorsInFlightRows.length);
+  const inFlightAnkorProductIds = new Set(ankorsInFlightRows.map((r) => r.productId));
 
   // On prend un peu plus de jobs queued pour pouvoir filtrer les Ankorstore au-delà du budget.
   // scheduledFor = null → démarrage immédiat. Sinon on attend l'heure prévue (étalement).
@@ -164,15 +172,12 @@ async function startQueued(): Promise<void> {
     take: Math.max(totalBudget * 2, 10),
   });
 
-  const toStart: JobRow[] = [];
-  for (const job of queued) {
-    if (toStart.length >= totalBudget) break;
-    if (job.marketplace === "ANKORSTORE") {
-      if (ankorsBudget <= 0) continue;
-      ankorsBudget--;
-    }
-    toStart.push(job);
-  }
+  const toStart = selectJobsToStart({
+    queued,
+    inFlightAnkorProductIds,
+    totalBudget,
+    ankorsBudget,
+  });
 
   // ─── Batch REFRESH Ankorstore par tenant ───
   // On extrait les REFRESH Ankor éligibles au batching : mode=REFRESH,
