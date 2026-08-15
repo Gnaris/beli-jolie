@@ -230,6 +230,10 @@ async function loadBjProductForBo(productId: string): Promise<BjProductInputForB
           ankorsSku: true,
           colorId: true,
           color: { select: { name: true } },
+          variantSizes: {
+            select: { quantity: true, size: { select: { name: true, position: true } } },
+            orderBy: [{ size: { position: "asc" as const } }, { size: { name: "asc" as const } }],
+          },
           images: {
             select: { path: true, order: true },
             orderBy: { order: "asc" as const },
@@ -260,6 +264,10 @@ async function loadBjProductForBo(productId: string): Promise<BjProductInputForB
       .filter((im) => im.colorId === c.colorId)
       .map((im) => im.path);
     const imagePaths = specificImages.length > 0 ? specificImages : sharedImages;
+    // Taille de la variante côté BJ. Une variante UNIT n'a au plus qu'une VariantSize,
+    // mais on prend la 1re par sécurité (ordre déjà stable via position/name asc).
+    // Null / vide → le builder retombera sur DEFAULT_ANKOR_SIZE_NAME ("Taille unique").
+    const sizeName = c.variantSizes[0]?.size?.name ?? null;
     return {
       id: c.id,
       saleType: c.saleType as "UNIT" | "PACK",
@@ -270,6 +278,7 @@ async function loadBjProductForBo(productId: string): Promise<BjProductInputForB
       weight: c.weight ? Number(c.weight) : null,
       colorName: c.color?.name ?? null,
       ankorsColorNameOverride: c.ankorsColorNameOverride,
+      sizeName,
       imageKeys: imagePaths as unknown as string[], // remplacés par les keys après upload
       // SKU sera pré-résolu (persisté ou fraîchement généré) par resolveAndPersistAnkorsSkus()
       // juste après cet appel — on part avec la valeur BDD actuelle.
@@ -690,12 +699,20 @@ export async function publishProductToAnkorstoreBo(
       //     variante » et laisse l'ancienne intacte — la case « Continuer à
       //     vendre » (inventory_policy=continue) ne se met jamais à jour.
       const skuToId = new Map<string, number>();
-      const colorOptionToId = new Map<string, number>();
+      // Clé combinée `${normalizedSize}|${normalizedColor}` — indispensable depuis
+      // qu'on envoie la taille : sinon 3 variantes "Noir" écrasent la même entrée
+      // dans le fallback et 2 d'entre elles perdent leur variant.id → Ankor
+      // recrée puis rejette avec « SKU already assigned ».
+      const optionsToId = new Map<string, number>();
       if (existingAnkor) {
         for (const v of existingAnkor.variants ?? []) {
           if (v.sku) skuToId.set(v.sku, v.id);
           const colorOpt = v.options.find((o) => o.name === "color")?.value;
-          if (colorOpt) colorOptionToId.set(normalizeColorKey(colorOpt), v.id);
+          const sizeOpt = v.options.find((o) => o.name === "size")?.value;
+          if (colorOpt) {
+            const key = `${normalizeColorKey(sizeOpt ?? "")}|${normalizeColorKey(colorOpt)}`;
+            optionsToId.set(key, v.id);
+          }
         }
       }
       // Wrap le payload builder pour injecter l'id de variante connue chez Ankor.
@@ -705,8 +722,11 @@ export async function publishProductToAnkorstoreBo(
           const bySku = skuToId.get(v.sku);
           if (bySku) return { ...v, id: bySku };
           const colorOpt = v.options.find((o) => o.name === "color")?.value;
-          const byColor = colorOpt ? colorOptionToId.get(normalizeColorKey(colorOpt)) : null;
-          return byColor ? { ...v, id: byColor } : v;
+          const sizeOpt = v.options.find((o) => o.name === "size")?.value;
+          if (!colorOpt) return v;
+          const key = `${normalizeColorKey(sizeOpt ?? "")}|${normalizeColorKey(colorOpt)}`;
+          const byOptions = optionsToId.get(key);
+          return byOptions ? { ...v, id: byOptions } : v;
         });
         return p;
       };

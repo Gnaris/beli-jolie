@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildProductPayloadFromBjProduct, type BjProductInputForBo } from "@/lib/ankorstore-bo/builder";
+import {
+  buildProductPayloadFromBjProduct,
+  DEFAULT_ANKOR_SIZE_NAME,
+  type BjProductInputForBo,
+} from "@/lib/ankorstore-bo/builder";
 import { ANKORSTORE_TAG_IDS, ANKORSTORE_OPTION_IDS } from "@/lib/ankorstore-bo/referentials";
 
 const pricingConfig = {
@@ -18,6 +22,7 @@ const baseColor = {
   weight: 100,
   colorName: "Rouge",
   ankorsColorNameOverride: null,
+  sizeName: null,
   imageKeys: ["file-upload:abc.jpg"],
   ian: null,
   // SKU pré-résolu par le caller — le builder ne le construit plus lui-même.
@@ -51,9 +56,17 @@ describe("buildProductPayloadFromBjProduct", () => {
     expect(p.vat_rate).toBe(20);
     expect(p.tags).toEqual([]);
     expect(p.variants).toHaveLength(1);
-    expect(p.options).toHaveLength(1);
-    expect(p.options[0].id).toBe(ANKORSTORE_OPTION_IDS.COLOR);
-    expect(p.options[0].values).toEqual(["Rouge"]);
+    // On envoie TOUJOURS size + color (jamais uniquement color, sinon collision
+    // Ankor sur les produits avec plusieurs variantes de la même couleur).
+    expect(p.options).toHaveLength(2);
+    expect(p.options[0].id).toBe(ANKORSTORE_OPTION_IDS.SIZE);
+    expect(p.options[0].values).toEqual([DEFAULT_ANKOR_SIZE_NAME]);
+    expect(p.options[1].id).toBe(ANKORSTORE_OPTION_IDS.COLOR);
+    expect(p.options[1].values).toEqual(["Rouge"]);
+    expect(p.variants[0].options).toEqual([
+      { id: ANKORSTORE_OPTION_IDS.SIZE, name: "size", value: DEFAULT_ANKOR_SIZE_NAME },
+      { id: ANKORSTORE_OPTION_IDS.COLOR, name: "color", value: "Rouge" },
+    ]);
   });
 
   it("SKU envoyé tel quel depuis c.sku (pré-résolu par le caller)", () => {
@@ -187,8 +200,70 @@ describe("buildProductPayloadFromBjProduct", () => {
       },
       { brandId: 51370, pricingConfig }
     );
-    expect(p.options[0].values).toEqual(["Bordeaux"]);
+    // options[0] = size, options[1] = color depuis la refonte multi-taille.
+    expect(p.options[1].values).toEqual(["Bordeaux"]);
     expect(p.variants[0].sku).toBe("A1720_BORDEAUX_XYZAB");
+  });
+
+  it("Envoie sizeName BJ tel quel + dédoublonne les tailles au niveau produit", () => {
+    const p = buildProductPayloadFromBjProduct(
+      {
+        ...baseInput,
+        colors: [
+          { ...baseColor, sizeName: "S/M", sku: "A1720_NOIR_SM01" },
+          {
+            ...baseColor,
+            id: "c2",
+            sizeName: "M/L",
+            sku: "A1720_NOIR_ML01",
+          },
+          {
+            ...baseColor,
+            id: "c3",
+            sizeName: "L/XL",
+            sku: "A1720_NOIR_LX01",
+          },
+        ],
+      },
+      { brandId: 51370, pricingConfig }
+    );
+    expect(p.options[0].values).toEqual(["S/M", "M/L", "L/XL"]);
+    expect(p.variants[0].options[0]).toEqual({
+      id: ANKORSTORE_OPTION_IDS.SIZE,
+      name: "size",
+      value: "S/M",
+    });
+    expect(p.variants[1].options[0].value).toBe("M/L");
+    expect(p.variants[2].options[0].value).toBe("L/XL");
+  });
+
+  it("Plusieurs couleurs sur la même taille : options.values dédoublonnées", () => {
+    const p = buildProductPayloadFromBjProduct(
+      {
+        ...baseInput,
+        colors: [
+          { ...baseColor, colorName: "Rouge", sizeName: "S", sku: "A1720_ROUGE_S001" },
+          {
+            ...baseColor,
+            id: "c2",
+            colorName: "Bleu",
+            sizeName: "S",
+            sku: "A1720_BLEU_S001",
+          },
+        ],
+      },
+      { brandId: 51370, pricingConfig }
+    );
+    expect(p.options[0].values).toEqual(["S"]); // une seule taille
+    expect(p.options[1].values).toEqual(["Rouge", "Bleu"]);
+  });
+
+  it("sizeName vide ou espaces → fallback DEFAULT_ANKOR_SIZE_NAME", () => {
+    const p = buildProductPayloadFromBjProduct(
+      { ...baseInput, colors: [{ ...baseColor, sizeName: "   " }] },
+      { brandId: 51370, pricingConfig }
+    );
+    expect(p.variants[0].options[0].value).toBe(DEFAULT_ANKOR_SIZE_NAME);
   });
 
   it("Pays Chine (CN) → id 46", () => {

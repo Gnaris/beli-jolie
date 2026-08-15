@@ -27,6 +27,13 @@ export interface BjColorInputForBo {
   saleType: "UNIT" | "PACK";
   colorName: string | null;
   ankorsColorNameOverride: string | null;
+  /**
+   * Nom de la taille de la variante côté BJ (ex "S/M", "36", "Taille unique").
+   * `null` / vide → fallback `DEFAULT_ANKOR_SIZE_NAME` ("Taille unique") pour qu'Ankor
+   * accepte plusieurs ProductColor sur la même couleur (ex Issyma : Noir en S/M+M/L+L/XL)
+   * sans collision d'option "color".
+   */
+  sizeName: string | null;
   unitPrice: number;
   packQuantity: number | null;
   stock: number;
@@ -43,6 +50,13 @@ export interface BjColorInputForBo {
    */
   sku: string;
 }
+
+/**
+ * Valeur envoyée en option "size" par défaut. Pour BJ, la majorité des produits
+ * sont vendus en taille unique — Ankor exige quand même une valeur pour
+ * différencier les variantes qui partagent la même couleur.
+ */
+export const DEFAULT_ANKOR_SIZE_NAME = "Taille unique";
 
 export interface BjProductInputForBo {
   reference: string;
@@ -87,9 +101,20 @@ export function buildProductPayloadFromBjProduct(
     order: i,
   }));
 
-  const colorValues = enabledColors.map((c) => resolveColorName(c));
+  const colorValues = uniqueOrdered(enabledColors.map((c) => resolveColorName(c)));
+  const sizeValues = uniqueOrdered(enabledColors.map((c) => resolveSizeName(c)));
 
+  // On envoie TOUJOURS les deux options (size + color). Sans "size", Ankor refuse
+  // les cas où deux variantes partagent la même couleur (ex "Noir" en 3 tailles :
+  // erreur 422 « share the same options value color:Noir »). Pour les produits
+  // taille unique, on envoie DEFAULT_ANKOR_SIZE_NAME sur toutes les variantes.
   const options: BoOptionPayload[] = [
+    {
+      id: ANKORSTORE_OPTION_IDS.SIZE,
+      name: "size",
+      displayName: "Size",
+      values: sizeValues,
+    },
     {
       id: ANKORSTORE_OPTION_IDS.COLOR,
       name: "color",
@@ -100,6 +125,7 @@ export function buildProductPayloadFromBjProduct(
 
   const variants: BoVariantPayload[] = enabledColors.map((c) => {
     const colorName = resolveColorName(c);
+    const sizeName = resolveSizeName(c);
     if (!c.sku) {
       throw new Error(
         `SKU manquant pour la variante ${c.id} — l'appelant doit pré-résoudre ankorsSku avant de builder le payload.`
@@ -150,6 +176,11 @@ export function buildProductPayloadFromBjProduct(
       },
       options: [
         {
+          id: ANKORSTORE_OPTION_IDS.SIZE,
+          name: "size",
+          value: sizeName,
+        },
+        {
           id: ANKORSTORE_OPTION_IDS.COLOR,
           name: "color",
           value: colorName,
@@ -197,4 +228,21 @@ function resolveColorName(c: BjColorInputForBo): string {
   const override = c.ankorsColorNameOverride?.trim();
   if (override) return override;
   return c.colorName?.trim() || "Standard";
+}
+
+function resolveSizeName(c: BjColorInputForBo): string {
+  const raw = c.sizeName?.trim();
+  return raw && raw.length > 0 ? raw : DEFAULT_ANKOR_SIZE_NAME;
+}
+
+/** Renvoie les valeurs distinctes en conservant l'ordre d'apparition. */
+function uniqueOrdered(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
 }
