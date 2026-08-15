@@ -49,6 +49,7 @@ import {
   updateProduct,
   readProductById,
   readProductByIdWithRetry,
+  readProductByIdWithSkuFallback,
   enableProducts,
   disableProducts,
   archiveProducts,
@@ -643,9 +644,20 @@ export async function publishProductToAnkorstoreBo(
     // Lit l'état Ankor actuel une fois (utile pour : mapping SKU→variant.id
     // pour éviter le 422, ET pour récupérer les URLs images existantes à
     // réutiliser dans le PUT au lieu de tout ré-uploader).
+    //
+    // Utilise `readProductByIdWithSkuFallback` car l'endpoint filters[id]
+    // d'Ankor renvoie parfois le mauvais produit (bug 2026-08-15) — sans ce
+    // fallback, les URLs d'images d'un AUTRE produit sont réinjectées dans le
+    // PUT et le mauvais produit se retrouve avec l'image du nôtre chez Ankor.
     let existingAnkor: BoProductSummary | null = null;
     if (isNewFormat && legacyLinkedId) {
-      existingAnkor = await readProductById(Number(legacyLinkedId));
+      const skuHints = enabledColorsRaw
+        .map((c) => c.sku)
+        .filter((s): s is string => !!s);
+      existingAnkor = await readProductByIdWithSkuFallback(
+        Number(legacyLinkedId),
+        skuHints,
+      );
     }
 
     // Construit le plan de sync images à partir du snapshot précédent et
@@ -793,7 +805,11 @@ export async function publishProductToAnkorstoreBo(
     }
 
     // Peuple ankorsProductId + ankorsVariantId
-    const readBack = await readProductByIdWithRetry(ankorProductId);
+    // On passe les SKUs qu'on vient d'envoyer comme hints — si filters[id]
+    // renvoie un mauvais produit, le fallback SKU trouve le bon.
+    const readBack = await readProductByIdWithRetry(ankorProductId, {
+      skuHints: enabledColors.map((c) => c.sku).filter((s): s is string => !!s),
+    });
     await prisma.product.update({
       where: { id: productId },
       data: {
