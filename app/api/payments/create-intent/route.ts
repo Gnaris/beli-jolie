@@ -10,6 +10,7 @@ import { logger } from "@/lib/logger";
 import { loadActivePromotions, validatePromoCode } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
+import { stockUnitsForCartLine } from "@/lib/stock-units";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
@@ -55,7 +56,15 @@ export async function POST(req: Request) {
                 saleType: true,
                 packQuantity: true,
                 weight: true,
-                product: { select: { id: true, discountPercent: true } },
+                stock: true,
+                product: {
+                  select: {
+                    id: true,
+                    name: true,
+                    status: true,
+                    discountPercent: true,
+                  },
+                },
               },
             },
           },
@@ -80,6 +89,43 @@ export async function POST(req: Request) {
   }
   if (!address) {
     return NextResponse.json({ error: "Adresse introuvable." }, { status: 400 });
+  }
+
+  // Refuser tout produit qui n'est plus en ligne (double garde : middleware
+  // catalog + ici, au moment de la préparation du paiement).
+  const offline = cart.items.find((i) => i.variant.product.status !== "ONLINE");
+  if (offline) {
+    return NextResponse.json(
+      {
+        error: `Le produit « ${offline.variant.product.name} » n'est plus disponible. Retirez-le du panier pour continuer.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Pré-check stock AVANT création du PaymentIntent Stripe : le client ne doit
+  // JAMAIS être débité d'un article en rupture. Le check final atomique dans
+  // placeOrder reste le filet anti-race si un autre client vide le stock
+  // pendant que Mme X saisit sa carte.
+  const shortStock = cart.items.find(
+    (i) => i.variant.stock < stockUnitsForCartLine(i),
+  );
+  if (shortStock) {
+    const packQty = shortStock.variant.packQuantity ?? 1;
+    const remaining =
+      shortStock.variant.saleType === "PACK" && packQty > 1
+        ? Math.floor(shortStock.variant.stock / packQty)
+        : shortStock.variant.stock;
+    const unit =
+      shortStock.variant.saleType === "PACK" && packQty > 1
+        ? `paquet${remaining > 1 ? "s" : ""}`
+        : "";
+    return NextResponse.json(
+      {
+        error: `Stock insuffisant pour « ${shortStock.variant.product.name} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}. Retirez ou réduisez cet article pour continuer.`,
+      },
+      { status: 409 },
+    );
   }
 
   const [activePromos, promoContexts] = await Promise.all([

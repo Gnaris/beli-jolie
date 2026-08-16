@@ -14,13 +14,17 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // ─── Mocks hoisted ────────────────────────────────────────────────────────────
 
 const mockPrisma = vi.hoisted(() => ({
-  user: { findUnique: vi.fn() },
+  user: { findUnique: vi.fn(), update: vi.fn() },
   cart: { findUnique: vi.fn() },
   shippingAddress: { findFirst: vi.fn() },
   productColorImage: { findMany: vi.fn().mockResolvedValue([]) },
-  siteConfig: { findUnique: vi.fn().mockResolvedValue(null) },
+  siteConfig: { findUnique: vi.fn().mockResolvedValue(null), findFirst: vi.fn().mockResolvedValue(null) },
+  promotion: { findMany: vi.fn().mockResolvedValue([]) },
+  product: { findMany: vi.fn().mockResolvedValue([]) },
+  collectionProduct: { findMany: vi.fn().mockResolvedValue([]) },
   order: {
     findUnique: vi.fn().mockResolvedValue(null), // pas de collision orderNumber
+    findFirst: vi.fn().mockResolvedValue(null),
     update: vi.fn(),
   },
   cartItem: { deleteMany: vi.fn() },
@@ -33,6 +37,7 @@ const mockSession = vi.hoisted(() => ({
 
 const mockStripe = vi.hoisted(() => ({
   paymentIntents: { retrieve: vi.fn() },
+  refunds: { create: vi.fn().mockResolvedValue({ id: "re_test" }) },
 }));
 
 vi.mock("next-auth", () => ({
@@ -170,6 +175,33 @@ describe("placeOrder — vérification de stock (P1-01)", () => {
     if (!res.success) {
       expect(res.error).toMatch(/Stock insuffisant/i);
       expect(res.error).toMatch(/Bague test/);
+    }
+  });
+
+  it("Rembourse automatiquement le paiement si StockError levée après paiement (race condition)", async () => {
+    mockPrisma.$transaction.mockImplementation(async (callback) => {
+      const tx = {
+        productColor: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          findUnique: vi.fn().mockResolvedValue({ stock: 0 }),
+        },
+        order: { create: vi.fn() },
+        stockMovement: { createMany: vi.fn() },
+      };
+      return callback(tx);
+    });
+
+    const res = await placeOrder(baseInput);
+
+    expect(res.success).toBe(false);
+    expect(mockStripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_intent: "pi_test",
+        reason: "requested_by_customer",
+      }),
+    );
+    if (!res.success) {
+      expect(res.error).toMatch(/remboursé automatiquement/i);
     }
   });
 

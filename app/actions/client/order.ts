@@ -649,7 +649,36 @@ export async function placeOrder(
   } catch (err) {
     if (err instanceof StockError) {
       logger.warn("[placeOrder] Stock insuffisant", { message: err.message });
-      return { success: false, error: err.message };
+      // Filet de sécurité : le paiement Stripe a réussi (vérifié plus haut)
+      // mais un autre client a vidé le stock pendant que Mme X saisissait sa CB.
+      // On rembourse IMMÉDIATEMENT pour éviter que le client se retrouve débité
+      // sans commande. Idempotent : si le refund échoue (déjà fait, PI annulé),
+      // on log et on continue.
+      let refunded = false;
+      try {
+        const stripe = await getStripeInstance();
+        await stripe.refunds.create({
+          payment_intent: input.stripePaymentIntentId,
+          reason: "requested_by_customer",
+          metadata: {
+            reason: "stock_race_condition",
+            userId,
+          },
+        });
+        refunded = true;
+        logger.warn("[placeOrder] Refund auto après StockError", {
+          paymentIntentId: input.stripePaymentIntentId,
+        });
+      } catch (refundErr) {
+        logger.error("[placeOrder] Refund auto échoué", {
+          paymentIntentId: input.stripePaymentIntentId,
+          error: refundErr,
+        });
+      }
+      const suffix = refunded
+        ? " Votre paiement va être remboursé automatiquement — les fonds arriveront sous 3 à 5 jours ouvrés."
+        : " Nous n'avons pas pu déclencher le remboursement automatiquement ; l'équipe est prévenue et vous serez remboursé dans les meilleurs délais.";
+      return { success: false, error: err.message + suffix };
     }
     logger.error("[placeOrder] Transaction error", {
       error: err,

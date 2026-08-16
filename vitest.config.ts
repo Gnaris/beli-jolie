@@ -29,6 +29,12 @@ import path from "path";
 const sharedResolve = {
   alias: {
     "@": path.resolve(__dirname, "."),
+    // Stub le marqueur Next.js `server-only` (bloque l'import côté client mais
+    // n'existe pas en dep). Sous Vitest node, on veut juste un module vide.
+    "server-only": path.resolve(
+      __dirname,
+      "node_modules/next/dist/compiled/server-only/empty.js",
+    ),
   },
 };
 
