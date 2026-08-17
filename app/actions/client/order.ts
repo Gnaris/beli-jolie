@@ -8,16 +8,16 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { reinstateStockForOrder } from "@/lib/stock";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
-import { resolveVatRate, EU_COUNTRIES } from "@/lib/vat";
-import { floorMoney } from "@/lib/order-totals";
+import { EU_COUNTRIES } from "@/lib/vat";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   loadActivePromotions,
   validatePromoCode,
   recordPromoUsage,
   type AppliedCodePromo,
 } from "@/lib/promotions";
-import { resolveBestItemDiscount, resolveBestShippingDiscount } from "@/lib/promotion-engine";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
+import { computeOrderPricing } from "@/lib/order-pricing";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -25,6 +25,40 @@ class StockError extends Error {
     super(message);
     this.name = "StockError";
   }
+}
+
+// Filet de sécurité : quand une branche `placeOrder` refuse la commande APRÈS
+// que Stripe a confirmé le paiement, on rembourse immédiatement pour éviter
+// que le client se retrouve débité sans commande. Idempotent : si le refund
+// échoue (déjà fait, PI annulé), on log et on informe le client autrement.
+async function refundAndAbort(
+  paymentIntentId: string,
+  userId: string,
+  logCode: string,
+  publicMessage: string,
+): Promise<PlaceOrderError> {
+  let refunded = false;
+  try {
+    const stripe = await getStripeInstance();
+    await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      reason: "requested_by_customer",
+      metadata: { reason: logCode, userId },
+    });
+    refunded = true;
+    logger.warn(`[placeOrder] Refund auto (${logCode})`, {
+      paymentIntentId,
+    });
+  } catch (refundErr) {
+    logger.error(`[placeOrder] Refund auto échoué (${logCode})`, {
+      paymentIntentId,
+      error: refundErr,
+    });
+  }
+  const suffix = refunded
+    ? " Votre paiement va être remboursé automatiquement — les fonds arriveront sous 3 à 5 jours ouvrés."
+    : " Nous n'avons pas pu déclencher le remboursement automatiquement ; l'équipe est prévenue et vous serez remboursé dans les meilleurs délais.";
+  return { success: false, error: publicMessage + suffix };
 }
 
 // ─────────────────────────────────────────────
@@ -141,12 +175,42 @@ export async function placeOrder(
 
   const userId = session.user.id;
 
+  // Rate-limit anti-flood : 5 tentatives / 60s / userId (audit §16). Le check
+  // d'idempotence ci-dessous couvre les doublons "légitimes" (retry navigateur),
+  // celui-ci couvre les scripts qui martèlent placeOrder pour tenter d'exploiter
+  // une race. Clé = userId : plus précis qu'IP (bureaux multi-utilisateurs).
+  const rlKey = `place-order:${userId}`;
+  const rl = rateLimit(rlKey, 5, 60_000);
+  if (!rl.success) {
+    return {
+      success: false,
+      error: "Trop de tentatives de commande. Merci de patienter une minute et de réessayer.",
+    };
+  }
+
+  // Idempotence : si une commande existe déjà pour ce PaymentIntent (double-clic,
+  // navigation retour, worker qui rejoue), on renvoie l'ID existant au lieu de
+  // tenter une nouvelle création (qui pourrait déclencher un doublon si le
+  // panier n'a pas encore été vidé).
+  const existing = await prisma.order.findFirst({
+    where: { stripePaymentIntentId: input.stripePaymentIntentId },
+    select: { id: true, orderNumber: true },
+  });
+  if (existing) {
+    return {
+      success: true,
+      orderId: existing.id,
+      orderNumber: existing.orderNumber,
+    };
+  }
+
   // ── 1. Récupérer toutes les données nécessaires ──────────────────────────
 
   const [user, cart, address] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
+        status: true,
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
         vatExempt: true, addressCountry: true,
@@ -182,9 +246,46 @@ export async function placeOrder(
     prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } }),
   ]);
 
-  if (!user)    return { success: false, error: "Utilisateur introuvable." };
-  if (!cart || cart.items.length === 0) return { success: false, error: "Panier vide." };
-  if (!address) return { success: false, error: "Adresse de livraison introuvable." };
+  // À partir d'ici, placeOrder est appelé après que le client a confirmé sa CB
+  // côté Stripe (handlePaymentSuccess dans CheckoutClient) — le PaymentIntent
+  // est très probablement `succeeded`. Toute branche early-return doit passer
+  // par `refundAndAbort` sinon on laisse un débit orphelin (cf. incident
+  // Quinchon, 16/08/2026).
+  if (!user) {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "user_missing",
+      "Votre compte est introuvable.",
+    );
+  }
+  if (!cart || cart.items.length === 0) {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "cart_empty",
+      "Votre panier est vide.",
+    );
+  }
+  if (!address) {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "address_missing",
+      "Adresse de livraison introuvable.",
+    );
+  }
+  // Re-vérif du statut d'approbation (audit §11) : si l'admin a retiré
+  // l'approbation entre create-intent et placeOrder (ou pendant que le client
+  // saisissait sa carte), on refuse ET on rembourse — pas d'exception.
+  if (user.status !== "APPROVED") {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "user_not_approved",
+      "Votre compte n'est plus approuvé pour passer commande.",
+    );
+  }
 
   // Refuser tout produit qui n'est plus en ligne (archivé / mis hors-ligne par
   // l'admin entre l'ajout au panier et le paiement). Le panier peut rester
@@ -193,10 +294,12 @@ export async function placeOrder(
     (item) => item.variant.product.status !== "ONLINE",
   );
   if (offlineItem) {
-    return {
-      success: false,
-      error: `Le produit « ${offlineItem.variant.product.name} » n'est plus disponible à la vente. Merci de le retirer du panier pour finaliser votre commande.`,
-    };
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "product_offline",
+      `Le produit « ${offlineItem.variant.product.name} » n'est plus disponible à la vente.`,
+    );
   }
 
   // ── Fetch images for each cart item via ProductColorImage ─────────────────
@@ -239,59 +342,58 @@ export async function placeOrder(
     return { success: false, error: `Le paiement n'a pas été confirmé (statut: ${paymentIntent.status}). Veuillez réessayer.` };
   }
 
-  const cartItems = cart.items;
-
   // ── 2. Calculs ─────────────────────────────────────────────────────────
+  // Toute la logique pricing (items, remise client, livraison, TVA, total)
+  // vit dans `lib/order-pricing.ts` — même source de vérité que
+  // /api/payments/create-intent. Ici on prépare uniquement les inputs.
 
-  // Charger les promotions actives + contexte de chaque item (catégorie +
-  // collections) pour appliquer le moteur "meilleure gagne".
   const [activePromos, promoContexts] = await Promise.all([
     loadActivePromotions(),
     buildCartPromoContexts(cart.items),
   ]);
 
-  const itemPriceResolutions = new Map<
-    string,
-    { finalUnitPrice: number; savedPerUnit: number; promotionId: string | null; promotionName: string | null; source: "none" | "product" | "promotion" }
-  >();
+  const pricingItems = cart.items
+    .map((i) => {
+      const c = promoContexts.get(i.id);
+      if (!c) return null;
+      return { id: i.id, quantity: i.quantity, promoContext: c.context };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
 
-  function resolveItemFinalPrice(itemId: string): number {
-    const cached = itemPriceResolutions.get(itemId);
-    if (cached) return cached.finalUnitPrice;
-    return 0;
-  }
+  const userPricingInput = {
+    discountType:  user.discountType  ?? null,
+    discountValue: user.discountValue != null ? Number(user.discountValue) : null,
+    discountMode:  user.discountMode ?? "PERMANENT",
+    discountMinAmount: user.discountMinAmount != null ? Number(user.discountMinAmount) : null,
+    discountMinQuantity: user.discountMinQuantity ?? null,
+    vatExempt: user.vatExempt,
+    freeShipping: user.freeShipping,
+    shippingDiscountType: user.shippingDiscountType ?? null,
+    shippingDiscountValue: user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null,
+    shippingDiscountMode: user.shippingDiscountMode ?? "PERMANENT",
+    shippingDiscountMinAmount: user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : null,
+    shippingDiscountMinQuantity: user.shippingDiscountMinQuantity ?? null,
+  };
 
-  for (const item of cart.items) {
-    const ctx = promoContexts.get(item.id);
-    if (!ctx) continue;
-    const resolved = resolveBestItemDiscount(ctx.context, activePromos, null);
-    itemPriceResolutions.set(item.id, {
-      finalUnitPrice: resolved.finalUnitPrice,
-      savedPerUnit: resolved.savedPerUnit,
-      promotionId: resolved.promotion?.id ?? null,
-      promotionName: resolved.promotion?.name ?? null,
-      source: resolved.source,
-    });
-  }
-
-  // Validation code promo (si fourni). Confronté au panier après remises AUTO.
+  // Validation code promo (si fourni). Le sous-total pre-code sert de base
+  // à validatePromoCode ; on le calcule via computeOrderPricing sans code.
   let appliedCode: AppliedCodePromo | null = null;
   if (input.promoCode && input.promoCode.trim()) {
-    const contextItems = cart.items
-      .map((i) => {
-        const c = promoContexts.get(i.id);
-        return c ? { ...c.context, quantity: i.quantity } : null;
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null);
-    const subtotalForCode = contextItems.reduce(
-      (s, it) => s + resolveBestItemDiscount(it, activePromos, null).finalUnitPrice * it.quantity,
-      0,
-    );
+    const preCodePricing = computeOrderPricing({
+      items: pricingItems,
+      carrierId: input.carrierId,
+      carrierPrice: input.carrierPrice,
+      addressCountry: address.country,
+      user: userPricingInput,
+      activePromos,
+      appliedCodePromo: null,
+    });
+    const contextItems = pricingItems.map((i) => ({ ...i.promoContext, quantity: i.quantity }));
     const check = await validatePromoCode(
       input.promoCode.trim(),
       {
         items: contextItems,
-        subtotalHT: subtotalForCode,
+        subtotalHT: preCodePricing.subtotalHT,
         carrierPrice: input.carrierPrice,
         userId,
         userShipping: { isFree: user.freeShipping, savedAmount: 0 },
@@ -299,143 +401,102 @@ export async function placeOrder(
       activePromos,
     );
     if (!check.valid) {
-      return { success: false, error: check.error };
+      return refundAndAbort(
+        input.stripePaymentIntentId,
+        userId,
+        "promo_invalid",
+        check.error ?? "Le code promo est invalide.",
+      );
     }
     appliedCode = check.result;
-
-    // Recalcule les items avec le code appliqué pour figer les finalUnitPrice.
-    for (const item of cart.items) {
-      const ctx = promoContexts.get(item.id);
-      if (!ctx) continue;
-      const codePromo = activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null;
-      const resolved = resolveBestItemDiscount(ctx.context, activePromos, codePromo);
-      itemPriceResolutions.set(item.id, {
-        finalUnitPrice: resolved.finalUnitPrice,
-        savedPerUnit: resolved.savedPerUnit,
-        promotionId: resolved.promotion?.id ?? null,
-        promotionName: resolved.promotion?.name ?? null,
-        source: resolved.source,
-      });
-    }
   }
 
-  const subtotalHT = cart.items.reduce(
-    (s, item) => s + resolveItemFinalPrice(item.id) * item.quantity,
-    0,
-  );
+  const appliedCodePromo = appliedCode
+    ? activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null
+    : null;
 
-  // Remise commerciale client
-  const clientDiscountType  = user.discountType  ?? null;
-  const clientDiscountValue = user.discountValue != null ? Number(user.discountValue) : null;
-  const clientDiscountMode  = user.discountMode ?? "PERMANENT";
-  const clientFreeShipping  = user.freeShipping;
+  const pricing = computeOrderPricing({
+    items: pricingItems,
+    carrierId: input.carrierId,
+    carrierPrice: input.carrierPrice,
+    addressCountry: address.country,
+    user: userPricingInput,
+    activePromos,
+    appliedCodePromo,
+  });
 
-  const totalItemQuantity = cart.items.reduce((s, item) => s + item.quantity, 0);
+  const {
+    itemFinalPrices: itemPriceResolutions,
+    subtotalHT,
+    clientDiscountAmt,
+    subtotalAfterDiscount,
+    effectiveCarrierPrice,
+    shippingSaved,
+    shippingIsFree,
+    shippingPromotionId,
+    tvaRate,
+    tvaAmount,
+    totalTTC,
+    totalTTCCents,
+  } = pricing;
 
-  // Check if discount applies based on mode
-  const discountApplies = (() => {
-    if (!clientDiscountType || !clientDiscountValue) return false;
-    if (clientDiscountMode === "THRESHOLD") {
-      const minAmount = user.discountMinAmount != null ? Number(user.discountMinAmount) : 0;
-      const minQty = user.discountMinQuantity ?? 0;
+  function resolveItemFinalPrice(itemId: string): number {
+    return itemPriceResolutions.get(itemId)?.finalUnitPrice ?? 0;
+  }
+
+  // Copies exposées plus bas (Order.create + NEXT_ORDER autos)
+  const clientDiscountType  = userPricingInput.discountType;
+  const clientDiscountValue = userPricingInput.discountValue;
+  const clientDiscountMode  = userPricingInput.discountMode;
+  const clientFreeShipping  = userPricingInput.freeShipping;
+  const discountApplies = clientDiscountAmt > 0;
+
+  const shippingDiscountMode = userPricingInput.shippingDiscountMode;
+  const shippingDiscountApplies = (() => {
+    if (!userPricingInput.shippingDiscountType || userPricingInput.shippingDiscountValue == null) return false;
+    if (shippingDiscountMode === "THRESHOLD") {
+      const minAmount = userPricingInput.shippingDiscountMinAmount ?? 0;
+      const minQty = userPricingInput.shippingDiscountMinQuantity ?? 0;
+      const totalQty = cart.items.reduce((s, i) => s + i.quantity, 0);
       const amountOk = minAmount <= 0 || subtotalHT >= minAmount;
-      const qtyOk = minQty <= 0 || totalItemQuantity >= minQty;
-      // Both conditions must be met (if set)
+      const qtyOk = minQty <= 0 || totalQty >= minQty;
       return amountOk && qtyOk;
     }
-    return true; // PERMANENT and NEXT_ORDER always apply
+    return true;
   })();
 
-  const clientDiscountAmt = (() => {
-    if (!discountApplies || !clientDiscountType || !clientDiscountValue) return 0;
-    if (clientDiscountType === "PERCENT")
-      return Math.min(subtotalHT, subtotalHT * (clientDiscountValue / 100));
-    return Math.min(subtotalHT, clientDiscountValue);
-  })();
-  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
-
-  // Vérification minimum commande (sur le sous-total avant remise, remise = avantage commercial)
+  // Vérification minimum commande (avant remise perso client).
   const minConfig = await prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } });
   const minHT = minConfig ? parseFloat(minConfig.value) : 0;
   if (minHT > 0 && subtotalHT < minHT) {
-    return { success: false, error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` };
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "min_order_ht",
+      `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.`,
+    );
   }
 
-  // Transporteur privé : le client gère sa propre expédition, frais = 0
-  const isPrivateCarrier = input.carrierId === "private_carrier";
-
-  // Remise livraison : respecte le mode (PERMANENT / THRESHOLD / NEXT_ORDER)
-  const shippingDiscountMode = user.shippingDiscountMode ?? "PERMANENT";
-  const shippingDiscountApplies = (() => {
-    if (!user.shippingDiscountType || user.shippingDiscountValue == null) return false;
-    if (shippingDiscountMode === "THRESHOLD") {
-      const minAmount = user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : 0;
-      const minQty    = user.shippingDiscountMinQuantity ?? 0;
-      const amountOk  = minAmount <= 0 || subtotalHT >= minAmount;
-      const qtyOk     = minQty <= 0 || totalItemQuantity >= minQty;
-      return amountOk && qtyOk;
-    }
-    return true; // PERMANENT et NEXT_ORDER : appliquée si présente
-  })();
-
-  // Économie livraison venant du client (permanent / seuil / next_order)
-  const userShippingSaved = (() => {
-    if (clientFreeShipping) return input.carrierPrice;
-    if (shippingDiscountApplies && user.shippingDiscountType && user.shippingDiscountValue != null) {
-      const sdv = Number(user.shippingDiscountValue);
-      if (user.shippingDiscountType === "PERCENT") {
-        return Math.min(input.carrierPrice, input.carrierPrice * (sdv / 100));
-      }
-      return Math.min(input.carrierPrice, sdv);
-    }
-    return 0;
-  })();
-
-  const shippingResolution = isPrivateCarrier
-    ? { finalPrice: 0, savedAmount: input.carrierPrice, isFree: true, source: "none" as const, promotion: null }
-    : resolveBestShippingDiscount(
-        input.carrierPrice,
-        activePromos,
-        { isFree: clientFreeShipping, savedAmount: userShippingSaved },
-        appliedCode?.scope === "SHIPPING"
-          ? activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null
-          : null,
-      );
-  const effectiveCarrierPrice = shippingResolution.finalPrice;
-
-  // Taux de TVA recalculé côté serveur (jamais confiance à l'input client) :
-  // exonération B2B intracom appliquée même en retrait si l'admin a validé.
-  // Le transporteur privé est traité comme une livraison (TVA selon adresse).
-  const isPickup = input.carrierId === "pickup_store";
-  const tvaRate = resolveVatRate({
-    countryCode: address.country,
-    isPickup,
-    vatExempt: user.vatExempt,
-  });
-
-  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
-  // le port suit le même régime TVA que les biens vendus).
-  // Arrondi vers le bas au centime pour rester aligné avec le logiciel de
-  // facturation externe (qui arrondit aussi vers le bas).
-  const tvaAmount = floorMoney((subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate);
-  const totalTTC  = floorMoney(subtotalAfterDiscount + effectiveCarrierPrice + (subtotalAfterDiscount + effectiveCarrierPrice) * tvaRate);
-
-  // ── Vérifier que le montant payé par Stripe correspond bien au total recalculé.
+  // ── Vérifier que le montant payé par Stripe correspond au total recalculé.
   //    Tolérance de 1 centime pour absorber les arrondis.
-  const expectedAmountCents = Math.round(totalTTC * 100);
   const paidAmountCents = paymentIntent.amount;
-  if (Math.abs(paidAmountCents - expectedAmountCents) > 1) {
+  if (Math.abs(paidAmountCents - totalTTCCents) > 1) {
     logger.error("[placeOrder] Montant Stripe incohérent", {
       paid: paidAmountCents,
-      expected: expectedAmountCents,
+      expected: totalTTCCents,
       orderUserId: userId,
     });
-    return {
-      success: false,
-      error:
-        "Le montant payé ne correspond pas au total de votre panier. Le prix d'un article a peut-être changé. Merci de recharger la page et de recommencer.",
-    };
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "amount_mismatch",
+      "Le montant payé ne correspond pas au total de votre panier. Le prix d'un article a peut-être changé.",
+    );
   }
+  // `shippingIsFree` non utilisé ici (recordé indirectement via clientFreeShipping + promo).
+  void shippingIsFree;
+
+  const isPrivateCarrier = input.carrierId === "private_carrier";
 
   const totalWeightKg = cart.items.reduce((s, item) => {
     const units = item.variant.saleType === "PACK"
@@ -609,6 +670,9 @@ export async function placeOrder(
       // TVA
       tvaRate,
       subtotalHT: subtotalAfterDiscount,
+      // Snapshot immuable du HT réellement payé par le client — sert de plafond
+      // aux modifications post-commande côté admin. Ne bouge PAS après la vente.
+      paidSubtotalHT: subtotalAfterDiscount,
       tvaAmount,
       totalTTC,
       // Items
@@ -644,46 +708,40 @@ export async function placeOrder(
         })),
       });
 
+      // 4. Vider le panier dans la MÊME transaction. Si MySQL hoquette entre
+      //    order.create et cartItem.deleteMany, la commande ET le panier
+      //    doivent bouger ensemble — sinon le client peut re-cliquer « Payer »
+      //    et re-payer les mêmes articles.
+      await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
+
       return created;
     });
   } catch (err) {
     if (err instanceof StockError) {
       logger.warn("[placeOrder] Stock insuffisant", { message: err.message });
-      // Filet de sécurité : le paiement Stripe a réussi (vérifié plus haut)
-      // mais un autre client a vidé le stock pendant que Mme X saisissait sa CB.
-      // On rembourse IMMÉDIATEMENT pour éviter que le client se retrouve débité
-      // sans commande. Idempotent : si le refund échoue (déjà fait, PI annulé),
-      // on log et on continue.
-      let refunded = false;
-      try {
-        const stripe = await getStripeInstance();
-        await stripe.refunds.create({
-          payment_intent: input.stripePaymentIntentId,
-          reason: "requested_by_customer",
-          metadata: {
-            reason: "stock_race_condition",
-            userId,
-          },
-        });
-        refunded = true;
-        logger.warn("[placeOrder] Refund auto après StockError", {
-          paymentIntentId: input.stripePaymentIntentId,
-        });
-      } catch (refundErr) {
-        logger.error("[placeOrder] Refund auto échoué", {
-          paymentIntentId: input.stripePaymentIntentId,
-          error: refundErr,
-        });
-      }
-      const suffix = refunded
-        ? " Votre paiement va être remboursé automatiquement — les fonds arriveront sous 3 à 5 jours ouvrés."
-        : " Nous n'avons pas pu déclencher le remboursement automatiquement ; l'équipe est prévenue et vous serez remboursé dans les meilleurs délais.";
-      return { success: false, error: err.message + suffix };
+      // Filet de sécurité race condition : le paiement Stripe a réussi (vérifié
+      // plus haut) mais un autre client a vidé le stock pendant que Mme X
+      // saisissait sa CB. On rembourse immédiatement.
+      return refundAndAbort(
+        input.stripePaymentIntentId,
+        userId,
+        "stock_race_condition",
+        err.message,
+      );
     }
     logger.error("[placeOrder] Transaction error", {
       error: err,
     });
-    return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
+    // La transaction contient stock + order + stockMovements + cart cleanup.
+    // Si elle plante, MySQL rollback tout : pas de commande, pas de stock
+    // décrémenté, panier intact. On rembourse quand même par prudence — le
+    // helper est idempotent si le client re-tente et ça passe la 2e fois.
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "transaction_error",
+      "Impossible de finaliser la commande. Merci de réessayer.",
+    );
   }
 
   // ── 4-6. Easy-Express + PDF + Email ────────────────────────────────────
@@ -795,9 +853,9 @@ export async function placeOrder(
     const acc = promoSavingsById.get(res.promotionId) ?? 0;
     promoSavingsById.set(res.promotionId, acc + res.savedPerUnit * item.quantity);
   }
-  if (shippingResolution.promotion) {
-    const acc = promoSavingsById.get(shippingResolution.promotion.id) ?? 0;
-    promoSavingsById.set(shippingResolution.promotion.id, acc + shippingResolution.savedAmount);
+  if (shippingPromotionId) {
+    const acc = promoSavingsById.get(shippingPromotionId) ?? 0;
+    promoSavingsById.set(shippingPromotionId, acc + shippingSaved);
   }
   for (const [promoId, savedTotal] of promoSavingsById) {
     if (savedTotal <= 0) continue;
@@ -838,9 +896,8 @@ export async function placeOrder(
     });
   }
 
-  // ── 8. Vider le panier ────────────────────────────────────────────────────
-
-  await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
+  // ── 8. Revalider les caches ──────────────────────────────────────────────
+  // (Le panier a déjà été vidé dans la transaction ci-dessus.)
 
   revalidatePath("/panier");
   revalidatePath("/admin/commandes");

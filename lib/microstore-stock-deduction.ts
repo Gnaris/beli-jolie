@@ -150,12 +150,37 @@ export async function deductStockFromMicrostoreOrders(
     const orderTag = item.microstoreOrder.microstoreOrderId;
 
     await prisma.$transaction(async (tx) => {
-      const nextStock = Math.max(0, variant.stock - unitsRemoved);
-      await tx.productColor.update({
-        where: { id: variant.id },
-        data: { stock: nextStock },
+      // Décrément atomique (audit checkout 2026-08-17 §6-7). WHERE stock >= X
+      // évite la race avec une vente boutique concurrente ; en cas de survente,
+      // clamp à 0 + warning explicite.
+      const dec = await tx.productColor.updateMany({
+        where: { id: variant.id, stock: { gte: unitsRemoved } },
+        data: { stock: { decrement: unitsRemoved } },
       });
-      variant.stock = nextStock;
+      let appliedDelta = unitsRemoved;
+      if (dec.count === 0) {
+        const current = await tx.productColor.findUnique({
+          where: { id: variant.id },
+          select: { stock: true },
+        });
+        const available = current?.stock ?? 0;
+        appliedDelta = available;
+        if (available > 0) {
+          await tx.productColor.update({
+            where: { id: variant.id },
+            data: { stock: 0 },
+          });
+        }
+        logger.warn("[Microstore Stock] Survente — clamp stock à 0", {
+          microstoreOrder: orderTag,
+          reference,
+          variantId: variant.id,
+          requested: unitsRemoved,
+          applied: appliedDelta,
+          missing: unitsRemoved - appliedDelta,
+        });
+      }
+      variant.stock = Math.max(0, variant.stock - unitsRemoved);
       touchedVariantIds.add(variant.id);
 
       await tx.stockMovement.create({
@@ -165,7 +190,10 @@ export async function deductStockFromMicrostoreOrders(
           sizeId,
           quantity: -unitsRemoved,
           type: "ORDER",
-          reason: `Microstore #${orderTag} (${reference})`,
+          reason:
+            appliedDelta === unitsRemoved
+              ? `Microstore #${orderTag} (${reference})`
+              : `Microstore #${orderTag} (${reference}) — survente clampée (${appliedDelta}/${unitsRemoved} réellement décrémentés)`,
           createdById: actorUserId ?? undefined,
         },
       });

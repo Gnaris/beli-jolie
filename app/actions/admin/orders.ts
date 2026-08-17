@@ -289,15 +289,27 @@ export async function addCompensationItem(
       where: { id: input.productColorId },
       include: {
         product: {
-          select: { name: true, reference: true, status: true },
+          select: { id: true, name: true, reference: true, status: true },
         },
-        color: { select: { name: true } },
+        color: { select: { id: true, name: true } },
         images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
       },
     });
 
     if (!variant || !variant.product) {
       return { success: false, error: "Produit introuvable." };
+    }
+
+    // Fallback image : les vieilles ProductColorImage n'ont pas de productColorId
+    // (relation nullable). On retombe sur la même clé que le checkout : (productId, colorId).
+    let imagePath: string | null = variant.images[0]?.path ?? null;
+    if (!imagePath && variant.color?.id) {
+      const fallbackImg = await prisma.productColorImage.findFirst({
+        where: { productId: variant.product.id, colorId: variant.color.id },
+        orderBy: { order: "asc" },
+        select: { path: true },
+      });
+      imagePath = fallbackImg?.path ?? null;
     }
 
     // Pas de contrôle bloquant à l'ajout : l'utilisatrice compose la commande librement,
@@ -341,7 +353,7 @@ export async function addCompensationItem(
             unitPrice: input.unitPrice,
             quantity: input.quantity,
             lineTotal: addedLineHT,
-            imagePath: variant.images[0]?.path ?? null,
+            imagePath,
             isCompensation: true,
             productColorId: input.productColorId,
           },

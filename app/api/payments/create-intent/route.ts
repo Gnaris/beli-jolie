@@ -11,12 +11,18 @@ import { loadActivePromotions, validatePromoCode } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
+import { verifyCarrierSignature } from "@/lib/carrier-signature";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
   carrierId: z.string().min(1),
   carrierName: z.string().min(1),
   carrierPrice: z.number().min(0),
+  // transactionId + carrierSig : anti-fraude carrierPrice (audit checkout §8).
+  // Optionnels au niveau du schéma pour accepter les carriers spéciaux
+  // (pickup_store, private_carrier) — vérifiés plus bas.
+  transactionId: z.string().optional(),
+  carrierSig: z.string().optional(),
   promoCode: z.string().optional(),
 });
 
@@ -39,7 +45,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { addressId, carrierId, carrierName, carrierPrice, promoCode } = parsed.data;
+  const { addressId, carrierId, carrierName, carrierPrice, transactionId, carrierSig, promoCode } = parsed.data;
 
   const userId = session.user.id;
 
@@ -75,6 +81,7 @@ export async function POST(req: Request) {
     prisma.user.findUnique({
       where: { id: userId },
       select: {
+        status: true,
         company: true, email: true, vatExempt: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
         freeShipping: true,
@@ -89,6 +96,15 @@ export async function POST(req: Request) {
   }
   if (!address) {
     return NextResponse.json({ error: "Adresse introuvable." }, { status: 400 });
+  }
+  // Re-vérif du statut d'approbation (audit §11) : le middleware bloque les
+  // PENDING sur /panier mais pas les endpoints API. Si l'admin retire
+  // l'approbation pendant que le client a l'onglet ouvert, on doit refuser.
+  if (user && user.status !== "APPROVED") {
+    return NextResponse.json(
+      { error: "Votre compte n'est pas encore approuvé pour passer commande." },
+      { status: 403 },
+    );
   }
 
   // Refuser tout produit qui n'est plus en ligne (double garde : middleware
@@ -125,6 +141,31 @@ export async function POST(req: Request) {
         error: `Stock insuffisant pour « ${shortStock.variant.product.name} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}. Retirez ou réduisez cet article pour continuer.`,
       },
       { status: 409 },
+    );
+  }
+
+  // Vérif signature transporteur (anti-fraude carrierPrice) — audit §8.
+  // Un client malicieux peut poster `carrierPrice=0` pour payer 0 € de port.
+  // On vérifie que le trio (carrierId, carrierPrice, transactionId) a bien été
+  // signé côté serveur dans la réponse de /api/carriers. On la place APRÈS le
+  // pré-check stock/produit-hors-ligne pour privilégier l'erreur métier claire
+  // ("Bague X en rupture") si les deux échouent en même temps.
+  const sigOk = verifyCarrierSignature({
+    carrierId,
+    carrierPrice,
+    transactionId: transactionId ?? "",
+    carrierSig: carrierSig ?? "",
+  });
+  if (!sigOk) {
+    logger.warn("[create-intent] Signature transporteur invalide", {
+      carrierId,
+      carrierPrice,
+      hasTransactionId: !!transactionId,
+      hasSig: !!carrierSig,
+    });
+    return NextResponse.json(
+      { error: "Le transporteur ou son tarif ne peuvent pas être vérifiés. Rechargez la page." },
+      { status: 400 },
     );
   }
 
@@ -182,6 +223,18 @@ export async function POST(req: Request) {
     activePromos,
     appliedCodePromo,
   });
+
+  // Pré-check minimum de commande (audit §14) : refuser AVANT création PI si
+  // subtotalHT < min_order_ht configuré. Sinon le débit passe et placeOrder
+  // rembourse — ce qui est visible pour la cliente mais évitable.
+  const minConfig = await prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } });
+  const minHT = minConfig ? parseFloat(minConfig.value) : 0;
+  if (minHT > 0 && pricing.subtotalHT < minHT) {
+    return NextResponse.json(
+      { error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` },
+      { status: 400 },
+    );
+  }
 
   if (pricing.totalTTCCents < 50) {
     return NextResponse.json({ error: "Le montant minimum est de 0,50 €." }, { status: 400 });

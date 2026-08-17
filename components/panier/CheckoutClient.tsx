@@ -122,6 +122,11 @@ interface Carrier {
   price: number;
   delay: string;
   logo?: string;
+  /**
+   * Signature HMAC serveur (anti-fraude carrierPrice — audit checkout §8).
+   * Repassée telle quelle à /api/payments/create-intent.
+   */
+  sig?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -1316,16 +1321,21 @@ export default function CheckoutClient({
     setStripeLoading(true);
     setStripeError("");
     try {
+      // On envoie le PRIX BRUT du transporteur (`_rawCarrierPrice`) — la remise
+      // livraison (user perso + promo AUTO) est ré-appliquée côté serveur dans
+      // computeOrderPricing. Sinon la remise serait comptée deux fois.
+      // Signature transporteur : anti-fraude carrierPrice (audit checkout §8).
+      const carrierApiObj = carriers.find((c) => c.id === selectedCarrier!.id);
       const res = await fetch("/api/payments/create-intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // tvaRate n'est plus envoyé : le serveur le recalcule depuis l'adresse
-        // de livraison + le mode (livraison/retrait) + le flag vatExempt admin.
         body: JSON.stringify({
-          addressId:    selectedAddr!.id,
-          carrierId:    selectedCarrier!.id,
-          carrierName:  selectedCarrier!.name,
-          carrierPrice: effectiveCarrierPrice,
+          addressId:     selectedAddr!.id,
+          carrierId:     selectedCarrier!.id,
+          carrierName:   selectedCarrier!.name,
+          carrierPrice:  _rawCarrierPrice,
+          transactionId: transactionId || undefined,
+          carrierSig:    carrierApiObj?.sig,
         }),
       });
       const data = await res.json();
@@ -1342,12 +1352,47 @@ export default function CheckoutClient({
     }
   }
 
-  // Réinitialiser Stripe si l'adresse, le transporteur ou le mode de livraison change
+  // Réinitialiser Stripe si l'adresse, le transporteur ou le mode de livraison
+  // change. On ANNULE aussi le PaymentIntent côté Stripe (audit checkout §10),
+  // sinon il reste en `requires_payment_method` indéfiniment — pollution et
+  // risque de re-paiement fantôme (retour navigateur, onglet dupliqué). Le
+  // fetch est fire-and-forget : la route /api/payments/cancel-intent est
+  // idempotente et retourne 200 même si le PI est déjà consommé.
   useEffect(() => {
+    if (paymentIntentId) {
+      const abandoned = paymentIntentId;
+      fetch("/api/payments/cancel-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentIntentId: abandoned }),
+        keepalive: true,
+      }).catch(() => {
+        /* silencieux : cron orphan-payment-intents rattrape */
+      });
+    }
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
   }, [selectedAddrId, selectedCarrierId, deliveryMode, privateMode, privateCarrierEmail, privateCarrierPhone, bordereauPath]);
+
+  // Idem à la fermeture d'onglet / navigation : on tente une annulation du PI
+  // avec `sendBeacon` (survit à la fermeture, contrairement à fetch normal).
+  useEffect(() => {
+    if (!paymentIntentId) return;
+    const piToCancel = paymentIntentId;
+    const handler = () => {
+      try {
+        const blob = new Blob([JSON.stringify({ paymentIntentId: piToCancel })], {
+          type: "application/json",
+        });
+        navigator.sendBeacon?.("/api/payments/cancel-intent", blob);
+      } catch {
+        /* silencieux */
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [paymentIntentId]);
 
   // Si la facturation change après qu'on ait coché « même adresse », l'adresse
   // miroir n'est plus à jour → on décoche pour éviter un envoi sur la mauvaise
@@ -1388,7 +1433,10 @@ export default function CheckoutClient({
             : {}),
         });
         if (result.success) {
-          router.push(`/commandes/${result.orderId}?success=1`);
+          // router.replace (pas push) : le retour navigateur depuis la page
+          // succès ne doit pas ramener sur /panier/commande avec un état
+          // obsolète — audit checkout §15.
+          router.replace(`/commandes/${result.orderId}?success=1`);
         } else {
           setOrderError(result.error);
         }
@@ -1414,9 +1462,52 @@ export default function CheckoutClient({
   // Étape 1 OK = facturation + adresse livraison + transporteur/mode complet
   const step1Ready = section1Complete && section2Complete && section3Complete;
 
-  function goToStep(target: 1 | 2) {
+  // Vérif serveur du panier : rejoue les mêmes contrôles que /api/payments/
+  // create-intent (produit ONLINE + stock suffisant). Utilisé au mount de la
+  // page checkout ET avant chaque bascule d'étape. En cas d'erreur : on stocke
+  // le détail en sessionStorage et on renvoie sur /panier qui l'affichera.
+  async function revalidateCartOrRedirect(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/cart/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) return true;
+      if (typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(
+            "cart_validation_errors",
+            JSON.stringify(data.errors ?? []),
+          );
+        } catch {
+          /* quota, mode privé, etc. — sur /panier le toast générique tombera */
+        }
+      }
+      router.replace("/panier");
+      return false;
+    } catch {
+      // Réseau HS : on laisse passer plutôt que bloquer le tunnel — le check
+      // atomique côté serveur (create-intent + placeOrder) attrapera le cas.
+      return true;
+    }
+  }
+
+  // Contrôle à l'entrée de /panier/commande (protège navigation directe, back).
+  useEffect(() => {
+    void revalidateCartOrRedirect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function goToStep(target: 1 | 2) {
     if (target === wizardStep) return;
     if (target > wizardStep && !step1Ready) return;
+    // Avant de passer à l'étape 2 (paiement), on re-valide : le panier a pu
+    // rester ouvert plusieurs minutes le temps de saisir l'adresse.
+    if (target > wizardStep) {
+      const ok = await revalidateCartOrRedirect();
+      if (!ok) return;
+    }
     setWizardStep(target);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }

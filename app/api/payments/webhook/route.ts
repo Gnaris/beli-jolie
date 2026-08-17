@@ -28,14 +28,16 @@ export async function POST(req: Request) {
   }
 
   // --- Deduplication: skip already-processed events ---
-  const existingEvent = await prisma.stripeWebhookEvent.findUnique({
+  // findFirst (pas findUnique) car l'@unique est composite (tenantId, eventId).
+  // L'extension Prisma multi-tenant injecte tenantId automatiquement en AND.
+  const existingEvent = await prisma.stripeWebhookEvent.findFirst({
     where: { eventId: event.id },
   });
   if (existingEvent) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
-  // Record the event before processing
+  // Record the event before processing (tenantId posé par l'extension).
   await prisma.stripeWebhookEvent.create({
     data: {
       eventId: event.id,
@@ -124,6 +126,22 @@ export async function POST(req: Request) {
       });
       // Note : pour l'instant on log seulement. L'admin reçoit l'alerte
       // depuis le dashboard Stripe (notifications email natives Stripe).
+      break;
+    }
+
+    // Audit checkout §13 — dispute.closed : clôt l'alerte quand le litige est
+    // résolu (won / lost / warning_closed). Log distinct du dispute.created
+    // pour que la timeline reste lisible ; pas de mutation base à ce stade.
+    case "charge.dispute.closed": {
+      const dispute = event.data.object as Stripe.Dispute;
+      const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : null;
+      logger.warn("[Stripe Webhook] Litige clôturé", {
+        disputeId: dispute.id,
+        paymentIntentId: piId,
+        status: dispute.status,
+        amountCents: dispute.amount,
+        reason: dispute.reason,
+      });
       break;
     }
 

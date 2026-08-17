@@ -437,11 +437,43 @@ export async function deductStockFromPfsOrders(
     }
 
     await prisma.$transaction(async (tx) => {
+      // Décrément atomique (audit checkout 2026-08-17 §6) : au lieu d'un
+      // update {stock: absolu} calculé hors-tx (race avec ventes boutique
+      // concurrentes), on soustrait le delta avec un WHERE stock >= delta.
+      // Si count=0, une vente boutique est passée entre-temps : on clamp
+      // à 0 et on log un warning pour visibilité.
       for (const cv of changedUnitVariants) {
-        await tx.productColor.update({ where: { id: cv.id }, data: { stock: cv.stock } });
+        const initial = initialStock.get(cv.id) ?? 0;
+        const delta = initial - cv.stock; // > 0 (on ne fait que décrémenter)
+        if (delta <= 0) {
+          await tx.productColor.update({ where: { id: cv.id }, data: { stock: cv.stock } });
+        } else {
+          const dec = await tx.productColor.updateMany({
+            where: { id: cv.id, stock: { gte: delta } },
+            data: { stock: { decrement: delta } },
+          });
+          if (dec.count === 0) {
+            const current = await tx.productColor.findUnique({
+              where: { id: cv.id },
+              select: { stock: true },
+            });
+            const available = current?.stock ?? 0;
+            if (available > 0) {
+              await tx.productColor.update({ where: { id: cv.id }, data: { stock: 0 } });
+            }
+            logger.warn("[PFS Stock] Survente — clamp stock à 0", {
+              variantId: cv.id,
+              requestedDelta: delta,
+              appliedDelta: available,
+              missing: delta - available,
+            });
+          }
+        }
         touchedVariantIds.add(cv.id);
       }
       for (const cv of changedPackVariants) {
+        // PACK stock = fonction dérivée des UNIT via computePackAvailability.
+        // C'est une valeur recalculée, pas une décrémentation → set absolu OK.
         await tx.productColor.update({ where: { id: cv.id }, data: { stock: cv.stock } });
         touchedVariantIds.add(cv.id);
       }

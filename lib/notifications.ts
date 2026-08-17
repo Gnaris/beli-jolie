@@ -39,7 +39,7 @@ function escapeHtml(str: string): string {
  *    utilisé tant que la boîte pro n'est pas encore provisionnée.
  * 3. `CompanyInfo.email` (rétrocompat pour les anciennes boutiques).
  */
-async function resolveNotifyEmail(): Promise<string | null> {
+export async function resolveNotifyEmail(): Promise<string | null> {
   try {
     const rows = await prisma.siteConfig.findMany({
       where: { key: { in: ["smtp_from_email", "mailbox_forward_to"] } },

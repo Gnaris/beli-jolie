@@ -5,6 +5,7 @@ import { fetchEasyExpressRates, splitWeightIntoParcels } from "@/lib/easy-expres
 import { getCachedEasyExpressApiKey, getCachedShippingMargin } from "@/lib/cached-data";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
+import { signCarrier } from "@/lib/carrier-signature";
 
 const carriersSchema = z.object({
   zipCode: z.string().min(1),
@@ -94,12 +95,20 @@ export async function POST(request: NextRequest) {
           finalPrice *= (1 + margin.value / 100);
         }
       }
+      const priceCents = Math.round(finalPrice * 100);
       return {
         id:    c.carrierId,
         name:  c.name,
-        price: Math.round(finalPrice * 100) / 100,
+        price: priceCents / 100,
         delay: c.delay,
         logo:  c.logo,
+        // Signature HMAC anti-fraude carrierPrice (audit checkout §8) —
+        // le client doit repasser `sig` à /api/payments/create-intent.
+        sig:   signCarrier({
+          carrierId: c.carrierId,
+          priceCents,
+          transactionId: result.transactionId,
+        }),
       };
     }),
   });

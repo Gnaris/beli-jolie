@@ -154,11 +154,13 @@ async function getMaintenanceStatus(requestUrl: string, tenantId: string | null)
 /**
  * Liste des chemins qui ignorent l'auto-maintenance.
  *
- * Le webhook Ankorstore (et tout `/api/webhooks/*`) doit pouvoir ACK son
- * callback même quand `/api/site-status` retourne `maintenance: true`. Sinon
- * le middleware redirige le POST en 307 vers `/maintenance` ; les émetteurs
- * (Guzzle côté Ankorstore, Stripe webhook, …) ne suivent pas la redirection
- * POST et l'opération reste figée en PENDING côté BDD (callback perdu).
+ * Le webhook Ankorstore (et tout `/api/webhooks/*`), et le webhook Stripe
+ * `/api/payments/webhook`, doivent pouvoir ACK leur callback même quand
+ * `/api/site-status` retourne `maintenance: true` (ou retombe en erreur, ce
+ * qui bascule le middleware en fail-safe = maintenance). Sinon le middleware
+ * redirige le POST en 307 vers `/maintenance` ; les émetteurs (Stripe,
+ * Ankorstore) ne suivent pas la redirection POST et l'événement est perdu
+ * silencieusement.
  */
 export function isMaintenanceBypassed(pathname: string, rest: string): boolean {
   return (
@@ -172,6 +174,7 @@ export function isMaintenanceBypassed(pathname: string, rest: string): boolean {
     pathname.startsWith("/api/internal") ||
     pathname.startsWith("/api/cart") ||
     pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/payments/webhook") ||
     rest.startsWith("/mentions-legales") ||
     rest.startsWith("/cgv") ||
     rest.startsWith("/cgu") ||
@@ -229,6 +232,7 @@ export async function middleware(request: NextRequest) {
   // callbacks Stripe, endpoints d'auth qui n'ont pas encore de tenant, etc).
   const isTenantVerificationBypassed =
     pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/payments/webhook") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/internal") ||
     pathname.startsWith("/api/heartbeat") ||

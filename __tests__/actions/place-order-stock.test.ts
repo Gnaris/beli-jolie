@@ -51,6 +51,11 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/stock", () => ({
   reinstateStockForOrder: vi.fn().mockResolvedValue(undefined),
 }));
+// Rate-limit désactivé pour ne pas plafonner à 5 tests successifs sur le même userId.
+vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: vi.fn().mockReturnValue({ success: true, remaining: 5 }),
+  checkRateLimit: vi.fn().mockReturnValue(null),
+}));
 vi.mock("@/lib/stripe", () => ({
   getStripeInstance: vi.fn().mockResolvedValue(mockStripe),
 }));
@@ -95,6 +100,7 @@ const variant = {
 };
 
 const baseUser = {
+  status: "APPROVED",
   firstName: "Jean",
   lastName: "Dupont",
   company: "ACME",
@@ -222,6 +228,7 @@ describe("placeOrder — vérification de stock (P1-01)", () => {
         productColor: { updateMany, findUnique: vi.fn() },
         order: { create: orderCreate },
         stockMovement: { createMany: stockCreateMany },
+        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       };
       return callback(tx);
     });
@@ -289,6 +296,7 @@ describe("placeOrder — vérification du montant Stripe (P1-07)", () => {
           }),
         },
         stockMovement: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       };
       return callback(tx);
     });
@@ -348,6 +356,7 @@ describe("placeOrder — décrémentation stock pour les PACK", () => {
           }),
         },
         stockMovement: { createMany: stockCreateMany },
+        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       };
       return callback(tx);
     });
@@ -398,6 +407,7 @@ describe("placeOrder — décrémentation stock pour les PACK", () => {
           }),
         },
         stockMovement: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        cartItem: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
       };
       return callback(tx);
     });

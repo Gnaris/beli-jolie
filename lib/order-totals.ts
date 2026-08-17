@@ -12,8 +12,17 @@
 export type ClientDiscountType = "PERCENT" | "AMOUNT" | null;
 
 export interface OrderTotalsInput {
-  /** Lignes de la commande après modification. `lineTotal` = qty × unitPrice. */
-  items: { lineTotal: number | string | { toNumber?: () => number } }[];
+  /**
+   * Lignes de la commande après modification. `lineTotal` = qty × unitPrice.
+   * `isCompensation` = article ajouté après-coup par l'admin, avec un prix qu'elle
+   * a saisi manuellement (déjà « remisé » côté UX). Ces lignes ne rentrent PAS
+   * dans la base de calcul de la remise client — sinon la remise s'applique
+   * deux fois (une par l'admin qui baisse le prix, une par le moteur).
+   */
+  items: {
+    lineTotal: number | string | { toNumber?: () => number };
+    isCompensation?: boolean;
+  }[];
   tvaRate: number; // ex 0.20
   carrierPrice: number | string | { toNumber?: () => number };
   clientDiscountType: ClientDiscountType;
@@ -52,26 +61,35 @@ export function floorMoney(value: number): number {
 }
 
 export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult {
-  const preDiscountSubtotal = input.items.reduce(
-    (sum, item) => sum + toNumber(item.lineTotal),
-    0,
-  );
+  // Sépare les lignes « d'origine » (soumises à la remise) des lignes ajoutées
+  // par l'admin (compensation) — cf. commentaire sur OrderTotalsInput.items.
+  let discountableSubtotal = 0;
+  let compensationSubtotal = 0;
+  for (const item of input.items) {
+    const line = toNumber(item.lineTotal);
+    if (item.isCompensation) compensationSubtotal += line;
+    else discountableSubtotal += line;
+  }
+  const preDiscountSubtotal = discountableSubtotal + compensationSubtotal;
 
   let clientDiscountAmt = 0;
   const discountValue = toNumber(input.clientDiscountValue);
   if (input.clientDiscountType && discountValue > 0) {
     if (input.clientDiscountType === "PERCENT") {
-      clientDiscountAmt = preDiscountSubtotal * (discountValue / 100);
+      clientDiscountAmt = discountableSubtotal * (discountValue / 100);
     } else {
       // AMOUNT : remise fixe en euros
       clientDiscountAmt = discountValue;
     }
-    // La remise ne peut jamais dépasser le sous-total (commande à 0 max).
-    clientDiscountAmt = Math.min(preDiscountSubtotal, clientDiscountAmt);
+    // La remise ne peut jamais dépasser la base remisable (commande à 0 max).
+    clientDiscountAmt = Math.min(discountableSubtotal, clientDiscountAmt);
     if (clientDiscountAmt < 0) clientDiscountAmt = 0;
   }
 
-  const subtotalHT = Math.max(0, preDiscountSubtotal - clientDiscountAmt);
+  const subtotalHT = Math.max(
+    0,
+    discountableSubtotal - clientDiscountAmt + compensationSubtotal,
+  );
   const carrierPriceNum = toNumber(input.carrierPrice);
   // TVA appliquée aussi sur les frais de port (art. 267 CGI :
   // le port suit le même régime TVA que les biens vendus).

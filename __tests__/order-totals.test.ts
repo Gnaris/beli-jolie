@@ -139,6 +139,78 @@ describe("recomputeOrderTotals — types Prisma Decimal (toNumber)", () => {
   });
 });
 
+describe("recomputeOrderTotals — articles ajoutés (compensation) hors base remise", () => {
+  it("AMOUNT : remise ne s'applique QUE sur les lignes d'origine, pas sur les ajouts admin", () => {
+    // Cas Delphine Quinchon 2026-08-17 :
+    // - Client avait une remise fixe (ex. −30 €)
+    // - Admin retire des articles pour rupture, puis ajoute d'autres à un prix déjà remisé
+    // - Bug avant fix : la remise se ré-appliquait sur les ajouts → double remise → total qui s'effondre
+    const res = recomputeOrderTotals({
+      items: [
+        { lineTotal: 50, isCompensation: false }, // article d'origine
+        { lineTotal: 20, isCompensation: true },  // ajout admin (prix saisi déjà remisé)
+      ],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "AMOUNT",
+      clientDiscountValue: 30,
+    });
+
+    // La remise 30€ ne mord QUE sur les 50€ d'origine (=> 20€ HT restants)
+    // Les 20€ d'ajout admin passent tels quels.
+    expect(res.clientDiscountAmt).toBe(30);
+    expect(res.subtotalHT).toBe(40); // 20 (origine après remise) + 20 (ajout)
+    expect(res.totalTTC).toBeCloseTo(48, 5);
+  });
+
+  it("PERCENT : remise ne s'applique QUE sur les lignes d'origine", () => {
+    const res = recomputeOrderTotals({
+      items: [
+        { lineTotal: 100, isCompensation: false },
+        { lineTotal: 20, isCompensation: true },
+      ],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "PERCENT",
+      clientDiscountValue: 10,
+    });
+
+    // Remise 10% sur 100 = 10 → base d'origine passe à 90. Ajout 20 intact.
+    expect(res.clientDiscountAmt).toBe(10);
+    expect(res.subtotalHT).toBe(110);
+  });
+
+  it("remise AMOUNT plafonnée à la base remisable (pas au total avec ajouts)", () => {
+    const res = recomputeOrderTotals({
+      items: [
+        { lineTotal: 10, isCompensation: false }, // très peu d'origine
+        { lineTotal: 100, isCompensation: true }, // gros ajout admin
+      ],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "AMOUNT",
+      clientDiscountValue: 50,
+    });
+
+    // La remise 50€ ne peut mordre que sur les 10€ d'origine → plafond à 10€
+    expect(res.clientDiscountAmt).toBe(10);
+    expect(res.subtotalHT).toBe(100); // 0 (origine 100%) + 100 (ajout)
+  });
+
+  it("rétrocompat : items sans isCompensation traités comme lignes d'origine", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 100 }, { lineTotal: 50 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "PERCENT",
+      clientDiscountValue: 10,
+    });
+
+    expect(res.clientDiscountAmt).toBe(15);
+    expect(res.subtotalHT).toBe(135);
+  });
+});
+
 describe("recomputeOrderTotals — edge cases", () => {
   it("panier vide → tout à 0 sauf transport (avec TVA sur port)", () => {
     const res = recomputeOrderTotals({

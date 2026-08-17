@@ -181,6 +181,21 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Détecteur de PaymentIntent Stripe orphelins (débit client sans commande).
+  // Tick 1h. Filet post-incident Quinchon (16/08/2026). Voir lib/orphan-payment-intents-worker.ts.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startOrphanPaymentIntentsWorker } = await import("@/lib/orphan-payment-intents-worker");
+        startOrphanPaymentIntentsWorker();
+      } catch (err) {
+        logger.error("[OrphanPI] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

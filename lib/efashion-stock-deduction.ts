@@ -231,12 +231,38 @@ export async function deductStockFromEfashionOrders(
     await prisma.$transaction(async (tx) => {
       // 1 seule décrémentation par variante (variant.stock) — on soustrait la somme.
       const totalUnitsRemoved = consumptions.reduce((s, c) => s + c.units, 0);
+      // Décrément atomique (audit checkout 2026-08-17 §6-7). WHERE stock >= X
+      // évite la race avec une vente boutique concurrente ; en cas de survente,
+      // clamp à 0 + warning explicite.
+      const dec = await tx.productColor.updateMany({
+        where: { id: variant.id, stock: { gte: totalUnitsRemoved } },
+        data: { stock: { decrement: totalUnitsRemoved } },
+      });
+      let appliedDelta = totalUnitsRemoved;
+      if (dec.count === 0) {
+        const current = await tx.productColor.findUnique({
+          where: { id: variant.id },
+          select: { stock: true },
+        });
+        const available = current?.stock ?? 0;
+        appliedDelta = available;
+        if (available > 0) {
+          await tx.productColor.update({
+            where: { id: variant.id },
+            data: { stock: 0 },
+          });
+        }
+        logger.warn("[eFashion Stock] Survente — clamp stock à 0", {
+          efashionOrder: orderName,
+          reference: item.referenceFull,
+          variantId: variant.id,
+          requested: totalUnitsRemoved,
+          applied: appliedDelta,
+          missing: totalUnitsRemoved - appliedDelta,
+        });
+      }
       const nextStock = Math.max(0, variant.stock - totalUnitsRemoved);
       const delta = nextStock - variant.stock;
-      await tx.productColor.update({
-        where: { id: variant.id },
-        data: { stock: nextStock },
-      });
       variant.stock = nextStock;
       touchedVariantIds.add(variant.id);
 

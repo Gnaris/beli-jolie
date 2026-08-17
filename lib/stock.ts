@@ -106,6 +106,10 @@ export async function decrementStockForOrder(orderId: string) {
 /**
  * Reincrément stock for all items in an order.
  * Called when order is cancelled.
+ *
+ * Idempotent : si un StockMovement CANCEL existe déjà pour cette commande,
+ * on skip pour éviter de doubler le stock (double-clic admin, race
+ * client-cancel + admin-cancel, ré-exécution manuelle du script d'annulation).
  */
 export async function reinstateStockForOrder(orderId: string) {
   const order = await prisma.order.findUnique({
@@ -114,6 +118,15 @@ export async function reinstateStockForOrder(orderId: string) {
   });
 
   if (!order) throw new Error("Order not found");
+
+  const alreadyReinstated = await prisma.stockMovement.findFirst({
+    where: { orderId: order.id, type: "CANCEL" },
+    select: { id: true },
+  });
+  if (alreadyReinstated) {
+    logger.info(`[Stock] Skip reinstate — CANCEL déjà tracé pour ${order.orderNumber}`);
+    return;
+  }
 
   const impactedColorIds: string[] = [];
 

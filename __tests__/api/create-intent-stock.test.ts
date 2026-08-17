@@ -12,6 +12,7 @@ const mockPrisma = vi.hoisted(() => ({
   cart: { findUnique: vi.fn() },
   shippingAddress: { findFirst: vi.fn() },
   user: { findUnique: vi.fn() },
+  siteConfig: { findFirst: vi.fn().mockResolvedValue(null) },
 }));
 
 const mockStripeInstance = vi.hoisted(() => ({
@@ -65,6 +66,10 @@ vi.mock("@/lib/stripe", () => ({
   getStripeInstance: vi.fn().mockResolvedValue(mockStripeInstance),
   buildStatementDescriptor: vi.fn().mockReturnValue("BJTEST"),
 }));
+// Bypass la vérif signature transporteur pour concentrer les tests sur le stock.
+vi.mock("@/lib/carrier-signature", () => ({
+  verifyCarrierSignature: vi.fn().mockReturnValue(true),
+}));
 
 import { POST } from "@/app/api/payments/create-intent/route";
 
@@ -84,6 +89,7 @@ const validBody = {
 };
 
 const baseUser = {
+  status: "APPROVED",
   company: "ACME",
   email: "jean@acme.fr",
   vatExempt: false,

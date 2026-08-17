@@ -1029,6 +1029,44 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
   const [lightbox, setLightbox] = useState<{ image: string; alt: string } | null>(null);
   const backdropClearModal = useBackdropClose(() => setShowClearModal(false));
 
+  // Erreurs de validation panier (rupture / hors ligne). Peuplé soit par le
+  // clic « Passer commande » (validation directe), soit par une redirection
+  // depuis /panier/commande via sessionStorage (validation à l'entrée du
+  // checkout ou entre étapes du wizard).
+  type ValidationError = {
+    itemId: string;
+    variantId: string;
+    productName: string;
+    reason: "offline" | "out_of_stock" | "insufficient_stock";
+    unitLabel: "" | "paquet" | "paquets";
+    requested: number;
+    available: number;
+    message: string;
+  };
+  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+  const [validatingCart, setValidatingCart] = useState(false);
+
+  // Récupère les erreurs stockées par CheckoutClient lors d'une redirection.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.sessionStorage.getItem("cart_validation_errors");
+      if (!raw) return;
+      window.sessionStorage.removeItem("cart_validation_errors");
+      const parsed = JSON.parse(raw) as ValidationError[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setValidationErrors(parsed);
+        toast.error(
+          t("stockRecheckTitle"),
+          t("stockRecheckMessage"),
+        );
+      }
+    } catch {
+      /* ignore : sessionStorage corrompu */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleZoom = (image: string, alt: string) => setLightbox({ image, alt });
 
   const allItems = cart?.items ?? [];
@@ -1166,13 +1204,46 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
     });
   }
 
-  function handleCheckout() {
+  async function handleCheckout() {
     if (minOrderHT > 0 && subtotal < minOrderHT) {
       setShowMinError(true);
       return;
     }
     setShowMinError(false);
-    router.push("/panier/commande");
+
+    // Vérif serveur AVANT navigation : chaque article est-il toujours en ligne
+    // et le stock suffit-il ? Bloquer ici évite d'atterrir sur la page paiement
+    // avec un article rompu ou retiré du catalogue.
+    setValidatingCart(true);
+    try {
+      const res = await fetch("/api/cart/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(t("stockRecheckTitle"), data?.error ?? t("stockRecheckMessage"));
+        return;
+      }
+      if (data.ok) {
+        setValidationErrors([]);
+        router.push("/panier/commande");
+        return;
+      }
+      // Erreurs : on affiche le bandeau + un toast récap, on ne navigue PAS.
+      setValidationErrors(data.errors ?? []);
+      toast.error(
+        t("stockRecheckTitle"),
+        data.errors?.length === 1
+          ? data.errors[0].message
+          : t("stockRecheckSummary", { count: data.errors?.length ?? 0 }),
+      );
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      toast.error(t("stockRecheckTitle"), t("stockRecheckNetworkError"));
+    } finally {
+      setValidatingCart(false);
+    }
   }
 
   // ── Panier vide ─────────────────────────────
@@ -1251,6 +1322,54 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
               </div>
             </div>
 
+            {/* Bandeau erreurs validation panier (article hors ligne / stock insuffisant) */}
+            {validationErrors.length > 0 && (
+              <div
+                role="alert"
+                className="mb-4 bg-error-bg border border-error/30 rounded-2xl p-4 sm:p-5"
+              >
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-5 h-5 text-error shrink-0 mt-0.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.8}
+                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                    />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="font-heading font-semibold text-error mb-1">
+                      {t("stockRecheckTitle")}
+                    </p>
+                    <p className="text-sm text-text-secondary mb-3">
+                      {t("stockRecheckIntro")}
+                    </p>
+                    <ul className="space-y-1.5 text-sm text-text-primary">
+                      {validationErrors.map((err) => (
+                        <li key={err.itemId} className="flex items-start gap-2">
+                          <span className="text-error mt-1" aria-hidden="true">•</span>
+                          <span>{err.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      onClick={() => setValidationErrors([])}
+                      className="mt-3 text-xs text-text-muted underline hover:text-text-primary"
+                    >
+                      {t("stockRecheckDismiss")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Recherche */}
             <div className="bg-bg-primary border border-border rounded-xl p-2.5 mb-4 flex items-center gap-2">
               <svg className="w-4 h-4 text-text-muted shrink-0 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1312,7 +1431,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
                 stripeReady={stripeReady}
                 showMinError={showMinError}
                 onCheckout={handleCheckout}
-                isPending={isPending}
+                isPending={isPending || validatingCart}
                 compact
               />
             </div>
@@ -1328,7 +1447,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
               stripeReady={stripeReady}
               showMinError={showMinError}
               onCheckout={handleCheckout}
-              isPending={isPending}
+              isPending={isPending || validatingCart}
             />
           </aside>
         </div>
@@ -1340,7 +1459,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
           <div className="text-[10px] uppercase tracking-widest text-text-muted">{t("estimatedTotal")}</div>
           <div className="font-heading text-lg font-bold text-text-primary leading-none">{subtotal.toFixed(2)} €</div>
         </div>
-        <button type="button" disabled={!stripeReady || isPending} onClick={handleCheckout} className="btn-primary flex-1 justify-center h-11 text-sm disabled:opacity-50">
+        <button type="button" disabled={!stripeReady || isPending || validatingCart} onClick={handleCheckout} className="btn-primary flex-1 justify-center h-11 text-sm disabled:opacity-50">
           {t("checkout")} →
         </button>
       </div>

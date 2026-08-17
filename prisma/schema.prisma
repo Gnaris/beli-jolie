@@ -2751,7 +2751,11 @@ model LegalDocumentVersion {
 
 model StripeWebhookEvent {
   id        String   @id @default(cuid())
-  eventId   String   @unique
+  // eventId : @unique global remplacé par @@unique composite tenant (audit §12).
+  // 2 tenants Stripe distincts peuvent en théorie recevoir un event avec le
+  // même id (test/live, ou compte multiplateforme) — sans composite, le 2e
+  // pourrait etre absorbé silencieusement comme un doublon.
+  eventId   String
   type      String
   processed Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -2760,6 +2764,7 @@ model StripeWebhookEvent {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, eventId])
   @@index([tenantId])
   @@index([createdAt])
 }

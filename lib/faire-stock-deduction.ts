@@ -154,12 +154,38 @@ export async function deductStockFromFaireOrders(
     const orderTag = item.faireOrder.displayId ?? item.faireOrder.faireOrderId;
 
     await prisma.$transaction(async (tx) => {
-      const nextStock = Math.max(0, variant.stock - unitsRemoved);
-      await tx.productColor.update({
-        where: { id: variant.id },
-        data: { stock: nextStock },
+      // Décrément atomique : le WHERE stock >= X empêche une vente boutique
+      // concurrente d'écraser silencieusement notre décrément (read-then-write
+      // n'est pas race-safe côté MySQL). Si count=0, on tombe en fallback
+      // clamp-à-0 avec un warning explicite (audit checkout 2026-08-17 §7).
+      const dec = await tx.productColor.updateMany({
+        where: { id: variant.id, stock: { gte: unitsRemoved } },
+        data: { stock: { decrement: unitsRemoved } },
       });
-      variant.stock = nextStock;
+      let appliedDelta = unitsRemoved;
+      if (dec.count === 0) {
+        const current = await tx.productColor.findUnique({
+          where: { id: variant.id },
+          select: { stock: true },
+        });
+        const available = current?.stock ?? 0;
+        appliedDelta = available;
+        if (available > 0) {
+          await tx.productColor.update({
+            where: { id: variant.id },
+            data: { stock: 0 },
+          });
+        }
+        logger.warn("[Faire Stock] Survente — clamp stock à 0", {
+          faireOrder: orderTag,
+          reference,
+          variantId: variant.id,
+          requested: unitsRemoved,
+          applied: appliedDelta,
+          missing: unitsRemoved - appliedDelta,
+        });
+      }
+      variant.stock = Math.max(0, variant.stock - unitsRemoved);
       touchedVariantIds.add(variant.id);
 
       await tx.stockMovement.create({
@@ -169,7 +195,10 @@ export async function deductStockFromFaireOrders(
           sizeId,
           quantity: -unitsRemoved,
           type: "ORDER",
-          reason: `Faire #${orderTag} (${reference})`,
+          reason:
+            appliedDelta === unitsRemoved
+              ? `Faire #${orderTag} (${reference})`
+              : `Faire #${orderTag} (${reference}) — survente clampée (${appliedDelta}/${unitsRemoved} réellement décrémentés)`,
           createdById: actorUserId ?? undefined,
         },
       });
