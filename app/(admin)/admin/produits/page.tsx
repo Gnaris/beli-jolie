@@ -25,6 +25,7 @@ import {
   buildAdminProductsWhere,
   buildAdminProductsOrderBy,
   findProductIdsWithMissingVariantImages,
+  sortProductsByQueryOrder,
 } from "@/lib/admin-products-filter";
 import { withProtectedSizeItem, type SizeManagerItem } from "@/lib/protected-sizes";
 import {
@@ -403,7 +404,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   });
 
   const [
-    products,
+    productsRaw,
     totalCount,
     categories,
     tags,
@@ -484,6 +485,14 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
   ]);
 
   const sizeNameById = new Map<string, string>(allSizes.map((s) => [s.id, s.name]));
+
+  // Tri « Personnalisé » : quand la cliente a saisi ≥ 2 références et choisi
+  // ce tri, on réordonne la page courante en mémoire pour suivre l'ordre de
+  // saisie. Pour un ordre garanti sur toutes les références saisies, elle doit
+  // monter le nombre par page (sinon seules celles de la page sont triées).
+  const products = sort === "custom"
+    ? sortProductsByQueryOrder(productsRaw, q, exactRef)
+    : productsRaw;
 
   const totalPages = Math.ceil(totalCount / perPage);
 

@@ -23,7 +23,8 @@ export type AdminProductsSortValue =
   | "createdAsc"
   | "modifiedDesc"
   | "modifiedAsc"
-  | "importantFirst";
+  | "importantFirst"
+  | "custom";
 
 /**
  * Valeurs possibles pour les filtres "Dernier export marketplace" — un filtre
@@ -569,12 +570,16 @@ export function buildAdminProductsOrderBy(
   sort?: string,
   shortcuts?: { createdRecent?: string; updatedRecent?: string },
 ): Prisma.ProductOrderByWithRelationInput[] {
-  // `sort` a la priorité — 5 valeurs reconnues, autres = ignoré (fallback refresh).
+  // `sort` a la priorité — valeurs reconnues, autres = ignoré (fallback refresh).
   if (sort === "createdDesc") return [{ createdAt: "desc" }];
   if (sort === "createdAsc")  return [{ createdAt: "asc" }];
   if (sort === "modifiedDesc") return [{ updatedAt: "desc" }];
   if (sort === "modifiedAsc")  return [{ updatedAt: "asc" }];
   if (sort === "importantFirst") return [{ important: "desc" }, { createdAt: "desc" }];
+  // `custom` = ordre de saisie des références. Le vrai tri est appliqué en
+  // mémoire après findMany via `sortProductsByQueryOrder` (Prisma ne supporte
+  // pas ORDER BY FIELD nativement). On garde un ordre déterministe côté DB.
+  if (sort === "custom") return [{ createdAt: "desc" }];
 
   if (refresh === "dateDesc") {
     return [
@@ -599,4 +604,53 @@ export function buildAdminProductsOrderBy(
   if (shortcuts?.createdRecent === "1") return [{ createdAt: "desc" }];
 
   return [{ createdAt: "desc" }];
+}
+
+/**
+ * Réordonne une liste de produits par l'ordre d'apparition des termes de
+ * recherche dans `q` (séparés par des virgules). Utilisé quand la cliente a
+ * saisi plusieurs références et choisi le tri « Personnalisé » — on veut voir
+ * les produits dans le même ordre que ses références.
+ *
+ * Ne fait rien si moins de 2 termes (le tri personnalisé n'a pas de sens sur
+ * une seule référence). Retourne le tableau tel quel dans ce cas.
+ *
+ * Comparaison insensible à la casse. Pour chaque produit on prend l'index du
+ * PREMIER terme qui matche (par référence exacte en mode exactRef, ou par
+ * `reference startsWith` / `name contains` en mode fuzzy — miroir du WHERE).
+ * Les produits non matchés (théoriquement aucun, ils viennent d'un WHERE
+ * qui filtre déjà) sont mis à la fin.
+ *
+ * Tri stable : deux produits qui matchent le même terme conservent leur ordre
+ * relatif d'entrée (qui vient de l'orderBy Prisma).
+ */
+export function sortProductsByQueryOrder<T extends { reference: string; name: string }>(
+  products: T[],
+  q: string | undefined,
+  exactRef: boolean,
+): T[] {
+  if (!q) return products;
+  const terms = q.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+  if (terms.length < 2) return products;
+
+  const upperTerms = terms.map((t) => t.toUpperCase());
+  const lowerTerms = terms.map((t) => t.toLowerCase());
+
+  const matchIndex = (p: T): number => {
+    const refUpper = p.reference.toUpperCase();
+    const nameLower = p.name.toLowerCase();
+    for (let i = 0; i < upperTerms.length; i++) {
+      if (exactRef) {
+        if (refUpper === upperTerms[i]) return i;
+      } else {
+        if (refUpper.startsWith(upperTerms[i]) || nameLower.includes(lowerTerms[i])) return i;
+      }
+    }
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  return products
+    .map((p, i) => ({ p, i, k: matchIndex(p) }))
+    .sort((a, b) => (a.k - b.k) || (a.i - b.i))
+    .map((e) => e.p);
 }

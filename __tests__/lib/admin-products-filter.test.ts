@@ -3,6 +3,7 @@ import {
   buildAdminProductsWhere,
   buildAdminProductsOrderBy,
   findProductIdsWithMissingVariantImages,
+  sortProductsByQueryOrder,
 } from "@/lib/admin-products-filter";
 
 describe("buildAdminProductsWhere", () => {
@@ -815,5 +816,65 @@ describe("buildAdminProductsOrderBy", () => {
     expect(
       buildAdminProductsOrderBy("", "", { updatedRecent: "0" }),
     ).toEqual([{ createdAt: "desc" }]);
+  });
+
+  it("falls back to createdAt desc for sort=custom (the real ordering is applied in-memory post-fetch)", () => {
+    expect(buildAdminProductsOrderBy("", "custom")).toEqual([{ createdAt: "desc" }]);
+  });
+});
+
+describe("sortProductsByQueryOrder", () => {
+  const A = { reference: "A100", name: "Collier soleil" };
+  const B = { reference: "B200", name: "Boucles étoile" };
+  const C = { reference: "C300", name: "Bague lune" };
+
+  it("returns the array unchanged when q is empty or missing", () => {
+    expect(sortProductsByQueryOrder([A, B, C], undefined, false)).toEqual([A, B, C]);
+    expect(sortProductsByQueryOrder([A, B, C], "", false)).toEqual([A, B, C]);
+  });
+
+  it("returns the array unchanged when only a single term is present", () => {
+    expect(sortProductsByQueryOrder([A, B, C], "A100", true)).toEqual([A, B, C]);
+    expect(sortProductsByQueryOrder([A, B, C], " ,A100, ", true)).toEqual([A, B, C]);
+  });
+
+  it("reorders products by the input order of the references in exactRef mode", () => {
+    // DB peut renvoyer C, A, B — on veut A, B, C selon l'ordre de saisie.
+    expect(
+      sortProductsByQueryOrder([C, A, B], "A100, B200, C300", true),
+    ).toEqual([A, B, C]);
+  });
+
+  it("is case-insensitive for reference matching", () => {
+    expect(
+      sortProductsByQueryOrder([C, A, B], "a100, b200, c300", true),
+    ).toEqual([A, B, C]);
+  });
+
+  it("in fuzzy mode, matches by reference startsWith or name contains (first matching term wins)", () => {
+    // "col" matche le nom "Collier soleil" → A.
+    // "B2" matche la référence "B200" → B.
+    // "bague" matche le nom "Bague lune" → C.
+    expect(
+      sortProductsByQueryOrder([C, B, A], "col, B2, bague", false),
+    ).toEqual([A, B, C]);
+  });
+
+  it("keeps original relative order for products matching the same term (stable sort)", () => {
+    const A1 = { reference: "A100", name: "Un" };
+    const A2 = { reference: "A101", name: "Deux" };
+    const A3 = { reference: "A102", name: "Trois" };
+    // Tous matchent "A1" en fuzzy. Ordre attendu : celui d'entrée (A1, A2, A3).
+    expect(
+      sortProductsByQueryOrder([A1, A2, A3], "A1, ZZZ", false),
+    ).toEqual([A1, A2, A3]);
+  });
+
+  it("pushes unmatched products to the end of the list", () => {
+    const Z = { reference: "Z999", name: "Rien" };
+    // Z ne matche aucun terme, il doit finir dernier.
+    expect(
+      sortProductsByQueryOrder([Z, A, B], "A100, B200", true),
+    ).toEqual([A, B, Z]);
   });
 });

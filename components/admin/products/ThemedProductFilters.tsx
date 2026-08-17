@@ -38,6 +38,9 @@ const SORT_OPTS = [
   { v: "modifiedDesc",   label: "Modifié — Plus récent d'abord" },
   { v: "modifiedAsc",    label: "Modifié — Plus ancien d'abord" },
   { v: "importantFirst", label: "Importants d'abord" },
+  // « Personnalisé » n'apparaît que quand ≥ 2 références sont saisies dans la
+  // recherche — le tri suit alors l'ordre de saisie des références.
+  { v: "custom",         label: "Personnalisé (ordre de saisie)" },
 ];
 
 const SORT_VALUES = new Set(SORT_OPTS.map((o) => o.v).filter((v) => v !== ""));
@@ -515,10 +518,38 @@ export default function ThemedProductFilters({
   const [localTerms, setLocalTerms] = useState<string[]>(initialTerms);
   const [draft, setDraft] = useState("");
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  // Édition inline d'un badge : `editingIdx` = index du badge en cours d'édition
+  // (clic sur la ref). `editingDraft` = valeur en cours dans son input. Enter
+  // valide, Échap annule.
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const exactRef = searchParams.get("exactRef") === "1";
   const perPage = searchParams.get("perPage") ?? "20";
   const [perPageDraft, setPerPageDraft] = useState(perPage);
+
+  // Auto-bascule du tri sur « Personnalisé » quand la cliente a ≥ 2 références
+  // saisies et qu'aucun tri explicite n'est posé. Retrait auto quand on
+  // redescend à < 2 refs (pour retomber sur le défaut). Toute autre valeur de
+  // `sort` (choix explicite) est respectée sans être écrasée.
+  useEffect(() => {
+    const urlTerms = q ? q.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const urlSort = searchParams.get("sort") ?? "";
+    if (urlTerms.length >= 2 && urlSort === "") {
+      setParam({ sort: "custom" });
+    } else if (urlTerms.length < 2 && urlSort === "custom") {
+      setParam({ sort: null });
+    }
+  }, [q, searchParams, setParam]);
+
+  // Autofocus + sélection totale à l'ouverture d'un input d'édition inline.
+  useEffect(() => {
+    if (editingIdx !== null && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingIdx]);
 
   // Sync depuis URL si l'utilisateur navigue (ex. effacer tout)
   useEffect(() => {
@@ -559,6 +590,32 @@ export default function ThemedProductFilters({
     const next = localTerms.filter((_, i) => i !== idx);
     setLocalTerms(next);
     if (q) applyTerms(next);
+  }
+
+  function startEditTerm(idx: number) {
+    setEditingIdx(idx);
+    setEditingDraft(localTerms[idx] ?? "");
+  }
+
+  function cancelEditTerm() {
+    setEditingIdx(null);
+    setEditingDraft("");
+  }
+
+  function commitEditTerm() {
+    if (editingIdx === null) return;
+    const v = editingDraft.trim();
+    if (!v) {
+      // Vide → on considère que la cliente veut supprimer le badge.
+      removeTerm(editingIdx);
+      cancelEditTerm();
+      return;
+    }
+    const next = [...localTerms];
+    next[editingIdx] = v;
+    setLocalTerms(next);
+    applyTerms(next);
+    cancelEditTerm();
   }
 
   async function copyTerm(term: string, idx: number) {
@@ -613,12 +670,52 @@ export default function ThemedProductFilters({
           </svg>
           {localTerms.map((term, idx) => {
             const isCopied = copiedIdx === idx;
+            const isEditing = editingIdx === idx;
+            if (isEditing) {
+              return (
+                <span
+                  key={`edit-${idx}`}
+                  className="inline-flex items-center gap-1 bg-ink text-text-inverse text-[12.5px] font-body pl-2 pr-1 py-0.5 rounded-md ring-2 ring-ink/30"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    value={editingDraft}
+                    onChange={(e) => setEditingDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        commitEditTerm();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        cancelEditTerm();
+                      }
+                    }}
+                    onBlur={commitEditTerm}
+                    aria-label={`Modifier la référence ${term}`}
+                    className="bg-transparent border-none focus:outline-none font-mono text-[12.5px] py-1 min-w-[60px]"
+                    size={Math.max(6, editingDraft.length + 1)}
+                  />
+                </span>
+              );
+            }
             return (
               <span
                 key={`${term}-${idx}`}
                 className="inline-flex items-center gap-1.5 bg-ink text-text-inverse text-[12.5px] font-body px-2.5 py-1 rounded-md"
               >
-                <span className="font-mono">{term}</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); startEditTerm(idx); }}
+                  className="font-mono leading-none hover:underline decoration-dotted underline-offset-2"
+                  title="Cliquer pour modifier la référence"
+                  aria-label={`Modifier ${term}`}
+                >
+                  {term}
+                </button>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); copyTerm(term, idx); }}
