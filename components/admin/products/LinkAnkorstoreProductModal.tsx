@@ -530,13 +530,7 @@ function CandidateCard({
   return (
     <li className="group rounded-2xl border border-border bg-bg-primary p-4 sm:p-5 transition-shadow hover:border-sky-300 hover:shadow-[0_8px_24px_-12px_rgba(14,165,233,0.4)]">
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-        <div className="hidden sm:flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-bg-secondary to-bg-tertiary">
-          <svg className="h-10 w-10 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21,15 16,10 5,21" />
-          </svg>
-        </div>
+        <CandidateThumbnail imageUrl={candidate.imageUrl} name={candidate.name} />
 
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -635,6 +629,39 @@ function CandidateCard({
         </div>
       </div>
     </li>
+  );
+}
+
+// ─── Vignette du candidat Ankor ─────────────────────────────────────────────
+
+function CandidateThumbnail({
+  imageUrl,
+  name,
+}: {
+  imageUrl: string | null;
+  name: string;
+}) {
+  const [broken, setBroken] = useState(false);
+  const showImage = imageUrl && !broken;
+  return (
+    <div className="flex h-20 w-20 sm:h-24 sm:w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-bg-secondary to-bg-tertiary">
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <svg className="h-10 w-10 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21,15 16,10 5,21" />
+        </svg>
+      )}
+    </div>
   );
 }
 

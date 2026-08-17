@@ -50,6 +50,8 @@ import {
   readProductById,
   readProductByIdWithRetry,
   readProductByIdWithSkuFallback,
+  resolveAnkorImageUrl,
+  searchProducts,
   enableProducts,
   disableProducts,
   archiveProducts,
@@ -964,6 +966,8 @@ export interface AnkorstoreBoLinkCandidate {
   ankorProductUuid: string;
   name: string;
   link: string;
+  /** Première image du produit chez Ankor (URL absolue prête à afficher), ou null. */
+  imageUrl: string | null;
   variants: Array<{ id: number; sku: string; colorValue: string | null }>;
   confidence: "high" | "medium" | "low";
   matchedVariantCount: number;
@@ -1051,6 +1055,9 @@ export async function searchAnkorstoreBoCandidatesForBjProduct(
         ankorProductUuid: c.product.uuid,
         name: c.product.name,
         link: c.product.link,
+        imageUrl:
+          resolveAnkorImageUrl(c.product.images?.[0]) ??
+          resolveAnkorImageUrl(c.product.variants?.[0]?.images?.[0] ?? null),
         variants: (c.product.variants ?? []).map((v) => ({
           id: v.id,
           sku: v.sku,
@@ -1085,7 +1092,31 @@ export async function linkBjProductToAnkorstoreBo(
 ): Promise<{ success: boolean; linkedVariants?: number; error?: string }> {
   try {
     await requireAdmin();
-    const ankorProduct = await readProductById(ankorProductId);
+
+    // On récupère la référence BJ pour pouvoir mimer la recherche qui a
+    // rempli la modale — l'endpoint `filters[id]=X` d'Ankor est instable
+    // (peut renvoyer un autre produit ou rien pendant que ES rafraîchit),
+    // alors que `query=<ref>` matche fiablement via les SKU des variantes.
+    const bj = await prisma.product.findUnique({
+      where: { id: bjProductId },
+      select: { reference: true },
+    });
+    if (!bj) return { success: false, error: "Produit BJ introuvable" };
+
+    let ankorProduct = await readProductByIdWithRetry(ankorProductId, {
+      attempts: 2,
+      delayMs: 800,
+    });
+    if (!ankorProduct && bj.reference.trim()) {
+      const results = await searchProducts(bj.reference, { limit: 50 });
+      ankorProduct = results.find((p) => p.id === ankorProductId) ?? null;
+      if (ankorProduct) {
+        logger.info(
+          "[ankorstore-bo] linkBjProduct — fallback recherche par référence a résolu le produit",
+          { bjProductId, ankorProductId, reference: bj.reference },
+        );
+      }
+    }
     if (!ankorProduct) return { success: false, error: `Produit Ankor #${ankorProductId} introuvable` };
 
     // 1. Poser le lien produit (sans encore matcher les variantes — le publish qui suit s'en occupe).

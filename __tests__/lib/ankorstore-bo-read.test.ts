@@ -24,6 +24,7 @@ import {
   readProductById,
   readProductByIdWithSkuFallback,
   readProductByIdWithRetry,
+  resolveAnkorImageUrl,
 } from "@/lib/ankorstore-bo/read";
 
 const mockedGet = boGet as unknown as ReturnType<typeof vi.fn>;
@@ -121,6 +122,30 @@ describe("readProductByIdWithSkuFallback", () => {
     mockedGet.mockResolvedValueOnce({ data: [{ id: 7302182 }] });
     const r = await readProductByIdWithSkuFallback(7302182, ["SKU_A", "SKU_B"]);
     expect(r?.id).toBe(7302182);
+  });
+});
+
+describe("resolveAnkorImageUrl", () => {
+  it("renvoie null pour null/undefined/vide", () => {
+    expect(resolveAnkorImageUrl(null)).toBeNull();
+    expect(resolveAnkorImageUrl(undefined)).toBeNull();
+    expect(resolveAnkorImageUrl("")).toBeNull();
+    expect(resolveAnkorImageUrl("   ")).toBeNull();
+  });
+
+  it("conserve les URLs absolues https", () => {
+    expect(
+      resolveAnkorImageUrl("https://img.ankorstore.com/products/images/1-a.jpg"),
+    ).toBe("https://img.ankorstore.com/products/images/1-a.jpg");
+  });
+
+  it("préfixe le CDN Ankor sur les chemins relatifs (avec ou sans slash)", () => {
+    expect(resolveAnkorImageUrl("/products/images/1-a.jpg")).toBe(
+      "https://img.ankorstore.com/products/images/1-a.jpg",
+    );
+    expect(resolveAnkorImageUrl("products/images/1-a.jpg")).toBe(
+      "https://img.ankorstore.com/products/images/1-a.jpg",
+    );
   });
 });
 

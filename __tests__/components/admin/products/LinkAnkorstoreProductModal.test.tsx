@@ -40,6 +40,7 @@ function makeCandidate(overrides: Partial<AnkorstoreBoLinkCandidate> = {}): Anko
     ankorProductUuid: "uuid-1",
     name: "Bague papillon vernie – acier",
     link: "/fr/produit/bague-papillon-4820291",
+    imageUrl: null,
     variants: [
       { id: 1, sku: "A1720-DOR", colorValue: "Doré clair" },
       { id: 2, sku: "A1720-ARG", colorValue: "Argenté" },
@@ -267,6 +268,33 @@ describe("LinkAnkorstoreProductModal", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Lier quand même/i })).toBeInTheDocument();
     });
+  });
+
+  it("affiche la vignette produit Ankor quand imageUrl est fourni", async () => {
+    searchMock.mockResolvedValue({
+      success: true,
+      bjReference: "ZC40E",
+      localColorsPreview: [makeLocalColor()],
+      candidates: [
+        makeCandidate({
+          ankorProductId: 7025702,
+          imageUrl: "https://img.ankorstore.com/products/images/7025702-abc.jpg",
+        }),
+      ],
+    });
+    render(
+      <LinkAnkorstoreProductModal
+        productId="p1"
+        productName="Bague test"
+        reference="ZC40E"
+        onClose={vi.fn()}
+      />
+    );
+    const img = await screen.findByRole("img", { name: /Bague papillon vernie/i });
+    expect(img).toHaveAttribute(
+      "src",
+      "https://img.ankorstore.com/products/images/7025702-abc.jpg"
+    );
   });
 
   it("appelle onClose au clic sur le backdrop uniquement quand aucune liaison n'est en cours", async () => {

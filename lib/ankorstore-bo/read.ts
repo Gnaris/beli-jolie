@@ -155,6 +155,21 @@ export async function readProductByIdWithSkuFallback(
  * (bug Ankor 2026-08-15), on fait un fallback recherche par SKU. Passer les
  * ankorsSku qu'on vient d'envoyer dans le PUT / POST.
  */
+/**
+ * Résout une image Ankor en URL absolue.
+ * Le back-office renvoie généralement des URLs complètes
+ * (`https://img.ankorstore.com/products/images/…`), mais on tolère aussi
+ * les chemins relatifs (`/products/images/…`) au cas où le format évolue.
+ */
+export function resolveAnkorImageUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `https://img.ankorstore.com${withSlash}`;
+}
+
 export async function readProductByIdWithRetry(
   productId: number,
   opts: { attempts?: number; delayMs?: number; skuHints?: readonly string[] } = {}
