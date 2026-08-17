@@ -114,6 +114,8 @@ interface ClientDiscount {
   discountType:  "PERCENT" | "AMOUNT" | null;
   discountValue: number | null;
   freeShipping:  boolean;
+  /** Plafond HT du prix transporteur au-delà duquel la livraison n'est plus offerte. */
+  freeShippingMaxPrice?: number | null;
 }
 
 interface Carrier {
@@ -595,9 +597,11 @@ function CheckoutRailStepper({
 // ─────────────────────────────────────────────
 
 function CarrierCard({
-  carrier, tvaRate, selected, onClick,
+  carrier, tvaRate, selected, onClick, freeShipping = false,
 }: {
   carrier: Carrier; tvaRate: number; selected: boolean; onClick: () => void;
+  /** Livraison offerte à la cliente : masque le prix, affiche « Offerte » en vert. */
+  freeShipping?: boolean;
 }) {
   const t = useTranslations("checkout");
   const priceTTC = carrier.price * (1 + tvaRate);
@@ -633,13 +637,21 @@ function CarrierCard({
         </p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="font-heading font-bold text-lg text-text-primary tabular-nums">
-          {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} €`}
-        </p>
-        {carrier.price > 0 && tvaRate > 0 && (
-          <p className="text-[11px] text-text-muted font-body mt-0.5">
-            {priceTTC.toFixed(2)} € TTC
+        {freeShipping ? (
+          <p className="font-heading font-bold text-lg text-success tabular-nums">
+            {t("offered")}
           </p>
+        ) : (
+          <>
+            <p className="font-heading font-bold text-lg text-text-primary tabular-nums">
+              {carrier.price === 0 ? t("free") : `${carrier.price.toFixed(2)} €`}
+            </p>
+            {carrier.price > 0 && tvaRate > 0 && (
+              <p className="text-[11px] text-text-muted font-body mt-0.5">
+                {priceTTC.toFixed(2)} € TTC
+              </p>
+            )}
+          </>
         )}
       </div>
     </button>
@@ -1037,7 +1049,11 @@ export default function CheckoutClient({
 
   // selectedCarrier.price est le prix HT renvoyé par /api/carriers (Easy-Express c.price)
   const _rawCarrierPrice = selectedCarrier?.price ?? 0;
-  const _shippingResolved = pickShippingPrice(_rawCarrierPrice, !!clientDiscount?.freeShipping, shippingPromos);
+  // Livraison offerte active seulement si le prix transporteur ≤ plafond
+  // configuré (ou pas de plafond). Miroir de la logique serveur.
+  const _clientFreeShippingActive = !!clientDiscount?.freeShipping
+    && (clientDiscount.freeShippingMaxPrice == null || _rawCarrierPrice <= clientDiscount.freeShippingMaxPrice);
+  const _shippingResolved = pickShippingPrice(_rawCarrierPrice, _clientFreeShippingActive, shippingPromos);
   const effectiveCarrierPrice = _shippingResolved.finalPrice;
   const shippingPromoName = _shippingResolved.promotionName;
   // TVA appliquée aussi sur les frais de port (art. 267 CGI).
@@ -2270,15 +2286,21 @@ export default function CheckoutClient({
                     </div>
                   )}
 
-                  {carriers.map((carrier) => (
-                    <CarrierCard
-                      key={carrier.id}
-                      carrier={carrier}
-                      tvaRate={tvaRate}
-                      selected={selectedCarrierId === carrier.id}
-                      onClick={() => setSelectedCarrierId(carrier.id)}
-                    />
-                  ))}
+                  {carriers.map((carrier) => {
+                    const carrierEligibleFree = !!clientDiscount?.freeShipping
+                      && (clientDiscount.freeShippingMaxPrice == null
+                          || carrier.price <= clientDiscount.freeShippingMaxPrice);
+                    return (
+                      <CarrierCard
+                        key={carrier.id}
+                        carrier={carrier}
+                        tvaRate={tvaRate}
+                        selected={selectedCarrierId === carrier.id}
+                        onClick={() => setSelectedCarrierId(carrier.id)}
+                        freeShipping={carrierEligibleFree}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2478,18 +2500,24 @@ export default function CheckoutClient({
                       {noCarrierConfigured ? t("noCarriersConfigured") : t("noCarriersAvailable")}
                     </div>
                   )}
-                  {carriers.map((carrier) => (
-                    <CarrierCard
-                      key={carrier.id}
-                      carrier={carrier}
-                      tvaRate={tvaRate}
-                      selected={deliveryMode === "delivery" && selectedCarrierId === carrier.id}
-                      onClick={() => {
-                        if (deliveryMode !== "delivery") handleDeliveryModeChange("delivery");
-                        setSelectedCarrierId(carrier.id);
-                      }}
-                    />
-                  ))}
+                  {carriers.map((carrier) => {
+                    const carrierEligibleFree = !!clientDiscount?.freeShipping
+                      && (clientDiscount.freeShippingMaxPrice == null
+                          || carrier.price <= clientDiscount.freeShippingMaxPrice);
+                    return (
+                      <CarrierCard
+                        key={carrier.id}
+                        carrier={carrier}
+                        tvaRate={tvaRate}
+                        selected={deliveryMode === "delivery" && selectedCarrierId === carrier.id}
+                        onClick={() => {
+                          if (deliveryMode !== "delivery") handleDeliveryModeChange("delivery");
+                          setSelectedCarrierId(carrier.id);
+                        }}
+                        freeShipping={carrierEligibleFree}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2825,28 +2853,38 @@ function SummaryPanel({
               )}
 
               {/* Frais de port HT */}
-              <div className="flex justify-between text-text-secondary">
-                <span>
-                  {deliveryMode === "pickup"
-                    ? t("modePickup")
-                    : deliveryMode === "private"
-                      ? t("modePrivate")
-                      : t("shippingHT")}
-                </span>
-                <span className={`font-medium ${
-                  (deliveryMode === "pickup" || deliveryMode === "private" || (clientDiscount?.freeShipping && selectedCarrier))
-                    ? "text-accent-dark"
-                    : "text-text-primary"
-                }`}>
-                  {deliveryMode === "pickup" || deliveryMode === "private"
-                    ? t("free")
-                    : selectedCarrier
-                      ? (clientDiscount?.freeShipping
-                          ? t("offered")
-                          : carrierPriceHT === 0 ? t("free") : `${carrierPriceHT.toFixed(2)} €`)
-                      : "—"}
-                </span>
-              </div>
+              {(() => {
+                // Livraison offerte active seulement si prix transporteur ≤ plafond
+                // (miroir strict de la logique serveur).
+                const rawCarrierPriceForFree = selectedCarrier?.price ?? 0;
+                const freeShippingActive = !!clientDiscount?.freeShipping
+                  && (clientDiscount.freeShippingMaxPrice == null
+                      || rawCarrierPriceForFree <= clientDiscount.freeShippingMaxPrice);
+                return (
+                  <div className="flex justify-between text-text-secondary">
+                    <span>
+                      {deliveryMode === "pickup"
+                        ? t("modePickup")
+                        : deliveryMode === "private"
+                          ? t("modePrivate")
+                          : t("shippingHT")}
+                    </span>
+                    <span className={`font-medium ${
+                      (deliveryMode === "pickup" || deliveryMode === "private" || (freeShippingActive && selectedCarrier))
+                        ? "text-accent-dark"
+                        : "text-text-primary"
+                    }`}>
+                      {deliveryMode === "pickup" || deliveryMode === "private"
+                        ? t("free")
+                        : selectedCarrier
+                          ? (freeShippingActive
+                              ? t("offered")
+                              : carrierPriceHT === 0 ? t("free") : `${carrierPriceHT.toFixed(2)} €`)
+                          : "—"}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* TVA sur articles */}
               <div className="flex justify-between text-text-secondary">
@@ -2856,8 +2894,8 @@ function SummaryPanel({
                 </span>
               </div>
 
-              {/* TVA sur port */}
-              {selectedAddr && (deliveryMode === "delivery") && !clientDiscount?.freeShipping && selectedCarrier && carrierPriceHT > 0 && (
+              {/* TVA sur port — masquée quand le port est offert ou nul (cap freeShipping inclus via carrierPriceHT). */}
+              {selectedAddr && (deliveryMode === "delivery") && selectedCarrier && carrierPriceHT > 0 && (
                 <div className="flex justify-between text-text-secondary">
                   <span>{t("tvaShipping")} <span className="text-xs text-text-muted">({tvaLabel})</span></span>
                   <span className="font-medium text-text-primary">{tvaShipping.toFixed(2)} €</span>

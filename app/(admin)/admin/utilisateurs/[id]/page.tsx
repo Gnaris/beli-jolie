@@ -436,6 +436,7 @@ export default async function ClientDetailPage({
           initialDiscountMinAmount={user.discountMinAmount != null ? Number(user.discountMinAmount) : null}
           initialDiscountMinQuantity={user.discountMinQuantity ?? null}
           initialFreeShipping={user.freeShipping}
+          initialFreeShippingMaxPrice={user.freeShippingMaxPrice != null ? Number(user.freeShippingMaxPrice) : null}
           initialShippingDiscountType={user.shippingDiscountType ?? null}
           initialShippingDiscountValue={user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null}
           initialShippingDiscountMode={user.shippingDiscountMode ?? null}

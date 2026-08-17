@@ -25,6 +25,8 @@ interface UserPricingInput {
   discountMinQuantity: number | null;
   vatExempt: boolean;
   freeShipping: boolean;
+  /** Plafond HT au-delà duquel la livraison offerte ne s'applique plus. null = pas de plafond. */
+  freeShippingMaxPrice: number | null;
   shippingDiscountType: "PERCENT" | "AMOUNT" | null;
   shippingDiscountValue: number | null;
   shippingDiscountMode: "PERMANENT" | "THRESHOLD" | "NEXT_ORDER" | null;
@@ -144,8 +146,14 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     }
     return true;
   })();
+  // Livraison entièrement offerte : ne s'applique que si le prix transporteur
+  // est ≤ au plafond configuré (garde-fou pour éviter qu'une cliente prenne
+  // le transporteur le plus cher). Sans plafond, s'applique sans limite.
+  const freeShippingActive = user.freeShipping
+    && (user.freeShippingMaxPrice == null || input.carrierPrice <= user.freeShippingMaxPrice);
+
   const userShippingSaved = (() => {
-    if (user.freeShipping) return input.carrierPrice;
+    if (freeShippingActive) return input.carrierPrice;
     if (shippingDiscountApplies && user.shippingDiscountType && user.shippingDiscountValue != null) {
       if (user.shippingDiscountType === "PERCENT") {
         return Math.min(input.carrierPrice, input.carrierPrice * (user.shippingDiscountValue / 100));
@@ -160,7 +168,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     : resolveBestShippingDiscount(
         input.carrierPrice,
         activePromos,
-        { isFree: user.freeShipping, savedAmount: userShippingSaved },
+        { isFree: freeShippingActive, savedAmount: userShippingSaved },
         appliedCodePromo?.scope === "SHIPPING" ? appliedCodePromo : null,
       );
 

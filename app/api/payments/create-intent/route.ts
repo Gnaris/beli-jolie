@@ -84,7 +84,7 @@ export async function POST(req: Request) {
         status: true,
         company: true, email: true, vatExempt: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
-        freeShipping: true,
+        freeShipping: true, freeShippingMaxPrice: true,
         shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
         shippingDiscountMinAmount: true, shippingDiscountMinQuantity: true,
       },
@@ -294,6 +294,7 @@ function userToPricing(u: {
   discountMinQuantity: number | null;
   vatExempt: boolean;
   freeShipping: boolean;
+  freeShippingMaxPrice: unknown;
   shippingDiscountType:  "PERCENT" | "AMOUNT" | null;
   shippingDiscountValue: unknown;
   shippingDiscountMode?: "PERMANENT" | "THRESHOLD" | "NEXT_ORDER" | null;
@@ -308,6 +309,7 @@ function userToPricing(u: {
     discountMinQuantity: u?.discountMinQuantity ?? null,
     vatExempt:     u?.vatExempt ?? false,
     freeShipping:  u?.freeShipping ?? false,
+    freeShippingMaxPrice: u?.freeShippingMaxPrice != null ? Number(u.freeShippingMaxPrice) : null,
     shippingDiscountType:  u?.shippingDiscountType ?? null,
     shippingDiscountValue: u?.shippingDiscountValue != null ? Number(u.shippingDiscountValue) : null,
     shippingDiscountMode:  u?.shippingDiscountMode ?? "PERMANENT",

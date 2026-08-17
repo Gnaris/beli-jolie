@@ -1034,7 +1034,7 @@ function RegisteredPane({
                             </span>
                           )}
                           <p className={`text-[11px] font-body mt-0.5 ${online ? "text-text-secondary" : "text-text-muted"}`}>
-                            {formatTimeAgo(c.lastLoginAt)}
+                            {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
                           </p>
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
@@ -1131,12 +1131,12 @@ function RegisteredPane({
                               <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-70" />
                               <span className="relative w-2 h-2 rounded-full bg-emerald-500" />
                             </span>
-                            En ligne · {formatTimeAgo(c.lastLoginAt)}
+                            En ligne · {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-text-muted">
                             <span className="w-2 h-2 rounded-full bg-text-muted/40" />
-                            {isRejected ? "Refusé" : `Hors ligne · ${formatTimeAgo(c.lastLoginAt)}`}
+                            {isRejected ? "Refusé" : `Hors ligne · ${formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}`}
                           </span>
                         )}
                         <span className="text-text-muted">

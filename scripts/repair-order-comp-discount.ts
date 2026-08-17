@@ -94,13 +94,83 @@ async function run() {
   console.log(`  tvaAmount        = ${totals.tvaAmount.toFixed(2)} €`);
   console.log(`  totalTTC         = ${totals.totalTTC.toFixed(2)} €`);
 
-  // 3. Sanity check : si le nouveau totalTTC dépasse le paidTTC, alerte
-  if (totals.totalTTC > paidTTC + 0.01) {
+  // 3. Cap automatique : si le nouveau totalTTC dépasse ce que le client a
+  //    réellement payé (à cause d'un ajout admin un peu généreux), on rabote
+  //    le lineTotal du DERNIER article de compensation pour retomber pile
+  //    sur paidSubtotalHT. Le client reçoit exactement ce qu'il a payé.
+  let capAdjustment: {
+    itemId: string;
+    productName: string;
+    oldLineTotal: number;
+    newLineTotal: number;
+    oldUnitPrice: number;
+    newUnitPrice: number;
+  } | null = null;
+  let finalTotals = totals;
+
+  if (totals.subtotalHT > paidSubtotalHT + 0.01) {
+    const overshoot = totals.subtotalHT - paidSubtotalHT;
+    // Round to 2 decimals to avoid floating point noise
+    const overshootRounded = Math.round(overshoot * 100) / 100;
     console.log(
-      `\n⚠  ATTENTION : nouveau totalTTC (${totals.totalTTC.toFixed(2)}) > payé (${paidTTC.toFixed(2)})`,
+      `\n⚠  Dépassement de ${overshootRounded.toFixed(2)} € HT vs ce qui a été payé.`,
     );
-    console.log(`   Différence : ${(totals.totalTTC - paidTTC).toFixed(2)} €`);
-    console.log(`   Vérifier avant --apply.`);
+    const compItems = order.items.filter((i) => i.isCompensation);
+    if (compItems.length === 0) {
+      console.log(`   Aucun article de compensation pour absorber — pas de cap possible.`);
+    } else {
+      // Trouve un item comp qui a du "poids" pour absorber
+      const targetItem =
+        compItems.find((i) => Number(i.lineTotal) >= overshootRounded) ??
+        compItems[compItems.length - 1];
+      const oldLineTotal = Number(targetItem.lineTotal);
+      const newLineTotal = Math.max(
+        0,
+        Math.round((oldLineTotal - overshootRounded) * 100) / 100,
+      );
+      const oldUnitPrice = Number(targetItem.unitPrice);
+      const newUnitPrice =
+        targetItem.quantity > 0
+          ? Math.round((newLineTotal / targetItem.quantity) * 100) / 100
+          : 0;
+      capAdjustment = {
+        itemId: targetItem.id,
+        productName: targetItem.productName,
+        oldLineTotal,
+        newLineTotal,
+        oldUnitPrice,
+        newUnitPrice,
+      };
+      console.log(
+        `   → Rabot sur article ajouté « ${targetItem.productName} » (id=${targetItem.id})`,
+      );
+      console.log(
+        `     lineTotal : ${oldLineTotal.toFixed(2)} → ${newLineTotal.toFixed(2)} €`,
+      );
+      console.log(
+        `     unitPrice : ${oldUnitPrice.toFixed(2)} → ${newUnitPrice.toFixed(2)} €`,
+      );
+
+      // Recalcul avec le lineTotal capé
+      finalTotals = recomputeOrderTotals({
+        items: order.items.map((i) => ({
+          lineTotal:
+            i.id === targetItem.id ? newLineTotal : Number(i.lineTotal),
+          isCompensation: i.isCompensation,
+        })),
+        tvaRate: tvaRateNum,
+        carrierPrice: carrierPriceNum,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue
+          ? Number(order.clientDiscountValue)
+          : null,
+      });
+      console.log(`\nTotaux APRÈS cap :`);
+      console.log(`  subtotalHT       = ${finalTotals.subtotalHT.toFixed(2)} €`);
+      console.log(`  tvaAmount        = ${finalTotals.tvaAmount.toFixed(2)} €`);
+      console.log(`  totalTTC         = ${finalTotals.totalTTC.toFixed(2)} €`);
+      console.log(`  Payé Stripe      = ${paidTTC.toFixed(2)} €`);
+    }
   }
 
   if (!APPLY) {
@@ -108,15 +178,26 @@ async function run() {
     return;
   }
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      subtotalHT: totals.subtotalHT,
-      tvaAmount: totals.tvaAmount,
-      totalTTC: totals.totalTTC,
-      clientDiscountAmt: totals.clientDiscountAmt,
-      paidSubtotalHT,
-    },
+  await prisma.$transaction(async (tx) => {
+    if (capAdjustment) {
+      await tx.orderItem.update({
+        where: { id: capAdjustment.itemId },
+        data: {
+          lineTotal: capAdjustment.newLineTotal,
+          unitPrice: capAdjustment.newUnitPrice,
+        },
+      });
+    }
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        subtotalHT: finalTotals.subtotalHT,
+        tvaAmount: finalTotals.tvaAmount,
+        totalTTC: finalTotals.totalTTC,
+        clientDiscountAmt: finalTotals.clientDiscountAmt,
+        paidSubtotalHT,
+      },
+    });
   });
   console.log(`\n✓ Commande ${order.orderNumber} mise à jour.\n`);
 }

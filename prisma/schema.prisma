@@ -78,7 +78,8 @@ model User {
   discountMinAmount             Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
   discountMinQuantity           Int? // nombre min d'articles pour mode THRESHOLD
   discountNextOrderUsed         Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
-  freeShipping                  Boolean             @default(false) // legacy — remplacé par shippingDiscount*
+  freeShipping                  Boolean             @default(false) // livraison entièrement offerte (bascule 100% + case cochée)
+  freeShippingMaxPrice          Decimal?            @db.Decimal(12, 2) // plafond HT du prix transporteur au-delà duquel on ne rembourse plus (null = pas de plafond)
   shippingDiscountType          ClientDiscountType? // PERCENT ou AMOUNT, null = pas de remise livraison
   shippingDiscountValue         Decimal?            @db.Decimal(12, 2) // valeur %, montant €
   shippingDiscountMode          ClientDiscountMode? // null = PERMANENT (rétro-compat)

@@ -171,6 +171,7 @@ async function run() {
       discountMinQuantity: user.discountMinQuantity ?? null,
       vatExempt: user.vatExempt ?? false,
       freeShipping: user.freeShipping ?? false,
+      freeShippingMaxPrice: user.freeShippingMaxPrice != null ? Number(user.freeShippingMaxPrice) : null,
       shippingDiscountType: user.shippingDiscountType ?? null,
       shippingDiscountValue:
         user.shippingDiscountValue != null

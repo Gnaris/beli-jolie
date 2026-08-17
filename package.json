@@ -12,7 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "test:pfs-smoke": "vitest run __tests__/pfs/pfs-smoke.test.ts",
     "type-check": "tsc --noEmit",
-    "stripe": "stripe listen --forward-to localhost:3000/api/payments/webhook"
+    "stripe": "stripe listen --forward-to localhost:8600/api/payments/webhook"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

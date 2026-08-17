@@ -47,11 +47,19 @@ export default async function PanierPage() {
     );
   }
 
-  const [{ cart, productsMeta }, minConfig] = await Promise.all([
+  const [{ cart, productsMeta }, minConfig, userDiscount] = await Promise.all([
     getCartWithProductVariants(),
     prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { discountType: true, discountValue: true },
+    }),
   ]);
   const minOrderHT = minConfig ? parseFloat(minConfig.value) : 0;
+
+  const clientDiscount = userDiscount?.discountType && userDiscount.discountValue != null
+    ? { type: userDiscount.discountType, value: Number(userDiscount.discountValue) }
+    : null;
 
   const stripeReady = await isStripeConfigured();
 
@@ -108,6 +116,7 @@ export default async function PanierPage() {
       minOrderHT={minOrderHT}
       stripeReady={stripeReady}
       promoInfoByItemId={promoInfoByItemId}
+      clientDiscount={clientDiscount}
     />
   );
 }

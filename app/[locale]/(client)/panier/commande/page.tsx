@@ -45,9 +45,10 @@ export default async function CommandePage() {
         addressZip:        true,
         addressCity:       true,
         addressCountry:    true,
-        discountType:      true,
-        discountValue:     true,
-        freeShipping:      true,
+        discountType:         true,
+        discountValue:        true,
+        freeShipping:         true,
+        freeShippingMaxPrice: true,
       },
     }),
     prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
@@ -122,15 +123,35 @@ export default async function CommandePage() {
     })),
   };
 
+  // Sérialisation stricte : on ne remonte que les champs attendus par le
+  // Client Component. `discountValue` est un Decimal Prisma non
+  // sérialisable, il est déjà exposé via `clientDiscount` (Number).
+  const serializedUser = {
+    firstName:         user!.firstName,
+    lastName:          user!.lastName,
+    company:           user!.company,
+    email:             user!.email,
+    phone:             user!.phone,
+    siret:             user!.siret,
+    vatNumber:         user!.vatNumber,
+    vatExempt:         user!.vatExempt,
+    addressStreet:     user!.addressStreet,
+    addressComplement: user!.addressComplement,
+    addressZip:        user!.addressZip,
+    addressCity:       user!.addressCity,
+    addressCountry:    user!.addressCountry,
+  };
+
   return (
     <CheckoutClient
       cart={serializedCart as Parameters<typeof CheckoutClient>[0]["cart"]}
       addresses={addresses}
-      user={user!}
+      user={serializedUser}
       clientDiscount={{
-        discountType:  user!.discountType ?? null,
-        discountValue: user!.discountValue != null ? Number(user!.discountValue) : null,
-        freeShipping:  user!.freeShipping,
+        discountType:         user!.discountType ?? null,
+        discountValue:        user!.discountValue != null ? Number(user!.discountValue) : null,
+        freeShipping:         user!.freeShipping,
+        freeShippingMaxPrice: user!.freeShippingMaxPrice != null ? Number(user!.freeShippingMaxPrice) : null,
       }}
       promoInfoByItemId={promoInfoByItemId}
       shippingPromos={shippingPromos}

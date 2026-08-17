@@ -83,7 +83,23 @@ interface Props {
   stripeReady?: boolean;
   /** Résultat serveur du moteur de promotions par cart-item-id. */
   promoInfoByItemId?: Record<string, PromoInfo>;
+  /** Remise personnalisée attribuée à la cliente sur son compte. */
+  clientDiscount?: { type: "PERCENT" | "AMOUNT"; value: number } | null;
 }
+
+// Erreur de validation panier remontée par /api/cart/validate ou stockée en
+// sessionStorage par CheckoutClient. Défini au niveau module pour être
+// utilisable par les sous-composants (ProductGroupCard, VariantRow, …).
+type CartValidationError = {
+  itemId: string;
+  variantId: string;
+  productName: string;
+  reason: "offline" | "out_of_stock" | "insufficient_stock";
+  unitLabel: "" | "paquet" | "paquets";
+  requested: number;
+  available: number;
+  message: string;
+};
 
 // ─────────────────────────────────────────────
 // Helpers prix
@@ -258,7 +274,7 @@ function MobileProgress({ currentStep }: { currentStep: number }) {
 
 function SummaryPanel({
   subtotal, minOrderHT, minReached, minProgress,
-  stripeReady, showMinError, onCheckout, isPending, compact,
+  stripeReady, showMinError, onCheckout, isPending, compact, clientDiscount,
 }: {
   subtotal: number;
   minOrderHT: number;
@@ -269,8 +285,27 @@ function SummaryPanel({
   onCheckout: () => void;
   isPending: boolean;
   compact?: boolean;
+  clientDiscount?: { type: "PERCENT" | "AMOUNT"; value: number } | null;
 }) {
   const t = useTranslations("cart");
+
+  // Remise personnalisée client : plafonnée au sous-total pour éviter
+  // d'aller en négatif quand la remise fixe dépasse le panier.
+  const discountAmount = (() => {
+    if (!clientDiscount || clientDiscount.value <= 0) return 0;
+    if (clientDiscount.type === "PERCENT") {
+      return Math.min(subtotal, subtotal * (clientDiscount.value / 100));
+    }
+    return Math.min(subtotal, clientDiscount.value);
+  })();
+  const hasDiscount = discountAmount > 0;
+  const totalAfterDiscount = subtotal - discountAmount;
+  const discountLabelSuffix = clientDiscount
+    ? clientDiscount.type === "PERCENT"
+      ? `${clientDiscount.value}% (${discountAmount.toFixed(2)} €)`
+      : `${clientDiscount.value.toFixed(2)} €`
+    : "";
+
   return (
     <div className={compact ? "" : "p-8 h-full flex flex-col"}>
       <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted mb-1">{t("summary")}</div>
@@ -300,6 +335,18 @@ function SummaryPanel({
           <span className="text-text-secondary">{t("subtotalHT")}</span>
           <span className="font-medium text-text-primary tabular-nums">{subtotal.toFixed(2)} €</span>
         </div>
+        {hasDiscount && (
+          <>
+            <div className="flex justify-between text-success">
+              <span>{t("discountLabel")} <span className="text-text-muted">{discountLabelSuffix}</span></span>
+              <span className="font-medium tabular-nums">-{discountAmount.toFixed(2)} €</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-text-secondary">{t("totalAfterDiscount")}</span>
+              <span className="font-semibold text-text-primary tabular-nums">{totalAfterDiscount.toFixed(2)} €</span>
+            </div>
+          </>
+        )}
         <div className="flex justify-between text-text-muted">
           <span>{t("shipping")}</span>
           <span className="text-xs italic">{t("shippingNextStep")}</span>
@@ -316,7 +363,7 @@ function SummaryPanel({
         <div>
           <div className="text-[11px] uppercase tracking-widest text-text-muted">{t("estimatedTotal")}</div>
           <div className="font-heading text-3xl font-bold text-text-primary tabular-nums">
-            {subtotal.toFixed(2)} <span className="text-lg text-text-muted">€</span>
+            {totalAfterDiscount.toFixed(2)} <span className="text-lg text-text-muted">€</span>
           </div>
         </div>
       </div>
@@ -385,11 +432,13 @@ interface VariantRowProps {
   rowIndex: number;
   totalRowsForColor: number;
   isMobile?: boolean;
+  validationError?: CartValidationError | null;
 }
 
 function VariantRow({
   productId, variant, currentQty, onSetQty, onZoom,
   discountPercent, productName, isFirstOfColor, colorRowSpan, rowIndex, totalRowsForColor,
+  validationError,
 }: VariantRowProps) {
   void productId;
   void rowIndex;
@@ -457,16 +506,30 @@ function VariantRow({
     scheduleServerUpdate(capped);
   }
 
-  const rowClass = isOutOfStock
-    ? "opacity-40"
-    : isCommanded ? "" : "opacity-70";
+  const hasError = !!validationError;
+  const errorForcesRemoval = hasError && validationError.reason !== "insufficient_stock";
+  // Erreur affichée en rouge SEULEMENT si la variante est encore commandée.
+  // Une fois la corbeille cliquée (qty=0), on retombe sur l'affichage
+  // « Épuisé » clair et discret, comme les autres variantes sans stock.
+  const showError = hasError && isCommanded;
+  const displayAsOutOfStock = isOutOfStock || (errorForcesRemoval && !isCommanded);
+
+  const rowClass = showError
+    ? "bg-error/10"
+    : isCommanded
+      ? "bg-success/[0.06]"
+      : displayAsOutOfStock
+        ? "opacity-40"
+        : "opacity-70";
 
   const chipClass = variant.saleType === "UNIT"
     ? "chip-unit"
     : "chip-pack";
 
   return (
-    <tr className={`${rowClass} hover:bg-white transition-colors ${isFirstOfColor ? "border-t border-border" : ""}`}>
+    <tr
+      className={`${rowClass} ${showError ? "" : "hover:bg-white"} transition-colors ${isFirstOfColor ? (showError ? "border-t-2 border-error" : "border-t border-border") : ""} ${showError ? "border-l-4 border-l-error" : ""}`}
+    >
       {/* Image (rowspan si première variante de cette couleur) */}
       {isFirstOfColor && (
         <td className="px-4 py-2 align-top" rowSpan={colorRowSpan}>
@@ -495,63 +558,91 @@ function VariantRow({
           {saleTypeLabel(variant.saleType, variant.packQuantity, tCart)}
         </span>
       </td>
-      {/* Prix */}
-      <td className="text-right px-2 py-2 text-xs text-text-secondary">
+      {/* Prix — sous-titre « / u. » pour UNIT et PACK */}
+      <td className={`text-right px-2 py-2 text-xs ${showError ? "text-error" : "text-text-secondary"}`}>
         {unitPrice.toFixed(2)} €
-        {variant.saleType === "PACK" && variant.packQuantity && (
-          <span className="block text-[10px] text-text-muted">
-            {(unitPrice / variant.packQuantity).toFixed(2)} € / u.
-          </span>
-        )}
+        <span className={`block text-[10px] ${showError ? "text-error/80" : "text-text-muted"}`}>
+          {variant.saleType === "PACK" && variant.packQuantity
+            ? `${(unitPrice / variant.packQuantity).toFixed(2)} € / u.`
+            : `${unitPrice.toFixed(2)} € / u.`}
+        </span>
       </td>
-      {/* Qté (input) */}
+      {/* Qté (input) + message d'erreur inline */}
       <td className="px-2 py-2">
-        {isOutOfStock ? (
+        {showError && errorForcesRemoval ? (
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[11px] font-semibold text-error text-center">
+              {tCart("errorOutOfStockRemove")}
+            </span>
+          </div>
+        ) : displayAsOutOfStock ? (
           <div className="flex items-center justify-center gap-1.5">
             <span className="chip text-[10px] text-text-muted">{tCart("outOfStock")}</span>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => bump(-1)}
-              className="qty text-xs disabled:opacity-30"
-              disabled={displayQty <= 0}
-              aria-label={tCart("decrement")}
-            >−</button>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={qtyDraft}
-              onChange={(e) => { dirtyRef.current = true; setQtyDraft(e.target.value.replace(/[^0-9]/g, "")); }}
-              onBlur={commitQty}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-              onFocus={(e) => e.target.select()}
-              className={`qty-input w-10 h-7 text-center text-sm font-semibold font-body tabular-nums bg-white border border-border rounded-md focus:outline-none focus:border-bg-dark ${displayQty === 0 ? "text-text-muted" : "text-text-primary"}`}
-              aria-label={tCart("quantity")}
-            />
-            <button
-              type="button"
-              onClick={() => bump(1)}
-              className="qty text-xs"
-              disabled={displayQty >= effectiveStock}
-              aria-label={tCart("increment")}
-            >+</button>
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center justify-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => bump(-1)}
+                className="qty text-xs disabled:opacity-30"
+                disabled={displayQty <= 0}
+                aria-label={tCart("decrement")}
+              >−</button>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={qtyDraft}
+                onChange={(e) => { dirtyRef.current = true; setQtyDraft(e.target.value.replace(/[^0-9]/g, "")); }}
+                onBlur={commitQty}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                onFocus={(e) => e.target.select()}
+                className={`qty-input w-10 h-7 text-center text-sm font-semibold font-body tabular-nums bg-white border rounded-md focus:outline-none ${showError ? "border-error text-error focus:border-error" : `border-border focus:border-bg-dark ${displayQty === 0 ? "text-text-muted" : "text-text-primary"}`}`}
+                aria-label={tCart("quantity")}
+              />
+              <button
+                type="button"
+                onClick={() => bump(1)}
+                className="qty text-xs"
+                disabled={displayQty >= effectiveStock}
+                aria-label={tCart("increment")}
+              >+</button>
+            </div>
+            {showError && validationError.reason === "insufficient_stock" && (
+              <span className="text-[11px] font-semibold text-error">
+                {tCart("errorStockRemaining", { count: validationError.available })}
+              </span>
+            )}
           </div>
         )}
       </td>
       {/* Unités */}
-      <td className="text-right px-2 py-2 text-xs text-text-secondary tabular-nums">
+      <td className={`text-right px-2 py-2 text-xs tabular-nums ${showError ? "text-error" : "text-text-secondary"}`}>
         {unitsCount || "—"}
       </td>
       {/* Sous-total */}
       <td className="text-right px-4 py-2">
         {isCommanded ? (
-          <span className="font-heading font-bold text-sm text-text-primary tabular-nums">{lineTotal.toFixed(2)} €</span>
+          <span className={`font-heading font-bold text-sm tabular-nums ${showError ? "text-error" : "text-text-primary"}`}>{lineTotal.toFixed(2)} €</span>
         ) : (
           <span className="text-xs text-text-muted tabular-nums">0,00 €</span>
         )}
+      </td>
+      {/* Action : corbeille variante */}
+      <td className="text-center px-2 py-2">
+        <button
+          type="button"
+          onClick={() => onSetQty(variant.variantId, 0)}
+          disabled={!isCommanded}
+          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
+          aria-label={tCart("removeVariantLabel")}
+          title={tCart("removeVariantLabel")}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          </svg>
+        </button>
       </td>
     </tr>
   );
@@ -567,13 +658,14 @@ interface ProductGroupCardProps {
   meta: ProductMeta;
   itemsByVariantId: Map<string, CartItemData>;
   multiColorPackItems: CartItemData[];  // items PACK multi-couleurs pour ce produit (traités séparément)
+  errorsByVariantId: Map<string, CartValidationError>;
   onSetQty: (variantId: string, qty: number) => Promise<void>;
   onZoom: (src: string, alt: string) => void;
   onRemoveProduct: (productId: string) => void;
 }
 
 function ProductGroupCard({
-  meta, itemsByVariantId, multiColorPackItems, onSetQty, onZoom, onRemoveProduct,
+  meta, itemsByVariantId, multiColorPackItems, errorsByVariantId, onSetQty, onZoom, onRemoveProduct,
 }: ProductGroupCardProps) {
   const tCart = useTranslations("cart");
   const { tp, tc: translateCat } = useProductTranslation();
@@ -702,11 +794,23 @@ function ProductGroupCard({
             )}
           </div>
 
-          {/* Chevron */}
-          <div className="flex flex-col items-end gap-1">
+          {/* Corbeille produit + chevron */}
+          <div className="flex items-center gap-1.5">
             <div className="md:hidden text-right">
               <div className="font-heading font-bold text-text-primary text-sm tabular-nums">{totalProduct.toFixed(2)} €</div>
             </div>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemoveProduct(meta.productId); }}
+              disabled={orderedCount === 0}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
+              aria-label={tCart("removeProductLabel")}
+              title={tCart("removeProductLabel")}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            </button>
             <svg className="w-4 h-4 text-text-muted transition-transform group-open/prod:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
@@ -728,6 +832,7 @@ function ProductGroupCard({
                 <th className="text-center px-2 py-2 font-semibold w-32">{tCart("thQuantity")}</th>
                 <th className="text-right px-2 py-2 font-semibold">{tCart("thUnits")}</th>
                 <th className="text-right px-4 py-2 font-semibold">{tCart("thSubtotal")}</th>
+                <th className="text-center px-2 py-2 font-semibold w-14">{tCart("thAction")}</th>
               </tr>
             </thead>
             <tbody>
@@ -749,13 +854,21 @@ function ProductGroupCard({
                       colorRowSpan={variantList.length}
                       rowIndex={idx}
                       totalRowsForColor={variantList.length}
+                      validationError={errorsByVariantId.get(variant.variantId) ?? null}
                     />
                   );
                 })
               ))}
               {/* Items PACK multi-couleurs (préservés en format classique) */}
               {multiColorPackItems.map((item) => (
-                <MultiColorPackRow key={item.id} item={item} discountPercent={meta.discountPercent} onSetQty={onSetQty} onZoom={onZoom} />
+                <MultiColorPackRow
+                  key={item.id}
+                  item={item}
+                  discountPercent={meta.discountPercent}
+                  onSetQty={onSetQty}
+                  onZoom={onZoom}
+                  validationError={errorsByVariantId.get(item.variant.id) ?? null}
+                />
               ))}
             </tbody>
           </table>
@@ -782,13 +895,32 @@ function ProductGroupCard({
                     : variant.stock;
                   const isOutOfStock = effectiveStock <= 0;
                   const total = price * currentQty;
+                  const err = errorsByVariantId.get(variant.variantId) ?? null;
+                  const hasError = !!err;
+                  const errorForcesRemoval = hasError && err.reason !== "insufficient_stock";
+                  const isCommanded = currentQty > 0;
+                  const showError = hasError && isCommanded;
+                  const displayAsOutOfStock = isOutOfStock || (errorForcesRemoval && !isCommanded);
+                  const unitPriceLabel = variant.saleType === "PACK" && variant.packQuantity
+                    ? `${(price / variant.packQuantity).toFixed(2)} € / u.`
+                    : `${price.toFixed(2)} € / u.`;
                   return (
-                    <div key={variant.variantId} className="flex items-center gap-2 text-xs">
+                    <div
+                      key={variant.variantId}
+                      className={`flex flex-wrap items-center gap-2 text-xs ${showError ? "bg-error/10 border-l-4 border-error rounded-md p-2 -ml-2" : isCommanded ? "bg-success/[0.06] rounded-md p-2 -ml-2" : ""}`}
+                    >
                       <span className={`chip ${variant.saleType === "UNIT" ? "chip-unit" : "chip-pack"} shrink-0`}>
                         {saleTypeLabel(variant.saleType, variant.packQuantity, tCart)}
                       </span>
-                      <span className="text-text-muted shrink-0">{price.toFixed(2)} €</span>
-                      {isOutOfStock ? (
+                      <span className={`shrink-0 flex flex-col leading-tight ${showError ? "text-error" : "text-text-muted"}`}>
+                        <span>{price.toFixed(2)} €</span>
+                        <span className={`text-[10px] ${showError ? "text-error/80" : "text-text-muted"}`}>{unitPriceLabel}</span>
+                      </span>
+                      {showError && errorForcesRemoval ? (
+                        <span className="ml-auto text-[11px] font-semibold text-error">
+                          {tCart("errorOutOfStockRemove")}
+                        </span>
+                      ) : displayAsOutOfStock ? (
                         <span className="chip text-[10px] text-text-muted ml-auto">{tCart("outOfStock")}</span>
                       ) : (
                         <>
@@ -798,9 +930,26 @@ function ProductGroupCard({
                             max={effectiveStock}
                             ariaLabel={tCart("quantity")}
                           />
-                          <span className="ml-auto font-heading font-bold tabular-nums text-text-primary">
+                          <span className={`ml-auto font-heading font-bold tabular-nums ${showError ? "text-error" : "text-text-primary"}`}>
                             {currentQty > 0 ? `${total.toFixed(2)} €` : "—"}
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => onSetQty(variant.variantId, 0)}
+                            disabled={currentQty <= 0}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                            aria-label={tCart("removeVariantLabel")}
+                            title={tCart("removeVariantLabel")}
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24" aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
+                          {showError && err.reason === "insufficient_stock" && (
+                            <span className="basis-full text-[11px] font-semibold text-error">
+                              {tCart("errorStockRemaining", { count: err.available })}
+                            </span>
+                          )}
                         </>
                       )}
                     </div>
@@ -811,7 +960,13 @@ function ProductGroupCard({
           ))}
           {multiColorPackItems.map((item) => (
             <div key={item.id} className="p-3">
-              <MultiColorPackRowMobile item={item} discountPercent={meta.discountPercent} onSetQty={onSetQty} onZoom={onZoom} />
+              <MultiColorPackRowMobile
+                item={item}
+                discountPercent={meta.discountPercent}
+                onSetQty={onSetQty}
+                onZoom={onZoom}
+                validationError={errorsByVariantId.get(item.variant.id) ?? null}
+              />
             </div>
           ))}
         </div>
@@ -855,12 +1010,13 @@ function ProductGroupCard({
 // ─────────────────────────────────────────────
 
 function MultiColorPackRow({
-  item, discountPercent, onSetQty, onZoom,
+  item, discountPercent, onSetQty, onZoom, validationError,
 }: {
   item: CartItemData;
   discountPercent: number | null;
   onSetQty: (variantId: string, qty: number) => Promise<void>;
   onZoom: (src: string, alt: string) => void;
+  validationError?: CartValidationError | null;
 }) {
   const tCart = useTranslations("cart");
   const { tp } = useProductTranslation();
@@ -904,8 +1060,17 @@ function MultiColorPackRow({
     scheduleServerUpdate(parsed);
   }
 
+  const hasError = !!validationError;
+  const errorForcesRemoval = hasError && validationError.reason !== "insufficient_stock";
+  const isCommanded = displayQty > 0;
+  const showError = hasError && isCommanded;
+  const displayAsOutOfStock = errorForcesRemoval && !isCommanded;
+  const packUnitPrice = item.variant.packQuantity ? price / item.variant.packQuantity : price;
+
   return (
-    <tr className="border-t border-border hover:bg-white">
+    <tr
+      className={`${showError ? "bg-error/10 border-l-4 border-l-error border-t-2 border-error" : `${isCommanded ? "bg-success/[0.06]" : ""} border-t border-border hover:bg-white`}`}
+    >
       <td className="px-4 py-2"><ZoomableImage src={image} alt={tp(item.variant.product.name)} onZoom={onZoom} sizeClass="w-12 h-12" /></td>
       <td className="px-2 py-2">
         <div className="flex items-center gap-1">
@@ -913,49 +1078,94 @@ function MultiColorPackRow({
             <ColorDot key={i} color={{ name: tp(line.colorName), hex: line.colorHex, patternImage: line.colorPatternImage }} size={14} />
           ))}
         </div>
-        <span className="text-[10px] text-text-muted mt-1 block">{tCart("multiColorPack")}</span>
+        <span className={`text-[10px] mt-1 block ${showError ? "text-error" : "text-text-muted"}`}>{tCart("multiColorPack")}</span>
       </td>
       <td className="px-2 py-2"><span className="chip chip-pack">PACK ×{item.variant.packQuantity ?? "—"}</span></td>
-      <td className="text-right px-2 py-2 text-xs text-text-secondary">{price.toFixed(2)} €</td>
-      <td className="px-2 py-2">
-        <div className="flex items-center justify-center gap-0.5">
-          <button type="button" onClick={() => bump(-1)} className="qty text-xs" disabled={displayQty <= 0}>−</button>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={qtyDraft}
-            onChange={(e) => { dirtyRef.current = true; setQtyDraft(e.target.value.replace(/[^0-9]/g, "")); }}
-            onBlur={commitQty}
-            onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); } }}
-            onFocus={(e) => e.target.select()}
-            className="w-10 h-7 text-center text-sm font-semibold text-text-primary font-body tabular-nums bg-white border border-border rounded-md focus:outline-none focus:border-bg-dark"
-          />
-          <button type="button" onClick={() => bump(1)} className="qty text-xs">+</button>
-        </div>
+      <td className={`text-right px-2 py-2 text-xs ${showError ? "text-error" : "text-text-secondary"}`}>
+        {price.toFixed(2)} €
+        <span className={`block text-[10px] ${showError ? "text-error/80" : "text-text-muted"}`}>
+          {packUnitPrice.toFixed(2)} € / u.
+        </span>
       </td>
-      <td className="text-right px-2 py-2 text-xs text-text-secondary tabular-nums">
+      <td className="px-2 py-2">
+        {showError && errorForcesRemoval ? (
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[11px] font-semibold text-error text-center">
+              {tCart("errorOutOfStockRemove")}
+            </span>
+          </div>
+        ) : displayAsOutOfStock ? (
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="chip text-[10px] text-text-muted">{tCart("outOfStock")}</span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center justify-center gap-0.5">
+              <button type="button" onClick={() => bump(-1)} className="qty text-xs" disabled={displayQty <= 0}>−</button>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={qtyDraft}
+                onChange={(e) => { dirtyRef.current = true; setQtyDraft(e.target.value.replace(/[^0-9]/g, "")); }}
+                onBlur={commitQty}
+                onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); } }}
+                onFocus={(e) => e.target.select()}
+                className={`w-10 h-7 text-center text-sm font-semibold font-body tabular-nums bg-white border rounded-md focus:outline-none ${showError ? "border-error text-error focus:border-error" : "border-border text-text-primary focus:border-bg-dark"}`}
+              />
+              <button type="button" onClick={() => bump(1)} className="qty text-xs">+</button>
+            </div>
+            {showError && validationError.reason === "insufficient_stock" && (
+              <span className="text-[11px] font-semibold text-error">
+                {tCart("errorStockRemaining", { count: validationError.available })}
+              </span>
+            )}
+          </div>
+        )}
+      </td>
+      <td className={`text-right px-2 py-2 text-xs tabular-nums ${showError ? "text-error" : "text-text-secondary"}`}>
         {(displayQty * (item.variant.packQuantity ?? 1))}
       </td>
-      <td className="text-right px-4 py-2"><span className="font-heading font-bold text-sm text-text-primary tabular-nums">{total.toFixed(2)} €</span></td>
+      <td className="text-right px-4 py-2"><span className={`font-heading font-bold text-sm tabular-nums ${showError ? "text-error" : "text-text-primary"}`}>{total.toFixed(2)} €</span></td>
+      <td className="text-center px-2 py-2">
+        <button
+          type="button"
+          onClick={() => onSetQty(item.variant.id, 0)}
+          disabled={displayQty <= 0}
+          className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
+          aria-label={tCart("removeVariantLabel")}
+          title={tCart("removeVariantLabel")}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          </svg>
+        </button>
+      </td>
     </tr>
   );
 }
 
 function MultiColorPackRowMobile({
-  item, discountPercent, onSetQty, onZoom,
+  item, discountPercent, onSetQty, onZoom, validationError,
 }: {
   item: CartItemData;
   discountPercent: number | null;
   onSetQty: (variantId: string, qty: number) => Promise<void>;
   onZoom: (src: string, alt: string) => void;
+  validationError?: CartValidationError | null;
 }) {
   const tCart = useTranslations("cart");
   const { tp } = useProductTranslation();
   const price = computeUnitPrice(item.variant.unitPrice, discountPercent);
   const total = price * item.quantity;
   const image = item.variantImages[0]?.path ?? null;
+  const hasError = !!validationError;
+  const errorForcesRemoval = hasError && validationError.reason !== "insufficient_stock";
+  const isCommanded = item.quantity > 0;
+  const showError = hasError && isCommanded;
+  const displayAsOutOfStock = errorForcesRemoval && !isCommanded;
+  const packUnitPrice = item.variant.packQuantity ? price / item.variant.packQuantity : price;
   return (
-    <div>
+    <div className={showError ? "bg-error/10 border-l-4 border-error rounded-md p-2" : isCommanded ? "bg-success/[0.06] rounded-md p-2" : ""}>
       <div className="flex items-center gap-2 mb-2">
         <ZoomableImage src={image} alt={tp(item.variant.product.name)} onZoom={onZoom} sizeClass="w-12 h-12" />
         <div className="flex-1">
@@ -963,15 +1173,45 @@ function MultiColorPackRowMobile({
             {item.variant.packLines?.map((line, i) => (
               <ColorDot key={i} color={{ name: tp(line.colorName), hex: line.colorHex, patternImage: line.colorPatternImage }} size={12} />
             ))}
-            <span className="text-[10px] text-text-muted ml-1">{tCart("multiColorPack")}</span>
+            <span className={`text-[10px] ml-1 ${showError ? "text-error" : "text-text-muted"}`}>{tCart("multiColorPack")}</span>
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2 text-xs pl-14">
+      <div className="flex flex-wrap items-center gap-2 text-xs pl-14">
         <span className="chip chip-pack shrink-0">PACK ×{item.variant.packQuantity ?? "—"}</span>
-        <span className="text-text-muted shrink-0">{price.toFixed(2)} €</span>
-        <MobileQtyControl value={item.quantity} onChange={(q) => onSetQty(item.variant.id, q)} max={999} ariaLabel={tCart("quantity")} />
-        <span className="ml-auto font-heading font-bold tabular-nums text-text-primary">{total.toFixed(2)} €</span>
+        <span className={`shrink-0 flex flex-col leading-tight ${showError ? "text-error" : "text-text-muted"}`}>
+          <span>{price.toFixed(2)} €</span>
+          <span className={`text-[10px] ${showError ? "text-error/80" : "text-text-muted"}`}>{packUnitPrice.toFixed(2)} € / u.</span>
+        </span>
+        {showError && errorForcesRemoval ? (
+          <span className="ml-auto text-[11px] font-semibold text-error">
+            {tCart("errorOutOfStockRemove")}
+          </span>
+        ) : displayAsOutOfStock ? (
+          <span className="chip text-[10px] text-text-muted ml-auto">{tCart("outOfStock")}</span>
+        ) : (
+          <>
+            <MobileQtyControl value={item.quantity} onChange={(q) => onSetQty(item.variant.id, q)} max={999} ariaLabel={tCart("quantity")} />
+            <span className={`ml-auto font-heading font-bold tabular-nums ${showError ? "text-error" : "text-text-primary"}`}>{total.toFixed(2)} €</span>
+            <button
+              type="button"
+              onClick={() => onSetQty(item.variant.id, 0)}
+              disabled={item.quantity <= 0}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-text-muted hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label={tCart("removeVariantLabel")}
+              title={tCart("removeVariantLabel")}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.6} viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+            </button>
+            {showError && validationError.reason === "insufficient_stock" && (
+              <span className="basis-full text-[11px] font-semibold text-error">
+                {tCart("errorStockRemaining", { count: validationError.available })}
+              </span>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -1016,7 +1256,7 @@ function MobileQtyControl({
 // Page principale
 // ─────────────────────────────────────────────
 
-export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true, promoInfoByItemId = {} }: Props) {
+export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true, promoInfoByItemId = {}, clientDiscount = null }: Props) {
   const t = useTranslations("cart");
   const { tp } = useProductTranslation();
   const router = useRouter();
@@ -1033,18 +1273,16 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
   // clic « Passer commande » (validation directe), soit par une redirection
   // depuis /panier/commande via sessionStorage (validation à l'entrée du
   // checkout ou entre étapes du wizard).
-  type ValidationError = {
-    itemId: string;
-    variantId: string;
-    productName: string;
-    reason: "offline" | "out_of_stock" | "insufficient_stock";
-    unitLabel: "" | "paquet" | "paquets";
-    requested: number;
-    available: number;
-    message: string;
-  };
-  const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+  const [validationErrors, setValidationErrors] = useState<CartValidationError[]>([]);
   const [validatingCart, setValidatingCart] = useState(false);
+
+  // Lookup rapide par variantId : rend rouge la ligne du panier + affiche
+  // le message adapté (stock restant / rupture) sous la variante concernée.
+  const validationErrorsByVariantId = useMemo(() => {
+    const m = new Map<string, CartValidationError>();
+    for (const err of validationErrors) m.set(err.variantId, err);
+    return m;
+  }, [validationErrors]);
 
   // Récupère les erreurs stockées par CheckoutClient lors d'une redirection.
   useEffect(() => {
@@ -1053,7 +1291,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
       const raw = window.sessionStorage.getItem("cart_validation_errors");
       if (!raw) return;
       window.sessionStorage.removeItem("cart_validation_errors");
-      const parsed = JSON.parse(raw) as ValidationError[];
+      const parsed = JSON.parse(raw) as CartValidationError[];
       if (Array.isArray(parsed) && parsed.length > 0) {
         setValidationErrors(parsed);
         toast.error(
@@ -1131,6 +1369,13 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
     (s, item) => s + resolveItemFinalPrice(item.id, item.variant.unitPrice, item.variant.product.discountPercent ?? null, promoInfoByItemId) * item.quantity,
     0,
   );
+  const mobileBarTotal = (() => {
+    if (!clientDiscount || clientDiscount.value <= 0) return subtotal;
+    const rebate = clientDiscount.type === "PERCENT"
+      ? Math.min(subtotal, subtotal * (clientDiscount.value / 100))
+      : Math.min(subtotal, clientDiscount.value);
+    return subtotal - rebate;
+  })();
   const totalUnits = allItems.reduce((s, item) => {
     const units = item.variant.saleType === "PACK" && item.variant.packQuantity
       ? item.variant.packQuantity * item.quantity
@@ -1347,17 +1592,9 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
                     <p className="font-heading font-semibold text-error mb-1">
                       {t("stockRecheckTitle")}
                     </p>
-                    <p className="text-sm text-text-secondary mb-3">
-                      {t("stockRecheckIntro")}
+                    <p className="text-sm text-text-secondary">
+                      {t("stockRecheckIntro", { count: validationErrors.length })}
                     </p>
-                    <ul className="space-y-1.5 text-sm text-text-primary">
-                      {validationErrors.map((err) => (
-                        <li key={err.itemId} className="flex items-start gap-2">
-                          <span className="text-error mt-1" aria-hidden="true">•</span>
-                          <span>{err.message}</span>
-                        </li>
-                      ))}
-                    </ul>
                     <button
                       type="button"
                       onClick={() => setValidationErrors([])}
@@ -1411,6 +1648,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
                         meta={meta}
                         itemsByVariantId={itemsByVariantId}
                         multiColorPackItems={multiColorPackItemsByProduct.get(meta.productId) ?? []}
+                        errorsByVariantId={validationErrorsByVariantId}
                         onSetQty={handleSetQty}
                         onZoom={handleZoom}
                         onRemoveProduct={handleRemoveProduct}
@@ -1432,6 +1670,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
                 showMinError={showMinError}
                 onCheckout={handleCheckout}
                 isPending={isPending || validatingCart}
+                clientDiscount={clientDiscount}
                 compact
               />
             </div>
@@ -1448,6 +1687,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
               showMinError={showMinError}
               onCheckout={handleCheckout}
               isPending={isPending || validatingCart}
+              clientDiscount={clientDiscount}
             />
           </aside>
         </div>
@@ -1457,7 +1697,7 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-bg-primary/95 backdrop-blur border-t border-border px-4 py-3 flex items-center justify-between gap-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
         <div>
           <div className="text-[10px] uppercase tracking-widest text-text-muted">{t("estimatedTotal")}</div>
-          <div className="font-heading text-lg font-bold text-text-primary leading-none">{subtotal.toFixed(2)} €</div>
+          <div className="font-heading text-lg font-bold text-text-primary leading-none">{mobileBarTotal.toFixed(2)} €</div>
         </div>
         <button type="button" disabled={!stripeReady || isPending || validatingCart} onClick={handleCheckout} className="btn-primary flex-1 justify-center h-11 text-sm disabled:opacity-50">
           {t("checkout")} →

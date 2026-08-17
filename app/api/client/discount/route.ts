@@ -12,7 +12,7 @@ export async function GET() {
     select: {
       discountType: true, discountValue: true, discountMode: true,
       discountMinAmount: true, discountMinQuantity: true,
-      freeShipping: true,
+      freeShipping: true, freeShippingMaxPrice: true,
       shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
       shippingDiscountMinAmount: true, shippingDiscountMinQuantity: true,
     },
@@ -35,6 +35,7 @@ export async function GET() {
       discountMinAmount: user.discountMinAmount != null ? Number(user.discountMinAmount) : null,
       discountMinQuantity: user.discountMinQuantity,
       freeShipping: user.freeShipping,
+      freeShippingMaxPrice: user.freeShippingMaxPrice != null ? Number(user.freeShippingMaxPrice) : null,
       shippingDiscountType: user.shippingDiscountType,
       shippingDiscountValue: user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null,
       shippingDiscountMode: user.shippingDiscountMode ?? "PERMANENT",

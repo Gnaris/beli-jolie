@@ -18,6 +18,10 @@ export interface UpdateClientDiscountInput {
   shippingDiscountMinAmount: number | null;
   shippingDiscountMinQuantity: number | null;
   freeShipping:         boolean;
+  /** Plafond HT du prix transporteur au-delà duquel la livraison offerte ne
+   *  s'applique plus (garde-fou contre un client qui prendrait le transporteur
+   *  le plus cher). null = pas de plafond. */
+  freeShippingMaxPrice: number | null;
 }
 
 export async function updateClientDiscount(
@@ -84,6 +88,11 @@ export async function updateClientDiscount(
   const hasDiscount     = !!input.discountType;
   const hasShipDiscount = !!input.shippingDiscountType;
 
+  // Cap freeShippingMaxPrice : nombre positif si fourni, sinon null.
+  if (input.freeShippingMaxPrice != null && input.freeShippingMaxPrice <= 0) {
+    return { success: false, error: "Le plafond de livraison offerte doit être supérieur à 0." };
+  }
+
   await prisma.user.update({
     where: { id: userId },
     data: {
@@ -97,6 +106,8 @@ export async function updateClientDiscount(
 
       // Remise livraison
       freeShipping:                  input.freeShipping,
+      // Cap uniquement pertinent quand livraison offerte activée ; sinon reset.
+      freeShippingMaxPrice:          input.freeShipping ? input.freeShippingMaxPrice : null,
       shippingDiscountType:          hasShipDiscount ? input.shippingDiscountType : null,
       shippingDiscountValue:         hasShipDiscount ? input.shippingDiscountValue : null,
       shippingDiscountMode:          hasShipDiscount ? (input.shippingDiscountMode ?? "PERMANENT") : null,

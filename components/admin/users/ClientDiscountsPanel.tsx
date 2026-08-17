@@ -20,6 +20,7 @@ interface Props {
   initialDiscountMinAmount:    number | null;
   initialDiscountMinQuantity:  number | null;
   initialFreeShipping:              boolean;
+  initialFreeShippingMaxPrice:      number | null;
   initialShippingDiscountType:      ClientDiscountType | null;
   initialShippingDiscountValue:     number | null;
   initialShippingDiscountMode:      ClientDiscountMode | null;
@@ -57,6 +58,33 @@ export default function ClientDiscountsPanel(props: Props) {
   const [sMinAmount, setSMinAmount] = useState(props.initialShippingDiscountMinAmount?.toString() ?? "");
   const [sMinQty, setSMinQty] = useState(props.initialShippingDiscountMinQuantity?.toString() ?? "");
   const [freeShipping, setFreeShipping] = useState(props.initialFreeShipping);
+  const [freeShippingMaxPrice, setFreeShippingMaxPrice] = useState(
+    props.initialFreeShippingMaxPrice?.toString() ?? "",
+  );
+
+  // Auto-sync : cocher « livraison entièrement offerte » ↔ valeur remise = 100 %.
+  // Sens 1 : dès qu'on écrit ≥ 100 en % dans la valeur → coche automatiquement.
+  function handleShippingValueChange(next: string) {
+    setSValue(next);
+    if (sType === "PERCENT") {
+      const num = parseFloat(next);
+      if (Number.isFinite(num) && num >= 100 && !freeShipping) {
+        setFreeShipping(true);
+      }
+    }
+  }
+  // Sens 2 : dès qu'on active la case → valeur remise passe à 100 %.
+  function handleFreeShippingToggle(next: boolean) {
+    setFreeShipping(next);
+    if (next) {
+      setSType("PERCENT");
+      setSValue("100");
+    } else if (sValue === "100" && sType === "PERCENT") {
+      // Reset visuel : on décoche → on vide la valeur pour éviter d'avoir
+      // 100 % fantôme sans la case.
+      setSValue("");
+    }
+  }
 
   function submit() {
     startTransition(async () => {
@@ -73,6 +101,7 @@ export default function ClientDiscountsPanel(props: Props) {
         shippingDiscountMinAmount:   sEnabled && !freeShipping && sMode === "THRESHOLD" && sMinAmount ? parseFloat(sMinAmount) : null,
         shippingDiscountMinQuantity: sEnabled && !freeShipping && sMode === "THRESHOLD" && sMinQty ? parseInt(sMinQty) : null,
         freeShipping,
+        freeShippingMaxPrice: freeShipping && freeShippingMaxPrice ? parseFloat(freeShippingMaxPrice) : null,
       });
       if (res.success) toast.success("Remises enregistrées", "Les paramètres commerciaux ont été mis à jour.");
       else toast.error("Erreur", res.error);
@@ -136,7 +165,7 @@ export default function ClientDiscountsPanel(props: Props) {
             <div className={freeShipping ? "opacity-40 pointer-events-none" : ""}>
               <ModePicker mode={sMode} onChange={setSMode} />
               <div className="mt-3">
-                <TypeValueRow type={sType} value={sValue} onTypeChange={setSType} onValueChange={setSValue} />
+                <TypeValueRow type={sType} value={sValue} onTypeChange={setSType} onValueChange={handleShippingValueChange} />
               </div>
               {sMode === "THRESHOLD" && (
                 <div className="mt-3">
@@ -151,13 +180,38 @@ export default function ClientDiscountsPanel(props: Props) {
               )}
             </div>
 
-            {/* Livraison offerte : switch qui remplace tout */}
-            <div className="rounded-xl bg-bg-tertiary border border-border p-3 flex items-center justify-between mt-4">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-text-primary">Ou : livraison entièrement offerte</p>
-                <p className="text-[11px] text-text-muted mt-0.5">Remplace la remise ci-dessus par une livraison à 0 €.</p>
+            {/* Livraison offerte : switch qui remplace tout + cap € */}
+            <div className="rounded-xl bg-bg-tertiary border border-border p-3 mt-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">Ou : livraison entièrement offerte</p>
+                  <p className="text-[11px] text-text-muted mt-0.5">Remplace la remise ci-dessus par une livraison à 0 €.</p>
+                </div>
+                <Switch checked={freeShipping} onChange={handleFreeShippingToggle} />
               </div>
-              <Switch checked={freeShipping} onChange={setFreeShipping} />
+              {freeShipping && (
+                <div className="border-t border-border pt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-2">
+                    Livraison offerte si le frais de port est inférieur à…
+                  </p>
+                  <div className="flex items-center border border-border-strong rounded-lg overflow-hidden bg-white">
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={freeShippingMaxPrice}
+                      onChange={(e) => setFreeShippingMaxPrice(e.target.value)}
+                      placeholder="Ex : 15 (laisser vide = pas de plafond)"
+                      className="flex-1 px-3 py-2 text-sm outline-none bg-transparent"
+                    />
+                    <span className="px-3 py-2 text-xs text-text-muted bg-bg-tertiary border-l border-border">€ HT</span>
+                  </div>
+                  <p className="text-[11px] text-text-muted mt-1.5 leading-relaxed">
+                    Empêche la cliente de choisir un transporteur trop cher : si son prix dépasse ce plafond,
+                    la livraison redevient payante. Laissez vide pour tout offrir sans limite.
+                  </p>
+                </div>
+              )}
             </div>
           </>
         )}
