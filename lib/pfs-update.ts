@@ -837,13 +837,93 @@ export async function pfsUpdateProductInPlace(
     }
 
     // Find PFS variants that no longer exist locally → delete
-    const variantsToDelete = existingPfsVariants.filter((v) => !localPfsVariantIds.has(v.id));
+    let variantsToDelete = existingPfsVariants.filter((v) => !localPfsVariantIds.has(v.id));
+
+    // ── Garde-fou : adoption des variantes PFS orphelines ──────────────────
+    // Cas typique : la cliente supprime une ancienne variante BJ puis en crée
+    // une nouvelle avec le même mapping couleur (renommage / dédoublonnage).
+    // La nouvelle n'a pas de pfsVariantId → elle finit dans variantsToCreate,
+    // pendant que l'ancienne côté PFS finit dans variantsToDelete. Résultat :
+    // PFS refuse la création (couleur+taille déjà prise) ET refuse la
+    // suppression (article vendu) → fallback : ancienne désactivée + stock 0,
+    // nouvelle jamais liée. Fiche PFS pleine de zombies.
+    //
+    // Détection : pour chaque candidate à la création, on cherche dans les
+    // orphelines PFS une variante avec le même colorRef + même type + même
+    // taille (UNIT) ou même signature de pack (PACK). Si match → on réutilise
+    // l'ID PFS existant au lieu de tenter la création.
+    const adoptedVariants: { bjVariantId: string; pfsVariantId: string }[] = [];
+    if (variantsToCreate.length > 0 && variantsToDelete.length > 0) {
+      const orphanPool = [...variantsToDelete];
+      const stillToCreate: typeof variantsToCreate = [];
+      for (const cand of variantsToCreate) {
+        const targetColorRef = cand.pfsData.color;
+        const targetType = cand.pfsData.type;
+        const targetSize = cand.pfsData.size;
+        const targetPackSig =
+          targetType === "PACK"
+            ? computePackSignatureFromEntries(cand.pfsData.packs ?? null)
+            : null;
+        const matchIdx = orphanPool.findIndex((orphan) => {
+          if (orphan.type !== targetType) return false;
+          if (targetType === "ITEM") {
+            return (
+              orphan.item?.color?.reference === targetColorRef &&
+              (orphan.item?.size ?? "TU") === targetSize
+            );
+          }
+          if (orphan.packs?.[0]?.color?.reference !== targetColorRef) return false;
+          return computePackSignatureFromPfsVariant(orphan) === targetPackSig;
+        });
+        if (matchIdx >= 0) {
+          const adopted = orphanPool[matchIdx]!;
+          orphanPool.splice(matchIdx, 1);
+          adoptedVariants.push({
+            bjVariantId: cand.bjVariant.id,
+            pfsVariantId: adopted.id,
+          });
+          cand.bjVariant.pfsVariantId = adopted.id;
+          variantsToUpdate.push({ bjVariant: cand.bjVariant, pfsVariantId: adopted.id });
+          localPfsVariantIds.add(adopted.id);
+          nextVariantsSnap[adopted.id] = buildVariantSnapshot(
+            cand.bjVariant,
+            pfsMarkup,
+            colorRefMap,
+          );
+        } else {
+          stillToCreate.push(cand);
+        }
+      }
+      if (adoptedVariants.length > 0) {
+        await prisma.$transaction(
+          adoptedVariants.map((a) =>
+            prisma.productColor.update({
+              where: { id: a.bjVariantId },
+              data: { pfsVariantId: a.pfsVariantId },
+            }),
+          ),
+        );
+        logger.info("[PFS Update] Adopted orphan PFS variants", {
+          pfsProductId,
+          reference: product.reference,
+          count: adoptedVariants.length,
+          adopted: adoptedVariants,
+        });
+        variantsToCreate.length = 0;
+        variantsToCreate.push(...stillToCreate);
+        variantsToDelete = orphanPool;
+      }
+    }
 
     // 2a. Patch existing variants — uniquement celles signalées dans le diff.
     // Le recreate (delete + create), lui, tourne sur TOUTES les variantes
     // pour détecter aussi les changements non capturés par le diff (compat
     // rétro : snapshots pré-v1.1 sans saleType/packSignature).
     const changedSet = new Set(diff.variantsChanged);
+    // Variantes fraîchement adoptées : jamais vues dans prevSnapshot → il faut
+    // forcer un patch pour aligner stock/prix/is_active (l'orphelin PFS est
+    // typiquement en stock 0 + is_active=false après un cycle précédent).
+    for (const a of adoptedVariants) changedSet.add(a.pfsVariantId);
 
     // Sépare les changements en deux familles :
     //   - couleur effective modifiée → recreate (PFS ne permet pas de patcher
