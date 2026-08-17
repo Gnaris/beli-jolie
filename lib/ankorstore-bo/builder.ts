@@ -89,10 +89,15 @@ export function buildProductPayloadFromBjProduct(
   bj: BjProductInputForBo,
   ctx: BuildContext
 ): BoProductPayload {
-  const enabledColors = bj.colors.filter((c) => c.saleType === "UNIT" && !c.disabled);
-  if (enabledColors.length === 0) {
+  // On inclut TOUTES les couleurs UNIT — même désactivées — pour que la variante
+  // existe côté Ankor. Une couleur désactivée est envoyée avec stock=0 plus bas :
+  // Ankor refuse alors la commande (inventory_policy=deny) → équivalent visuel
+  // "rupture de stock", mais la variante reste dans le catalogue Ankor et retrouve
+  // son stock dès que la cliente la réactive côté BJ.
+  const unitColors = bj.colors.filter((c) => c.saleType === "UNIT");
+  if (unitColors.length === 0) {
     throw new Error(
-      "Aucune variante UNIT active à publier chez Ankorstore — vérifie que le produit a au moins une couleur active en UNIT."
+      "Aucune variante UNIT à publier chez Ankorstore — Ankorstore ne gère que les ventes à l'unité. Ajoute au moins une couleur en UNIT au produit."
     );
   }
 
@@ -101,8 +106,8 @@ export function buildProductPayloadFromBjProduct(
     order: i,
   }));
 
-  const colorValues = uniqueOrdered(enabledColors.map((c) => resolveColorName(c)));
-  const sizeValues = uniqueOrdered(enabledColors.map((c) => resolveSizeName(c)));
+  const colorValues = uniqueOrdered(unitColors.map((c) => resolveColorName(c)));
+  const sizeValues = uniqueOrdered(unitColors.map((c) => resolveSizeName(c)));
 
   // On envoie TOUJOURS les deux options (size + color). Sans "size", Ankor refuse
   // les cas où deux variantes partagent la même couleur (ex "Noir" en 3 tailles :
@@ -123,7 +128,7 @@ export function buildProductPayloadFromBjProduct(
     },
   ];
 
-  const variants: BoVariantPayload[] = enabledColors.map((c) => {
+  const variants: BoVariantPayload[] = unitColors.map((c) => {
     const colorName = resolveColorName(c);
     const sizeName = resolveSizeName(c);
     if (!c.sku) {
@@ -150,10 +155,14 @@ export function buildProductPayloadFromBjProduct(
     const wholesaleCents = Math.round(wholesaleEUR * 100);
     const retailCents = Math.round(retailEUR * 100);
 
-    // On envoie TOUJOURS le vrai stock BJ, peu importe le statut. La mise hors
-    // ligne côté Ankor passe désormais par mass-action disable (retire le
-    // produit du catalogue), donc plus besoin de le camoufler via stock=0.
-    const effectiveStock = Math.max(0, c.stock);
+    // Statut PRODUIT (ONLINE/OFFLINE) → géré par mass-action disable côté BJ.
+    // Statut VARIANTE (disabled=true côté ProductColor) → on garde la variante
+    // dans le catalogue Ankor pour ne pas casser les liens SKU/images, mais on
+    // force le stock à 0 : combiné à inventory_policy="deny" ci-dessous, Ankor
+    // affiche la variante en rupture et refuse toute commande dessus. Dès que
+    // la cliente réactive la couleur côté BJ, le stock réel remonte au prochain
+    // sync.
+    const effectiveStock = c.disabled ? 0 : Math.max(0, c.stock);
 
     return {
       sku,

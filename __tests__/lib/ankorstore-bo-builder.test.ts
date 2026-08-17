@@ -155,7 +155,7 @@ describe("buildProductPayloadFromBjProduct", () => {
     expect(p.variants[0].shape_properties.weight_unit).toBeNull();
   });
 
-  it("Ignore les variantes disabled", () => {
+  it("Inclut les variantes disabled dans le payload (avec stock forcé à 0)", () => {
     const p = buildProductPayloadFromBjProduct(
       {
         ...baseInput,
@@ -166,6 +166,7 @@ describe("buildProductPayloadFromBjProduct", () => {
             id: "c2",
             colorName: "Bleu",
             disabled: true,
+            stock: 99, // stock BJ > 0 mais désactivée → doit partir à 0 chez Ankor
             imageKeys: [],
             sku: "A1720_BLEU_XYZAB",
           },
@@ -173,17 +174,33 @@ describe("buildProductPayloadFromBjProduct", () => {
       },
       { brandId: 51370, pricingConfig }
     );
-    expect(p.variants).toHaveLength(1);
-    expect(p.variants[0].sku).toBe("A1720_ROUGE_ABCDE");
+    expect(p.variants).toHaveLength(2);
+    const rouge = p.variants.find((v) => v.sku === "A1720_ROUGE_ABCDE");
+    const bleu = p.variants.find((v) => v.sku === "A1720_BLEU_XYZAB");
+    expect(rouge?.stock.stock_quantity).toBe(42);
+    expect(bleu?.stock.stock_quantity).toBe(0);
+    // Les deux couleurs doivent apparaître dans l'option "color" côté produit.
+    expect(p.options[1].values).toEqual(["Rouge", "Bleu"]);
   });
 
-  it("Throw si aucune couleur UNIT active", () => {
+  it("Variante disabled seule → stock=0 chez Ankor peu importe le stock BJ", () => {
+    const p = buildProductPayloadFromBjProduct(
+      { ...baseInput, colors: [{ ...baseColor, disabled: true, stock: 500 }] },
+      { brandId: 51370, pricingConfig }
+    );
+    expect(p.variants).toHaveLength(1);
+    expect(p.variants[0].stock.stock_quantity).toBe(0);
+    // inventory_policy="deny" combiné à stock 0 → Ankor refuse toute commande.
+    expect(p.variants[0].stock.inventory_policy).toBe("deny");
+  });
+
+  it("Throw si aucune couleur UNIT (que du PACK)", () => {
     expect(() =>
       buildProductPayloadFromBjProduct(
-        { ...baseInput, colors: [{ ...baseColor, disabled: true }] },
+        { ...baseInput, colors: [{ ...baseColor, saleType: "PACK", packQuantity: 3 }] },
         { brandId: 51370, pricingConfig }
       )
-    ).toThrow(/aucune variante unit active/i);
+    ).toThrow(/aucune variante unit/i);
   });
 
   it("Utilise ankorsColorNameOverride si présent (option value uniquement — SKU vient de c.sku)", () => {

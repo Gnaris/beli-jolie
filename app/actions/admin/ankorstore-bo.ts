@@ -660,9 +660,10 @@ export async function publishProductToAnkorstoreBo(
     // servent à matcher les variants Ankor lus via readProductById (pour
     // récupérer leurs images existantes et éviter les doublons).
     await resolveAndPersistAnkorsSkus(input);
-    const enabledColorsRaw = input.colors.filter(
-      (c) => c.saleType === "UNIT" && !c.disabled,
-    );
+    // Toutes les UNIT (y compris désactivées) : elles seront envoyées à Ankor,
+    // les désactivées avec stock=0. Le matching SKU/images doit donc les inclure
+    // sinon on perdrait l'ID de variante Ankor déjà connu au prochain PUT.
+    const unitColors = input.colors.filter((c) => c.saleType === "UNIT");
 
     // Lit l'état Ankor actuel une fois (utile pour : mapping SKU→variant.id
     // pour éviter le 422, ET pour récupérer les URLs images existantes à
@@ -674,7 +675,7 @@ export async function publishProductToAnkorstoreBo(
     // PUT et le mauvais produit se retrouve avec l'image du nôtre chez Ankor.
     let existingAnkor: BoProductSummary | null = null;
     if (isNewFormat && legacyLinkedId) {
-      const skuHints = enabledColorsRaw
+      const skuHints = unitColors
         .map((c) => c.sku)
         .filter((s): s is string => !!s);
       existingAnkor = await readProductByIdWithSkuFallback(
@@ -686,11 +687,11 @@ export async function publishProductToAnkorstoreBo(
     // Construit le plan de sync images à partir du snapshot précédent et
     // de l'état Ankor. Sans snapshot ni état Ankor, le plan bascule en
     // "replace" partout — comportement identique à l'ancienne version.
-    const ankorCurrent = extractAnkorCurrentImages(existingAnkor, enabledColorsRaw);
+    const ankorCurrent = extractAnkorCurrentImages(existingAnkor, unitColors);
     const snapshot = parseSnapshot(existing.ankorsLastSyncSnapshot);
     const imagePlan = computeAnkorImageSyncPlan({
       bjProductImagePath: input.productImageKeys[0] ?? null,
-      bjColors: enabledColorsRaw.map((c) => ({ colorId: c.id, imagePaths: c.imageKeys })),
+      bjColors: unitColors.map((c) => ({ colorId: c.id, imagePaths: c.imageKeys })),
       snapshot,
       ankor: ankorCurrent,
     });
@@ -709,10 +710,9 @@ export async function publishProductToAnkorstoreBo(
     const pricingConfig = await loadAnkorstorePricingConfig();
 
     // Fabrique le payload à la demande — nécessaire pour rebuilder après re-roll
-    // de SKU sur collision. Filtre identique à celui du builder.
-    const enabledColors = inputWithKeys.colors.filter(
-      (c) => c.saleType === "UNIT" && !c.disabled
-    );
+    // de SKU sur collision. Filtre identique à celui du builder : toutes les UNIT,
+    // désactivées comprises (elles partent avec stock=0 côté Ankor).
+    const enabledColors = inputWithKeys.colors.filter((c) => c.saleType === "UNIT");
     const buildPayload = (): BoProductPayload =>
       buildProductPayloadFromBjProduct(inputWithKeys, {
         brandId: session.brandId,
