@@ -10,7 +10,7 @@ import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
-import { buildAlternates, getSiteUrl } from "@/lib/seo";
+import { buildAlternates, buildMerchantOfferExtras, getSiteUrl } from "@/lib/seo";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
@@ -113,7 +113,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   await getCurrentTenantId(); // bind ALS avant Prisma / caches
   const { id: handle, locale } = await params;
   const product = await getProduct(handle, locale);
-  if (!product) return { title: "Produit introuvable" };
+  if (!product || product.status === "ARCHIVED") {
+    return { title: "Produit introuvable", robots: { index: false, follow: false } };
+  }
 
   const firstImage = await prisma.productColorImage.findFirst({
     where: { productId: product.id },
@@ -130,6 +132,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = `${product.name} — ${shopName}`;
   const description = product.description.slice(0, 160).replace(/\n/g, " ");
   const imageUrl = firstImage ? getImageSrc(firstImage.path, "large") : null;
+
+  // OFFLINE / SYNCING : page servie mais Google ne doit pas l'indexer
+  // (état transitoire — la fiche reviendra ONLINE ou basculera ARCHIVED)
+  const isIndexable = product.status === "ONLINE";
 
   return {
     title,
@@ -149,6 +155,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       ...(imageUrl && { images: [imageUrl] }),
     },
     alternates,
+    ...(isIndexable ? {} : { robots: { index: false, follow: true } }),
   };
 }
 
@@ -166,6 +173,10 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   ]);
 
   if (!product) notFound();
+
+  // ARCHIVED = supprimé définitivement → vraie 404 (sinon Google classe la page
+  // en "Soft 404" : HTML rendu OK avec message "indisponible" = signal négatif).
+  if (product.status === "ARCHIVED") notFound();
 
   // Meilleur % de remise applicable au produit (manuel vs promos AUTO ciblantes)
   const [activePromos, productCollections] = await Promise.all([
@@ -369,6 +380,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       url: `${siteUrl}/${routeLocale}/produits/${canonicalHandle}`,
       priceCurrency: "EUR",
       price: minPrice.toFixed(2),
+      ...buildMerchantOfferExtras(),
       availability: primaryColor && primaryColor.stock > 0
         ? "https://schema.org/InStock"
         : "https://schema.org/OutOfStock",

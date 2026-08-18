@@ -158,3 +158,51 @@ export function buildWebsiteSchema(opts: { name: string; url: string }) {
 }
 
 export const SUPPORTED_LOCALES: readonly Locale[] = VALID_LOCALES;
+
+/**
+ * Blocs `hasMerchantReturnPolicy` + `shippingDetails` à injecter dans un
+ * `Offer` JSON-LD. Google Search Console signale ces champs manquants sinon
+ * (alerte "Fiches de marchand — hasMerchantReturnPolicy / shippingDetails").
+ *
+ * Valeurs par défaut sensées pour du B2B FR — à faire évoluer côté SiteConfig
+ * si la cliente veut affiner par tenant (délais, seuil de gratuité…).
+ */
+export function buildMerchantOfferExtras() {
+  return {
+    hasMerchantReturnPolicy: {
+      "@type": "MerchantReturnPolicy",
+      applicableCountry: "FR",
+      returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
+      merchantReturnDays: 14,
+      returnMethod: "https://schema.org/ReturnByMail",
+      returnFees: "https://schema.org/FreeReturn",
+    },
+    shippingDetails: {
+      "@type": "OfferShippingDetails",
+      shippingRate: {
+        "@type": "MonetaryAmount",
+        value: "9.90",
+        currency: "EUR",
+      },
+      shippingDestination: {
+        "@type": "DefinedRegion",
+        addressCountry: "FR",
+      },
+      deliveryTime: {
+        "@type": "ShippingDeliveryTime",
+        handlingTime: {
+          "@type": "QuantitativeValue",
+          minValue: 0,
+          maxValue: 1,
+          unitCode: "DAY",
+        },
+        transitTime: {
+          "@type": "QuantitativeValue",
+          minValue: 2,
+          maxValue: 5,
+          unitCode: "DAY",
+        },
+      },
+    },
+  };
+}

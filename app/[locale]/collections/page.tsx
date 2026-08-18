@@ -4,6 +4,7 @@ import Image from "@/components/ui/SmartImage";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 
@@ -11,14 +12,15 @@ export const revalidate = 7200; // ISR: revalidate every 2 hours
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const [shopName, tMeta] = await Promise.all([
+  const [shopName, tMeta, alternates] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
+    buildAlternates("/collections", locale),
   ]);
   return {
     title: tMeta("collectionsTitle", { shopName }),
     description: tMeta("collectionsDescription"),
-    alternates: { canonical: "/collections" },
+    alternates,
   };
 }
 

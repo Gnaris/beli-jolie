@@ -2,20 +2,22 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CategoriesAccordion from "@/components/produits/CategoriesAccordion";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const [shopName, tMeta] = await Promise.all([
+  const [shopName, tMeta, alternates] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
+    buildAlternates("/categories", locale),
   ]);
   return {
     title: tMeta("categoriesTitle", { shopName }),
     description: tMeta("categoriesDescription"),
-    alternates: { canonical: "/categories" },
+    alternates,
   };
 }
 

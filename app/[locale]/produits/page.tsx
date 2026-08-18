@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
+import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import SearchFilters from "@/components/produits/SearchFilters";
@@ -17,14 +18,18 @@ import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant les caches tenant-scopés
   const { locale } = await params;
-  const [shopName, tMeta] = await Promise.all([
+  const [shopName, tMeta, alternates] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
+    // Canonical explicite vers /fr|en/produits sans query params : tue les
+    // doublons Search Console causés par les filtres (?cat=, ?color=, ?page=)
+    // qui étaient tous indexés séparément.
+    buildAlternates("/produits", locale),
   ]);
   return {
     title: tMeta("productsTitle", { shopName }),
     description: tMeta("productsDescription"),
-    alternates: { canonical: "/produits" },
+    alternates,
   };
 }
 
