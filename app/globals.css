@@ -411,7 +411,7 @@ h1, h2, h3, h4, h5, h6 {
 /* Ligne sélectionnée (clic mobile ou case à cocher desktop) — appliqué
    directement sur les <td> car certains navigateurs mobiles ignorent le
    background-color posé sur <tr>. !important pour battre le hover et tout
-   autre CSS custom (checkbox-custom, drawer-variant-*, etc.). */
+   autre CSS custom (checkbox-custom, variant-cell-*, etc.). */
 .product-row-selected > td {
   background-color: #cbd5e1 !important; /* slate-300 */
 }
@@ -590,46 +590,9 @@ h1, h2, h3, h4, h5, h6 {
   height: 8px;
 }
 
-/* ─── Variant drawer (products table) ────── */
-.drawer-variant-container {
-  position: relative;
-  background:
-    radial-gradient(ellipse 500px 300px at 90% 0%, rgba(16, 185, 129, 0.08), transparent 60%),
-    radial-gradient(ellipse 400px 250px at 10% 100%, rgba(139, 92, 246, 0.06), transparent 60%),
-    linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 50%);
-  border-top: 1px solid #E2E8F0;
-  border-bottom: 1px solid #E2E8F0;
-  overflow: hidden;
-}
-.drawer-variant-container::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, #10B981 0%, #059669 100%);
-  pointer-events: none;
-}
-.drawer-variant-header {
-  padding: 20px 24px 14px;
-  background: transparent;
-}
-.drawer-variant-th {
-  background: rgba(248, 250, 252, 0.7);
-  border-bottom: 1px solid #E2E8F0;
-}
-.drawer-variant-table-wrap {
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid #E2E8F0;
-  background: #FFFFFF;
-  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.05);
-  margin: 0 16px 20px;
-}
-
-/* La carte variante mobile utilise directement des utilities Tailwind
-   (grid-cols-2 + border-r / border-b sur chaque cellule) donc pas de CSS
-   dédié ici — voir components/admin/products/AdminProductsTable.tsx
-   (composant `VariantCardMobile`). */
+/* Les cartes variantes de la modale utilisent directement des utilities
+   Tailwind — voir components/admin/products/AdminProductsTable.tsx
+   (composant `VariantCardMobile`, réutilisé bureau + mobile). */
 
 /* ─── Cellule éditable (double-clic) ─────── */
 .variant-cell-editable {
@@ -722,12 +685,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ─── Ligne « Modifier toute la colonne » (bulk column edit) ─── */
-/* ─── Ligne « Modifier toute la colonne » (tiroir variantes) ─────────────
-   Palette ardoise stricte : fond neutre, texte foncé, focus ring noir. */
-.drawer-variant-bulk-row {
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
-}
 .bulk-col-label {
   display: inline-flex;
   align-items: center;
@@ -1685,24 +1642,6 @@ html.admin-dark .focus-ring:focus-visible {
   box-shadow: 0 0 0 2px #1e1e22, 0 0 0 4px #f4f4f5;
 }
 
-/* ─── Drawer variantes (produits) : palette hardcodée à adapter ──────── */
-html.admin-dark .drawer-variant-container {
-  background:
-    radial-gradient(ellipse 500px 300px at 90% 0%, rgba(16, 185, 129, 0.15), transparent 60%),
-    radial-gradient(ellipse 400px 250px at 10% 100%, rgba(139, 92, 246, 0.12), transparent 60%),
-    linear-gradient(180deg, #18181b 0%, #1e1e22 50%);
-  border-top-color: #2f2f34;
-  border-bottom-color: #2f2f34;
-}
-html.admin-dark .drawer-variant-table-wrap {
-  background: #1e1e22;
-  border-color: #2f2f34;
-}
-html.admin-dark .drawer-variant-th {
-  background: rgba(35,35,39,0.7);
-  border-bottom-color: #2f2f34;
-}
-
 /* ─── Ligne produit sélectionnée (mobile/desktop) ────────────────────── */
 html.admin-dark .product-row-selected > td { background-color: #3f3f46 !important; }
 @media (min-width: 768px) {
@@ -2020,7 +1959,6 @@ html.admin-dark .hover\:bg-black:hover { background-color: #27272a !important; }
    - Colonnes marketplace du MarketplacesDrawer utilisent bg-slate-50 →
      déjà rassemblé
    Ajouts spécifiques : */
-html.admin-dark .drawer-variant-container,
 html.admin-dark [data-drawer-content],
 html.admin-dark [role="dialog"] .bg-slate-50 { background-color: #18181b !important; }
 html.admin-dark [role="dialog"] .bg-slate-100 { background-color: #26262b !important; }
@@ -2266,7 +2204,38 @@ html.admin-dark .ankor-link-avatar-bg {
 
 /* Reduce-motion protégé par la règle globale, rien à ajouter ici. */
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Headers de modales /admin/parametres — override mode sombre
+   ─────────────────────────────────────────────────────────────────────────
+   Les headers utilisent en mode clair un dégradé aurora coloré (from-*-700
+   via-*-800 to-*-950) + deux halos flous colorés. En mode sombre, ces halos
+   éclairent le header et la couleur saturée jure avec le reste — on éteint
+   les halos et on remplace le dégradé par un fond neutre foncé, avec juste
+   un liseré bas coloré pour continuer à distinguer les familles.
+   La modale est portée dans document.body → on cible via html.admin-dark. */
 
+html.admin-dark .settings-modal-halo {
+  opacity: 0 !important;
+}
+
+html.admin-dark .settings-modal-header {
+  background: linear-gradient(135deg, #17171a 0%, #0f0f11 55%, #060607 100%) !important;
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+}
+
+html.admin-dark .settings-modal-header--slate   { border-bottom-color: #52525b; }
+html.admin-dark .settings-modal-header--sky     { border-bottom-color: #0369a1; }
+html.admin-dark .settings-modal-header--emerald { border-bottom-color: #047857; }
+html.admin-dark .settings-modal-header--violet  { border-bottom-color: #6d28d9; }
+html.admin-dark .settings-modal-header--rose    { border-bottom-color: #be123c; }
+html.admin-dark .settings-modal-header--amber   { border-bottom-color: #b45309; }
+
+/* Icône : un poil plus lisible sur le fond très sombre */
+html.admin-dark .settings-modal-icon {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
 
 
 

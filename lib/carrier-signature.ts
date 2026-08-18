@@ -17,7 +17,7 @@
 import "server-only";
 import * as crypto from "crypto";
 
-const SPECIAL_CARRIER_IDS = new Set(["pickup_store", "private_carrier"]);
+const SPECIAL_CARRIER_IDS = new Set(["pickup_store", "private_carrier", "merge_into_order"]);
 
 function hmacSecret(): Buffer {
   const raw = process.env.ENCRYPTION_KEY;
@@ -44,8 +44,10 @@ export function signCarrier(input: {
  * Vérifie qu'un tuple (carrierId, carrierPrice, transactionId, sig) provient
  * bien de notre backend. Retourne `true` si signature valide.
  *
- * - `pickup_store` / `private_carrier` : pas de signature, on impose price=0
- *   côté serveur (à valider par l'appelant AVANT ce helper).
+ * - `pickup_store` / `private_carrier` / `merge_into_order` : pas de
+ *   signature, on impose price=0 côté serveur (à valider par l'appelant AVANT
+ *   ce helper). Pour `merge_into_order`, l'admin ajustera le supplément de
+ *   port lors du regroupement manuel avec la commande parente.
  * - `fallback_*` (obsolète) : refusé (pas de mécanisme de signature côté API).
  * - Tout autre id : signature obligatoire, tolérance 1 centime pour absorber
  *   les arrondis IEEE-754 entre client et serveur.

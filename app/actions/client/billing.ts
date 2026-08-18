@@ -83,7 +83,7 @@ export async function updateBillingInfo(data: {
     },
   });
 
-  revalidatePath("/panier/commande");
+  revalidatePath("/panier");
   revalidatePath("/espace-pro");
   return { success: true };
 }

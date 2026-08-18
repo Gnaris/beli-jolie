@@ -13,6 +13,7 @@ import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsT
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
 import PfsStockDeductionButton from "@/components/admin/products/PfsStockDeductionButton";
 import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
+import LowStockPdfButton from "@/components/admin/products/LowStockPdfButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
@@ -629,6 +630,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
                   hasEfashionConfig={hasEfashionConfig}
                   hasFaireConfig={hasFaireConfig}
                 />
+                <LowStockPdfButton />
                 <PfsAuditButton hasPfsConfig={hasPfsConfig} />
                 <PrimaryActionLink href="/admin/produits/importer" variant="secondary">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

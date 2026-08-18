@@ -9,6 +9,7 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { useTranslations } from "next-intl";
 import { canSeePrices } from "@/lib/price-visibility";
 import { buildProductHandle } from "@/lib/product-url";
+import { computeCardPriceCascade } from "@/lib/promotion-engine";
 import AddToCartModal from "./AddToCartModal";
 
 interface VariantData {
@@ -69,18 +70,7 @@ function applyDiscounts(
   productDiscountPercent?: number | null,
   clientDiscount?: ClientDiscountInfo | null,
 ): number {
-  let p = price;
-  if (productDiscountPercent && productDiscountPercent > 0) {
-    p = Math.max(0, p * (1 - productDiscountPercent / 100));
-  }
-  if (clientDiscount) {
-    if (clientDiscount.discountType === "PERCENT") {
-      p = Math.max(0, p * (1 - clientDiscount.discountValue / 100));
-    } else {
-      p = Math.max(0, p - clientDiscount.discountValue);
-    }
-  }
-  return p;
+  return computeCardPriceCascade(price, productDiscountPercent, clientDiscount).finalPrice;
 }
 
 export default function ProductCard({
@@ -123,24 +113,29 @@ export default function ProductCard({
 
   const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
 
-  // ── Prix affiché : min et max des prix unitaires (toutes couleurs, toutes variantes) ──
-  // Si min == max on affiche le prix unique, sinon "à partir de {min}".
+  // ── Prix affiché : première variante UNIT (fallback = première variante) ──
+  // Cascade en 3 paliers : base → après promo → après remise client.
   const priceStats = (() => {
-    const raws: number[] = [];
-    for (const c of (visibleColors.length > 0 ? visibleColors : colors)) {
+    const pool = visibleColors.length > 0 ? visibleColors : colors;
+    const allVariants: VariantData[] = [];
+    for (const c of pool) {
       for (const v of c.variants) {
-        raws.push(variantPricePerUnit(v));
+        allVariants.push(v);
       }
     }
-    if (raws.length === 0) return null;
-    const minRaw = Math.min(...raws);
-    const maxRaw = Math.max(...raws);
+    if (allVariants.length === 0) return null;
+    const refVariant = allVariants.find((v) => v.saleType === "UNIT") ?? allVariants[0];
+    const rawPrice = variantPricePerUnit(refVariant);
+    const cascade = computeCardPriceCascade(rawPrice, discountPercent, clientDiscount);
     return {
-      minFinal: applyDiscounts(minRaw, discountPercent, clientDiscount),
-      maxFinal: applyDiscounts(maxRaw, discountPercent, clientDiscount),
-      minRaw,
-      maxRaw,
-      hasRange: minRaw !== maxRaw,
+      rawPrice,
+      priceAfterPromo: cascade.priceAfterPromo,
+      finalPrice: cascade.finalPrice,
+      hasPromo: cascade.hasPromo,
+      hasClient: cascade.hasClient,
+      promoPercent: cascade.promoPercent,
+      clientPercent: cascade.clientPercent,
+      totalPercent: cascade.totalPercent,
     };
   })();
 
@@ -302,38 +297,45 @@ export default function ProductCard({
           </div>
         )}
 
-        {/* Prix : unique ou "à partir de" */}
+        {/* Prix : cascade base → après promo → final client */}
         <div>
           {showPrices && priceStats ? (
-            <div className="flex items-baseline gap-1.5 flex-wrap">
-              {priceStats.hasRange ? (
-                <>
-                  <span className={`font-heading font-semibold text-base sm:text-lg ${
-                    anyVariantHasDiscount ? "text-error" : "text-bg-dark"
-                  }`}>
-                    {t("fromPrice", { price: priceStats.minFinal.toFixed(2) })}
-                  </span>
-                  {anyVariantHasDiscount && (
-                    <span className="font-body text-xs text-text-muted line-through">
-                      {priceStats.minRaw.toFixed(2)} &euro;
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className={`font-heading font-semibold text-base sm:text-lg ${
-                    anyVariantHasDiscount ? "text-error" : "text-bg-dark"
-                  }`}>
-                    {priceStats.minFinal.toFixed(2)} &euro;
-                  </span>
-                  {anyVariantHasDiscount && (
-                    <span className="font-body text-xs text-text-muted line-through">
-                      {priceStats.minRaw.toFixed(2)} &euro;
-                    </span>
-                  )}
-                </>
+            <div className="flex items-baseline gap-1 flex-wrap">
+              {/* Palier 1 : prix de base — même taille que le final, barré si réduction */}
+              {(priceStats.hasPromo || priceStats.hasClient) && (
+                <span className="font-heading font-semibold text-xs sm:text-sm text-text-muted line-through">
+                  {priceStats.rawPrice.toFixed(2)} &euro;
+                </span>
               )}
-              <span className="text-xs text-text-muted font-body">{t("htUnit")}</span>
+              {/* Flèche « Promo / -X% » entre base et prix après promo */}
+              {priceStats.hasPromo && (
+                <span className="inline-flex flex-col items-center leading-[1]">
+                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Promo</span>
+                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{priceStats.promoPercent}%</span>
+                  <span className="text-[9px] text-text-muted leading-none">→</span>
+                </span>
+              )}
+              {/* Palier 2 : prix après promo — visible uniquement si cumul avec remise client */}
+              {priceStats.hasPromo && priceStats.hasClient && (
+                <span className="font-heading font-semibold text-xs sm:text-sm text-text-muted line-through">
+                  {priceStats.priceAfterPromo.toFixed(2)} &euro;
+                </span>
+              )}
+              {/* Flèche « Remise / -X% » avant le prix final client */}
+              {priceStats.hasClient && (
+                <span className="inline-flex flex-col items-center leading-[1]">
+                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Remise</span>
+                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{priceStats.clientPercent}%</span>
+                  <span className="text-[9px] text-text-muted leading-none">→</span>
+                </span>
+              )}
+              {/* Palier 3 : prix final — rouge si une vraie promo est active */}
+              <span className={`font-heading font-semibold text-xs sm:text-sm ${
+                priceStats.hasPromo ? "text-error" : "text-bg-dark"
+              }`}>
+                {priceStats.finalPrice.toFixed(2)} &euro;
+              </span>
+              <span className="text-[10px] text-text-muted font-body">{t("htUnit")}</span>
             </div>
           ) : !showPrices ? (
             <Link

@@ -76,6 +76,12 @@ const PLATFORM_CONTROL_ITEM: NavItem = {
   icon: "M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 004.5 9v.878m13.5-3A2.25 2.25 0 0119.5 9v.878m0 0a2.246 2.246 0 00-.75-.128H5.25c-.263 0-.515.045-.75.128m15 0A2.25 2.25 0 0121 12v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6c0-.98.626-1.813 1.5-2.122",
 };
 
+const BLUE_BADGE_HREFS = new Set([
+  "/admin/commandes",
+  "/admin/utilisateurs",
+  "/admin/reclamations",
+]);
+
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -258,7 +264,7 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                             </svg>
                             <span className="flex-1 truncate">{item.label}</span>
                           </Link>
-                          {warningCount > 0 && item.href !== "/admin/commandes" && (
+                          {warningCount > 0 && !BLUE_BADGE_HREFS.has(item.href) && (
                             <span className="flex items-center gap-1.5 shrink-0">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                               <span className="text-[11.5px] font-semibold text-amber-700">{warningCount}</span>
@@ -342,12 +348,12 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                         </svg>
                       )}
-                      {item.href === "/admin/commandes" && warningCount > 0 && (
+                      {BLUE_BADGE_HREFS.has(item.href) && warningCount > 0 && (
                         <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-bold bg-sky-100 text-sky-700 border border-sky-200">
                           {warningCount}
                         </span>
                       )}
-                      {item.href !== "/admin/commandes" && warningCount > 0 && (
+                      {!BLUE_BADGE_HREFS.has(item.href) && warningCount > 0 && (
                         <span className="flex items-center gap-1.5 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                           <span className="text-[11.5px] font-semibold text-amber-700">{warningCount}</span>

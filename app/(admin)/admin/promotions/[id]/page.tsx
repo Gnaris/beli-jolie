@@ -33,6 +33,7 @@ export default async function EditPromotionPage({ params }: { params: Promise<{ 
     maxUses: promo.maxUses ? String(promo.maxUses) : "",
     maxUsesPerUser: promo.maxUsesPerUser ? String(promo.maxUsesPerUser) : "",
     firstOrderOnly: promo.firstOrderOnly,
+    stackable: promo.stackable,
     startsAt: new Date(promo.startsAt).toISOString().slice(0, 16),
     endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString().slice(0, 16) : "",
     productIds:    promo.products.map((r) => r.product.id),

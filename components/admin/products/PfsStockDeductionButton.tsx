@@ -50,8 +50,8 @@ export default function PfsStockDeductionButton({
 
   void hasPfsConfig;
 
-  // Bouton : accent amber si des lignes en attente, gris disabled sinon.
-  const activeCls = "bg-amber-500 text-white hover:bg-amber-600 shadow-sm";
+  // Bouton : accent orange foncé si des lignes en attente, gris disabled sinon.
+  const activeCls = "bg-orange-600 text-white hover:bg-orange-700 shadow-sm";
   const idleCls = "bg-bg-tertiary text-text-muted cursor-not-allowed";
 
   return (

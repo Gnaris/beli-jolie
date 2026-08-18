@@ -21,6 +21,7 @@ export interface PromotionData {
   maxUses: string;
   maxUsesPerUser: string;
   firstOrderOnly: boolean;
+  stackable: boolean;
   startsAt: string;
   endsAt: string;
   productIds: string[];
@@ -39,6 +40,7 @@ const DEFAULT_DATA: PromotionData = {
   maxUses: "",
   maxUsesPerUser: "",
   firstOrderOnly: false,
+  stackable: false,
   startsAt: new Date().toISOString().slice(0, 16),
   endsAt: "",
   productIds: [],
@@ -481,6 +483,7 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
       maxUses: data.maxUses ? parseInt(data.maxUses) : undefined,
       maxUsesPerUser: data.maxUsesPerUser ? parseInt(data.maxUsesPerUser) : undefined,
       firstOrderOnly: data.firstOrderOnly,
+      stackable: data.stackable,
       startsAt: data.startsAt,
       endsAt: data.endsAt || undefined,
       productIds:   data.scope === "PRODUCTS"    ? data.productIds    : [],
@@ -719,6 +722,12 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
               onChange={(v) => update("firstOrderOnly", v)}
               label="Première commande uniquement"
               description="Seuls les nouveaux clients pourront l'utiliser"
+            />
+            <ToggleSwitch
+              checked={data.stackable}
+              onChange={(v) => update("stackable", v)}
+              label="Promotion cumulable"
+              description="Se cumule avec la remise commerciale du client et avec les autres promotions cumulables. Sinon la meilleure remise gagne."
             />
           </div>
         </FormSection>

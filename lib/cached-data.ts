@@ -940,6 +940,8 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       untranslatedCategoriesCount,
       untranslatedSubCategoriesCount,
       pendingOrdersCount,
+      pendingUsersCount,
+      openClaimsCount,
     ] = await Promise.all([
       prisma.product.count({ where: scoped }),
       prisma.product.count({
@@ -954,6 +956,8 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       prisma.category.count({ where: { ...scoped, translations: { none: {} } } }),
       prisma.subCategory.count({ where: { ...scoped, translations: { none: {} } } }),
       prisma.order.count({ where: { ...scoped, status: "PENDING" } }),
+      prisma.user.count({ where: { ...scoped, role: "CLIENT", status: "PENDING" } }),
+      prisma.claim.count({ where: { ...scoped, status: "OPEN" } }),
     ]);
 
     const untranslatedCount = totalProducts - fullyTranslatedProducts;
@@ -966,10 +970,12 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       untranslatedCategoriesCount,
       untranslatedSubCategoriesCount,
       pendingOrdersCount,
+      pendingUsersCount,
+      openClaimsCount,
     };
   },
   ["admin-warnings"],
-  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders"] }
+  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders", "users", "claims"] }
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────
@@ -1123,6 +1129,7 @@ export const getCachedActivePromotions = tenantScopedCacheWithTid(
       productIds: p.products.map((r) => r.productId),
       categoryIds: p.categories.map((r) => r.categoryId),
       collectionIds: p.collections.map((r) => r.collectionId),
+      stackable: p.stackable,
     }));
   },
   ["active-promotions"],

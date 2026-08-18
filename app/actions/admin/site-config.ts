@@ -12,6 +12,8 @@ import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { setSiteConfig } from "@/lib/site-config-write";
+import type { MinOrderMode } from "@/lib/min-order";
+import { isMinOrderMode } from "@/lib/min-order";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -23,6 +25,58 @@ export async function updateMinOrderHT(value: number): Promise<{ success: boolea
     await requireAdmin();
     if (value < 0) return { success: false, error: "Le montant doit être positif." };
     await setSiteConfig("min_order_ht", String(value));
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export interface MinOrderConfigInput {
+  mode: MinOrderMode;
+  valueAll?: number;
+  valueFirst?: number;
+  valueRest?: number;
+}
+
+export async function updateMinOrderConfig(
+  input: MinOrderConfigInput,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!isMinOrderMode(input.mode)) {
+      return { success: false, error: "Mode invalide." };
+    }
+    const valueAll = Number(input.valueAll ?? 0);
+    const valueFirst = Number(input.valueFirst ?? 0);
+    const valueRest = Number(input.valueRest ?? 0);
+    for (const v of [valueAll, valueFirst, valueRest]) {
+      if (!Number.isFinite(v) || v < 0) {
+        return { success: false, error: "Les montants doivent être positifs." };
+      }
+    }
+    if (input.mode === "all" && valueAll <= 0) {
+      return { success: false, error: "Renseignez le montant minimum." };
+    }
+    if ((input.mode === "first_only" || input.mode === "first_then_rest") && valueFirst <= 0) {
+      return { success: false, error: "Renseignez le minimum de la 1ʳᵉ commande." };
+    }
+    if (input.mode === "first_then_rest" && valueRest <= 0) {
+      return { success: false, error: "Renseignez le minimum des commandes suivantes." };
+    }
+    await Promise.all([
+      setSiteConfig("min_order_mode", input.mode),
+      setSiteConfig("min_order_ht", String(input.mode === "all" ? valueAll : 0)),
+      setSiteConfig(
+        "min_order_ht_first",
+        String(input.mode === "first_only" || input.mode === "first_then_rest" ? valueFirst : 0),
+      ),
+      setSiteConfig(
+        "min_order_ht_rest",
+        String(input.mode === "first_then_rest" ? valueRest : 0),
+      ),
+    ]);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };

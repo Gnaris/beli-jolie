@@ -8,6 +8,7 @@ import {
   resolveBestItemDiscount,
   resolveBestPercentForProductBadge,
   resolveBestShippingDiscount,
+  resolveCardPricing,
   type ActivePromotion,
   type ItemPromoContext,
 } from "@/lib/promotion-engine";
@@ -31,6 +32,21 @@ function makePromo(overrides: Partial<ActivePromotion> = {}): ActivePromotion {
     productIds: [],
     categoryIds: [],
     collectionIds: [],
+    stackable: false,
+    ...overrides,
+  };
+}
+
+/** Raccourci pour construire le user shipping (format ClientShippingDiscountForCumul). */
+function userShipping(overrides: Partial<{
+  isFree: boolean;
+  discountType: "PERCENT" | "AMOUNT" | null;
+  discountValue: number | null;
+}> = {}) {
+  return {
+    isFree: false,
+    discountType: null,
+    discountValue: null,
     ...overrides,
   };
 }
@@ -222,7 +238,7 @@ describe("resolveBestPercentForProductBadge", () => {
 
 describe("resolveBestShippingDiscount", () => {
   it("aucune remise → prix intact", () => {
-    const res = resolveBestShippingDiscount(10, [], { isFree: false, savedAmount: 0 });
+    const res = resolveBestShippingDiscount(10, [], userShipping());
     expect(res.finalPrice).toBe(10);
     expect(res.source).toBe("none");
   });
@@ -232,7 +248,7 @@ describe("resolveBestShippingDiscount", () => {
     const res = resolveBestShippingDiscount(
       10,
       [promo],
-      { isFree: true, savedAmount: 10 },
+      userShipping({ isFree: true }),
     );
     // User gratifie 10€ économie, promo 5€ → user gagne
     expect(res.source).toBe("user");
@@ -249,7 +265,7 @@ describe("resolveBestShippingDiscount", () => {
     const res = resolveBestShippingDiscount(
       10,
       [promo],
-      { isFree: false, savedAmount: 2 }, // 20 % de 10€
+      userShipping({ discountType: "PERCENT", discountValue: 20 }), // 20 % de 10€ = 2€
     );
     expect(res.source).toBe("promotion");
     expect(res.finalPrice).toBe(0);
@@ -262,7 +278,7 @@ describe("resolveBestShippingDiscount", () => {
       discountKind: "FIXED_AMOUNT",
       discountValue: 999,
     });
-    const res = resolveBestShippingDiscount(10, [promo], { isFree: false, savedAmount: 0 });
+    const res = resolveBestShippingDiscount(10, [promo], userShipping());
     expect(res.finalPrice).toBe(0);
     expect(res.savedAmount).toBe(10);
   });
@@ -282,15 +298,369 @@ describe("resolveBestShippingDiscount", () => {
       discountKind: "PERCENTAGE",
       discountValue: 100,
     });
-    const res = resolveBestShippingDiscount(20, [auto], { isFree: false, savedAmount: 0 }, codePromo);
+    const res = resolveBestShippingDiscount(20, [auto], userShipping(), codePromo);
     expect(res.promotion?.id).toBe("code-ship");
     expect(res.finalPrice).toBe(0);
   });
 
   it("carrierPrice à 0 → aucune remise applicable", () => {
     const promo = makePromo({ scope: "SHIPPING", discountValue: 100 });
-    const res = resolveBestShippingDiscount(0, [promo], { isFree: false, savedAmount: 0 });
+    const res = resolveBestShippingDiscount(0, [promo], userShipping());
     expect(res.finalPrice).toBe(0);
     expect(res.source).toBe("none");
+  });
+});
+
+// ─────────────────────────────────────────────
+// Cumul « stackable » (2026-08-18)
+// ─────────────────────────────────────────────
+
+describe("resolveBestItemDiscount — cumul stackable en cascade", () => {
+  it("promo stackable -10 % + client -20 % (PERCENT) → cascade 10€ → 9€ → 7,20€", () => {
+    const promo = makePromo({
+      scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE",
+      discountValue: 10,
+      stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 10 }),
+      [promo],
+      null,
+      { type: "PERCENT", value: 20 },
+    );
+    expect(res.stacked).toBe(true);
+    expect(res.source).toBe("stack");
+    expect(res.finalUnitPrice).toBeCloseTo(7.2); // 10 → 9 → 7,20
+    expect(res.savedByClientDiscount).toBeCloseTo(1.8); // 9 - 7,20
+  });
+
+  it("promo NON-stackable -5 % + client -10 % (PERCENT) → meilleure gagne (client -10%)", () => {
+    const promo = makePromo({
+      scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE",
+      discountValue: 5,
+      stackable: false,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100 }),
+      [promo],
+      null,
+      { type: "PERCENT", value: 10 },
+    );
+    expect(res.stacked).toBe(false);
+    expect(res.source).toBe("client");
+    expect(res.finalUnitPrice).toBe(90);
+  });
+
+  it("promo stackable ne cible PAS l'item → client seul s'applique quand même", () => {
+    const promo = makePromo({
+      scope: "PRODUCTS",
+      productIds: ["other"],
+      discountValue: 5,
+      stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ productId: "product-1", unitPrice: 100 }),
+      [promo],
+      null,
+      { type: "PERCENT", value: 10 },
+    );
+    // Aucune stack applicable → client seul gagne (source="client")
+    expect(res.source).toBe("client");
+    expect(res.finalUnitPrice).toBe(90);
+  });
+
+  it("2 promos stackables → cascade multiplicative", () => {
+    const promoA = makePromo({
+      id: "A", scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 10, stackable: true,
+    });
+    const promoB = makePromo({
+      id: "B", scope: "CATEGORIES", categoryIds: ["cat-1"],
+      discountKind: "PERCENTAGE", discountValue: 20, stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100, categoryId: "cat-1" }),
+      [promoA, promoB],
+      null,
+    );
+    expect(res.stacked).toBe(true);
+    // 100 → -10% → 90 → -20% → 72
+    expect(res.finalUnitPrice).toBeCloseTo(72);
+  });
+
+  it("promo stackable + promo non-stackable meilleure → non-stackable seule gagne si > cascade stack", () => {
+    const stack = makePromo({
+      id: "stack", scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 5, stackable: true,
+    });
+    const solo = makePromo({
+      id: "solo", scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 30, stackable: false,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100 }),
+      [stack, solo],
+      null,
+    );
+    // cascade stack = 5 (100→95), non-stack solo = 30 → non-stack gagne
+    expect(res.stacked).toBe(false);
+    expect(res.source).toBe("promotion");
+    expect(res.promotion?.id).toBe("solo");
+    expect(res.finalUnitPrice).toBe(70);
+  });
+
+  it("client discount AMOUNT non intégré au cumul par item (traité en fin)", () => {
+    const promo = makePromo({
+      scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE",
+      discountValue: 5,
+      stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100 }),
+      [promo],
+      null,
+      { type: "AMOUNT", value: 20 },
+    );
+    // AMOUNT ignoré par l'engine — seule la promo stack s'applique (100→95)
+    expect(res.source).toBe("stack");
+    expect(res.finalUnitPrice).toBe(95);
+    expect(res.savedByClientDiscount).toBe(0);
+  });
+
+  it("code promo stackable se cumule en cascade avec promo AUTO stackable et client %", () => {
+    const promo = makePromo({
+      id: "auto", scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 10, stackable: true,
+    });
+    const code = makePromo({
+      id: "code", type: "CODE", code: "BOOST",
+      scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 10, stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100 }),
+      [promo],
+      code,
+      { type: "PERCENT", value: 10 },
+    );
+    // 100 → -10% → 90 → -10% → 81 → -10% → 72,90 (déjà 2 décimales) → 72,90
+    // (ceilCent d'un nombre déjà 2 décimales = lui-même ; mais IEEE peut donner 72,9000001 → ceil = 72,91)
+    expect(res.stacked).toBe(true);
+    expect(res.finalUnitPrice).toBeCloseTo(72.91, 1);
+  });
+
+  it("code stackable + promo AUTO non-stackable → code s'associe au cluster + client (cascade)", () => {
+    const auto = makePromo({
+      id: "auto", scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 8, stackable: false,
+    });
+    const code = makePromo({
+      id: "code", type: "CODE", code: "BOOST",
+      scope: "ALL_PRODUCTS",
+      discountKind: "PERCENTAGE", discountValue: 5, stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 100 }),
+      [auto], code, { type: "PERCENT", value: 10 },
+    );
+    // cascade stack = 100 → -5% → 95 → -10% → 85,50 ; solo max = 10 (client) ou 8 (auto)
+    // → cascade stack (14,50) gagne
+    expect(res.stacked).toBe(true);
+    expect(res.finalUnitPrice).toBeCloseTo(85.5);
+  });
+});
+
+describe("resolveBestShippingDiscount — cumul stackable en cascade", () => {
+  it("promo SHIPPING stackable -50 % + user -50 % → cascade 10€ → 5€ → 2,50€", () => {
+    const promo = makePromo({
+      scope: "SHIPPING",
+      discountKind: "PERCENTAGE",
+      discountValue: 50,
+      stackable: true,
+    });
+    const res = resolveBestShippingDiscount(
+      10,
+      [promo],
+      userShipping({ discountType: "PERCENT", discountValue: 50 }),
+    );
+    expect(res.stacked).toBe(true);
+    expect(res.finalPrice).toBeCloseTo(2.5);
+    expect(res.isFree).toBe(false);
+  });
+
+  it("user déjà freeShipping (100 %) + promo stackable → livraison offerte", () => {
+    const promo = makePromo({
+      scope: "SHIPPING",
+      discountKind: "PERCENTAGE",
+      discountValue: 50,
+      stackable: true,
+    });
+    const res = resolveBestShippingDiscount(
+      10,
+      [promo],
+      userShipping({ isFree: true }),
+    );
+    // Cascade : 10 → -50% → 5 → user free = 100% → 0
+    expect(res.finalPrice).toBe(0);
+    expect(res.isFree).toBe(true);
+  });
+
+  it("2 promos SHIPPING stackables + user 20 % → cascade", () => {
+    const promoA = makePromo({
+      id: "A", scope: "SHIPPING",
+      discountKind: "PERCENTAGE", discountValue: 20, stackable: true,
+    });
+    const promoB = makePromo({
+      id: "B", scope: "SHIPPING",
+      discountKind: "FIXED_AMOUNT", discountValue: 2, stackable: true,
+    });
+    const res = resolveBestShippingDiscount(
+      10,
+      [promoA, promoB],
+      userShipping({ discountType: "PERCENT", discountValue: 20 }),
+    );
+    // Cascade : 10 → -20% → 8 → -2€ → 6 → -20% → 4,80
+    expect(res.stacked).toBe(true);
+    expect(res.finalPrice).toBeCloseTo(4.8);
+    expect(res.savedAmount).toBeCloseTo(5.2);
+  });
+
+  it("promo NON-stackable -100 % bat le cluster stack cascade -44 % → non-stackable gagne", () => {
+    const stack = makePromo({
+      id: "stack", scope: "SHIPPING",
+      discountKind: "PERCENTAGE", discountValue: 30, stackable: true,
+    });
+    const solo = makePromo({
+      id: "solo", scope: "SHIPPING",
+      discountKind: "PERCENTAGE", discountValue: 100, stackable: false,
+    });
+    const res = resolveBestShippingDiscount(
+      10,
+      [stack, solo],
+      userShipping({ discountType: "PERCENT", discountValue: 20 }),
+    );
+    // Stack cascade : 10 → -30% → 7 → -20% → 5,60 (44%) ; solo = 100%
+    expect(res.stacked).toBe(false);
+    expect(res.source).toBe("promotion");
+    expect(res.promotion?.id).toBe("solo");
+    expect(res.finalPrice).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// resolveCardPricing — affichage cascade des cartes produit
+// ─────────────────────────────────────────────
+
+describe("cascade — arrondi ceilCent centime par centime (règle métier 2026-08-18)", () => {
+  it("10€ → promo -10% → -5% → -3% → client -10% avec ceil = 7,47€", () => {
+    const p1 = makePromo({
+      id: "y", scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 10, stackable: true,
+    });
+    const p2 = makePromo({
+      id: "x", scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 5, stackable: true,
+    });
+    const p3 = makePromo({
+      id: "z", scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 3, stackable: true,
+    });
+    const res = resolveBestItemDiscount(
+      makeItem({ unitPrice: 10 }),
+      [p1, p2, p3],
+      null,
+      { type: "PERCENT", value: 10 },
+    );
+    // 10 → -10% → 9 → -5% → 8,55 → -3% → 8,2935 → ceil 8,30 → -10% → 7,47
+    expect(res.stacked).toBe(true);
+    expect(res.finalUnitPrice).toBeCloseTo(7.47, 2);
+  });
+});
+
+describe("resolveCardPricing — 3 paliers d'affichage", () => {
+  it("aucune promo, aucun client → hasPromo=false, hasClient=false", () => {
+const res = resolveCardPricing(makeItem({ unitPrice: 10 }), []);
+    expect(res.basePrice).toBe(10);
+    expect(res.priceAfterPromo).toBe(10);
+    expect(res.finalPrice).toBe(10);
+    expect(res.hasPromo).toBe(false);
+    expect(res.hasClient).toBe(false);
+    expect(res.totalPercent).toBe(0);
+  });
+
+  it("promo stackable seule → prix barré + prix après promo, PAS de palier client", () => {
+const promo = makePromo({
+      scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 10, stackable: true,
+    });
+    const res = resolveCardPricing(makeItem({ unitPrice: 10 }), [promo]);
+    expect(res.priceAfterPromo).toBe(9);
+    expect(res.finalPrice).toBe(9);
+    expect(res.hasPromo).toBe(true);
+    expect(res.hasClient).toBe(false);
+    expect(res.promoPercent).toBe(10);
+    expect(res.totalPercent).toBe(10);
+  });
+
+  it("remise client seule → prix barré + prix client, PAS de badge Promo", () => {
+const res = resolveCardPricing(
+      makeItem({ unitPrice: 10 }), [],
+      { type: "PERCENT", value: 20 },
+    );
+    expect(res.priceAfterPromo).toBe(10);
+    expect(res.finalPrice).toBe(8);
+    expect(res.hasPromo).toBe(false);
+    expect(res.hasClient).toBe(true);
+    expect(res.clientPercent).toBe(20);
+    expect(res.totalPercent).toBe(20);
+  });
+
+  it("promo stackable + client → 3 paliers (barré, barré, final)", () => {
+const promo = makePromo({
+      scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 10, stackable: true,
+    });
+    const res = resolveCardPricing(
+      makeItem({ unitPrice: 10 }), [promo],
+      { type: "PERCENT", value: 20 },
+    );
+    // 10 → -10% → 9 → -20% → 7,20
+    expect(res.priceAfterPromo).toBe(9);
+    expect(res.finalPrice).toBeCloseTo(7.2);
+    expect(res.hasPromo).toBe(true);
+    expect(res.hasClient).toBe(true);
+    expect(res.promoPercent).toBe(10);
+    expect(res.clientPercent).toBe(20);
+    expect(res.totalPercent).toBe(28); // 10 → 7,20 = -28%
+  });
+
+  it("promo NON-stackable + client → meilleure gagne, pas de cumul (source unique)", () => {
+const promo = makePromo({
+      scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
+      discountValue: 5, stackable: false,
+    });
+    const res = resolveCardPricing(
+      makeItem({ unitPrice: 100 }), [promo],
+      { type: "PERCENT", value: 10 },
+    );
+    // withoutClient : promo -5% gagne (source promotion) → 95
+    // withClient : client -10% gagne (source client, meilleure) → 90
+    // priceAfterPromo = 95 (badge promo affiché), finalPrice = 90 (barré)
+    expect(res.priceAfterPromo).toBe(95);
+    expect(res.finalPrice).toBe(90);
+    expect(res.hasPromo).toBe(true);
+    expect(res.hasClient).toBe(true);
+  });
+
+  it("remise manuelle produit → badge Promo (source product)", () => {
+const res = resolveCardPricing(
+      makeItem({ unitPrice: 10, productDiscountPercent: 20 }), [],
+    );
+    expect(res.finalPrice).toBe(8);
+    expect(res.hasPromo).toBe(true);
+    expect(res.hasClient).toBe(false);
   });
 });

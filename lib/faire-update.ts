@@ -32,6 +32,7 @@ import {
   type FaireSyncDiff,
   type FaireVariantSnapshot,
 } from "@/lib/faire-sync-diff";
+import { faireRenameVariantSku } from "@/lib/faire-rename-sku";
 import {
   buildPublishContext,
   buildFaireProductPayload,
@@ -514,6 +515,56 @@ export async function faireUpdateProduct(
   );
 
   const realPrevSnapshot = (meta.faireLastSyncSnapshot ?? null) as FaireSyncSnapshot | null;
+
+  // Détection d'un renommage de SKU (typiquement quand l'admin renomme la
+  // référence BJ, ex A1720 → A1721 : les SKU passent de A1720_BLEU à
+  // A1721_BLEU, mais l'ID Faire `po_xxx` de chaque variante reste identique).
+  // Sans traitement dédié, le diff verrait « variante A1720_BLEU supprimée +
+  // variante A1721_BLEU créée » → DELETE + CREATE côté Faire = perte de
+  // l'URL/historique acheteurs. On envoie donc un PATCH SKU-only sur chaque
+  // variante existante et on remappe le snapshot précédent pour que le diff
+  // considère la variante inchangée.
+  if (realPrevSnapshot) {
+    const prevSkuByFaireId = new Map<string, string>();
+    for (const [sku, v] of Object.entries(realPrevSnapshot.variants)) {
+      if (v.faireVariantId) prevSkuByFaireId.set(v.faireVariantId, sku);
+    }
+    for (const [newSku, next] of Object.entries(nextSnapshot.variants)) {
+      if (!next.faireVariantId) continue;
+      const oldSku = prevSkuByFaireId.get(next.faireVariantId);
+      if (!oldSku || oldSku === newSku) continue;
+      // Même vid Faire, SKU BJ différent → rename.
+      const renameRes = await faireRenameVariantSku(
+        meta.faireProductId,
+        next.faireVariantId,
+        newSku,
+      );
+      if (renameRes.success) {
+        logger.info("[Faire Update] SKU renommé", {
+          productId,
+          faireVariantId: next.faireVariantId,
+          from: oldSku,
+          to: newSku,
+        });
+        // Remappe la variante dans le snapshot précédent sous la nouvelle
+        // clé, pour que `diffSnapshots` ne la voie plus comme
+        // « supprimée + ajoutée ». On corrige aussi le champ `sku` interne
+        // pour rester cohérent en cas de comparaison ultérieure.
+        const prevEntry = realPrevSnapshot.variants[oldSku];
+        delete realPrevSnapshot.variants[oldSku];
+        realPrevSnapshot.variants[newSku] = { ...prevEntry, sku: newSku };
+      } else {
+        logger.warn("[Faire Update] Rename SKU échoué — le diff va tenter delete+create", {
+          productId,
+          faireVariantId: next.faireVariantId,
+          from: oldSku,
+          to: newSku,
+          error: renameRes.error,
+        });
+      }
+    }
+  }
+
   // En resynchro forcée, on force `prev = null` pour que le diff considère tout
   // comme à pousser (champs produit, variantes, lifecycle). On garde toutefois
   // le snapshot réel pour les fallback (résolution d'ID Faire de variante par SKU).

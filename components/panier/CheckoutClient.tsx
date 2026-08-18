@@ -904,6 +904,11 @@ export default function CheckoutClient({
   clientDiscount,
   promoInfoByItemId = {},
   shippingPromos = [],
+  pickupInfo = null,
+  mergeCandidates = [],
+  hideStepper = false,
+  onBackToCart,
+  onWizardStepChange,
 }: {
   cart: CartData;
   addresses: Address[];
@@ -922,6 +927,35 @@ export default function CheckoutClient({
     discountKind: "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_SHIPPING";
     discountValue: number;
   }[];
+  /** Adresse boutique + horaires — affichés dans le mode « retrait en boutique ». */
+  pickupInfo?: {
+    store: {
+      name:       string;
+      address:    string;
+      city:       string;
+      postalCode: string;
+      country:    string;
+      phone:      string;
+    };
+    schedule: { day: string; hours: string }[];
+  } | null;
+  /** Commandes du client en préparation (PENDING) qu'il peut choisir de fusionner. */
+  mergeCandidates?: {
+    id:               string;
+    orderNumber:      string;
+    createdAtIso:     string;
+    totalTTC:         number;
+    carrierName:      string;
+    carrierPrice:     number;
+    itemsCount:       number;
+    shipAddressShort: string;
+  }[];
+  /** Masque le fil d'étapes interne (utilisé quand le wrapper l'affiche). */
+  hideStepper?: boolean;
+  /** Callback pour revenir à l'étape « Panier » du wizard parent. */
+  onBackToCart?: () => void;
+  /** Notifie le wrapper du changement d'étape interne (1 = infos, 2 = paiement). */
+  onWizardStepChange?: (step: 1 | 2) => void;
 }) {
   const router = useRouter();
   const t = useTranslations("checkout");
@@ -995,7 +1029,10 @@ export default function CheckoutClient({
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId) ?? null;
 
   // Mode de livraison : "delivery" (par défaut), "pickup" (retrait boutique) ou "private" (transporteur du client)
-  const [deliveryMode, setDeliveryMode] = useState<"delivery" | "pickup" | "private">("delivery");
+  const [deliveryMode, setDeliveryMode] = useState<"delivery" | "pickup" | "private" | "merge">("delivery");
+  // ID de la commande parente sélectionnée pour la fusion (mode "merge").
+  const [selectedMergeOrderId, setSelectedMergeOrderId] = useState<string | null>(null);
+  const selectedMergeOrder = mergeCandidates.find((o) => o.id === selectedMergeOrderId) ?? null;
 
   // Transporteur privé : sous-mode + champs
   const [privateMode, setPrivateMode] = useState<"contact" | "bordereau">("contact");
@@ -1018,7 +1055,12 @@ export default function CheckoutClient({
     ? { id: "pickup_store", name: t("modePickup"), price: 0, delay: "" }
     : deliveryMode === "private"
       ? { id: "private_carrier", name: t("modePrivate"), price: 0, delay: "" }
-      : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
+      : deliveryMode === "merge"
+        // Fusion : le port est celui de la commande parente (déjà payé). On
+        // n'ajoute rien côté nouvelle commande — le supplément éventuel sera
+        // ajusté par l'admin. `id` sentinelle pour distinguer côté serveur.
+        ? { id: "merge_into_order", name: selectedMergeOrder ? `Fusion #${selectedMergeOrder.orderNumber}` : t("modeMerge"), price: 0, delay: "" }
+        : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
   // TVA — règles unifiées (lib/vat) :
   // France → 20 %, DOM-TOM → 0 %,
@@ -1231,10 +1273,19 @@ export default function CheckoutClient({
         : !!bordereauPath)
     : true;
 
-  const canProceed = !!selectedAddr && !!selectedCarrier && privateCarrierComplete;
+  // En mode "merge", pas besoin d'adresse de livraison (l'admin réutilisera
+  // celle de la commande parente au moment de la fusion), mais on passe
+  // techniquement une adresse existante à placeOrder pour respecter le
+  // contrat actuel — on prend la première disponible en fallback.
+  const mergeComplete = deliveryMode !== "merge" || !!selectedMergeOrderId;
+  const effectiveAddr = deliveryMode === "merge"
+    ? (selectedAddr ?? addresses[0] ?? null)
+    : selectedAddr;
+  const addressComplete = deliveryMode === "merge" ? !!effectiveAddr : !!selectedAddr;
+  const canProceed = addressComplete && !!selectedCarrier && privateCarrierComplete && mergeComplete;
 
   // Reset Stripe + carriers quand le mode de livraison change
-  function handleDeliveryModeChange(mode: "delivery" | "pickup" | "private") {
+  function handleDeliveryModeChange(mode: "delivery" | "pickup" | "private" | "merge") {
     setDeliveryMode(mode);
     setSelectedCarrierId(null);
     setClientSecret(null);
@@ -1431,7 +1482,7 @@ export default function CheckoutClient({
     startTransition(async () => {
       try {
         const result = await placeOrder({
-          addressId:             selectedAddr!.id,
+          addressId:             (effectiveAddr ?? selectedAddr!).id,
           carrierId:             selectedCarrier!.id,
           transactionId,
           carrierName:           selectedCarrier!.name,
@@ -1446,6 +1497,11 @@ export default function CheckoutClient({
                   privateCarrierPhone: privateCarrierPhone.trim(),
                 }
               : { privateCarrierBordereau: bordereauPath ?? undefined }
+            : {}),
+          // Fusion : on transmet l'id de la commande parente pour tracer
+          // l'intention côté serveur (l'admin regroupera manuellement).
+          ...(deliveryMode === "merge" && selectedMergeOrderId
+            ? { mergeIntoOrderId: selectedMergeOrderId }
             : {}),
         });
         if (result.success) {
@@ -1464,8 +1520,9 @@ export default function CheckoutClient({
 
   // Indicateurs de complétion pour les sections
   const section1Complete = !!(billingInfo.firstName && billingInfo.lastName && billingInfo.email);
-  const section2Complete = !!selectedAddr;
-  const section3Complete = !!selectedCarrier && privateCarrierComplete;
+  // Adresse de livraison : non requise en mode "merge" (héritée de la commande parente).
+  const section2Complete = deliveryMode === "merge" ? true : !!selectedAddr;
+  const section3Complete = !!selectedCarrier && privateCarrierComplete && mergeComplete;
 
   // ── Wizard 2 étapes ────────────────────────────────────────────────────────
   // Étape 1 = Vos informations (facturation + adresse livraison + transporteur)
@@ -1525,6 +1582,7 @@ export default function CheckoutClient({
       if (!ok) return;
     }
     setWizardStep(target);
+    onWizardStepChange?.(target);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1549,6 +1607,21 @@ export default function CheckoutClient({
             </div>
           </div>
         </div>
+
+        {/* Adresse expéditeur à recopier sur le bordereau */}
+        {pickupInfo?.store && (
+          <div className="bg-bg-primary border border-border rounded-xl p-4">
+            <p className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2">
+              {t("privateSenderAddressLabel")}
+            </p>
+            <p className="text-sm font-body font-semibold text-text-primary">{pickupInfo.store.name}</p>
+            <p className="text-xs text-text-secondary font-body mt-0.5">{pickupInfo.store.address}</p>
+            <p className="text-xs text-text-secondary font-body">{pickupInfo.store.postalCode} {pickupInfo.store.city} — {pickupInfo.store.country}</p>
+            {pickupInfo.store.phone && (
+              <p className="text-xs text-text-secondary font-body mt-1">{t("phone")} : {pickupInfo.store.phone}</p>
+            )}
+          </div>
+        )}
 
         {/* Switch entre les 2 sous-modes */}
         <div className="grid grid-cols-2 gap-3">
@@ -1708,20 +1781,22 @@ export default function CheckoutClient({
   return (
     <div className="max-w-[1680px] mx-auto py-6 md:py-8 px-2 sm:px-4">
       {/* Layout enveloppant : rail dark (124px) | contenu centre (1fr) | panneau actions droite (460px pour donner de l'air aux cards transporteurs) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[124px_1fr_460px] gap-4 lg:gap-6 items-start">
+      <div className={`grid grid-cols-1 ${hideStepper ? "lg:grid-cols-[1fr_460px]" : "lg:grid-cols-[124px_1fr_460px]"} gap-4 lg:gap-6 items-start`}>
 
         {/* Rail vertical dark (desktop uniquement) */}
-        <aside className="hidden lg:block">
-          <CheckoutRailStepper
-            wizardStep={wizardStep}
-            onNavigate={goToStep}
-            canGoStep2={step1Ready}
-          />
-        </aside>
+        {!hideStepper && (
+          <aside className="hidden lg:block">
+            <CheckoutRailStepper
+              wizardStep={wizardStep}
+              onNavigate={goToStep}
+              canGoStep2={step1Ready}
+            />
+          </aside>
+        )}
 
         <div className="min-w-0">
       {/* Barre de progression mobile fine (masquée desktop, rail à la place) */}
-      <div className="lg:hidden mb-6">
+      <div className={`lg:hidden mb-6 ${hideStepper ? "hidden" : ""}`}>
         <div className="flex items-center justify-between text-[10px] uppercase tracking-widest mb-2">
           <span className="text-text-primary font-semibold">
             {wizardStep === 1 ? tCart("stepInfo") : t("securePayment")}
@@ -2161,8 +2236,8 @@ export default function CheckoutClient({
           <section className={`bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm lg:hidden ${wizardStep === 1 ? "" : "hidden"}`}>
             <SectionHeader step={1} title={t("deliveryModeTitle")} complete={section3Complete} />
             <div className="p-5 space-y-4">
-              {/* Choix livraison / retrait / transporteur privé */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Choix livraison / retrait / transporteur privé / fusion */}
+              <div className={`grid grid-cols-1 sm:grid-cols-2 ${mergeCandidates.length > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-3`}>
                 <button
                   type="button"
                   onClick={() => handleDeliveryModeChange("delivery")}
@@ -2214,26 +2289,126 @@ export default function CheckoutClient({
                     {t("modePrivate")}
                   </span>
                 </button>
+
+                {mergeCandidates.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeliveryModeChange("merge")}
+                    className={`flex flex-col items-center gap-2 p-4 border rounded-xl transition-all ${
+                      deliveryMode === "merge"
+                        ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                        : "border-border bg-bg-primary hover:border-text-muted"
+                    }`}
+                  >
+                    <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    <span className="text-sm font-body font-semibold text-text-primary text-center leading-tight">
+                      {t("modeMerge")}
+                    </span>
+                  </button>
+                )}
               </div>
 
-              {/* Retrait en boutique — info */}
+              {/* Fusion — liste des commandes candidates */}
+              {deliveryMode === "merge" && (
+                <div className="space-y-3">
+                  <div className="rounded-xl bg-info/10 border border-info/20 px-4 py-3 text-sm font-body text-info">
+                    {t("mergeInfoBanner")}
+                  </div>
+                  {mergeCandidates.map((o) => {
+                    const isSelected = selectedMergeOrderId === o.id;
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => setSelectedMergeOrderId(o.id)}
+                        className={`w-full text-left p-4 border rounded-xl transition-all ${
+                          isSelected
+                            ? "border-text-primary bg-bg-secondary shadow-[0_0_0_2px_rgba(26,26,26,0.12)]"
+                            : "border-border bg-bg-primary hover:border-text-muted"
+                        }`}
+                      >
+                        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                          <span className="font-body font-semibold text-sm text-text-primary">
+                            {t("mergeOrderLabel", { number: o.orderNumber })}
+                          </span>
+                          <span className="text-xs text-text-secondary font-body tabular-nums">{o.totalTTC.toFixed(2)} € TTC</span>
+                        </div>
+                        <p className="text-xs text-text-secondary font-body mt-1">
+                          {new Date(o.createdAtIso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                          {" · "}{o.itemsCount} {o.itemsCount > 1 ? tCart("linesOrdered_plural") : tCart("linesOrdered")}
+                        </p>
+                        <p className="text-xs text-text-muted font-body mt-0.5">
+                          {t("mergeDeliveryPrevue")} : {o.carrierName} → {o.shipAddressShort}
+                        </p>
+                      </button>
+                    );
+                  })}
+                  <p className="text-xs text-text-muted font-body">
+                    {t("mergeExplainer")}
+                  </p>
+                </div>
+              )}
+
+              {/* Retrait en boutique — adresse + horaires + bandeau "Gratuit" */}
               {deliveryMode === "pickup" && (
-                <div className="bg-bg-secondary border border-border rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <svg className="w-5 h-5 text-accent-dark shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                    </svg>
-                    <div>
-                      <p className="text-sm font-body font-semibold text-text-primary">
-                        {t("pickupFreeTitle")}
-                      </p>
-                      <p className="text-xs text-text-secondary font-body mt-1">
-                        {t("pickupFreeDesc")}
-                      </p>
+                <div className="space-y-3">
+                  <div className="bg-bg-secondary border border-border rounded-2xl p-5">
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-bg-primary border border-border flex items-center justify-center shrink-0">
+                        <svg className="w-5 h-5 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {pickupInfo?.store ? (
+                          <>
+                            <p className="text-sm font-body font-semibold text-text-primary">
+                              {pickupInfo.store.name}
+                            </p>
+                            <p className="text-xs text-text-secondary font-body mt-1">
+                              {[pickupInfo.store.address, `${pickupInfo.store.postalCode} ${pickupInfo.store.city}`.trim(), pickupInfo.store.country]
+                                .filter((s) => s && s.trim().length > 0)
+                                .join(" · ")}
+                            </p>
+                            {pickupInfo.store.phone && (
+                              <p className="text-xs text-text-secondary font-body mt-0.5">{pickupInfo.store.phone}</p>
+                            )}
+                            {pickupInfo.schedule && pickupInfo.schedule.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-border">
+                                <p className="text-[10px] uppercase tracking-widest text-text-muted font-semibold mb-2">
+                                  {t("pickupOpeningHours")}
+                                </p>
+                                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs font-body">
+                                  {pickupInfo.schedule.map((d) => (
+                                    <li key={d.day} className="flex justify-between gap-3">
+                                      <span className="text-text-secondary">{d.day}</span>
+                                      <span className={`font-medium ${d.hours === "Fermé" ? "text-text-muted" : "text-text-primary"}`}>{d.hours}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            <p className="text-xs text-text-secondary font-body mt-3">
+                              {t("pickupFreeDesc")}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-body font-semibold text-text-primary">{t("pickupFreeTitle")}</p>
+                            <p className="text-xs text-text-secondary font-body mt-1">{t("pickupFreeDesc")}</p>
+                          </>
+                        )}
+                      </div>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-body text-success bg-success/10 border border-success/20 rounded-xl px-4 py-3">
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>{t("pickupNoShippingFees")}</span>
                   </div>
                 </div>
               )}
@@ -2430,7 +2605,7 @@ export default function CheckoutClient({
           <div className="lg:hidden flex items-center justify-between gap-3 pt-2">
             <button
               type="button"
-              onClick={() => (wizardStep === 1 ? router.push("/panier") : goToStep(1))}
+              onClick={() => (wizardStep === 1 ? (onBackToCart ? onBackToCart() : router.push("/panier")) : goToStep(1))}
               className="btn-ghost h-11 px-4 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -2629,7 +2804,7 @@ export default function CheckoutClient({
                   </button>
                   <button
                     type="button"
-                    onClick={() => router.push("/panier")}
+                    onClick={() => (onBackToCart ? onBackToCart() : router.push("/panier"))}
                     className="w-full mt-2 py-2 text-xs text-text-muted hover:text-text-primary transition-colors"
                   >
                     ← {t("backToCart")}
@@ -2768,7 +2943,7 @@ function SummaryPanel({
   tvaShipping: number;
   carrierPriceHT: number;
   selectedAddr: Address | null;
-  deliveryMode: "delivery" | "pickup" | "private";
+  deliveryMode: "delivery" | "pickup" | "private" | "merge";
   selectedCarrier: Carrier | { id: string; name: string; price: number; delay: string } | null;
   canProceed: boolean;
   totalTTC: number;

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled,
@@ -12,9 +11,11 @@ import {
 import { getStripeAccountInfo, getStripeConfigStatus } from "@/lib/stripe";
 import { parseDisplayConfig } from "@/lib/product-display";
 import { getStoredPictureStation } from "@/lib/microstore-picture-station";
-import { settingsTabMetadata, isSettingsTab, type SettingsTab } from "@/lib/settings-tabs";
-import SettingsPageTabs from "@/components/admin/settings/SettingsPageTabs";
-import { SettingCard, CardsStack } from "@/components/admin/settings/SettingCard";
+import { resolveOpenTile, type TileStatus } from "@/lib/settings-tiles";
+import type { BusinessHoursSchedule } from "@/lib/business-hours";
+import { readMinOrderConfig } from "@/lib/min-order";
+import SettingsDashboard, { type DashboardTile } from "@/components/admin/settings/SettingsDashboard";
+import { CardsStack, SettingCard } from "@/components/admin/settings/SettingCard";
 
 import SettingsMinOrderForm from "@/components/admin/settings/SettingsMinOrderForm";
 import AdminPasswordResetButton from "@/components/admin/settings/AdminPasswordResetButton";
@@ -52,7 +53,9 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `Paramètres — ${shopName} Admin` };
 }
 
-/* ── Icônes réutilisées dans les headers de cartes ─────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Icônes réutilisées dans les headers de cartes internes aux modales
+   ═══════════════════════════════════════════════════════════════════════════ */
 const Ico = {
   megaphone: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l18-7v16L3 13z"/><path d="M11 8v10a2 2 0 0 1-4 0v-1"/></svg>,
   image:     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>,
@@ -77,96 +80,42 @@ const Ico = {
   moon:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>,
 };
 
-/* ─────────────────────────────────────────────────────────────────────────
-   PAGE PRINCIPALE
-   ───────────────────────────────────────────────────────────────────────── */
+const nf = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE PRINCIPALE — dashboard 12 tuiles, une modale par clic
+   ═══════════════════════════════════════════════════════════════════════════ */
 export default async function ParametresPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const rawTab = typeof sp.tab === "string" ? sp.tab : "general";
-  const activeTab: SettingsTab = isSettingsTab(rawTab) ? rawTab : "general";
-  const meta = settingsTabMetadata(activeTab);
+  const initialOpen = resolveOpenTile(sp);
 
-  // Compte de marketplaces configurées pour le badge du menu
-  const [hasPfs, hasAnkor, hasEfashion, hasFaire, hasMicrostore] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }).then(Boolean),
-    getCachedHasAnkorstoreConfig(),
-    getCachedHasEfashionConfig(),
-    getCachedHasFaireConfig(),
-    getCachedHasMicrostoreConfig(),
+  const tiles = await Promise.all([
+    buildVitrineTile(),
+    buildSocieteTile(),
+    buildHorairesTile(),
+    buildPaiementTile(),
+    buildLivraisonTile(),
+    buildReglesTile(),
+    buildMarketplacesTile(),
+    buildContenuTile(),
+    buildMessagerieTile(),
+    buildTraductionTile(),
+    buildCompteTile(),
+    buildMaintenanceTile(),
   ]);
-  const mpConnected = [hasPfs, hasAnkor, hasEfashion, hasFaire, hasMicrostore].filter(Boolean).length;
-  const mpBadge = `${mpConnected}/5`;
 
-  return (
-    <div className="space-y-6">
-      {/* ══════════════ HERO ══════════════ */}
-      <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-bg-primary to-bg-primary" />
-        <div className="absolute -top-16 -right-12 w-56 h-56 rounded-full blur-3xl bg-slate-300/30 pointer-events-none" />
-        <div className="absolute -bottom-20 left-1/4 w-64 h-64 rounded-full blur-3xl bg-zinc-200/40 pointer-events-none" />
-
-        <div className="relative p-5 sm:p-6 lg:p-8">
-          {/* Breadcrumb */}
-          <div className="text-[12px] text-text-muted mb-2 flex items-center gap-1.5">
-            <Link href="/admin/parametres" className="hover:text-text-primary transition-colors">Paramètres</Link>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m9 18 6-6-6-6"/></svg>
-            <span className="text-text-secondary">{meta.label}</span>
-          </div>
-
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            <div>
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 backdrop-blur border border-border text-[11px] font-body font-bold uppercase tracking-[0.18em] text-text-primary">
-                <span className="w-1.5 h-1.5 rounded-full bg-text-primary shadow-[0_0_0_3px_rgba(24,24,27,0.14)]" />
-                Configuration › {meta.label}
-              </span>
-              <h1 className="page-title mt-3">{meta.label}</h1>
-              <p className="page-subtitle font-body max-w-2xl">{meta.description}</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════ LAYOUT ══════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6 items-start">
-        <aside className="hidden lg:block lg:sticky lg:top-6">
-          <SettingsPageTabs activeTab={activeTab} variant="desktop" badges={{ marketplaces: mpBadge }} />
-        </aside>
-
-        <div className="min-w-0">
-          <div className="lg:hidden mb-5">
-            <SettingsPageTabs activeTab={activeTab} variant="mobile" badges={{ marketplaces: mpBadge }} />
-          </div>
-
-          {activeTab === "general"      && <GeneralTab />}
-          {activeTab === "societe"      && <SocieteTab />}
-          {activeTab === "catalogue"    && <CatalogueTab />}
-          {activeTab === "carrousels"   && <CarrouselsTab />}
-          {activeTab === "stock"        && <StockTab />}
-          {activeTab === "maintenance"  && <MaintenanceTab />}
-          {activeTab === "livraison"    && <LivraisonTab />}
-          {activeTab === "paiement"     && <PaiementTab />}
-          {activeTab === "marketplaces" && <MarketplacesTab />}
-          {activeTab === "horaires"     && <HorairesTab />}
-          {activeTab === "traduction"   && <TraductionTab />}
-          {activeTab === "seo"          && <SeoTab />}
-          {activeTab === "messagerie"   && <MessagerieTab />}
-          {activeTab === "affichage"    && <AffichageTab />}
-        </div>
-      </div>
-    </div>
-  );
+  return <SettingsDashboard tiles={tiles} initialOpen={initialOpen} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Général
+   TUILE 1 — Vitrine : bandeau annonces + bannière + favicon
    ═══════════════════════════════════════════════════════════════════════════ */
-async function GeneralTab() {
-  const [minConfig, bannerImageConfig, announcementConfig, faviconConfig] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } }),
+async function buildVitrineTile(): Promise<DashboardTile> {
+  const [bannerImageConfig, announcementConfig, faviconConfig] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
     prisma.siteConfig.findFirst({ where: { key: "announcement_banner" } }),
     prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
@@ -182,8 +131,6 @@ async function GeneralTab() {
     } catch { /* ignore */ }
   }
 
-  const currentMinHT = minConfig ? parseFloat(minConfig.value) : 0;
-
   let announcementMessages: string[] = [];
   let announcementBgColor = "#0F0F0F";
   let announcementTextColor = "#F5F1EA";
@@ -198,66 +145,63 @@ async function GeneralTab() {
     } catch { /* ignore */ }
   }
 
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.megaphone}
-        title="Bandeau d'annonces"
-        description="Messages défilants en haut du site (soldes, livraison offerte, promo du moment…)"
-        accent="dark"
-        status={announcementMessages.length > 0
-          ? { tone: "ok", label: `${announcementMessages.length} message${announcementMessages.length > 1 ? "s" : ""}` }
-          : { tone: "off", label: "Aucun" }}
-      >
-        <AnnouncementBannerConfig
-          initialMessages={announcementMessages}
-          initialBgColor={announcementBgColor}
-          initialTextColor={announcementTextColor}
-          initialSpeed={announcementSpeed}
-        />
-      </SettingCard>
+  const bits: string[] = [];
+  if (announcementMessages.length > 0) bits.push(`${announcementMessages.length} annonce${announcementMessages.length > 1 ? "s" : ""}`);
+  if (bannerImageConfig?.value) bits.push("bannière définie");
+  if (currentFavicon) bits.push("favicon en place");
 
-      <SettingCard
-        icon={Ico.image}
-        title="Bannière d'accueil"
-        description="Grande image en haut de la page d'accueil du site"
-      >
-        <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
-      </SettingCard>
+  const anyConfigured = announcementMessages.length > 0 || !!bannerImageConfig?.value || !!currentFavicon;
+  const status: TileStatus = anyConfigured
+    ? { tone: "ok", label: bits.length === 3 ? "Complète" : "Partielle" }
+    : { tone: "off", label: "À personnaliser" };
 
-      <SettingCard
-        icon={Ico.favicon}
-        title="Icône du site"
-        description="Petite image affichée dans l'onglet du navigateur et à côté du site dans les résultats Google"
-      >
-        <FaviconConfig currentFavicon={currentFavicon} />
-      </SettingCard>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+  return {
+    key: "vitrine",
+    status,
+    summary: bits.join(" · ") || "Aucun élément personnalisé pour l'instant",
+    content: (
+      <CardsStack>
         <SettingCard
-          icon={Ico.minOrder}
-          title="Commande minimum"
-          description="Empêche la commande sous ce seuil (0 pour désactiver)"
+          icon={Ico.megaphone}
+          title="Bandeau d'annonces"
+          description="Messages défilants en haut du site (soldes, livraison offerte, promo du moment…)"
+          accent="dark"
+          status={announcementMessages.length > 0
+            ? { tone: "ok", label: `${announcementMessages.length} message${announcementMessages.length > 1 ? "s" : ""}` }
+            : { tone: "off", label: "Aucun" }}
         >
-          <SettingsMinOrderForm currentValue={currentMinHT} />
+          <AnnouncementBannerConfig
+            initialMessages={announcementMessages}
+            initialBgColor={announcementBgColor}
+            initialTextColor={announcementTextColor}
+            initialSpeed={announcementSpeed}
+          />
         </SettingCard>
 
         <SettingCard
-          icon={Ico.lock}
-          title="Mot de passe admin"
-          description="Recevez un email pour le réinitialiser en toute sécurité"
+          icon={Ico.image}
+          title="Bannière d'accueil"
+          description="Grande image en haut de la page d'accueil du site"
         >
-          <AdminPasswordResetButton />
+          <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
         </SettingCard>
-      </div>
-    </CardsStack>
-  );
+
+        <SettingCard
+          icon={Ico.favicon}
+          title="Icône du site (favicon)"
+          description="Petite image affichée dans l'onglet du navigateur et à côté du site dans les résultats Google"
+        >
+          <FaviconConfig currentFavicon={currentFavicon} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Société
+   TUILE 2 — Société & mentions
    ═══════════════════════════════════════════════════════════════════════════ */
-async function SocieteTab() {
+async function buildSocieteTile(): Promise<DashboardTile> {
   const [companyInfo, smtpFromEmailRow] = await Promise.all([
     prisma.companyInfo.findFirst(),
     prisma.siteConfig.findFirst({ where: { key: "smtp_from_email" }, select: { value: true } }),
@@ -267,43 +211,213 @@ async function SocieteTab() {
     ? decryptIfSensitive("smtp_from_email", smtpFromEmailRow.value).trim() || null
     : null;
 
-  return (
-    <SettingCard
-      icon={Ico.building}
-      title="Informations société"
-      description="Nom de la boutique, raison sociale, coordonnées et adresse expéditeur Easy-Express"
-      accent="dark"
-    >
-      <CompanyInfoForm proEmail={proEmail} initialData={companyInfo ? {
-        shopName: companyInfo.shopName ?? undefined,
-        name: companyInfo.name,
-        legalForm: companyInfo.legalForm ?? undefined,
-        capital: companyInfo.capital ?? undefined,
-        siret: companyInfo.siret ?? undefined,
-        rcs: companyInfo.rcs ?? undefined,
-        tvaNumber: companyInfo.tvaNumber ?? undefined,
-        address: companyInfo.address ?? undefined,
-        city: companyInfo.city ?? undefined,
-        postalCode: companyInfo.postalCode ?? undefined,
-        country: companyInfo.country ?? undefined,
-        phone: companyInfo.phone ?? undefined,
-        email: companyInfo.email ?? undefined,
-        website: companyInfo.website ?? undefined,
-        director: companyInfo.director ?? undefined,
-        hostName: companyInfo.hostName ?? undefined,
-        hostAddress: companyInfo.hostAddress ?? undefined,
-        hostPhone: companyInfo.hostPhone ?? undefined,
-        hostEmail: companyInfo.hostEmail ?? undefined,
-      } : null} />
-    </SettingCard>
-  );
+  const requiredKeys: (keyof NonNullable<typeof companyInfo>)[] = ["name", "siret", "address", "city", "postalCode"];
+  const missing = companyInfo ? requiredKeys.filter((k) => !companyInfo[k]).length : requiredKeys.length;
+  const status: TileStatus = !companyInfo
+    ? { tone: "off", label: "À configurer" }
+    : missing > 0
+      ? { tone: "warn", label: `${missing} champ${missing > 1 ? "s" : ""} manquant${missing > 1 ? "s" : ""}` }
+      : { tone: "ok", label: "Complet" };
+
+  const summaryBits: string[] = [];
+  if (companyInfo?.name) summaryBits.push(companyInfo.name);
+  if (companyInfo?.city) summaryBits.push(companyInfo.city);
+
+  return {
+    key: "societe",
+    status,
+    summary: summaryBits.join(" · ") || "Aucune info renseignée",
+    content: (
+      <SettingCard
+        icon={Ico.building}
+        title="Informations société"
+        description="Nom de la boutique, raison sociale, coordonnées et adresse expéditeur Easy-Express"
+        accent="dark"
+      >
+        <CompanyInfoForm proEmail={proEmail} initialData={companyInfo ? {
+          shopName: companyInfo.shopName ?? undefined,
+          name: companyInfo.name,
+          legalForm: companyInfo.legalForm ?? undefined,
+          capital: companyInfo.capital ?? undefined,
+          siret: companyInfo.siret ?? undefined,
+          rcs: companyInfo.rcs ?? undefined,
+          tvaNumber: companyInfo.tvaNumber ?? undefined,
+          address: companyInfo.address ?? undefined,
+          city: companyInfo.city ?? undefined,
+          postalCode: companyInfo.postalCode ?? undefined,
+          country: companyInfo.country ?? undefined,
+          phone: companyInfo.phone ?? undefined,
+          email: companyInfo.email ?? undefined,
+          website: companyInfo.website ?? undefined,
+          director: companyInfo.director ?? undefined,
+          hostName: companyInfo.hostName ?? undefined,
+          hostAddress: companyInfo.hostAddress ?? undefined,
+          hostPhone: companyInfo.hostPhone ?? undefined,
+          hostEmail: companyInfo.hostEmail ?? undefined,
+        } : null} />
+      </SettingCard>
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Catalogue
+   TUILE 3 — Horaires
    ═══════════════════════════════════════════════════════════════════════════ */
-async function CatalogueTab() {
-  const [displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow, brandedBadgeRow] = await Promise.all([
+async function buildHorairesTile(): Promise<DashboardTile> {
+  const row = await prisma.siteConfig.findFirst({ where: { key: "business_hours" } });
+  let schedule: BusinessHoursSchedule | null = null;
+  if (row?.value) {
+    try { schedule = JSON.parse(row.value) as BusinessHoursSchedule; } catch { /* ignore */ }
+  }
+
+  const status: TileStatus = schedule
+    ? { tone: "ok", label: "Défini" }
+    : { tone: "off", label: "Non défini" };
+
+  return {
+    key: "horaires",
+    status,
+    summary: schedule ? "Horaires publiés sur la page contact" : "Aucun horaire renseigné",
+    content: (
+      <SettingCard
+        icon={Ico.clock}
+        title="Horaires d'ouverture"
+        description="Jours et heures d'ouverture affichés sur la page contact"
+        accent="dark"
+      >
+        <BusinessHoursConfig initialSchedule={schedule} />
+      </SettingCard>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 4 — Paiement Stripe
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildPaiementTile(): Promise<DashboardTile> {
+  const [status, publishableRow, accountInfo] = await Promise.all([
+    getStripeConfigStatus(),
+    prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
+    getStripeAccountInfo(),
+  ]);
+  const publishable = publishableRow?.value?.trim() || "";
+
+  const tileStatus: TileStatus = status.ready
+    ? { tone: "ok", label: status.testMode ? "Mode TEST" : "Mode LIVE" }
+    : { tone: "off", label: "Non configuré" };
+
+  const summary = status.ready
+    ? `${status.testMode ? "Mode TEST" : "Mode LIVE"} · 3 clés en place`
+    : "Renseignez les 3 clés Stripe pour encaisser";
+
+  return {
+    key: "paiement",
+    status: tileStatus,
+    summary,
+    content: (
+      <CardsStack>
+        <StripeAccountStatusCard info={accountInfo} />
+        <SettingCard
+          icon={Ico.card}
+          title="Stripe"
+          description="Les 3 clés Stripe nécessaires pour encaisser les paiements en ligne. Modifiez-les à tout moment — les valeurs sensibles sont chiffrées en base."
+          accent="dark"
+          status={status.ready
+            ? { tone: "ok", label: status.testMode ? "Mode TEST" : "Mode LIVE" }
+            : { tone: "off", label: "Non configuré" }}
+        >
+          <StripeSettingsForm
+            initialHasSecret={status.hasSecret}
+            initialHasWebhook={status.hasWebhook}
+            initialPublishable={publishable}
+          />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 5 — Livraison Easy-Express + marge
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildLivraisonTile(): Promise<DashboardTile> {
+  const [eeApiKeyConfig, marginTypeRow, marginValueRow] = await Promise.all([
+    prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
+    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
+  ]);
+  const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
+  const marginValue = Number(marginValueRow?.value) || 0;
+  const eeConnected = !!eeApiKeyConfig;
+
+  const tileStatus: TileStatus = eeConnected
+    ? { tone: "ok", label: "Connectée" }
+    : { tone: "off", label: "Non configurée" };
+
+  const marginLabel = marginType === "percent" ? `+${marginValue} %` : `+${nf.format(marginValue)} €`;
+  const summary = eeConnected ? `Clé API OK · Marge ${marginLabel}` : "Clé API à renseigner";
+
+  return {
+    key: "livraison",
+    status: tileStatus,
+    summary,
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.truck}
+          title="Easy-Express"
+          description="Clé API pour les expéditions — l'adresse expéditeur utilise les infos de l'onglet Société"
+          accent="dark"
+          status={eeConnected ? { tone: "ok", label: "Connectée" } : { tone: "off", label: "Non configurée" }}
+        >
+          <EasyExpressApiKeyConfig hasKey={eeConnected} />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.margin}
+          title="Marge sur les frais de port"
+          description="Différence entre le coût réel Easy-Express et le prix facturé au client"
+        >
+          <ShippingMarginConfig initialType={marginType} initialValue={marginValue} />
+
+          <div className="mt-5 rounded-2xl border border-border bg-bg-secondary/40 p-4">
+            <p className="text-[10px] font-body font-bold uppercase tracking-[0.14em] text-text-muted mb-2.5">
+              Exemple pour un colis à 6,80 €
+            </p>
+            <div className="text-[13px] space-y-1.5 font-body">
+              <div className="flex justify-between">
+                <span className="text-text-muted">Coût Easy-Express</span>
+                <span className="tabular-nums font-semibold">6,80 €</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-text-muted">
+                  + Marge {marginType === "percent" ? `${marginValue} %` : `${nf.format(marginValue)} €`}
+                </span>
+                <span className="tabular-nums font-semibold">
+                  +{nf.format(marginType === "percent" ? 6.80 * (marginValue / 100) : marginValue)} €
+                </span>
+              </div>
+              <div className="flex justify-between pt-1.5 border-t border-border">
+                <span className="font-semibold">Facturé au client</span>
+                <span className="tabular-nums font-heading font-bold text-base">
+                  {nf.format(6.80 + (marginType === "percent" ? 6.80 * (marginValue / 100) : marginValue))} €
+                </span>
+              </div>
+            </div>
+          </div>
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 6 — Règles de vente (commande mini + stock + catalogue + badge + garde-fou)
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildReglesTile(): Promise<DashboardTile> {
+  const [minOrderConfig, stockVariantsConfig, displayConfigRow, categories, dbCollections, dbTags, refreshWarnEnabledRow, refreshWarnDaysRow, brandedBadgeRow] = await Promise.all([
+    readMinOrderConfig(),
+    prisma.siteConfig.findFirst({ where: { key: "show_out_of_stock_variants" } }),
     prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -313,283 +427,94 @@ async function CatalogueTab() {
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" } }),
   ]);
 
+  const showOutOfStockVariants = stockVariantsConfig?.value !== "false";
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
   const refreshWarnEnabled = refreshWarnEnabledRow?.value === "true";
   const parsedRefreshDays = refreshWarnDaysRow ? parseInt(refreshWarnDaysRow.value, 10) : NaN;
   const refreshWarnDays = Number.isFinite(parsedRefreshDays) && parsedRefreshDays > 0 ? parsedRefreshDays : 7;
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.grid}
-        title="Affichage catalogue"
-        description="Ordre et visibilité des sections (catégories, collections, tags) sur /produits"
-        accent="dark"
-      >
-        <CatalogDisplayConfig
-          initialMode={displayConfig.catalogMode}
-          initialSections={displayConfig.sections}
-          categories={categories}
-          collections={dbCollections}
-          tags={dbTags}
-        />
-      </SettingCard>
+  const minOrderSummary = (() => {
+    switch (minOrderConfig.mode) {
+      case "none":
+        return "Aucun minimum";
+      case "all":
+        return `Min ${nf.format(minOrderConfig.valueAll)} € HT`;
+      case "first_only":
+        return `Min 1ʳᵉ commande ${nf.format(minOrderConfig.valueFirst)} € HT`;
+      case "first_then_rest":
+        return `1ʳᵉ ${nf.format(minOrderConfig.valueFirst)} € · suivantes ${nf.format(minOrderConfig.valueRest)} € HT`;
+    }
+  })();
 
-      <SettingCard
-        icon={Ico.tag}
-        title="Marquer la référence sur la 1ʳᵉ image"
-        description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — PFS et eFashion uniquement (la boutique publique ne l'affiche jamais ; Ankorstore et Faire ne l'affichent pas correctement, exclus)"
-      >
-        <BrandedReferenceBadgeConfig initialEnabled={brandedBadgeEnabled} />
-      </SettingCard>
+  const status: TileStatus = { tone: "ok", label: "Actives" };
+  const summary = `${minOrderSummary} · Ruptures ${showOutOfStockVariants ? "visibles" : "masquées"}`;
 
-      <SettingCard
-        icon={Ico.refresh}
-        title="Garde-fou rafraîchissement"
-        description="Évite de rafraîchir un produit qui vient déjà d'être mis en avant récemment"
-      >
-        <RefreshWarningConfig initialEnabled={refreshWarnEnabled} initialDays={refreshWarnDays} />
-      </SettingCard>
-    </CardsStack>
-  );
-}
+  return {
+    key: "regles",
+    status,
+    summary,
+    content: (
+      <CardsStack>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <SettingCard
+            icon={Ico.minOrder}
+            title="Commande minimum"
+            description="Choisissez si un montant minimum s'applique à toutes les commandes, à la 1ʳᵉ seulement, ou différemment pour la 1ʳᵉ et les suivantes"
+            accent="dark"
+          >
+            <SettingsMinOrderForm initialConfig={minOrderConfig} />
+          </SettingCard>
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Carrousels
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function CarrouselsTab() {
-  const [displayConfigRow, categories, dbSubCategories, dbCollections, dbTags] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
-    prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
-    prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
-    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-  ]);
-
-  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
-  const activeCount = displayConfig.homepageCarousels.filter((c) => c.visible).length;
-
-  return (
-    <SettingCard
-      icon={Ico.slides}
-      title="Carrousels d'accueil"
-      description="Bandes de produits sur la page d'accueil — glissez-déposez pour réorganiser"
-      accent="dark"
-      status={activeCount > 0
-        ? { tone: "ok", label: `${activeCount} actif${activeCount > 1 ? "s" : ""}` }
-        : { tone: "off", label: "Aucun" }}
-    >
-      <HomepageCarouselsConfig
-        initialCarousels={displayConfig.homepageCarousels}
-        categories={categories}
-        subCategories={dbSubCategories.map(s => ({ id: s.id, name: s.name, categoryName: s.category.name }))}
-        collections={dbCollections}
-        tags={dbTags}
-      />
-    </SettingCard>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Stock
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function StockTab() {
-  const stockVariantsConfig = await prisma.siteConfig.findFirst({
-    where: { key: "show_out_of_stock_variants" },
-  });
-  const showOutOfStockVariants = stockVariantsConfig?.value !== "false";
-
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.box}
-        title="Ruptures de stock côté client"
-        description="Choisissez si les variantes vides restent visibles ou disparaissent de la fiche produit"
-        accent="dark"
-      >
-        <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} />
-      </SettingCard>
-
-      <SettingCard
-        icon={Ico.grid}
-        title="Aperçu"
-        description="À quoi ressemble le sélecteur de taille sur une fiche produit selon votre choix"
-      >
-        <div className="flex gap-2 items-center flex-wrap">
-          <span className="text-[13px] font-body font-medium text-text-secondary mr-2">Taille :</span>
-          <button type="button" className="px-3 py-1.5 rounded-lg border border-border-strong text-[13px] font-medium">50</button>
-          <button type="button" className="px-3 py-1.5 rounded-lg bg-text-primary text-white text-[13px] font-semibold">52</button>
-          <button type="button" className="px-3 py-1.5 rounded-lg border border-border-strong text-[13px] font-medium">54</button>
-          <span className={`relative inline-block ${showOutOfStockVariants ? "" : "hidden"}`}>
-            <button type="button" className="px-3 py-1.5 rounded-lg border border-border-strong text-[13px] font-medium opacity-50" disabled>56</button>
-            <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <span className="w-full h-px bg-text-muted rotate-[-8deg]" />
-            </span>
-          </span>
+          <SettingCard
+            icon={Ico.box}
+            title="Ruptures de stock côté client"
+            description="Choisissez si les variantes vides restent visibles ou disparaissent de la fiche"
+            accent="dark"
+          >
+            <StockDisplayConfig showOutOfStockVariants={showOutOfStockVariants} />
+          </SettingCard>
         </div>
-        <p className="text-[11.5px] text-text-muted font-body mt-3">
-          {showOutOfStockVariants
-            ? "La taille 56 est en rupture — reste visible mais grisée et non sélectionnable."
-            : "Les tailles en rupture sont masquées : le client ne voit que ce qui est disponible."}
-        </p>
-      </SettingCard>
-    </CardsStack>
-  );
+
+        <SettingCard
+          icon={Ico.grid}
+          title="Affichage catalogue"
+          description="Ordre et visibilité des sections (catégories, collections, tags) sur /produits"
+          accent="dark"
+        >
+          <CatalogDisplayConfig
+            initialMode={displayConfig.catalogMode}
+            initialSections={displayConfig.sections}
+            categories={categories}
+            collections={dbCollections}
+            tags={dbTags}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.tag}
+          title="Marquer la référence sur la 1ʳᵉ image"
+          description="Ajoute automatiquement un badge « Réf » en haut à droite de la 1ère photo — PFS et eFashion uniquement"
+        >
+          <BrandedReferenceBadgeConfig initialEnabled={brandedBadgeEnabled} />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.refresh}
+          title="Garde-fou rafraîchissement"
+          description="Évite de rafraîchir un produit qui vient déjà d'être mis en avant récemment"
+        >
+          <RefreshWarningConfig initialEnabled={refreshWarnEnabled} initialDays={refreshWarnDays} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Maintenance
+   TUILE 7 — Marketplaces (grande tuile)
    ═══════════════════════════════════════════════════════════════════════════ */
-async function MaintenanceTab() {
-  const maintenanceConfig = await prisma.siteConfig.findFirst({ where: { key: "maintenance_mode" } });
-
-  const maintenanceValue = maintenanceConfig?.value ?? "false";
-  const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
-  const isAutoMaintenance = maintenanceValue === "auto";
-
-  const cardStatus = isAutoMaintenance
-    ? { tone: "danger" as const, label: "Automatique" }
-    : inMaintenance
-      ? { tone: "warn" as const, label: "Actif" }
-      : { tone: "ok" as const, label: "Site en ligne" };
-
-  return (
-    <SettingCard
-      icon={Ico.warning}
-      title="Mode maintenance"
-      description="Bloque temporairement l'accès à votre boutique. 3 modes possibles."
-      accent="dark"
-      status={cardStatus}
-    >
-      {inMaintenance && (
-        <div className={`mb-4 rounded-xl px-4 py-3 flex items-start gap-2 text-sm ${
-          isAutoMaintenance
-            ? "bg-red-50 border border-red-200 text-red-800"
-            : "bg-amber-50 border border-amber-200 text-amber-800"
-        }`}>
-          <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-red-600" : "text-amber-600"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-          </svg>
-          <p className="font-body">
-            {isAutoMaintenance
-              ? <><strong>Maintenance automatique</strong> — Erreurs critiques détectées.</>
-              : <><strong>Maintenance active</strong> — Site inaccessible aux clients.</>
-            }
-          </p>
-        </div>
-      )}
-      <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
-    </SettingCard>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Livraison
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function LivraisonTab() {
-  const [eeApiKeyConfig, marginTypeRow, marginValueRow] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" }, select: { key: true } }),
-    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
-    prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
-  ]);
-
-  const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
-  const marginValue = Number(marginValueRow?.value) || 0;
-  const eeConnected = !!eeApiKeyConfig;
-
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.truck}
-        title="Easy-Express"
-        description="Clé API pour les expéditions — l'adresse expéditeur utilise les infos de l'onglet Société"
-        accent="dark"
-        status={eeConnected ? { tone: "ok", label: "Connectée" } : { tone: "off", label: "Non configurée" }}
-      >
-        <EasyExpressApiKeyConfig hasKey={eeConnected} />
-      </SettingCard>
-
-      <SettingCard
-        icon={Ico.margin}
-        title="Marge sur les frais de port"
-        description="Différence entre le coût réel Easy-Express et le prix facturé au client"
-      >
-        <ShippingMarginConfig initialType={marginType} initialValue={marginValue} />
-
-        {/* Aperçu du calcul avec un colis exemple à 6,80 € */}
-        <div className="mt-5 rounded-2xl border border-border bg-bg-secondary/40 p-4">
-          <p className="text-[10px] font-body font-bold uppercase tracking-[0.14em] text-text-muted mb-2.5">
-            Exemple pour un colis à 6,80 €
-          </p>
-          <div className="text-[13px] space-y-1.5 font-body">
-            <div className="flex justify-between">
-              <span className="text-text-muted">Coût Easy-Express</span>
-              <span className="tabular-nums font-semibold">6,80 €</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-muted">
-                + Marge {marginType === "percent" ? `${marginValue} %` : `${marginValue.toFixed(2).replace(".", ",")} €`}
-              </span>
-              <span className="tabular-nums font-semibold">
-                +{(marginType === "percent" ? 6.80 * (marginValue / 100) : marginValue).toFixed(2).replace(".", ",")} €
-              </span>
-            </div>
-            <div className="flex justify-between pt-1.5 border-t border-border">
-              <span className="font-semibold">Facturé au client</span>
-              <span className="tabular-nums font-heading font-bold text-base">
-                {(6.80 + (marginType === "percent" ? 6.80 * (marginValue / 100) : marginValue)).toFixed(2).replace(".", ",")} €
-              </span>
-            </div>
-          </div>
-        </div>
-      </SettingCard>
-    </CardsStack>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Paiement
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function PaiementTab() {
-  const [status, publishableRow, accountInfo] = await Promise.all([
-    getStripeConfigStatus(),
-    prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
-    // Interroge Stripe pour récupérer le nom du compte/société branché.
-    // Sans cette carte, la cliente ne voyait que « Mode LIVE/TEST » et ne
-    // savait pas à quel compte Stripe le site était relié.
-    getStripeAccountInfo(),
-  ]);
-  const publishable = publishableRow?.value?.trim() || "";
-
-  const cardStatus = status.ready
-    ? { tone: "ok" as const, label: status.testMode ? "Mode TEST" : "Mode LIVE" }
-    : { tone: "off" as const, label: "Non configuré" };
-
-  return (
-    <CardsStack>
-      <StripeAccountStatusCard info={accountInfo} />
-      <SettingCard
-        icon={Ico.card}
-        title="Stripe"
-        description="Les 3 clés Stripe nécessaires pour encaisser les paiements en ligne. Modifiez-les à tout moment — les valeurs sensibles sont chiffrées en base."
-        accent="dark"
-        status={cardStatus}
-      >
-        <StripeSettingsForm
-          initialHasSecret={status.hasSecret}
-          initialHasWebhook={status.hasWebhook}
-          initialPublishable={publishable}
-        />
-      </SettingCard>
-    </CardsStack>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Marketplaces (inchangé — MarketplaceConfig gère son propre visuel)
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function MarketplacesTab() {
+async function buildMarketplacesTile(): Promise<DashboardTile> {
   const [
     pfsConfig, markupRows, pfsBrand, pfsEnabled,
     hasAnkorstoreConfig, ankorstoreEnabled,
@@ -662,14 +587,19 @@ async function MarketplacesTab() {
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
 
-  // Microstore : le toggle est ON par défaut (comportement historique de
-  // MicrostoreConnectCard) ; ISO d'expiration dérivé du timestamp seconde.
   const microstoreEnabled = microstoreEnabledRow?.value !== "false";
   const microstoreExpiresSec = microstoreExpiresRow?.value ? Number(microstoreExpiresRow.value) : null;
   const microstoreExpiresAtIso =
     microstoreExpiresSec && Number.isFinite(microstoreExpiresSec)
       ? new Date(microstoreExpiresSec * 1000).toISOString()
       : null;
+
+  const connected = [!!pfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig, hasMicrostoreConfig].filter(Boolean).length;
+  const tileStatus: TileStatus = connected === 0
+    ? { tone: "off", label: "Aucun connecté" }
+    : connected < 5
+      ? { tone: "warn", label: `${connected} / 5 connectés` }
+      : { tone: "ok", label: "5 / 5 connectés" };
 
   const stats = {
     pfs:        { published: pfsPublished, toSync: pfsToSync, lastSyncAt: pfsLast?.updatedAt?.toISOString() ?? null },
@@ -678,158 +608,89 @@ async function MarketplacesTab() {
     faire:      { published: faiPublished, toSync: faiToSync, lastSyncAt: faiLast?.faireLastRefreshedAt?.toISOString() ?? null },
   };
 
-  return (
-    <MarketplaceConfig
-      hasPfsConfig={!!pfsConfig}
-      pfsEnabled={pfsEnabled}
-      pfsBrand={pfsBrand}
-      hasAnkorstoreConfig={hasAnkorstoreConfig}
-      ankorstoreEnabled={ankorstoreEnabled}
-      hasEfashionConfig={hasEfashionConfig}
-      efashionEnabled={efashionEnabled}
-      hasFaireConfig={hasFaireConfig}
-      faireEnabled={faireEnabled}
-      faireMadeInExcluded={faireMadeInExcluded}
-      hasMicrostoreConfig={hasMicrostoreConfig}
-      microstoreEnabled={microstoreEnabled}
-      microstoreExpiresAtIso={microstoreExpiresAtIso}
-      microstorePictureStation={
-        microstorePictureStation
-          ? {
-              configured: true,
-              expiresAtIso: microstorePictureStation.expiresAt.toISOString(),
-              shortUrl: microstorePictureStation.shortUrl,
-            }
-          : { configured: false, expiresAtIso: null, shortUrl: null }
-      }
-      stats={stats}
-      markupSettings={{
-        pfs: {
-          type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
-          value: Number(markupMap.get("pfs_price_markup_value")) || 0,
-          rounding: (markupMap.get("pfs_price_markup_rounding") as "none" | "down" | "up") || "none",
-        },
-        ankorstoreWholesale: {
-          type: (ankorstoreWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
-          value: Number(ankorstoreWholesaleValue?.value) || 0,
-          rounding: (ankorstoreWholesaleRounding?.value as "none" | "down" | "up") || "none",
-        },
-        ankorstoreRetail: {
-          type: (ankorstoreRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
-          value: Number(ankorstoreRetailValue?.value) || 2.5,
-          rounding: (ankorstoreRetailRounding?.value as "none" | "down" | "up") || "up",
-        },
-        ankorstoreVatRate: Number(ankorstoreVatRateRaw?.value) || 20,
-        efashion: {
-          type: (efashionMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
-          value: Number(efashionMarkupValue?.value) || 0,
-          rounding: (efashionMarkupRounding?.value as "none" | "down" | "up") || "none",
-        },
-        microstore: {
-          type: (microstoreMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
-          value: Number(microstoreMarkupValue?.value) || 0,
-          rounding: (microstoreMarkupRounding?.value as "none" | "down" | "up") || "none",
-        },
-        faireWholesale: {
-          type: (faireWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
-          value: Number(faireWholesaleValue?.value) || 0,
-          rounding: (faireWholesaleRounding?.value as "none" | "down" | "up") || "none",
-        },
-        faireRetail: {
-          type: (faireRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
-          value: Number(faireRetailValue?.value) || 2.5,
-          rounding: (faireRetailRounding?.value as "none" | "down" | "up") || "up",
-        },
-      }}
-    />
-  );
+  return {
+    key: "marketplaces",
+    status: tileStatus,
+    summary: `PFS · Ankor · eFashion · Faire · Microstore — ${connected} connecté${connected > 1 ? "s" : ""}`,
+    content: (
+      <MarketplaceConfig
+        hasPfsConfig={!!pfsConfig}
+        pfsEnabled={pfsEnabled}
+        pfsBrand={pfsBrand}
+        hasAnkorstoreConfig={hasAnkorstoreConfig}
+        ankorstoreEnabled={ankorstoreEnabled}
+        hasEfashionConfig={hasEfashionConfig}
+        efashionEnabled={efashionEnabled}
+        hasFaireConfig={hasFaireConfig}
+        faireEnabled={faireEnabled}
+        faireMadeInExcluded={faireMadeInExcluded}
+        hasMicrostoreConfig={hasMicrostoreConfig}
+        microstoreEnabled={microstoreEnabled}
+        microstoreExpiresAtIso={microstoreExpiresAtIso}
+        microstorePictureStation={
+          microstorePictureStation
+            ? {
+                configured: true,
+                expiresAtIso: microstorePictureStation.expiresAt.toISOString(),
+                shortUrl: microstorePictureStation.shortUrl,
+              }
+            : { configured: false, expiresAtIso: null, shortUrl: null }
+        }
+        stats={stats}
+        markupSettings={{
+          pfs: {
+            type: (markupMap.get("pfs_price_markup_type") as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(markupMap.get("pfs_price_markup_value")) || 0,
+            rounding: (markupMap.get("pfs_price_markup_rounding") as "none" | "down" | "up") || "none",
+          },
+          ankorstoreWholesale: {
+            type: (ankorstoreWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(ankorstoreWholesaleValue?.value) || 0,
+            rounding: (ankorstoreWholesaleRounding?.value as "none" | "down" | "up") || "none",
+          },
+          ankorstoreRetail: {
+            type: (ankorstoreRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
+            value: Number(ankorstoreRetailValue?.value) || 2.5,
+            rounding: (ankorstoreRetailRounding?.value as "none" | "down" | "up") || "up",
+          },
+          ankorstoreVatRate: Number(ankorstoreVatRateRaw?.value) || 20,
+          efashion: {
+            type: (efashionMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(efashionMarkupValue?.value) || 0,
+            rounding: (efashionMarkupRounding?.value as "none" | "down" | "up") || "none",
+          },
+          microstore: {
+            type: (microstoreMarkupType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(microstoreMarkupValue?.value) || 0,
+            rounding: (microstoreMarkupRounding?.value as "none" | "down" | "up") || "none",
+          },
+          faireWholesale: {
+            type: (faireWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(faireWholesaleValue?.value) || 0,
+            rounding: (faireWholesaleRounding?.value as "none" | "down" | "up") || "none",
+          },
+          faireRetail: {
+            type: (faireRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
+            value: Number(faireRetailValue?.value) || 2.5,
+            rounding: (faireRetailRounding?.value as "none" | "down" | "up") || "up",
+          },
+        }}
+      />
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Horaires
+   TUILE 8 — Contenu & Google (carrousels + SEO)
    ═══════════════════════════════════════════════════════════════════════════ */
-async function HorairesTab() {
-  const row = await prisma.siteConfig.findFirst({ where: { key: "business_hours" } });
-  let schedule = null;
-  if (row?.value) {
-    try { schedule = JSON.parse(row.value); } catch { /* ignore */ }
-  }
-
-  return (
-    <SettingCard
-      icon={Ico.clock}
-      title="Horaires d'ouverture"
-      description="Jours et heures d'ouverture affichés sur la page contact"
-      accent="dark"
-    >
-      <BusinessHoursConfig initialSchedule={schedule} />
-    </SettingCard>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Traduction
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function TraductionTab() {
-  const [pfsEmailRow, autoTranslateConfig] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
-    prisma.siteConfig.findFirst({ where: { key: "auto_translate_enabled" }, select: { value: true } }),
-  ]);
-
-  const hasPfs = !!pfsEmailRow;
-
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.translate}
-        title="Service de traduction"
-        description="La traduction passe par votre compte Paris Fashion Shop — pas de clé séparée à configurer ici"
-        accent="dark"
-        status={hasPfs ? { tone: "ok", label: "PFS connecté" } : { tone: "off", label: "PFS requis" }}
-      >
-        <TranslationProviderStatus configured={hasPfs} />
-      </SettingCard>
-
-      {hasPfs && (
-        <SettingCard
-          icon={Ico.sparkles}
-          title="Traduction automatique"
-          description="Traduit noms de produits, descriptions et attributs (catégories, couleurs, tags…) à la création"
-        >
-          <AutoTranslateConfig enabled={autoTranslateConfig?.value === "true"} />
-
-          {/* Aperçu FR → EN */}
-          <div className="mt-5 rounded-2xl border border-border bg-bg-secondary/40 p-4">
-            <p className="text-[10px] font-body font-bold uppercase tracking-[0.14em] text-text-muted mb-3">
-              Aperçu d'une traduction
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <p className="text-[11px] font-body text-text-muted mb-1.5">🇫🇷 Français</p>
-                <div className="bg-bg-primary rounded-xl p-3 border border-border text-[13px] leading-relaxed">
-                  Bague en acier inoxydable avec motif floral doré
-                </div>
-              </div>
-              <div>
-                <p className="text-[11px] font-body text-text-muted mb-1.5">🇬🇧 Anglais (auto)</p>
-                <div className="bg-bg-primary rounded-xl p-3 border border-border text-[13px] leading-relaxed">
-                  Stainless steel ring with golden floral pattern
-                </div>
-              </div>
-            </div>
-          </div>
-        </SettingCard>
-      )}
-    </CardsStack>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Référencement (SEO)
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function SeoTab() {
+async function buildContenuTile(): Promise<DashboardTile> {
   const { getSiteUrl } = await import("@/lib/seo");
-  const [homeRow, produitsRow, taglineRow, shopName, siteUrl] = await Promise.all([
+  const [displayConfigRow, categories, dbSubCategories, dbCollections, dbTags, homeRow, produitsRow, taglineRow, shopName, siteUrl] = await Promise.all([
+    prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
+    prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
+    prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
+    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
@@ -837,6 +698,8 @@ async function SeoTab() {
     getSiteUrl(),
   ]);
 
+  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
+  const activeCount = displayConfig.homepageCarousels.filter((c) => c.visible).length;
   const homeText = homeRow?.value?.trim() ?? "";
   const tagline = taglineRow?.value?.trim() || "Grossiste B2B";
   const previewSnippet = homeText
@@ -844,57 +707,89 @@ async function SeoTab() {
     : "Ajoutez un texte SEO pour la page d'accueil ci-dessus — il apparaîtra dans les résultats Google.";
   const displayUrl = siteUrl.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
-  return (
-    <CardsStack>
-      <SettingCard
-        icon={Ico.search}
-        title="Textes pour Google"
-        description="Baseline courte + paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
-        accent="dark"
-      >
-        <SeoTextsConfig
-          initialHomeText={homeRow?.value ?? ""}
-          initialProduitsText={produitsRow?.value ?? ""}
-          initialTagline={taglineRow?.value ?? ""}
-        />
-      </SettingCard>
+  const seoConfigured = !!(homeText || produitsRow?.value?.trim());
+  const summaryBits: string[] = [];
+  summaryBits.push(`${activeCount} carrousel${activeCount > 1 ? "s" : ""} actif${activeCount > 1 ? "s" : ""}`);
+  summaryBits.push(seoConfigured ? "SEO en place" : "SEO vide");
 
-      <SettingCard
-        icon={Ico.search}
-        title="Aperçu Google"
-        description="À quoi ressemblera votre site dans les résultats de recherche"
-      >
-        <div className="rounded-2xl border border-border p-5 bg-bg-primary max-w-2xl">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-zinc-800 to-black flex items-center justify-center">
-              <span className="font-heading text-white text-[10px] font-bold">
-                {shopName?.charAt(0).toUpperCase() ?? "B"}
-              </span>
+  const status: TileStatus = activeCount > 0 && seoConfigured
+    ? { tone: "ok", label: "Configurés" }
+    : { tone: "warn", label: "À compléter" };
+
+  return {
+    key: "contenu",
+    status,
+    summary: summaryBits.join(" · "),
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.slides}
+          title="Carrousels d'accueil"
+          description="Bandes de produits sur la page d'accueil — glissez-déposez pour réorganiser"
+          accent="dark"
+          status={activeCount > 0
+            ? { tone: "ok", label: `${activeCount} actif${activeCount > 1 ? "s" : ""}` }
+            : { tone: "off", label: "Aucun" }}
+        >
+          <HomepageCarouselsConfig
+            initialCarousels={displayConfig.homepageCarousels}
+            categories={categories}
+            subCategories={dbSubCategories.map(s => ({ id: s.id, name: s.name, categoryName: s.category.name }))}
+            collections={dbCollections}
+            tags={dbTags}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.search}
+          title="Textes pour Google"
+          description="Baseline courte + paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
+          accent="dark"
+        >
+          <SeoTextsConfig
+            initialHomeText={homeRow?.value ?? ""}
+            initialProduitsText={produitsRow?.value ?? ""}
+            initialTagline={taglineRow?.value ?? ""}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.search}
+          title="Aperçu Google"
+          description="À quoi ressemblera votre site dans les résultats de recherche"
+        >
+          <div className="rounded-2xl border border-border p-5 bg-bg-primary max-w-2xl">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-zinc-800 to-black flex items-center justify-center">
+                <span className="font-heading text-white text-[10px] font-bold">
+                  {shopName?.charAt(0).toUpperCase() ?? "B"}
+                </span>
+              </div>
+              <div>
+                <div className="text-[13px] leading-tight" style={{ color: "#202124" }}>{shopName}</div>
+                <div className="text-[11px]" style={{ color: "#5F6368" }}>{displayUrl}</div>
+              </div>
             </div>
-            <div>
-              <div className="text-[13px] leading-tight" style={{ color: "#202124" }}>{shopName}</div>
-              <div className="text-[11px]" style={{ color: "#5F6368" }}>{displayUrl}</div>
+            <div className="text-[18px] mt-1 leading-tight" style={{ color: "#1A0DAB" }}>
+              {shopName} — {tagline}
+            </div>
+            <div className="text-[13px] mt-1" style={{ color: "#4D5156", lineHeight: 1.5 }}>
+              {previewSnippet}
             </div>
           </div>
-          <div className="text-[18px] mt-1 leading-tight" style={{ color: "#1A0DAB" }}>
-            {shopName} — {tagline}
-          </div>
-          <div className="text-[13px] mt-1" style={{ color: "#4D5156", lineHeight: 1.5 }}>
-            {previewSnippet}
-          </div>
-        </div>
-        <p className="text-[11.5px] text-text-muted font-body mt-3">
-          L'aperçu est indicatif — Google peut choisir d'afficher d'autres extraits selon la recherche du visiteur.
-        </p>
-      </SettingCard>
-    </CardsStack>
-  );
+          <p className="text-[11.5px] text-text-muted font-body mt-3">
+            L&apos;aperçu est indicatif — Google peut choisir d&apos;afficher d&apos;autres extraits selon la recherche du visiteur.
+          </p>
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Messagerie — transfert vers Gmail + tutoriel Send-As + sécurité mdp
+   TUILE 9 — Messagerie
    ═══════════════════════════════════════════════════════════════════════════ */
-async function MessagerieTab() {
+async function buildMessagerieTile(): Promise<DashboardTile> {
   const [forwardStatus, smtpPublic, persoState] = await Promise.all([
     getMailForwardStatus(),
     getSmtpPublicConfig(),
@@ -904,82 +799,243 @@ async function MessagerieTab() {
   const verifiedEmail = persoState.verifiedEmail;
   const verifiedAt = persoState.verifiedAt;
 
-  return (
-    <CardsStack>
-      {verifiedEmail ? (
-        <PersonalEmailCard verifiedEmail={verifiedEmail} verifiedAt={verifiedAt} />
-      ) : (
+  const status: TileStatus = verifiedEmail
+    ? { tone: "ok", label: "Transfert actif" }
+    : { tone: "warn", label: "Perso non vérifiée" };
+
+  const summary = verifiedEmail
+    ? `${smtpPublic.fromEmail ?? "boîte pro"} → ${verifiedEmail}`
+    : "Ajoutez votre adresse perso pour recevoir vos mails pro";
+
+  return {
+    key: "messagerie",
+    status,
+    summary,
+    content: (
+      <CardsStack>
+        {verifiedEmail ? (
+          <PersonalEmailCard verifiedEmail={verifiedEmail} verifiedAt={verifiedAt} />
+        ) : (
+          <SettingCard
+            icon={Ico.bell}
+            title="Adresse e-mail où recevoir"
+            description="Vous n'avez pas encore vérifié d'adresse perso. Terminez le wizard d'accueil pour la configurer."
+            accent="dark"
+          >
+            <a
+              href="/admin/bienvenue/email"
+              className="inline-flex items-center rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-4 py-2 transition"
+            >
+              Configurer maintenant
+            </a>
+          </SettingCard>
+        )}
+
         <SettingCard
           icon={Ico.bell}
-          title="Adresse e-mail où recevoir"
-          description="Vous n'avez pas encore vérifié d'adresse perso. Terminez le wizard d'accueil pour la configurer."
+          title="Où vos mails pro arrivent"
+          description="Chaque mail reçu sur la boîte pro est transféré instantanément dans votre boîte perso."
           accent="dark"
         >
-          <Link
-            href="/admin/bienvenue/email"
-            className="inline-flex items-center rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-4 py-2 transition"
-          >
-            Configurer maintenant
-          </Link>
+          <MailForwardStatusCard status={forwardStatus} />
         </SettingCard>
-      )}
 
-      <SettingCard
-        icon={Ico.bell}
-        title="Où vos mails pro arrivent"
-        description="Chaque mail reçu sur la boîte pro est transféré instantanément dans votre boîte perso."
-        accent="dark"
-      >
-        <MailForwardStatusCard status={forwardStatus} />
-      </SettingCard>
+        <SettingCard
+          icon={Ico.card}
+          title="Envoyer depuis Gmail comme votre adresse pro"
+          description="Configurez Gmail une seule fois pour que vos réponses partent depuis votre adresse pro, pas depuis votre Gmail perso."
+          accent="dark"
+        >
+          <GmailSetupTutorialCard
+            smtpHost={smtpPublic.host || "mail.beliandjolie.com"}
+            smtpPort={smtpPublic.port}
+            smtpUser={smtpPublic.user}
+            proEmail={smtpPublic.fromEmail}
+            shopName={smtpPublic.shopName}
+          />
+        </SettingCard>
 
-      <SettingCard
-        icon={Ico.card}
-        title="Envoyer depuis Gmail comme votre adresse pro"
-        description="Configurez Gmail une seule fois pour que vos réponses partent depuis votre adresse pro, pas depuis votre Gmail perso."
-        accent="dark"
-      >
-        <GmailSetupTutorialCard
-          smtpHost={smtpPublic.host || "mail.beliandjolie.com"}
-          smtpPort={smtpPublic.port}
-          smtpUser={smtpPublic.user}
-          proEmail={smtpPublic.fromEmail}
-          shopName={smtpPublic.shopName}
-        />
-      </SettingCard>
-
-      <SettingCard
-        icon={Ico.lock}
-        title="Sécurité — mot de passe boîte pro"
-        description="C'est ce mot de passe qui vous sera demandé par Gmail à l'étape 2 du tutoriel. Réinitialisation protégée par un code envoyé à votre adresse perso."
-        accent="dark"
-      >
-        <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={smtpPublic.user || null} />
-      </SettingCard>
-    </CardsStack>
-  );
+        <SettingCard
+          icon={Ico.lock}
+          title="Sécurité — mot de passe boîte pro"
+          description="C'est ce mot de passe qui vous sera demandé par Gmail à l'étape 2 du tutoriel. Réinitialisation protégée par un code envoyé à votre adresse perso."
+          accent="dark"
+        >
+          <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={smtpPublic.user || null} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TAB : Affichage — mode clair / sombre pour toutes les pages admin
+   TUILE 10 — Traduction automatique
    ═══════════════════════════════════════════════════════════════════════════ */
-async function AffichageTab() {
+async function buildTraductionTile(): Promise<DashboardTile> {
+  const [pfsEmailRow, autoTranslateConfig] = await Promise.all([
+    prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "auto_translate_enabled" }, select: { value: true } }),
+  ]);
+
+  const hasPfs = !!pfsEmailRow;
+  const autoTranslateEnabled = autoTranslateConfig?.value === "true";
+
+  const status: TileStatus = !hasPfs
+    ? { tone: "off", label: "PFS requis" }
+    : autoTranslateEnabled
+      ? { tone: "ok", label: "Actif via PFS" }
+      : { tone: "warn", label: "PFS OK · toggle éteint" };
+
+  const summary = hasPfs
+    ? (autoTranslateEnabled ? "Traduction FR → EN automatique" : "Compte PFS OK — activez le toggle pour lancer")
+    : "Connectez PFS d'abord dans Marketplaces";
+
+  return {
+    key: "traduction",
+    status,
+    summary,
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.translate}
+          title="Service de traduction"
+          description="La traduction passe par votre compte Paris Fashion Shop — pas de clé séparée à configurer ici"
+          accent="dark"
+          status={hasPfs ? { tone: "ok", label: "PFS connecté" } : { tone: "off", label: "PFS requis" }}
+        >
+          <TranslationProviderStatus configured={hasPfs} />
+        </SettingCard>
+
+        {hasPfs && (
+          <SettingCard
+            icon={Ico.sparkles}
+            title="Traduction automatique"
+            description="Traduit noms de produits, descriptions et attributs (catégories, couleurs, tags…) à la création"
+          >
+            <AutoTranslateConfig enabled={autoTranslateEnabled} />
+
+            <div className="mt-5 rounded-2xl border border-border bg-bg-secondary/40 p-4">
+              <p className="text-[10px] font-body font-bold uppercase tracking-[0.14em] text-text-muted mb-3">
+                Aperçu d&apos;une traduction
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[11px] font-body text-text-muted mb-1.5">🇫🇷 Français</p>
+                  <div className="bg-bg-primary rounded-xl p-3 border border-border text-[13px] leading-relaxed">
+                    Bague en acier inoxydable avec motif floral doré
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-body text-text-muted mb-1.5">🇬🇧 Anglais (auto)</p>
+                  <div className="bg-bg-primary rounded-xl p-3 border border-border text-[13px] leading-relaxed">
+                    Stainless steel ring with golden floral pattern
+                  </div>
+                </div>
+              </div>
+            </div>
+          </SettingCard>
+        )}
+      </CardsStack>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 11 — Compte admin (mot de passe + thème)
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildCompteTile(): Promise<DashboardTile> {
   const store = await cookies();
   const currentTheme = parseAdminTheme(store.get(ADMIN_THEME_COOKIE)?.value ?? null);
 
-  return (
-    <CardsStack>
+  const status: TileStatus = { tone: "ok", label: currentTheme === "dark" ? "Sombre" : "Clair" };
+
+  return {
+    key: "compte",
+    status,
+    summary: `Thème ${currentTheme === "dark" ? "sombre" : "clair"} · Mot de passe protégé`,
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.lock}
+          title="Mot de passe admin"
+          description="Recevez un email pour le réinitialiser en toute sécurité"
+          accent="dark"
+        >
+          <AdminPasswordResetButton />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.moon}
+          title="Mode d'affichage"
+          description="Bascule l'interface d'administration entre un fond clair ou un fond sombre. Uniquement pour vous — la boutique publique reste inchangée."
+          accent="dark"
+          status={currentTheme === "dark"
+            ? { tone: "ok", label: "Sombre" }
+            : { tone: "off", label: "Clair" }}
+        >
+          <AdminThemeToggle initialTheme={currentTheme} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 12 — Maintenance
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildMaintenanceTile(): Promise<DashboardTile> {
+  const maintenanceConfig = await prisma.siteConfig.findFirst({ where: { key: "maintenance_mode" } });
+  const maintenanceValue = maintenanceConfig?.value ?? "false";
+  const inMaintenance = maintenanceValue === "true" || maintenanceValue === "auto";
+  const isAutoMaintenance = maintenanceValue === "auto";
+
+  const status: TileStatus = isAutoMaintenance
+    ? { tone: "danger", label: "Automatique" }
+    : inMaintenance
+      ? { tone: "warn", label: "Actif" }
+      : { tone: "ok", label: "Site en ligne" };
+
+  const summary = isAutoMaintenance
+    ? "Maintenance déclenchée par une erreur critique"
+    : inMaintenance
+      ? "Site inaccessible aux clients"
+      : "3 modes possibles (off / auto / on)";
+
+  return {
+    key: "maintenance",
+    status,
+    summary,
+    content: (
       <SettingCard
-        icon={Ico.moon}
-        title="Mode d'affichage"
-        description="Bascule l'interface d'administration entre un fond clair ou un fond sombre. Uniquement pour vous — la boutique publique reste inchangée."
+        icon={Ico.warning}
+        title="Mode maintenance"
+        description="Bloque temporairement l'accès à votre boutique. 3 modes possibles."
         accent="dark"
-        status={currentTheme === "dark"
-          ? { tone: "ok", label: "Sombre" }
-          : { tone: "off", label: "Clair" }}
+        status={status.tone === "danger"
+          ? { tone: "danger", label: "Automatique" }
+          : status.tone === "warn"
+            ? { tone: "warn", label: "Actif" }
+            : { tone: "ok", label: "Site en ligne" }}
       >
-        <AdminThemeToggle initialTheme={currentTheme} />
+        {inMaintenance && (
+          <div className={`mb-4 rounded-xl px-4 py-3 flex items-start gap-2 text-sm ${
+            isAutoMaintenance
+              ? "bg-red-50 border border-red-200 text-red-800"
+              : "bg-amber-50 border border-amber-200 text-amber-800"
+          }`}>
+            <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 flex-shrink-0 mt-0.5 ${isAutoMaintenance ? "text-red-600" : "text-amber-600"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+            <p className="font-body">
+              {isAutoMaintenance
+                ? <><strong>Maintenance automatique</strong> — Erreurs critiques détectées.</>
+                : <><strong>Maintenance active</strong> — Site inaccessible aux clients.</>
+              }
+            </p>
+          </div>
+        )}
+        <MaintenanceModeToggle currentValue={inMaintenance} isAuto={isAutoMaintenance} />
       </SettingCard>
-    </CardsStack>
-  );
+    ),
+  };
 }

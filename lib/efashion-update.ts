@@ -852,9 +852,14 @@ export async function efashionUpdateProductInPlace(
 
   const targetCategoryId = product.category?.efashionCategorieId ?? null;
 
+  // La référence BJ peut avoir été renommée par l'admin depuis le dernier
+  // sync. On cible désormais `product.reference` (nouveau nom) comme
+  // `referenceBase` chez eFashion. La bascule est effectuée plus bas dans le
+  // flow, on met à jour `Product.efashionReferenceBase` en même temps que le
+  // snapshot pour que le prochain sync reparte sur la nouvelle base.
   const target: EfashionSnapshot = {
     version: 1,
-    referenceBase: product.efashionReferenceBase,
+    referenceBase: product.reference,
     variants: targetVariants,
     descriptions: targetDescriptions,
     compositions: targetCompositions,
@@ -921,9 +926,31 @@ export async function efashionUpdateProductInPlace(
     diff.removed.length > 0 ||
     diff.declinaisonChanged ||
     diff.categoryChanged ||
+    diff.referenceBaseChanged ||
     linkedColors.length > 0
   ) {
     await ensureLiveById();
+  }
+
+  // Renommage de la référence BJ (= `referenceBase` chez eFashion). Quand
+  // l'admin renomme un produit (ex A1720 → A1721), on doit propager la
+  // nouvelle référence à chaque variante eFashion via `updateProduit`
+  // (champs `reference` + `reference_base`). Sans ça, eFashion garderait
+  // l'ancien nom côté fiche acheteurs.
+  //
+  // On enqueue TOUTES les variantes liées connues côté eFashion (celles
+  // présentes dans `liveById`) avec `fields=[]` : la boucle finale posera
+  // les nouveaux `reference`/`reference_base` sans toucher aux prix, poids
+  // ou visible (sauf si un autre diff les avait déjà enqueue à un titre
+  // différent — dans ce cas on garde leur `fields` d'origine).
+  const oldReferenceBase = product.efashionReferenceBase;
+  if (diff.referenceBaseChanged && liveById.size > 0) {
+    const alreadyQueued = new Set(variantsToUpdate.map((v) => v.variant.efashionProductId));
+    for (const tv of targetVariants) {
+      if (!liveById.has(tv.efashionProductId)) continue;
+      if (alreadyQueued.has(tv.efashionProductId)) continue;
+      variantsToUpdate.push({ variant: tv, fields: [] });
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1730,8 +1757,22 @@ export async function efashionUpdateProductInPlace(
       // BJ n'a pas de mapping eFashion (efashionCategorieId=null), on retombe
       // sur la valeur live pour ne pas envoyer null (eFashion refuserait).
       if (live) {
-        input.reference = live.reference;
-        if (live.reference_base) input.reference_base = live.reference_base;
+        // Si l'admin a renommé la référence BJ, on repointe `reference` et
+        // `reference_base` sur la nouvelle base tout en préservant le suffixe
+        // « -COULEUR » de l'ancienne référence eFashion (ex : A1720-BLEU →
+        // A1721-BLEU). Si le suffixe n'est pas déductible (référence live qui
+        // ne commence pas par l'ancienne base), on renomme quand même la
+        // reference_base et on garde la reference telle quelle.
+        if (diff.referenceBaseChanged) {
+          const suffix = live.reference.startsWith(oldReferenceBase)
+            ? live.reference.slice(oldReferenceBase.length)
+            : null;
+          input.reference = suffix !== null ? `${product.reference}${suffix}` : live.reference;
+          input.reference_base = product.reference;
+        } else {
+          input.reference = live.reference;
+          if (live.reference_base) input.reference_base = live.reference_base;
+        }
         if (live.id_collection !== null) input.id_collection = live.id_collection;
         const effectiveCategoryId = targetCategoryId ?? live.id_categorie;
         if (effectiveCategoryId !== null) input.id_categorie = effectiveCategoryId;
@@ -1795,6 +1836,11 @@ export async function efashionUpdateProductInPlace(
         efashionLastRefreshedAt: new Date(),
         // Push OK → on retire le drapeau « Synchro nécessaire »
         efashionSyncRequired: false,
+        // Aligne la référence stockée si l'admin a renommé le produit BJ
+        // et que le rename a bien été poussé côté eFashion. Sans ça, le
+        // prochain sync repointerait `referenceBase` du snapshot cible sur
+        // l'ancienne valeur → boucle infinie de « rename ».
+        ...(diff.referenceBaseChanged ? { efashionReferenceBase: product.reference } : {}),
       },
     });
   } else {

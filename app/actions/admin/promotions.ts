@@ -82,6 +82,7 @@ export interface PromotionInput {
   maxUses?: number;
   maxUsesPerUser?: number;
   firstOrderOnly: boolean;
+  stackable: boolean;
   startsAt: string;
   endsAt?: string;
   categoryIds?: string[];
@@ -186,6 +187,7 @@ export async function createPromotion(input: PromotionInput) {
         maxUses: input.maxUses || null,
         maxUsesPerUser: input.maxUsesPerUser || null,
         firstOrderOnly: input.firstOrderOnly,
+        stackable: input.stackable,
         startsAt: new Date(input.startsAt),
         endsAt: input.endsAt ? new Date(input.endsAt) : null,
         categories: input.scope === "CATEGORIES" && input.categoryIds?.length
@@ -251,6 +253,7 @@ export async function updatePromotion(id: string, input: PromotionInput) {
         maxUses: input.maxUses || null,
         maxUsesPerUser: input.maxUsesPerUser || null,
         firstOrderOnly: input.firstOrderOnly,
+        stackable: input.stackable,
         startsAt: new Date(input.startsAt),
         endsAt: input.endsAt ? new Date(input.endsAt) : null,
         categories: input.scope === "CATEGORIES" && input.categoryIds?.length

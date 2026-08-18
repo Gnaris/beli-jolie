@@ -254,6 +254,78 @@ export interface ProductMeta {
 }
 
 // ─────────────────────────────────────────────
+// Wrapper 100 % sérialisable pour le wizard /panier — retourne un objet
+// composé uniquement de primitives (number, string, null). À utiliser depuis
+// un composant client : `getCartWithProductVariants` renvoie des Decimal
+// Prisma que React refuse d'envoyer aux Client Components.
+// ─────────────────────────────────────────────
+
+export interface SerializedCartForWizard {
+  cart: {
+    id: string;
+    items: {
+      id: string;
+      quantity: number;
+      variant: {
+        id: string;
+        productId: string;
+        colorId: string | null;
+        unitPrice: number;
+        weight: number;
+        stock: number;
+        saleType: "UNIT" | "PACK";
+        packQuantity: number | null;
+        product: {
+          id: string;
+          name: string;
+          reference: string;
+          status: string;
+          discountPercent: number | null;
+          category: { name: string };
+        };
+      };
+    }[];
+  } | null;
+  productsMeta: Record<string, ProductMeta>;
+}
+
+export async function getSerializedCartForWizard(): Promise<SerializedCartForWizard> {
+  const { cart, productsMeta } = await getCartWithProductVariants();
+  if (!cart) return { cart: null, productsMeta };
+
+  return {
+    cart: {
+      id: cart.id,
+      items: cart.items.map((item) => ({
+        id:       item.id,
+        quantity: item.quantity,
+        variant: {
+          id:           item.variant.id,
+          productId:    item.variant.productId,
+          colorId:      item.variant.colorId ?? null,
+          unitPrice:    Number(item.variant.unitPrice),
+          weight:       Number(item.variant.weight),
+          stock:        Number((item.variant as { stock?: number }).stock ?? 0),
+          saleType:     item.variant.saleType,
+          packQuantity: item.variant.packQuantity ?? null,
+          product: {
+            id:              item.variant.product.id,
+            name:            item.variant.product.name,
+            reference:       item.variant.product.reference,
+            status:          item.variant.product.status,
+            discountPercent: item.variant.product.discountPercent != null
+                               ? Number(item.variant.product.discountPercent)
+                               : null,
+            category:        { name: item.variant.product.category.name },
+          },
+        },
+      })),
+    },
+    productsMeta,
+  };
+}
+
+// ─────────────────────────────────────────────
 // Handler unifié : set quantité pour une variante (0 = supprime, N = crée/update)
 // Utilisé par la nouvelle UI accordion pour ajouter une couleur non-commandée à la volée.
 // ─────────────────────────────────────────────
@@ -275,7 +347,6 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
     if (existing) {
       await prisma.cartItem.delete({ where: { id: existing.id } });
       revalidatePath("/panier");
-      revalidatePath("/panier/commande");
     }
     return { success: true as const, quantity: 0, capped: false };
   }
@@ -318,7 +389,6 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
   }
 
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
   return { success: true as const, quantity: cappedQty, capped };
 }
 
@@ -393,7 +463,6 @@ export async function addToCart(variantId: string, quantity: number = 1) {
   }
 
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────
@@ -471,7 +540,6 @@ export async function addMultipleToCart(
   }
 
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
   return { addedCount, errors };
 }
 
@@ -501,7 +569,6 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   if (quantity <= 0) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
     revalidatePath("/panier");
-    revalidatePath("/panier/commande");
     return undefined;
   }
 
@@ -524,7 +591,6 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   });
 
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
   return { quantity: finalQuantity, capped: finalQuantity < quantity };
 }
 
@@ -542,7 +608,6 @@ export async function removeFromCart(cartItemId: string) {
 
   await prisma.cartItem.delete({ where: { id: cartItemId } });
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────
@@ -557,7 +622,6 @@ export async function clearCart() {
 
   await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
   revalidatePath("/panier");
-  revalidatePath("/panier/commande");
 }
 
 // ─────────────────────────────────────────────

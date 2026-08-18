@@ -1,7 +1,7 @@
 "use server";
 
 import { getServerSession } from "next-auth";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -83,6 +83,7 @@ export async function updateUserStatus(
     revalidatePath("/admin/utilisateurs");
     revalidatePath(`/admin/utilisateurs/${userId}`);
     revalidatePath("/admin");
+    revalidateTag("users", "default");
 
     return { success: true };
   } catch (err) {

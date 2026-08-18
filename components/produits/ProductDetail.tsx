@@ -394,25 +394,42 @@ export default function ProductDetail({
             {reference}
           </span>
 
-          {/* Prix */}
+          {/* Prix — cascade 3 paliers avec flèches Promo/Remise entre chaque palier */}
           {showPrices ? (
-            <div>
-              {(hasClientDiscount || hasAnyProductDiscount) && (
-                <p className="font-body text-sm text-text-muted line-through">
-                  {(hasClientDiscount ? minPrice : minBasePrice).toFixed(2)} €
-                </p>
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              {/* Palier 1 : prix de base, même taille que le final, barré si réduction */}
+              {(hasAnyProductDiscount || hasClientDiscount) && (
+                <span className="font-heading text-lg sm:text-xl font-semibold text-text-muted line-through">
+                  {minBasePrice.toFixed(2)} €
+                </span>
               )}
-              <div className="flex items-baseline gap-2">
-                {hasClientDiscount && clientDiscount?.discountType === "PERCENT" && (
-                  <span className="text-sm font-body text-[#EF4444] font-medium">
-                    -{clientDiscount.discountValue}%
-                  </span>
-                )}
-                <p className={`font-heading text-3xl font-semibold ${(hasClientDiscount || hasAnyProductDiscount) ? "text-[#EF4444]" : "text-text-primary"}`}>
-                  {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
-                  <span className="text-sm text-text-muted font-normal ml-1">{t("htUnit")}</span>
-                </p>
-              </div>
+              {/* Flèche « Promo / -X% » */}
+              {hasAnyProductDiscount && (
+                <span className="inline-flex flex-col items-center leading-[1]">
+                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Promo</span>
+                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{minBasePrice > 0 ? Math.round(((minBasePrice - minPrice) / minBasePrice) * 100) : 0}%</span>
+                  <span className="text-[11px] text-text-muted leading-none">→</span>
+                </span>
+              )}
+              {/* Palier 2 : prix après promo — visible uniquement si cumul avec remise client */}
+              {hasAnyProductDiscount && hasClientDiscount && (
+                <span className="font-heading text-lg sm:text-xl font-semibold text-text-muted line-through">
+                  {minPrice.toFixed(2)} €
+                </span>
+              )}
+              {/* Flèche « Remise / -X% » */}
+              {hasClientDiscount && (
+                <span className="inline-flex flex-col items-center leading-[1]">
+                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Remise</span>
+                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{clientDiscount?.discountType === "PERCENT" ? clientDiscount.discountValue : (minPrice > 0 ? Math.round(((minPrice - minPriceAfterClient) / minPrice) * 100) : 0)}%</span>
+                  <span className="text-[11px] text-text-muted leading-none">→</span>
+                </span>
+              )}
+              {/* Palier 3 : prix final */}
+              <p className={`font-heading text-lg sm:text-xl font-semibold ${hasAnyProductDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>
+                {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
+                <span className="text-[10px] text-text-muted font-normal ml-1">{t("htUnit")}</span>
+              </p>
             </div>
           ) : (
             <div className="bg-bg-secondary border border-border rounded-2xl px-5 py-4 flex items-center gap-3">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ProductCard from "./ProductCard";
+import ProductCard, { type ClientDiscountInfo } from "./ProductCard";
 
 // On reprend la même forme de produit que dans la page favoris (ProductCard).
 type VariantItem = {
@@ -42,9 +42,10 @@ export interface FavoritesGridItem {
 
 interface Props {
   items: FavoritesGridItem[];
+  clientDiscount?: ClientDiscountInfo | null;
 }
 
-export default function FavoritesGrid({ items }: Props) {
+export default function FavoritesGrid({ items, clientDiscount }: Props) {
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
   function handleFavoriteChange(productId: string, isFavorite: boolean) {
@@ -76,6 +77,7 @@ export default function FavoritesGrid({ items }: Props) {
           isBestSeller={p.isBestSeller}
           isNew={p.isNew}
           discountPercent={p.discountPercent}
+          clientDiscount={clientDiscount}
           onFavoriteChange={(isFav) => handleFavoriteChange(p.id, isFav)}
         />
       ))}

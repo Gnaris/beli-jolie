@@ -18,6 +18,7 @@ import {
 } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
+import { getEffectiveMinOrderHT } from "@/lib/min-order";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -109,7 +110,7 @@ import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notification
 
 export interface PlaceOrderInput {
   addressId:     string;
-  carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*", "pickup_store", "private_carrier")
+  carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*", "pickup_store", "private_carrier", "merge_into_order")
   transactionId: string;   // transactionId retourné par /api/carriers
   carrierName:   string;
   carrierPrice:  number;
@@ -119,6 +120,10 @@ export interface PlaceOrderInput {
   privateCarrierEmail?:     string;
   privateCarrierPhone?:     string;
   privateCarrierBordereau?: string; // path retourné par uploadBordereau
+  // Fusion vers commande parente : id de la commande à laquelle on rattache
+  // le nouveau panier (mode "merge"). L'admin regroupera manuellement les
+  // articles + ajustera le port dans un second temps.
+  mergeIntoOrderId?: string;
   // Code promo saisi par le client (facultatif). Re-validé côté serveur.
   promoCode?: string;
 }
@@ -397,7 +402,7 @@ export async function placeOrder(
         subtotalHT: preCodePricing.subtotalHT,
         carrierPrice: input.carrierPrice,
         userId,
-        userShipping: { isFree: user.freeShipping, savedAmount: 0 },
+        userShipping: { isFree: user.freeShipping, discountType: null, discountValue: null },
       },
       activePromos,
     );
@@ -466,9 +471,10 @@ export async function placeOrder(
     return true;
   })();
 
-  // Vérification minimum commande (avant remise perso client).
-  const minConfig = await prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } });
-  const minHT = minConfig ? parseFloat(minConfig.value) : 0;
+  // Vérification minimum commande (avant remise perso client). Le seuil
+  // dépend du mode configuré + du nombre de commandes existantes du client
+  // (cf. lib/min-order.ts).
+  const minHT = await getEffectiveMinOrderHT(userId);
   if (minHT > 0 && subtotalHT < minHT) {
     return refundAndAbort(
       input.stripePaymentIntentId,
@@ -658,6 +664,9 @@ export async function placeOrder(
       privateCarrierEmail:     isPrivateCarrier ? (input.privateCarrierEmail?.trim() || null) : null,
       privateCarrierPhone:     isPrivateCarrier ? (input.privateCarrierPhone?.trim() || null) : null,
       privateCarrierBordereau: isPrivateCarrier ? (input.privateCarrierBordereau?.trim() || null) : null,
+      // Fusion vers une commande parente : la nouvelle commande sera
+      // regroupée manuellement par l'admin avec la commande #parent.
+      mergeIntoOrderId: input.mergeIntoOrderId?.trim() || null,
       // Remise commerciale client
       clientDiscountType:  clientDiscountType,
       clientDiscountValue: clientDiscountValue,

@@ -7,6 +7,12 @@ import { useTranslations } from "next-intl";
 import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { addMultipleToCart } from "@/app/actions/client/cart";
 import type { ClientDiscountInfo } from "./ProductCard";
+import {
+  pricePerUnit,
+  applyDiscount,
+  effectiveStock as effectiveStockOf,
+  computeCartSummary,
+} from "@/lib/add-to-cart-pricing";
 
 interface VariantData {
   id: string;
@@ -44,36 +50,6 @@ interface AddToCartModalProps {
   clientDiscount?: ClientDiscountInfo | null;
 }
 
-function pricePerUnit(v: VariantData): number {
-  const p = Number(v.unitPrice);
-  if (v.saleType === "PACK" && v.packQuantity && v.packQuantity > 0) return p / v.packQuantity;
-  return p;
-}
-
-function applyDiscount(
-  price: number,
-  productDiscountPercent?: number | null,
-  clientDiscount?: ClientDiscountInfo | null,
-): number {
-  let p = price;
-  if (productDiscountPercent && productDiscountPercent > 0) {
-    p = Math.max(0, p * (1 - productDiscountPercent / 100));
-  }
-  if (clientDiscount) {
-    if (clientDiscount.discountType === "PERCENT") {
-      p = Math.max(0, p * (1 - clientDiscount.discountValue / 100));
-    } else {
-      p = Math.max(0, p - clientDiscount.discountValue);
-    }
-  }
-  return p;
-}
-
-function formatVariantLabel(v: VariantData, tUnit: string): string {
-  if (v.sizes.length === 0) return tUnit;
-  return v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(", ");
-}
-
 export default function AddToCartModal({
   isOpen,
   onClose,
@@ -91,42 +67,36 @@ export default function AddToCartModal({
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  // Quantités par variantId (persistantes tant que le modal est ouvert)
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  // Lightbox pour l'image du produit
-  const [showLightbox, setShowLightbox] = useState(false);
-  // Feedback bouton "Ajouté !" 2 sec + point de départ de l'animation fly-to-cart
+  const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
   const [justAdded, setJustAdded] = useState(false);
-  const headerImageRef = useRef<HTMLButtonElement>(null);
+  const firstColorImageRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
 
-  // Réinitialiser feedback quand on rouvre
   useEffect(() => {
     if (isOpen) setFeedback(null);
   }, [isOpen]);
 
-  // Fermeture par ESC : priorité lightbox > modal
+  // ESC : ferme le zoom en priorité, sinon la modale.
   useEffect(() => {
     if (!isOpen) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      if (showLightbox) {
-        setShowLightbox(false);
+      if (zoomImage) {
+        setZoomImage(null);
       } else {
         onClose();
       }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isOpen, onClose, showLightbox]);
+  }, [isOpen, onClose, zoomImage]);
 
-  // Ferme la lightbox si le modal se ferme
   useEffect(() => {
-    if (!isOpen) setShowLightbox(false);
+    if (!isOpen) setZoomImage(null);
   }, [isOpen]);
 
-  // Empêcher le scroll du body derrière le modal
   useEffect(() => {
     if (!isOpen) return;
     const prev = document.body.style.overflow;
@@ -136,34 +106,30 @@ export default function AddToCartModal({
     };
   }, [isOpen]);
 
-  // Ordre d'affichage : la couleur principale (isPrimary) d'abord, puis les autres
-  // dans l'ordre d'origine — plus intuitif pour la cliente qui met en avant sa couleur phare.
+  // Ordre : couleur principale d'abord, puis les autres.
   const orderedColors = useMemo(() => {
     const primary = colors.filter((c) => c.isPrimary);
     const rest = colors.filter((c) => !c.isPrimary);
     return [...primary, ...rest];
   }, [colors]);
 
-  // Image utilisée pour le header du modal + point de départ de l'animation fly-to-cart :
-  // la couleur principale, à défaut la première ayant une image.
   const headerImage =
     orderedColors[0]?.firstImage ??
     colors.find((c) => c.firstImage)?.firstImage ??
     null;
-  const headerColorName = orderedColors[0]?.name ?? null;
 
-  // Regroupement des variantes par type de vente, calculé pour CHAQUE couleur.
-  interface SaleGroup {
+  // Une couleur = un bloc contenant plusieurs options (Unité, Paquet de X…).
+  interface SaleOption {
     key: string;
     label: string;
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
     variants: VariantData[];
   }
-  const saleGroupsByColorKey = useMemo(() => {
-    const result = new Map<string, SaleGroup[]>();
+  const optionsByColorKey = useMemo(() => {
+    const result = new Map<string, SaleOption[]>();
     for (const color of orderedColors) {
-      const map = new Map<string, SaleGroup>();
+      const map = new Map<string, SaleOption>();
       for (const v of color.variants) {
         const key = v.saleType === "UNIT" ? "UNIT" : `PACK:${v.packQuantity ?? 0}`;
         if (map.has(key)) {
@@ -171,7 +137,7 @@ export default function AddToCartModal({
         } else {
           const label = v.saleType === "UNIT"
             ? t("unit")
-            : v.packQuantity ? `Pack ×${v.packQuantity}` : "Pack";
+            : v.packQuantity ? t("packOf", { qty: v.packQuantity }) : "Pack";
           map.set(key, { key, label, saleType: v.saleType, packQuantity: v.packQuantity, variants: [v] });
         }
       }
@@ -185,21 +151,10 @@ export default function AddToCartModal({
     return result;
   }, [orderedColors, t]);
 
-  // Totaux globaux (toutes couleurs / tous variants confondus)
-  const totalItems = Object.values(quantities).reduce((s, n) => s + n, 0);
-  const totalPrice = useMemo(() => {
-    let sum = 0;
-    for (const c of colors) {
-      for (const v of c.variants) {
-        const qty = quantities[v.id] ?? 0;
-        if (qty <= 0) continue;
-        const unit = applyDiscount(pricePerUnit(v), discountPercent, clientDiscount);
-        const packQty = v.saleType === "PACK" && v.packQuantity ? v.packQuantity : 1;
-        sum += unit * packQty * qty;
-      }
-    }
-    return sum;
-  }, [colors, quantities, discountPercent, clientDiscount]);
+  const { totalItems, totalPacks, totalPrice } = useMemo(
+    () => computeCartSummary(colors, quantities, discountPercent, clientDiscount),
+    [colors, quantities, discountPercent, clientDiscount],
+  );
 
   function setQty(variantId: string, next: number) {
     setQuantities((prev) => {
@@ -233,14 +188,10 @@ export default function AddToCartModal({
             msg: res.errors.map((e) => e.message).join(" · "),
           });
         } else {
-          // Le feedback visuel de succès est porté par le bouton vert « Ajouté ! »
-          // + l'animation fly-to-cart : plus besoin du message texte redondant.
           setFeedback(null);
-          setQuantities({}); // reset pour permettre d'ajouter d'autres couleurs
-
-          // Animation fly-to-cart : point de départ = image du header du modal
-          if (headerImageRef.current && headerImage) {
-            const rect = headerImageRef.current.getBoundingClientRect();
+          setQuantities({});
+          if (firstColorImageRef.current && headerImage) {
+            const rect = firstColorImageRef.current.getBoundingClientRect();
             window.dispatchEvent(new CustomEvent("cart:item-added", {
               detail: {
                 imageSrc: headerImage,
@@ -249,11 +200,8 @@ export default function AddToCartModal({
               },
             }));
           } else {
-            // Fallback : au moins bump le compteur
             window.dispatchEvent(new CustomEvent("cart:refresh"));
           }
-
-          // Bouton vert "Ajouté !" pendant 2 sec
           setJustAdded(true);
           setTimeout(() => setJustAdded(false), 2000);
         }
@@ -278,42 +226,26 @@ export default function AddToCartModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-bg-primary w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col overflow-hidden"
+        className="bg-bg-primary w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden"
       >
-        {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-border-light flex items-start gap-3 sm:gap-4 shrink-0">
-          {headerImage ? (
-            <button
-              ref={headerImageRef}
-              type="button"
-              onClick={() => setShowLightbox(true)}
-              aria-label={t("preview")}
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-bg-secondary shrink-0 relative group/thumb cursor-zoom-in"
-            >
-              <Image src={headerImage} alt={headerColorName ? tp(headerColorName) : tp(productName)} fill sizes="(max-width: 640px) 64px, 80px" className="object-cover transition-transform group-hover/thumb:scale-110" />
-              <span className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover/thumb:bg-slate-900/30 transition-colors">
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
-                </svg>
-              </span>
-            </button>
-          ) : (
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg bg-bg-secondary shrink-0" />
-          )}
+        {/* Header : titre + fermer */}
+        <div className="p-4 sm:p-5 border-b border-border-light flex items-start gap-3 sm:gap-4 shrink-0 bg-gradient-to-r from-bg-secondary to-bg-primary">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] sm:text-xs text-text-muted uppercase tracking-wide font-body">
+            <p className="text-[11px] sm:text-xs text-text-muted uppercase tracking-[0.15em] font-body mb-1">
               {tc(category)}{subCategory && <> · {tc(subCategory)}</>}
             </p>
-            <h3 className="text-[15px] sm:text-lg font-semibold text-text-primary line-clamp-2 leading-tight font-body">
+            <h3 className="text-[15px] sm:text-lg font-semibold text-text-primary line-clamp-2 leading-tight font-heading">
               {tp(productName)}
             </h3>
-            <p className="text-xs sm:text-xs text-text-muted font-mono mt-0.5">{productReference}</p>
+            <p className="text-[11px] sm:text-xs text-text-muted font-mono mt-1">
+              {t("reference")} : {productReference}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label={t("close")}
-            className="text-text-muted hover:text-text-primary shrink-0 p-1"
+            className="text-text-muted hover:text-text-primary shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-bg-secondary transition-colors"
           >
             <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -321,154 +253,228 @@ export default function AddToCartModal({
           </button>
         </div>
 
-        {/* Body : une section par couleur, chaque section liste ses variantes groupées par type de vente */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-6 sm:space-y-7">
+        {/* Body : une section par couleur, très visuellement séparées */}
+        <div className="flex-1 overflow-y-auto">
           {orderedColors.length === 0 && (
-            <p className="text-sm sm:text-base text-text-muted text-center py-8">{t("errorNoOption")}</p>
+            <p className="text-sm sm:text-base text-text-muted text-center py-8 px-4">{t("errorNoOption")}</p>
           )}
           {orderedColors.map((color, colorIdx) => {
-            const groups = saleGroupsByColorKey.get(color.groupKey) ?? [];
+            const options = optionsByColorKey.get(color.groupKey) ?? [];
+            // Le rond de couleur (pastille) et la barre verticale à gauche
+            // partagent la MÊME couleur (hex ou motif) que la variante.
             const swatchStyle: React.CSSProperties = color.patternImage
               ? { backgroundImage: `url(${color.patternImage})`, backgroundSize: "cover", backgroundPosition: "center" }
               : { backgroundColor: color.hex ?? "#9CA3AF" };
+            const isEven = colorIdx % 2 === 0;
             return (
-              <section
-                key={color.groupKey}
-                className={colorIdx > 0 ? "pt-5 sm:pt-6 border-t border-border-light" : ""}
-                aria-label={tp(color.name)}
-              >
-                {/* En-tête de section couleur : palette + nom */}
-                <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+              <div key={color.groupKey}>
+                {/* Gros séparateur horizontal entre blocs de couleurs */}
+                {colorIdx > 0 && (
+                  <div className="h-3 bg-gradient-to-r from-bg-secondary via-border to-bg-secondary" aria-hidden="true" />
+                )}
+                <section
+                  className={`relative pl-6 sm:pl-7 pr-4 sm:pr-5 py-4 sm:py-5 ${
+                    isEven ? "bg-bg-primary" : "bg-bg-secondary"
+                  }`}
+                  aria-label={tp(color.name)}
+                >
+                  {/* Barre verticale à gauche = couleur/motif de la variante. */}
                   <span
-                    className="w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 ring-1 ring-border shadow-sm"
+                    className="absolute left-0 top-0 bottom-0 w-1.5 sm:w-2 shadow-[inset_-1px_0_0_rgba(0,0,0,0.08)]"
                     style={swatchStyle}
                     aria-hidden="true"
                   />
-                  <h4 className="text-[15px] sm:text-base font-semibold text-text-primary font-body truncate">
-                    {tp(color.name)}
-                  </h4>
-                  {color.isPrimary && (
-                    <span className="text-[10px] sm:text-[11px] uppercase tracking-wide text-text-muted font-body">
-                      · {t("mainColor")}
-                    </span>
-                  )}
-                </div>
-
-                {groups.length === 0 && (
-                  <p className="text-xs sm:text-sm text-text-muted italic">{t("errorNoOption")}</p>
-                )}
-
-                <div className="space-y-4 sm:space-y-5">
-                  {groups.map((group) => {
-                    const firstVariant = group.variants[0];
-                    const unitPriceRaw = pricePerUnit(firstVariant);
-                    const unitPriceFinal = applyDiscount(unitPriceRaw, discountPercent, clientDiscount);
-                    const isPack = group.saleType === "PACK";
-                    const packQty = group.packQuantity ?? 1;
-                    const packPrice = unitPriceFinal * packQty;
-                    return (
-                      <div key={group.key}>
-                <div className="flex items-baseline justify-between mb-2 sm:mb-3">
-                  <p className="text-xs sm:text-sm uppercase tracking-wider font-semibold text-text-primary font-body">
-                    {group.label}
-                  </p>
-                  <div className="text-right">
-                    <p className="text-sm sm:text-base font-semibold text-text-primary font-body">
-                      {(isPack ? packPrice : unitPriceFinal).toFixed(2)} &euro;{" "}
-                      <span className="text-[11px] sm:text-xs text-text-muted font-normal">
-                        {isPack ? t("perPack") : t("perUnit")}
+                  {/* En-tête couleur : pastille + nom + badge principale */}
+                  <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+                    <span
+                      className="w-6 h-6 sm:w-7 sm:h-7 rounded-full shrink-0 ring-2 ring-white shadow-md"
+                      style={swatchStyle}
+                      aria-hidden="true"
+                    />
+                    <h4 className="text-[15px] sm:text-base font-semibold text-text-primary font-heading truncate">
+                      {tp(color.name)}
+                    </h4>
+                    {color.isPrimary && (
+                      <span className="text-[10px] uppercase tracking-widest bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-body shrink-0">
+                        {t("mainColor")}
                       </span>
-                    </p>
-                    {isPack && (
-                      <p className="text-[11px] sm:text-xs text-text-muted font-body">
-                        {t("perUnitNote", { price: unitPriceFinal.toFixed(2) })}
-                      </p>
                     )}
                   </div>
-                </div>
-                <div className="space-y-1.5 sm:space-y-2">
-                  {group.variants.map((v) => {
-                    const qty = quantities[v.id] ?? 0;
-                    const effectiveStock = isPack && v.packQuantity
-                      ? Math.floor(v.stock / v.packQuantity)
-                      : v.stock;
-                    const outOfStock = effectiveStock <= 0;
-                    return (
-                      <div
-                        key={v.id}
-                        className={`flex items-center justify-between rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 border ${
-                          qty > 0
-                            ? "bg-emerald-50 border-emerald-200"
-                            : outOfStock
-                              ? "bg-bg-secondary/60 border-border-light opacity-60"
-                              : "bg-bg-secondary border-transparent"
-                        }`}
+
+                  <div className="flex gap-3 sm:gap-4">
+                    {/* Vignette cliquable → zoom */}
+                    {color.firstImage ? (
+                      <button
+                        ref={colorIdx === 0 ? firstColorImageRef : undefined}
+                        type="button"
+                        onClick={() => setZoomImage({ src: color.firstImage!, alt: tp(color.name) })}
+                        aria-label={t("preview")}
+                        className="group/thumb relative shrink-0 w-24 h-32 sm:w-32 sm:h-40 rounded-xl overflow-hidden bg-bg-secondary shadow-md hover:shadow-xl transition-shadow cursor-zoom-in"
                       >
-                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                          <span className="text-[13px] sm:text-sm font-medium text-text-primary font-body truncate">
-                            {formatVariantLabel(v, t("unit"))}
-                          </span>
-                          <span className="text-[11px] sm:text-xs text-text-muted font-body shrink-0">
-                            {outOfStock ? t("outOfStock") : t("stockAvailable", { count: effectiveStock })}
-                          </span>
-                        </div>
-                        <div className={`flex items-center gap-0 bg-bg-primary rounded-full border ${
-                          qty > 0 ? "border-emerald-300" : "border-border"
-                        } shrink-0`}>
-                          <button
-                            type="button"
-                            aria-label={t("decrease")}
-                            onClick={() => setQty(v.id, qty - 1)}
-                            disabled={qty <= 0}
-                            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-text-muted hover:text-text-primary disabled:opacity-30 text-base"
-                          >
-                            &minus;
-                          </button>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]*"
-                            aria-label={t("quantity")}
-                            disabled={outOfStock}
-                            value={qty === 0 ? "" : String(qty)}
-                            onChange={(e) => {
-                              const raw = e.target.value.replace(/[^0-9]/g, "");
-                              if (raw === "") return setQty(v.id, 0);
-                              const n = parseInt(raw, 10);
-                              if (Number.isNaN(n)) return;
-                              setQty(v.id, Math.min(n, effectiveStock));
-                            }}
-                            onFocus={(e) => e.target.select()}
-                            placeholder="0"
-                            className={`w-9 sm:w-10 text-center text-sm font-medium bg-transparent outline-none font-body ${
-                              qty > 0 ? "text-emerald-700" : "text-text-primary"
-                            }`}
-                          />
-                          <button
-                            type="button"
-                            aria-label={t("increase")}
-                            onClick={() => setQty(v.id, qty + 1)}
-                            disabled={outOfStock || qty >= effectiveStock}
-                            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-text-muted hover:text-text-primary disabled:opacity-30 text-base"
-                          >
-                            +
-                          </button>
-                        </div>
+                        <Image
+                          src={color.firstImage}
+                          alt={tp(color.name)}
+                          fill
+                          sizes="(max-width: 640px) 96px, 128px"
+                          className="object-cover transition-transform group-hover/thumb:scale-105"
+                        />
+                        <span className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover/thumb:bg-slate-900/25 transition-colors">
+                          <svg className="w-6 h-6 sm:w-8 sm:h-8 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity drop-shadow" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m-3-3h6" />
+                          </svg>
+                        </span>
+                        <span className="absolute bottom-1 right-1 bg-slate-900/70 text-white text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-body">
+                          {t("zoom")}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="shrink-0 w-24 h-32 sm:w-32 sm:h-40 rounded-xl bg-bg-secondary flex items-center justify-center">
+                        <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
+                            d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                        </svg>
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+
+                    {/* Liste des options d'achat */}
+                    <div className="flex-1 min-w-0 space-y-2">
+                      {options.length === 0 && (
+                        <p className="text-xs sm:text-sm text-text-muted italic">{t("errorNoOption")}</p>
+                      )}
+                      {options.map((option) => (
+                        option.variants.map((v) => {
+                          const qty = quantities[v.id] ?? 0;
+                          const unitPriceRaw = pricePerUnit(v);
+                          const unitPriceFinal = applyDiscount(unitPriceRaw, discountPercent, clientDiscount);
+                          const isPack = option.saleType === "PACK";
+                          const packQty = option.packQuantity ?? 1;
+                          const packPrice = unitPriceFinal * packQty;
+                          const effectiveStock = effectiveStockOf(v);
+                          const outOfStock = effectiveStock <= 0;
+                          const lineTotal = qty * (isPack ? packPrice : unitPriceFinal);
+                          const active = qty > 0;
+                          const sizesLabel = v.sizes.length > 0
+                            ? v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
+                            : null;
+                          return (
+                            <div
+                              key={v.id}
+                              className={`flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl border transition-colors ${
+                                outOfStock
+                                  ? "border-border-light bg-bg-secondary/40 opacity-70"
+                                  : active
+                                    ? "border-2 border-emerald-400 bg-emerald-50/60"
+                                    : "border-border bg-bg-primary hover:border-border-dark"
+                              }`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <span className={`inline-flex items-center text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full font-semibold font-heading ${
+                                    isPack
+                                      ? active
+                                        ? "bg-emerald-600 text-white"
+                                        : "bg-bg-dark text-white"
+                                      : "bg-slate-900 text-white"
+                                  }`}>
+                                    {option.label}
+                                  </span>
+                                  {sizesLabel && (
+                                    <span className="text-[11px] sm:text-xs text-text-muted font-body truncate">
+                                      {sizesLabel}
+                                    </span>
+                                  )}
+                                  {outOfStock && (
+                                    <span className="text-[11px] font-semibold text-error font-body">
+                                      {t("outOfStock")}
+                                    </span>
+                                  )}
+                                  {!outOfStock && (
+                                    <span className="text-[10px] sm:text-[11px] text-text-muted font-body">
+                                      {t("stockAvailable", { count: effectiveStock })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] sm:text-xs text-text-muted font-body">
+                                  <span className="font-mono text-text-secondary">{unitPriceFinal.toFixed(2)} &euro;</span>
+                                  {" "}{t("perUnit")}
+                                  {isPack && (
+                                    <>
+                                      {" · "}
+                                      <span className="font-mono text-text-secondary">{packPrice.toFixed(2)} &euro;</span>
+                                      {" "}{t("perPack")}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                                <div className={`flex items-center bg-bg-primary border rounded-lg overflow-hidden ${
+                                  active ? "border-emerald-300" : "border-border"
+                                } ${outOfStock ? "opacity-50" : ""}`}>
+                                  <button
+                                    type="button"
+                                    aria-label={t("decrease")}
+                                    onClick={() => setQty(v.id, qty - 1)}
+                                    disabled={qty <= 0 || outOfStock}
+                                    className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-text-muted hover:bg-bg-secondary disabled:opacity-30 text-lg font-bold"
+                                  >
+                                    &minus;
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    aria-label={t("quantity")}
+                                    disabled={outOfStock}
+                                    value={qty === 0 ? "" : String(qty)}
+                                    onChange={(e) => {
+                                      const raw = e.target.value.replace(/[^0-9]/g, "");
+                                      if (raw === "") return setQty(v.id, 0);
+                                      const n = parseInt(raw, 10);
+                                      if (Number.isNaN(n)) return;
+                                      setQty(v.id, Math.min(n, effectiveStock));
+                                    }}
+                                    onFocus={(e) => e.target.select()}
+                                    placeholder="0"
+                                    className={`w-10 sm:w-12 h-8 sm:h-9 text-center text-sm font-semibold bg-transparent outline-none font-body border-x border-border ${
+                                      active ? "text-emerald-700" : "text-text-primary"
+                                    }`}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={t("increase")}
+                                    onClick={() => setQty(v.id, qty + 1)}
+                                    disabled={outOfStock || qty >= effectiveStock}
+                                    className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-text-muted hover:bg-bg-secondary disabled:opacity-30 text-lg font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                <div className="w-20 sm:w-24 text-right">
+                                  <div className="text-[9px] sm:text-[10px] uppercase tracking-wider text-text-muted font-body">
+                                    {t("total")}
+                                  </div>
+                                  <div className={`font-heading font-bold tabular-nums text-sm sm:text-base ${
+                                    active ? "text-emerald-700" : outOfStock ? "text-text-muted" : "text-text-primary"
+                                  }`}>
+                                    {outOfStock && qty === 0 ? "—" : `${lineTotal.toFixed(2)} €`}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ))}
+                    </div>
+                  </div>
+                </section>
               </div>
-                    );
-                  })}
-                </div>
-              </section>
             );
           })}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 sm:p-5 border-t border-border-light bg-bg-secondary space-y-2 sm:space-y-3 shrink-0">
+        {/* Footer récap + CTA */}
+        <div className="p-4 sm:p-5 border-t border-border-light bg-bg-primary space-y-2 sm:space-y-3 shrink-0">
           {feedback && (
             <p
               className={`text-[13px] sm:text-sm font-body text-center rounded-lg py-1.5 px-2 ${
@@ -481,55 +487,75 @@ export default function AddToCartModal({
               {feedback.msg}
             </p>
           )}
-          <div className="flex items-center justify-between text-[15px] sm:text-base font-body">
-            <span className="text-text-secondary">
-              {totalItems === 0
-                ? "—"
-                : totalItems === 1
-                  ? t("itemsCountOne", { count: totalItems })
-                  : t("itemsCountOther", { count: totalItems })}
-            </span>
-            <span className="font-semibold text-text-primary">
-              {t("totalHT")} : {totalPrice.toFixed(2)} &euro;
-            </span>
+          <div className="flex items-center justify-between gap-3 sm:gap-4 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-text-muted font-body">
+                {t("summary")}
+              </div>
+              <div className="text-sm sm:text-base text-text-secondary font-body">
+                {totalItems === 0 ? (
+                  <span className="text-text-muted">—</span>
+                ) : (
+                  <>
+                    <span className="font-semibold text-text-primary">
+                      {totalItems === 1 ? t("itemsCountOne", { count: totalItems }) : t("itemsCountOther", { count: totalItems })}
+                    </span>
+                    {totalPacks > 0 && (
+                      <>
+                        {" · "}
+                        {totalPacks === 1 ? t("packsCountOne", { count: totalPacks }) : t("packsCountOther", { count: totalPacks })}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-text-muted font-body">
+                {t("totalHT")}
+              </div>
+              <div className="font-heading font-bold text-xl sm:text-2xl text-text-primary tabular-nums">
+                {totalPrice.toFixed(2)} &euro;
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={isPending || totalItems === 0 || justAdded}
+              className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-white text-sm sm:text-base font-medium active:scale-[0.98] transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2 font-body shadow-lg ${
+                justAdded
+                  ? "bg-success"
+                  : "bg-bg-dark hover:bg-slate-700 disabled:opacity-50"
+              }`}
+            >
+              {isPending ? (
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : justAdded ? (
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                </svg>
+              )}
+              {justAdded ? t("added") : t("addSelection")}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isPending || totalItems === 0 || justAdded}
-            className={`w-full py-3 sm:py-3 rounded-full text-white text-[15px] sm:text-base font-medium active:scale-[0.98] transition-all disabled:cursor-not-allowed flex items-center justify-center gap-2 font-body ${
-              justAdded
-                ? "bg-success"
-                : "bg-accent hover:bg-accent-dark disabled:opacity-50"
-            }`}
-          >
-            {isPending ? (
-              <svg className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            ) : justAdded ? (
-              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-              </svg>
-            )}
-            {justAdded ? t("added") : t("addSelection")}
-          </button>
         </div>
       </div>
 
-      {/* Lightbox : image plein écran au-dessus du modal */}
-      {showLightbox && headerImage && (
+      {/* Zoom plein écran sur la vignette d'une couleur */}
+      {zoomImage && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 animate-fade-in"
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4 sm:p-6 animate-fade-in"
           onClick={(e) => {
             e.stopPropagation();
-            setShowLightbox(false);
+            setZoomImage(null);
           }}
           role="dialog"
           aria-modal="true"
@@ -537,7 +563,7 @@ export default function AddToCartModal({
         >
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setShowLightbox(false); }}
+            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
             aria-label={t("close")}
             className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors backdrop-blur-sm"
           >
@@ -550,8 +576,8 @@ export default function AddToCartModal({
             onClick={(e) => e.stopPropagation()}
           >
             <Image
-              src={headerImage}
-              alt={headerColorName ? tp(headerColorName) : tp(productName)}
+              src={zoomImage.src}
+              alt={zoomImage.alt}
               fill
               sizes="(max-width: 640px) 100vw, 80vw"
               className="object-contain"

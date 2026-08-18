@@ -165,7 +165,12 @@ const CAROUSEL_SELECT = {
   discountPercent: true,
   categoryId: true,
   primaryColorId: true,
+  isBestSeller: true,
+  createdAt: true,
+  lastRefreshedAt: true,
   category: { select: { name: true } },
+  subCategories: { select: { name: true }, take: 1 },
+  tags: { include: { tag: { select: { id: true, name: true } } } },
   colors: {
     where: { disabled: false },
     select: {
@@ -192,7 +197,12 @@ type CarouselPrismaProduct = {
   discountPercent: number | Decimal | null;
   categoryId: string | null;
   primaryColorId: string | null;
+  isBestSeller: boolean;
+  createdAt: Date;
+  lastRefreshedAt: Date | null;
   category: { name: string };
+  subCategories: { name: string }[];
+  tags: { tag: { id: string; name: string } }[];
   colors: {
     id: string;
     colorId: string | null;

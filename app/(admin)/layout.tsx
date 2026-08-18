@@ -94,6 +94,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     untranslatedCategoriesCount,
     untranslatedSubCategoriesCount,
     pendingOrdersCount,
+    pendingUsersCount,
+    openClaimsCount,
   } = warnings;
 
   const translationEnabled = !!(pfsCreds.email && pfsCreds.password);
@@ -139,6 +141,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         initials={initials}
         warnings={warningCounts}
         pendingOrdersCount={pendingOrdersCount}
+        pendingUsersCount={pendingUsersCount}
+        openClaimsCount={openClaimsCount}
         isPlatformAdmin={isPlatformAdmin}
       >
         <AdminMobileNav
@@ -151,6 +155,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 .map(([href, w]) => [href, w!.count]),
             ),
             "/admin/commandes": pendingOrdersCount,
+            "/admin/utilisateurs": pendingUsersCount,
+            "/admin/reclamations": openClaimsCount,
           }}
           shopName={shopName}
           isPlatformAdmin={isPlatformAdmin}

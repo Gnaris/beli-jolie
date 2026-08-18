@@ -71,6 +71,8 @@ interface Props {
   initials: string;
   warnings: Record<string, { count: number; tooltip: string; title?: string; reasons?: string[]; hint?: string } | undefined>;
   pendingOrdersCount: number;
+  pendingUsersCount: number;
+  openClaimsCount: number;
   /** Affiche l'entrée "Contrôle plateforme" dans la section Système. Réservé à la boutique maîtresse. */
   isPlatformAdmin?: boolean;
   children: React.ReactNode;
@@ -98,6 +100,8 @@ export default function AdminDesktopShell({
   initials,
   warnings,
   pendingOrdersCount,
+  pendingUsersCount,
+  openClaimsCount,
   isPlatformAdmin = false,
   children,
 }: Props) {
@@ -105,6 +109,12 @@ export default function AdminDesktopShell({
   const [hydrated, setHydrated] = useState(false);
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const pathname = usePathname() ?? "";
+
+  const blueBadges: Record<string, number> = {
+    "/admin/commandes": pendingOrdersCount,
+    "/admin/utilisateurs": pendingUsersCount,
+    "/admin/reclamations": openClaimsCount,
+  };
 
   // Injecte l'entrée "Contrôle plateforme" en tête de la section Système,
   // uniquement pour la boutique maîtresse.
@@ -222,8 +232,8 @@ export default function AdminDesktopShell({
               <div className="space-y-0.5">
                 {section.items.map((item) => {
                   const warning = warnings[item.href];
-                  const isCommandes = item.href === "/admin/commandes";
-                  const ordersBadge = isCommandes && pendingOrdersCount > 0;
+                  const blueCount = blueBadges[item.href] ?? 0;
+                  const showBlueBadge = blueCount > 0;
                   const active = isItemActive(pathname, item.href);
                   const parentActive = isParentActive(pathname, item);
                   const hasChildren = !!item.children?.length;
@@ -281,19 +291,19 @@ export default function AdminDesktopShell({
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
                         </svg>
-                        {(ordersBadge || warning) && (
+                        {(showBlueBadge || warning) && (
                           <span
                             className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-white"
-                            style={{ background: ordersBadge ? "#3B82F6" : "#F59E0B" }}
+                            style={{ background: showBlueBadge ? "#3B82F6" : "#F59E0B" }}
                           />
                         )}
                         <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
                           <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
                             <span className="flex items-center gap-2">
                               {item.label}
-                              {ordersBadge && (
+                              {showBlueBadge && (
                                 <span className="rounded-full bg-sky-500/25 text-sky-200 px-1.5 py-0.5 text-[10px] font-bold">
-                                  {pendingOrdersCount}
+                                  {blueCount}
                                 </span>
                               )}
                               {warning && (
@@ -377,9 +387,9 @@ export default function AdminDesktopShell({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                               </svg>
                             )}
-                            {ordersBadge && (
+                            {showBlueBadge && (
                               <span className="flex items-center justify-center text-[11px] rounded-full min-w-[22px] h-[22px] px-1.5 font-bold shrink-0 bg-sky-100 text-sky-700 border border-sky-200">
-                                {pendingOrdersCount}
+                                {blueCount}
                               </span>
                             )}
                             {warning && (

@@ -2179,6 +2179,14 @@ model Order {
   // des modifications post-commande). Null pour les commandes créées avant l'ajout du champ.
   paidSubtotalHT Decimal? @db.Decimal(12, 2)
 
+  // Fusion vers une commande parente encore en préparation (PENDING) : quand la
+  // cliente demande d'ajouter un panier d'appoint à une commande existante, ce
+  // champ pointe vers cette commande parente. L'admin traitera la fusion en
+  // regroupant les articles + en ajustant le port. `null` = commande autonome.
+  mergeIntoOrderId String?
+  mergeIntoOrder   Order?  @relation("OrderMerges", fields: [mergeIntoOrderId], references: [id])
+  mergedOrders     Order[] @relation("OrderMerges")
+
   // Relations for new features
   stockMovements    StockMovement[]
   creditUsages      CreditUsage[]
@@ -2955,6 +2963,9 @@ model Promotion {
   // Deprecated depuis 2026-08-11 : remplacé par `scope`. Conservé pour compat migration.
   appliesToAll   Boolean               @default(true)
   scope          PromotionScope        @default(ALL_PRODUCTS)
+  // Cumule avec la remise commerciale du client et avec les autres promos stackable.
+  // Si false : « meilleure gagne » (comportement historique).
+  stackable      Boolean               @default(false)
   startsAt       DateTime
   endsAt         DateTime?
   isActive       Boolean               @default(true)

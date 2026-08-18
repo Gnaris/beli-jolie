@@ -68,6 +68,7 @@ export async function loadActivePromotions(): Promise<ActivePromotion[]> {
     productIds: p.products.map((r) => r.productId),
     categoryIds: p.categories.map((r) => r.categoryId),
     collectionIds: p.collections.map((r) => r.collectionId),
+    stackable: p.stackable,
   }));
 }
 
@@ -80,7 +81,16 @@ interface CartForCodeValidation {
   subtotalHT: number;
   carrierPrice: number;
   userId: string;
-  userShipping: { isFree: boolean; savedAmount: number };
+  /**
+   * Livraison du client sous forme cumulable. `isFree=true` = 100 %.
+   * Sinon les 2 champs discountType/discountValue sont utilisés (pré-filtrés
+   * côté caller si un seuil THRESHOLD n'est pas atteint).
+   */
+  userShipping: {
+    isFree: boolean;
+    discountType: "PERCENT" | "AMOUNT" | null;
+    discountValue: number | null;
+  };
 }
 
 export interface AppliedCodePromo {
@@ -168,6 +178,7 @@ export async function validatePromoCode(
     productIds: promo.products.map((r) => r.productId),
     categoryIds: promo.categories.map((r) => r.categoryId),
     collectionIds: promo.collections.map((r) => r.collectionId),
+    stackable: promo.stackable,
   };
 
   let itemsSaved = 0;

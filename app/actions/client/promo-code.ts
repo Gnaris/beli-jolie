@@ -78,7 +78,10 @@ export async function validatePromoCodeForCart(
       userId,
       userShipping: {
         isFree: shipping.isFreeShipping,
-        savedAmount: shipping.shippingSavedAmount,
+        // La remise user est déjà précalculée en montant € par le caller —
+        // on la remonte à l'engine comme un discount AMOUNT équivalent.
+        discountType: shipping.shippingSavedAmount > 0 ? "AMOUNT" : null,
+        discountValue: shipping.shippingSavedAmount > 0 ? shipping.shippingSavedAmount : null,
       },
     },
     activePromos,

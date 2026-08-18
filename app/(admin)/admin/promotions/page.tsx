@@ -64,6 +64,7 @@ export default async function AdminPromotionsPage() {
     maxUses: p.maxUses,
     maxUsesPerUser: p.maxUsesPerUser,
     firstOrderOnly: p.firstOrderOnly,
+    stackable: p.stackable,
     appliesToAll: p.appliesToAll,
     startsAt: p.startsAt.toISOString(),
     endsAt: p.endsAt ? p.endsAt.toISOString() : null,

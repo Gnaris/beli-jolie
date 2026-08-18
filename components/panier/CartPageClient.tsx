@@ -85,6 +85,10 @@ interface Props {
   promoInfoByItemId?: Record<string, PromoInfo>;
   /** Remise personnalisée attribuée à la cliente sur son compte. */
   clientDiscount?: { type: "PERCENT" | "AMOUNT"; value: number } | null;
+  /** Callback appelé pour passer à l'étape 2 du wizard (au lieu du router.push). */
+  onProceed?: () => void;
+  /** Masque le fil d'étapes interne (utilisé quand le wrapper l'affiche). */
+  hideStepper?: boolean;
 }
 
 // Erreur de validation panier remontée par /api/cart/validate ou stockée en
@@ -514,13 +518,16 @@ function VariantRow({
   const showError = hasError && isCommanded;
   const displayAsOutOfStock = isOutOfStock || (errorForcesRemoval && !isCommanded);
 
+  // Palette : commandée = vert doux + bande verte à gauche (rendu maquette).
+  // Non commandée (mais disponible) = fond neutre légèrement estompé.
+  // Épuisée = très estompée. Erreur = rouge.
   const rowClass = showError
-    ? "bg-error/10"
+    ? "bg-error/10 border-l-4 border-l-error"
     : isCommanded
-      ? "bg-success/[0.06]"
+      ? "bg-success/[0.09] border-l-4 border-l-success"
       : displayAsOutOfStock
-        ? "opacity-40"
-        : "opacity-70";
+        ? "opacity-40 border-l-4 border-l-transparent"
+        : "opacity-80 border-l-4 border-l-transparent";
 
   const chipClass = variant.saleType === "UNIT"
     ? "chip-unit"
@@ -612,6 +619,21 @@ function VariantRow({
             {showError && validationError.reason === "insufficient_stock" && (
               <span className="text-[11px] font-semibold text-error">
                 {tCart("errorStockRemaining", { count: validationError.available })}
+              </span>
+            )}
+            {!showError && (
+              <span className={`text-[10px] font-medium ${
+                effectiveStock <= 0
+                  ? "text-text-muted"
+                  : effectiveStock < 5
+                    ? "text-warning"
+                    : "text-success"
+              }`}>
+                {effectiveStock <= 0
+                  ? tCart("outOfStock")
+                  : effectiveStock < 5
+                    ? tCart("lowStockShort", { count: effectiveStock })
+                    : tCart("inStock")}
               </span>
             )}
           </div>
@@ -1256,7 +1278,7 @@ function MobileQtyControl({
 // Page principale
 // ─────────────────────────────────────────────
 
-export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true, promoInfoByItemId = {}, clientDiscount = null }: Props) {
+export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeReady = true, promoInfoByItemId = {}, clientDiscount = null, onProceed, hideStepper = false }: Props) {
   const t = useTranslations("cart");
   const { tp } = useProductTranslation();
   const router = useRouter();
@@ -1472,7 +1494,8 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
       }
       if (data.ok) {
         setValidationErrors([]);
-        router.push("/panier/commande");
+        if (onProceed) onProceed();
+        else router.push("/panier/commande");
         return;
       }
       // Erreurs : on affiche le bandeau + un toast récap, on ne navigue PAS.
@@ -1512,15 +1535,17 @@ export default function CartPageClient({ cart, productsMeta, minOrderHT, stripeR
   return (
     <PromoInfoContext.Provider value={promoInfoByItemId}>
       <div className="max-w-[1440px] mx-auto">
-        <div className="bg-bg-primary border border-border rounded-3xl shadow-sm overflow-hidden grid grid-cols-1 lg:grid-cols-[124px_1fr_400px] min-h-[720px]">
+        <div className={`bg-bg-primary border border-border rounded-3xl shadow-sm overflow-hidden grid grid-cols-1 ${hideStepper ? "lg:grid-cols-[1fr_400px]" : "lg:grid-cols-[124px_1fr_400px]"} min-h-[720px]`}>
           {/* Rail */}
-          <aside className="hidden lg:block bg-bg-dark rounded-l-3xl">
-            <RailStepper currentStep={0} />
-          </aside>
+          {!hideStepper && (
+            <aside className="hidden lg:block bg-bg-dark rounded-l-3xl">
+              <RailStepper currentStep={0} />
+            </aside>
+          )}
 
           {/* Preview */}
           <section className="bg-bg-secondary/40 p-5 sm:p-8">
-            <MobileProgress currentStep={0} />
+            {!hideStepper && <MobileProgress currentStep={0} />}
 
             {/* En-tête */}
             <div className="flex items-baseline justify-between mb-5 gap-3 flex-wrap">

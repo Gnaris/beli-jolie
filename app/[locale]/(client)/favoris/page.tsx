@@ -199,6 +199,18 @@ export default async function FavorisPage({ searchParams }: PageProps) {
   const enriched = await enrichProductsWithBestPromoPercent(favoritesForEnrich);
   const bestPercentById = new Map(enriched.map((e) => [e.id, e.discountPercent]));
 
+  // Remise commerciale du client connecté (pour affichage cascade sur les cards).
+  const userForDiscount = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { discountType: true, discountValue: true },
+  });
+  const clientDiscount = userForDiscount?.discountType && userForDiscount.discountValue
+    ? {
+        discountType: userForDiscount.discountType as "PERCENT" | "AMOUNT",
+        discountValue: Number(userForDiscount.discountValue),
+      }
+    : null;
+
   const now = Date.now();
 
   return (
@@ -313,6 +325,7 @@ export default async function FavorisPage({ searchParams }: PageProps) {
                   ) > now - NEW_THRESHOLD_MS,
                   discountPercent: bestPercentById.get(product.id) ?? null,
                 }))}
+                clientDiscount={clientDiscount}
               />
             )}
 

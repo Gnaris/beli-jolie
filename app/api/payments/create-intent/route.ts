@@ -12,6 +12,7 @@ import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { verifyCarrierSignature } from "@/lib/carrier-signature";
+import { getEffectiveMinOrderHT } from "@/lib/min-order";
 
 const CreateIntentSchema = z.object({
   addressId: z.string().min(1),
@@ -204,7 +205,7 @@ export async function POST(req: Request) {
         subtotalHT: subtotalPreCode,
         carrierPrice,
         userId,
-        userShipping: { isFree: user?.freeShipping ?? false, savedAmount: 0 },
+        userShipping: { isFree: user?.freeShipping ?? false, discountType: null, discountValue: null },
       },
       activePromos,
     );
@@ -225,10 +226,11 @@ export async function POST(req: Request) {
   });
 
   // Pré-check minimum de commande (audit §14) : refuser AVANT création PI si
-  // subtotalHT < min_order_ht configuré. Sinon le débit passe et placeOrder
+  // subtotalHT < seuil configuré. Sinon le débit passe et placeOrder
   // rembourse — ce qui est visible pour la cliente mais évitable.
-  const minConfig = await prisma.siteConfig.findFirst({ where: { key: "min_order_ht" } });
-  const minHT = minConfig ? parseFloat(minConfig.value) : 0;
+  // Le seuil dépend du mode configuré + du fait que ce soit la 1ʳᵉ commande
+  // du client (cf. lib/min-order.ts).
+  const minHT = await getEffectiveMinOrderHT(userId);
   if (minHT > 0 && pricing.subtotalHT < minHT) {
     return NextResponse.json(
       { error: `Montant minimum de commande non atteint. Minimum requis : ${minHT.toFixed(2)} € HT.` },

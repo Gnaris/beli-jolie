@@ -127,6 +127,13 @@ export interface EfashionDiff {
    * liées (la catégorie eFashion est stockée par variante).
    */
   categoryChanged: boolean;
+  /**
+   * True si la référence BJ (= `referenceBase` côté eFashion) a changé depuis
+   * le dernier sync. L'updater doit alors renommer chaque variante côté
+   * eFashion (`reference` + `reference_base`) et repointer notre
+   * `Product.efashionReferenceBase` sur la nouvelle valeur.
+   */
+  referenceBaseChanged: boolean;
 }
 
 /**
@@ -146,6 +153,7 @@ export function diffEfashionSnapshots(
     primaryChanged: false,
     declinaisonChanged: false,
     categoryChanged: false,
+    referenceBaseChanged: false,
   };
   if (!before) {
     result.added = [...after.variants];
@@ -157,6 +165,10 @@ export function diffEfashionSnapshots(
     result.declinaisonChanged = after.declinaisonId != null;
     result.categoryChanged = after.categoryId != null;
     return result;
+  }
+
+  if (before.referenceBase !== after.referenceBase) {
+    result.referenceBaseChanged = true;
   }
 
   const beforeByEfId = new Map(before.variants.map((v) => [v.efashionProductId, v]));
@@ -325,6 +337,7 @@ export function hasAnyChanges(diff: EfashionDiff): boolean {
     diff.compositionsChanged ||
     diff.primaryChanged ||
     diff.declinaisonChanged ||
-    diff.categoryChanged
+    diff.categoryChanged ||
+    diff.referenceBaseChanged
   );
 }

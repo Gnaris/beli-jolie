@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
@@ -309,6 +310,8 @@ export async function POST(request: NextRequest) {
     }).catch((err) =>
       logger.error("[POST /api/auth/register] Notification échouée", { error: err })
     );
+
+    revalidateTag("users", "default");
 
     const message = "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
 

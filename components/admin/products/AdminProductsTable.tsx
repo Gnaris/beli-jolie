@@ -1402,12 +1402,10 @@ function BulkColumnEditor({
   );
 }
 
-// ─── Variant Row (nouvelle version : édition inline, plus de checkbox) ─────
-// La ligne n'a plus de bouton « Modifier » ni de case à cocher. Chaque cellule
-// éditable délègue au top-level (AdminProductsTable) la mémorisation de la
-// valeur en attente via `onCommitCell`. Un bandeau flottant global en bas de
-// l'écran affiche le total des modifications et permet de tout appliquer /
-// annuler d'un coup, même à travers plusieurs tiroirs ouverts.
+// ─── VariantRow — ligne de tableau utilisée dans la modale variantes (bureau) ─
+// Chaque cellule éditable délègue au top-level la mémorisation de la valeur en
+// attente via `onCommitCell`. Le bandeau flottant global (bas de page) affiche
+// le total des modifications et permet de tout appliquer / annuler d'un coup.
 const VariantRow = React.memo(function VariantRow({
   variant,
   editsForVariant,
@@ -1417,7 +1415,6 @@ const VariantRow = React.memo(function VariantRow({
   variant: ColorVariant;
   editsForVariant: Partial<Record<VariantField, VariantEditValue>>;
   onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
-  /** Vrai si la couleur de cette variante correspond à Product.primaryColorId. */
   isPrimaryColor?: boolean;
 }) {
   const priceOrig = variant.unitPrice;
@@ -1445,9 +1442,6 @@ const VariantRow = React.memo(function VariantRow({
     [onCommitCell, variant.id],
   );
 
-  // Prix : la BDD stocke le TOTAL pour un PACK et l'UNITAIRE pour un UNIT.
-  // Dans le tiroir on montre le prix par pièce (colonne « Prix HT ») et le
-  // total du paquet à part (colonne « Prix HT Total », lecture seule).
   const isPackVariant = variant.saleType === "PACK";
   const packTotalQty = computeVariantPackTotalQty(variant, packCurrent);
   const unitPriceOrig = isPackVariant
@@ -1456,7 +1450,6 @@ const VariantRow = React.memo(function VariantRow({
   const unitPriceCurrent = isPackVariant
     ? Math.round((priceCurrent / packTotalQty) * 100) / 100
     : priceCurrent;
-  // L'admin édite l'unitaire ; on retransforme en total avant persistance.
   const commitUnitPrice = useCallback(
     (field: VariantField, newUnitValue: VariantEditValue, _origUnitValue: VariantEditValue) => {
       if (field !== "price") {
@@ -1471,7 +1464,6 @@ const VariantRow = React.memo(function VariantRow({
     [commit, isPackVariant, packTotalQty, priceOrig],
   );
 
-  // Puce colorée du stock : vert, ambre (≤5), rouge (0).
   const stockDotColor =
     stockCurrent === 0 ? "#DC2626" : stockCurrent <= 5 ? "#D97706" : "#16A34A";
   const stockLabelClass =
@@ -1487,19 +1479,29 @@ const VariantRow = React.memo(function VariantRow({
 
   return (
     <tr className={computeVariantRowClass(stockCurrent, disabledCurrent)}>
-      {/* Couleur + état activée/désactivée (chip vert/rouge à droite du nom). */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <span
-            className="w-[22px] h-[22px] rounded-full shrink-0"
-            style={{
-              ...swatchStyle,
-              border: "2px solid #fff",
-              boxShadow: "0 0 0 1px #D1D1D1, 0 1px 3px rgba(0,0,0,0.08)",
-            }}
-            title={variant.color.name}
-          />
-          <span className="text-xs font-semibold font-body text-text-primary">
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-2.5 flex-nowrap">
+          <span className="relative shrink-0">
+            <span
+              className="block w-[22px] h-[22px] rounded-full"
+              style={{
+                ...swatchStyle,
+                border: "2px solid #fff",
+                boxShadow: "0 0 0 1px #D1D1D1, 0 1px 3px rgba(0,0,0,0.08)",
+              }}
+              title={variant.color.name}
+            />
+            {isPrimaryColor && (
+              <span
+                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-black text-white text-[9px] leading-none flex items-center justify-center"
+                title="Couleur principale du produit"
+                aria-label="Couleur principale"
+              >
+                ★
+              </span>
+            )}
+          </span>
+          <span className="text-xs font-semibold font-body text-text-primary whitespace-nowrap">
             {variant.color.name}
           </span>
           <button
@@ -1509,7 +1511,7 @@ const VariantRow = React.memo(function VariantRow({
             aria-label={disabledCurrent ? "Variante désactivée — cliquez pour activer" : "Variante activée — cliquez pour désactiver"}
             title={disabledCurrent ? "Cliquez pour activer la variante" : "Cliquez pour désactiver la variante"}
             onClick={() => commit("disabled", !disabledCurrent, disabledOrig)}
-            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide text-white cursor-pointer transition-shadow ${
+            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide text-white cursor-pointer transition-shadow whitespace-nowrap ${
               disabledCurrent ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
             } ${dirtyDisabled ? "ring-2 ring-amber-400 ring-offset-1" : ""}`}
             data-variant-id={variant.id}
@@ -1517,19 +1519,10 @@ const VariantRow = React.memo(function VariantRow({
           >
             {disabledCurrent ? "Désactivée" : "Activée"}
           </button>
-          {isPrimaryColor && (
-            <span
-              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide bg-black text-white"
-              title="Couleur principale du produit"
-            >
-              Couleur principale
-            </span>
-          )}
         </div>
       </td>
 
-      {/* Type - UNIT ou PACK avec édition inline du packQty */}
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 whitespace-nowrap">
         {variant.saleType === "UNIT" ? (
           <span className="badge badge-info text-[10px]">Unité</span>
         ) : (
@@ -1551,10 +1544,9 @@ const VariantRow = React.memo(function VariantRow({
         )}
       </td>
 
-      {/* Tailles (lecture seule ici) */}
-      <td className="px-4 py-3">
+      <td className="px-4 py-3 whitespace-nowrap">
         {variant.variantSizes && variant.variantSizes.length > 0 && (
-          <span className="badge badge-neutral text-[10px]">
+          <span className="badge badge-neutral text-[10px] whitespace-nowrap">
             {variant.variantSizes
               .map((vs) => (vs.quantity > 1 ? `${vs.size.name}×${vs.quantity}` : vs.size.name))
               .join(", ")}
@@ -1562,8 +1554,7 @@ const VariantRow = React.memo(function VariantRow({
         )}
       </td>
 
-      {/* Prix HT — unitaire (éditable) */}
-      <td className="px-4 py-3 text-right">
+      <td className="px-4 py-3 text-right whitespace-nowrap">
         <VariantEditableCell
           variantId={variant.id}
           field="price"
@@ -1580,8 +1571,7 @@ const VariantRow = React.memo(function VariantRow({
         </VariantEditableCell>
       </td>
 
-      {/* Prix HT Total — lecture seule (pertinent pour PACK) */}
-      <td className="px-4 py-3 text-right">
+      <td className="px-4 py-3 text-right whitespace-nowrap">
         {isPackVariant ? (
           <span
             className={`text-xs font-body font-medium tabular-nums ${
@@ -1596,8 +1586,7 @@ const VariantRow = React.memo(function VariantRow({
         )}
       </td>
 
-      {/* Stock */}
-      <td className="px-4 py-3 text-right">
+      <td className="px-4 py-3 text-right whitespace-nowrap">
         <VariantEditableCell
           variantId={variant.id}
           field="stock"
@@ -1628,8 +1617,7 @@ const VariantRow = React.memo(function VariantRow({
         </VariantEditableCell>
       </td>
 
-      {/* Poids */}
-      <td className="px-4 py-3 text-right">
+      <td className="px-4 py-3 text-right whitespace-nowrap">
         <VariantEditableCell
           variantId={variant.id}
           field="weight"
@@ -1650,10 +1638,9 @@ const VariantRow = React.memo(function VariantRow({
 });
 
 
-// ─── VariantCardMobile — carte verticale utilisée dans la modale mobile ─────
-// Reprend les mêmes cellules éditables que VariantRow, mais dans un layout
-// carte (rond couleur + nom + badges + grille 2×2 métriques). Zéro scroll
-// horizontal, tout tient dans la largeur du téléphone.
+// ─── VariantCardMobile — carte verticale utilisée dans la modale sur mobile ─
+// Layout carte (rond couleur + nom + badges + grille 2×2 métriques). Sur bureau
+// c'est le tableau VariantRow qui est affiché.
 export const VariantCardMobile = React.memo(function VariantCardMobile({
   variant,
   editsForVariant,
@@ -2344,7 +2331,8 @@ function ActionsDropdown({
       {/* ─── Édition ─── */}
       <span className={groupLabel}>Édition</span>
       {/* « Modifier les variantes » exposé uniquement sur mobile : sur desktop
-          le tiroir variantes s'ouvre au clic sur la ligne (comportement d'origine). */}
+          la modale variantes s'ouvre au clic sur la ligne (le tap ligne mobile
+          sert à toggler la sélection). */}
       <button type="button" onClick={onExpandToggle} className={`md:hidden ${itemClass}`}>
         <span className={iconWrap}>◫</span>
         Modifier les variantes
@@ -3028,12 +3016,10 @@ function ProductRow({
     }
   }, [pendingFaireEnqueue, faireBadgeState.loading]);
 
-  // Modale variantes MOBILE ouverte : lock body scroll + fermeture ESC.
-  // Sur desktop le contenu est un tiroir inline → pas de lock/ESC nécessaire.
+  // Modale variantes ouverte (bureau ou mobile) : lock body scroll + fermeture ESC.
   useEffect(() => {
     if (!expanded) return;
     if (typeof window === "undefined") return;
-    if (!window.matchMedia("(max-width: 767px)").matches) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onExpandToggle(); };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -3227,7 +3213,7 @@ function ProductRow({
         }}
         onClick={(e) => {
           // Sur mobile (<md) : clic ligne = toggle sélection (fond gris).
-          // Sur desktop : clic ligne = ouvrir le tiroir variantes (historique).
+          // Sur desktop : clic ligne = ouvrir la modale variantes.
           //
           // Skip 1 — la cible est un élément interactif (bouton, lien, input) :
           // iOS Safari a un bug où stopPropagation ne bloque pas toujours le
@@ -3779,141 +3765,25 @@ function ProductRow({
         </td>
       </tr>
 
-      {/* ── Tiroir variantes DESKTOP (comportement d'origine) ──
-          S'ouvre inline sous la ligne quand l'admin clique sur la ligne. */}
-      {expanded && (
-        <tr className="hidden md:table-row">
-          <td colSpan={7} className="p-0">
-            <div className="drawer-variant-container">
-              <div className="drawer-variant-header relative flex items-center justify-between">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-1 h-9 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-700" />
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700 mb-0.5">
-                      Tiroir variantes
-                    </div>
-                    <div className="font-heading text-xl font-bold text-text-primary leading-tight">
-                      {product.colors.length} variante{product.colors.length > 1 ? "s" : ""}
-                      <span className="ml-2 text-text-muted font-normal text-sm font-body">
-                        · cliquez sur un chiffre pour l'éditer, ou modifiez toute la colonne d'un coup
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <Link
-                  href={`/admin/produits/${product.id}/modifier`}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text-primary transition-colors no-underline"
-                >
-                  Édition complète
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                  </svg>
-                </Link>
-              </div>
-              <div className="drawer-variant-table-wrap">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="drawer-variant-th">
-                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
-                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
-                      <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Tailles</th>
-                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
-                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT Total</th>
-                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
-                      <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
-                    </tr>
-                    <tr className="drawer-variant-bulk-row">
-                      <th className="px-4 py-2 text-left">
-                        <BulkDisabledEditor
-                          allCurrentlyDisabled={product.colors.every((v) => {
-                            const dirty = dirtyEdits[v.id]?.disabled;
-                            return (dirty as boolean | undefined) ?? v.disabled;
-                          })}
-                          onApplyAll={(disabled) => {
-                            for (const v of product.colors) {
-                              onCommitCell(v.id, "disabled", disabled, v.disabled);
-                            }
-                          }}
-                        />
-                      </th>
-                      <th colSpan={2} className="px-4 py-2 text-left">
-                        <span className="bulk-col-label">Modifier toute la colonne ↓</span>
-                      </th>
-                      <th className="px-4 py-2 text-right">
-                        <BulkColumnEditor
-                          columnLabel="prix HT unitaire"
-                          isInt={false}
-                          suffix="€"
-                          onApplyAll={(unitValue) => {
-                            const packQtyEdits: Record<string, number | undefined> = {};
-                            for (const v of product.colors) {
-                              packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
-                            }
-                            const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
-                            for (const e of edits) {
-                              onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
-                            }
-                          }}
-                        />
-                      </th>
-                      <th className="px-4 py-2" aria-hidden="true" />
-                      <th className="px-4 py-2 text-right">
-                        <BulkColumnEditor
-                          columnLabel="stock"
-                          isInt
-                          onApplyAll={(value) => {
-                            for (const v of product.colors) {
-                              onCommitCell(v.id, "stock", value, v.stock);
-                            }
-                          }}
-                        />
-                      </th>
-                      <th className="px-4 py-2 text-right">
-                        <BulkColumnEditor
-                          columnLabel="poids"
-                          isInt={false}
-                          suffix="kg"
-                          onApplyAll={(value) => {
-                            for (const v of product.colors) {
-                              onCommitCell(v.id, "weight", value, v.weight);
-                            }
-                          }}
-                        />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {product.colors.map((variant) => (
-                      <VariantRow
-                        key={variant.id}
-                        variant={variant}
-                        editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
-                        onCommitCell={onCommitCell}
-                        isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-
-      {/* ── Modale variantes plein écran MOBILE only ──
-          Ouverte via le menu ⋮ → « Modifier les variantes ». Rendue dans
-          document.body pour éviter d'être coincée dans le <tbody> (invalide HTML). */}
+      {/* ── Modale variantes ──
+          Ouverte au clic sur la ligne (bureau) ou via le menu ⋮ → « Modifier
+          les variantes ». Rendue dans document.body pour éviter d'être coincée
+          dans le <tbody> (invalide HTML). Plein écran sur mobile, carte centrée
+          de taille moyenne sur bureau. */}
       {expanded && createPortal(
-        <div className="md:hidden fixed inset-0 z-[9998] flex flex-col">
+        <div className="fixed inset-0 z-[9998] flex flex-col md:items-center md:justify-center md:p-4">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-slate-900/60"
             onClick={onExpandToggle}
             aria-hidden
           />
-          {/* Panel — plein écran sur mobile, carte centrée max sur desktop */}
+          {/* Panel — plein écran sur mobile, carte centrée large sur bureau
+              (max-w-7xl = 1280px : tient un tableau 7 colonnes toutes lignes
+              sur UNE seule ligne sans wrap, quelle que soit la longueur du nom
+              de couleur ou la présence du badge « Principale »). */}
           <div
-            className="relative flex flex-col bg-bg-primary w-full h-full md:h-auto md:max-h-[90vh] md:w-full md:max-w-6xl md:rounded-2xl md:shadow-2xl overflow-hidden"
+            className="relative flex flex-col bg-bg-primary w-full h-full md:h-auto md:max-h-[85vh] md:w-full md:max-w-7xl md:rounded-2xl md:shadow-2xl overflow-hidden"
             role="dialog"
             aria-modal="true"
             aria-label={`Variantes de ${product.name}`}
@@ -3934,7 +3804,7 @@ function ProductRow({
               </div>
               <Link
                 href={`/admin/produits/${product.id}/modifier`}
-                className="hidden md:inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text-primary transition-colors no-underline shrink-0"
+                className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-text-muted hover:text-text-primary transition-colors no-underline shrink-0"
               >
                 Édition complète
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
@@ -3953,99 +3823,189 @@ function ProductRow({
               </button>
             </div>
 
-            {/* Body scrollable — cartes variantes MOBILE only.
-                On garde le tableau pour ≥ md dans le tiroir inline plus haut ;
-                ici on est déjà en `md:hidden`, donc le layout carte est
-                l'unique affichage de la modale. Zéro scroll horizontal. */}
+            {/* Body scrollable.
+                Bureau (≥ md) : tableau une ligne par variante (comme l'ancien tiroir).
+                Mobile (< md) : cartes empilées (le tableau à 7 colonnes ne tient pas). */}
             <div className="flex-1 overflow-auto bg-bg-secondary/30">
-              <div className="px-4 pt-3 pb-2 text-[12px] text-text-muted">
-                Cliquez sur un chiffre pour l'éditer.
+              <div className="px-4 md:px-6 pt-3 pb-2 text-[12px] text-text-muted">
+                Cliquez sur un chiffre pour l'éditer, ou modifiez toute la colonne d'un coup.
               </div>
 
-              {/* Accordion « Modifier toute la colonne » — replié par défaut */}
-              <details className="mx-4 mb-4 rounded-xl bg-bg-primary border border-border">
-                <summary className="px-4 py-3 cursor-pointer flex items-center justify-between list-none select-none">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">
-                    Modifier toute la colonne ↓
-                  </span>
-                  <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </summary>
-                <div className="px-4 pb-4 pt-1 border-t border-border-light space-y-3">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">État global</div>
-                    <BulkDisabledEditor
-                      allCurrentlyDisabled={product.colors.every((v) => {
-                        const dirty = dirtyEdits[v.id]?.disabled;
-                        return (dirty as boolean | undefined) ?? v.disabled;
-                      })}
-                      onApplyAll={(disabled) => {
-                        for (const v of product.colors) {
-                          onCommitCell(v.id, "disabled", disabled, v.disabled);
-                        }
-                      }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Prix HT unitaire</div>
-                      <BulkColumnEditor
-                        columnLabel="prix HT unitaire"
-                        isInt={false}
-                        suffix="€"
-                        onApplyAll={(unitValue) => {
-                          const packQtyEdits: Record<string, number | undefined> = {};
-                          for (const v of product.colors) {
-                            packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
-                          }
-                          const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
-                          for (const e of edits) {
-                            onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
-                          }
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Stock</div>
-                      <BulkColumnEditor
-                        columnLabel="stock"
-                        isInt
-                        onApplyAll={(value) => {
-                          for (const v of product.colors) {
-                            onCommitCell(v.id, "stock", value, v.stock);
-                          }
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Poids</div>
-                      <BulkColumnEditor
-                        columnLabel="poids"
-                        isInt={false}
-                        suffix="kg"
-                        onApplyAll={(value) => {
-                          for (const v of product.colors) {
-                            onCommitCell(v.id, "weight", value, v.weight);
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
+              {/* ─── Tableau BUREAU ─────────────────────────────────────── */}
+              <div className="hidden md:block px-6 pb-6">
+                <div className="rounded-xl border border-border bg-bg-primary overflow-hidden shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-bg-secondary/60 border-b border-border">
+                        <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Couleur</th>
+                        <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Type</th>
+                        <th className="px-4 py-3 text-left font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Tailles</th>
+                        <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT</th>
+                        <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Prix HT Total</th>
+                        <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Stock</th>
+                        <th className="px-4 py-3 text-right font-body text-[10px] font-bold text-text-muted uppercase tracking-wider">Poids</th>
+                      </tr>
+                      <tr className="bg-bg-secondary border-b border-border">
+                        <th className="px-4 py-2 text-left">
+                          <BulkDisabledEditor
+                            allCurrentlyDisabled={product.colors.every((v) => {
+                              const dirty = dirtyEdits[v.id]?.disabled;
+                              return (dirty as boolean | undefined) ?? v.disabled;
+                            })}
+                            onApplyAll={(disabled) => {
+                              for (const v of product.colors) {
+                                onCommitCell(v.id, "disabled", disabled, v.disabled);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th colSpan={2} className="px-4 py-2 text-left">
+                          <span className="bulk-col-label">Modifier toute la colonne ↓</span>
+                        </th>
+                        <th className="px-4 py-2 text-right">
+                          <BulkColumnEditor
+                            columnLabel="prix HT unitaire"
+                            isInt={false}
+                            suffix="€"
+                            onApplyAll={(unitValue) => {
+                              const packQtyEdits: Record<string, number | undefined> = {};
+                              for (const v of product.colors) {
+                                packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
+                              }
+                              const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
+                              for (const e of edits) {
+                                onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th className="px-4 py-2" aria-hidden="true" />
+                        <th className="px-4 py-2 text-right">
+                          <BulkColumnEditor
+                            columnLabel="stock"
+                            isInt
+                            onApplyAll={(value) => {
+                              for (const v of product.colors) {
+                                onCommitCell(v.id, "stock", value, v.stock);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th className="px-4 py-2 text-right">
+                          <BulkColumnEditor
+                            columnLabel="poids"
+                            isInt={false}
+                            suffix="kg"
+                            onApplyAll={(value) => {
+                              for (const v of product.colors) {
+                                onCommitCell(v.id, "weight", value, v.weight);
+                              }
+                            }}
+                          />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {product.colors.map((variant) => (
+                        <VariantRow
+                          key={variant.id}
+                          variant={variant}
+                          editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
+                          onCommitCell={onCommitCell}
+                          isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </details>
+              </div>
 
-              {/* Cartes variantes empilées verticalement */}
-              <div className="px-4 pb-6 flex flex-col gap-3">
-                {product.colors.map((variant) => (
-                  <VariantCardMobile
-                    key={variant.id}
-                    variant={variant}
-                    editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
-                    onCommitCell={onCommitCell}
-                    isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
-                  />
-                ))}
+              {/* ─── Cartes MOBILE ──────────────────────────────────────── */}
+              <div className="md:hidden">
+                {/* Accordion « Modifier toute la colonne » — replié par défaut */}
+                <details className="mx-4 mb-4 rounded-xl bg-bg-primary border border-border">
+                  <summary className="px-4 py-3 cursor-pointer flex items-center justify-between list-none select-none">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-secondary">
+                      Modifier toute la colonne ↓
+                    </span>
+                    <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-4 pb-4 pt-1 border-t border-border-light space-y-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">État global</div>
+                      <BulkDisabledEditor
+                        allCurrentlyDisabled={product.colors.every((v) => {
+                          const dirty = dirtyEdits[v.id]?.disabled;
+                          return (dirty as boolean | undefined) ?? v.disabled;
+                        })}
+                        onApplyAll={(disabled) => {
+                          for (const v of product.colors) {
+                            onCommitCell(v.id, "disabled", disabled, v.disabled);
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Prix HT unitaire</div>
+                        <BulkColumnEditor
+                          columnLabel="prix HT unitaire"
+                          isInt={false}
+                          suffix="€"
+                          onApplyAll={(unitValue) => {
+                            const packQtyEdits: Record<string, number | undefined> = {};
+                            for (const v of product.colors) {
+                              packQtyEdits[v.id] = dirtyEdits[v.id]?.packQty as number | undefined;
+                            }
+                            const edits = computeBulkPriceEdits(product.colors, unitValue, packQtyEdits);
+                            for (const e of edits) {
+                              onCommitCell(e.variantId, "price", e.newTotal, e.originalPrice);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Stock</div>
+                        <BulkColumnEditor
+                          columnLabel="stock"
+                          isInt
+                          onApplyAll={(value) => {
+                            for (const v of product.colors) {
+                              onCommitCell(v.id, "stock", value, v.stock);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-1.5">Poids</div>
+                        <BulkColumnEditor
+                          columnLabel="poids"
+                          isInt={false}
+                          suffix="kg"
+                          onApplyAll={(value) => {
+                            for (const v of product.colors) {
+                              onCommitCell(v.id, "weight", value, v.weight);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <div className="px-4 pb-6 flex flex-col gap-3">
+                  {product.colors.map((variant) => (
+                    <VariantCardMobile
+                      key={variant.id}
+                      variant={variant}
+                      editsForVariant={dirtyEdits[variant.id] ?? EMPTY_VARIANT_EDITS}
+                      onCommitCell={onCommitCell}
+                      isPrimaryColor={!!product.primaryColorId && variant.colorId === product.primaryColorId}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
             {/* Le bandeau Appliquer/Annuler des modifications est global (bas
@@ -4380,8 +4340,8 @@ export default function AdminProductsTable({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // ─── Édition inline des variantes ──────────────────────────────────────
   // Le state vit ici (top-level) pour qu'un seul bandeau flottant global
-  // affiche le total des modifications, même quand plusieurs tiroirs
-  // variantes sont ouverts sur des produits différents.
+  // affiche le total des modifications, même après avoir édité plusieurs
+  // produits successivement dans la modale variantes.
   const [dirtyEdits, setDirtyEdits] = useState<VariantDirtyEdits>({});
   const [applyingVariantEdits, setApplyingVariantEdits] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -4447,10 +4407,8 @@ export default function AdminProductsTable({
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+      if (prev.has(id)) return new Set();
+      return new Set([id]);
     });
   }, []);
 
@@ -6111,7 +6069,8 @@ export default function AdminProductsTable({
       </div>
 
       {/* Bandeau flottant global — apparaît en bas de l'écran dès qu'au moins
-          une cellule a bougé dans n'importe quel tiroir variantes ouvert. */}
+          une cellule a bougé dans la modale variantes (ou sur un autre produit
+          dont la modale a déjà été fermée sans appliquer). */}
       {totalDirtyVariants > 0 && (
         <div className="variant-apply-bar-floating">
           <div className="variant-apply-bar">
