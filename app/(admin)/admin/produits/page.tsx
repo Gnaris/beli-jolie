@@ -17,7 +17,7 @@ import LowStockPdfButton from "@/components/admin/products/LowStockPdfButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
@@ -423,6 +423,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hasFaireConfig,
     faireEnabled,
     hasMicrostoreConfig,
+    microstoreEnabled,
     pfsStockPendingCount,
     allSizes,
   ] = await Promise.all([
@@ -479,6 +480,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getCachedHasMicrostoreConfig(),
+    getCachedMicrostoreEnabled(),
     countPendingPfsStockDeductions(tenantForImages.id),
     // Tailles en cache (60s TTL) — utilisées pour résoudre les noms des
     // variantSizes sans passer par une jointure SQL sur la table Size.
@@ -690,6 +692,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
         hasMicrostoreConfig={hasMicrostoreConfig}
+        microstoreEnabled={microstoreEnabled}
         bulkEditOptions={{
           categories: categories.map((c) => ({
             id: c.id,

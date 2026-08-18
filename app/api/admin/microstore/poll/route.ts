@@ -53,7 +53,6 @@ export async function POST(request: Request) {
       } else {
         await unsetSiteConfig("microstore_expires_at");
       }
-      await setSiteConfig("microstore_enabled", "true");
       // Renvoie l'expiration au client pour affichage immédiat sans reload.
       // (on ne renvoie évidemment PAS le token lui-même)
       const expiresAtIso = expSec ? new Date(expSec * 1000).toISOString() : null;

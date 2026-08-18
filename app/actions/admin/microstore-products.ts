@@ -93,6 +93,11 @@ async function humanizeError(err: unknown): Promise<string> {
 export async function pushProductToMicrostore(productId: string): Promise<ActionResult> {
   await requireAdmin();
 
+  const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
+  if (!(await getCachedMicrostoreEnabled())) {
+    return { success: false, error: "Gestion des produits Microstore désactivée dans Paramètres › Marketplaces." };
+  }
+
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: {
@@ -203,6 +208,11 @@ export async function bulkPushProductsToMicrostore(
 
   if (productIds.length === 0) {
     return { success: true, totals: { pushed: 0, skipped: 0, failed: 0 }, results: [] };
+  }
+
+  const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
+  if (!(await getCachedMicrostoreEnabled())) {
+    return { success: false, error: "Gestion des produits Microstore désactivée dans Paramètres › Marketplaces." };
   }
 
   const products = await prisma.product.findMany({

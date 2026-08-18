@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  updatePfsCredentials, validatePfsCredentials, togglePfsEnabled,
-  updateAnkorstoreCredentials, validateAnkorstoreCredentials, toggleAnkorstoreEnabled,
-  updateEfashionCredentials, validateEfashionCredentials, toggleEfashionEnabled,
-  updateFaireCredentials, validateFaireCredentials, toggleFaireEnabled,
+  updatePfsCredentials, validatePfsCredentials,
+  updateAnkorstoreCredentials, validateAnkorstoreCredentials,
+  updateEfashionCredentials, validateEfashionCredentials,
+  updateFaireCredentials, validateFaireCredentials,
   updateFaireMadeInExcluded,
-  toggleMicrostoreEnabled,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
+  setMarketplaceProductsManagement,
 } from "@/app/actions/admin/site-config";
+import { setMarketplaceAutoSyncEnabled } from "@/app/actions/admin/marketplace-orders";
 import { applyMarketplaceMarkup, applyFaireMarkupWithClamp } from "@/lib/marketplace-pricing-shared";
 import { MarkupRow, type MarkupState } from "@/components/admin/settings/MarkupRow";
 import { MARKETPLACES_BRAND, brandGradient, type MarketplaceKey } from "@/lib/marketplaces-brand";
@@ -29,17 +30,23 @@ interface MarketplaceStats {
 interface Props {
   hasPfsConfig: boolean;
   pfsEnabled: boolean;
+  /** Gestion des commandes activée (worker qui importe les commandes). Défaut ON. */
+  pfsOrdersEnabled: boolean;
   pfsBrand: { id: string; name: string } | null;
   hasAnkorstoreConfig: boolean;
   ankorstoreEnabled: boolean;
+  ankorstoreOrdersEnabled: boolean;
   hasEfashionConfig: boolean;
   efashionEnabled: boolean;
+  efashionOrdersEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  faireOrdersEnabled: boolean;
   /** Codes ISO alpha-2 dont on n'écrit PAS « Made in » dans la description Faire. */
   faireMadeInExcluded: string[];
   hasMicrostoreConfig: boolean;
   microstoreEnabled: boolean;
+  microstoreOrdersEnabled: boolean;
   microstoreExpiresAtIso: string | null;
   microstorePictureStation: {
     configured: boolean;
@@ -586,16 +593,21 @@ function Field({ label, type, value, onChange, placeholder, disabled, hint }: {
 export default function MarketplaceConfig({
   hasPfsConfig,
   pfsEnabled: initialPfsEnabled,
+  pfsOrdersEnabled: initialPfsOrdersEnabled,
   pfsBrand: initialPfsBrand,
   hasAnkorstoreConfig,
   ankorstoreEnabled: initialAnkorstoreEnabled,
+  ankorstoreOrdersEnabled: initialAnkorstoreOrdersEnabled,
   hasEfashionConfig,
   efashionEnabled: initialEfashionEnabled,
+  efashionOrdersEnabled: initialEfashionOrdersEnabled,
   hasFaireConfig,
   faireEnabled: initialFaireEnabled,
+  faireOrdersEnabled: initialFaireOrdersEnabled,
   faireMadeInExcluded: initialFaireMadeInExcluded,
   hasMicrostoreConfig,
   microstoreEnabled: initialMicrostoreEnabled,
+  microstoreOrdersEnabled: initialMicrostoreOrdersEnabled,
   microstoreExpiresAtIso,
   microstorePictureStation,
   stats,
@@ -662,6 +674,53 @@ export default function MarketplaceConfig({
   const [microMarkup, setMicroMarkup] = useState<MarkupState>(markupSettings.microstore);
   const [microEnabled, setMicroEnabled] = useState(initialMicrostoreEnabled);
   const [isTogglingMicro, startTogglingMicro] = useTransition();
+
+  // ── Toggles "Gestion Commandes" (worker sync commandes marketplaces) ────────
+  // Défaut ON. Quand OFF, le worker skip le tenant pour cette marketplace.
+  const [pfsOrdersEnabled, setPfsOrdersEnabled] = useState(initialPfsOrdersEnabled);
+  const [ankOrdersEnabled, setAnkOrdersEnabled] = useState(initialAnkorstoreOrdersEnabled);
+  const [efaOrdersEnabled, setEfaOrdersEnabled] = useState(initialEfashionOrdersEnabled);
+  const [faiOrdersEnabled, setFaiOrdersEnabled] = useState(initialFaireOrdersEnabled);
+  const [microOrdersEnabled, setMicroOrdersEnabled] = useState(initialMicrostoreOrdersEnabled);
+  const [isTogglingPfsOrders, startTogglingPfsOrders] = useTransition();
+  const [isTogglingAnkOrders, startTogglingAnkOrders] = useTransition();
+  const [isTogglingEfaOrders, startTogglingEfaOrders] = useTransition();
+  const [isTogglingFaiOrders, startTogglingFaiOrders] = useTransition();
+  const [isTogglingMicroOrders, startTogglingMicroOrders] = useTransition();
+
+  function makeOrdersHandler(
+    marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "microstore",
+    label: string,
+    setter: (v: boolean) => void,
+    startTransition: (cb: () => void) => void,
+  ) {
+    return (v: boolean) => {
+      startTransition(async () => {
+        const source = marketplace === "ankorstore" ? "ANKORSTORE"
+          : marketplace === "efashion" ? "EFASHION"
+          : marketplace === "faire" ? "FAIRE"
+          : marketplace === "microstore" ? "MICROSTORE"
+          : "PFS";
+        try {
+          const r = await setMarketplaceAutoSyncEnabled({ source, enabled: v });
+          if (r.success) {
+            setter(v);
+            toast.success(
+              v ? `Gestion commandes ${label} activée` : `Gestion commandes ${label} en pause`,
+              v ? `Les commandes ${label} seront à nouveau importées automatiquement.` : `L'import automatique des commandes ${label} est stoppé.`,
+            );
+          }
+        } catch (err) {
+          toast.error("Erreur", err instanceof Error ? err.message : "Une erreur est survenue.");
+        }
+      });
+    };
+  }
+  const handlePfsOrdersToggle = makeOrdersHandler("pfs", "PFS", setPfsOrdersEnabled, startTogglingPfsOrders);
+  const handleAnkOrdersToggle = makeOrdersHandler("ankorstore", "Ankorstore", setAnkOrdersEnabled, startTogglingAnkOrders);
+  const handleEfaOrdersToggle = makeOrdersHandler("efashion", "eFashion", setEfaOrdersEnabled, startTogglingEfaOrders);
+  const handleFaiOrdersToggle = makeOrdersHandler("faire", "Faire", setFaiOrdersEnabled, startTogglingFaiOrders);
+  const handleMicroOrdersToggle = makeOrdersHandler("microstore", "Microstore", setMicroOrdersEnabled, startTogglingMicroOrders);
 
   // ── Shared ──────────────────────────────────────────────────────────────────
   const [isSavingMarkup, startSavingMarkup] = useTransition();
@@ -795,8 +854,8 @@ export default function MarketplaceConfig({
   }
   function handlePfsToggle(v: boolean) {
     startTogglingPfs(async () => {
-      const r = await togglePfsEnabled(v);
-      if (r.success) { setPfsEnabled(v); toast.success(v ? "Paris Fashion Shop activé" : "Paris Fashion Shop en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers PFS."); }
+      const r = await setMarketplaceProductsManagement("pfs", v);
+      if (r.success) { setPfsEnabled(v); toast.success(v ? "Gestion produits PFS activée" : "Gestion produits PFS en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers PFS."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
@@ -826,8 +885,8 @@ export default function MarketplaceConfig({
   }
   function handleAnkToggle(v: boolean) {
     startTogglingAnk(async () => {
-      const r = await toggleAnkorstoreEnabled(v);
-      if (r.success) { setAnkEnabled(v); toast.success(v ? "Ankorstore activé" : "Ankorstore en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers Ankorstore."); }
+      const r = await setMarketplaceProductsManagement("ankorstore", v);
+      if (r.success) { setAnkEnabled(v); toast.success(v ? "Gestion produits Ankorstore activée" : "Gestion produits Ankorstore en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers Ankorstore."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
@@ -857,8 +916,8 @@ export default function MarketplaceConfig({
   }
   function handleEfaToggle(v: boolean) {
     startTogglingEfa(async () => {
-      const r = await toggleEfashionEnabled(v);
-      if (r.success) { setEfaEnabled(v); toast.success(v ? "eFashion activé" : "eFashion en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers eFashion."); }
+      const r = await setMarketplaceProductsManagement("efashion", v);
+      if (r.success) { setEfaEnabled(v); toast.success(v ? "Gestion produits eFashion activée" : "Gestion produits eFashion en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers eFashion."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
@@ -888,8 +947,8 @@ export default function MarketplaceConfig({
   }
   function handleFaiToggle(v: boolean) {
     startTogglingFai(async () => {
-      const r = await toggleFaireEnabled(v);
-      if (r.success) { setFaiEnabled(v); toast.success(v ? "Faire activé" : "Faire en pause", v ? "La sync est de nouveau active." : "Plus de propagation vers Faire."); }
+      const r = await setMarketplaceProductsManagement("faire", v);
+      if (r.success) { setFaiEnabled(v); toast.success(v ? "Gestion produits Faire activée" : "Gestion produits Faire en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers Faire."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
@@ -916,8 +975,8 @@ export default function MarketplaceConfig({
   // ── Microstore handlers ─────────────────────────────────────────────────────
   function handleMicroToggle(v: boolean) {
     startTogglingMicro(async () => {
-      const r = await toggleMicrostoreEnabled(v);
-      if (r.success) { setMicroEnabled(v); toast.success(v ? "Microstore activé" : "Microstore en pause", v ? "L'import de commandes est de nouveau disponible." : "Bouton d'import masqué (la session reste enregistrée)."); }
+      const r = await setMarketplaceProductsManagement("microstore", v);
+      if (r.success) { setMicroEnabled(v); toast.success(v ? "Gestion produits Microstore activée" : "Gestion produits Microstore en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers Microstore."); }
       else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
     });
   }
@@ -972,8 +1031,14 @@ export default function MarketplaceConfig({
      * s'affichent en "—" au lieu de 0.
      */
     noSyncStats?: boolean;
-    /** Contrôle du toggle ON/OFF (absent si marketplace non configurée). */
+    /** Contrôle du toggle « Gestion Produits ». Absent si marketplace non configurée. */
     enabledControl?: {
+      checked: boolean;
+      toggling: boolean;
+      onToggle: (v: boolean) => void;
+    };
+    /** Contrôle du toggle « Gestion Commandes ». Absent si marketplace non configurée. */
+    ordersControl?: {
       checked: boolean;
       toggling: boolean;
       onToggle: (v: boolean) => void;
@@ -992,6 +1057,9 @@ export default function MarketplaceConfig({
       enabledControl: hasPfsConfig
         ? { checked: pfsEnabled, toggling: isTogglingPfs, onToggle: handlePfsToggle }
         : undefined,
+      ordersControl: hasPfsConfig
+        ? { checked: pfsOrdersEnabled, toggling: isTogglingPfsOrders, onToggle: handlePfsOrdersToggle }
+        : undefined,
     },
     {
       brandKey: "ankorstore",
@@ -1003,6 +1071,9 @@ export default function MarketplaceConfig({
       ctaLabel: hasAnkorstoreConfig ? "Réglages" : "Configurer",
       enabledControl: hasAnkorstoreConfig
         ? { checked: ankEnabled, toggling: isTogglingAnk, onToggle: handleAnkToggle }
+        : undefined,
+      ordersControl: hasAnkorstoreConfig
+        ? { checked: ankOrdersEnabled, toggling: isTogglingAnkOrders, onToggle: handleAnkOrdersToggle }
         : undefined,
     },
     {
@@ -1016,6 +1087,9 @@ export default function MarketplaceConfig({
       enabledControl: hasEfashionConfig
         ? { checked: efaEnabled, toggling: isTogglingEfa, onToggle: handleEfaToggle }
         : undefined,
+      ordersControl: hasEfashionConfig
+        ? { checked: efaOrdersEnabled, toggling: isTogglingEfaOrders, onToggle: handleEfaOrdersToggle }
+        : undefined,
     },
     {
       brandKey: "faire",
@@ -1027,6 +1101,9 @@ export default function MarketplaceConfig({
       ctaLabel: hasFaireConfig ? "Réglages" : "Configurer",
       enabledControl: hasFaireConfig
         ? { checked: faiEnabled, toggling: isTogglingFai, onToggle: handleFaiToggle }
+        : undefined,
+      ordersControl: hasFaireConfig
+        ? { checked: faiOrdersEnabled, toggling: isTogglingFaiOrders, onToggle: handleFaiOrdersToggle }
         : undefined,
     },
     {
@@ -1042,6 +1119,9 @@ export default function MarketplaceConfig({
       ctaLabel: hasMicrostoreConfig ? "Réglages" : "Connecter",
       enabledControl: hasMicrostoreConfig
         ? { checked: microEnabled, toggling: isTogglingMicro, onToggle: handleMicroToggle }
+        : undefined,
+      ordersControl: hasMicrostoreConfig
+        ? { checked: microOrdersEnabled, toggling: isTogglingMicroOrders, onToggle: handleMicroOrdersToggle }
         : undefined,
     },
   ];
@@ -1105,7 +1185,7 @@ export default function MarketplaceConfig({
               <tr>
                 <th className="py-3 pl-5 pr-3 text-left font-semibold">Marketplace</th>
                 <th className="py-3 px-3 text-left font-semibold">Statut</th>
-                <th className="py-3 px-3 text-center font-semibold">Actif</th>
+                <th className="py-3 px-3 text-center font-semibold">Gestion</th>
                 <th className="py-3 px-3 text-right font-semibold">En ligne</th>
                 <th className="py-3 px-3 text-right font-semibold">À synchroniser</th>
                 <th className="py-3 px-3 text-right font-semibold">Dernière sync</th>
@@ -1137,14 +1217,30 @@ export default function MarketplaceConfig({
                     </td>
                     <td className="py-4 px-3">{statusBadge(row.status, row.enabled)}</td>
                     <td className="py-4 px-3">
-                      {row.enabledControl ? (
-                        <div className="flex justify-center">
-                          <Toggle
-                            checked={row.enabledControl.checked}
-                            disabled={row.enabledControl.toggling}
-                            onChange={row.enabledControl.onToggle}
-                            label={row.enabledControl.checked ? "ON" : "OFF"}
-                          />
+                      {row.enabledControl || row.ordersControl ? (
+                        <div className="flex flex-col gap-2 items-center">
+                          {row.enabledControl && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-16 text-right">Produits</span>
+                              <Toggle
+                                checked={row.enabledControl.checked}
+                                disabled={row.enabledControl.toggling}
+                                onChange={row.enabledControl.onToggle}
+                                label={row.enabledControl.checked ? "ON" : "OFF"}
+                              />
+                            </div>
+                          )}
+                          {row.ordersControl && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-16 text-right">Commandes</span>
+                              <Toggle
+                                checked={row.ordersControl.checked}
+                                disabled={row.ordersControl.toggling}
+                                onChange={row.ordersControl.onToggle}
+                                label={row.ordersControl.checked ? "ON" : "OFF"}
+                              />
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="text-center font-body text-[11px] text-text-muted">—</div>
@@ -1203,18 +1299,37 @@ export default function MarketplaceConfig({
                     </div>
                     <div className="font-body text-[11px] text-text-muted truncate">{row.subtitle}</div>
                   </div>
-                  {row.enabledControl && (
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <Toggle
-                        checked={row.enabledControl.checked}
-                        disabled={row.enabledControl.toggling}
-                        onChange={row.enabledControl.onToggle}
-                        label={row.enabledControl.checked ? "ON" : "OFF"}
-                      />
-                    </div>
-                  )}
                   {statusBadge(row.status, row.enabled)}
                 </div>
+                {(row.enabledControl || row.ordersControl) && (
+                  <div
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {row.enabledControl && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted">Produits</span>
+                        <Toggle
+                          checked={row.enabledControl.checked}
+                          disabled={row.enabledControl.toggling}
+                          onChange={row.enabledControl.onToggle}
+                          label={row.enabledControl.checked ? "ON" : "OFF"}
+                        />
+                      </div>
+                    )}
+                    {row.ordersControl && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted">Commandes</span>
+                        <Toggle
+                          checked={row.ordersControl.checked}
+                          disabled={row.ordersControl.toggling}
+                          onChange={row.ordersControl.onToggle}
+                          label={row.ordersControl.checked ? "ON" : "OFF"}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg bg-bg-secondary/50 py-2">
                     <div className="font-heading text-base font-semibold tabular-nums text-text-primary">

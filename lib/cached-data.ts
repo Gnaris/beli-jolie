@@ -367,20 +367,22 @@ export const getCachedHasPfsConfig = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
-// ─── PFS enabled? ─────────────────────────────────────────────────────────
+// ─── PFS enabled? (gestion produits activée) ──────────────────────────────
+// Retourne true si (config présente) ET (gestion produits pas désactivée).
+// Clé SiteConfig : `pfs_products_management_enabled` (défaut ON).
 export const getCachedPfsEnabled = tenantScopedCacheWithTid(
   "pfs-enabled",
   async (tid) => {
     const rows = await prisma.siteConfig.findMany({
       where: tid === "global"
-        ? { key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } }
-        : { tenantId: tid, key: { in: ["pfs_email", "pfs_enabled", "pfs_brand_id", "pfs_brand_name"] } },
+        ? { key: { in: ["pfs_email", "pfs_products_management_enabled", "pfs_brand_id", "pfs_brand_name"] } }
+        : { tenantId: tid, key: { in: ["pfs_email", "pfs_products_management_enabled", "pfs_brand_id", "pfs_brand_name"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map(r => [r.key, r.value]));
     const hasEmail = map.has("pfs_email");
     const hasBrand = !!map.get("pfs_brand_id") && !!map.get("pfs_brand_name");
-    const enabled = map.get("pfs_enabled");
+    const enabled = map.get("pfs_products_management_enabled");
     return hasEmail && hasBrand && enabled !== "false";
   },
   ["pfs-enabled"],
@@ -578,14 +580,14 @@ export const getCachedHasAnkorstoreConfig = tenantScopedCacheWithTid(
 async function readAnkorstoreEnabledDirect(tid?: string) {
   const rows = await prisma.siteConfig.findMany({
     where: !tid || tid === "global"
-      ? { key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankors_enabled"] } }
-      : { tenantId: tid, key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankors_enabled"] } },
+      ? { key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankorstore_products_management_enabled"] } }
+      : { tenantId: tid, key: { in: ["ankorstore_bo_email", "ankors_client_id", "ankorstore_products_management_enabled"] } },
     select: { key: true, value: true },
   });
   const map = new Map(rows.map((r) => [r.key, r.value]));
   // Compat : accepte les identifiants back-office OU les vieux client_id OAuth2.
   const hasCreds = map.has("ankorstore_bo_email") || map.has("ankors_client_id");
-  const enabled = map.get("ankors_enabled");
+  const enabled = map.get("ankorstore_products_management_enabled");
   return hasCreds && enabled !== "false";
 }
 
@@ -661,13 +663,13 @@ export const getCachedEfashionEnabled = tenantScopedCacheWithTid(
   async (tid) => {
     const rows = await prisma.siteConfig.findMany({
       where: tid === "global"
-        ? { key: { in: ["efashion_email", "efashion_enabled"] } }
-        : { tenantId: tid, key: { in: ["efashion_email", "efashion_enabled"] } },
+        ? { key: { in: ["efashion_email", "efashion_products_management_enabled"] } }
+        : { tenantId: tid, key: { in: ["efashion_email", "efashion_products_management_enabled"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
     const hasConfig = map.has("efashion_email");
-    const enabled = map.get("efashion_enabled");
+    const enabled = map.get("efashion_products_management_enabled");
     return hasConfig && enabled !== "false";
   },
   ["efashion-enabled"],
@@ -722,13 +724,13 @@ export const getCachedFaireEnabled = tenantScopedCacheWithTid(
   async (tid) => {
     const rows = await prisma.siteConfig.findMany({
       where: tid === "global"
-        ? { key: { in: ["faire_api_key", "faire_enabled"] } }
-        : { tenantId: tid, key: { in: ["faire_api_key", "faire_enabled"] } },
+        ? { key: { in: ["faire_api_key", "faire_products_management_enabled"] } }
+        : { tenantId: tid, key: { in: ["faire_api_key", "faire_products_management_enabled"] } },
       select: { key: true, value: true },
     });
     const map = new Map(rows.map((r) => [r.key, r.value]));
     const hasConfig = map.has("faire_api_key");
-    const enabled = map.get("faire_enabled");
+    const enabled = map.get("faire_products_management_enabled");
     return hasConfig && enabled !== "false";
   },
   ["faire-enabled"],
@@ -809,6 +811,26 @@ export const getCachedHasMicrostoreConfig = tenantScopedCacheWithTid(
     return !!row;
   },
   ["has-microstore-config"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
+// ─── Microstore enabled? (gestion produits activée) ──────────────────────
+// Clé SiteConfig : `microstore_products_management_enabled` (défaut ON).
+export const getCachedMicrostoreEnabled = tenantScopedCacheWithTid(
+  "microstore-enabled",
+  async (tid) => {
+    const rows = await prisma.siteConfig.findMany({
+      where: tid === "global"
+        ? { key: { in: ["microstore_session_key", "microstore_products_management_enabled"] } }
+        : { tenantId: tid, key: { in: ["microstore_session_key", "microstore_products_management_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasConfig = map.has("microstore_session_key");
+    const enabled = map.get("microstore_products_management_enabled");
+    return hasConfig && enabled !== "false";
+  },
+  ["microstore-enabled"],
   { revalidate: 300, tags: ["site-config"] },
 );
 

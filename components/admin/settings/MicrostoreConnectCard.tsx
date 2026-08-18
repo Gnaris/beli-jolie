@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { disconnectMicrostore, toggleMicrostoreEnabled } from "@/app/actions/admin/site-config";
+import { disconnectMicrostore, setMarketplaceProductsManagement } from "@/app/actions/admin/site-config";
 
 interface Props {
   initiallyConnected: boolean;
@@ -181,7 +181,7 @@ export default function MicrostoreConnectCard({
   const handleToggleEnabled = useCallback(
     async (next: boolean) => {
       setEnabled(next);
-      const res = await toggleMicrostoreEnabled(next);
+      const res = await setMarketplaceProductsManagement("microstore", next);
       if (!res.success) {
         setEnabled(!next);
         toast.error("Erreur", res.error);

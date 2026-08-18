@@ -280,13 +280,15 @@ function DisabledMarketplaceBadge({
   reason = "product",
 }: {
   label: string;
-  /** "maintenance" = coupure plateforme, "product" = case décochée par la cliente. */
-  reason?: "product" | "maintenance";
+  /** "maintenance" = coupure plateforme, "global" = kill switch Paramètres OFF, "product" = case décochée par la cliente. */
+  reason?: "product" | "maintenance" | "global";
 }) {
   const tooltip =
     reason === "maintenance"
       ? `${label} · en maintenance sur la plateforme`
-      : `${label} · désactivée pour ce produit`;
+      : reason === "global"
+        ? `${label} · marketplace désactivée dans Paramètres`
+        : `${label} · désactivée pour ce produit`;
   return (
     <Tooltip content={tooltip}>
       <span
@@ -816,6 +818,7 @@ function MicrostoreBadge({
   onSyncClick,
   onCancelSyncRequired,
   disabledForProduct = false,
+  disabledGlobally = false,
 }: {
   /** Microstore n'a pas d'ID marketplace côté produit — on considère qu'il est
    *  actif dès qu'il est configuré globalement ET pas décoché pour le produit. */
@@ -824,6 +827,8 @@ function MicrostoreBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
+  /** Kill switch global (Paramètres → Marketplaces → Gestion Produits OFF). */
+  disabledGlobally?: boolean;
 }) {
   if (!configured) {
     return (
@@ -834,6 +839,7 @@ function MicrostoreBadge({
       </Tooltip>
     );
   }
+  if (disabledGlobally) return <DisabledMarketplaceBadge label="MC" reason="global" />;
   if (disabledForProduct) return <DisabledMarketplaceBadge label="MC" reason="product" />;
   if (syncRequired) {
     return (
@@ -1080,6 +1086,8 @@ interface Props {
   hasFaireConfig: boolean;
   faireEnabled: boolean;
   hasMicrostoreConfig: boolean;
+  /** Kill switch global Microstore (SiteConfig microstore_products_management_enabled). */
+  microstoreEnabled?: boolean;
   /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
   bulkEditOptions: BulkEditOptions;
   /** Tags disponibles pour la modale « Ajouter / retirer des tags » du menu Plus. */
@@ -2662,6 +2670,7 @@ function ProductRow({
   hasFaireConfig,
   faireEnabled,
   hasMicrostoreConfig,
+  microstoreEnabled = true,
   selected,
   onToggle,
   expanded,
@@ -2684,6 +2693,7 @@ function ProductRow({
   hasFaireConfig: boolean;
   faireEnabled: boolean;
   hasMicrostoreConfig: boolean;
+  microstoreEnabled?: boolean;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -3555,9 +3565,10 @@ function ProductRow({
               <MicrostoreBadge
                 configured={hasMicrostoreConfig}
                 syncRequired={effectiveMicrostoreSyncRequired}
-                onSyncClick={microstoreBusy ? undefined : handleSyncMicrostore}
+                onSyncClick={microstoreBusy || !microstoreEnabled ? undefined : handleSyncMicrostore}
                 onCancelSyncRequired={handleCancelMicrostoreSync}
                 disabledForProduct={!product.microstoreEnabled}
+                disabledGlobally={!microstoreEnabled}
               />
             </div>
           )}
@@ -4230,7 +4241,7 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -4243,6 +4254,7 @@ function TableWithTopScroll({
   hasFaireConfig: boolean;
   faireEnabled: boolean;
   hasMicrostoreConfig: boolean;
+  microstoreEnabled?: boolean;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -4298,6 +4310,7 @@ function TableWithTopScroll({
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
                 hasMicrostoreConfig={hasMicrostoreConfig}
+                microstoreEnabled={microstoreEnabled}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -4332,6 +4345,7 @@ export default function AdminProductsTable({
   hasFaireConfig,
   faireEnabled,
   hasMicrostoreConfig,
+  microstoreEnabled = true,
   bulkEditOptions,
   availableTags,
   availableCollections,
@@ -6063,7 +6077,7 @@ export default function AdminProductsTable({
 
       {/* Tableau avec double scrollbar (haut + bas) */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasMicrostoreConfig={hasMicrostoreConfig} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>

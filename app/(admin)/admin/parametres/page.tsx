@@ -534,6 +534,7 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     ankPublished, ankToSync, ankLast,
     efaPublished, efaToSync, efaLast,
     faiPublished, faiToSync, faiLast,
+    ordersEnabledRows,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
     prisma.siteConfig.findMany({
@@ -559,7 +560,7 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     getCachedSiteConfig("microstore_price_markup_value"),
     getCachedSiteConfig("microstore_price_markup_rounding"),
     getCachedHasMicrostoreConfig(),
-    prisma.siteConfig.findFirst({ where: { key: "microstore_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "microstore_products_management_enabled" }, select: { value: true } }),
     prisma.siteConfig.findFirst({ where: { key: "microstore_expires_at" }, select: { value: true } }),
     getStoredPictureStation(),
     getCachedHasFaireConfig(),
@@ -583,7 +584,19 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     prisma.product.count({ where: { faireProductId: { not: null } } }),
     prisma.product.count({ where: { faireSyncRequired: true } }),
     prisma.product.findFirst({ where: { faireProductId: { not: null } }, orderBy: { faireLastRefreshedAt: "desc" }, select: { faireLastRefreshedAt: true } }),
+    prisma.siteConfig.findMany({
+      where: { key: { in: ["pfs_orders_worker_enabled", "ankorstore_orders_worker_enabled", "efashion_orders_worker_enabled", "faire_orders_worker_enabled", "microstore_orders_worker_enabled"] } },
+      select: { key: true, value: true },
+    }),
   ]);
+
+  const ordersEnabledMap = new Map(ordersEnabledRows.map((r) => [r.key, r.value]));
+  const readOrdersEnabled = (key: string) => (ordersEnabledMap.get(key) ?? "true") !== "false";
+  const pfsOrdersEnabled = readOrdersEnabled("pfs_orders_worker_enabled");
+  const ankorstoreOrdersEnabled = readOrdersEnabled("ankorstore_orders_worker_enabled");
+  const efashionOrdersEnabled = readOrdersEnabled("efashion_orders_worker_enabled");
+  const faireOrdersEnabled = readOrdersEnabled("faire_orders_worker_enabled");
+  const microstoreOrdersEnabled = readOrdersEnabled("microstore_orders_worker_enabled");
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
 
@@ -616,16 +629,21 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
       <MarketplaceConfig
         hasPfsConfig={!!pfsConfig}
         pfsEnabled={pfsEnabled}
+        pfsOrdersEnabled={pfsOrdersEnabled}
         pfsBrand={pfsBrand}
         hasAnkorstoreConfig={hasAnkorstoreConfig}
         ankorstoreEnabled={ankorstoreEnabled}
+        ankorstoreOrdersEnabled={ankorstoreOrdersEnabled}
         hasEfashionConfig={hasEfashionConfig}
         efashionEnabled={efashionEnabled}
+        efashionOrdersEnabled={efashionOrdersEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        faireOrdersEnabled={faireOrdersEnabled}
         faireMadeInExcluded={faireMadeInExcluded}
         hasMicrostoreConfig={hasMicrostoreConfig}
         microstoreEnabled={microstoreEnabled}
+        microstoreOrdersEnabled={microstoreOrdersEnabled}
         microstoreExpiresAtIso={microstoreExpiresAtIso}
         microstorePictureStation={
           microstorePictureStation

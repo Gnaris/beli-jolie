@@ -87,8 +87,6 @@ export async function POST(request: Request) {
     } else {
       await unsetSiteConfig("microstore_expires_at");
     }
-    await setSiteConfig("microstore_enabled", "true");
-
     primeMicrostoreSessionKey(ctx.tenant.id, token);
     revalidateTag(`site-config:${ctx.tenant.id}`, "default");
 

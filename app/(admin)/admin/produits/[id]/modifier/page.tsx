@@ -25,6 +25,7 @@ import {
   getCachedHasFaireConfig,
   getCachedFaireEnabled,
   getCachedHasMicrostoreConfig,
+  getCachedMicrostoreEnabled,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
@@ -58,6 +59,7 @@ export default async function ModifierProduitPage({
     hasFaireConfig,
     faireEnabled,
     hasMicrostoreConfig,
+    microstoreEnabled,
     maintenance,
     brandedBadgeRow,
   ] = await Promise.all([
@@ -149,6 +151,7 @@ export default async function ModifierProduitPage({
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
     getCachedHasMicrostoreConfig(),
+    getCachedMicrostoreEnabled(),
     getMarketplaceMaintenance(),
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
   ]);
@@ -580,7 +583,7 @@ export default async function ModifierProduitPage({
               faireEnabledForProduct={product.faireEnabled}
               microstoreLastPushedAt={product.microstoreLastPushedAt}
               hasMicrostoreConfig={hasMicrostoreConfig}
-              microstoreEnabled={hasMicrostoreConfig}
+              microstoreEnabled={microstoreEnabled}
               microstoreSyncRequired={product.microstoreSyncRequired}
               microstoreEnabledForProduct={product.microstoreEnabled}
               pfsMaintenance={maintenance.pfs}

@@ -369,10 +369,38 @@ export async function updatePfsCredentials(config: {
   }
 }
 
-export async function togglePfsEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+/**
+ * Bascule la gestion des produits pour une marketplace (PFS, Ankorstore,
+ * eFashion, Faire, Microstore). Quand OFF : plus aucun push / publish /
+ * refresh / synchronisation ne part vers cette marketplace, badges grisés,
+ * cases pré-cochées désactivées dans les modales.
+ *
+ * Clés SiteConfig écrites (défaut ON si absent) :
+ *   - pfs_products_management_enabled
+ *   - ankorstore_products_management_enabled
+ *   - efashion_products_management_enabled
+ *   - faire_products_management_enabled
+ *   - microstore_products_management_enabled
+ */
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+
+const PRODUCTS_MGMT_KEY: Record<MarketplaceKey, string> = {
+  pfs: "pfs_products_management_enabled",
+  ankorstore: "ankorstore_products_management_enabled",
+  efashion: "efashion_products_management_enabled",
+  faire: "faire_products_management_enabled",
+  microstore: "microstore_products_management_enabled",
+};
+
+export async function setMarketplaceProductsManagement(
+  marketplace: MarketplaceKey,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
-    await setSiteConfig("pfs_enabled", enabled ? "true" : "false");
+    const key = PRODUCTS_MGMT_KEY[marketplace];
+    if (!key) return { success: false, error: "Marketplace inconnue." };
+    await setSiteConfig(key, enabled ? "true" : "false");
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     return { success: true };
@@ -496,22 +524,6 @@ export async function updateAnkorstoreCredentials(config: {
   return updateAnkorstoreBoCredentials({ email, password });
 }
 
-export async function toggleAnkorstoreEnabled(enabled: boolean): Promise<{ success: boolean; error?: string }> {
-  const { toggleAnkorstoreBoEnabled } = await import(
-    "@/app/actions/admin/ankorstore-bo"
-  );
-  // Écriture croisée : on maintient AUSSI `ankors_enabled` pour compat lecture par
-  // `getCachedAnkorstoreEnabled`, plus la nouvelle clé `ankorstore_bo_enabled`.
-  try {
-    await requireAdmin();
-    await setSiteConfig("ankors_enabled", enabled ? "true" : "false");
-    revalidateTag("site-config", "default");
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
-  return toggleAnkorstoreBoEnabled(enabled);
-}
-
 export async function validateAnkorstoreCredentials(config: {
   email?: string;
   password?: string;
@@ -562,20 +574,6 @@ export async function updateEfashionCredentials(config: {
   }
 }
 
-export async function toggleEfashionEnabled(
-  enabled: boolean,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await setSiteConfig("efashion_enabled", enabled ? "true" : "false");
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
 export async function validateEfashionCredentials(config: {
   email: string;
   password: string;
@@ -603,19 +601,6 @@ export async function updateFaireCredentials(config: {
       await setSiteConfig("faire_api_key", encryptIfSensitive("faire_api_key", apiKey));
     }
     revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
-}
-
-export async function toggleFaireEnabled(
-  enabled: boolean
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await setSiteConfig("faire_enabled", enabled ? "true" : "false");
     revalidateTag("site-config", "default");
     return { success: true };
   } catch (err) {
@@ -733,29 +718,11 @@ export async function disconnectMicrostore(): Promise<{ success: boolean; error?
             "microstore_session_key",
             "microstore_mask_token",
             "microstore_expires_at",
-            "microstore_enabled",
           ],
         },
       },
     });
     revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
-}
-
-/**
- * Bascule l'état activé/désactivé de l'intégration Microstore (indépendant
- * de la connexion : on peut être connecté mais désactivé).
- */
-export async function toggleMicrostoreEnabled(
-  enabled: boolean,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await setSiteConfig("microstore_enabled", enabled ? "true" : "false");
     revalidateTag("site-config", "default");
     return { success: true };
   } catch (err) {

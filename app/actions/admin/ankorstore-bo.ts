@@ -163,19 +163,6 @@ export async function validateAnkorstoreBoCredentials(
   }
 }
 
-/** Toggle Ankorstore actif / en pause. */
-export async function toggleAnkorstoreBoEnabled(
-  enabled: boolean
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    await setSiteConfig("ankorstore_bo_enabled", enabled ? "true" : "false");
-    revalidateTag("site-config");
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: (err as Error).message };
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
 // Helper — charger produit BJ et le convertir en BjProductInputForBo
