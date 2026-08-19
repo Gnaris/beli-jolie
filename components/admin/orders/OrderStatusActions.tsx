@@ -33,11 +33,9 @@ const BTN_CLASSES: Record<string, string> = {
 export default function OrderStatusActions({
   orderId,
   currentStatus,
-  hasUnconfirmedChanges = false,
 }: {
   orderId: string;
   currentStatus: string;
-  hasUnconfirmedChanges?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -92,16 +90,13 @@ export default function OrderStatusActions({
   return (
     <div className="flex flex-wrap gap-2">
       {actions.map((action) => {
-        const isShippedTransition = action.next === "SHIPPED";
-        const blocked = isShippedTransition && hasUnconfirmedChanges;
         const btnClass = BTN_CLASSES[action.variant] ?? action.variant;
         return (
           <button
             key={action.next}
             type="button"
-            disabled={isPending || blocked}
+            disabled={isPending}
             onClick={() => handleUpdate(action.next)}
-            title={blocked ? "Confirmez d'abord les modifications de la commande" : undefined}
             className={`${btnClass} text-xs px-4 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isPending ? "…" : action.label}

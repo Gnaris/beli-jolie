@@ -24,6 +24,7 @@ export type MarketplaceKey =
   | "ankorstore"
   | "efashion"
   | "faire"
+  | "orderchamp"
   | "microstore";
 
 export interface ProductMarketplaceEnabled {
@@ -31,6 +32,7 @@ export interface ProductMarketplaceEnabled {
   ankorstore: boolean;
   efashion: boolean;
   faire: boolean;
+  orderchamp: boolean;
   microstore: boolean;
 }
 
@@ -39,6 +41,7 @@ const DEFAULT_ENABLED: ProductMarketplaceEnabled = {
   ankorstore: true,
   efashion: true,
   faire: true,
+  orderchamp: true,
   microstore: true,
 };
 
@@ -57,6 +60,7 @@ export async function getProductMarketplaceEnabled(
       ankorsEnabled: true,
       efashionEnabled: true,
       faireEnabled: true,
+      orderchampEnabled: true,
       microstoreEnabled: true,
     },
   });
@@ -66,6 +70,7 @@ export async function getProductMarketplaceEnabled(
     ankorstore: row.ankorsEnabled,
     efashion: row.efashionEnabled,
     faire: row.faireEnabled,
+    orderchamp: row.orderchampEnabled,
     microstore: row.microstoreEnabled,
   };
 }
@@ -86,6 +91,7 @@ export async function getProductsMarketplaceEnabled(
       ankorsEnabled: true,
       efashionEnabled: true,
       faireEnabled: true,
+      orderchampEnabled: true,
       microstoreEnabled: true,
     },
   });
@@ -97,6 +103,7 @@ export async function getProductsMarketplaceEnabled(
         ankorstore: r.ankorsEnabled,
         efashion: r.efashionEnabled,
         faire: r.faireEnabled,
+        orderchamp: r.orderchampEnabled,
         microstore: r.microstoreEnabled,
       },
     ]),
@@ -114,6 +121,7 @@ export function filterOptionsByEnabled<
     ankorstore?: boolean;
     efashion?: boolean;
     faire?: boolean;
+    orderchamp?: boolean;
     microstore?: boolean;
   },
 >(
@@ -138,6 +146,10 @@ export function filterOptionsByEnabled<
     filtered.faire = false;
     skipped.push("faire");
   }
+  if (options.orderchamp && !enabled.orderchamp) {
+    filtered.orderchamp = false;
+    skipped.push("orderchamp");
+  }
   if (options.microstore && !enabled.microstore) {
     filtered.microstore = false;
     skipped.push("microstore");
@@ -155,6 +167,7 @@ export function marketplaceDisabledMessage(marketplace: MarketplaceKey): string 
     ankorstore: "Ankorstore",
     efashion: "eFashion Paris",
     faire: "Faire",
+    orderchamp: "Orderchamp",
     microstore: "Microstore",
   }[marketplace];
   return `${label} est désactivée pour ce produit. Réactivez-la dans « Publication marketplaces » de la fiche produit.`;

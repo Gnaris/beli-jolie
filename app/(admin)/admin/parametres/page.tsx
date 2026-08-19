@@ -5,6 +5,7 @@ import {
   getCachedSiteConfig, getCachedPfsBrand, getCachedPfsEnabled,
   getCachedHasEfashionConfig, getCachedEfashionEnabled,
   getCachedHasFaireConfig, getCachedFaireEnabled,
+  getCachedHasOrderchampConfig, getCachedOrderchampEnabled,
   getCachedFaireMadeInExcluded,
   getCachedHasMicrostoreConfig,
 } from "@/lib/cached-data";
@@ -530,10 +531,14 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     faireWholesaleType, faireWholesaleValue, faireWholesaleRounding,
     faireRetailType, faireRetailValue, faireRetailRounding,
     faireMadeInExcluded,
+    hasOrderchampConfig, orderchampEnabled,
+    orderchampWholesaleType, orderchampWholesaleValue, orderchampWholesaleRounding,
+    orderchampRetailType, orderchampRetailValue, orderchampRetailRounding,
     pfsPublished, pfsToSync, pfsLast,
     ankPublished, ankToSync, ankLast,
     efaPublished, efaToSync, efaLast,
     faiPublished, faiToSync, faiLast,
+    ocPublished, ocToSync, ocLast,
     ordersEnabledRows,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),
@@ -572,6 +577,14 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     getCachedSiteConfig("faire_retail_markup_value"),
     getCachedSiteConfig("faire_retail_markup_rounding"),
     getCachedFaireMadeInExcluded(),
+    getCachedHasOrderchampConfig(),
+    getCachedOrderchampEnabled(),
+    getCachedSiteConfig("orderchamp_wholesale_markup_type"),
+    getCachedSiteConfig("orderchamp_wholesale_markup_value"),
+    getCachedSiteConfig("orderchamp_wholesale_markup_rounding"),
+    getCachedSiteConfig("orderchamp_retail_markup_type"),
+    getCachedSiteConfig("orderchamp_retail_markup_value"),
+    getCachedSiteConfig("orderchamp_retail_markup_rounding"),
     prisma.product.count({ where: { pfsProductId: { not: null } } }),
     prisma.product.count({ where: { pfsSyncRequired: true } }),
     prisma.product.findFirst({ where: { pfsProductId: { not: null } }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } }),
@@ -584,8 +597,11 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     prisma.product.count({ where: { faireProductId: { not: null } } }),
     prisma.product.count({ where: { faireSyncRequired: true } }),
     prisma.product.findFirst({ where: { faireProductId: { not: null } }, orderBy: { faireLastRefreshedAt: "desc" }, select: { faireLastRefreshedAt: true } }),
+    prisma.product.count({ where: { orderchampProductId: { not: null } } }),
+    prisma.product.count({ where: { orderchampSyncRequired: true } }),
+    prisma.product.findFirst({ where: { orderchampProductId: { not: null } }, orderBy: { orderchampLastRefreshedAt: "desc" }, select: { orderchampLastRefreshedAt: true } }),
     prisma.siteConfig.findMany({
-      where: { key: { in: ["pfs_orders_worker_enabled", "ankorstore_orders_worker_enabled", "efashion_orders_worker_enabled", "faire_orders_worker_enabled", "microstore_orders_worker_enabled"] } },
+      where: { key: { in: ["pfs_orders_worker_enabled", "ankorstore_orders_worker_enabled", "efashion_orders_worker_enabled", "faire_orders_worker_enabled", "orderchamp_orders_worker_enabled", "microstore_orders_worker_enabled"] } },
       select: { key: true, value: true },
     }),
   ]);
@@ -596,6 +612,7 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
   const ankorstoreOrdersEnabled = readOrdersEnabled("ankorstore_orders_worker_enabled");
   const efashionOrdersEnabled = readOrdersEnabled("efashion_orders_worker_enabled");
   const faireOrdersEnabled = readOrdersEnabled("faire_orders_worker_enabled");
+  const orderchampOrdersEnabled = readOrdersEnabled("orderchamp_orders_worker_enabled");
   const microstoreOrdersEnabled = readOrdersEnabled("microstore_orders_worker_enabled");
 
   const markupMap = new Map(markupRows.map((r) => [r.key, r.value]));
@@ -619,6 +636,7 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
     ankorstore: { published: ankPublished, toSync: ankToSync, lastSyncAt: ankLast?.ankorsLastRefreshedAt?.toISOString() ?? null },
     efashion:   { published: efaPublished, toSync: efaToSync, lastSyncAt: efaLast?.efashionLastRefreshedAt?.toISOString() ?? null },
     faire:      { published: faiPublished, toSync: faiToSync, lastSyncAt: faiLast?.faireLastRefreshedAt?.toISOString() ?? null },
+    orderchamp: { published: ocPublished, toSync: ocToSync, lastSyncAt: ocLast?.orderchampLastRefreshedAt?.toISOString() ?? null },
   };
 
   return {
@@ -641,6 +659,9 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
         faireEnabled={faireEnabled}
         faireOrdersEnabled={faireOrdersEnabled}
         faireMadeInExcluded={faireMadeInExcluded}
+        hasOrderchampConfig={hasOrderchampConfig}
+        orderchampEnabled={orderchampEnabled}
+        orderchampOrdersEnabled={orderchampOrdersEnabled}
         hasMicrostoreConfig={hasMicrostoreConfig}
         microstoreEnabled={microstoreEnabled}
         microstoreOrdersEnabled={microstoreOrdersEnabled}
@@ -691,6 +712,16 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
             type: (faireRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
             value: Number(faireRetailValue?.value) || 2.5,
             rounding: (faireRetailRounding?.value as "none" | "down" | "up") || "up",
+          },
+          orderchampWholesale: {
+            type: (orderchampWholesaleType?.value as "percent" | "fixed" | "multiplier") || "percent",
+            value: Number(orderchampWholesaleValue?.value) || 0,
+            rounding: (orderchampWholesaleRounding?.value as "none" | "down" | "up") || "none",
+          },
+          orderchampRetail: {
+            type: (orderchampRetailType?.value as "percent" | "fixed" | "multiplier") || "multiplier",
+            value: Number(orderchampRetailValue?.value) || 2.5,
+            rounding: (orderchampRetailRounding?.value as "none" | "down" | "up") || "up",
           },
         }}
       />

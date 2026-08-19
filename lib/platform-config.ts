@@ -17,7 +17,7 @@
 import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
-export const MARKETPLACES = ["pfs", "ankorstore", "efashion", "faire"] as const;
+export const MARKETPLACES = ["pfs", "ankorstore", "efashion", "faire", "orderchamp"] as const;
 export type MarketplaceKey = (typeof MARKETPLACES)[number];
 
 /** Clés PlatformConfig — cadrées ici pour éviter les typos ailleurs. */
@@ -26,6 +26,7 @@ export const PLATFORM_KEYS = {
   ankorstoreMaintenance: "marketplace_maintenance_ankorstore",
   efashionMaintenance: "marketplace_maintenance_efashion",
   faireMaintenance: "marketplace_maintenance_faire",
+  orderchampMaintenance: "marketplace_maintenance_orderchamp",
 } as const;
 
 export type MarketplaceMaintenance = Record<MarketplaceKey, boolean>;
@@ -49,6 +50,7 @@ export async function getMarketplaceMaintenance(): Promise<MarketplaceMaintenanc
           PLATFORM_KEYS.ankorstoreMaintenance,
           PLATFORM_KEYS.efashionMaintenance,
           PLATFORM_KEYS.faireMaintenance,
+          PLATFORM_KEYS.orderchampMaintenance,
         ],
       },
     },
@@ -60,6 +62,7 @@ export async function getMarketplaceMaintenance(): Promise<MarketplaceMaintenanc
     ankorstore: map.get(PLATFORM_KEYS.ankorstoreMaintenance) === "true",
     efashion: map.get(PLATFORM_KEYS.efashionMaintenance) === "true",
     faire: map.get(PLATFORM_KEYS.faireMaintenance) === "true",
+    orderchamp: map.get(PLATFORM_KEYS.orderchampMaintenance) === "true",
   };
 }
 
@@ -84,7 +87,9 @@ export async function setMarketplaceMaintenance(
         ? PLATFORM_KEYS.ankorstoreMaintenance
         : mp === "efashion"
           ? PLATFORM_KEYS.efashionMaintenance
-          : PLATFORM_KEYS.faireMaintenance;
+          : mp === "faire"
+            ? PLATFORM_KEYS.faireMaintenance
+            : PLATFORM_KEYS.orderchampMaintenance;
 
   await prisma.platformConfig.upsert({
     where: { key },
@@ -103,6 +108,7 @@ export const MARKETPLACE_LABELS: Record<MarketplaceKey, string> = {
   ankorstore: "Ankorstore",
   efashion: "eFashion Paris",
   faire: "Faire",
+  orderchamp: "Orderchamp",
 };
 
 export function marketplaceMaintenanceMessage(mp: MarketplaceKey): string {

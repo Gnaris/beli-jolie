@@ -24,6 +24,7 @@ export type MarketplaceAutoSyncSource =
   | "EFASHION"
   | "ANKORSTORE"
   | "FAIRE"
+  | "ORDERCHAMP"
   | "MICROSTORE";
 
 const KEY_BY_SOURCE: Record<MarketplaceAutoSyncSource, string> = {
@@ -31,6 +32,7 @@ const KEY_BY_SOURCE: Record<MarketplaceAutoSyncSource, string> = {
   EFASHION: "efashion_orders_worker_enabled",
   ANKORSTORE: "ankorstore_orders_worker_enabled",
   FAIRE: "faire_orders_worker_enabled",
+  ORDERCHAMP: "orderchamp_orders_worker_enabled",
   MICROSTORE: "microstore_orders_worker_enabled",
 };
 
@@ -39,6 +41,7 @@ const LAST_SYNCED_KEY_BY_SOURCE: Record<MarketplaceAutoSyncSource, string> = {
   EFASHION: "efashion_orders_last_synced_at",
   ANKORSTORE: "ankorstore_orders_last_synced_at",
   FAIRE: "faire_orders_last_synced_at",
+  ORDERCHAMP: "orderchamp_orders_last_synced_at",
   MICROSTORE: "microstore_orders_last_synced_at",
 };
 

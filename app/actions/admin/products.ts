@@ -879,6 +879,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
       microstoreLastPushedAt: true,
       // Compositions actuelles — utilisées pour détecter un changement de
       // composition sur le save (sinon le badge orange resterait éteint).
@@ -1596,6 +1597,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (oldProduct.ankorsProductId) flagsData.ankorsSyncRequired = true;
       if (oldProduct.efashionReferenceBase) flagsData.efashionSyncRequired = true;
       if (oldProduct.faireProductId) flagsData.faireSyncRequired = true;
+      if (oldProduct.orderchampProductId) flagsData.orderchampSyncRequired = true;
       if (oldProduct.microstoreLastPushedAt) flagsData.microstoreSyncRequired = true;
       if (Object.keys(flagsData).length > 0) {
         await prisma.product.update({ where: { id }, data: flagsData });
@@ -1653,6 +1655,7 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
     },
   });
   if (!product) return { success: false, error: "Produit introuvable." };
@@ -2294,6 +2297,7 @@ export async function bulkUpdateProductAttributes(
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
       microstoreLastPushedAt: true,
     },
   });
@@ -2355,6 +2359,7 @@ export async function bulkUpdateProductAttributes(
           if (p.ankorsProductId) syncFlags.ankorsSyncRequired = true;
           if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
           if (p.faireProductId) syncFlags.faireSyncRequired = true;
+          if (p.orderchampProductId) syncFlags.orderchampSyncRequired = true;
           if (p.microstoreLastPushedAt) syncFlags.microstoreSyncRequired = true;
         }
 
@@ -2624,6 +2629,7 @@ export async function updateVariantQuick(
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
       microstoreLastPushedAt: true,
     },
   });
@@ -2633,6 +2639,7 @@ export async function updateVariantQuick(
     if (productForFlags.ankorsProductId) flagsData.ankorsSyncRequired = true;
     if (productForFlags.efashionReferenceBase) flagsData.efashionSyncRequired = true;
     if (productForFlags.faireProductId) flagsData.faireSyncRequired = true;
+    if (productForFlags.orderchampProductId) flagsData.orderchampSyncRequired = true;
     if (productForFlags.microstoreLastPushedAt) flagsData.microstoreSyncRequired = true;
     if (Object.keys(flagsData).length > 0) {
       await prisma.product.update({

@@ -10,7 +10,7 @@ async function requireAdmin() {
   if (!session || session.user.role !== "ADMIN") throw new Error("Non autorisé");
 }
 
-export type SyncFlagMarketplace = "pfs" | "ankorstore" | "efashion" | "faire";
+export type SyncFlagMarketplace = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 
 /**
  * Remet à false un drapeau « Synchronisation nécessaire » sans rien envoyer
@@ -35,7 +35,9 @@ export async function clearSyncRequiredFlag(
           ? { ankorsSyncRequired: false }
           : marketplace === "efashion"
             ? { efashionSyncRequired: false }
-            : { faireSyncRequired: false };
+            : marketplace === "faire"
+              ? { faireSyncRequired: false }
+              : { orderchampSyncRequired: false };
 
     await prisma.product.update({
       where: { id: productId },
@@ -77,6 +79,7 @@ export async function canTriggerResync(
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
     },
   });
   if (!p) return { ok: false, reason: "Produit introuvable." };
@@ -91,6 +94,9 @@ export async function canTriggerResync(
   }
   if (marketplace === "faire" && !p.faireProductId) {
     return { ok: false, reason: "Ce produit n'est pas lié à Faire." };
+  }
+  if (marketplace === "orderchamp" && !p.orderchampProductId) {
+    return { ok: false, reason: "Ce produit n'est pas lié à Orderchamp." };
   }
   return { ok: true };
 }

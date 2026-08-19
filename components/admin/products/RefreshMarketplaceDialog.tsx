@@ -18,6 +18,7 @@ interface AskInput {
   showAnkorstore: boolean;
   showEfashion: boolean;
   showFaire: boolean;
+  showOrderchamp?: boolean;
   showMicrostore: boolean;
   /** Optionnel : IDs des produits sélectionnés. Sert à afficher combien de
    *  produits ont chaque marketplace activée / désactivée. */
@@ -58,6 +59,7 @@ interface MarketplaceEnabledCounts {
   ankorstore: { enabled: number; disabled: number };
   efashion: { enabled: number; disabled: number };
   faire: { enabled: number; disabled: number };
+  orderchamp: { enabled: number; disabled: number };
   microstore: { enabled: number; disabled: number };
 }
 
@@ -79,7 +81,7 @@ export function useRefreshMarketplacePrompt(): ContextValue {
 // Marketplace metadata
 // ─────────────────────────────────────────────
 
-type MarketplaceKey = "local" | "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+type MarketplaceKey = "local" | "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 interface MarketplaceMeta {
   key: MarketplaceKey;
@@ -193,6 +195,24 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
         "Met la fiche Faire hors ligne.",
     },
   },
+  orderchamp: {
+    key: "orderchamp",
+    label: "Orderchamp",
+    chipInitials: "O",
+    chipClass: "",
+    barClass: "",
+    activeClass: "",
+    switchOnClass: "bg-bg-dark",
+    hoverBorderClass: "hover:border-border-dark",
+    descriptions: {
+      refresh:
+        "Republie la fiche Orderchamp — l'ID reste le même (pas de nouvelle URL).",
+      update:
+        "Envoie les nouvelles valeurs à la fiche Orderchamp existante.",
+      archive:
+        "Retire la fiche Orderchamp du catalogue acheteur (garde l'ID).",
+    },
+  },
   microstore: {
     key: "microstore",
     label: "Microstore",
@@ -220,6 +240,7 @@ const CHIP_GRADIENT: Record<MarketplaceKey, string> = {
   ankorstore: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
   efashion:   "linear-gradient(135deg,#db2777,#ec4899)",
   faire:      "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  orderchamp: "linear-gradient(135deg,#F97316,#FDBA74)",
   microstore: "linear-gradient(135deg,#0891b2,#22d3ee)",
 };
 
@@ -484,6 +505,7 @@ function Modal({ input, onResult }: ModalProps) {
     ankorstore: defaultAllChecked && input.showAnkorstore && !maintenance.ankorstore,
     efashion: defaultAllChecked && input.showEfashion && !maintenance.efashion,
     faire: defaultAllChecked && input.showFaire && !maintenance.faire,
+    orderchamp: defaultAllChecked && !!input.showOrderchamp && !maintenance.orderchamp,
     // Microstore n'a pas de maintenance plateforme (pas d'API async, pas de callbacks).
     microstore: defaultAllChecked && input.showMicrostore,
   });
@@ -542,6 +564,7 @@ function Modal({ input, onResult }: ModalProps) {
         counts.ankorstore.disabled,
         counts.efashion.disabled,
         counts.faire.disabled,
+        counts.orderchamp.disabled,
         counts.microstore.disabled,
       )
     : 0;
@@ -567,6 +590,7 @@ function Modal({ input, onResult }: ModalProps) {
   if (input.showAnkorstore) activeMarketplaces.push("ankorstore");
   if (input.showEfashion) activeMarketplaces.push("efashion");
   if (input.showFaire) activeMarketplaces.push("faire");
+  if (input.showOrderchamp) activeMarketplaces.push("orderchamp");
   if (input.showMicrostore) activeMarketplaces.push("microstore");
 
   const selectedCount =
@@ -575,6 +599,7 @@ function Modal({ input, onResult }: ModalProps) {
     Number(state.ankorstore) +
     Number(state.efashion) +
     Number(state.faire) +
+    Number(state.orderchamp) +
     Number(state.microstore);
 
   const confirmDisabled = selectedCount === 0;
@@ -601,6 +626,7 @@ function Modal({ input, onResult }: ModalProps) {
       ankorstore: state.ankorstore,
       efashion: state.efashion,
       faire: state.faire,
+      orderchamp: state.orderchamp,
       microstore: state.microstore,
       intervalMs: intervalMs > 0 ? intervalMs : undefined,
     });

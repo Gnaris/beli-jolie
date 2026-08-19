@@ -270,6 +270,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
       microstoreLastPushedAt: true,
     },
   });
@@ -280,6 +281,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
   if (product.ankorsProductId) data.ankorsSyncRequired = true;
   if (product.efashionReferenceBase) data.efashionSyncRequired = true;
   if (product.faireProductId) data.faireSyncRequired = true;
+  if (product.orderchampProductId) data.orderchampSyncRequired = true;
   // Microstore n'a pas d'ID de produit stocké côté BJ (upsert par référence).
   // On utilise `microstoreLastPushedAt` comme preuve que le produit a déjà été
   // envoyé au moins une fois — sinon l'envoi photos n'aurait pas de fiche à
@@ -294,6 +296,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
     ankorstore: !!data.ankorsSyncRequired,
     efashion: !!data.efashionSyncRequired,
     faire: !!data.faireSyncRequired,
+    orderchamp: !!data.orderchampSyncRequired,
     microstore: !!data.microstoreSyncRequired,
   });
 }

@@ -4,7 +4,7 @@
  * personnalité à chaque carte.
  */
 
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 export interface MarketplaceBrand {
   key: MarketplaceKey;
@@ -62,6 +62,16 @@ export const MARKETPLACES_BRAND: Record<MarketplaceKey, MarketplaceBrand> = {
     onPrimary: "#FFFFFF",
     tint: "rgba(91, 26, 61, 0.05)",
     monogram: "eF",
+  },
+  orderchamp: {
+    key: "orderchamp",
+    name: "Orderchamp",
+    tagline: "Marketplace B2B européenne",
+    primary: "#F97316",
+    secondary: "#FDBA74",
+    onPrimary: "#FFFFFF",
+    tint: "rgba(249, 115, 22, 0.06)",
+    monogram: "O",
   },
   microstore: {
     key: "microstore",

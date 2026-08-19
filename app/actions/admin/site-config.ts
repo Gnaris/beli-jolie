@@ -382,13 +382,14 @@ export async function updatePfsCredentials(config: {
  *   - faire_products_management_enabled
  *   - microstore_products_management_enabled
  */
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 const PRODUCTS_MGMT_KEY: Record<MarketplaceKey, string> = {
   pfs: "pfs_products_management_enabled",
   ankorstore: "ankorstore_products_management_enabled",
   efashion: "efashion_products_management_enabled",
   faire: "faire_products_management_enabled",
+  orderchamp: "orderchamp_products_management_enabled",
   microstore: "microstore_products_management_enabled",
 };
 
@@ -700,6 +701,39 @@ export async function updateFaireMadeInExcluded(
   }
 }
 
+// ─── Orderchamp Configuration ────────────────────────────────────────────────
+
+export async function updateOrderchampCredentials(config: {
+  apiKey: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const apiKey = config.apiKey.trim();
+    if (!apiKey) {
+      await prisma.siteConfig.deleteMany({ where: { key: "orderchamp_api_key" } });
+    } else {
+      await setSiteConfig("orderchamp_api_key", encryptIfSensitive("orderchamp_api_key", apiKey));
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
+  }
+}
+
+export async function validateOrderchampCredentials(config: {
+  apiKey: string;
+}): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { testOrderchampApiKey } = await import("@/lib/orderchamp-auth");
+    return await testOrderchampApiKey(config.apiKey.trim());
+  } catch {
+    return { valid: false, error: "Impossible de contacter Orderchamp." };
+  }
+}
+
 // ─── Microstore (Dokkr) — session QR-code, expire ~1 an ────────────────────
 
 /**
@@ -947,6 +981,8 @@ export interface MarketplaceMarkupSettings {
   ankorstoreVatRate?: number;
   faireWholesale?: MarkupState;
   faireRetail?: MarkupState;
+  orderchampWholesale?: MarkupState;
+  orderchampRetail?: MarkupState;
   efashion?: MarkupState;
   microstore?: MarkupState;
 }
@@ -1016,6 +1052,22 @@ export async function updateMarketplaceMarkup(
         { key: "faire_retail_markup_type", value: settings.faireRetail.type },
         { key: "faire_retail_markup_value", value: String(settings.faireRetail.value) },
         { key: "faire_retail_markup_rounding", value: settings.faireRetail.rounding }
+      );
+    }
+
+    if (settings.orderchampWholesale) {
+      pairs.push(
+        { key: "orderchamp_wholesale_markup_type", value: settings.orderchampWholesale.type },
+        { key: "orderchamp_wholesale_markup_value", value: String(settings.orderchampWholesale.value) },
+        { key: "orderchamp_wholesale_markup_rounding", value: settings.orderchampWholesale.rounding }
+      );
+    }
+
+    if (settings.orderchampRetail) {
+      pairs.push(
+        { key: "orderchamp_retail_markup_type", value: settings.orderchampRetail.type },
+        { key: "orderchamp_retail_markup_value", value: String(settings.orderchampRetail.value) },
+        { key: "orderchamp_retail_markup_rounding", value: settings.orderchampRetail.rounding }
       );
     }
 

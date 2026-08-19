@@ -8,9 +8,7 @@ import { getCachedShopName } from "@/lib/cached-data";
 import OrderColumnsView from "@/components/client/orders/OrderColumnsView";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ReorderButton from "@/components/client/orders/ReorderButton";
-import SuccessToast from "@/components/client/SuccessToast";
 import { STATUS_CONFIG, getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
-import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { floorMoney } from "@/lib/order-totals";
 
@@ -46,14 +44,10 @@ function getCarrierLogo(name: string | null | undefined): { path: string; bg?: s
 
 export default async function CommandeDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string; locale: string }>;
-  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const { id, locale } = await params;
-  const sp = await searchParams;
-  const justSucceeded = sp.success === "1";
   const session = await getServerSession(authOptions);
   if (!session) return redirect({ href: { pathname: "/connexion", query: { callbackUrl: "/commandes" } }, locale });
 
@@ -97,10 +91,6 @@ export default async function CommandeDetailPage({
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-6 lg:p-8 w-full space-y-6">
-      <Suspense fallback={null}>
-        <SuccessToast />
-      </Suspense>
-
       {/* ───────── Fil d'Ariane ───────── */}
       <div className="flex items-center gap-2 text-sm font-body text-text-muted">
         <Link href="/commandes" className="hover:text-text-primary transition-colors">
@@ -110,60 +100,36 @@ export default async function CommandeDetailPage({
         <span className="text-text-primary font-medium">{order.orderNumber}</span>
       </div>
 
-      {/* ───────── HERO SUCCESS (uniquement quand ?success=1 et pas annulée) ───────── */}
-      {justSucceeded && !isCancelled && (
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-8 md:p-10 text-center">
-          <div className="w-16 h-16 rounded-full bg-success flex items-center justify-center mx-auto mb-5" aria-hidden="true">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
+      {/* ───────── En-tête ───────── */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="font-heading text-xl font-semibold text-text-primary">{order.orderNumber}</h1>
+            <span className={`${cfg.badgeClass} text-xs`}>{t(`statuses.${order.status}`)}</span>
           </div>
-          <div className="text-[11px] uppercase tracking-[0.25em] text-success font-semibold mb-2">
-            {t("orderConfirmedEyebrow")}
-          </div>
-          <h1 className="font-heading text-3xl md:text-4xl font-bold text-text-primary mb-3">
-            {t("thankYouMessage", { name: order.shipFirstName || session.user.name || "" })}
-          </h1>
-          <p className="text-sm text-text-secondary font-body leading-relaxed max-w-md mx-auto">
-            {t("orderRegisteredWith")} <span className="font-mono font-semibold text-text-primary">{order.orderNumber}</span>
-            <br />
-            {t("confirmationSentTo")} <span className="text-text-primary">{order.clientEmail}</span>
+          <p className="text-sm text-text-secondary font-body mt-1">
+            {date} · {totalArticles} article{totalArticles > 1 ? "s" : ""}
           </p>
         </div>
-      )}
-
-      {/* ───────── En-tête classique (si pas success ou annulée) ───────── */}
-      {!justSucceeded && (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="font-heading text-xl font-semibold text-text-primary">{order.orderNumber}</h1>
-              <span className={`${cfg.badgeClass} text-xs`}>{t(`statuses.${order.status}`)}</span>
-            </div>
-            <p className="text-sm text-text-secondary font-body mt-1">
-              {date} · {totalArticles} article{totalArticles > 1 ? "s" : ""}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {order.status === "PENDING" && (
-              <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
-            )}
-            <ReorderButton orderId={order.id} />
-            {order.status !== "CANCELLED" && (
-              <Link
-                href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-body font-medium text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-                {t("createClaim")}
-              </Link>
-            )}
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {order.status === "PENDING" && (
+            <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
+          )}
+          <ReorderButton orderId={order.id} />
+          {order.status !== "CANCELLED" && (
+            <Link
+              href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-body font-medium text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              {t("createClaim")}
+            </Link>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ───────── Timeline suivi (ardoise, aligné OrdersTableClient) ───────── */}
       {!isCancelled && (
@@ -538,17 +504,6 @@ export default async function CommandeDetailPage({
           </svg>
           {t("backToOrders")}
         </Link>
-        {justSucceeded && (
-          <Link
-            href="/produits"
-            className="btn-primary text-sm"
-          >
-            {t("backToShop")}
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-            </svg>
-          </Link>
-        )}
       </div>
     </div>
   );

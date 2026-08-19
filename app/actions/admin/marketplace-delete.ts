@@ -6,10 +6,12 @@ import { authOptions } from "@/lib/auth";
 import { pfsDeleteProduct } from "@/lib/pfs-api-write";
 import { efashionDeleteShootingProduct } from "@/lib/efashion-shootings";
 import { faireHardDeleteProduct } from "@/lib/faire-delete";
+import { orderchampHardDeleteProduct } from "@/lib/orderchamp-delete";
 import {
   getCachedAnkorstoreEnabled,
   getCachedEfashionEnabled,
   getCachedFaireEnabled,
+  getCachedOrderchampEnabled,
 } from "@/lib/cached-data";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -347,6 +349,93 @@ export async function deleteProductsOnFaire(
       });
       results.push({
         faireProductId: item.faireProductId,
+        reference: item.reference,
+        status: "error",
+        message,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Orderchamp ─────────────────────────────────────────────────────────────
+
+export interface OrderchampDeleteOutcome {
+  orderchampProductId: string;
+  reference: string;
+  status: "ok" | "error";
+  alreadyGone?: boolean;
+  message?: string;
+}
+
+/**
+ * Suppression définitive d'une liste de produits côté Orderchamp.
+ * Idempotent : « Product not found » = alreadyGone: true.
+ */
+export async function deleteProductsOnOrderchamp(
+  items: Array<{ orderchampProductId: string; reference: string }>,
+): Promise<OrderchampDeleteOutcome[]> {
+  await requireAdmin();
+
+  if (await isMarketplaceInMaintenance("orderchamp")) {
+    return items.map((item) => ({
+      orderchampProductId: item.orderchampProductId,
+      reference: item.reference,
+      status: "error" as const,
+      message: "Orderchamp en maintenance — suppression non envoyée.",
+    }));
+  }
+
+  const orderchampEnabled = await getCachedOrderchampEnabled();
+  if (!orderchampEnabled) {
+    logger.info("[Marketplace Delete] Orderchamp disabled, skipping all deletes", { itemCount: items.length });
+    return items.map((item) => ({
+      orderchampProductId: item.orderchampProductId,
+      reference: item.reference,
+      status: "error" as const,
+      message: "Orderchamp désactivé dans les paramètres — aucune suppression envoyée.",
+    }));
+  }
+
+  const results: OrderchampDeleteOutcome[] = [];
+  for (const item of items) {
+    try {
+      const res = await orderchampHardDeleteProduct(item.orderchampProductId);
+      if (res.success) {
+        const alreadyGone = res.deletedProductId === null;
+        await prisma.product
+          .updateMany({
+            where: { orderchampProductId: item.orderchampProductId },
+            data: {
+              orderchampProductId: null,
+              orderchampLastSyncSnapshot: Prisma.DbNull,
+              orderchampSyncRequired: false,
+            },
+          })
+          .catch(() => {});
+        results.push({
+          orderchampProductId: item.orderchampProductId,
+          reference: item.reference,
+          status: "ok",
+          alreadyGone,
+        });
+      } else {
+        results.push({
+          orderchampProductId: item.orderchampProductId,
+          reference: item.reference,
+          status: "error",
+          message: res.error ?? "Erreur inconnue",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("[Marketplace Delete] Orderchamp delete threw", {
+        orderchampProductId: item.orderchampProductId,
+        reference: item.reference,
+        error: message,
+      });
+      results.push({
+        orderchampProductId: item.orderchampProductId,
         reference: item.reference,
         status: "error",
         message,
