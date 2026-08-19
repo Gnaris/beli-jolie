@@ -164,6 +164,21 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de polling des commandes Orderchamp. Tick 5 min. Kill-switch
+  // `orderchamp_orders_worker_enabled` respecté par le worker lui-même.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startOrderchampOrdersWorker } = await import("@/lib/orderchamp-orders-worker");
+        startOrderchampOrdersWorker();
+      } catch (err) {
+        logger.error("[Orderchamp Orders] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker de polling des commandes Microstore. Tick 5 min.
   // Récupère page 1 clients (endpoint dédié `/customer/get_by_order`) puis
   // les commandes sur `[last_sync - 3j, today]`. Skip silencieusement si la

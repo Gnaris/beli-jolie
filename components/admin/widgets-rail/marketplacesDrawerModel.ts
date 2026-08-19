@@ -55,6 +55,7 @@ export const MARKETPLACE_ORDER: MarketplaceTarget[] = [
   "ankorstore",
   "efashion",
   "faire",
+  "orderchamp",
 ];
 
 const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
@@ -62,6 +63,7 @@ const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
   ankorstore: "ankorsOutcome",
   efashion: "efashionOutcome",
   faire: "faireOutcome",
+  orderchamp: "orderchampOutcome",
 };
 
 function outcomeFor(

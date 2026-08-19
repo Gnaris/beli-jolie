@@ -21,7 +21,7 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { useToast } from "@/components/ui/Toast";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import { createCategoryQuick } from "@/app/actions/admin/quick-create";
-import { updateCategoryFaireTaxonomy } from "@/app/actions/admin/categories";
+import { updateCategoryFaireTaxonomy, updateCategoryOrderchampTaxonomy } from "@/app/actions/admin/categories";
 import { fetchPfsMappingOptions, type PfsMappingOptions } from "@/app/actions/admin/pfs-annexes";
 import { PFS_GENDER_LABELS, PFS_FAMILIES_BY_GENDER, PFS_SUBCATEGORIES_BY_FAMILY } from "@/lib/marketplace-excel/pfs-taxonomy";
 import TranslateButton from "@/components/admin/TranslateButton";
@@ -30,9 +30,10 @@ import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker from "@/components/admin/EfashionMappingPicker";
 import FaireTaxonomySelect from "@/components/admin/FaireTaxonomySelect";
+import OrderchampCategoryCascadeSelector from "@/components/admin/OrderchampCategoryCascadeSelector";
 import PfsSuggestions, { type PfsCategoryTriple } from "@/components/admin/pfs/PfsSuggestions";
 
-export type CategoryFocusMarketplace = "pfs" | "efashion" | "faire";
+export type CategoryFocusMarketplace = "pfs" | "efashion" | "faire" | "orderchamp";
 
 export interface CategoryEditorEditMode {
   id: string;
@@ -43,12 +44,15 @@ export interface CategoryEditorEditMode {
   pfsCategoryName?: string | null;
   efashionCurrentId?: number | null;
   faireCurrentTaxonomyId?: string | null;
+  orderchampCurrentCategoryPath?: string | null;
   onFaireTaxonomySaved?: (next: string | null, nextLabel: string | null) => void;
+  onOrderchampCategorySaved?: (next: string | null, nextLabel: string | null) => void;
   onSave: (
     name: string,
     translations: Record<string, string>,
     pfs?: { pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
     faire?: { taxonomyId?: string | null },
+    orderchamp?: { categoryPath?: string | null },
   ) => Promise<void>;
 }
 
@@ -87,6 +91,7 @@ export default function CategoryEditorModal({
   const [pfsFamilyName, setPfsFamilyName] = useState<string | null>(null);
   const [pfsCategoryName, setPfsCategoryName] = useState<string | null>(null);
   const [faireTaxonomyId, setFaireTaxonomyId] = useState<string | null>(null);
+  const [orderchampCategoryPath, setOrderchampCategoryPath] = useState<string | null>(null);
   const [efashionCreateId, setEfashionCreateId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -109,12 +114,14 @@ export default function CategoryEditorModal({
       setPfsFamilyName(editMode.pfsFamilyName ?? null);
       setPfsCategoryName(editMode.pfsCategoryName ?? null);
       setFaireTaxonomyId(editMode.faireCurrentTaxonomyId ?? null);
+      setOrderchampCategoryPath(editMode.orderchampCurrentCategoryPath ?? null);
     } else {
       setNames({});
       setPfsGender(defaultPfsGender ?? null);
       setPfsFamilyName(defaultPfsFamilyName ?? null);
       setPfsCategoryName(defaultPfsCategoryName ?? null);
       setFaireTaxonomyId(null);
+      setOrderchampCategoryPath(null);
       setEfashionCreateId(null);
     }
     setError("");
@@ -196,7 +203,9 @@ export default function CategoryEditorModal({
     ? editMode?.efashionCurrentId != null
     : efashionCreateId != null;
   const faireMapped = !!faireTaxonomyId;
-  const totalMapped = [pfsMapped, efashionMapped, faireMapped].filter(Boolean).length;
+  const orderchampMapped = !!orderchampCategoryPath;
+  const totalMapped = [pfsMapped, efashionMapped, faireMapped, orderchampMapped].filter(Boolean).length;
+  const TOTAL_MARKETPLACES = 4;
 
   async function handleSubmit() {
     if (!frName) { setError("Le nom en français est obligatoire."); return; }
@@ -213,6 +222,7 @@ export default function CategoryEditorModal({
           translations,
           { pfsGender, pfsFamilyName, pfsCategoryName },
           { taxonomyId: faireTaxonomyId },
+          { categoryPath: orderchampCategoryPath },
         );
         onClose();
         return;
@@ -230,6 +240,7 @@ export default function CategoryEditorModal({
         defaultPfsCategoryId ?? null,
         efashionCreateId,
         faireTaxonomyId,
+        orderchampCategoryPath,
       );
       onCreated?.(result);
       onClose();
@@ -400,12 +411,12 @@ export default function CategoryEditorModal({
                 <div className="text-right shrink-0">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Statut</p>
                   <p className={`text-[13px] font-semibold mt-0.5 flex items-center gap-1.5 justify-end ${
-                    totalMapped === 3 ? "text-emerald-700" : totalMapped > 0 ? "text-amber-700" : "text-text-muted"
+                    totalMapped === TOTAL_MARKETPLACES ? "text-emerald-700" : totalMapped > 0 ? "text-amber-700" : "text-text-muted"
                   }`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${
-                      totalMapped === 3 ? "bg-emerald-500" : totalMapped > 0 ? "bg-amber-500" : "bg-text-muted"
+                      totalMapped === TOTAL_MARKETPLACES ? "bg-emerald-500" : totalMapped > 0 ? "bg-amber-500" : "bg-text-muted"
                     }`} />
-                    {totalMapped} sur 3 reliées
+                    {totalMapped} sur {TOTAL_MARKETPLACES} reliées
                   </p>
                 </div>
               </div>
@@ -494,6 +505,36 @@ export default function CategoryEditorModal({
                   }}
                 />
               </MarketplaceCard>
+
+              {/* ─ Carte Orderchamp ─────────────────────────────────── */}
+              <MarketplaceCard
+                dataKey="orderchamp"
+                icon={<AvatarBadge gradient="linear-gradient(135deg,#F97316,#FDBA74)" text="Oc" />}
+                title="Orderchamp"
+                subtitle={isEdit ? "Enregistré automatiquement à chaque changement" : "Facultatif — peut être complété plus tard"}
+                mapped={orderchampMapped}
+              >
+                <OrderchampCategoryCascadeSelector
+                  label="Catégorie feuille Orderchamp"
+                  value={orderchampCategoryPath}
+                  helpText="Navigation cascade racine → sous-catégorie → feuille. Seules les feuilles sont acceptées côté Orderchamp."
+                  onSave={async (next, nextLabel) => {
+                    if (editMode) {
+                      try {
+                        await updateCategoryOrderchampTaxonomy(editMode.id, next);
+                        editMode.onOrderchampCategorySaved?.(next, nextLabel);
+                        router.refresh();
+                        toast.success(next ? "Catégorie Orderchamp liée" : "Lien Orderchamp retiré");
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : "Erreur d'enregistrement.";
+                        toast.error("Orderchamp", message);
+                        throw err;
+                      }
+                    }
+                    setOrderchampCategoryPath(next);
+                  }}
+                />
+              </MarketplaceCard>
             </div>
           </div>
         </div>
@@ -520,7 +561,7 @@ export default function CategoryEditorModal({
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
-                Prêt à {isEdit ? "enregistrer" : "créer"} — {totalMapped} marketplace{totalMapped > 1 ? "s" : ""} reliée{totalMapped > 1 ? "s" : ""} sur 3.
+                Prêt à {isEdit ? "enregistrer" : "créer"} — {totalMapped} marketplace{totalMapped > 1 ? "s" : ""} reliée{totalMapped > 1 ? "s" : ""} sur {TOTAL_MARKETPLACES}.
               </p>
             )}
           </div>

@@ -176,6 +176,7 @@ model AdminClientCard {
   hasAnkorstore Boolean @default(false)
   hasEfashion   Boolean @default(false)
   hasFaire      Boolean @default(false)
+  hasOrderchamp Boolean @default(false)
   hasMicrostore Boolean @default(false)
   hasPassage    Boolean @default(false)
 
@@ -189,6 +190,8 @@ model AdminClientCard {
   ankorstoreRetailerId    String?
   // Idem pour Faire (retailer_id — "r_xxxxx" ou UUID).
   faireRetailerId         String?
+  // Idem pour Orderchamp (retailer.id GraphQL — Base64).
+  orderchampRetailerId    String?
   // Idem pour Microstore (client_info.client_id, ex "10900").
   microstoreClientId      String?
   // Marqueur "fiche créée automatiquement par une synchro marketplace"
@@ -233,6 +236,7 @@ model AdminClientCard {
   @@index([tenantId, efashionCustomerId])
   @@index([tenantId, ankorstoreRetailerId])
   @@index([tenantId, faireRetailerId])
+  @@index([tenantId, orderchampRetailerId])
   @@index([tenantId, microstoreClientId])
   @@index([tenantId, siret])
 }

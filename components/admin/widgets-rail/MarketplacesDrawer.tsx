@@ -83,6 +83,7 @@ const MARKETPLACE_META: Record<MarketplaceTarget, { letter: string; name: string
   ankorstore: { letter: "A", name: "Ankorstore", grad: "linear-gradient(135deg,#0ea5e9,#38bdf8)" },
   efashion: { letter: "E", name: "eFashion", grad: "linear-gradient(135deg,#db2777,#ec4899)" },
   faire: { letter: "F", name: "Faire", grad: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
+  orderchamp: { letter: "O", name: "Orderchamp", grad: "linear-gradient(135deg,#f97316,#fdba74)" },
 };
 
 const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: string; icon: React.ReactNode }> = {
@@ -512,7 +513,7 @@ function EmptyState() {
         </div>
         <p className="text-sm font-semibold text-slate-700">Aucune synchro en cours</p>
         <p className="text-[11px] text-slate-500 mt-1 max-w-[280px] mx-auto">
-          Vos envois vers PFS, Ankorstore, eFashion et Faire s'afficheront ici, rangés par type d'action.
+          Vos envois vers PFS, Ankorstore, eFashion, Faire et Orderchamp s'afficheront ici, rangés par type d'action.
         </p>
       </div>
     </div>
@@ -1407,6 +1408,7 @@ function outcomeForMarketplace(
   if (target === "ankorstore") return item.ankorsOutcome;
   if (target === "efashion") return item.efashionOutcome;
   if (target === "faire") return item.faireOutcome;
+  if (target === "orderchamp") return item.orderchampOutcome;
   return item.pfsOutcome;
 }
 

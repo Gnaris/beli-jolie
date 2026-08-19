@@ -24,23 +24,26 @@ export interface BulkBarProduct {
   ankorsProductId: string | null;
   efashionReferenceBase: string | null;
   faireProductId: string | null;
+  orderchampProductId: string | null;
   pfsSyncRequired: boolean;
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  orderchampSyncRequired: boolean;
   /** Microstore : marketplace activée pour ce produit + date du dernier push
    *  (null = jamais poussé). Pas d'ID marketplace : upsert par référence. */
   microstoreEnabled?: boolean;
   microstoreLastPushedAt?: string | null;
 }
 
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 interface MarketplacesConfig {
   pfs: { available: boolean };
   ankorstore: { configured: boolean; enabled: boolean };
   efashion: { configured: boolean; enabled: boolean };
   faire: { configured: boolean; enabled: boolean };
+  orderchamp: { configured: boolean; enabled: boolean };
   microstore: { configured: boolean };
 }
 
@@ -128,6 +131,9 @@ function computeMarketplaceCounts(
   const faireToPublish = products.filter((p) => !p.faireProductId && eligibleForPublish(p) && notInFlight("faire")(p));
   const faireToSync = products.filter((p) => p.faireSyncRequired && notInFlight("faire")(p));
   const faireAlreadyOn = products.filter((p) => !!p.faireProductId && notInFlight("faire")(p));
+  const orderchampToPublish = products.filter((p) => !p.orderchampProductId && eligibleForPublish(p) && notInFlight("orderchamp")(p));
+  const orderchampToSync = products.filter((p) => p.orderchampSyncRequired && notInFlight("orderchamp")(p));
+  const orderchampAlreadyOn = products.filter((p) => !!p.orderchampProductId && notInFlight("orderchamp")(p));
   // Microstore : upsert par référence + pas de photo → un seul bouton
   // « Synchroniser » couvre à la fois la création et la mise à jour. Éligible
   // = produit ONLINE + non-incomplet + Microstore activé pour le produit.
@@ -143,6 +149,7 @@ function computeMarketplaceCounts(
     ankorstore: { publish: ankorsToPublish, sync: ankorsToSync, alreadyOn: ankorsAlreadyOn },
     efashion: { publish: efashionToPublish, sync: efashionToSync, alreadyOn: efashionAlreadyOn },
     faire: { publish: faireToPublish, sync: faireToSync, alreadyOn: faireAlreadyOn },
+    orderchamp: { publish: orderchampToPublish, sync: orderchampToSync, alreadyOn: orderchampAlreadyOn },
     microstore: {
       publish: [] as BulkBarProduct[], // Microstore n'a pas de « Publier » séparé
       sync: microstoreEligible,
@@ -189,6 +196,13 @@ const MARKETPLACE_META: Record<MarketplaceKey, {
     accentText: "text-rose-700",
     gradient: "from-rose-400 to-rose-600",
     publishHover: "hover:border-rose-300 hover:bg-rose-50/50",
+  },
+  orderchamp: {
+    label: "Orderchamp", subtitle: "Marketplace B2B européenne", initial: "O",
+    accentBg: "bg-orange-50 text-orange-700",
+    accentText: "text-orange-700",
+    gradient: "from-orange-400 to-orange-600",
+    publishHover: "hover:border-orange-300 hover:bg-orange-50/50",
   },
   microstore: {
     label: "Microstore", subtitle: "Caisse en boutique", initial: "M",
@@ -332,6 +346,7 @@ export default function BulkActionBar({
       ankorstore: new Set(),
       efashion: new Set(),
       faire: new Set(),
+      orderchamp: new Set(),
       // Microstore n'a pas de queue asynchrone — l'appel est synchrone. Ce set
       // reste vide, il n'est là que pour satisfaire le type MarketplaceKey.
       microstore: new Set(),
@@ -350,7 +365,7 @@ export default function BulkActionBar({
 
   const mpActionsTotal = useMemo(() => {
     let n = 0;
-    (["pfs", "ankorstore", "efashion", "faire"] as MarketplaceKey[]).forEach((k) => {
+    (["pfs", "ankorstore", "efashion", "faire", "orderchamp"] as MarketplaceKey[]).forEach((k) => {
       if (!isMarketplaceAvailable(k, marketplaces)) return;
       n += mpCounts[k].publish.length + mpCounts[k].sync.length;
     });
@@ -363,7 +378,7 @@ export default function BulkActionBar({
   // « Synchroniser » les produits déjà en ligne sur les marketplaces.
   const hasAnyMarketplaceAction = useMemo(() => {
     if (mpActionsTotal > 0) return true;
-    return (["pfs", "ankorstore", "efashion", "faire"] as MarketplaceKey[]).some((k) => {
+    return (["pfs", "ankorstore", "efashion", "faire", "orderchamp"] as MarketplaceKey[]).some((k) => {
       if (!isMarketplaceAvailable(k, marketplaces)) return false;
       return mpCounts[k].alreadyOn.length > 0;
     });
@@ -1100,6 +1115,7 @@ export function isMarketplaceAvailable(k: MarketplaceKey, cfg: MarketplacesConfi
   if (k === "ankorstore") return cfg.ankorstore.configured && cfg.ankorstore.enabled;
   if (k === "efashion") return cfg.efashion.configured && cfg.efashion.enabled;
   if (k === "microstore") return cfg.microstore.configured;
+  if (k === "orderchamp") return cfg.orderchamp.configured && cfg.orderchamp.enabled;
   return cfg.faire.configured && cfg.faire.enabled;
 }
 
@@ -1119,7 +1135,7 @@ function MarketplacePanel({
   onClose: () => void;
 }) {
   const maintenance = useMarketplaceMaintenance();
-  const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire", "microstore"];
+  const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire", "orderchamp", "microstore"];
 
   const totalActions = order.reduce((acc, k) => {
     if (!isMarketplaceAvailable(k, marketplaces)) return acc;

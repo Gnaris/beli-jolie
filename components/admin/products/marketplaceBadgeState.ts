@@ -23,6 +23,7 @@ function outcomeForTarget(
   if (target === "ankorstore") return item.ankorsOutcome;
   if (target === "efashion") return item.efashionOutcome;
   if (target === "faire") return item.faireOutcome;
+  if (target === "orderchamp") return item.orderchampOutcome;
   return item.pfsOutcome;
 }
 

@@ -16,7 +16,7 @@ import {
   updateVariantQuick,
 } from "@/app/actions/admin/products";
 import { bulkAddProductsToCollection } from "@/app/actions/admin/collections";
-import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire } from "@/app/actions/admin/marketplace-delete";
+import { deleteProductsOnPfs, deleteProductsOnAnkorstore, deleteProductsOnEfashion, deleteProductsOnFaire, deleteProductsOnOrderchamp } from "@/app/actions/admin/marketplace-delete";
 import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 import { bulkAddToEfashionShootingBatch } from "@/app/actions/admin/efashion-shooting-batch";
 import BulkEditAttributesModal, { type BulkEditOptions, type BulkEditPayload } from "@/components/admin/products/BulkEditAttributesModal";
@@ -63,6 +63,7 @@ const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
   ankorstore: "Ankorstore",
   efashion: "eFashion Paris",
   faire: "Faire",
+  orderchamp: "Orderchamp",
   microstore: "Microstore",
 };
 
@@ -77,6 +78,7 @@ const LinkAnkorstoreProductModal = dynamic(
 );
 const LinkEfashionProductModal = LinkPfsProductModal;
 const LinkFaireProductModal = LinkPfsProductModal;
+const LinkOrderchampProductModal = LinkPfsProductModal;
 const BulkPublishDraftsModal = dynamic(
   () => import("@/components/admin/products/BulkPublishDraftsModal"),
 );
@@ -117,6 +119,8 @@ export interface RowActionContext {
   efashionEnabled?: boolean;
   hasFaireConfig?: boolean;
   faireEnabled?: boolean;
+  hasOrderchampConfig?: boolean;
+  orderchampEnabled?: boolean;
   hasMicrostoreConfig?: boolean;
 }
 
@@ -153,6 +157,10 @@ export interface RowActionEligibility {
    * n'y est pas encore publié, et que la fiche locale n'est pas incomplète. */
   canPublishFaire: boolean;
   publishFaireReason?: string;
+  /** `canPublishOrderchamp` : true si Orderchamp est configuré + activé, que le
+   * produit n'y est pas encore publié, et que la fiche locale n'est pas incomplète. */
+  canPublishOrderchamp: boolean;
+  publishOrderchampReason?: string;
 }
 
 export function computeRowActionEligibility(
@@ -163,6 +171,7 @@ export function computeRowActionEligibility(
     ankorsProductId: string | null;
     efashionLinked?: boolean;
     fairePublished?: boolean;
+    orderchampPublished?: boolean;
   },
   ctx: RowActionContext,
 ): RowActionEligibility {
@@ -225,6 +234,19 @@ export function computeRowActionEligibility(
     canPublishFaire = true;
   }
 
+  const showOrderchamp = !!(ctx.hasOrderchampConfig && ctx.orderchampEnabled);
+  let publishOrderchampReason: string | undefined;
+  let canPublishOrderchamp = false;
+  if (!showOrderchamp) {
+    publishOrderchampReason = "Orderchamp n'est pas configuré ou est désactivé";
+  } else if (product.orderchampPublished) {
+    publishOrderchampReason = "Déjà publié sur Orderchamp";
+  } else if (product.isIncomplete) {
+    publishOrderchampReason = "Produit incomplet — complétez la fiche d'abord";
+  } else {
+    canPublishOrderchamp = true;
+  }
+
   return {
     canPutOnline: product.status !== "ONLINE" && !product.isIncomplete,
     putOnlineReason,
@@ -239,6 +261,8 @@ export function computeRowActionEligibility(
     publishEfashionReason,
     canPublishFaire,
     publishFaireReason,
+    canPublishOrderchamp,
+    publishOrderchampReason,
   };
 }
 
@@ -812,6 +836,121 @@ function FaireBadge({
   );
 }
 
+function OrderchampBadge({
+  published,
+  publishing = false,
+  syncRequired = false,
+  lastExportedAt = null,
+  onActionClick,
+  onSyncClick,
+  onCancelSyncRequired,
+  disabledForProduct = false,
+  disabledReason,
+}: {
+  published: boolean;
+  publishing?: boolean;
+  syncRequired?: boolean;
+  lastExportedAt?: string | null;
+  onActionClick?: () => void;
+  onSyncClick?: () => void;
+  onCancelSyncRequired?: () => void;
+  disabledForProduct?: boolean;
+  disabledReason?: "product" | "maintenance";
+}) {
+  if (disabledForProduct) return <DisabledMarketplaceBadge label="OC" reason={disabledReason} />;
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        title="Publication Orderchamp en cours…"
+      >
+        <svg
+          className="w-3 h-3 animate-spin shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        <span>OC</span>
+      </span>
+    );
+  }
+  if (published && syncRequired) {
+    return (
+      <span className="relative inline-flex">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncClick?.();
+          }}
+          className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
+          title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Orderchamp"
+        >
+          <span className="relative inline-flex">
+            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
+            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
+          </span>
+          OC
+        </button>
+        {onCancelSyncRequired && (
+          <SyncCancelCross onClick={onCancelSyncRequired} marketplaceLabel="Orderchamp" />
+        )}
+      </span>
+    );
+  }
+  if (published) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!onSyncClick) return;
+          e.stopPropagation();
+          onSyncClick();
+        }}
+        disabled={!onSyncClick}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+          onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
+        }`}
+        title={
+          onSyncClick
+            ? `Cliquer pour synchroniser sur Orderchamp${lastExportedAt ? ` — dernier export ${formatRelativeDate(lastExportedAt)}` : ""}`
+            : lastExportedAt
+              ? `Publié sur Orderchamp — dernier export ${formatRelativeDate(lastExportedAt)}`
+              : "Publié sur Orderchamp"
+        }
+        aria-label="Publié sur Orderchamp"
+      >
+        OC
+      </button>
+    );
+  }
+  // Non publié : badge cliquable qui ouvre la modale (Publier/Lier)
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        if (!onActionClick) return;
+        e.stopPropagation();
+        onActionClick();
+      }}
+      disabled={!onActionClick}
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
+        onActionClick
+          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+      }`}
+      title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Orderchamp" : "Non publié sur Orderchamp"}
+      aria-label="Publier ou lier sur Orderchamp"
+    >
+      OC
+    </button>
+  );
+}
+
 function MicrostoreBadge({
   configured,
   syncRequired = false,
@@ -1034,12 +1173,14 @@ interface AdminProduct {
   ankorsProductId: string | null;
   efashionReferenceBase: string | null;
   faireProductId: string | null;
+  orderchampProductId: string | null;
   /** Drapeaux « Synchronisation nécessaire » pilotés par le save produit et le
    *  worker image. Affiche un badge orange cliquable pour pousser la modif. */
   pfsSyncRequired: boolean;
   ankorsSyncRequired: boolean;
   efashionSyncRequired: boolean;
   faireSyncRequired: boolean;
+  orderchampSyncRequired: boolean;
   microstoreSyncRequired: boolean;
   /** Microstore n'a pas d'ID marketplace : `microstoreLastPushedAt != null` sert
    *  d'équivalent « déjà publié ». Null = jamais poussé (la modale bulk peut
@@ -1051,6 +1192,7 @@ interface AdminProduct {
   ankorsEnabled: boolean;
   efashionEnabled: boolean;
   faireEnabled: boolean;
+  orderchampEnabled: boolean;
   microstoreEnabled: boolean;
   /** Dates du dernier export Excel/ZIP réussi par marketplace (null = jamais
    *  exporté). Affichées dans la colonne « Dates » avec une puce d'initiales
@@ -1060,6 +1202,7 @@ interface AdminProduct {
   microstoreLastExportedAt: string | null;
   ankorstoreLastExportedAt: string | null;
   faireLastExportedAt: string | null;
+  orderchampLastExportedAt: string | null;
   /** Résultat de la dernière vérification PFS (lib/pfs-verify.ts). Alimente
    *  la pastille affichée à côté du nom du produit dans la colonne Produit. */
   pfsCheckedAt: string | null;
@@ -1085,6 +1228,8 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasOrderchampConfig: boolean;
+  orderchampEnabled: boolean;
   hasMicrostoreConfig: boolean;
   /** Kill switch global Microstore (SiteConfig microstore_products_management_enabled). */
   microstoreEnabled?: boolean;
@@ -2240,6 +2385,7 @@ function ActionsDropdown({
   pfsPublishing,
   efashionPublishing,
   fairePublishing,
+  orderchampPublishing,
   onClose,
   onExpandToggle,
   onRefresh,
@@ -2251,6 +2397,7 @@ function ActionsDropdown({
   onPublishAnkorstore,
   onPublishEfashion,
   onPublishFaire,
+  onPublishOrderchamp,
   onDelete,
 }: {
   productId: string;
@@ -2264,6 +2411,7 @@ function ActionsDropdown({
   pfsPublishing: boolean;
   efashionPublishing: boolean;
   fairePublishing: boolean;
+  orderchampPublishing: boolean;
   onClose: () => void;
   onExpandToggle: () => void;
   onRefresh: () => void;
@@ -2275,6 +2423,7 @@ function ActionsDropdown({
   onPublishAnkorstore: () => void;
   onPublishEfashion: () => void;
   onPublishFaire: () => void;
+  onPublishOrderchamp: () => void;
   onDelete: () => void;
 }) {
   // `expanded` sert seulement de flag informatif : le vrai toggle passe par
@@ -2492,6 +2641,22 @@ function ActionsDropdown({
               : "Publier sur Faire"}
         </button>
       )}
+      {eligibility.canPublishOrderchamp && (
+        <button
+          type="button"
+          onClick={onPublishOrderchamp}
+          disabled={orderchampPublishing || maintenance.orderchamp}
+          title={maintenance.orderchamp ? "Orderchamp en maintenance sur la plateforme" : undefined}
+          className={`${itemClass} ${orderchampPublishing || maintenance.orderchamp ? "opacity-50 cursor-not-allowed" : ""}`}
+        >
+          <span className={iconWrap}>+</span>
+          {orderchampPublishing
+            ? "Publication Orderchamp en cours…"
+            : maintenance.orderchamp
+              ? "Publier sur Orderchamp — en maintenance"
+              : "Publier sur Orderchamp"}
+        </button>
+      )}
 
       <div className={sepCls} />
 
@@ -2669,6 +2834,8 @@ function ProductRow({
   efashionEnabled,
   hasFaireConfig,
   faireEnabled,
+  hasOrderchampConfig,
+  orderchampEnabled,
   hasMicrostoreConfig,
   microstoreEnabled = true,
   selected,
@@ -2692,6 +2859,8 @@ function ProductRow({
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasOrderchampConfig: boolean;
+  orderchampEnabled: boolean;
   hasMicrostoreConfig: boolean;
   microstoreEnabled?: boolean;
   selected: boolean;
@@ -2712,11 +2881,13 @@ function ProductRow({
   const [linkAkOpen, setLinkAkOpen] = useState(false);
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const [linkFaireOpen, setLinkFaireOpen] = useState(false);
+  const [linkOrderchampOpen, setLinkOrderchampOpen] = useState(false);
   // Modales « Publier / Lier » : une par marketplace, ouvertes au clic du badge
   const [actionModalPfs, setActionModalPfs] = useState(false);
   const [actionModalAk, setActionModalAk] = useState(false);
   const [actionModalEf, setActionModalEf] = useState(false);
   const [actionModalFaire, setActionModalFaire] = useState(false);
+  const [actionModalOrderchamp, setActionModalOrderchamp] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   // Suivi du tap sur la ligne : distinguer un scroll (le doigt a bougé) d'un
   // vrai tap pour éviter la sélection accidentelle sur mobile.
@@ -2741,21 +2912,25 @@ function ProductRow({
   const showAnkorstore = hasAnkorstoreConfig;
   const showEfashion = hasEfashionConfig;
   const showFaire = hasFaireConfig;
+  const showOrderchamp = hasOrderchampConfig;
   // Maintenance plateforme = coupe l'opérationnalité, même si le kill switch tenant est ON.
   const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled && !maintenance.ankorstore;
   const efashionOperational = hasEfashionConfig && efashionEnabled && !maintenance.efashion;
   const faireOperational = hasFaireConfig && faireEnabled && !maintenance.faire;
+  const orderchampOperational = hasOrderchampConfig && orderchampEnabled && !maintenance.orderchamp;
   const pfsOperational = hasPfsConfig && pfsGloballyEnabled && !maintenance.pfs;
   const pfsDisabledOverall = maintenance.pfs || !product.pfsEnabled || !pfsGloballyEnabled;
   const ankorsDisabledOverall = maintenance.ankorstore || !product.ankorsEnabled || !ankorstoreEnabled;
   const efashionDisabledOverall = maintenance.efashion || !product.efashionEnabled || !efashionEnabled;
   const faireDisabledOverall = maintenance.faire || !product.faireEnabled || !faireEnabled;
+  const orderchampDisabledOverall = maintenance.orderchamp || !product.orderchampEnabled || !orderchampEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
     showPfs: pfsOperational,
     showAnkorstore: ankorstoreOperational,
     showEfashion: efashionOperational,
     showFaire: faireOperational,
+    showOrderchamp: orderchampOperational,
   });
 
   // Optimistic UI : quand la cliente clique la croix « ignorer » d'un badge
@@ -2763,7 +2938,7 @@ function ProductRow({
   // router.refresh() qui régénère la table lourde /admin/produits). Le serveur
   // est appelé en tâche de fond ; en cas d'échec on retire l'entrée et le
   // orange revient.
-  type SyncFlagKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+  type SyncFlagKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
   const [optimisticallyCleared, setOptimisticallyCleared] = useState<
     ReadonlySet<SyncFlagKey>
   >(() => new Set());
@@ -2794,6 +2969,9 @@ function ProductRow({
     if (!product.faireSyncRequired) removeClearedLocally("faire");
   }, [product.faireSyncRequired]);
   useEffect(() => {
+    if (!product.orderchampSyncRequired) removeClearedLocally("orderchamp");
+  }, [product.orderchampSyncRequired]);
+  useEffect(() => {
     if (!product.microstoreSyncRequired) removeClearedLocally("microstore");
   }, [product.microstoreSyncRequired]);
 
@@ -2805,6 +2983,8 @@ function ProductRow({
     product.efashionSyncRequired && !isClearedLocally("efashion");
   const effectiveFaireSyncRequired =
     product.faireSyncRequired && !isClearedLocally("faire");
+  const effectiveOrderchampSyncRequired =
+    product.orderchampSyncRequired && !isClearedLocally("orderchamp");
   const effectiveMicrostoreSyncRequired =
     product.microstoreSyncRequired && !isClearedLocally("microstore");
 
@@ -2866,10 +3046,26 @@ function ProductRow({
   const [pendingFaireEnqueue, setPendingFaireEnqueue] = useState(false);
   const isFairePublishing = faireBadgeState.loading || pendingFaireEnqueue;
 
+  const orderchampOp = findLatestOpForProduct(queueItems, product.id, "orderchamp");
+  const orderchampBadgeState = computeMarketplaceBadgeState(
+    product.orderchampProductId,
+    orderchampOp,
+    "orderchamp",
+    effectiveOrderchampSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "orderchamp"),
+    // `hasLinkJob` ne connait pas encore « orderchamp » — on ne peut pas typer
+    // proprement tant que MarketplaceLinkContext n'a pas été étendu. Fallback
+    // false : les liaisons manuelles orderchamp n'ont pas encore de flow UI.
+    false,
+  );
+  const [pendingOrderchampEnqueue, setPendingOrderchampEnqueue] = useState(false);
+  const isOrderchampPublishing = orderchampBadgeState.loading || pendingOrderchampEnqueue;
+
   // État de confirmation « Publier sur X ? » — piloté par une seule modale
   // partagée (MarketplacePublishConfirmModal). null = fermée.
   const [publishConfirmFor, setPublishConfirmFor] = useState<
-    "pfs" | "ankorstore" | "efashion" | "faire" | null
+    "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | null
   >(null);
 
   // Demande la création d'une nouvelle fiche sur PFS — même logique que pour
@@ -3025,6 +3221,11 @@ function ProductRow({
       setPendingFaireEnqueue(false);
     }
   }, [pendingFaireEnqueue, faireBadgeState.loading]);
+  useEffect(() => {
+    if (pendingOrderchampEnqueue && orderchampBadgeState.loading) {
+      setPendingOrderchampEnqueue(false);
+    }
+  }, [pendingOrderchampEnqueue, orderchampBadgeState.loading]);
 
   // Modale variantes ouverte (bureau ou mobile) : lock body scroll + fermeture ESC.
   useEffect(() => {
@@ -3074,6 +3275,41 @@ function ProductRow({
       marketplace: "faire",
     }]);
   }, [enqueue, product, isFairePublishing, confirmMarketplaceSync]);
+
+  const handlePublishOrderchamp = useCallback(() => {
+    if (isOrderchampPublishing) return;
+    setPublishConfirmFor("orderchamp");
+  }, [isOrderchampPublishing]);
+  const doPublishOrderchamp = useCallback(() => {
+    setPublishConfirmFor(null);
+    setPendingOrderchampEnqueue(true);
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+        mode: "publish",
+        marketplace: "orderchamp",
+      },
+    ]);
+  }, [enqueue, product]);
+
+  const handleSyncOrderchamp = useCallback(async () => {
+    if (isOrderchampPublishing) return;
+    if (!(await confirmMarketplaceSync("Orderchamp"))) return;
+    setPendingOrderchampEnqueue(true);
+    enqueue([{
+      productId: product.id,
+      reference: product.reference,
+      productName: product.name,
+      firstImage: product.firstImage,
+      options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+      mode: "resync",
+      marketplace: "orderchamp",
+    }]);
+  }, [enqueue, product, isOrderchampPublishing, confirmMarketplaceSync]);
 
   const [microstoreBusy, setMicrostoreBusy] = useState(false);
   const handleSyncMicrostore = useCallback(async () => {
@@ -3140,7 +3376,7 @@ function ProductRow({
   // reset du drapeau syncRequired : le produit repasse en vert « en ligne »
   // sans qu'aucune modif ne soit envoyée à la marketplace.
   const handleCancelSyncRequired = useCallback(
-    async (marketplace: "pfs" | "ankorstore" | "efashion" | "faire", marketplaceLabel: string) => {
+    async (marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp", marketplaceLabel: string) => {
       const ok = await confirm({
         type: "warning",
         title: `Ignorer cette synchronisation ${marketplaceLabel} ?`,
@@ -3191,7 +3427,7 @@ function ProductRow({
   // variantes vers le state top-level via `onCommitCell` (prop).
 
   const eligibility = computeRowActionEligibility(
-    { ...product, efashionLinked, fairePublished: faireBadgeState.online },
+    { ...product, efashionLinked, fairePublished: faireBadgeState.online, orderchampPublished: orderchampBadgeState.online },
     {
       hasPfsConfig,
       hasAnkorstoreConfig,
@@ -3200,6 +3436,8 @@ function ProductRow({
       efashionEnabled,
       hasFaireConfig,
       faireEnabled,
+      hasOrderchampConfig,
+      orderchampEnabled,
     },
   );
 
@@ -3451,6 +3689,20 @@ function ProductRow({
                     ) : undefined}
                   />
                 )}
+                {showOrderchamp && (
+                  <MpDot
+                    label="OC"
+                    active={orderchampBadgeState.online}
+                    syncRequired={orderchampBadgeState.syncRequired}
+                    disabled={orderchampDisabledOverall}
+                    busy={isOrderchampPublishing}
+                    onClick={orderchampOperational ? (
+                      orderchampBadgeState.online
+                        ? () => void handleSyncOrderchamp()
+                        : () => setActionModalOrderchamp(true)
+                    ) : undefined}
+                  />
+                )}
                 {hasMicrostoreConfig && (
                   <MpDot
                     label="MC"
@@ -3560,6 +3812,27 @@ function ProductRow({
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
                   Faire
+                </span>
+              )}
+              {showOrderchamp ? (
+                <OrderchampBadge
+                  published={orderchampBadgeState.online}
+                  publishing={isOrderchampPublishing}
+                  syncRequired={orderchampBadgeState.syncRequired && !pendingOrderchampEnqueue}
+                  lastExportedAt={product.orderchampLastExportedAt}
+                  onActionClick={
+                    orderchampOperational && !orderchampBadgeState.online && !isOrderchampPublishing
+                      ? () => setActionModalOrderchamp(true)
+                      : undefined
+                  }
+                  onSyncClick={handleSyncOrderchamp}
+                  onCancelSyncRequired={() => handleCancelSyncRequired("orderchamp", "Orderchamp")}
+                  disabledForProduct={orderchampDisabledOverall}
+                  disabledReason={maintenance.orderchamp ? "maintenance" : "product"}
+                />
+              ) : (
+                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
+                  OC
                 </span>
               )}
               <MicrostoreBadge
@@ -3739,6 +4012,7 @@ function ProductRow({
                 pfsPublishing={isPfsPublishing}
                 efashionPublishing={isEfashionPublishing}
                 fairePublishing={isFairePublishing}
+                orderchampPublishing={isOrderchampPublishing}
                 onClose={() => setActionsOpen(false)}
                 onExpandToggle={() => { onExpandToggle(); setActionsOpen(false); }}
                 onRefresh={async () => {
@@ -3768,6 +4042,7 @@ function ProductRow({
                 onPublishAnkorstore={() => { setActionsOpen(false); void handlePublishAnkorstore(); }}
                 onPublishEfashion={() => { setActionsOpen(false); void handlePublishEfashion(); }}
                 onPublishFaire={() => { setActionsOpen(false); void handlePublishFaire(); }}
+                onPublishOrderchamp={() => { setActionsOpen(false); void handlePublishOrderchamp(); }}
                 onDelete={() => { setActionsOpen(false); onRowDelete(product.id); }}
               />,
               document.body
@@ -4086,6 +4361,23 @@ function ProductRow({
         document.body,
       )}
 
+      {/* Orderchamp : LinkMarketplaceModal ne supporte pas encore le flow
+          « lier à un existant » (Marketplace type limité). On garde le state
+          pour l'API future ; en attendant on cast pour ne pas casser le typage. */}
+      {linkOrderchampOpen && createPortal(
+        <LinkOrderchampProductModal
+          marketplace={"orderchamp" as never}
+          productId={product.id}
+          productName={product.name}
+          reference={product.reference}
+          onClose={() => {
+            setLinkOrderchampOpen(false);
+            router.refresh();
+          }}
+        />,
+        document.body,
+      )}
+
       {/* Modales « Publier / Lier » pour chaque marketplace — ouvertes par
           clic sur le badge marketplace correspondant quand le produit n'y
           est pas encore. */}
@@ -4150,6 +4442,21 @@ function ProductRow({
         onClose={() => setActionModalFaire(false)}
         onConfirm={() => { setActionModalFaire(false); void handlePublishFaire(); }}
         onLink={() => { setActionModalFaire(false); setLinkFaireOpen(true); }}
+      />
+      <MarketplacePushModal
+        open={actionModalOrderchamp}
+        marketplace="orderchamp"
+        mode="publish-or-link"
+        title="Publier ce produit sur Orderchamp"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        canCreate={!orderchampBadgeState.online && !isOrderchampPublishing}
+        canLink={showOrderchamp && !orderchampBadgeState.online && !isOrderchampPublishing}
+        createDisabledReason={!orderchampBadgeState.online ? undefined : "Produit déjà publié"}
+        onClose={() => setActionModalOrderchamp(false)}
+        onConfirm={() => { setActionModalOrderchamp(false); void handlePublishOrderchamp(); }}
+        onLink={() => { setActionModalOrderchamp(false); setLinkOrderchampOpen(true); }}
       />
 
       {/* Modale « Publier sur X ? » — confirmation simple avec message.
@@ -4218,6 +4525,21 @@ function ProductRow({
         onClose={() => setPublishConfirmFor(null)}
         onConfirm={doPublishFaire}
       />
+      <MarketplacePushModal
+        open={publishConfirmFor === "orderchamp"}
+        marketplace="orderchamp"
+        mode="publish"
+        title="Publier ce produit sur Orderchamp ?"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        message="Une nouvelle fiche sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit."
+        onClose={() => setPublishConfirmFor(null)}
+        onConfirm={doPublishOrderchamp}
+      />
 
       {/* Modale mobile de changement de statut (ouverte au tap sur le badge du coin) */}
       {!product.isIncomplete && product.status !== "SYNCING" && (
@@ -4241,7 +4563,7 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -4253,6 +4575,8 @@ function TableWithTopScroll({
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasOrderchampConfig: boolean;
+  orderchampEnabled: boolean;
   hasMicrostoreConfig: boolean;
   microstoreEnabled?: boolean;
   selectedIds: Set<string>;
@@ -4309,6 +4633,8 @@ function TableWithTopScroll({
                 efashionEnabled={efashionEnabled}
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
+                hasOrderchampConfig={hasOrderchampConfig}
+                orderchampEnabled={orderchampEnabled}
                 hasMicrostoreConfig={hasMicrostoreConfig}
                 microstoreEnabled={microstoreEnabled}
                 selected={selectedIds.has(product.id)}
@@ -4344,6 +4670,8 @@ export default function AdminProductsTable({
   efashionEnabled,
   hasFaireConfig,
   faireEnabled,
+  hasOrderchampConfig,
+  orderchampEnabled,
   hasMicrostoreConfig,
   microstoreEnabled = true,
   bulkEditOptions,
@@ -4372,11 +4700,13 @@ export default function AdminProductsTable({
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = !!(hasEfashionConfig && efashionEnabled);
   const showFaire = !!(hasFaireConfig && faireEnabled);
+  const showOrderchamp = !!(hasOrderchampConfig && orderchampEnabled);
   const { refreshBulk } = useRefreshMarketplaceDialog({
     showPfs: hasPfsConfig,
     showAnkorstore,
     showEfashion,
     showFaire,
+    showOrderchamp,
   });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
   const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
@@ -5282,11 +5612,18 @@ export default function AdminProductsTable({
           .filter((p) => ids.includes(p.id) && p.faireProductId)
           .map((p) => ({ faireProductId: p.faireProductId as string, reference: p.reference }))
       : [];
+    const showOrderchampDelete = hasOrderchampConfig && orderchampEnabled;
+    const orderchampCandidates = showOrderchampDelete
+      ? allProducts
+          .filter((p) => ids.includes(p.id) && p.orderchampProductId)
+          .map((p) => ({ orderchampProductId: p.orderchampProductId as string, reference: p.reference }))
+      : [];
 
     const pfsRef = { current: false };
     const ankorsRef = { current: false };
     const efashionRef = { current: false };
     const faireRef = { current: false };
+    const orderchampRef = { current: false };
 
     const checkboxes: {
       id: string;
@@ -5335,6 +5672,16 @@ export default function AdminProductsTable({
         },
       });
     }
+    if (orderchampCandidates.length > 0) {
+      checkboxes.push({
+        id: "orderchamp",
+        label: `Supprimer aussi sur Orderchamp (${orderchampCandidates.length} produit${orderchampCandidates.length > 1 ? "s" : ""} publié${orderchampCandidates.length > 1 ? "s" : ""})`,
+        defaultChecked: false,
+        onChange: (v) => {
+          orderchampRef.current = v;
+        },
+      });
+    }
 
     const confirmed = await confirm({
       type: "danger",
@@ -5371,6 +5718,7 @@ export default function AdminProductsTable({
     const confirmAnkorsDelete = ankorsRef.current && ankorsCandidates.length > 0;
     const confirmEfashionDelete = efashionRef.current && efashionCandidates.length > 0;
     const confirmFaireDelete = faireRef.current && faireCandidates.length > 0;
+    const confirmOrderchampDelete = orderchampRef.current && orderchampCandidates.length > 0;
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
@@ -5480,6 +5828,26 @@ export default function AdminProductsTable({
             toast.error("Échec suppression Faire", err instanceof Error ? err.message : String(err));
           }
         }
+
+        // Suppression Orderchamp en parallèle (synchrone) si l'admin a confirmé
+        if (confirmOrderchampDelete) {
+          try {
+            const orderchampResults = await deleteProductsOnOrderchamp(orderchampCandidates);
+            const okCount = orderchampResults.filter((r) => r.status === "ok").length;
+            const errCount = orderchampResults.length - okCount;
+            if (errCount === 0) {
+              toast.success(`${okCount} produit${okCount > 1 ? "s" : ""} supprimé${okCount > 1 ? "s" : ""} d'Orderchamp`);
+            } else {
+              const errRefs = orderchampResults.filter((r) => r.status === "error").map((r) => r.reference).join(", ");
+              toast.error(
+                "Suppression Orderchamp partielle",
+                `${okCount} OK · ${errCount} échec${errCount > 1 ? "s" : ""} (${errRefs})`,
+              );
+            }
+          } catch (err) {
+            toast.error("Échec suppression Orderchamp", err instanceof Error ? err.message : String(err));
+          }
+        }
       } catch (e) {
         setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
       } finally {
@@ -5487,7 +5855,7 @@ export default function AdminProductsTable({
         setDeletingIds(new Set());
       }
     });
-  }, [selectedIds, startTransition, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, toast, router]);
+  }, [selectedIds, startTransition, confirm, allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, toast, router]);
 
   // Synchroniser un (ou plusieurs) produit(s) avec les marketplaces : renvoie
   // toutes les données (prix, stock, images, statut, etc.) au même `pfsProductId`
@@ -5643,10 +6011,18 @@ export default function AdminProductsTable({
     if (marketplace === "microstore") return;
 
     const products = allProducts.filter((p) => ids.includes(p.id));
-    const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
+    const options: {
+      local: boolean;
+      pfs: boolean;
+      ankorstore: boolean;
+      efashion: boolean;
+      faire: boolean;
+      orderchamp?: boolean;
+    } = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
     if (marketplace === "pfs") options.pfs = true;
     if (marketplace === "ankorstore") options.ankorstore = true;
     if (marketplace === "faire") options.faire = true;
+    if (marketplace === "orderchamp") options.orderchamp = true;
     enqueuePfs(
       products.map((p) => ({
         productId: p.id,
@@ -6025,10 +6401,12 @@ export default function AdminProductsTable({
           ankorsProductId: p.ankorsProductId,
           efashionReferenceBase: p.efashionReferenceBase,
           faireProductId: p.faireProductId,
+          orderchampProductId: p.orderchampProductId,
           pfsSyncRequired: p.pfsSyncRequired,
           ankorsSyncRequired: p.ankorsSyncRequired,
           efashionSyncRequired: p.efashionSyncRequired,
           faireSyncRequired: p.faireSyncRequired,
+          orderchampSyncRequired: p.orderchampSyncRequired,
           microstoreEnabled: p.microstoreEnabled,
           microstoreLastPushedAt: p.microstoreLastPushedAt,
         }))}
@@ -6039,6 +6417,7 @@ export default function AdminProductsTable({
           ankorstore: { configured: hasAnkorstoreConfig, enabled: ankorstoreEnabled },
           efashion: { configured: hasEfashionConfig, enabled: efashionEnabled },
           faire: { configured: hasFaireConfig, enabled: faireEnabled },
+          orderchamp: { configured: hasOrderchampConfig, enabled: orderchampEnabled },
           microstore: { configured: hasMicrostoreConfig },
         }}
         draftCount={selectedDraftIds.length}
@@ -6077,7 +6456,7 @@ export default function AdminProductsTable({
 
       {/* Tableau avec double scrollbar (haut + bas) */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>
@@ -6180,6 +6559,8 @@ export default function AdminProductsTable({
           efashionEnabled={efashionEnabled}
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
+          hasOrderchampConfig={hasOrderchampConfig}
+          orderchampEnabled={orderchampEnabled}
           hasMicrostoreConfig={hasMicrostoreConfig}
           onCancel={() => setBulkPublishDraftsOpen(false)}
           onConfirm={handleBulkPublishDraftsConfirm}

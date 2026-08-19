@@ -13,6 +13,7 @@ export type CompositionDetailData = {
   createdAt: Date;
   pfsLabel: string | null;
   efashionLabel: string | null;
+  orderchampLabel: string | null;
 };
 
 type Props = {
@@ -21,7 +22,7 @@ type Props = {
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onEditMapping: (mp: "pfs" | "efashion") => void;
+  onEditMapping: (mp: "pfs" | "efashion" | "orderchamp") => void;
 };
 
 const CHIP_STYLE: React.CSSProperties = {
@@ -113,6 +114,7 @@ export default function CompositionDetail({
         <CompositionMarketplaceMappingCards
           pfsLabel={composition.pfsLabel}
           efashionLabel={composition.efashionLabel}
+          orderchampLabel={composition.orderchampLabel}
           onEditMapping={onEditMapping}
         />
       </section>
