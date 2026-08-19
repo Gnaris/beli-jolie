@@ -12,13 +12,26 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// `vi.hoisted` : les mocks sont hoistés avant les imports, donc les valeurs
+// qu'ils capturent doivent être créées dans un scope hoisté aussi. Ce tableau
+// stocke les options (surtout les `tags`) passées à `unstable_cache` afin de
+// vérifier le double-taggage brut/scopé.
+const { capturedCacheOptions } = vi.hoisted(() => ({
+  capturedCacheOptions: [] as Array<{ opts: { tags?: string[]; revalidate?: number } | undefined }>,
+}));
+
 // Mock next/cache : le vrai `unstable_cache` a besoin du runtime Next et
 // couvre la sémantique cache-hit/miss ; ici on veut vérifier UNIQUEMENT que
 // notre wrapper appelle le callback dans un scope ALS correctement bindé.
 // On simule donc un unstable_cache qui appelle le callback "à part" (pattern
 // qui casse l'ALS parent).
 vi.mock("next/cache", () => ({
-  unstable_cache: (fn: (...a: unknown[]) => Promise<unknown>) => {
+  unstable_cache: (
+    fn: (...a: unknown[]) => Promise<unknown>,
+    _keyParts: string[],
+    opts: { tags?: string[]; revalidate?: number } | undefined,
+  ) => {
+    capturedCacheOptions.push({ opts });
     // Simule le fait que Next.js exécute le callback dans un scope async
     // isolé — sans wrapper, l'ALS parente n'est PAS visible ici.
     return async (...args: unknown[]) => {
@@ -100,6 +113,38 @@ describe("tenantScopedCacheWithTid — ALS binding through unstable_cache", () =
     await tenantALS.run("issyma", () => cache());
 
     expect(alsInsideCallback).toBe("issyma");
+  });
+
+  it("double-taggue les caches (tag brut + tag scopé) — sinon revalidateTag('site-config') ne flush pas les caches scopés", async () => {
+    // Régression 2026-08-19 : la cliente activait « Gestion produits Microstore »
+    // dans /admin/parametres, la server action écrivait bien la clé en base et
+    // appelait `revalidateTag("site-config", "default")`, mais le cache
+    // `microstore-enabled` (taggué `site-config:{tenantId}`) n'était jamais
+    // invalidé → la page /admin/produits continuait d'afficher « désactivée ».
+    //
+    // Le fix : chaque cache est taggué à la fois avec le tag brut ("site-config")
+    // ET le tag scopé ("site-config:{tenantId}"). Ainsi les setters existants
+    // qui font revalidateTag sans suffixe fonctionnent.
+    capturedCacheOptions.length = 0;
+    const cache = tenantScopedCacheWithTid(
+      "test-double-tag",
+      async () => "ok",
+      ["test-double-tag"],
+      { revalidate: 60, tags: ["site-config", "microstore-enabled"] },
+    );
+
+    await tenantALS.run("beliandjolie-tid", () => cache());
+
+    // Vérifie qu'une entrée a bien été créée avec les 4 tags attendus :
+    // ["site-config", "site-config:beliandjolie-tid", "microstore-enabled",
+    //  "microstore-enabled:beliandjolie-tid"]
+    const relevant = capturedCacheOptions[capturedCacheOptions.length - 1];
+    expect(relevant?.opts?.tags).toEqual([
+      "site-config",
+      "site-config:beliandjolie-tid",
+      "microstore-enabled",
+      "microstore-enabled:beliandjolie-tid",
+    ]);
   });
 
   it("isole 2 tenants qui appellent le même cache — pas de fuite du 1er au 2ᵉ", async () => {

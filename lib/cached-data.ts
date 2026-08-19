@@ -78,7 +78,12 @@ export function tenantScopedCacheWithTid<Args extends unknown[], T>(
     const finalTid = tid ?? "global";
     let cached = memo.get(finalTid);
     if (!cached) {
-      const tags = (opts.tags ?? []).map((t) => `${t}:${finalTid}`);
+      // Double-taggage : tag scopé (`t:{tid}`) pour invalider un seul tenant,
+      // + tag brut (`t`) qui sert d'alias — la plupart des server actions font
+      // `revalidateTag("site-config", "default")` sans suffixe, sinon les
+      // caches scopés ne sont jamais flush (bug Microstore 2026-08-19 : toggle
+      // « gestion produits » ON, page produits toujours grisée).
+      const tags = (opts.tags ?? []).flatMap((t) => [t, `${t}:${finalTid}`]);
       cached = unstable_cache(
         // CRITIQUE : rebinde l'ALS avec finalTid dans le callback.
         // `unstable_cache` exécute le callback dans un scope où l'ALS
