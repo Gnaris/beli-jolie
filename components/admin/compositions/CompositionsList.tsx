@@ -22,6 +22,7 @@ type Props = {
   onSelect: (id: string) => void;
   hasPfsConfig: boolean;
   hasEfashionConfig: boolean;
+  hasOrderchampConfig: boolean;
   onReorder: (newOrderedIds: string[]) => void;
 };
 
@@ -31,6 +32,7 @@ export default function CompositionsList({
   onSelect,
   hasPfsConfig,
   hasEfashionConfig,
+  hasOrderchampConfig,
   onReorder,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -68,6 +70,7 @@ export default function CompositionsList({
       { key: "missingTranslation", label: "Sans traduction", show: true },
       { key: "missingPfs", label: "Sans PFS", show: hasPfsConfig },
       { key: "missingEfashion", label: "Sans eFashion", show: hasEfashionConfig },
+      { key: "missingOrderchamp", label: "Sans Orderchamp", show: hasOrderchampConfig },
     ] satisfies { key: CompositionFilterKey; label: string; show: boolean }[]
   ).filter((f) => f.show);
 

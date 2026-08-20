@@ -16,6 +16,7 @@ export interface MarketplaceMaintenanceState {
   ankorstore: boolean;
   efashion: boolean;
   faire: boolean;
+  orderchamp: boolean;
   /** Microstore n'a pas de maintenance plateforme (pas d'API async côté
    *  beliandjolie.com pour la couper) : toujours false. Champ présent pour
    *  garder le Record<MarketplaceKey, boolean> exhaustif. */
@@ -27,6 +28,7 @@ const DEFAULT_STATE: MarketplaceMaintenanceState = {
   ankorstore: false,
   efashion: false,
   faire: false,
+  orderchamp: false,
   microstore: false,
 };
 

@@ -43,12 +43,17 @@ export interface MarketplacePublishOutcome {
     | { status: "ok"; mode: "create" | "update" }
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };
+  orderchamp?:
+    | { status: "ok"; mode: "create" | "update" }
+    | { status: "disabled"; message: string }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplacePublishOptions {
   pfs: boolean;
   ankorstore?: boolean;
   faire?: boolean;
+  orderchamp?: boolean;
 }
 
 export async function publishProductToMarketplaces(
@@ -67,6 +72,7 @@ export async function publishProductToMarketplaces(
       pfsProductId: true,
       ankorsProductId: true,
       faireProductId: true,
+      orderchampProductId: true,
     },
   });
 
@@ -91,6 +97,7 @@ export async function publishProductToMarketplaces(
     if (mp === "pfs") outcome.pfs = { status: "disabled", message };
     if (mp === "ankorstore") outcome.ankorstore = { status: "disabled", message };
     if (mp === "faire") outcome.faire = { status: "disabled", message };
+    if (mp === "orderchamp") outcome.orderchamp = { status: "disabled", message };
   }
 
   // Garde-fou complétude — on n'écrit sur AUCUN marketplace tant que le
@@ -103,6 +110,7 @@ export async function publishProductToMarketplaces(
     if (options.pfs) outcome.pfs = { status: "error", message: completeness.message };
     if (options.ankorstore) outcome.ankorstore = { status: "error", message: completeness.message };
     if (options.faire) outcome.faire = { status: "error", message: completeness.message };
+    if (options.orderchamp) outcome.orderchamp = { status: "error", message: completeness.message };
     logger.warn("[Marketplace Publish] Blocked — product incomplete", {
       productId,
       reasons: completeness.reasons,
@@ -249,6 +257,47 @@ export async function publishProductToMarketplaces(
     }
   }
 
+  if (options.orderchamp) {
+    if (maintenance.orderchamp) {
+      outcome.orderchamp = { status: "error", message: marketplaceMaintenanceMessage("orderchamp") };
+    } else {
+    const { getCachedOrderchampEnabled } = await import("@/lib/cached-data");
+    const orderchampEnabled = await getCachedOrderchampEnabled();
+    if (!orderchampEnabled) {
+      outcome.orderchamp = {
+        status: "error",
+        message: "Sync Orderchamp désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        if (product.orderchampProductId) {
+          const { orderchampUpdateProduct } = await import("@/lib/orderchamp-update");
+          const res = await orderchampUpdateProduct(productId);
+          if (res.success) {
+            outcome.orderchamp = { status: "ok", mode: "update" };
+          } else {
+            logger.error("[Marketplace Publish] Orderchamp update failed", { productId, error: res.error });
+            outcome.orderchamp = {
+              status: "error",
+              message: `Modification Orderchamp refusée : ${res.error ?? "erreur inconnue"}. Aucun produit recréé.`,
+            };
+          }
+        } else {
+          const { orderchampPublishProduct } = await import("@/lib/orderchamp-publish");
+          const res = await orderchampPublishProduct(productId);
+          outcome.orderchamp = res.success
+            ? { status: "ok", mode: "create" }
+            : { status: "error", message: res.error };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Publish] Orderchamp unexpected error", { productId, error: message });
+        outcome.orderchamp = { status: "error", message };
+      }
+    }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   await revalidateProductPublicPage(productId);
@@ -289,6 +338,7 @@ export async function publishProductsToMarketplaces(
         pfs: options.pfs ? { status: "error", message } : undefined,
         ankorstore: options.ankorstore ? { status: "error", message } : undefined,
         faire: options.faire ? { status: "error", message } : undefined,
+        orderchamp: options.orderchamp ? { status: "error", message } : undefined,
       });
     }
   }

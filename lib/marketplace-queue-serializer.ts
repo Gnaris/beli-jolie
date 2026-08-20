@@ -11,7 +11,7 @@ import type { Prisma } from "@prisma/client";
 
 export type ClientStatus = "queued" | "in_progress" | "awaiting_callback" | "done";
 export type ClientMode = "publish" | "refresh" | "resync";
-export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire";
+export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 
 /**
  * Actions ciblées produites par la vérification PFS et poussées dans un job
@@ -35,6 +35,7 @@ export interface ClientEnqueueInput {
     ankorstore?: boolean;
     efashion?: boolean;
     faire?: boolean;
+    orderchamp?: boolean;
   };
   mode?: ClientMode;
   marketplace?: ClientMarketplace;
@@ -71,6 +72,7 @@ export interface SerializedJob {
   ankorsOutcome?: unknown;
   efashionOutcome?: unknown;
   faireOutcome?: unknown;
+  orderchampOutcome?: unknown;
   ankorsOperationId?: string;
   createdAt: string;
   /** ISO string. Absent = démarrage immédiat. Présent = heure prévue de départ. */
@@ -81,10 +83,11 @@ export interface SerializedJob {
 
 type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
 
-export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" {
+export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "ORDERCHAMP" {
   if (value === "ankorstore") return "ANKORSTORE";
   if (value === "efashion") return "EFASHION";
   if (value === "faire") return "FAIRE";
+  if (value === "orderchamp") return "ORDERCHAMP";
   return "PFS";
 }
 
@@ -118,6 +121,7 @@ function mapMarketplaceToClient(value: JobRow["marketplace"]): ClientMarketplace
   if (value === "ANKORSTORE") return "ankorstore";
   if (value === "EFASHION") return "efashion";
   if (value === "FAIRE") return "faire";
+  if (value === "ORDERCHAMP") return "orderchamp";
   return "pfs";
 }
 
@@ -169,6 +173,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     ankorsOutcome: (job.ankorsOutcome as unknown) ?? undefined,
     efashionOutcome: (job.efashionOutcome as unknown) ?? undefined,
     faireOutcome: (job.faireOutcome as unknown) ?? undefined,
+    orderchampOutcome: (job.orderchampOutcome as unknown) ?? undefined,
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
     scheduledFor: job.scheduledFor ? job.scheduledFor.toISOString() : undefined,
@@ -209,7 +214,8 @@ export function validateEnqueueInput(
       it.marketplace === "pfs" ||
       it.marketplace === "ankorstore" ||
       it.marketplace === "efashion" ||
-      it.marketplace === "faire"
+      it.marketplace === "faire" ||
+      it.marketplace === "orderchamp"
         ? (it.marketplace as ClientMarketplace)
         : undefined;
     // verifyActions optionnel — valide chaque entrée (key string non vide + direction ∈ {push,pull})
@@ -236,6 +242,7 @@ export function validateEnqueueInput(
         ankorstore: options.ankorstore === true,
         efashion: options.efashion === true,
         faire: options.faire === true,
+        orderchamp: options.orderchamp === true,
       },
       mode,
       marketplace,

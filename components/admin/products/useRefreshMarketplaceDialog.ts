@@ -44,6 +44,8 @@ export interface UseRefreshMarketplaceDialogOptions {
   showEfashion?: boolean;
   /** Affiche la case Faire. Défaut false. */
   showFaire?: boolean;
+  /** Affiche la case Orderchamp. Défaut false. */
+  showOrderchamp?: boolean;
 }
 
 export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOptions) {
@@ -51,6 +53,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
   const showAnkorstore = opts?.showAnkorstore ?? false;
   const showEfashion = opts?.showEfashion ?? false;
   const showFaire = opts?.showFaire ?? false;
+  const showOrderchamp = opts?.showOrderchamp ?? false;
 
   const toast = useToast();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
@@ -186,6 +189,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         showAnkorstore,
         showEfashion,
         showFaire,
+        showOrderchamp,
         showMicrostore: false, // TODO bulk Microstore : requiert liste microstoreProducts côté caller
         productIds,
       });
@@ -196,6 +200,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         !options.ankorstore &&
         !options.efashion &&
         !options.faire &&
+        !options.orderchamp &&
         !options.microstore
       ) {
         toast.error("Aucune option sélectionnée.");
@@ -203,7 +208,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       }
       return options;
     },
-    [askRefreshOptions, toast, showPfs, showAnkorstore, showEfashion, showFaire],
+    [askRefreshOptions, toast, showPfs, showAnkorstore, showEfashion, showFaire, showOrderchamp],
   );
 
   const refreshSingle = useCallback(

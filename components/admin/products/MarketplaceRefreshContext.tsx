@@ -22,7 +22,7 @@ export type QueueItemStatus = "queued" | "in_progress" | "awaiting_callback" | "
  */
 export type QueueItemMode = "refresh" | "publish" | "resync";
 
-export type MarketplaceTarget = "pfs" | "ankorstore" | "efashion" | "faire";
+export type MarketplaceTarget = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
@@ -62,6 +62,7 @@ export interface MarketplaceRefreshItem {
   ankorsOutcome?: TargetOutcome;
   efashionOutcome?: TargetOutcome;
   faireOutcome?: TargetOutcome;
+  orderchampOutcome?: TargetOutcome;
   ankorsOperationId?: string;
   /** ISO date. Présent quand le job attend une heure de départ future (étalement). */
   scheduledFor?: string;

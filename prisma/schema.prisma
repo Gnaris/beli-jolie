@@ -176,6 +176,7 @@ model AdminClientCard {
   hasAnkorstore Boolean @default(false)
   hasEfashion   Boolean @default(false)
   hasFaire      Boolean @default(false)
+  hasOrderchamp Boolean @default(false)
   hasMicrostore Boolean @default(false)
   hasPassage    Boolean @default(false)
 
@@ -189,6 +190,8 @@ model AdminClientCard {
   ankorstoreRetailerId    String?
   // Idem pour Faire (retailer_id — "r_xxxxx" ou UUID).
   faireRetailerId         String?
+  // Idem pour Orderchamp (retailer.id GraphQL — Base64).
+  orderchampRetailerId    String?
   // Idem pour Microstore (client_info.client_id, ex "10900").
   microstoreClientId      String?
   // Marqueur "fiche créée automatiquement par une synchro marketplace"
@@ -222,6 +225,7 @@ model AdminClientCard {
   efashionOrders   EfashionOrder[]
   ankorstoreOrders AnkorstoreOrder[]
   faireOrders      FaireOrder[]
+  orderchampOrders OrderchampOrder[]
   microstoreOrders MicrostoreOrder[]
   productPurchases AdminClientCardProductPurchase[]
 
@@ -232,6 +236,7 @@ model AdminClientCard {
   @@index([tenantId, efashionCustomerId])
   @@index([tenantId, ankorstoreRetailerId])
   @@index([tenantId, faireRetailerId])
+  @@index([tenantId, orderchampRetailerId])
   @@index([tenantId, microstoreClientId])
   @@index([tenantId, siret])
 }
@@ -816,6 +821,127 @@ model FaireOrderItem {
 }
 
 // ─────────────────────────────────────────────
+// Orderchamp — marketplace B2B GraphQL (docs/orderchamp-integration.md)
+// Miroir de la structure Faire — 1 commande + N items, snapshot rawDetailJson.
+// Statut brut Orderchamp stocké dans `statusRaw`, normalisé dans `status`.
+// ─────────────────────────────────────────────
+
+enum OrderchampOrderStatus {
+  NEW // Nouvelle commande à préparer
+  SHIPPED // Expédiée / livrée
+  CANCELLED // Annulée
+}
+
+model OrderchampOrder {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  orderchampOrderId String // ID GraphQL Orderchamp
+  displayId         String? // Numéro visible acheteur
+
+  status      OrderchampOrderStatus
+  statusRaw   String // Statut brut retourné par Orderchamp
+  currency    String                @default("EUR")
+
+  createdAtOrderchamp DateTime
+  updatedAtOrderchamp DateTime?
+  shipAfter           DateTime?
+  shippedAt           DateTime?
+  canceledAt          DateTime?
+
+  // Montants HT (Orderchamp expose des montants décimaux, on stocke tel quel)
+  totalHT          Decimal @db.Decimal(12, 2)
+  commissionAmount Decimal @default(0) @db.Decimal(12, 2)
+  payoutFeeAmount  Decimal @default(0) @db.Decimal(12, 2)
+  netAmount        Decimal @default(0) @db.Decimal(12, 2)
+
+  // Adresse livraison
+  shippingName        String?
+  shippingCompany     String?
+  shippingStreet      String?
+  shippingStreet2     String?
+  shippingCity        String?
+  shippingStateCode   String?
+  shippingPostalCode  String?
+  shippingCountryCode String? // ISO alpha-2
+  shippingPhone       String?
+
+  // Acheteur (retailer)
+  orderchampRetailerId String
+  customerName         String
+  customerShop         String?
+  customerEmail        String?
+  customerPhone        String?
+  customerCountry      String?
+
+  adminClientCardId String?
+  adminClientCard   AdminClientCard? @relation(fields: [adminClientCardId], references: [id], onDelete: SetNull)
+
+  // Expédition
+  carrier      String?
+  trackingCode String?
+  trackingUrl  String? @db.Text
+
+  // Payload GraphQL brut pour debug + drawer détaillé
+  rawDetailJson Json?
+
+  lastSyncedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items OrderchampOrderItem[]
+
+  @@unique([tenantId, orderchampOrderId])
+  @@index([tenantId, createdAtOrderchamp])
+  @@index([tenantId, status])
+  @@index([tenantId, orderchampRetailerId])
+  @@index([adminClientCardId])
+}
+
+model OrderchampOrderItem {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  orderchampOrderId String
+  orderchampOrder   OrderchampOrder @relation(fields: [orderchampOrderId], references: [id], onDelete: Cascade)
+
+  // Identifiants Orderchamp
+  orderchampItemId    String // ID ligne côté API
+  orderchampProductId String? // ID produit GraphQL
+  orderchampVariantId String? // ID variante GraphQL
+  sku                 String?
+  referenceBase       String? // segment produit extrait du SKU pour matching catalogue
+
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productColorId String?
+  productColor   ProductColor? @relation(fields: [productColorId], references: [id], onDelete: SetNull)
+
+  productSnapshotName String?
+  variantOptionLabel  String?
+
+  quantity     Int
+  unitPriceHT  Decimal @db.Decimal(12, 2)
+  totalPriceHT Decimal @db.Decimal(12, 2)
+
+  includesTester Boolean @default(false)
+
+  stockDeductedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderchampOrderId])
+  @@index([tenantId, productId])
+  @@index([tenantId, productColorId])
+  @@index([tenantId, referenceBase])
+  @@index([tenantId, stockDeductedAt])
+}
+
+// ─────────────────────────────────────────────
 // Microstore (Dokkr) — commandes importées via QR-code session
 // L'API Microstore n'a ni webhook ni push : on pull périodiquement via
 // GET /order/new_view_all + GET /pluginsWeb/orderInfo/{id}.
@@ -972,6 +1098,15 @@ model Category {
   efashionCategorieId Int?
   faireTaxonomyId     String?
   faireHsCode         String?
+  // Mapping Orderchamp — 2 champs distincts :
+  //   `orderchampCategoryPath` = enum `ProductCategoryPath` feuille (ex :
+  //     "JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS"), sélectionné par
+  //     l'admin dans /admin/categories. Envoyé en `category` sur publish.
+  //   `orderchampCustomCategoryId` = ID GraphQL de la CustomCategory OC
+  //     auto-créée à partir du nom de la catégorie BJ. Envoyé en
+  //     `customCategory`. Auto-géré, pas d'action manuelle.
+  orderchampCategoryPath      String?
+  orderchampCustomCategoryId  String?
   position            Int                   @default(0)
   subCategories       SubCategory[]
   products            Product[]
@@ -1121,6 +1256,11 @@ model Composition {
   pfsCompositionUid  String?
   efashionId         Int?
   faireMaterialLabel String?
+  // Mapping Orderchamp : un des ~35 codes bijoux de l'enum `FilterMaterialValue`
+  // (ex "STAINLESS_STEEL", "GOLD_PLATED", "ENAMEL"). Sélectionné par l'admin
+  // dans /admin/compositions. Envoyé en `filterMaterial` sur chaque variante
+  // au publish. Max 4 matériaux par produit, triés par % décroissant.
+  orderchampMaterialCode String?
   position           Int                      @default(0)
   createdAt          DateTime                 @default(now())
   products           ProductComposition[]
@@ -1230,6 +1370,7 @@ model Product {
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
   faireOrderItems             FaireOrderItem[]
+  orderchampOrderItems        OrderchampOrderItem[]
   microstoreOrderItems        MicrostoreOrderItem[]
   adminCardPurchases          AdminClientCardProductPurchase[]
   isBestSeller                Boolean                          @default(false)
@@ -1334,6 +1475,13 @@ model Product {
   faireLastSyncSnapshot Json?
   faireLastRefreshedAt  DateTime?
 
+  // Orderchamp — marketplace B2B GraphQL (cf. docs/orderchamp-integration.md).
+  // Auth Bearer token privé. `orderchampProductId` = ID GraphQL attribué à la
+  // création. Snapshot pour le diff incrémental, même pattern que Faire.
+  orderchampProductId        String?
+  orderchampLastSyncSnapshot Json?
+  orderchampLastRefreshedAt  DateTime?
+
   // Microstore (Dokkr) — pas d'ID produit côté API : l'upsert se fait sur
   // `item_ref` = Product.reference. On ne stocke donc qu'un snapshot pour le
   // diff incrémental + la date du dernier push réussi (pas de refresh possible
@@ -1352,6 +1500,7 @@ model Product {
   ankorsSyncRequired     Boolean @default(false)
   efashionSyncRequired   Boolean @default(false)
   faireSyncRequired      Boolean @default(false)
+  orderchampSyncRequired Boolean @default(false)
   microstoreSyncRequired Boolean @default(false)
 
   // Drapeaux "Marketplace activée pour ce produit" — la cliente peut décocher un
@@ -1363,6 +1512,7 @@ model Product {
   ankorsEnabled     Boolean @default(true)
   efashionEnabled   Boolean @default(true)
   faireEnabled      Boolean @default(true)
+  orderchampEnabled Boolean @default(true)
   microstoreEnabled Boolean @default(true)
 
   // Dernier export Excel/ZIP réussi depuis /admin/produits → bouton « Exporter ».
@@ -1374,6 +1524,7 @@ model Product {
   microstoreLastExportedAt DateTime?
   ankorstoreLastExportedAt DateTime?
   faireLastExportedAt      DateTime?
+  orderchampLastExportedAt DateTime?
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL après backfill.
   tenantId String?
@@ -1383,6 +1534,7 @@ model Product {
   @@unique([tenantId, pfsProductId])
   @@unique([tenantId, ankorsProductId])
   @@unique([tenantId, faireProductId])
+  @@unique([tenantId, orderchampProductId])
   // Performance indexes for 78k+ products
   @@index([tenantId]) // multi-tenant scoping
   // Index composites préfixés par tenantId : couvrent les listings admin
@@ -1408,6 +1560,7 @@ model Product {
   @@index([microstoreLastExportedAt])
   @@index([ankorstoreLastExportedAt])
   @@index([faireLastExportedAt])
+  @@index([orderchampLastExportedAt])
   @@index([tenantId, efashionReferenceBase]) // NON unique : plusieurs produits BJ (1 par couleur) peuvent partager la même reference_base eFashion
 }
 
@@ -1426,6 +1579,7 @@ enum MarketplaceJobTarget {
   ANKORSTORE
   EFASHION
   FAIRE
+  ORDERCHAMP
 }
 
 enum MarketplaceJobMode {
@@ -1474,6 +1628,7 @@ model MarketplaceRefreshJob {
   ankorsOutcome     Json?
   efashionOutcome   Json?
   faireOutcome      Json?
+  orderchampOutcome Json?
   /// Intention métier (Création / Modification / Rafraîchissement / Étalement / Liaison).
   /// Résolue à l'enqueue (voir lib/marketplace-job-intent.ts). Sert au widget
   /// marketplaces à router chaque job vers l'onglet correspondant. Nullable
@@ -1799,6 +1954,7 @@ model ProductColor {
   efashionOrderItems      EfashionOrderItem[]
   ankorstoreOrderItems    AnkorstoreOrderItem[]
   faireOrderItems         FaireOrderItem[]
+  orderchampOrderItems    OrderchampOrderItem[]
   microstoreOrderItems    MicrostoreOrderItem[]
   adminCardPurchases      AdminClientCardProductPurchase[]
   disabled                Boolean                          @default(false) // Masquer côté client sans supprimer
@@ -1812,6 +1968,8 @@ model ProductColor {
   efashionProductId       Int?
   // Identifiant variante Faire ("po_xxx") — renseigné à la publication
   faireVariantId          String?
+  // Identifiant variante Orderchamp (ID GraphQL) — renseigné à la publication
+  orderchampVariantId     String?
   // Mapping PFS secondaire propre à cette variante (override du pfsColorRef de Color).
   // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
@@ -1832,6 +1990,9 @@ model ProductColor {
   // Override du nom de couleur envoyé à Faire pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
   faireColorNameOverride  String?
+  // Override du nom de couleur envoyé à Orderchamp pour cette variante précise.
+  // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
+  orderchampColorNameOverride String?
   createdAt               DateTime                         @default(now())
   updatedAt               DateTime                         @updatedAt
 
@@ -1849,6 +2010,7 @@ model ProductColor {
   @@index([ankorsVariantId])
   @@index([efashionProductId])
   @@index([faireVariantId])
+  @@index([orderchampVariantId])
 }
 
 // ─────────────────────────────────────────────
@@ -1917,6 +2079,8 @@ model PackColorLine {
   ankorsColorNameOverride String?
   // Override du nom de couleur envoyé à Faire pour cette ligne du pack.
   faireColorNameOverride  String?
+  // Override du nom de couleur envoyé à Orderchamp pour cette ligne du pack.
+  orderchampColorNameOverride String?
   createdAt               DateTime            @default(now())
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
@@ -2148,9 +2312,21 @@ model Order {
 
   // TVA
   tvaRate    Float // ex: 0.20
-  subtotalHT Decimal @db.Decimal(12, 2)
+  subtotalHT Decimal @db.Decimal(12, 2) // HT NET (après promotion + remise commerciale + code)
   tvaAmount  Decimal @db.Decimal(12, 2)
   totalTTC   Decimal @db.Decimal(12, 2)
+
+  // Snapshot du HT BRUT (avant toute réduction) — pour afficher séparément
+  // promotion et remise commerciale dans le récap commande. Nullable pour
+  // compat commandes historiques ; recalculé au fallback (subtotalHT + clientDiscountAmt + promoDiscount).
+  subtotalBrutHT     Decimal? @db.Decimal(12, 2)
+  // Somme des promotions AUTO appliquées par item (via règles Promotion) —
+  // distinct de promoDiscount qui est le code promo saisi manuellement.
+  promoAutoDiscount  Decimal  @default(0) @db.Decimal(12, 2)
+  // Snapshot JSON des promotions appliquées à la commande.
+  // Persiste MÊME si la promotion est supprimée en BDD après.
+  // Format : [{ id, name, kind:"AUTO"|"CODE", scope, discountKind, discountValue, amountSaved }]
+  appliedPromotions  Json?
 
   // Stripe
   stripePaymentIntentId String? @unique // pi_xxx
@@ -2230,6 +2406,12 @@ model OrderItem {
   unitPrice Decimal @db.Decimal(12, 2) // prix unitaire calculé (remise incluse)
   quantity  Int
   lineTotal Decimal @db.Decimal(12, 2)
+
+  // Remise ligne admin, indépendante du prix unitaire (baisse du total HT ligne).
+  // type = "percent" | "fixed" ; amt = montant € calculé (cache).
+  lineDiscountType  String?
+  lineDiscountValue Decimal? @db.Decimal(12, 4)
+  lineDiscountAmt   Decimal? @db.Decimal(12, 2)
 
   variantSnapshot String? @db.Text // JSON: snapshot complet de la variante pour traçabilité légale
 
@@ -3217,6 +3399,9 @@ model Tenant {
 
   faireOrders     FaireOrder[]
   faireOrderItems FaireOrderItem[]
+
+  orderchampOrders     OrderchampOrder[]
+  orderchampOrderItems OrderchampOrderItem[]
 
   microstoreOrders     MicrostoreOrder[]
   microstoreOrderItems MicrostoreOrderItem[]

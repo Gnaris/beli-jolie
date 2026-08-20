@@ -24,6 +24,7 @@ export const SENSITIVE_KEYS = new Set([
   "efashion_email",
   "efashion_password",
   "faire_api_key",
+  "orderchamp_api_key",
   "microstore_session_key",
   "microstore_mask_token",
   "microstore_picture_station_key",

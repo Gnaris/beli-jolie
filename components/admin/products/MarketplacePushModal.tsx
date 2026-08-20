@@ -17,7 +17,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 
-export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
+export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 export type PushMode =
   | "publish"
   | "resync"
@@ -95,6 +95,11 @@ const MP_META: Record<MarketplaceKey, { label: string; letter: string; gradient:
     label: "Faire",
     letter: "F",
     gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  },
+  orderchamp: {
+    label: "Orderchamp",
+    letter: "O",
+    gradient: "linear-gradient(135deg,#F97316,#FDBA74)",
   },
 };
 

@@ -62,6 +62,7 @@ export async function createCategoryQuick(
   pfsCategoryId?: string | null,
   efashionCategorieId?: number | null,
   faireTaxonomyId?: string | null,
+  orderchampCategoryPath?: string | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -86,6 +87,7 @@ export async function createCategoryQuick(
         pfsCategoryId: pfsCategoryId?.trim() || null,
         ...(efashionCategorieId !== undefined ? { efashionCategorieId } : {}),
         ...(faireTaxonomyId !== undefined ? { faireTaxonomyId: faireTaxonomyId?.trim() || null } : {}),
+        ...(orderchampCategoryPath !== undefined ? { orderchampCategoryPath: orderchampCategoryPath?.trim() || null } : {}),
       },
     });
     for (const [locale, value] of Object.entries(translations)) {
@@ -118,6 +120,7 @@ export async function createCategoryQuick(
       pfsCategoryId: pfsCategoryId?.trim() || null,
       efashionCategorieId: efashionCategorieId ?? null,
       faireTaxonomyId: faireTaxonomyId?.trim() || null,
+      orderchampCategoryPath: orderchampCategoryPath?.trim() || null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -241,6 +244,7 @@ export async function createCompositionQuick(
   translations: Record<string, string>,
   pfsCompositionRef?: string | null,
   efashionId?: number | null,
+  orderchampMaterialCode?: string | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -254,10 +258,16 @@ export async function createCompositionQuick(
         data: {
           ...(pfsCompositionRef !== undefined ? { pfsCompositionRef: pfsCompositionRef ?? null } : {}),
           ...(efashionId !== undefined ? { efashionId } : {}),
+          ...(orderchampMaterialCode !== undefined ? { orderchampMaterialCode: orderchampMaterialCode ?? null } : {}),
         },
       })
     : await prisma.composition.create({
-        data: { name, pfsCompositionRef: pfsCompositionRef ?? null, efashionId: efashionId ?? null },
+        data: {
+          name,
+          pfsCompositionRef: pfsCompositionRef ?? null,
+          efashionId: efashionId ?? null,
+          orderchampMaterialCode: orderchampMaterialCode ?? null,
+        },
       });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

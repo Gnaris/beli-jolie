@@ -8,6 +8,7 @@ export type CategoryForFilters = {
   pfsCategoryName: string | null;
   efashionCategorieId: number | null;
   faireTaxonomyId: string | null;
+  orderchampCategoryPath: string | null;
 };
 
 // Une catégorie est considérée mappée PFS dès que les 3 champs texte sont
@@ -26,7 +27,8 @@ export type FilterKey =
   | "missingTranslation"
   | "missingPfs"
   | "missingEfashion"
-  | "missingFaire";
+  | "missingFaire"
+  | "missingOrderchamp";
 
 export function matchesSearch(cat: CategoryForFilters, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -48,6 +50,7 @@ export function matchesFilters(cat: CategoryForFilters, active: Set<FilterKey>):
   if (active.has("missingPfs") && hasPfsMapping(cat)) return false;
   if (active.has("missingEfashion") && cat.efashionCategorieId != null) return false;
   if (active.has("missingFaire") && cat.faireTaxonomyId != null) return false;
+  if (active.has("missingOrderchamp") && cat.orderchampCategoryPath != null) return false;
   return true;
 }
 

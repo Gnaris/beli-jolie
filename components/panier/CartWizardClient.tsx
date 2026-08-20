@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { placeOrder } from "@/app/actions/client/order";
 import { getSerializedCartForWizard } from "@/app/actions/client/cart";
+import { computeCartCheckoutPricing } from "@/app/actions/client/cart-pricing";
 import { resolveVatRate } from "@/lib/vat";
 import type { CartValidationError } from "@/lib/cart-validation";
 import { computeShippingCascade } from "@/lib/shipping-cascade";
@@ -283,7 +284,8 @@ export default function CartWizardClient({
     return Math.min(subtotalHT, clientDiscount.discountValue);
   }, [clientDiscount, subtotalHT]);
 
-  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
+  // Troncature au centime (pas d'arrondi), identique au checkout serveur (lib/order-pricing.ts).
+  const subtotalAfterDiscount = Math.max(0, Math.floor((subtotalHT - clientDiscountAmt) * 100) / 100);
 
   // Livraison — moteur cascade avec respect du flag `stackable` :
   //   - Cluster stackable = promos SHIPPING stackable + remise commerciale client
@@ -314,10 +316,62 @@ export default function CartWizardClient({
   const [promoApplied, setPromoApplied] = useState<{ code: string; name: string; totalSaved: number } | null>(null);
   const promoAmount = promoApplied?.totalSaved ?? 0;
 
+  // ── Pricing SERVEUR (source unique de vérité, strictement identique au checkout Stripe) ──
+  // TOUS les affichages TVA/TTC utilisent les valeurs serveur → aucune divergence possible
+  // entre le récap panier, ce que Stripe encaisse, et la commande stockée en BDD.
+  const [serverPricing, setServerPricing] = useState<{
+    subtotalAfterDiscount: number;
+    effectiveCarrierPrice: number;
+    tvaOnCart: number;
+    tvaOnShipping: number;
+    tvaAmount: number;
+    totalTTC: number;
+    codeError?: string;
+  } | null>(null);
+  const carrierIdForPricing = selectedCarrier?.id ?? (isPickup ? "pickup_store" : "");
+  const carrierPriceForPricing = selectedCarrier?.price ?? 0;
+  const addrCountryForPricing = selectedAddr?.country ?? "FR";
+
+  useEffect(() => {
+    // Ne calculer qu'à partir de l'étape 2 (livraison choisie).
+    if (currentStep < 2 || !carrierIdForPricing) {
+      setServerPricing(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const r = await computeCartCheckoutPricing({
+        carrierId: carrierIdForPricing,
+        carrierPrice: carrierPriceForPricing,
+        addressCountry: addrCountryForPricing,
+        promoCode: promoApplied?.code ?? null,
+      });
+      if (cancelled) return;
+      if (r.success) {
+        setServerPricing({
+          subtotalAfterDiscount: r.subtotalAfterDiscount,
+          effectiveCarrierPrice: r.effectiveCarrierPrice,
+          tvaOnCart: r.tvaOnCart,
+          tvaOnShipping: r.tvaOnShipping,
+          tvaAmount: r.tvaAmount,
+          totalTTC: r.totalTTC,
+          codeError: r.codeError,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStep, carrierIdForPricing, carrierPriceForPricing, addrCountryForPricing, promoApplied?.code, cart]);
+
+  // Fallback local (formules serveur identiques) si serveur pas encore répondu — étape 1 seulement.
   const floor2 = (n: number) => Math.floor(n * 100) / 100;
-  const finalItemsHT = Math.max(0, subtotalAfterDiscount - promoAmount);
-  const tvaAmount = floor2((finalItemsHT + effectiveCarrierPrice) * tvaRate);
-  const totalTTC  = floor2((finalItemsHT + effectiveCarrierPrice) * (1 + tvaRate));
+  const finalItemsHT = Math.max(0, floor2(subtotalAfterDiscount - promoAmount));
+  const totalBaseHT = finalItemsHT + effectiveCarrierPrice;
+  const tvaAmountLocal = floor2(totalBaseHT * tvaRate);
+  const totalTTCLocal = floor2(totalBaseHT + totalBaseHT * tvaRate);
+  const tvaAmount = serverPricing?.tvaAmount ?? tvaAmountLocal;
+  const totalTTC = serverPricing?.totalTTC ?? totalTTCLocal;
 
   // ── Stripe PaymentIntent (créé à l'entrée en étape 3)
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -429,7 +483,7 @@ export default function CartWizardClient({
         ...(promoApplied ? { promoCode: promoApplied.code } : {}),
       });
       if (result.success) {
-        router.replace(`/commandes/${result.orderId}?success=1`);
+        router.replace(`/commandes/${result.orderId}`);
       } else {
         setOrderError(result.error);
         setIsCreatingOrder(false);
@@ -550,9 +604,9 @@ export default function CartWizardClient({
       ? `${tCart("summaryClientDiscount")} ${clientDiscount.discountValue} %`
       : tCart("summaryClientDiscount");
 
-  // Décomposition TVA panier vs livraison pour affichage cascade.
-  const tvaOnCart = floor2(finalItemsHT * tvaRate);
-  const tvaOnShipping = floor2(effectiveCarrierPrice * tvaRate);
+  // Décomposition TVA panier vs livraison pour affichage cascade — override serveur si dispo.
+  const tvaOnCart = serverPricing?.tvaOnCart ?? floor2(finalItemsHT * tvaRate);
+  const tvaOnShipping = serverPricing?.tvaOnShipping ?? floor2(effectiveCarrierPrice * tvaRate);
 
   // Trace cascade livraison (dérivée du même calcul que effectiveCarrierPrice).
   const shippingTraceLocal = useMemo(() => {

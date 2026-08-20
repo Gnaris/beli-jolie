@@ -36,6 +36,11 @@ const MP_META: Record<
     letter: "F",
     gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
   },
+  orderchamp: {
+    label: "Orderchamp",
+    letter: "O",
+    gradient: "linear-gradient(135deg,#F97316,#FDBA74)",
+  },
   microstore: {
     label: "Microstore",
     letter: "M",

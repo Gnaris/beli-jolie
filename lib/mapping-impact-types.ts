@@ -4,7 +4,7 @@
  */
 
 export type MappingAttribute = "season" | "category" | "color" | "composition";
-export type MappingMarketplace = "pfs" | "efashion" | "faire";
+export type MappingMarketplace = "pfs" | "efashion" | "faire" | "orderchamp";
 
 export interface MappingImpactedProduct {
   id: string;
@@ -30,5 +30,8 @@ export interface MappingChangeSummary {
 }
 
 export function marketplaceLabel(mp: MappingMarketplace): string {
-  return mp === "pfs" ? "Paris Fashion Shop" : mp === "efashion" ? "eFashion" : "Faire";
+  if (mp === "pfs") return "Paris Fashion Shop";
+  if (mp === "efashion") return "eFashion";
+  if (mp === "faire") return "Faire";
+  return "Orderchamp";
 }

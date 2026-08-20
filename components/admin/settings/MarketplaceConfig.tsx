@@ -7,6 +7,7 @@ import {
   updateEfashionCredentials, validateEfashionCredentials,
   updateFaireCredentials, validateFaireCredentials,
   updateFaireMadeInExcluded,
+  updateOrderchampCredentials, validateOrderchampCredentials,
   updateMarketplaceMarkup,
   loadPfsBrands, updatePfsBrand,
   setMarketplaceProductsManagement,
@@ -44,6 +45,9 @@ interface Props {
   faireOrdersEnabled: boolean;
   /** Codes ISO alpha-2 dont on n'écrit PAS « Made in » dans la description Faire. */
   faireMadeInExcluded: string[];
+  hasOrderchampConfig: boolean;
+  orderchampEnabled: boolean;
+  orderchampOrdersEnabled: boolean;
   hasMicrostoreConfig: boolean;
   microstoreEnabled: boolean;
   microstoreOrdersEnabled: boolean;
@@ -58,6 +62,7 @@ interface Props {
     ankorstore: MarketplaceStats;
     efashion: MarketplaceStats;
     faire: MarketplaceStats;
+    orderchamp: MarketplaceStats;
   };
   markupSettings: {
     pfs: MarkupState;
@@ -68,6 +73,8 @@ interface Props {
     microstore: MarkupState;
     faireWholesale: MarkupState;
     faireRetail: MarkupState;
+    orderchampWholesale: MarkupState;
+    orderchampRetail: MarkupState;
   };
 }
 
@@ -605,6 +612,9 @@ export default function MarketplaceConfig({
   faireEnabled: initialFaireEnabled,
   faireOrdersEnabled: initialFaireOrdersEnabled,
   faireMadeInExcluded: initialFaireMadeInExcluded,
+  hasOrderchampConfig,
+  orderchampEnabled: initialOrderchampEnabled,
+  orderchampOrdersEnabled: initialOrderchampOrdersEnabled,
   hasMicrostoreConfig,
   microstoreEnabled: initialMicrostoreEnabled,
   microstoreOrdersEnabled: initialMicrostoreOrdersEnabled,
@@ -670,6 +680,17 @@ export default function MarketplaceConfig({
   const [faiMadeInExcluded, setFaiMadeInExcluded] = useState<string[]>(initialFaireMadeInExcluded);
   const [isSavingFaiMadeIn, startSavingFaiMadeIn] = useTransition();
 
+  // ── Orderchamp state ────────────────────────────────────────────────────────
+  const [ocKey, setOcKey] = useState("");
+  const [ocStatus, setOcStatus] = useState<"none" | "valid" | "invalid" | "checking">(hasOrderchampConfig ? "valid" : "none");
+  const [ocEditing, setOcEditing] = useState(!hasOrderchampConfig);
+  const [isSavingOc, startSavingOc] = useTransition();
+  const [isValidatingOc, startValidatingOc] = useTransition();
+  const [isTogglingOc, startTogglingOc] = useTransition();
+  const [ocEnabled, setOcEnabled] = useState(initialOrderchampEnabled);
+  const [ocWholesale, setOcWholesale] = useState<MarkupState>(markupSettings.orderchampWholesale);
+  const [ocRetail, setOcRetail] = useState<MarkupState>(markupSettings.orderchampRetail);
+
   // ── Microstore ──────────────────────────────────────────────────────────────
   const [microMarkup, setMicroMarkup] = useState<MarkupState>(markupSettings.microstore);
   const [microEnabled, setMicroEnabled] = useState(initialMicrostoreEnabled);
@@ -681,15 +702,17 @@ export default function MarketplaceConfig({
   const [ankOrdersEnabled, setAnkOrdersEnabled] = useState(initialAnkorstoreOrdersEnabled);
   const [efaOrdersEnabled, setEfaOrdersEnabled] = useState(initialEfashionOrdersEnabled);
   const [faiOrdersEnabled, setFaiOrdersEnabled] = useState(initialFaireOrdersEnabled);
+  const [ocOrdersEnabled, setOcOrdersEnabled] = useState(initialOrderchampOrdersEnabled);
   const [microOrdersEnabled, setMicroOrdersEnabled] = useState(initialMicrostoreOrdersEnabled);
   const [isTogglingPfsOrders, startTogglingPfsOrders] = useTransition();
   const [isTogglingAnkOrders, startTogglingAnkOrders] = useTransition();
   const [isTogglingEfaOrders, startTogglingEfaOrders] = useTransition();
   const [isTogglingFaiOrders, startTogglingFaiOrders] = useTransition();
+  const [isTogglingOcOrders, startTogglingOcOrders] = useTransition();
   const [isTogglingMicroOrders, startTogglingMicroOrders] = useTransition();
 
   function makeOrdersHandler(
-    marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "microstore",
+    marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore",
     label: string,
     setter: (v: boolean) => void,
     startTransition: (cb: () => void) => void,
@@ -720,6 +743,7 @@ export default function MarketplaceConfig({
   const handleAnkOrdersToggle = makeOrdersHandler("ankorstore", "Ankorstore", setAnkOrdersEnabled, startTogglingAnkOrders);
   const handleEfaOrdersToggle = makeOrdersHandler("efashion", "eFashion", setEfaOrdersEnabled, startTogglingEfaOrders);
   const handleFaiOrdersToggle = makeOrdersHandler("faire", "Faire", setFaiOrdersEnabled, startTogglingFaiOrders);
+  const handleOcOrdersToggle = makeOrdersHandler("orderchamp", "Orderchamp", setOcOrdersEnabled, startTogglingOcOrders);
   const handleMicroOrdersToggle = makeOrdersHandler("microstore", "Microstore", setMicroOrdersEnabled, startTogglingMicroOrders);
 
   // ── Shared ──────────────────────────────────────────────────────────────────
@@ -785,14 +809,15 @@ export default function MarketplaceConfig({
       hasPfsConfig && !!pfsBrand && pfsEnabled,
       hasAnkorstoreConfig && ankEnabled,
       hasFaireConfig && faiEnabled,
+      hasOrderchampConfig && ocEnabled,
       hasEfashionConfig && efaEnabled,
       hasMicrostoreConfig && microEnabled,
     ];
     // Microstore ne publie pas de produits : on ne l'inclut pas dans les
     // compteurs "Publiés / À synchroniser / Dernière sync".
-    const totalPublished = stats.pfs.published + stats.ankorstore.published + stats.efashion.published + stats.faire.published;
-    const totalToSync = stats.pfs.toSync + stats.ankorstore.toSync + stats.efashion.toSync + stats.faire.toSync;
-    const lastSyncs = [stats.pfs.lastSyncAt, stats.ankorstore.lastSyncAt, stats.efashion.lastSyncAt, stats.faire.lastSyncAt].filter((x): x is string => !!x);
+    const totalPublished = stats.pfs.published + stats.ankorstore.published + stats.efashion.published + stats.faire.published + stats.orderchamp.published;
+    const totalToSync = stats.pfs.toSync + stats.ankorstore.toSync + stats.efashion.toSync + stats.faire.toSync + stats.orderchamp.toSync;
+    const lastSyncs = [stats.pfs.lastSyncAt, stats.ankorstore.lastSyncAt, stats.efashion.lastSyncAt, stats.faire.lastSyncAt, stats.orderchamp.lastSyncAt].filter((x): x is string => !!x);
     const lastSyncAt = lastSyncs.length > 0 ? lastSyncs.sort().at(-1)! : null;
     return {
       activeCount: activeFlags.filter(Boolean).length,
@@ -801,7 +826,7 @@ export default function MarketplaceConfig({
       totalToSync,
       lastSyncAt,
     };
-  }, [hasPfsConfig, pfsBrand, pfsEnabled, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasEfashionConfig, efaEnabled, hasMicrostoreConfig, microEnabled, stats]);
+  }, [hasPfsConfig, pfsBrand, pfsEnabled, hasAnkorstoreConfig, ankEnabled, hasFaireConfig, faiEnabled, hasOrderchampConfig, ocEnabled, hasEfashionConfig, efaEnabled, hasMicrostoreConfig, microEnabled, stats]);
 
   // ── PFS brand picker ────────────────────────────────────────────────────────
   function openBrandPicker() {
@@ -972,6 +997,37 @@ export default function MarketplaceConfig({
     });
   }
 
+  // ── Orderchamp handlers ─────────────────────────────────────────────────────
+  function handleOcValidate() {
+    if (!ocKey.trim()) return;
+    showLoading();
+    startValidatingOc(async () => {
+      try {
+        setOcStatus("checking");
+        const r = await validateOrderchampCredentials({ apiKey: ocKey.trim() });
+        if (r.valid) { setOcStatus("valid"); toast.success("Connexion réussie", "Clé API Orderchamp valide."); }
+        else { setOcStatus("invalid"); toast.error("Connexion échouée", r.error ?? "Clé invalide."); }
+      } finally { hideLoading(); }
+    });
+  }
+  function handleOcSave() {
+    showLoading();
+    startSavingOc(async () => {
+      try {
+        const r = await updateOrderchampCredentials({ apiKey: ocKey.trim() });
+        if (r.success) { toast.success("Enregistré", "Clé Orderchamp sauvegardée."); setOcEditing(false); setOcKey(""); }
+        else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+      } finally { hideLoading(); }
+    });
+  }
+  function handleOcToggle(v: boolean) {
+    startTogglingOc(async () => {
+      const r = await setMarketplaceProductsManagement("orderchamp", v);
+      if (r.success) { setOcEnabled(v); toast.success(v ? "Gestion produits Orderchamp activée" : "Gestion produits Orderchamp en pause", v ? "Publish / refresh / synchro à nouveau autorisés." : "Aucune publication ni synchronisation vers Orderchamp."); }
+      else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
+    });
+  }
+
   // ── Microstore handlers ─────────────────────────────────────────────────────
   function handleMicroToggle(v: boolean) {
     startTogglingMicro(async () => {
@@ -1104,6 +1160,21 @@ export default function MarketplaceConfig({
         : undefined,
       ordersControl: hasFaireConfig
         ? { checked: faiOrdersEnabled, toggling: isTogglingFaiOrders, onToggle: handleFaiOrdersToggle }
+        : undefined,
+    },
+    {
+      brandKey: "orderchamp",
+      subtitle: hasOrderchampConfig ? (ocEnabled ? "GraphQL · B2B européen" : "Désactivé") : "Non configuré",
+      status: simpleStatus(hasOrderchampConfig, ocStatus),
+      enabled: hasOrderchampConfig && ocEnabled,
+      stats: stats.orderchamp,
+      onOpenSettings: () => setDrawerKey("orderchamp"),
+      ctaLabel: hasOrderchampConfig ? "Réglages" : "Configurer",
+      enabledControl: hasOrderchampConfig
+        ? { checked: ocEnabled, toggling: isTogglingOc, onToggle: handleOcToggle }
+        : undefined,
+      ordersControl: hasOrderchampConfig
+        ? { checked: ocOrdersEnabled, toggling: isTogglingOcOrders, onToggle: handleOcOrdersToggle }
         : undefined,
     },
     {
@@ -1629,6 +1700,33 @@ export default function MarketplaceConfig({
               {isSavingFaiMadeIn ? <><Icons.Loader className="w-3.5 h-3.5" /> Enregistrement…</> : "Enregistrer la liste"}
             </button>
           </div>
+        </DrawerSection>
+      </Drawer>
+
+      <Drawer open={drawerKey === "orderchamp"} onClose={() => setDrawerKey(null)} brandKey="orderchamp">
+        <DrawerSection icon={<Icons.Plug className="w-4 h-4" />} title="Clé API" subtitle="Disponible dans votre back-office Orderchamp : Settings → API → Générer un token privé.">
+          <CredentialBlock
+            hasConfig={hasOrderchampConfig}
+            editing={ocEditing}
+            setEditing={setOcEditing}
+            status={ocStatus}
+            validating={isValidatingOc}
+            saving={isSavingOc}
+            onValidate={handleOcValidate}
+            onSave={handleOcSave}
+            canSave={!!ocKey.trim()}
+            fields={
+              <Field label="Clé API Orderchamp" type="password" value={ocKey} onChange={(v) => { setOcKey(v); if (ocStatus === "valid" || ocStatus === "invalid") setOcStatus("none"); }} placeholder="••••••••••••••••••••" disabled={isValidatingOc || isSavingOc} />
+            }
+          />
+        </DrawerSection>
+
+        <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix" subtitle="Prix conseillé (MSRP) chaîné sur le prix de gros déjà majoré.">
+          <div className="space-y-3">
+            <MarkupRow label="Prix de gros" state={ocWholesale} onChange={setOcWholesale} />
+            <MarkupRow label="Prix public conseillé" state={ocRetail} onChange={setOcRetail} />
+          </div>
+          <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
         </DrawerSection>
       </Drawer>
 

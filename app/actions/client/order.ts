@@ -433,6 +433,7 @@ export async function placeOrder(
 
   const {
     itemFinalPrices: itemPriceResolutions,
+    subtotalBrutHT,
     subtotalHT,
     clientDiscountAmt,
     subtotalAfterDiscount,
@@ -444,11 +445,69 @@ export async function placeOrder(
     tvaAmount,
     totalTTC,
     totalTTCCents,
+    promoAutoDiscount,
   } = pricing;
 
   function resolveItemFinalPrice(itemId: string): number {
     return itemPriceResolutions.get(itemId)?.finalUnitPrice ?? 0;
   }
+
+  // ─ Snapshot des promotions appliquées à cette commande (persistance ─
+  //   même si la promo est supprimée en BDD plus tard).
+  const appliedPromotionsSnapshot = (() => {
+    const map = new Map<string, {
+      id: string;
+      name: string;
+      kind: "AUTO" | "CODE";
+      scope: string;
+      discountKind: string;
+      discountValue: number;
+      amountSaved: number;
+    }>();
+    // Promotions AUTO par item
+    for (const [itemId, res] of itemPriceResolutions) {
+      if (!res.promotionId || res.source === "product") continue;
+      const item = pricingItems.find((i) => i.id === itemId);
+      const qty = item?.quantity ?? 0;
+      const savedTotal = res.savedPerUnit * qty;
+      const promo = activePromos.find((p) => p.id === res.promotionId);
+      if (!promo) continue;
+      const key = promo.id;
+      const existing = map.get(key);
+      if (existing) {
+        existing.amountSaved += savedTotal;
+      } else {
+        map.set(key, {
+          id: promo.id,
+          name: promo.name,
+          kind: appliedCode?.promotionId === promo.id ? "CODE" : "AUTO",
+          scope: promo.scope,
+          discountKind: promo.discountKind,
+          discountValue: promo.discountValue,
+          amountSaved: savedTotal,
+        });
+      }
+    }
+    // Code promo (peut être scope SHIPPING → pas visible ci-dessus)
+    if (appliedCode && !map.has(appliedCode.promotionId)) {
+      const promo = activePromos.find((p) => p.id === appliedCode!.promotionId);
+      if (promo) {
+        map.set(promo.id, {
+          id: promo.id,
+          name: promo.name,
+          kind: "CODE",
+          scope: promo.scope,
+          discountKind: promo.discountKind,
+          discountValue: promo.discountValue,
+          amountSaved: appliedCode.totalSaved,
+        });
+      }
+    }
+    return Array.from(map.values()).map((p) => ({
+      ...p,
+      amountSaved: Math.floor(p.amountSaved * 100) / 100,
+    }));
+  })();
 
   // Copies exposées plus bas (Order.create + NEXT_ORDER autos)
   const clientDiscountType  = userPricingInput.discountType;
@@ -680,6 +739,11 @@ export async function placeOrder(
       // TVA
       tvaRate,
       subtotalHT: subtotalAfterDiscount,
+      // Snapshot HT BRUT (avant toute réduction) — pour afficher séparément promo et remise.
+      subtotalBrutHT,
+      promoAutoDiscount,
+      // Snapshot des promotions appliquées (persiste si promo supprimée après).
+      appliedPromotions: appliedPromotionsSnapshot,
       // Snapshot immuable du HT réellement payé par le client — sert de plafond
       // aux modifications post-commande côté admin. Ne bouge PAS après la vente.
       paidSubtotalHT: subtotalAfterDiscount,

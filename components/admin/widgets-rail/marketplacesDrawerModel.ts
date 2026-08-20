@@ -55,6 +55,7 @@ export const MARKETPLACE_ORDER: MarketplaceTarget[] = [
   "ankorstore",
   "efashion",
   "faire",
+  "orderchamp",
 ];
 
 const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
@@ -62,6 +63,7 @@ const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
   ankorstore: "ankorsOutcome",
   efashion: "efashionOutcome",
   faire: "faireOutcome",
+  orderchamp: "orderchampOutcome",
 };
 
 function outcomeFor(
@@ -363,6 +365,7 @@ function buildGroups(
       ankorstore: cellForMarketplace(productItems, "ankorstore"),
       efashion: cellForMarketplace(productItems, "efashion"),
       faire: cellForMarketplace(productItems, "faire"),
+      orderchamp: cellForMarketplace(productItems, "orderchamp"),
     };
 
     // Plus proche scheduledFor futur parmi les items encore queued : sert à

@@ -14,6 +14,7 @@ export interface BulkPublishDraftsConfirm {
   publishAnkorstore: boolean;
   publishEfashion: boolean;
   publishFaire: boolean;
+  publishOrderchamp?: boolean;
   publishMicrostore: boolean;
   /** ids des produits éligibles pour eFashion (pas encore liés) — sous-ensemble d'eligibleIds */
   efashionEligibleIds: string[];
@@ -31,19 +32,22 @@ interface Props {
   efashionEnabled: boolean;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  hasOrderchampConfig?: boolean;
+  orderchampEnabled?: boolean;
   hasMicrostoreConfig: boolean;
   onCancel: () => void;
   onConfirm: (decision: BulkPublishDraftsConfirm) => void;
 }
 
 // Gradients FIGÉS du CLAUDE.md — mêmes qu'ailleurs pour cohérence visuelle.
-type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
+type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 const CHIP_GRADIENT: Record<MarketplaceKey, string> = {
   pfs:        "linear-gradient(135deg,#4f46e5,#6366f1)",
   ankorstore: "linear-gradient(135deg,#0ea5e9,#38bdf8)",
   efashion:   "linear-gradient(135deg,#db2777,#ec4899)",
   faire:      "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  orderchamp: "linear-gradient(135deg,#F97316,#FDBA74)",
   microstore: "linear-gradient(135deg,#0891b2,#22d3ee)",
 };
 
@@ -52,6 +56,7 @@ const CHIP_INITIALS: Record<MarketplaceKey, string> = {
   ankorstore: "A",
   efashion: "E",
   faire: "F",
+  orderchamp: "O",
   microstore: "M",
 };
 
@@ -60,6 +65,7 @@ const LABEL: Record<MarketplaceKey, string> = {
   ankorstore: "Ankorstore",
   efashion: "eFashion Paris",
   faire: "Faire",
+  orderchamp: "Orderchamp",
   microstore: "Microstore",
 };
 
@@ -68,6 +74,7 @@ const DESCRIPTION: Record<MarketplaceKey, string> = {
   ankorstore: "Crée la fiche Ankorstore. Traitement en arrière-plan.",
   efashion: "Ajoute au ticket de shooting eFashion à valider en bas à droite.",
   faire: "Crée la fiche Faire avec toutes ses infos.",
+  orderchamp: "Crée la fiche Orderchamp (catégorie perso auto-créée).",
   microstore: "Envoie la fiche Microstore (créée si absente, mise à jour sinon).",
 };
 
@@ -229,6 +236,8 @@ export default function BulkPublishDraftsModal({
   efashionEnabled,
   hasFaireConfig,
   faireEnabled,
+  hasOrderchampConfig = false,
+  orderchampEnabled = false,
   hasMicrostoreConfig,
   onCancel,
   onConfirm,
@@ -243,6 +252,7 @@ export default function BulkPublishDraftsModal({
   const [publishAnkorstore, setPublishAnkorstore] = useState(false);
   const [publishEfashion, setPublishEfashion] = useState(false);
   const [publishFaire, setPublishFaire] = useState(false);
+  const [publishOrderchamp, setPublishOrderchamp] = useState(false);
   const [publishMicrostore, setPublishMicrostore] = useState(false);
   const backdropRef = useRef<HTMLDivElement>(null);
   const mouseDownOnBackdrop = useRef(false);
@@ -259,6 +269,9 @@ export default function BulkPublishDraftsModal({
   const showFaire = hasFaireConfig && faireEnabled;
   const showFaireRef = useRef(showFaire);
   showFaireRef.current = showFaire;
+  const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+  const showOrderchampRef = useRef(showOrderchamp);
+  showOrderchampRef.current = showOrderchamp;
   const showMicrostore = hasMicrostoreConfig;
   const showMicrostoreRef = useRef(showMicrostore);
   showMicrostoreRef.current = showMicrostore;
@@ -282,6 +295,7 @@ export default function BulkPublishDraftsModal({
     setPublishAnkorstore(showAnkorstoreRef.current && !maintenance.ankorstore);
     setPublishEfashion(showEfashionRef.current && !maintenance.efashion);
     setPublishFaire(showFaireRef.current && !maintenance.faire);
+    setPublishOrderchamp(showOrderchampRef.current && !maintenance.orderchamp);
     setPublishMicrostore(showMicrostoreRef.current);
     (async () => {
       try {
@@ -322,6 +336,7 @@ export default function BulkPublishDraftsModal({
     pfsEligibleCount,
     ankorsEligibleCount,
     faireEligibleCount,
+    orderchampEligibleCount,
   } = useMemo(() => {
     const eligibleItems = items.filter((p) => p.eligible);
     const ineligibleItems = items.filter((p) => !p.eligible);
@@ -343,6 +358,7 @@ export default function BulkPublishDraftsModal({
       pfsEligibleCount: eligibleItems.filter((p) => !p.pfsAlreadyPublished).length,
       ankorsEligibleCount: eligibleItems.filter((p) => !p.ankorsAlreadyPublished).length,
       faireEligibleCount: eligibleItems.length,
+      orderchampEligibleCount: eligibleItems.length,
     };
   }, [items]);
 
@@ -350,9 +366,9 @@ export default function BulkPublishDraftsModal({
 
   const totalCount = frozenIdsRef.current.length || productIds.length;
   const noMarketplaceAvailable =
-    !hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire && !showMicrostore;
+    !hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire && !showOrderchamp && !showMicrostore;
   const noMarketplaceChecked =
-    !publishPfs && !publishAnkorstore && !publishEfashion && !publishFaire && !publishMicrostore;
+    !publishPfs && !publishAnkorstore && !publishEfashion && !publishFaire && !publishOrderchamp && !publishMicrostore;
   const canContinue =
     !loading &&
     !error &&
@@ -364,7 +380,12 @@ export default function BulkPublishDraftsModal({
     Number(publishAnkorstore && showAnkorstore && !maintenance.ankorstore) +
     Number(publishEfashion && showEfashion && !maintenance.efashion && efashionEligibleCount > 0) +
     Number(publishFaire && showFaire && !maintenance.faire) +
+    Number(publishOrderchamp && showOrderchamp && !maintenance.orderchamp) +
     Number(publishMicrostore && showMicrostore && microstoreEligibleCount > 0);
+
+  // orderchampEligibleCount uniquement pour hint UI — pas de gate d'éligibilité
+  // (tous les produits éligibles sont candidats à Orderchamp).
+  void orderchampEligibleCount;
 
   const handleConfirm = () => {
     setClosing(true);
@@ -375,6 +396,7 @@ export default function BulkPublishDraftsModal({
         publishAnkorstore: publishAnkorstore && showAnkorstore && !maintenance.ankorstore,
         publishEfashion: publishEfashion && showEfashion && !maintenance.efashion,
         publishFaire: publishFaire && showFaire && !maintenance.faire,
+        publishOrderchamp: publishOrderchamp && showOrderchamp && !maintenance.orderchamp,
         publishMicrostore: publishMicrostore && showMicrostore,
         efashionEligibleIds,
         microstoreEligibleIds,
@@ -550,6 +572,16 @@ export default function BulkPublishDraftsModal({
                         eligibleCount={faireEligibleCount}
                         totalEligible={eligibleCount}
                         inMaintenance={maintenance.faire}
+                      />
+                    )}
+                    {showOrderchamp && (
+                      <MarketplaceCard
+                        mkKey="orderchamp"
+                        checked={publishOrderchamp && !maintenance.orderchamp}
+                        onToggle={(v) => setPublishOrderchamp(v)}
+                        eligibleCount={eligibleCount}
+                        totalEligible={eligibleCount}
+                        inMaintenance={maintenance.orderchamp}
                       />
                     )}
                     {showMicrostore && (

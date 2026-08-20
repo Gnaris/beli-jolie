@@ -47,26 +47,12 @@ export async function updateOrderStatus(orderId: string, status: string) {
     }
   }
 
-  // Refuser SHIPPED si des modifications n'ont pas été confirmées
-  if (status === "SHIPPED") {
-    const changeTimestamps: number[] = [
-      ...previous.itemModifications.map((m) => m.createdAt.getTime()),
-      ...previous.items.map((i) => i.createdAt.getTime()),
-    ];
-    if (changeTimestamps.length > 0) {
-      const lastChange = Math.max(...changeTimestamps);
-      const notified = previous.clientNotifiedAt?.getTime() ?? 0;
-      if (lastChange > notified) {
-        throw new Error(
-          "Confirmez d'abord les modifications de la commande (bouton « Confirmer les modifications » en bas de la fiche).",
-        );
-      }
-    }
-  }
+  // Ajustements = il existe des OrderItemModification ou des items compensation.
+  const hasAdjustments = previous.itemModifications.length > 0 || previous.items.length > 0;
 
   await prisma.order.update({
     where: { id: orderId },
-    data:  { status: status as never },
+    data: { status: status as never },
   });
 
   if (status === "CANCELLED" && previous && previous.status !== "CANCELLED") {
@@ -76,7 +62,7 @@ export async function updateOrderStatus(orderId: string, status: string) {
   }
 
   if (status !== "PENDING") {
-    notifyOrderStatusChange({ orderId, newStatus: status }).catch((err) =>
+    notifyOrderStatusChange({ orderId, newStatus: status, hasAdjustments }).catch((err) =>
       logger.error("[updateOrderStatus] Email notification error", { error: err })
     );
   }
@@ -113,8 +99,8 @@ export async function modifyOrderItems(
     if (!order) return { success: false, error: "Commande introuvable." };
 
     // ── Verrouillage : commande expédiée = non modifiable ──
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") {
-      return { success: false, error: "Commande verrouillée : seules les commandes « Nouveau » ou « Validé » peuvent être modifiées." };
+    if (order.status !== "PENDING") {
+      return { success: false, error: "Commande verrouillée : seules les commandes « Nouveau » peuvent être modifiées. Repassez-la en Nouveau pour éditer." };
     }
 
     if (modifications.length === 0) {
@@ -132,29 +118,25 @@ export async function modifyOrderItems(
         return { success: false, error: "Le prix ne peut pas être négatif." };
       }
 
+      // Items ajoutés (compensation) : pas de contrainte de qté/prix initiaux — ils ont été créés par l'admin.
+      if (item.isCompensation) continue;
+
       const existingMod = order.itemModifications.find(
         (m) => m.orderItemId === mod.orderItemId
       );
       const originalQty = existingMod ? existingMod.originalQuantity : item.quantity;
 
-      // On refuse une modification qui ne change rien (ni qté ni prix)
       const currentPrice = Number(item.unitPrice);
       const priceChanges = mod.newUnitPrice !== undefined && mod.newUnitPrice !== currentPrice;
       const qtyChanges = mod.newQuantity !== originalQty;
+      if (!priceChanges && !qtyChanges) continue;
 
-      if (!priceChanges && !qtyChanges) {
-        continue; // no-op silencieux
-      }
-
-      // La quantité ne doit jamais dépasser la quantité initiale
       if (mod.newQuantity > originalQty) {
         return {
           success: false,
           error: `La quantité (${mod.newQuantity}) ne peut pas dépasser la quantité initiale (${originalQty}) pour "${item.productName}".`,
         };
       }
-
-      // Le prix ne doit jamais dépasser le prix initial (on ne peut que baisser)
       const origPrice = existingMod?.originalUnitPrice ? Number(existingMod.originalUnitPrice) : currentPrice;
       if (mod.newUnitPrice !== undefined && mod.newUnitPrice > origPrice) {
         return {
@@ -170,45 +152,60 @@ export async function modifyOrderItems(
     await prisma.$transaction(async (tx) => {
       for (const mod of modifications) {
         const item = itemMap.get(mod.orderItemId)!;
-        const existingMod = order.itemModifications.find(
-          (m) => m.orderItemId === mod.orderItemId
-        );
-
-        const originalQty = existingMod ? existingMod.originalQuantity : item.quantity;
-        const originalPrice = existingMod?.originalUnitPrice
-          ? Number(existingMod.originalUnitPrice)
-          : Number(item.unitPrice);
-
         const finalPrice = mod.newUnitPrice ?? Number(item.unitPrice);
-        const priceDiff = originalQty * originalPrice - mod.newQuantity * finalPrice;
-        totalCredit += priceDiff;
+        const grossLine = mod.newQuantity * finalPrice;
 
-        const priceChanged = finalPrice !== originalPrice;
+        // Recalcul dynamique de la remise ligne selon son type persisté
+        let recomputedDiscountAmt: number | null = null;
+        if (item.lineDiscountType && item.lineDiscountValue) {
+          const value = Number(item.lineDiscountValue);
+          if (item.lineDiscountType === "percent") {
+            recomputedDiscountAmt = grossLine * (value / 100);
+          } else {
+            recomputedDiscountAmt = value;
+          }
+          if (recomputedDiscountAmt > grossLine) recomputedDiscountAmt = grossLine;
+          recomputedDiscountAmt = Math.round(recomputedDiscountAmt * 100) / 100;
+        }
 
-        if (existingMod) {
-          await tx.orderItemModification.update({
-            where: { id: existingMod.id },
-            data: {
-              newQuantity: mod.newQuantity,
-              newUnitPrice: priceChanged ? finalPrice : null,
-              originalUnitPrice: priceChanged ? originalPrice : null,
-              reason: mod.reason,
-              priceDifference: priceDiff,
-            },
-          });
-        } else {
-          await tx.orderItemModification.create({
-            data: {
-              orderItemId: mod.orderItemId,
-              orderId,
-              originalQuantity: originalQty,
-              newQuantity: mod.newQuantity,
-              originalUnitPrice: priceChanged ? originalPrice : null,
-              newUnitPrice: priceChanged ? finalPrice : null,
-              reason: mod.reason,
-              priceDifference: priceDiff,
-            },
-          });
+        const finalLineTotal = Math.max(0, grossLine - (recomputedDiscountAmt ?? 0));
+
+        // OrderItemModification uniquement pour les items initialement commandés (pas compensation)
+        if (!item.isCompensation) {
+          const existingMod = order.itemModifications.find((m) => m.orderItemId === mod.orderItemId);
+          const originalQty = existingMod ? existingMod.originalQuantity : item.quantity;
+          const originalPrice = existingMod?.originalUnitPrice
+            ? Number(existingMod.originalUnitPrice)
+            : Number(item.unitPrice);
+          const priceDiff = originalQty * originalPrice - mod.newQuantity * finalPrice;
+          totalCredit += priceDiff;
+          const priceChanged = finalPrice !== originalPrice;
+
+          if (existingMod) {
+            await tx.orderItemModification.update({
+              where: { id: existingMod.id },
+              data: {
+                newQuantity: mod.newQuantity,
+                newUnitPrice: priceChanged ? finalPrice : null,
+                originalUnitPrice: priceChanged ? originalPrice : null,
+                reason: mod.reason,
+                priceDifference: priceDiff,
+              },
+            });
+          } else {
+            await tx.orderItemModification.create({
+              data: {
+                orderItemId: mod.orderItemId,
+                orderId,
+                originalQuantity: originalQty,
+                newQuantity: mod.newQuantity,
+                originalUnitPrice: priceChanged ? originalPrice : null,
+                newUnitPrice: priceChanged ? finalPrice : null,
+                reason: mod.reason,
+                priceDifference: priceDiff,
+              },
+            });
+          }
         }
 
         await tx.orderItem.update({
@@ -216,7 +213,8 @@ export async function modifyOrderItems(
           data: {
             quantity: mod.newQuantity,
             unitPrice: finalPrice,
-            lineTotal: mod.newQuantity * finalPrice,
+            lineTotal: finalLineTotal,
+            lineDiscountAmt: recomputedDiscountAmt,
           },
         });
       }
@@ -262,7 +260,7 @@ interface AddCompensationInput {
   productColorId: string; // Variant ProductColor
   quantity: number;
   unitPrice: number; // Prix cliente modifiable
-  reason: ModReason;
+  reason?: ModReason; // conservé pour compat, plus demandé côté UI
   sizesJson?: string; // JSON [{name, quantity}] pour tailles précises (optionnel)
 }
 
@@ -279,8 +277,8 @@ export async function addCompensationItem(
     });
 
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") {
-      return { success: false, error: "Commande verrouillée : seules les commandes « Nouveau » ou « Validé » peuvent être modifiées." };
+    if (order.status !== "PENDING") {
+      return { success: false, error: "Commande verrouillée : seules les commandes « Nouveau » peuvent être modifiées. Repassez-la en Nouveau pour éditer." };
     }
     if (input.quantity <= 0) return { success: false, error: "La quantité doit être positive." };
     if (input.unitPrice < 0) return { success: false, error: "Le prix ne peut pas être négatif." };
@@ -392,6 +390,143 @@ export async function addCompensationItem(
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// Ajout groupé de plusieurs variantes en une seule transaction
+// ═════════════════════════════════════════════════════════════════════
+
+export async function addCompensationItemsBulk(
+  orderId: string,
+  inputs: AddCompensationInput[],
+): Promise<{ success: boolean; error?: string; addedCount?: number }> {
+  await requireAdmin();
+
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    return { success: false, error: "Aucun article à ajouter." };
+  }
+
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+
+    if (!order) return { success: false, error: "Commande introuvable." };
+    if (order.status !== "PENDING") {
+      return { success: false, error: "Commande verrouillée." };
+    }
+
+    for (const input of inputs) {
+      if (input.quantity <= 0) return { success: false, error: "Quantité invalide." };
+      if (input.unitPrice < 0) return { success: false, error: "Prix invalide." };
+    }
+
+    // Récupération de toutes les variantes en une requête
+    const variantIds = inputs.map((i) => i.productColorId);
+    const variants = await prisma.productColor.findMany({
+      where: { id: { in: variantIds } },
+      include: {
+        product: { select: { id: true, name: true, reference: true, status: true } },
+        color: { select: { id: true, name: true } },
+        images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+      },
+    });
+
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+
+    // Fallback image (product+color)
+    const fallbackImgs = new Map<string, string | null>();
+    await Promise.all(
+      variants.map(async (v) => {
+        if (v.images[0]?.path || !v.color?.id) return;
+        const img = await prisma.productColorImage.findFirst({
+          where: { productId: v.product.id, colorId: v.color.id },
+          orderBy: { order: "asc" },
+          select: { path: true },
+        });
+        fallbackImgs.set(v.id, img?.path ?? null);
+      }),
+    );
+
+    let added = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const input of inputs) {
+        const variant = variantById.get(input.productColorId);
+        if (!variant || !variant.product) continue;
+
+        const imagePath = variant.images[0]?.path ?? fallbackImgs.get(variant.id) ?? null;
+
+        // Merge : même variante + même prix + mêmes tailles → incrémenter au lieu de créer
+        const existing = await tx.orderItem.findFirst({
+          where: {
+            orderId,
+            isCompensation: true,
+            productColorId: input.productColorId,
+            unitPrice: input.unitPrice,
+            sizesJson: input.sizesJson ?? null,
+          },
+        });
+
+        if (existing) {
+          const newQuantity = existing.quantity + input.quantity;
+          await tx.orderItem.update({
+            where: { id: existing.id },
+            data: {
+              quantity: newQuantity,
+              lineTotal: newQuantity * input.unitPrice,
+            },
+          });
+        } else {
+          await tx.orderItem.create({
+            data: {
+              orderId,
+              productName: variant.product.name,
+              productRef: variant.product.reference,
+              colorName: variant.color?.name ?? "Standard",
+              saleType: variant.saleType,
+              packQty: variant.packQuantity,
+              sizesJson: input.sizesJson ?? null,
+              unitPrice: input.unitPrice,
+              quantity: input.quantity,
+              lineTotal: input.quantity * input.unitPrice,
+              imagePath,
+              isCompensation: true,
+              productColorId: input.productColorId,
+            },
+          });
+        }
+
+        added += 1;
+      }
+
+      const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      const totals = recomputeOrderTotals({
+        items: updatedItems,
+        tvaRate: order.tvaRate,
+        carrierPrice: order.carrierPrice,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue,
+      });
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          subtotalHT: totals.subtotalHT,
+          tvaAmount: totals.tvaAmount,
+          totalTTC: totals.totalTTC,
+          clientDiscountAmt: totals.clientDiscountAmt,
+        },
+      });
+    });
+
+    revalidatePath(`/admin/commandes/${orderId}`);
+    revalidatePath("/admin/commandes");
+    return { success: true, addedCount: added };
+  } catch (err) {
+    logger.error("[addCompensationItemsBulk] Error", { error: err });
+    return { success: false, error: "Erreur lors de l'ajout groupé." };
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // Confirmer les modifications d'une commande
 // - Vérifie que le nouveau sous-total HT ne dépasse pas le HT payé
 // - Envoie la notification email au client avec le récapitulatif
@@ -409,7 +544,7 @@ export async function confirmOrderModifications(
       include: { items: true, itemModifications: true },
     });
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") {
+    if (order.status !== "PENDING") {
       return { success: false, error: "Commande verrouillée." };
     }
 
@@ -484,7 +619,7 @@ export async function removeCompensationItem(
       select: { status: true },
     });
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") {
+    if (order.status !== "PENDING") {
       return { success: false, error: "Commande verrouillée." };
     }
 
@@ -539,7 +674,7 @@ export async function revertOrderItemModification(
   try {
     const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } });
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") return { success: false, error: "Commande verrouillée." };
+    if (order.status !== "PENDING") return { success: false, error: "Commande verrouillée." };
 
     const mod = await prisma.orderItemModification.findFirst({
       where: { orderId, orderItemId },
@@ -602,7 +737,7 @@ export async function revertAllOrderItemModifications(
   try {
     const order = await prisma.order.findUnique({ where: { id: orderId }, select: { status: true } });
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.status !== "PENDING" && order.status !== "VALIDATED") return { success: false, error: "Commande verrouillée." };
+    if (order.status !== "PENDING") return { success: false, error: "Commande verrouillée." };
 
     const mods = await prisma.orderItemModification.findMany({ where: { orderId } });
     if (mods.length === 0) return { success: false, error: "Aucune modification à rétablir." };
@@ -652,5 +787,86 @@ export async function revertAllOrderItemModifications(
   } catch (err) {
     logger.error("[revertAllOrderItemModifications] Error", { error: err });
     return { success: false, error: "Erreur lors du rétablissement." };
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Remise ligne (admin, indépendante du prix unitaire)
+// ═════════════════════════════════════════════════════════════════════
+
+export async function setOrderItemLineDiscount(
+  orderId: string,
+  orderItemId: string,
+  input: { type: "percent" | "fixed" | null; value: number | null },
+): Promise<{ success: boolean; error?: string; discountAmt?: number }> {
+  await requireAdmin();
+
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    if (!order) return { success: false, error: "Commande introuvable." };
+    if (order.status !== "PENDING") {
+      return { success: false, error: "Commande verrouillée." };
+    }
+
+    const item = order.items.find((i) => i.id === orderItemId);
+    if (!item) return { success: false, error: "Article introuvable." };
+
+    const grossLine = item.quantity * Number(item.unitPrice);
+    let discountAmt = 0;
+    let type: "percent" | "fixed" | null = input.type;
+    let value = input.value ?? 0;
+
+    if (!type || !input.value || input.value <= 0) {
+      type = null;
+      value = 0;
+      discountAmt = 0;
+    } else if (type === "percent") {
+      if (value < 0 || value > 100) return { success: false, error: "Pourcentage invalide (0–100)." };
+      discountAmt = grossLine * (value / 100);
+    } else {
+      if (value < 0) return { success: false, error: "Montant invalide." };
+      discountAmt = value;
+    }
+
+    // Ne peut pas dépasser le HT ligne
+    if (discountAmt > grossLine) discountAmt = grossLine;
+    discountAmt = Math.round(discountAmt * 100) / 100;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.orderItem.update({
+        where: { id: orderItemId },
+        data: {
+          lineDiscountType: type,
+          lineDiscountValue: type ? value : null,
+          lineDiscountAmt: type ? discountAmt : null,
+          lineTotal: Math.max(0, grossLine - discountAmt),
+        },
+      });
+
+      const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      const totals = recomputeOrderTotals({
+        items: updatedItems,
+        tvaRate: order.tvaRate,
+        carrierPrice: order.carrierPrice,
+        clientDiscountType: order.clientDiscountType,
+        clientDiscountValue: order.clientDiscountValue,
+      });
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          subtotalHT: totals.subtotalHT,
+          tvaAmount: totals.tvaAmount,
+          totalTTC: totals.totalTTC,
+          clientDiscountAmt: totals.clientDiscountAmt,
+        },
+      });
+    });
+
+    revalidatePath(`/admin/commandes/${orderId}`);
+    revalidatePath("/admin/commandes");
+    return { success: true, discountAmt };
+  } catch (err) {
+    logger.error("[setOrderItemLineDiscount] Error", { error: err });
+    return { success: false, error: "Erreur lors de la mise à jour de la remise." };
   }
 }

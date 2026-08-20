@@ -48,6 +48,11 @@ export interface MarketplaceRefreshOutcome {
     | { status: "not_found"; message: string }
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };
+  orderchamp?:
+    | { status: "ok" }
+    | { status: "not_found"; message: string }
+    | { status: "disabled"; message: string }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplaceRefreshOptions {
@@ -56,6 +61,7 @@ export interface MarketplaceRefreshOptions {
   ankorstore?: boolean; // Re-push to Ankorstore (Phase 4)
   efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
   faire?: boolean; // Re-push to Faire (3.B)
+  orderchamp?: boolean; // Refresh Orderchamp (productRepublish — garde le même ID)
   microstore?: boolean; // Push produit à Microstore (upsert, hors queue asynchrone)
   /**
    * Étalement du lot : délai en millisecondes entre le départ de chaque
@@ -140,7 +146,7 @@ export async function refreshProductOnMarketplaces(
   // Garde-fou complétude — s'applique aux 3 marketplaces (PFS, Ankor, Faire).
   // Le refresh « boutique seule » (options.local) reste autorisé : il ne
   // touche pas aux marketplaces, il bump juste lastRefreshedAt.
-  const anyMarketplace = options.pfs || options.ankorstore || options.faire;
+  const anyMarketplace = options.pfs || options.ankorstore || options.faire || options.orderchamp;
   if (anyMarketplace) {
     const completeness = await checkProductComplete(productId);
     if (!completeness.eligible) {
@@ -149,6 +155,7 @@ export async function refreshProductOnMarketplaces(
         outcome.ankorstore = { status: "error", message: completeness.message };
       }
       if (options.faire) outcome.faire = { status: "error", message: completeness.message };
+      if (options.orderchamp) outcome.orderchamp = { status: "error", message: completeness.message };
       logger.warn("[Marketplace Refresh] Blocked — product incomplete", {
         productId,
         reasons: completeness.reasons,
@@ -175,6 +182,10 @@ export async function refreshProductOnMarketplaces(
   if (options.faire && maintenance.faire) {
     outcome.faire = { status: "error", message: marketplaceMaintenanceMessage("faire") };
     options = { ...options, faire: false };
+  }
+  if (options.orderchamp && maintenance.orderchamp) {
+    outcome.orderchamp = { status: "error", message: marketplaceMaintenanceMessage("orderchamp") };
+    options = { ...options, orderchamp: false };
   }
 
   if (options.pfs) {
@@ -251,6 +262,33 @@ export async function refreshProductOnMarketplaces(
         const message = err instanceof Error ? err.message : String(err);
         logger.error("[Marketplace Refresh] Faire unexpected error", { productId, error: message });
         outcome.faire = { status: "error", message };
+      }
+    }
+  }
+
+  if (options.orderchamp) {
+    const { getCachedOrderchampEnabled } = await import("@/lib/cached-data");
+    const orderchampEnabled = await getCachedOrderchampEnabled();
+    if (!orderchampEnabled) {
+      outcome.orderchamp = {
+        status: "error",
+        message: "Sync Orderchamp désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        const { orderchampRefreshProduct } = await import("@/lib/orderchamp-refresh");
+        const res = await orderchampRefreshProduct(productId);
+        if (res.success) {
+          outcome.orderchamp = { status: "ok" };
+        } else if (/introuvable/i.test(res.error ?? "")) {
+          outcome.orderchamp = { status: "not_found", message: res.error ?? "Non lié" };
+        } else {
+          outcome.orderchamp = { status: "error", message: res.error ?? "Erreur inconnue" };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Refresh] Orderchamp unexpected error", { productId, error: message });
+        outcome.orderchamp = { status: "error", message };
       }
     }
   }

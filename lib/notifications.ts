@@ -164,6 +164,8 @@ export async function notifyNewClientRegistration(
 interface OrderStatusEmailData {
   orderId: string;
   newStatus: string;
+  /** true si des ajustements ont été faits (retraits, ajouts, remise ligne). */
+  hasAdjustments?: boolean;
 }
 
 const STATUS_CONFIG: Record<string, {
@@ -278,6 +280,15 @@ export async function notifyOrderStatusChange(
           <p style="font-size:15px;line-height:1.6;">
             ${config.message(order.orderNumber)}
           </p>
+
+          ${
+            data.newStatus === "VALIDATED" && data.hasAdjustments
+              ? `<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:14px 18px;margin:16px 0;">
+                  <strong style="color:#9A3412;">Quelques ajustements ont été apportés</strong><br/>
+                  <span style="color:#9A3412;font-size:13px;">Retrouvez le détail complet en vous connectant à votre espace commandes.</span>
+                </div>`
+              : ""
+          }
 
           ${trackingHtml}
 

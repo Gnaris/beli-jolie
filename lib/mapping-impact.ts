@@ -38,6 +38,7 @@ const MARKETPLACE_ID_FIELD: Record<MappingMarketplace, string> = {
   pfs: "pfsProductId",
   efashion: "efashionReferenceBase",
   faire: "faireProductId",
+  orderchamp: "orderchampProductId",
 };
 
 /**

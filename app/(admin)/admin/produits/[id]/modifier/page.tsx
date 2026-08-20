@@ -24,6 +24,8 @@ import {
   getCachedEfashionEnabled,
   getCachedHasFaireConfig,
   getCachedFaireEnabled,
+  getCachedHasOrderchampConfig,
+  getCachedOrderchampEnabled,
   getCachedHasMicrostoreConfig,
   getCachedMicrostoreEnabled,
 } from "@/lib/cached-data";
@@ -58,6 +60,8 @@ export default async function ModifierProduitPage({
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    hasOrderchampConfig,
+    orderchampEnabled,
     hasMicrostoreConfig,
     microstoreEnabled,
     maintenance,
@@ -150,6 +154,8 @@ export default async function ModifierProduitPage({
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getCachedHasOrderchampConfig(),
+    getCachedOrderchampEnabled(),
     getCachedHasMicrostoreConfig(),
     getCachedMicrostoreEnabled(),
     getMarketplaceMaintenance(),
@@ -573,14 +579,19 @@ export default async function ModifierProduitPage({
               faireProductId={product.faireProductId}
               hasFaireConfig={hasFaireConfig}
               faireEnabled={faireEnabled}
+              orderchampProductId={product.orderchampProductId}
+              hasOrderchampConfig={hasOrderchampConfig}
+              orderchampEnabled={orderchampEnabled}
               pfsSyncRequired={product.pfsSyncRequired}
               ankorsSyncRequired={product.ankorsSyncRequired}
               efashionSyncRequired={product.efashionSyncRequired}
               faireSyncRequired={product.faireSyncRequired}
+              orderchampSyncRequired={product.orderchampSyncRequired}
               pfsEnabledForProduct={product.pfsEnabled}
               ankorsEnabledForProduct={product.ankorsEnabled}
               efashionEnabledForProduct={product.efashionEnabled}
               faireEnabledForProduct={product.faireEnabled}
+              orderchampEnabledForProduct={product.orderchampEnabled}
               microstoreLastPushedAt={product.microstoreLastPushedAt}
               hasMicrostoreConfig={hasMicrostoreConfig}
               microstoreEnabled={microstoreEnabled}
@@ -590,6 +601,7 @@ export default async function ModifierProduitPage({
               ankorstoreMaintenance={maintenance.ankorstore}
               efashionMaintenance={maintenance.efashion}
               faireMaintenance={maintenance.faire}
+              orderchampMaintenance={maintenance.orderchamp}
             />
           </div>
         </>

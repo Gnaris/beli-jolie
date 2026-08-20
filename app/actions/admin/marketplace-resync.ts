@@ -182,3 +182,78 @@ export async function resyncProductOnAnkorstore(
 
   return outcome;
 }
+
+// ─── Orderchamp ─────────────────────────────────────────────────────────────
+
+export async function resyncProductOnOrderchamp(
+  productId: string,
+): Promise<MarketplacePublishOutcome> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      status: true,
+      orderchampProductId: true,
+    },
+  });
+
+  if (!product) throw new Error("Produit introuvable.");
+
+  const outcome: MarketplacePublishOutcome = {
+    productId,
+    reference: product.reference,
+    productName: product.name,
+  };
+
+  if (!product.orderchampProductId) {
+    outcome.orderchamp = { status: "error", message: "Produit non publié sur Orderchamp." };
+    return outcome;
+  }
+
+  if (await isMarketplaceInMaintenance("orderchamp")) {
+    outcome.orderchamp = { status: "error", message: marketplaceMaintenanceMessage("orderchamp") };
+    return outcome;
+  }
+
+  const { getCachedOrderchampEnabled } = await import("@/lib/cached-data");
+  const orderchampEnabled = await getCachedOrderchampEnabled();
+  if (!orderchampEnabled) {
+    outcome.orderchamp = { status: "error", message: "Sync Orderchamp désactivée dans Paramètres." };
+    return outcome;
+  }
+
+  const completeness = await checkProductComplete(productId);
+  if (!completeness.eligible) {
+    outcome.orderchamp = { status: "error", message: completeness.message };
+    logger.warn("[Orderchamp Resync] Blocked — product incomplete", { productId, reasons: completeness.reasons });
+    return outcome;
+  }
+
+  try {
+    const { orderchampUpdateProduct } = await import("@/lib/orderchamp-update");
+    const res = await orderchampUpdateProduct(productId, { forceFullSync: true });
+    outcome.orderchamp = res.success
+      ? { status: "ok", mode: "update" }
+      : { status: "error", message: res.error ?? "Erreur inconnue" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Orderchamp Resync] unexpected error", { productId, error: message });
+    outcome.orderchamp = { status: "error", message };
+  }
+
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  await revalidateProductPublicPage(productId);
+  revalidatePath("/produits");
+  revalidateTag("products", "default");
+
+  if (product.status === "ONLINE") {
+    emitProductEvent({ type: "PRODUCT_UPDATED", productId });
+  }
+
+  return outcome;
+}

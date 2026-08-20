@@ -75,6 +75,7 @@ export interface QueueJobPayload {
     ankorstore?: boolean;
     efashion?: boolean;
     faire?: boolean;
+    orderchamp?: boolean;
   };
   /**
    * Actions ciblées produites par le tooltip PFS Verify. Quand présent, le
@@ -430,6 +431,8 @@ async function processJobBody(job: any): Promise<void> {
       await runEfashionJob(job, payload);
     } else if (job.marketplace === "FAIRE") {
       await runFaireJob(job, payload);
+    } else if (job.marketplace === "ORDERCHAMP") {
+      await runOrderchampJob(job, payload);
     } else {
       await runAnkorstoreJob(job, payload);
     }
@@ -1147,6 +1150,132 @@ async function markFaireFailed(
     data: {
       status: "FAILED",
       faireOutcome: outcome as Prisma.InputJsonValue,
+      errorMessage: message,
+      completedAt: new Date(),
+    },
+  });
+}
+
+// ─── Orderchamp ─────────────────────────────────────────────────────────────
+
+async function runOrderchampJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+  if (payload.options.orderchamp === false) {
+    await prisma.marketplaceRefreshJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", completedAt: new Date() },
+    });
+    return;
+  }
+
+  const { isMarketplaceInMaintenance, marketplaceMaintenanceMessage } =
+    await import("@/lib/platform-config");
+  if (await isMarketplaceInMaintenance("orderchamp")) {
+    await markOrderchampFailed(job.id, "error", marketplaceMaintenanceMessage("orderchamp"));
+    return;
+  }
+
+  const { getCachedOrderchampEnabled } = await import("@/lib/cached-data");
+  const enabled = await getCachedOrderchampEnabled();
+  if (!enabled) {
+    await markOrderchampFailed(job.id, "error", "Sync Orderchamp désactivée dans Paramètres.");
+    return;
+  }
+
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+  await markStep(job.id, { kind: "AUTH", status: "done", message: "Session Orderchamp établie" });
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { orderchampProductId: true, status: true },
+    });
+    const isLinked = !!product?.orderchampProductId;
+    const stepKind = isLinked ? "UPDATE_PRODUCT" : "CREATE_PRODUCT";
+
+    const finalizeOk = async () => {
+      await markStep(job.id, {
+        kind: stepKind,
+        status: "done",
+        message: isLinked
+          ? `Fiche Orderchamp mise à jour (id ${product?.orderchampProductId})`
+          : "Produit créé sur Orderchamp",
+      });
+      await markOrderchampSuccess(job.id);
+      await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+    };
+    const finalizeError = async (err: string) => {
+      await markStep(job.id, { kind: stepKind, status: "error", message: err });
+      await markOrderchampFailed(job.id, "error", err);
+    };
+
+    if (job.mode === "RESYNC") {
+      if (!isLinked) {
+        const msg = "Produit non publié sur Orderchamp.";
+        await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message: msg });
+        await markOrderchampFailed(job.id, "error", msg);
+        return;
+      }
+      await markStep(job.id, { kind: stepKind, status: "in_progress", label: "Sync complète (forceFullSync)" });
+      const { orderchampUpdateProduct } = await import("@/lib/orderchamp-update");
+      const res = await orderchampUpdateProduct(job.productId, { forceFullSync: true });
+      if (res.success) await finalizeOk();
+      else await finalizeError(res.error ?? "Erreur inconnue");
+    } else if (job.mode === "PUBLISH") {
+      await markStep(job.id, { kind: stepKind, status: "in_progress" });
+      if (isLinked) {
+        const { orderchampUpdateProduct } = await import("@/lib/orderchamp-update");
+        const res = await orderchampUpdateProduct(job.productId);
+        if (res.success) await finalizeOk();
+        else await finalizeError(res.error ?? "Erreur inconnue");
+      } else {
+        const { orderchampPublishProduct } = await import("@/lib/orderchamp-publish");
+        const res = await orderchampPublishProduct(job.productId);
+        if (res.success) await finalizeOk();
+        else await finalizeError(res.error);
+      }
+    } else if (job.mode === "REFRESH") {
+      // Orderchamp = productRepublish garde le MÊME ID (pas de delete+recreate)
+      await markStep(job.id, { kind: stepKind, status: "in_progress" });
+      const { orderchampRefreshProduct } = await import("@/lib/orderchamp-refresh");
+      const res = await orderchampRefreshProduct(job.productId);
+      if (res.success) await finalizeOk();
+      else await finalizeError(res.error ?? "Erreur inconnue");
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] Orderchamp unexpected error", {
+      productId: job.productId,
+      jobId: job.id,
+      error: message,
+    });
+    await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message });
+    await markOrderchampFailed(job.id, "error", message);
+  }
+}
+
+async function markOrderchampSuccess(jobId: string): Promise<void> {
+  const outcome: TargetOutcome = { ok: true };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "SUCCEEDED",
+      orderchampOutcome: outcome as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    },
+  });
+}
+
+async function markOrderchampFailed(
+  jobId: string,
+  kind: "not_found" | "error",
+  message: string,
+): Promise<void> {
+  const outcome: TargetOutcome = { ok: false, kind, message };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "FAILED",
+      orderchampOutcome: outcome as Prisma.InputJsonValue,
       errorMessage: message,
       completedAt: new Date(),
     },

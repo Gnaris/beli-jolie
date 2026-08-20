@@ -17,7 +17,7 @@ import LowStockPdfButton from "@/components/admin/products/LowStockPdfButton";
 import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
+import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasOrderchampConfig, getCachedOrderchampEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
@@ -422,6 +422,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    hasOrderchampConfig,
+    orderchampEnabled,
     hasMicrostoreConfig,
     microstoreEnabled,
     pfsStockPendingCount,
@@ -479,6 +481,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getCachedHasOrderchampConfig(),
+    getCachedOrderchampEnabled(),
     getCachedHasMicrostoreConfig(),
     getCachedMicrostoreEnabled(),
     countPendingPfsStockDeductions(tenantForImages.id),
@@ -565,16 +569,19 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsProductId:       p.ankorsProductId,
     efashionReferenceBase: p.efashionReferenceBase,
     faireProductId:        p.faireProductId,
+    orderchampProductId:   p.orderchampProductId,
     pfsSyncRequired:        p.pfsSyncRequired,
     ankorsSyncRequired:     p.ankorsSyncRequired,
     efashionSyncRequired:   p.efashionSyncRequired,
     faireSyncRequired:      p.faireSyncRequired,
+    orderchampSyncRequired: p.orderchampSyncRequired,
     microstoreSyncRequired: p.microstoreSyncRequired,
     microstoreLastPushedAt: p.microstoreLastPushedAt ? p.microstoreLastPushedAt.toISOString() : null,
     pfsEnabled:             p.pfsEnabled,
     ankorsEnabled:          p.ankorsEnabled,
     efashionEnabled:        p.efashionEnabled,
     faireEnabled:           p.faireEnabled,
+    orderchampEnabled:      p.orderchampEnabled,
     microstoreEnabled:      p.microstoreEnabled,
     // Résultat de la dernière vérification PFS — alimente la pastille dans la
     // cellule Produit (lib/pfs-verify.ts + app/actions/admin/pfs-verify.ts).
@@ -587,6 +594,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,
     ankorstoreLastExportedAt: p.ankorstoreLastExportedAt ? p.ankorstoreLastExportedAt.toISOString() : null,
     faireLastExportedAt:      p.faireLastExportedAt      ? p.faireLastExportedAt.toISOString()      : null,
+    orderchampLastExportedAt: p.orderchampLastExportedAt ? p.orderchampLastExportedAt.toISOString() : null,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",
@@ -691,6 +699,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        hasOrderchampConfig={hasOrderchampConfig}
+        orderchampEnabled={orderchampEnabled}
         hasMicrostoreConfig={hasMicrostoreConfig}
         microstoreEnabled={microstoreEnabled}
         bulkEditOptions={{

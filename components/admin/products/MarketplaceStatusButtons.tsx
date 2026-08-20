@@ -29,6 +29,7 @@ import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
 import { removePfsMatch } from "@/app/actions/admin/pfs";
 import { removeFaireMatch } from "@/app/actions/admin/faire";
+import { removeOrderchampMatch } from "@/app/actions/admin/orderchamp";
 import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
 
 interface MarketplaceStatusButtonsProps {
@@ -50,6 +51,9 @@ interface MarketplaceStatusButtonsProps {
   faireProductId: string | null;
   hasFaireConfig: boolean;
   faireEnabled: boolean;
+  orderchampProductId: string | null;
+  hasOrderchampConfig: boolean;
+  orderchampEnabled: boolean;
   /** Microstore n'a pas d'ID marketplace : on utilise `microstoreLastPushedAt`
    *  comme équivalent de "produit lié" (null = jamais poussé). */
   microstoreLastPushedAt: Date | string | null;
@@ -59,21 +63,24 @@ interface MarketplaceStatusButtonsProps {
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
   faireSyncRequired?: boolean;
+  orderchampSyncRequired?: boolean;
   microstoreSyncRequired?: boolean;
   /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
   pfsEnabledForProduct?: boolean;
   ankorsEnabledForProduct?: boolean;
   efashionEnabledForProduct?: boolean;
   faireEnabledForProduct?: boolean;
+  orderchampEnabledForProduct?: boolean;
   microstoreEnabledForProduct?: boolean;
   /** Maintenance plateforme (contrôle Beliandjolie, affecte toutes les boutiques). Défaut false. */
   pfsMaintenance?: boolean;
   ankorstoreMaintenance?: boolean;
   efashionMaintenance?: boolean;
   faireMaintenance?: boolean;
+  orderchampMaintenance?: boolean;
 }
 
-type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire";
+type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Icônes
@@ -196,6 +203,10 @@ const MARKETPLACE_META: Record<
   faire: {
     letter: "F",
     gradient: "linear-gradient(135deg,#f59e0b,#fbbf24)",
+  },
+  orderchamp: {
+    letter: "O",
+    gradient: "linear-gradient(135deg,#f97316,#fdba74)",
   },
 };
 
@@ -468,6 +479,9 @@ export function MarketplaceStatusButtons({
   faireProductId,
   hasFaireConfig,
   faireEnabled,
+  orderchampProductId,
+  hasOrderchampConfig,
+  orderchampEnabled,
   microstoreLastPushedAt,
   hasMicrostoreConfig,
   microstoreEnabled,
@@ -475,16 +489,19 @@ export function MarketplaceStatusButtons({
   ankorsSyncRequired = false,
   efashionSyncRequired = false,
   faireSyncRequired = false,
+  orderchampSyncRequired = false,
   microstoreSyncRequired = false,
   pfsEnabledForProduct = true,
   ankorsEnabledForProduct = true,
   efashionEnabledForProduct = true,
   faireEnabledForProduct = true,
+  orderchampEnabledForProduct = true,
   microstoreEnabledForProduct = true,
   pfsMaintenance: pfsMaintenanceProp,
   ankorstoreMaintenance: ankorstoreMaintenanceProp,
   efashionMaintenance: efashionMaintenanceProp,
   faireMaintenance: faireMaintenanceProp,
+  orderchampMaintenance: orderchampMaintenanceProp,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
   // Contexte plateforme (monté au layout admin) — la prop reste prioritaire si
@@ -494,6 +511,7 @@ export function MarketplaceStatusButtons({
   const ankorstoreMaintenance = ankorstoreMaintenanceProp ?? maintenanceCtx.ankorstore;
   const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
   const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
+  const orderchampMaintenance = orderchampMaintenanceProp ?? maintenanceCtx.orderchamp;
   const { enqueue, items, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
   const {
@@ -550,6 +568,9 @@ export function MarketplaceStatusButtons({
   useEffect(() => {
     if (!faireSyncRequired) removeClearedLocally("faire");
   }, [faireSyncRequired]);
+  useEffect(() => {
+    if (!orderchampSyncRequired) removeClearedLocally("orderchamp");
+  }, [orderchampSyncRequired]);
 
   const [confirmPfsOpen, setConfirmPfsOpen] = useState(false);
   const [resyncPfsOpen, setResyncPfsOpen] = useState(false);
@@ -568,6 +589,9 @@ export function MarketplaceStatusButtons({
   const [resyncFaireOpen, setResyncFaireOpen] = useState(false);
   const [unlinkFaireBusy, setUnlinkFaireBusy] = useState(false);
   const [linkFaireOpen, setLinkFaireOpen] = useState(false);
+  const [confirmOrderchampOpen, setConfirmOrderchampOpen] = useState(false);
+  const [resyncOrderchampOpen, setResyncOrderchampOpen] = useState(false);
+  const [unlinkOrderchampBusy, setUnlinkOrderchampBusy] = useState(false);
 
   const pfsOp = useMemo(() => findLatestOpForProduct(items, productId, "pfs"), [items, productId]);
   const ankorstoreOp = useMemo(
@@ -582,11 +606,16 @@ export function MarketplaceStatusButtons({
     () => findLatestOpForProduct(items, productId, "faire"),
     [items, productId],
   );
+  const orderchampOp = useMemo(
+    () => findLatestOpForProduct(items, productId, "orderchamp"),
+    [items, productId],
+  );
 
   const pfsClientRecent = getRecentClientSuccessAt(productId, "pfs");
   const ankorstoreClientRecent = getRecentClientSuccessAt(productId, "ankorstore");
   const efashionClientRecent = getRecentClientSuccessAt(productId, "efashion");
   const faireClientRecent = getRecentClientSuccessAt(productId, "faire");
+  const orderchampClientRecent = getRecentClientSuccessAt(productId, "orderchamp");
 
   const effectivePfsSyncRequired = pfsSyncRequired && !isClearedLocally("pfs");
   const effectiveAnkorsSyncRequired =
@@ -594,6 +623,8 @@ export function MarketplaceStatusButtons({
   const effectiveEfashionSyncRequired =
     efashionSyncRequired && !isClearedLocally("efashion");
   const effectiveFaireSyncRequired = faireSyncRequired && !isClearedLocally("faire");
+  const effectiveOrderchampSyncRequired =
+    orderchampSyncRequired && !isClearedLocally("orderchamp");
 
   // Liaison marketplace en cours (contexte client MarketplaceLinkContext) —
   // englobe la fenêtre de grâce post-succès pour éviter le flash rouge → vert.
@@ -601,6 +632,7 @@ export function MarketplaceStatusButtons({
   const ankorstoreLinking = hasLinkJob(productId, "ankorstore");
   const efashionLinking = hasLinkJob(productId, "efashion");
   const faireLinking = hasLinkJob(productId, "faire");
+  const orderchampLinking = hasLinkJob(productId, "orderchamp");
 
   const efashionState = useMemo(
     () =>
@@ -654,6 +686,19 @@ export function MarketplaceStatusButtons({
       ),
     [faireProductId, faireOp, effectiveFaireSyncRequired, faireClientRecent, faireLinking],
   );
+  const orderchampState = useMemo(
+    () =>
+      computeMarketplaceBadgeState(
+        orderchampProductId,
+        orderchampOp,
+        "orderchamp",
+        effectiveOrderchampSyncRequired,
+        undefined,
+        orderchampClientRecent,
+        orderchampLinking,
+      ),
+    [orderchampProductId, orderchampOp, effectiveOrderchampSyncRequired, orderchampClientRecent, orderchampLinking],
+  );
 
   // ── Refresh routeur après publication réussie ──
   useEffect(() => {
@@ -668,6 +713,9 @@ export function MarketplaceStatusButtons({
   useEffect(() => {
     if (faireState.justPublishedOk && !faireProductId) router.refresh();
   }, [faireState.justPublishedOk, faireProductId, router]);
+  useEffect(() => {
+    if (orderchampState.justPublishedOk && !orderchampProductId) router.refresh();
+  }, [orderchampState.justPublishedOk, orderchampProductId, router]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Handlers
@@ -907,6 +955,63 @@ export function MarketplaceStatusButtons({
     }
   };
 
+  // Orderchamp
+  const handlePublishOrderchamp = () => {
+    enqueue([
+      {
+        productId,
+        reference,
+        productName,
+        firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+        mode: "publish",
+        marketplace: "orderchamp",
+        intent: orderchampProductId ? "update" : "create",
+      },
+    ]);
+    setConfirmOrderchampOpen(false);
+  };
+  const handleResyncOrderchamp = () => {
+    enqueue([
+      {
+        productId,
+        reference,
+        productName,
+        firstImage,
+        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+        mode: "resync",
+        marketplace: "orderchamp",
+      },
+    ]);
+    setResyncOrderchampOpen(false);
+  };
+  const handleUnlinkOrderchamp = async () => {
+    const ok = await confirm({
+      type: "warning",
+      title: "Délier de Orderchamp ?",
+      message:
+        "Le lien entre ce produit et sa fiche Orderchamp sera effacé côté site. " +
+        "Aucune action n'est faite sur Orderchamp : la fiche existante y restera telle quelle. " +
+        "Vous pourrez ensuite re-publier ce produit.",
+      confirmLabel: "Oui, délier",
+    });
+    if (!ok) return;
+    setUnlinkOrderchampBusy(true);
+    try {
+      const res = await removeOrderchampMatch(productId);
+      if (res.success) {
+        toast.success("Produit délié de Orderchamp");
+        router.refresh();
+      } else {
+        toast.error("Échec du déliage", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error("Échec du déliage", err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnlinkOrderchampBusy(false);
+    }
+  };
+
   const handleUnlinkEfashion = async () => {
     const ok = await confirm({
       type: "warning",
@@ -941,13 +1046,15 @@ export function MarketplaceStatusButtons({
   const showAnkorstore = hasAnkorstoreConfig;
   const showEfashion = hasEfashionConfig;
   const showFaire = hasFaireConfig;
-  if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire) return null;
+  const showOrderchamp = hasOrderchampConfig;
+  if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire && !showOrderchamp) return null;
 
   // Maintenance = priorité max (contrôle Beli & Jolie, affecte toutes les boutiques).
   const pfsDisabledOverall = pfsMaintenance || !pfsEnabledForProduct || !pfsEnabled;
   const ankorsDisabledOverall = ankorstoreMaintenance || !ankorsEnabledForProduct || !ankorstoreEnabled;
   const efashionDisabledOverall = efashionMaintenance || !efashionEnabledForProduct || !efashionEnabled;
   const faireDisabledOverall = faireMaintenance || !faireEnabledForProduct || !faireEnabled;
+  const orderchampDisabledOverall = orderchampMaintenance || !orderchampEnabledForProduct || !orderchampEnabled;
   const pfsDisabledReason: "product" | "global" | "maintenance" =
     pfsMaintenance ? "maintenance" : !pfsEnabled ? "global" : "product";
   const ankorsDisabledReason: "product" | "global" | "maintenance" =
@@ -956,6 +1063,8 @@ export function MarketplaceStatusButtons({
     efashionMaintenance ? "maintenance" : !efashionEnabled ? "global" : "product";
   const faireDisabledReason: "product" | "global" | "maintenance" =
     faireMaintenance ? "maintenance" : !faireEnabled ? "global" : "product";
+  const orderchampDisabledReason: "product" | "global" | "maintenance" =
+    orderchampMaintenance ? "maintenance" : !orderchampEnabled ? "global" : "product";
 
   return (
     <>
@@ -1314,6 +1423,74 @@ export function MarketplaceStatusButtons({
           />
         )}
 
+        {/* ─── Orderchamp ─────────────────────────────────────────────── */}
+        {showOrderchamp && (
+          <MarketplaceCard
+            state={orderchampState}
+            marketplace="orderchamp"
+            label="Orderchamp"
+            sublabel={null}
+            disabledForProduct={orderchampDisabledOverall}
+            disabledReason={orderchampDisabledReason}
+            onClick={() => {
+              if (orderchampDisabledOverall) return;
+              if (orderchampState.loading) return;
+              if (orderchampState.syncRequired) {
+                handleResyncOrderchamp();
+                return;
+              }
+              if (orderchampState.online) return;
+              setConfirmOrderchampOpen(true);
+            }}
+            onCancelSyncRequired={() =>
+              handleCancelSyncRequired("orderchamp", "Orderchamp")
+            }
+            title={
+              orderchampState.loading
+                ? "Synchronisation Orderchamp en cours…"
+                : orderchampState.syncRequired
+                  ? "Synchronisation nécessaire — cliquez pour envoyer la mise à jour à Orderchamp"
+                  : orderchampProductId
+                    ? "Disponible sur Orderchamp"
+                    : "Non disponible — cliquez pour publier sur Orderchamp"
+            }
+            loadingLabel="Publication Orderchamp en cours…"
+            actions={
+              <>
+                {orderchampProductId && (
+                  <IconBtn
+                    tone="success"
+                    icon={Icon.Refresh}
+                    onClick={() => {
+                      if (orderchampState.loading) return;
+                      setResyncOrderchampOpen(true);
+                    }}
+                    disabled={orderchampState.loading || orderchampDisabledOverall}
+                    title={
+                      orderchampState.loading
+                        ? "Une opération Orderchamp est déjà en cours…"
+                        : "Resynchroniser toutes les données sur Orderchamp"
+                    }
+                    ariaLabel="Resynchroniser sur Orderchamp"
+                  />
+                )}
+
+                {orderchampProductId && (
+                  <IconBtn
+                    tone="danger"
+                    icon={Icon.Unlink}
+                    onClick={handleUnlinkOrderchamp}
+                    busy={unlinkOrderchampBusy}
+                    disabled={orderchampDisabledOverall}
+                    title="Délier ce produit de sa fiche Orderchamp (efface la liaison côté site sans toucher à Orderchamp)"
+                    ariaLabel="Délier ce produit de Orderchamp"
+                  />
+                )}
+              </>
+            }
+          />
+        )}
+
         {/* ─── Microstore (sync directe, sans queue) ──────────────────── */}
         <MicrostoreStatusCard
           productId={productId}
@@ -1474,6 +1651,44 @@ export function MarketplaceStatusButtons({
         confirmLabel="Envoyer maintenant"
         onClose={() => setResyncFaireOpen(false)}
         onConfirm={handleResyncFaire}
+      />
+
+      <MarketplacePushModal
+        open={confirmOrderchampOpen}
+        marketplace="orderchamp"
+        mode="publish"
+        title="Publier ce produit sur Orderchamp ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        message="Ce produit n'existe pas encore sur Orderchamp. Une nouvelle fiche y sera créée avec les informations, photos, prix et stock actuels."
+        infoMessage="Une fois publiée, la fiche restera liée à ce produit. Vos futures modifications pourront être renvoyées en un clic."
+        subtitle="première publication"
+        confirmLabel="Publier maintenant"
+        onClose={() => setConfirmOrderchampOpen(false)}
+        onConfirm={handlePublishOrderchamp}
+      />
+
+      <MarketplacePushModal
+        open={resyncOrderchampOpen}
+        marketplace="orderchamp"
+        mode="resync"
+        title="Renvoyer les infos à Orderchamp ?"
+        productName={productName}
+        productReference={reference}
+        productImage={firstImage}
+        items={[
+          "Nom & description",
+          "Photos",
+          "Prix",
+          "Stock",
+          "Statut en ligne",
+          "Variantes",
+        ]}
+        infoMessage="La fiche existante sur Orderchamp est gardée telle quelle — seul le contenu est mis à jour."
+        confirmLabel="Envoyer maintenant"
+        onClose={() => setResyncOrderchampOpen(false)}
+        onConfirm={handleResyncOrderchamp}
       />
 
       {linkPfsOpen && (

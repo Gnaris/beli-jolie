@@ -208,6 +208,68 @@ export async function updateCategoryFaireTaxonomy(
 }
 
 /**
+ * Mappe une catégorie BJ à une catégorie feuille Orderchamp
+ * (`ProductCategoryPath` enum, ex "JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS").
+ * Seules les feuilles sont acceptées côté OC — voir `filterLeavesOnly()`.
+ *
+ * Retourne un `impact` non-null si le mapping a réellement changé ET si des
+ * produits publiés sur Orderchamp utilisent cette catégorie.
+ */
+export async function updateCategoryOrderchampTaxonomy(
+  id: string,
+  orderchampCategoryPath: string | null,
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
+  await requireAdmin();
+  const normalized = orderchampCategoryPath?.trim() || null;
+
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true, orderchampCategoryPath: true },
+  });
+  if (!before) throw new Error("Catégorie introuvable.");
+
+  // Reset customCategory quand le mapping change : elle sera recréée
+  // automatiquement à la prochaine publication OC (voir orderchamp-publish.ts).
+  await prisma.category.update({
+    where: { id },
+    data: {
+      orderchampCategoryPath: normalized,
+      ...(normalized !== before.orderchampCategoryPath
+        ? { orderchampCustomCategoryId: null }
+        : {}),
+    },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+
+  if (before.orderchampCategoryPath === normalized) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "category",
+    marketplace: "orderchamp",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.orderchampCategoryPath,
+    newValueLabel: normalized,
+    rollbackFields: { orderchampCategoryPath: before.orderchampCategoryPath },
+  });
+  return { success: true, impact };
+}
+
+/**
+ * Charge la taxonomie Orderchamp (arbre plat) — feuilles filtrées côté client.
+ * Cache tenant-scopé 24h, invalidable via revalidateTag("orderchamp-taxonomy").
+ */
+export async function getOrderchampTaxonomyOptions(): Promise<
+  { id: string; path: string; name: string; depth: number; nameFr: string }[]
+> {
+  await requireAdmin();
+  const { getCachedOrderchampTaxonomy } = await import("@/lib/orderchamp-taxonomy");
+  return getCachedOrderchampTaxonomy();
+}
+
+/**
  * Saisie manuelle du code SH douanier Faire pour une catégorie BJ. Le code
  * dépend du type de produit (ex: "7117.19.00" pour bijoux acier,
  * "6109.10.00" pour t-shirts coton, "9004.10" pour lunettes). Stocké par

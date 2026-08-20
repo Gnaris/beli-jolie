@@ -9,6 +9,7 @@ import { removePfsMatch } from "@/app/actions/admin/pfs";
 import { removeAnkorstoreMatch } from "@/app/actions/admin/ankorstore";
 import { removeEfashionMatch } from "@/app/actions/admin/efashion";
 import { removeFaireMatch } from "@/app/actions/admin/faire";
+import { removeOrderchampMatch } from "@/app/actions/admin/orderchamp";
 import type { MarketplaceKey } from "@/lib/marketplace-enabled";
 
 async function requireAdmin() {
@@ -24,12 +25,14 @@ const FIELD_BY_MARKETPLACE: Record<
   | "ankorsEnabled"
   | "efashionEnabled"
   | "faireEnabled"
+  | "orderchampEnabled"
   | "microstoreEnabled"
 > = {
   pfs: "pfsEnabled",
   ankorstore: "ankorsEnabled",
   efashion: "efashionEnabled",
   faire: "faireEnabled",
+  orderchamp: "orderchampEnabled",
   microstore: "microstoreEnabled",
 };
 
@@ -60,6 +63,7 @@ export async function setProductMarketplaceEnabled(
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
     },
   });
   if (!product) return { success: false, error: "Produit introuvable." };
@@ -94,7 +98,9 @@ export async function setProductMarketplaceEnabled(
               ? await removeAnkorstoreMatch(productId)
               : marketplace === "efashion"
                 ? await removeEfashionMatch(productId)
-                : await removeFaireMatch(productId);
+                : marketplace === "faire"
+                  ? await removeFaireMatch(productId)
+                  : await removeOrderchampMatch(productId);
         if (res.success) {
           unlinked = true;
         } else {
@@ -129,10 +135,12 @@ function isLinked(
     ankorsProductId: string | null;
     efashionReferenceBase: string | null;
     faireProductId: string | null;
+    orderchampProductId: string | null;
   },
 ): boolean {
   if (marketplace === "pfs") return !!product.pfsProductId;
   if (marketplace === "ankorstore") return !!product.ankorsProductId;
   if (marketplace === "efashion") return !!product.efashionReferenceBase;
-  return !!product.faireProductId;
+  if (marketplace === "faire") return !!product.faireProductId;
+  return !!product.orderchampProductId;
 }

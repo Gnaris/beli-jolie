@@ -98,6 +98,8 @@ export interface OrderPricingResult {
   totalTTC: number;
   totalTTCCents: number;
   promoCodeSaved: number;
+  /** Somme des promos AUTO par item (subtotalBrutHT - subtotalHT - promoCodeSaved). */
+  promoAutoDiscount: number;
 }
 
 function floorMoney(n: number): number {
@@ -158,14 +160,14 @@ export function computeCartCascade(input: {
   };
 }
 
-/** Somme des prix de vente bruts (avant toute réduction). */
+/** Somme des prix de vente bruts (avant toute réduction). Troncature stricte (pas d'arrondi). */
 function computeSubtotalBrut(items: CartItemInput[]): number {
   let s = 0;
   for (const it of items) s += it.promoContext.unitPrice * it.quantity;
-  return Math.round(s * 100) / 100;
+  return floorMoney(s);
 }
 
-/** Somme des prix résolus par le moteur avec une liste donnée de promos + optionnellement le client %. */
+/** Somme des prix résolus par le moteur avec une liste donnée de promos + optionnellement le client %. Troncature stricte. */
 function computeSubtotalWithPromos(
   items: CartItemInput[],
   activePromos: ActivePromotion[],
@@ -177,7 +179,7 @@ function computeSubtotalWithPromos(
     const r = resolveBestItemDiscount(it.promoContext, activePromos, code, clientPct);
     s += r.finalUnitPrice * it.quantity;
   }
-  return Math.round(s * 100) / 100;
+  return floorMoney(s);
 }
 
 export function computeOrderPricing(input: OrderPricingInput): OrderPricingResult {
@@ -228,13 +230,13 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   if (clientDiscountApplies && user.discountType && user.discountValue != null) {
     if (user.discountType === "PERCENT") {
       const subtotalWithClient = computeSubtotalWithPromos(input.items, activePromos, itemsCodePromo, clientPercentForEngine);
-      clientDiscountAmt = Math.max(0, Math.round((subtotalHT - subtotalWithClient) * 100) / 100);
+      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT - subtotalWithClient));
     } else {
       // AMOUNT — cascade sur le sous-total (ceilCent sur la coupe).
       clientDiscountAmt = Math.min(subtotalHT, user.discountValue);
     }
   }
-  const subtotalAfterDiscount = Math.max(0, Math.round((subtotalHT - clientDiscountAmt) * 100) / 100);
+  const subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT - clientDiscountAmt));
 
   // ── 4. Cascade trace — affichage récap (promos items + remise client) ──
   const discountTrace: CascadeTraceLine[] = [];
@@ -248,7 +250,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     null,
   );
   if (subtotalAfterNonStackable < running - 0.005) {
-    const gain = Math.round((running - subtotalAfterNonStackable) * 100) / 100;
+    const gain = floorMoney(running - subtotalAfterNonStackable);
     discountTrace.push({
       label: "Remises catalogue",
       kind: "product",
@@ -274,7 +276,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       null,
     );
     if (newSubtotal < running - 0.005) {
-      const gain = Math.round((running - newSubtotal) * 100) / 100;
+      const gain = floorMoney(running - newSubtotal);
       discountTrace.push({
         label: promo.name,
         kind: "promo",
@@ -293,7 +295,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       null,
     );
     if (newSubtotal < running - 0.005) {
-      const gain = Math.round((running - newSubtotal) * 100) / 100;
+      const gain = floorMoney(running - newSubtotal);
       discountTrace.push({
         label: stackableCode.name,
         kind: "promo",
@@ -307,7 +309,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
 
   // 4c. Remise commerciale client — toujours en dernier
   if (clientDiscountAmt > 0.005) {
-    const newSubtotal = Math.max(0, Math.round((running - clientDiscountAmt) * 100) / 100);
+    const newSubtotal = Math.max(0, floorMoney(running - clientDiscountAmt));
     discountTrace.push({
       label: "Remise commerciale",
       kind: "client",
@@ -370,7 +372,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       } else {
         after = Math.max(0, ceilCent(cumulativeShipPrice - promo.discountValue));
       }
-      const gain = Math.round((cumulativeShipPrice - after) * 100) / 100;
+      const gain = floorMoney(cumulativeShipPrice - after);
       if (gain > 0.005) {
         shippingTrace.push({
           label: promo.name,
@@ -388,7 +390,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       const after = shipStackableCode.discountKind === "PERCENTAGE"
         ? Math.max(0, ceilCent(cumulativeShipPrice * (1 - rate)))
         : Math.max(0, ceilCent(cumulativeShipPrice - shipStackableCode.discountValue));
-      const gain = Math.round((cumulativeShipPrice - after) * 100) / 100;
+      const gain = floorMoney(cumulativeShipPrice - after);
       if (gain > 0.005) {
         shippingTrace.push({
           label: shipStackableCode.name,
@@ -416,7 +418,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       const after = user.shippingDiscountType === "PERCENT"
         ? Math.max(0, ceilCent(before * (1 - user.shippingDiscountValue / 100)))
         : Math.max(0, ceilCent(before - user.shippingDiscountValue));
-      const gain = Math.round((before - after) * 100) / 100;
+      const gain = floorMoney(before - after);
       if (gain > 0.005) {
         shippingTrace.push({
           label: "Remise commerciale livraison",
@@ -490,6 +492,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     tvaAmount,
     totalTTC,
     totalTTCCents,
-    promoCodeSaved: Math.round(promoCodeSaved * 100) / 100,
+    promoCodeSaved: floorMoney(promoCodeSaved),
+    promoAutoDiscount: Math.max(0, floorMoney(subtotalBrutHT - subtotalHT - floorMoney(promoCodeSaved))),
   };
 }

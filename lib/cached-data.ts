@@ -742,6 +742,65 @@ export const getCachedFaireEnabled = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Orderchamp — api key, enabled, has-config (même pattern que Faire) ──────
+async function readOrderchampApiKeyDirect(tid?: string) {
+  const row = await prisma.siteConfig.findFirst({
+    where: !tid || tid === "global" ? { key: "orderchamp_api_key" } : { tenantId: tid, key: "orderchamp_api_key" },
+  });
+  if (!row?.value) return null;
+  return decryptIfSensitive("orderchamp_api_key", row.value)?.trim() || null;
+}
+
+const _cachedOrderchampApiKey = tenantScopedCacheWithTid(
+  "orderchamp-api-key",
+  async (tid) => readOrderchampApiKeyDirect(tid),
+  ["orderchamp-api-key"],
+  { revalidate: 300, tags: ["site-config"] },
+);
+
+export async function getCachedOrderchampApiKey() {
+  try {
+    return await _cachedOrderchampApiKey();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("incrementalCache") || msg.includes("unstable_cache")) {
+      return await readOrderchampApiKeyDirect(await resolveTidForFallback());
+    }
+    throw err;
+  }
+}
+
+export const getCachedHasOrderchampConfig = tenantScopedCacheWithTid(
+  "has-orderchamp-config",
+  async (tid) => {
+    const row = await prisma.siteConfig.findFirst({
+      where: tid === "global" ? { key: "orderchamp_api_key" } : { tenantId: tid, key: "orderchamp_api_key" },
+      select: { key: true },
+    });
+    return !!row;
+  },
+  ["has-orderchamp-config"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+export const getCachedOrderchampEnabled = tenantScopedCacheWithTid(
+  "orderchamp-enabled",
+  async (tid) => {
+    const rows = await prisma.siteConfig.findMany({
+      where: tid === "global"
+        ? { key: { in: ["orderchamp_api_key", "orderchamp_products_management_enabled"] } }
+        : { tenantId: tid, key: { in: ["orderchamp_api_key", "orderchamp_products_management_enabled"] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const hasConfig = map.has("orderchamp_api_key");
+    const enabled = map.get("orderchamp_products_management_enabled");
+    return hasConfig && enabled !== "false";
+  },
+  ["orderchamp-enabled"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 /**
  * Codes ISO alpha-2 dont la mention « Made in {pays} » NE doit PAS être
  * append aux descriptions Faire. Retourne un Set pour lookup O(1).

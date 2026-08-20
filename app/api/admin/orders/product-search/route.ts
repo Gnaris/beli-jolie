@@ -18,13 +18,11 @@ export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
   if (q.length < 1) return NextResponse.json({ products: [] });
 
+  // Recherche EXACTE sur la référence uniquement (pas de contains, pas de préfixe/suffixe).
   const products = await prisma.product.findMany({
     where: {
       status: "ONLINE",
-      OR: [
-        { reference: { contains: q } },
-        { name: { contains: q } },
-      ],
+      reference: { equals: q },
     },
     take: 12,
     orderBy: { reference: "asc" },

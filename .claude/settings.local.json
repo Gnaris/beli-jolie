@@ -14,7 +14,14 @@
       "Bash(ssh *)",
       "Read(//c/Users/Admin/AppData/Local/Temp/claude/C--Users-Admin-Desktop-beli-jolie/b4e0d965-5901-49c4-afbb-e2bf751b7154/tasks/**)",
       "PowerShell(Get-Process *)",
-      "Bash(grep -n \"s + i.quantity\\\\|item.quantity} × {fmt\\(item.unitPrice\\)}\\\\|{item.quantity} unités\\\\|{totalUnits} unités\\\\|reduce\\(\\(s, i\\) => s + i.quantity\" components/admin/orders/OrderItemsEditor.tsx)"
+      "Bash(grep -n \"s + i.quantity\\\\|item.quantity} × {fmt\\(item.unitPrice\\)}\\\\|{item.quantity} unités\\\\|{totalUnits} unités\\\\|reduce\\(\\(s, i\\) => s + i.quantity\" components/admin/orders/OrderItemsEditor.tsx)",
+      "Bash(mkdir -p \"/c/Users/Admin/Desktop/beli-images-500\")",
+      "Bash(rm -rf \"/c/Users/Admin/Desktop/beli-images-500/\"*)",
+      "Bash(scp -q root@72.61.106.128:/tmp/beli-images-500.tar \"/c/Users/Admin/Desktop/beli-images-500.tar\")",
+      "Read(//c/Users/Admin/Desktop/**)",
+      "Bash(tar xf *)",
+      "Bash(mkdir -p \"/c/Users/Admin/Desktop/beli-batches-500\")",
+      "Bash(rm -rf \"/c/Users/Admin/Desktop/beli-batches-500/\"*)"
     ]
   }
 }

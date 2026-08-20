@@ -34,6 +34,7 @@ const ID_FIELD_BY_MARKETPLACE: Record<ClientMarketplace, string> = {
   ankorstore: "ankorsProductId",
   efashion: "efashionReferenceBase",
   faire: "faireProductId",
+  orderchamp: "orderchampProductId",
 };
 
 /**
@@ -50,6 +51,7 @@ async function hasMarketplaceId(productId: string, marketplace: ClientMarketplac
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
     },
   });
   if (!product) return false;
