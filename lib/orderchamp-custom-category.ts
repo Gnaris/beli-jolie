@@ -19,6 +19,7 @@ import {
   formatUserErrors,
 } from "@/lib/orderchamp-client";
 import {
+  CUSTOM_CATEGORIES_QUERY,
   CUSTOM_CATEGORY_CREATE_MUTATION,
   CUSTOM_CATEGORY_UPDATE_MUTATION,
 } from "@/lib/orderchamp-queries";
@@ -64,7 +65,42 @@ export async function ensureOrderchampCustomCategory(
     return { success: true, orderchampCustomCategoryId: cat.orderchampCustomCategoryId };
   }
 
+  const slug = slugifyForOrderchamp(cat.name);
+
   try {
+    // 0) Anti-doublon : chercher si une customCategory avec ce slug existe
+    // déjà chez OC (race condition entre workers concurrents, ou reliquat d'un
+    // ancien run avant que le lien BDD n'ait été sauvé). Si oui, on la
+    // récupère au lieu d'en créer une nouvelle.
+    const existing = await orderchampGraphQL<{
+      customCategories: {
+        edges: Array<{ node: { id: string; value: string; label: string; isPublished: boolean } }>;
+      };
+    }>(CUSTOM_CATEGORIES_QUERY, { first: 250 }, "customCategoriesLookup");
+    const match = existing.customCategories.edges.find((e) => e.node.value === slug);
+    if (match) {
+      // Publier si pas encore publiée (état intermédiaire d'un run interrompu).
+      if (!match.node.isPublished) {
+        await orderchampGraphQL<{
+          customCategoryUpdate: { userErrors: Array<Record<string, unknown>> };
+        }>(
+          CUSTOM_CATEGORY_UPDATE_MUTATION,
+          { input: { id: match.node.id, isPublished: true } },
+          "customCategoryUpdate",
+        );
+      }
+      await prisma.category.update({
+        where: { id: bjCategoryId },
+        data: { orderchampCustomCategoryId: match.node.id },
+      });
+      logger.info("[Orderchamp CustomCategory] existante réutilisée", {
+        bjCategoryId,
+        customCategoryId: match.node.id,
+        slug,
+      });
+      return { success: true, orderchampCustomCategoryId: match.node.id };
+    }
+
     // 1) Création côté OC
     const createRes = await orderchampGraphQL<{
       customCategoryCreate: {
@@ -75,7 +111,7 @@ export async function ensureOrderchampCustomCategory(
       CUSTOM_CATEGORY_CREATE_MUTATION,
       {
         input: {
-          value: slugifyForOrderchamp(cat.name),
+          value: slug,
           label: cat.name,
         },
       },
