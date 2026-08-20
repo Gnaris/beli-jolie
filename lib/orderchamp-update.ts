@@ -27,7 +27,7 @@ import {
   extractUserErrors,
   formatUserErrors,
 } from "@/lib/orderchamp-client";
-import { PRODUCT_UPDATE_MUTATION } from "@/lib/orderchamp-queries";
+import { PRODUCT_UPDATE_MUTATION, PRODUCT_VARIANT_UPDATE_MUTATION } from "@/lib/orderchamp-queries";
 import {
   loadOrderchampProductFull,
   orderchampPublishProduct,
@@ -186,7 +186,33 @@ export async function orderchampUpdateProduct(
     if (inv.errors.length > 0) warnings.push(...inv.errors);
   }
 
-  // 3) Reset syncRequired + timestamp
+  // 3) Réenvoie filterMaterial sur chaque variante — Orderchamp écrase à chaque
+  // update, donc on doit renvoyer la liste complète à chaque synchro pour que
+  // la modif du mapping composition BJ se répercute côté OC. Sans ce bloc, le
+  // champ « Matériaux » restait figé sur ce que productCreate avait envoyé.
+  const materialsCodes = product.compositions
+    .map((c) => c.composition.orderchampMaterialCode?.trim() || null)
+    .filter((c): c is string => !!c)
+    .slice(0, 4); // OC : max 4 matériaux pour bijoux
+  if (materialsCodes.length > 0) {
+    let matUpdated = 0;
+    for (const v of activeVariants) {
+      if (!v.orderchampVariantId) continue;
+      try {
+        await orderchampGraphQL(
+          PRODUCT_VARIANT_UPDATE_MUTATION,
+          { input: { id: v.orderchampVariantId, filterMaterial: materialsCodes } },
+          "productVariantUpdate/filterMaterial",
+        );
+        matUpdated += 1;
+      } catch (e) {
+        warnings.push(`Matériaux variante ${v.orderchampVariantId} : ${e instanceof Error ? e.message : "?"}`);
+      }
+    }
+    if (matUpdated > 0) changedFields.push("materials");
+  }
+
+  // 4) Reset syncRequired + timestamp
   await prisma.product.update({
     where: { id: productId },
     data: {
