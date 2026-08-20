@@ -83,6 +83,18 @@ export async function orderchampUpdateProduct(
   const product = await loadOrderchampProductFull(productId);
   if (!product) return { success: false, error: "Impossible de recharger le produit BJ." };
 
+  // Garde-fou : mapping compositions obligatoire (voir orderchamp-publish.ts).
+  const unmappedCompos = product.compositions.filter(
+    (c) => !c.composition.orderchampMaterialCode?.trim(),
+  );
+  if (unmappedCompos.length > 0) {
+    const names = unmappedCompos.map((c) => c.composition.name).join(", ");
+    return {
+      success: false,
+      error: `Composition non mappée Orderchamp : ${names}. Ouvrez /admin/compositions et renseignez le mapping Orderchamp pour ces matériaux avant de synchroniser.`,
+    };
+  }
+
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
   const warnings: string[] = [];
@@ -97,10 +109,12 @@ export async function orderchampUpdateProduct(
     .map((c) => ({ name: c.composition.name, percentage: Number(c.percentage) }))
     .filter((c) => c.name);
   const allSizes = activeVariants.flatMap((v) => v.variantSizes.map((vs) => vs.size.name));
+  // Pas de « Made in » côté OC (retiré à la demande cliente 2026-08-20 —
+  // le champ structuré `madeIn` du produit suffit).
   const newDescription = buildOrderchampDescription(product.description ?? "", compos, {
     sizes: allSizes,
     sizeDetailsTu: product.sizeDetailsTu,
-    madeInCountryEn: countryEnName,
+    madeInCountryEn: null,
   });
 
   // Assure la customCategory OC (sous-catégorie BJ si présente, sinon catégorie

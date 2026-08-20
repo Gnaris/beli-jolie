@@ -297,7 +297,9 @@ function buildOrderchampProductPayload(
   // Compositions mappées → filterMaterial[] (max 4)
   // NOTE : filterMaterial se pose au niveau variante en post-passe, pas ici.
 
-  // Description enrichie (matériaux + tailles + made-in)
+  // Description enrichie (matériaux + tailles). Pas de « Made in » côté OC
+  // (retiré à la demande de la cliente le 2026-08-20 — le champ `madeIn`
+  // structuré du produit suffit, pas la peine de doublonner en texte).
   const compos = product.compositions
     .map((c) => ({
       name: c.composition.name,
@@ -308,7 +310,7 @@ function buildOrderchampProductPayload(
   const description = buildOrderchampDescription(product.description ?? "", compos, {
     sizes: allSizes,
     sizeDetailsTu: product.sizeDetailsTu,
-    madeInCountryEn: ctx.countryEnName,
+    madeInCountryEn: null,
   });
 
   const input: Record<string, unknown> = {
@@ -364,6 +366,21 @@ export async function orderchampPublishProduct(
 
   if (!product.category?.id) {
     return { success: false, error: "Produit sans catégorie BJ — impossible de publier." };
+  }
+
+  // Garde-fou : toutes les compositions du produit doivent avoir un mapping
+  // Orderchamp (`orderchampMaterialCode`). Sinon on bloque — Orderchamp doit
+  // refléter la vraie composition matériaux (obligation légale d'affichage
+  // pour la vente en gros aux acheteurs pros).
+  const unmappedCompos = product.compositions.filter(
+    (c) => !c.composition.orderchampMaterialCode?.trim(),
+  );
+  if (unmappedCompos.length > 0) {
+    const names = unmappedCompos.map((c) => c.composition.name).join(", ");
+    return {
+      success: false,
+      error: `Composition non mappée Orderchamp : ${names}. Ouvrez /admin/compositions et renseignez le mapping Orderchamp pour ces matériaux avant de publier.`,
+    };
   }
 
   // 1) Assure la customCategory OC. Si le produit a au moins une sous-catégorie
