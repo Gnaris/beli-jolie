@@ -53,10 +53,12 @@ function attributeShortLabel(attr: MappingChangeSummary["attribute"]): string {
 }
 
 /**
- * Marketplace target attendu par `MarketplaceRefreshEnqueueInput.marketplace`
- * (utilise "ankorstore" alors qu'ici on ne cible que pfs/efashion/faire).
+ * Marketplace target attendu par `MarketplaceRefreshEnqueueInput.marketplace`.
+ * `MappingMarketplace` = pfs | efashion | faire | orderchamp — pas d'ankorstore
+ * ici car ce modal ne s'affiche que pour les mappings d'attributs qui n'ont
+ * pas d'équivalent Ankor (compo, saison…).
  */
-function toRefreshTarget(mp: MappingMarketplace): "pfs" | "efashion" | "faire" {
+function toRefreshTarget(mp: MappingMarketplace): "pfs" | "efashion" | "faire" | "orderchamp" {
   return mp;
 }
 
@@ -97,6 +99,7 @@ export default function MappingChangeImpactModal({ summary, onClose }: Props) {
           pfs: target === "pfs",
           efashion: target === "efashion",
           faire: target === "faire",
+          orderchamp: target === "orderchamp",
         },
         mode: "refresh" as const,
         marketplace: target,
