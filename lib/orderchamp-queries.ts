@@ -96,11 +96,12 @@ export const PRODUCT_FIELDS_FRAGMENT = /* GraphQL */ `
   }
 `;
 
-/** Fragment commande — inclut adresse livraison + items via Relay. */
+/** Fragment commande — inclut adresse livraison + items via Relay.
+ *  ⚠️ Pas de `databaseId` sur `Order` (contrairement à Product) — le schéma OC
+ *  ne l'expose pas et le demander fait planter la query. */
 export const ORDER_FIELDS_FRAGMENT = /* GraphQL */ `
   fragment OrderFields on Order {
     id
-    databaseId
     reference
     status
     createdAt

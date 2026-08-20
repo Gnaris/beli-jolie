@@ -434,6 +434,7 @@ export async function orderchampPublishProduct(
       PRODUCT_CREATE_MUTATION,
       { input },
       "productCreate",
+      { disableRetry: true }, // non-idempotent : un retry sur 5xx crée un doublon si la mutation a bien été traitée
     );
 
     const errs = extractUserErrors(data.productCreate);

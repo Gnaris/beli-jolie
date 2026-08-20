@@ -80,6 +80,7 @@ export async function ensureOrderchampCustomCategory(
         },
       },
       "customCategoryCreate",
+      { disableRetry: true }, // non-idempotent, retry sur 5xx = doublon
     );
     const errs = extractUserErrors(createRes.customCategoryCreate);
     if (errs.length > 0 || !createRes.customCategoryCreate.customCategory) {

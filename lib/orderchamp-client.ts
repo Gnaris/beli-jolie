@@ -85,19 +85,26 @@ export async function orderchampGraphQL<T = unknown>(
   query: string,
   variables?: Record<string, unknown>,
   opName?: string,
+  options?: { disableRetry?: boolean },
 ): Promise<T> {
   const headers = await getOrderchampHeaders();
   const body = JSON.stringify(variables ? { query, variables } : { query });
   const init: RequestInit = { method: "POST", headers, body };
 
+  // disableRetry : pour les mutations non-idempotentes (productCreate,
+  // customCategoryCreate, etc.). Un retry après un 5xx peut créer un doublon
+  // si la mutation a bien été traitée côté OC mais que la réponse a été
+  // perdue en route. Cf. incident du 2026-08-20 (produits triplés sur OC).
+  const maxAttempts = options?.disableRetry ? 1 : MAX_ATTEMPTS;
+
   let lastNetworkError: unknown = null;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const res = await fetch(ORDERCHAMP_BASE_URL, init);
       if (res.status !== 429 && res.status < 500) {
         return await parseGraphQLResponse<T>(res, opName);
       }
-      if (attempt === MAX_ATTEMPTS - 1) {
+      if (attempt === maxAttempts - 1) {
         return await parseGraphQLResponse<T>(res, opName);
       }
       const wait = computeOrderchampRetryDelayMs(res, attempt);
@@ -109,7 +116,7 @@ export async function orderchampGraphQL<T = unknown>(
       const causeCode = causeObj instanceof Error
         ? (causeObj as Error & { code?: string }).code ?? causeObj.name
         : undefined;
-      if (attempt === MAX_ATTEMPTS - 1) {
+      if (attempt === maxAttempts - 1) {
         logger.error("[Orderchamp] fetch network error (retries épuisés)", {
           opName,
           attempt,
