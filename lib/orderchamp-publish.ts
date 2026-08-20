@@ -313,6 +313,18 @@ function buildOrderchampProductPayload(
     madeInCountryEn: null,
   });
 
+  // Attributes matériaux — le champ « Matériaux » du back-office OC lit
+  // `Product.materials` qui n'est POSABLE QU'À LA CRÉATION via
+  // `attributes: [{attribute:"f_material", value: ENUM}, ...]`. `productUpdate`
+  // ne l'accepte pas ; pour modifier après coup il faut delete+recreate.
+  // `filterMaterial` sur variante = filtres acheteur, indépendant du champ
+  // Matériaux affiché sur la fiche.
+  const materialAttributes = product.compositions
+    .map((c) => c.composition.orderchampMaterialCode?.trim() || null)
+    .filter((c): c is string => !!c)
+    .slice(0, 4)
+    .map((code) => ({ attribute: "f_material", value: code }));
+
   const input: Record<string, unknown> = {
     title: product.name,
     description,
@@ -330,6 +342,7 @@ function buildOrderchampProductPayload(
     // détecte automatiquement la catégorie de marché depuis le titre + la
     // description. Le mapping manuel a été retiré de l'UI en 2026-08-20.
     customCategory: ctx.orderchampCategoryId ?? undefined,
+    attributes: materialAttributes.length > 0 ? materialAttributes : undefined,
     variants: variantExpansion.map((v) => ({
       sku: v.sku,
       price: v.priceEur,
