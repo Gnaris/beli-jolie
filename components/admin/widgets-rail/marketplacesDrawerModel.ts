@@ -483,6 +483,7 @@ export const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
   ankorstore: "Ankor",
   efashion: "eFashion",
   faire: "Faire",
+  orderchamp: "Orderchamp",
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -634,6 +635,7 @@ export const MARKETPLACE_FULL_NAME: Record<MarketplaceTarget, string> = {
   ankorstore: "Ankorstore",
   efashion: "eFashion",
   faire: "Faire",
+  orderchamp: "Orderchamp",
 };
 
 export function cellTooltipTitle(

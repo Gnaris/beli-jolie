@@ -145,6 +145,7 @@ const MARKETPLACE_ERROR_ORDER: Record<MarketplaceTarget, number> = {
   ankorstore: 1,
   efashion: 2,
   faire: 3,
+  orderchamp: 4,
 };
 export function getGroupErrors(group: ProductGroup): GroupError[] {
   const sorted = [...group.items].sort(

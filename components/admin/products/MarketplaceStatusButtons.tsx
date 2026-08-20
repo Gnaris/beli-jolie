@@ -632,7 +632,9 @@ export function MarketplaceStatusButtons({
   const ankorstoreLinking = hasLinkJob(productId, "ankorstore");
   const efashionLinking = hasLinkJob(productId, "efashion");
   const faireLinking = hasLinkJob(productId, "faire");
-  const orderchampLinking = hasLinkJob(productId, "orderchamp");
+  // hasLinkJob n'a pas encore été étendu à « orderchamp » (pas de flow UI de
+  // liaison manuelle). Fallback false — même contournement que dans AdminProductsTable.
+  const orderchampLinking = false;
 
   const efashionState = useMemo(
     () =>

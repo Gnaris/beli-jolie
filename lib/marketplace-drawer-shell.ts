@@ -13,5 +13,7 @@ export function marketplaceDrawerAccent(key: MarketplaceKey): DrawerShellProps["
       return "amber";
     case "microstore":
       return "cyan";
+    case "orderchamp":
+      return "orange";
   }
 }

@@ -85,6 +85,17 @@ const MARKETPLACE_META: Record<
     solidText: "text-rose-700",
     solidBorder: "border-rose-200",
   },
+  orderchamp: {
+    label: "Orderchamp",
+    short: "OC",
+    dotBg: "bg-orange-500",
+    pillBg: "bg-white/15",
+    pillText: "text-white",
+    pillDot: "bg-orange-300",
+    solidBg: "bg-orange-50",
+    solidText: "text-orange-700",
+    solidBorder: "border-orange-200",
+  },
 };
 
 function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
@@ -618,7 +629,7 @@ export function MarketplaceRefreshWidget() {
   // ─── Mode déplié ────────────────────────────────────────────────────
   const heroItems = heroGroup ? heroGroup.items : [];
   const heroSortedItems = [...heroItems].sort((a, b) => {
-    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3 };
+    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4 };
     return order[a.marketplace] - order[b.marketplace];
   });
   const heroMode = heroItems[0]?.mode ?? "refresh";
@@ -975,7 +986,7 @@ function TimelineRow({
   const localOutcome = getLocalOutcomeForGroup(group);
 
   const orderedItems = [...group.items].sort((a, b) => {
-    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3 };
+    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4 };
     return order[a.marketplace] - order[b.marketplace];
   });
 

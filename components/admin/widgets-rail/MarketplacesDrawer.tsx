@@ -35,10 +35,7 @@ import {
   type MarketplaceTarget,
   type TargetOutcome,
 } from "@/components/admin/products/MarketplaceRefreshContext";
-import {
-  useMarketplaceLinkJobs,
-  type LinkJob,
-} from "@/components/admin/products/MarketplaceLinkContext";
+import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
 import { getImageSrc } from "@/lib/image-utils";
 import {
   bucketViews,
@@ -1248,7 +1245,7 @@ function ErrorPanel({
 // Carte spécifique aux LinkJob (client-side)
 // ────────────────────────────────────────────────────────────────
 
-function LinkJobCard({ job, onDismiss }: { job: LinkJob; onDismiss: () => void }) {
+function LinkJobCard({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => void }) {
   const meta = MARKETPLACE_META[job.marketplace];
   const isDone = job.status === "done";
   const isError = job.status === "error";
