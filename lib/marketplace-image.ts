@@ -80,7 +80,10 @@ export function buildOrderchampImageUrl(dbPath: string, baseOverride?: string): 
     "https://beliandjolie.com"
   ).replace(/\/$/, "");
   const normalized = dbPath.startsWith("/") ? dbPath : `/${dbPath}`;
-  return `${base}${normalized}`;
+  // encodeURI préserve `/` et les caractères URL-safe, mais encode les
+  // caractères non-ASCII (ex : `é` → `%C3%A9`). Sans ça, le parser d'URL
+  // strict d'Orderchamp rejette avec « Cannot represent value as URL ».
+  return `${base}${encodeURI(normalized)}`;
 }
 
 /**
