@@ -104,8 +104,13 @@ export async function ensureOrderchampCustomCategory(
     }
 
     // Cas B : match par slug (existante mais pas encore reliée en BDD, ou
-    // rescapée du reset ci-dessus).
-    const match = existing.customCategories.edges.find((e) => e.node.value === slug);
+    // rescapée du reset ci-dessus). Attention : chez OC, `label` = slug/id
+    // technique, `value` = nom affichable. Le lookup se fait sur `label`,
+    // avec fallback sur `value === slug` pour rattraper les anciennes cat
+    // créées avec le mapping inversé (bug corrigé le 2026-08-20).
+    const match =
+      existing.customCategories.edges.find((e) => e.node.label === slug) ??
+      existing.customCategories.edges.find((e) => e.node.value === slug);
     if (match) {
       if (!match.node.isPublished) {
         await orderchampGraphQL<{
@@ -137,9 +142,12 @@ export async function ensureOrderchampCustomCategory(
     }>(
       CUSTOM_CATEGORY_CREATE_MUTATION,
       {
+        // OC : `value` = nom affichable (obligatoire), `label` = slug/id
+        // technique (optionnel, auto-généré si absent). Le mapping était
+        // inversé jusqu'au 2026-08-20.
         input: {
-          value: slug,
-          label: cat.name,
+          value: cat.name,
+          label: slug,
         },
       },
       "customCategoryCreate",
