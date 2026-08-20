@@ -33,6 +33,10 @@ import {
   orderchampPublishProduct,
 } from "@/lib/orderchamp-publish";
 import {
+  ensureOrderchampCustomCategory,
+  ensureOrderchampSubCategoryCustomCategory,
+} from "@/lib/orderchamp-custom-category";
+import {
   orderchampAdjustInventory,
   type OrderchampInventoryUpdate,
 } from "@/lib/orderchamp-inventory";
@@ -99,6 +103,18 @@ export async function orderchampUpdateProduct(
     madeInCountryEn: countryEnName,
   });
 
+  // Assure la customCategory OC (sous-catégorie BJ si présente, sinon catégorie
+  // racine). Même règle qu'au publish : 1ère sous-catégorie par ordre alpha.
+  const firstSubCategory = product.subCategories[0] ?? null;
+  const catRes = firstSubCategory
+    ? await ensureOrderchampSubCategoryCustomCategory(firstSubCategory.id)
+    : product.category?.id
+      ? await ensureOrderchampCustomCategory(product.category.id)
+      : { success: false, orderchampCustomCategoryId: undefined, error: "Pas de catégorie BJ" };
+  if (!catRes.success) {
+    warnings.push(`Catégorie perso Orderchamp : ${catRes.error}`);
+  }
+
   const productInput: Record<string, unknown> = {
     id: bj.orderchampProductId,
     title: product.name,
@@ -108,6 +124,7 @@ export async function orderchampUpdateProduct(
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
+    customCategory: catRes.orderchampCustomCategoryId ?? undefined,
   };
   // `category` non envoyé — Orderchamp détecte automatiquement depuis
   // titre + description (mapping manuel retiré 2026-08-20).

@@ -1144,6 +1144,10 @@ model SubCategory {
   products           Product[]                @relation("ProductSubCategories")
   microstoreProducts Product[]                @relation("ProductMicrostoreSubCategory")
   translations       SubCategoryTranslation[]
+  // Orderchamp : customCategory enfant (créée auto avec parentId = OC ID de
+  // la Category parente). Attribuée au produit à la place de la category
+  // quand le produit BJ a au moins une sous-catégorie.
+  orderchampCustomCategoryId String?
   createdAt          DateTime                 @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12

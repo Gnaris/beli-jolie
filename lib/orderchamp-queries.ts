@@ -429,6 +429,9 @@ export const CUSTOM_CATEGORIES_QUERY = /* GraphQL */ `
           label
           value
           isPublished
+          parent {
+            id
+          }
         }
       }
     }

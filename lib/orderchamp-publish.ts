@@ -42,7 +42,10 @@ import {
   validateOrderchampProductShape,
   type OrderchampShapeValidation,
 } from "@/lib/orderchamp-shape";
-import { ensureOrderchampCustomCategory } from "@/lib/orderchamp-custom-category";
+import {
+  ensureOrderchampCustomCategory,
+  ensureOrderchampSubCategoryCustomCategory,
+} from "@/lib/orderchamp-custom-category";
 import {
   ORDERCHAMP_SNAPSHOT_VERSION,
   type OrderchampSyncSnapshot,
@@ -89,6 +92,9 @@ interface FullProduct {
     id: string;
     name: string;
   } | null;
+  /** Sous-catégories BJ, triées par nom (première envoyée à OC comme
+   *  customCategory enfant si présente). */
+  subCategories: { id: string; name: string }[];
   colors: FullVariant[];
   colorImages: { path: string; order: number; colorId: string }[];
   compositions: {
@@ -113,6 +119,10 @@ export async function loadOrderchampProductFull(
     include: {
       category: {
         select: { id: true, name: true },
+      },
+      subCategories: {
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       },
       colors: {
         where: { disabled: false },
@@ -356,8 +366,14 @@ export async function orderchampPublishProduct(
     return { success: false, error: "Produit sans catégorie BJ — impossible de publier." };
   }
 
-  // 1) Assure la customCategory OC (auto-create + publie si pas mappée)
-  const catRes = await ensureOrderchampCustomCategory(product.category.id);
+  // 1) Assure la customCategory OC. Si le produit a au moins une sous-catégorie
+  // BJ, on prend la première (ordre alphabétique) et on crée une customCategory
+  // enfant chez OC (parentId = ID de la catégorie parente OC). Sinon on tombe
+  // sur la catégorie racine BJ.
+  const firstSubCategory = product.subCategories[0] ?? null;
+  const catRes = firstSubCategory
+    ? await ensureOrderchampSubCategoryCustomCategory(firstSubCategory.id)
+    : await ensureOrderchampCustomCategory(product.category.id);
   if (!catRes.success) {
     return { success: false, error: `Catégorie perso Orderchamp : ${catRes.error}` };
   }
