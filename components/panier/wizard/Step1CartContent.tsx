@@ -370,17 +370,26 @@ function VariantRow({
     </button>
   );
 
+  // Prix ligne panier :
+  //  • Prix catalogue par défaut.
+  //  • Barré + rouge dès qu'une promotion active (/admin/promotions) OU
+  //    une remise manuelle sur variante s'applique.
+  //  • serverFinalPrice = prix calculé côté serveur (cascade remise variante ×
+  //    meilleure promotion, tronqué), sans remise commerciale (elle reste
+  //    exclusivement au récap panier).
+  const displayPrice = serverFinalPrice ?? computeUnitPrice(variant.unitPrice, discountPercent);
+  const hasReduction = displayPrice < variant.unitPrice - 0.005;
   const priceBlock = (
     <div className="text-center text-sm">
-      {hasAnyReduction ? (
+      {hasReduction ? (
         <>
           <span className="text-slate-400 line-through mr-1 text-xs">
             {variant.unitPrice.toFixed(2)} €
           </span>
-          <span className="font-medium text-slate-900">{unitPrice.toFixed(2)} €</span>
+          <span className="font-medium text-error">{displayPrice.toFixed(2)} €</span>
         </>
       ) : (
-        <span className="font-medium text-slate-900">{unitPrice.toFixed(2)} €</span>
+        <span className="font-medium text-slate-900">{variant.unitPrice.toFixed(2)} €</span>
       )}
     </div>
   );

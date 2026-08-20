@@ -142,6 +142,10 @@ interface Props {
    *  sans devoir supprimer/recréer la variante. Pack et multi-couleurs restent
    *  verrouillés (composition liée aux tailles). */
   allowColorEdit?: boolean;
+  /** Remise % appliquée à TOUTES les variantes (Product.discountPercent) —
+   *  affichée dans la colonne prix : chaque variante montre son propre prix
+   *  après remise (troncature au centime, jamais d'arrondi). */
+  discountPercent?: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -213,7 +217,9 @@ export function computeFinalPrice(v: VariantState, discountPercent?: number | nu
   const total = computeTotalPrice(v);
   if (total === null) return null;
   if (!discountPercent || discountPercent <= 0) return total;
-  return Math.max(0, total * (1 - discountPercent / 100));
+  // Troncature au centime — jamais d'arrondi (aligné avec le pricing panier).
+  const raw = Math.max(0, total * (1 - discountPercent / 100));
+  return Math.floor(raw * 100) / 100;
 }
 
 export function computeGlobalPrice(v: VariantState): number | null {
@@ -1549,7 +1555,14 @@ export default function ColorVariantManager({
   variantErrors, productReference, sizeDetailsTu,
   primaryColorId, onChangePrimaryColorId,
   allowColorEdit = false,
+  discountPercent = null,
 }: Props) {
+  const parsedDiscountPercent =
+    discountPercent && discountPercent.trim().length > 0
+      ? parseFloat(discountPercent)
+      : 0;
+  const effectiveDiscount =
+    !isNaN(parsedDiscountPercent) && parsedDiscountPercent > 0 ? parsedDiscountPercent : 0;
   /** Formate "Taille Unique"/"TU" → "TU 52-56" si sizeDetailsTu renseigné */
   const fmtSize = (name: string) => {
     if (!sizeDetailsTu) return name;
@@ -1915,8 +1928,8 @@ export default function ColorVariantManager({
 
   function renderTotalPrice(v: VariantState) {
     const total = computeTotalPrice(v);
-    const final = computeFinalPrice(v);
-    const hasDiscount = final !== null && total !== null && final !== total;
+    const final = computeFinalPrice(v, effectiveDiscount);
+    const hasDiscount = final !== null && total !== null && final < total - 0.005;
     if (total === null) return <span className="text-text-muted">—</span>;
     return (
       <div className="text-right">

@@ -99,17 +99,20 @@ export interface ResolvedShippingDiscount {
 // ─────────────────────────────────────────────
 
 /**
- * Arrondi au centime SUPÉRIEUR (règle métier convenue le 2026-08-18).
- * Appliqué à chaque palier de la cascade (promo, remise client, prix final).
+ * TRONCATURE au centime (règle métier confirmée : « on ne veut plus arrondir,
+ * on récupère uniquement les 2 chiffres après la virgule »).
+ *
+ * Ex : 39.84 × 0.9 = 35.856 → 35.85 (jamais 35.86).
  *
  * Neutralise le bruit IEEE-754 : on travaille en millièmes de centime puis on
- * round pour tuer les décimales fantômes, avant d'appliquer Math.ceil. Sans ce
- * filtre, 7,47 est représenté 747.0000000000001 en flottant et ceil monte à
- * 7,48 € au lieu de rester à 7,47 €.
+ * round pour tuer les décimales fantômes, avant d'appliquer Math.floor.
+ *
+ * Nom historique conservé pour éviter de propager le renommage sur 5 fichiers ;
+ * le comportement est bien une troncature depuis cette révision.
  */
 export function ceilCent(n: number): number {
   const cents = Math.round(n * 100 * 1000) / 1000;
-  return Math.ceil(cents) / 100;
+  return Math.floor(cents) / 100;
 }
 
 // ─────────────────────────────────────────────

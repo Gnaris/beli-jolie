@@ -288,6 +288,9 @@ export default async function AdminCommandeDetailPage({
             : [],
           carrierName: order.carrierName ?? "",
           carrierPrice: Number(order.carrierPrice),
+          carrierBasePrice: order.carrierBasePrice ? Number(order.carrierBasePrice) : Number(order.carrierPrice),
+          carrierPromoDiscount: Number(order.carrierPromoDiscount),
+          carrierClientDiscount: Number(order.carrierClientDiscount),
           tvaRate: order.tvaRate,
           currentTotalTTC: Number(order.totalTTC), // Source de vérité BDD (mis à jour à chaque modif)
           paidTotalTTC,

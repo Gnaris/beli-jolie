@@ -136,5 +136,15 @@ describe("buildAnkorstoreBoSku (nouveau format {REF}_{COULEUR}_{5chars})", () =>
     );
     expect(buildAnkorstoreBoSku("A1720", "Bleu / Vert")).toMatch(/^A1720_BLEU_VERT_.{5}$/);
   });
+
+  it("cas rename référence — le suffixe existant est réutilisé avec la nouvelle référence", () => {
+    // Cliente renomme A1720 → A1721 : le suffixe aléatoire persisté en BDD est
+    // extrait par le resolver et repassé ici. Le SKU envoyé au PUT Ankor porte
+    // la nouvelle ref mais reste stable côté suffixe (aucune collision).
+    const oldSku = "A1720_ROUGE_ABCDE";
+    const suffix = oldSku.split("_").pop()!;
+    const newSku = buildAnkorstoreBoSku("A1721", "Rouge", suffix);
+    expect(newSku).toBe("A1721_ROUGE_ABCDE");
+  });
 });
 

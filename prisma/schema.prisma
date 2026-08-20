@@ -2298,7 +2298,12 @@ model Order {
   // Transporteur
   carrierId    String
   carrierName  String
-  carrierPrice Decimal @db.Decimal(12, 2)
+  carrierPrice Decimal @db.Decimal(12, 2) // prix EFFECTIF (après remises)
+  // Snapshots pour afficher séparément promotion vs remise commerciale livraison en admin.
+  // Nullable pour compat historique — fallback affiché.
+  carrierBasePrice          Decimal? @db.Decimal(12, 2)
+  carrierPromoDiscount      Decimal  @default(0) @db.Decimal(12, 2)
+  carrierClientDiscount     Decimal  @default(0) @db.Decimal(12, 2)
 
   // Transporteur privé (alternative aux transporteurs Easy-Express)
   // Quand carrierId === "private_carrier", le client a son propre fournisseur

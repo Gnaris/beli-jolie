@@ -441,12 +441,21 @@ export async function placeOrder(
     shippingSaved,
     shippingIsFree,
     shippingPromotionId,
+    shippingTrace: pricingShippingTrace,
     tvaRate,
     tvaAmount,
     totalTTC,
     totalTTCCents,
     promoAutoDiscount,
   } = pricing;
+
+  // Split remise livraison en promo vs client à partir de la trace serveur.
+  const shipPromoDiscount = pricingShippingTrace
+    .filter((l) => l.kind !== "client")
+    .reduce((s, l) => s + l.amount, 0);
+  const shipClientDiscount = pricingShippingTrace
+    .filter((l) => l.kind === "client")
+    .reduce((s, l) => s + l.amount, 0);
 
   function resolveItemFinalPrice(itemId: string): number {
     return itemPriceResolutions.get(itemId)?.finalUnitPrice ?? 0;
@@ -719,6 +728,10 @@ export async function placeOrder(
       carrierId:    input.carrierId,
       carrierName:  input.carrierName,
       carrierPrice: effectiveCarrierPrice,
+      // Snapshot livraison pour affichage récap admin (2 blocs séparés)
+      carrierBasePrice: input.carrierPrice,
+      carrierPromoDiscount: Math.floor(shipPromoDiscount * 100) / 100,
+      carrierClientDiscount: Math.floor(shipClientDiscount * 100) / 100,
       // Transporteur privé : email/tél du fournisseur du client OU bordereau joint
       privateCarrierEmail:     isPrivateCarrier ? (input.privateCarrierEmail?.trim() || null) : null,
       privateCarrierPhone:     isPrivateCarrier ? (input.privateCarrierPhone?.trim() || null) : null,

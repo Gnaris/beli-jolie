@@ -394,40 +394,12 @@ export default function ProductDetail({
             {reference}
           </span>
 
-          {/* Prix — cascade 3 paliers avec flèches Promo/Remise entre chaque palier */}
+          {/* Prix — uniquement le prix catalogue (les promotions et remises
+               ne s'appliquent QUE dans le récap du panier). */}
           {showPrices ? (
             <div className="flex items-baseline gap-1.5 flex-wrap">
-              {/* Palier 1 : prix de base, même taille que le final, barré si réduction */}
-              {(hasAnyProductDiscount || hasClientDiscount) && (
-                <span className="font-heading text-lg sm:text-xl font-semibold text-text-muted line-through">
-                  {minBasePrice.toFixed(2)} €
-                </span>
-              )}
-              {/* Flèche « Promo / -X% » */}
-              {hasAnyProductDiscount && (
-                <span className="inline-flex flex-col items-center leading-[1]">
-                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Promo</span>
-                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{minBasePrice > 0 ? Math.round(((minBasePrice - minPrice) / minBasePrice) * 100) : 0}%</span>
-                  <span className="text-[11px] text-text-muted leading-none">→</span>
-                </span>
-              )}
-              {/* Palier 2 : prix après promo — visible uniquement si cumul avec remise client */}
-              {hasAnyProductDiscount && hasClientDiscount && (
-                <span className="font-heading text-lg sm:text-xl font-semibold text-text-muted line-through">
-                  {minPrice.toFixed(2)} €
-                </span>
-              )}
-              {/* Flèche « Remise / -X% » */}
-              {hasClientDiscount && (
-                <span className="inline-flex flex-col items-center leading-[1]">
-                  <span className="text-[1px] uppercase tracking-wider text-text-muted font-body font-medium whitespace-nowrap">Remise</span>
-                  <span className="text-[1px] text-text-muted font-body font-medium whitespace-nowrap">-{clientDiscount?.discountType === "PERCENT" ? clientDiscount.discountValue : (minPrice > 0 ? Math.round(((minPrice - minPriceAfterClient) / minPrice) * 100) : 0)}%</span>
-                  <span className="text-[11px] text-text-muted leading-none">→</span>
-                </span>
-              )}
-              {/* Palier 3 : prix final */}
-              <p className={`font-heading text-lg sm:text-xl font-semibold ${hasAnyProductDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>
-                {(hasClientDiscount ? minPriceAfterClient : minPrice).toFixed(2)} €
+              <p className="font-heading text-lg sm:text-xl font-semibold text-text-primary">
+                {minBasePrice.toFixed(2)} €
                 <span className="text-[10px] text-text-muted font-normal ml-1">{t("htUnit")}</span>
               </p>
             </div>
@@ -627,7 +599,10 @@ export default function ProductDetail({
                   const anyDsc       = hasDiscount || hasClientDsc;
                   const effectiveStock = v.stock;
                   const qty          = quantities[v.id] ?? 1;
-                  const displayPrice = hasClientDsc ? clientPrice : price;
+                  // displayPrice = prix après remise manuelle variante uniquement.
+                  // La remise commerciale et les promos ne s'affichent qu'au récap panier.
+                  const displayPrice = price;
+                  void clientPrice; void hasClientDsc; void anyDsc;
                   const fullColorName = v.colorName ?? "";
                   return (
                     <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
@@ -659,19 +634,13 @@ export default function ProductDetail({
                           </div>
                         </div>
                         <div className="text-right shrink-0">
+                          {/* Prix barré uniquement pour la remise manuelle sur variante.
+                              Les promos + remise commerciale ne s'affichent qu'au récap panier. */}
                           {hasDiscount && (
                             <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
                           )}
-                          {hasClientDsc && (
-                            <div className="flex items-center gap-1 justify-end">
-                              <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
-                              {clientDiscount?.discountType === "PERCENT" && (
-                                <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
-                              )}
-                            </div>
-                          )}
-                          <p className={`font-heading font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
-                            {displayPrice.toFixed(2)} €
+                          <p className={`font-heading font-semibold text-lg ${hasDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>
+                            {price.toFixed(2)} €
                           </p>
                           {qty > 1 && (
                             <p className="text-xs text-text-muted font-body">
@@ -702,7 +671,10 @@ export default function ProductDetail({
                   const anyDsc       = hasDiscount || hasClientDsc;
                   const effectiveStock = v.packQuantity ? Math.floor(v.stock / v.packQuantity) : v.stock;
                   const qty          = quantities[v.id] ?? 1;
-                  const displayPrice = hasClientDsc ? clientPrice : price;
+                  // displayPrice = prix après remise manuelle variante uniquement.
+                  // La remise commerciale et les promos ne s'affichent qu'au récap panier.
+                  const displayPrice = price;
+                  void clientPrice; void hasClientDsc; void anyDsc;
                   return (
                     <div key={v.id} className="bg-bg-primary border border-border rounded-xl px-4 py-4 space-y-3 hover:border-border-dark transition-colors">
                       <div className="flex items-start justify-between gap-3">
@@ -731,19 +703,13 @@ export default function ProductDetail({
                           </p>
                         </div>
                         <div className="text-right shrink-0">
+                          {/* Prix barré uniquement pour la remise manuelle sur variante.
+                              Les promos + remise commerciale ne s'affichent qu'au récap panier. */}
                           {hasDiscount && (
                             <p className="text-xs text-text-muted line-through">{basePrice.toFixed(2)} €</p>
                           )}
-                          {hasClientDsc && (
-                            <div className="flex items-center gap-1 justify-end">
-                              <p className="text-xs text-text-muted line-through">{price.toFixed(2)} €</p>
-                              {clientDiscount?.discountType === "PERCENT" && (
-                                <span className="text-[10px] text-[#EF4444] font-medium">-{clientDiscount.discountValue}%</span>
-                              )}
-                            </div>
-                          )}
-                          <p className={`font-heading font-semibold text-lg ${anyDsc ? "text-[#EF4444]" : "text-text-primary"}`}>
-                            {displayPrice.toFixed(2)} €
+                          <p className={`font-heading font-semibold text-lg ${hasDiscount ? "text-[#EF4444]" : "text-text-primary"}`}>
+                            {price.toFixed(2)} €
                           </p>
                           {v.packQuantity && v.packQuantity > 1 && (
                             <p className="text-xs text-text-secondary font-body">

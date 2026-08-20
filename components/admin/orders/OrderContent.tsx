@@ -63,7 +63,10 @@ export interface OrderTotals {
   /** Code promo appliqué (pour affichage). */
   promoCode: string | null;
   carrierName: string;
-  carrierPrice: number;
+  carrierPrice: number; // effectif (après remises)
+  carrierBasePrice: number; // brut (fallback = carrierPrice pour commandes historiques)
+  carrierPromoDiscount: number;
+  carrierClientDiscount: number;
   tvaRate: number;
   /** TTC courant en BDD (mis à jour par recomputeOrderTotals à chaque modif). */
   currentTotalTTC: number;
@@ -571,80 +574,132 @@ export default function OrderContent({
           <SummaryTile label="Total TTC" value={fmt(totalTTC)} accent="sky" />
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2 text-sm">
-          <SummaryLine label="Sous-total produits HT" value={fmt(subHTGross)} />
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4 text-sm">
+          {/* ═════ BLOC 1 : Promotion ═════ */}
+          <div className="space-y-2">
+            <SummaryLine label="Sous-total produits HT" value={fmt(subHTGross)} />
 
-          {/* ─ Promotion (auto + éventuel code promo) ─ */}
-          {promoTotal > 0 && (
-            <SummaryLine
-              label="Promotions"
-              value={`− ${fmt(promoTotal)}`}
-              valueColor="text-emerald-700"
-            />
-          )}
+            {promoTotal > 0 && (
+              <SummaryLine
+                label="Promotions"
+                value={`− ${fmt(promoTotal)}`}
+                valueColor="text-emerald-700"
+              />
+            )}
 
-          {/* Détail promotions appliquées (snapshot BDD, persiste si promo supprimée) */}
-          {totals.appliedPromotions.length > 0 && (
-            <div className="pl-4 py-1 space-y-1 border-l-2 border-emerald-200 ml-1">
-              {totals.appliedPromotions.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex justify-between items-center text-xs text-slate-600"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <span
-                      className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider ${
-                        p.kind === "CODE"
-                          ? "bg-sky-100 text-sky-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}
-                    >
-                      {p.kind === "CODE" ? "Code" : "Auto"}
-                    </span>
-                    <span>{p.name}</span>
-                    {p.discountKind === "PERCENTAGE" && (
-                      <span className="text-slate-400">
-                        (− {p.discountValue}
-                        %)
+            {totals.appliedPromotions.length > 0 && (
+              <div className="pl-4 py-1 space-y-1 border-l-2 border-emerald-200 ml-1">
+                {totals.appliedPromotions.map((p) => (
+                  <div key={p.id} className="flex justify-between items-center text-xs text-slate-600">
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider ${
+                          p.kind === "CODE" ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {p.kind === "CODE" ? "Code" : "Auto"}
                       </span>
-                    )}
-                  </span>
-                  <span className="tabular-nums text-emerald-700 font-medium">
-                    − {fmt(p.amountSaved)}
-                  </span>
-                </div>
-              ))}
+                      <span>{p.name}</span>
+                      {p.discountKind === "PERCENTAGE" && (
+                        <span className="text-slate-400">(− {p.discountValue}%)</span>
+                      )}
+                    </span>
+                    <span className="tabular-nums text-emerald-700 font-medium">
+                      − {fmt(p.amountSaved)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {promoTotal > 0 && (
+              <SummaryLine
+                label="Total après promotion"
+                value={fmt(Math.floor((subHTGross - promoTotal) * 100) / 100)}
+                bold
+                separatorTop
+              />
+            )}
+          </div>
+
+          {/* ═════ BLOC 2 : Remise commerciale client (base = total après promotion) ═════ */}
+          {clientDiscount > 0 && (
+            <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+              <SummaryLine
+                label="Remise commerciale client"
+                value={`− ${fmt(clientDiscount)}`}
+                valueColor="text-emerald-700"
+              />
+              <SummaryLine
+                label="Total après remise commerciale"
+                value={fmt(subHTNet)}
+                bold
+                separatorTop
+              />
             </div>
           )}
 
-          {/* ─ Remise commerciale client (séparée de la promotion) ─ */}
-          {clientDiscount > 0 && (
+          {/* ═════ Frais de port (2 blocs) + TVA + TTC ═════ */}
+          <div className="space-y-4 pt-3 border-t border-slate-100">
+            {/* Livraison — bloc 1 promo */}
+            <div className="space-y-2">
+              <SummaryLine
+                label={`Frais de port${totals.carrierName ? ` (${totals.carrierName})` : ""}`}
+                value={totals.carrierBasePrice === 0 ? "Gratuit" : fmt(totals.carrierBasePrice)}
+              />
+              {totals.carrierPromoDiscount > 0 && (
+                <>
+                  <SummaryLine
+                    label="Promotion livraison"
+                    value={`− ${fmt(totals.carrierPromoDiscount)}`}
+                    valueColor="text-emerald-700"
+                  />
+                  <SummaryLine
+                    label="Livraison après promotion"
+                    value={fmt(
+                      Math.floor((totals.carrierBasePrice - totals.carrierPromoDiscount) * 100) / 100,
+                    )}
+                    bold
+                    separatorTop
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Livraison — bloc 2 remise commerciale */}
+            {totals.carrierClientDiscount > 0 && (
+              <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+                <SummaryLine
+                  label="Remise commerciale livraison"
+                  value={
+                    totals.carrierPrice === 0
+                      ? "Offerte"
+                      : `− ${fmt(totals.carrierClientDiscount)}`
+                  }
+                  valueColor="text-emerald-700"
+                />
+                <SummaryLine
+                  label="Livraison après remise commerciale"
+                  value={totals.carrierPrice === 0 ? "Gratuit" : fmt(totals.carrierPrice)}
+                  bold
+                  separatorTop
+                />
+              </div>
+            )}
+
             <SummaryLine
-              label="Remise commerciale client"
-              value={`− ${fmt(clientDiscount)}`}
-              valueColor="text-emerald-700"
+              label={`TVA produits (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
+              value={fmt(tvaProducts)}
             />
-          )}
+            <SummaryLine
+              label={`TVA frais de port (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
+              value={fmt(tvaShipping)}
+            />
 
-          {(clientDiscount > 0 || promoTotal > 0) && (
-            <SummaryLine label="Total HT après remises" value={fmt(subHTNet)} bold separatorTop />
-          )}
-          <SummaryLine
-            label={`Frais de port${totals.carrierName ? ` (${totals.carrierName})` : ""}`}
-            value={totals.carrierPrice === 0 ? "Gratuit" : fmt(totals.carrierPrice)}
-          />
-          <SummaryLine
-            label={`TVA produits (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
-            value={fmt(tvaProducts)}
-          />
-          <SummaryLine
-            label={`TVA frais de port (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
-            value={fmt(tvaShipping)}
-          />
-
-          <div className="flex justify-between items-center border-t-2 border-slate-900 pt-3 mt-2">
-            <span className="font-heading text-base font-semibold text-slate-900">Prix total TTC</span>
-            <span className="font-heading text-2xl font-bold text-slate-900 tabular-nums">{fmt(totalTTC)}</span>
+            <div className="flex justify-between items-center border-t-2 border-slate-900 pt-3 mt-2">
+              <span className="font-heading text-base font-semibold text-slate-900">Prix total TTC</span>
+              <span className="font-heading text-2xl font-bold text-slate-900 tabular-nums">{fmt(totalTTC)}</span>
+            </div>
           </div>
 
           <div className="pt-3 mt-2 border-t border-dashed border-slate-200 flex justify-between text-xs text-slate-500">

@@ -164,80 +164,166 @@ export default function SummaryPanel({
         </ul>
       </details>
 
-      {/* ─── SECTION PANIER — Prix HT brut + cascade + Prix HT après remises ─── */}
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between">
-          <span className="text-slate-600">Prix total HT</span>
-          <span className="font-medium tabular-nums">{brutHT.toFixed(2)} €</span>
-        </div>
+      {/* ─── SECTION PANIER — 2 blocs séparés : Promotion puis Remise commerciale ─── */}
+      {(() => {
+        // Découpage strict : lignes "product"/"promo" = promotions ; lignes "client" = remise commerciale.
+        const promoLines = cartCascade?.discountTrace.filter((l) => l.kind !== "client") ?? [];
+        const clientLines = cartCascade?.discountTrace.filter((l) => l.kind === "client") ?? [];
+        // Total après promotion = brut − somme promo (troncature au centime, pas d'arrondi).
+        const floor2 = (n: number) => Math.floor(n * 100) / 100;
+        const totalPromosAmount = floor2(promoLines.reduce((s, l) => s + l.amount, 0));
+        const subtotalAfterPromo = floor2(brutHT - totalPromosAmount);
+        const totalClientAmount = floor2(clientLines.reduce((s, l) => s + l.amount, 0));
+        const subtotalAfterClient = floor2(subtotalAfterPromo - totalClientAmount);
 
-        {cartCascade?.discountTrace.map((line, idx) => (
-          <div key={idx} className="flex justify-between text-emerald-700 pl-3">
-            <span className="truncate mr-2">
-              {line.label}
-              {line.percent != null && (
-                <span className="text-emerald-600/70"> −{line.percent}%</span>
-              )}
-            </span>
-            <span className="font-medium tabular-nums whitespace-nowrap">
-              −{line.amount.toFixed(2)} €
-            </span>
-          </div>
-        ))}
-
-        {cartCascade && cartCascade.discountTrace.length > 0 && (
-          <div className="flex justify-between border-t border-slate-100 pt-2">
-            <span className="text-slate-700 font-medium">Prix total après remises HT</span>
-            <span className="font-semibold tabular-nums">
-              {subtotalDisplay.toFixed(2)} €
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* ─── SECTION LIVRAISON — masquée sur l'étape 1 (panier) ──────────── */}
-      {currentStep >= 2 && (
-        <>
-          <div className="h-px bg-slate-200 my-4" />
-          <div className="space-y-2 text-sm">
-            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              Livraison
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-600">
-                {t("summaryShipping")}{" "}
-                <span className="text-xs text-slate-400">({shippingLabel})</span>
-              </span>
-              <span className="font-medium tabular-nums">
-                {shippingIsFree
-                  ? t("summaryFree")
-                  : `${carrierBasePrice.toFixed(2)} €`}
-              </span>
-            </div>
-            {shippingTrace?.map((line, idx) => (
-              <div key={idx} className="flex justify-between text-emerald-700 pl-3">
-                <span className="truncate mr-2">
-                  {line.label}
-                  {line.percent != null && (
-                    <span className="text-emerald-600/70"> −{line.percent}%</span>
-                  )}
-                </span>
-                <span className="font-medium tabular-nums whitespace-nowrap">
-                  {effectiveCarrierPrice === 0 && line.kind === "client" && line.percent === 100
-                    ? "Offerte"
-                    : `−${line.amount.toFixed(2)} €`}
-                </span>
+        return (
+          <div className="space-y-4 text-sm">
+            {/* ▸ BLOC 1 — Promotions */}
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Prix total HT</span>
+                <span className="font-medium tabular-nums">{brutHT.toFixed(2)} €</span>
               </div>
-            ))}
-            {shippingTrace && shippingTrace.length > 0 && !shippingIsFree && (
+              {promoLines.map((line, idx) => (
+                <div key={`promo-${idx}`} className="flex justify-between text-emerald-700 pl-3">
+                  <span className="truncate mr-2">
+                    {line.label}
+                    {line.percent != null && (
+                      <span className="text-emerald-600/70"> −{line.percent}%</span>
+                    )}
+                  </span>
+                  <span className="font-medium tabular-nums whitespace-nowrap">
+                    −{line.amount.toFixed(2)} €
+                  </span>
+                </div>
+              ))}
+              {promoLines.length > 0 && (
+                <div className="flex justify-between border-t border-slate-100 pt-2">
+                  <span className="text-slate-700 font-medium">Total après promotion</span>
+                  <span className="font-semibold tabular-nums">
+                    {subtotalAfterPromo.toFixed(2)} €
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* ▸ BLOC 2 — Remise commerciale (séparé, base = total après promotion) */}
+            {clientLines.length > 0 && (
+              <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+                {clientLines.map((line, idx) => (
+                  <div key={`client-${idx}`} className="flex justify-between text-emerald-700 pl-3">
+                    <span className="truncate mr-2">
+                      {line.label}
+                      {line.percent != null && (
+                        <span className="text-emerald-600/70"> −{line.percent}%</span>
+                      )}
+                    </span>
+                    <span className="font-medium tabular-nums whitespace-nowrap">
+                      −{line.amount.toFixed(2)} €
+                    </span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-slate-100 pt-2">
+                  <span className="text-slate-700 font-medium">Total après remise commerciale</span>
+                  <span className="font-semibold tabular-nums">
+                    {subtotalAfterClient.toFixed(2)} €
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Cas simple sans aucune remise : afficher juste le prix HT */}
+            {promoLines.length === 0 && clientLines.length === 0 && (
               <div className="flex justify-between border-t border-slate-100 pt-2">
-                <span className="text-slate-700 font-medium">Livraison après remises</span>
-                <span className="font-semibold tabular-nums">
-                  {effectiveCarrierPrice.toFixed(2)} €
-                </span>
+                <span className="text-slate-700 font-medium">Total HT</span>
+                <span className="font-semibold tabular-nums">{brutHT.toFixed(2)} €</span>
               </div>
             )}
           </div>
+        );
+      })()}
+
+      {/* ─── SECTION LIVRAISON — 2 blocs séparés (promotion, remise commerciale) ─── */}
+      {currentStep >= 2 && (
+        <>
+          <div className="h-px bg-slate-200 my-4" />
+          {(() => {
+            const floor2 = (n: number) => Math.floor(n * 100) / 100;
+            const shipPromoLines = shippingTrace?.filter((l) => l.kind !== "client") ?? [];
+            const shipClientLines = shippingTrace?.filter((l) => l.kind === "client") ?? [];
+            const shipPromoAmount = floor2(shipPromoLines.reduce((s, l) => s + l.amount, 0));
+            const shipAfterPromo = floor2(carrierBasePrice - shipPromoAmount);
+            const shipClientAmount = floor2(shipClientLines.reduce((s, l) => s + l.amount, 0));
+            const shipAfterClient = floor2(shipAfterPromo - shipClientAmount);
+            return (
+              <div className="space-y-4 text-sm">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
+                  Livraison
+                </div>
+
+                {/* ▸ BLOC 1 — Promotion livraison */}
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">
+                      {t("summaryShipping")}{" "}
+                      <span className="text-xs text-slate-400">({shippingLabel})</span>
+                    </span>
+                    <span className="font-medium tabular-nums">
+                      {carrierBasePrice.toFixed(2)} €
+                    </span>
+                  </div>
+                  {shipPromoLines.map((line, idx) => (
+                    <div key={`ship-promo-${idx}`} className="flex justify-between text-emerald-700 pl-3">
+                      <span className="truncate mr-2">
+                        {line.label}
+                        {line.percent != null && (
+                          <span className="text-emerald-600/70"> −{line.percent}%</span>
+                        )}
+                      </span>
+                      <span className="font-medium tabular-nums whitespace-nowrap">
+                        −{line.amount.toFixed(2)} €
+                      </span>
+                    </div>
+                  ))}
+                  {shipPromoLines.length > 0 && (
+                    <div className="flex justify-between border-t border-slate-100 pt-2">
+                      <span className="text-slate-700 font-medium">Livraison après promotion</span>
+                      <span className="font-semibold tabular-nums">{shipAfterPromo.toFixed(2)} €</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* ▸ BLOC 2 — Remise commerciale livraison */}
+                {shipClientLines.length > 0 && (
+                  <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+                    {shipClientLines.map((line, idx) => (
+                      <div key={`ship-client-${idx}`} className="flex justify-between text-emerald-700 pl-3">
+                        <span className="truncate mr-2">
+                          {line.label}
+                          {line.percent != null && (
+                            <span className="text-emerald-600/70"> −{line.percent}%</span>
+                          )}
+                        </span>
+                        <span className="font-medium tabular-nums whitespace-nowrap">
+                          {effectiveCarrierPrice === 0 && line.percent === 100
+                            ? "Offerte"
+                            : `−${line.amount.toFixed(2)} €`}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border-t border-slate-100 pt-2">
+                      <span className="text-slate-700 font-medium">
+                        Livraison après remise commerciale
+                      </span>
+                      <span className="font-semibold tabular-nums">
+                        {shipAfterClient === 0 ? t("summaryFree") : `${shipAfterClient.toFixed(2)} €`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 

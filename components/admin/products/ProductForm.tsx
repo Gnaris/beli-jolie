@@ -3186,30 +3186,48 @@ export default function ProductForm({
             </div>
             <div className="text-right">
               <div className="text-[10px] font-body font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Prix client
+                Aperçu
               </div>
               {(() => {
                 const disc = discountPercent ? parseFloat(discountPercent) : 0;
-                const avg = (() => {
-                  const prices = variants
-                    .map((v) => parseFloat(v.unitPrice))
-                    .filter((n) => !isNaN(n) && n > 0);
-                  if (prices.length === 0) return null;
-                  return prices.reduce((a, b) => a + b, 0) / prices.length;
-                })();
-                if (avg === null) {
+                const prices = variants
+                  .map((v) => parseFloat(v.unitPrice))
+                  .filter((n) => !isNaN(n) && n > 0);
+                if (prices.length === 0) {
                   return <div className="font-heading font-extrabold text-lg text-text-muted mt-1">—</div>;
                 }
-                const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+                const fmt = (n: number) =>
+                  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+                // Troncature au centime — cohérent avec le pricing panier (jamais Math.round).
+                const trunc = (n: number) => Math.floor(n * 100) / 100;
                 if (disc > 0 && disc <= 100) {
+                  const min = Math.min(...prices);
+                  const max = Math.max(...prices);
+                  const minAfter = trunc(min * (1 - disc / 100));
+                  const maxAfter = trunc(max * (1 - disc / 100));
+                  const rangeAfter =
+                    min === max ? fmt(minAfter) : `${fmt(minAfter)} → ${fmt(maxAfter)}`;
+                  const rangeBefore = min === max ? fmt(min) : `${fmt(min)} → ${fmt(max)}`;
                   return (
-                    <div className="flex items-baseline justify-end gap-2 mt-1">
-                      <span className="font-heading font-extrabold text-lg text-[#B91C1C]">{fmt(avg * (1 - disc / 100))}</span>
-                      <span className="text-xs text-text-muted line-through">{fmt(avg)}</span>
+                    <div className="flex flex-col items-end mt-1">
+                      <span className="font-heading font-extrabold text-lg text-[#B91C1C]">
+                        {rangeAfter}
+                      </span>
+                      <span className="text-xs text-text-muted line-through">{rangeBefore}</span>
+                      <span className="text-[10px] text-text-muted mt-0.5">
+                        Chaque variante conserve son propre prix — la remise s'applique
+                        individuellement.
+                      </span>
                     </div>
                   );
                 }
-                return <div className="font-heading font-extrabold text-lg text-text-primary mt-1">{fmt(avg)}</div>;
+                const min = Math.min(...prices);
+                const max = Math.max(...prices);
+                return (
+                  <div className="font-heading font-extrabold text-lg text-text-primary mt-1">
+                    {min === max ? fmt(min) : `${fmt(min)} → ${fmt(max)}`}
+                  </div>
+                );
               })()}
             </div>
           </div>
@@ -3301,6 +3319,7 @@ export default function ProductForm({
             primaryColorId={primaryColorId}
             onChangePrimaryColorId={setPrimaryColorId}
             allowColorEdit={allowColorEditExistingVariants}
+            discountPercent={discountPercent}
           />
           </div>
 

@@ -58,6 +58,8 @@ import {
   findLinkCandidates,
   buildProductPayloadFromBjProduct,
   buildAnkorstoreBoSku,
+  normalizeReferenceForSku,
+  SKU_SUFFIX_LENGTH,
   BoApiError,
   computeAnkorImageSyncPlan,
   type AnkorImageSnapshot,
@@ -68,7 +70,7 @@ import {
   type BoProductSummary,
 } from "@/lib/ankorstore-bo";
 import { Prisma } from "@prisma/client";
-import { normalizeColorForSku, normalizeReferenceForSku } from "@/lib/ankorstore-bo/sku";
+import { normalizeColorForSku } from "@/lib/ankorstore-bo/sku";
 import { ankorImageBelongsToProduct } from "@/lib/ankorstore-bo/image-url-guard";
 import { loadAnkorstorePricingConfig } from "@/lib/ankorstore-pricing";
 
@@ -465,21 +467,31 @@ function parseSnapshot(raw: unknown): AnkorImageSnapshot | null {
 /**
  * Resout le SKU final a envoyer pour chaque variante et le persiste en BDD.
  *
- * - Si ProductColor.ankorsSku est deja rempli : on le reutilise tel quel
- *   (indispensable pour que l'update Ankor reconnaisse la meme variante).
- * - Sinon : on genere un nouveau {REF}_{COULEUR}_{5 chars aleatoires} et on
- *   persiste immediatement dans ProductColor.ankorsSku.
+ * - Pas de SKU en BDD (1re publication) → genere un {REF}_{COULEUR}_{5 aleatoires}.
+ * - SKU en BDD deja aligne sur la reference courante → reutilise tel quel.
+ * - SKU en BDD dont le prefixe reference ne correspond plus (renommage de la ref BJ)
+ *   → regenere avec la nouvelle reference en CONSERVANT le suffixe aleatoire.
+ *   Le variant.id Ankor est injecte plus loin dans le PUT (cf. bloc
+ *   `buildPayloadWithVariantIds`) — Ankor accepte alors le renommage du SKU.
  *
  * Modifie input.colors[].sku en place et renvoie l'input.
  */
 async function resolveAndPersistAnkorsSkus(
   input: BjProductInputForBo
 ): Promise<BjProductInputForBo> {
+  const expectedPrefix = normalizeReferenceForSku(input.reference) + "_";
   for (const c of input.colors) {
-    if (c.sku && c.sku.trim().length > 0) continue;
     const colorName =
       c.ankorsColorNameOverride?.trim() || c.colorName?.trim() || "Standard";
-    const fresh = buildAnkorstoreBoSku(input.reference, colorName);
+    const currentSku = c.sku?.trim() ?? "";
+    if (currentSku && currentSku.startsWith(expectedPrefix)) continue;
+    let existingSuffix: string | null = null;
+    if (currentSku) {
+      const parts = currentSku.split("_");
+      const last = parts[parts.length - 1];
+      if (last && last.length === SKU_SUFFIX_LENGTH) existingSuffix = last;
+    }
+    const fresh = buildAnkorstoreBoSku(input.reference, colorName, existingSuffix);
     await prisma.productColor.update({
       where: { id: c.id },
       data: { ankorsSku: fresh },

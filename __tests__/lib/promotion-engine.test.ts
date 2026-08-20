@@ -554,8 +554,8 @@ describe("resolveBestShippingDiscount — cumul stackable en cascade", () => {
 // resolveCardPricing — affichage cascade des cartes produit
 // ─────────────────────────────────────────────
 
-describe("cascade — arrondi ceilCent centime par centime (règle métier 2026-08-18)", () => {
-  it("10€ → promo -10% → -5% → -3% → client -10% avec ceil = 7,47€", () => {
+describe("cascade — troncature au centime (règle métier révisée : jamais d'arrondi à la hausse)", () => {
+  it("10€ → promo -10% → -5% → -3% → client -10% avec troncature = 7,46€", () => {
     const p1 = makePromo({
       id: "y", scope: "ALL_PRODUCTS", discountKind: "PERCENTAGE",
       discountValue: 10, stackable: true,
@@ -574,9 +574,9 @@ describe("cascade — arrondi ceilCent centime par centime (règle métier 2026-
       null,
       { type: "PERCENT", value: 10 },
     );
-    // 10 → -10% → 9 → -5% → 8,55 → -3% → 8,2935 → ceil 8,30 → -10% → 7,47
+    // 10 → -10% → 9 → -5% → 8,55 → -3% → 8,2935 → trunc 8,29 → -10% → 7,461 → trunc 7,46
     expect(res.stacked).toBe(true);
-    expect(res.finalUnitPrice).toBeCloseTo(7.47, 2);
+    expect(res.finalUnitPrice).toBeCloseTo(7.46, 2);
   });
 });
 

@@ -526,23 +526,42 @@ export async function faireUpdateProduct(
   // considère la variante inchangée.
   if (realPrevSnapshot) {
     const prevSkuByFaireId = new Map<string, string>();
+    const prevByColor = new Map<string, { oldSku: string; faireVariantId: string }>();
     for (const [sku, v] of Object.entries(realPrevSnapshot.variants)) {
       if (v.faireVariantId) prevSkuByFaireId.set(v.faireVariantId, sku);
+      if (v.faireVariantId && v.colorOption && !prevByColor.has(v.colorOption)) {
+        prevByColor.set(v.colorOption, { oldSku: sku, faireVariantId: v.faireVariantId });
+      }
     }
     for (const [newSku, next] of Object.entries(nextSnapshot.variants)) {
-      if (!next.faireVariantId) continue;
-      const oldSku = prevSkuByFaireId.get(next.faireVariantId);
-      if (!oldSku || oldSku === newSku) continue;
-      // Même vid Faire, SKU BJ différent → rename.
+      let faireVariantIdToRename: string | null = null;
+      let oldSku: string | undefined;
+      if (next.faireVariantId) {
+        oldSku = prevSkuByFaireId.get(next.faireVariantId);
+        if (oldSku && oldSku !== newSku) {
+          faireVariantIdToRename = next.faireVariantId;
+        }
+      } else {
+        // Fallback : `ProductColor.faireVariantId` non posé en BDD (liaison
+        // ancienne). On matche par colorOption pour retrouver l'ID Faire
+        // historique côté snapshot et repropage l'ID sur le nouveau snapshot.
+        const match = prevByColor.get(next.colorOption ?? "");
+        if (match && match.oldSku !== newSku) {
+          oldSku = match.oldSku;
+          faireVariantIdToRename = match.faireVariantId;
+          next.faireVariantId = match.faireVariantId;
+        }
+      }
+      if (!faireVariantIdToRename || !oldSku) continue;
       const renameRes = await faireRenameVariantSku(
         meta.faireProductId,
-        next.faireVariantId,
+        faireVariantIdToRename,
         newSku,
       );
       if (renameRes.success) {
         logger.info("[Faire Update] SKU renommé", {
           productId,
-          faireVariantId: next.faireVariantId,
+          faireVariantId: faireVariantIdToRename,
           from: oldSku,
           to: newSku,
         });
@@ -556,7 +575,7 @@ export async function faireUpdateProduct(
       } else {
         logger.warn("[Faire Update] Rename SKU échoué — le diff va tenter delete+create", {
           productId,
-          faireVariantId: next.faireVariantId,
+          faireVariantId: faireVariantIdToRename,
           from: oldSku,
           to: newSku,
           error: renameRes.error,
