@@ -16,7 +16,7 @@ import {
   findByPath,
   getChildrenOf,
   type OrderchampCategoryNode,
-} from "@/lib/orderchamp-taxonomy";
+} from "@/lib/orderchamp-taxonomy-shared";
 
 interface Props {
   value: string | null;

@@ -62,6 +62,28 @@ export function buildFaireImageUrl(dbPath: string, baseOverride?: string): strin
 }
 
 /**
+ * Variante Orderchamp : URL statique directe vers le fichier WebP dans
+ * `public/uploads/…`. Le validateur d'images d'Orderchamp refuse
+ * `Invalid attachment` sur les URLs de type `/api/marketplace-image?path=…`
+ * (pas d'extension image dans le path, considéré comme une page web).
+ *
+ * Contrainte : le fichier stocké doit déjà respecter les dimensions
+ * attendues (Orderchamp accepte WebP + accepte les images ≥ 500 px). Pas
+ * d'upscale côté proxy — les tailles WebP standards de BJ (large ≥ 1024 px)
+ * suffisent.
+ */
+export function buildOrderchampImageUrl(dbPath: string, baseOverride?: string): string {
+  const base = (
+    baseOverride ??
+    process.env.MARKETPLACE_IMAGE_BASE_URL ??
+    process.env.NEXTAUTH_URL ??
+    "https://beliandjolie.com"
+  ).replace(/\/$/, "");
+  const normalized = dbPath.startsWith("/") ? dbPath : `/${dbPath}`;
+  return `${base}${normalized}`;
+}
+
+/**
  * Convertit un buffer image en JPEG (qualité 90, progressive). Utilisé par le
  * proxy quand `?format=jpeg` est demandé — Faire et certains autres outils
  * refusent les WebP.

@@ -48,7 +48,7 @@ import {
   type OrderchampSyncSnapshot,
   type OrderchampVariantSnapshot,
 } from "@/lib/orderchamp-sync-diff";
-import { buildFaireImageUrl } from "@/lib/marketplace-image";
+import { buildOrderchampImageUrl } from "@/lib/marketplace-image";
 import { getTenantBaseUrl, getCurrentTenantIdSafe } from "@/lib/tenant";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ function buildOrderchampProductPayload(
     const paths = imagesByColor.get(cid) ?? [];
     if (paths.length > 0) {
       // 1 image par couleur (la première, la plus haute résolution BJ)
-      imageUrls.push(buildFaireImageUrl(paths[0], ctx.imageBaseUrl));
+      imageUrls.push(buildOrderchampImageUrl(paths[0], ctx.imageBaseUrl));
     }
   }
 

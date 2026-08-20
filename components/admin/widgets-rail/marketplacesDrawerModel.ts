@@ -365,6 +365,7 @@ function buildGroups(
       ankorstore: cellForMarketplace(productItems, "ankorstore"),
       efashion: cellForMarketplace(productItems, "efashion"),
       faire: cellForMarketplace(productItems, "faire"),
+      orderchamp: cellForMarketplace(productItems, "orderchamp"),
     };
 
     // Plus proche scheduledFor futur parmi les items encore queued : sert à

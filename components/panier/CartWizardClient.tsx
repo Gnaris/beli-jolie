@@ -316,12 +316,14 @@ export default function CartWizardClient({
   const [promoApplied, setPromoApplied] = useState<{ code: string; name: string; totalSaved: number } | null>(null);
   const promoAmount = promoApplied?.totalSaved ?? 0;
 
-  // ── Pricing SERVEUR (source unique de vérité, identique au checkout final) ──
-  // On appelle computeCartCheckoutPricing dès qu'un input change (carrier/code promo),
-  // pour éliminer toute divergence entre l'affichage panier et le total facturé.
+  // ── Pricing SERVEUR (source unique de vérité, strictement identique au checkout Stripe) ──
+  // TOUS les affichages TVA/TTC utilisent les valeurs serveur → aucune divergence possible
+  // entre le récap panier, ce que Stripe encaisse, et la commande stockée en BDD.
   const [serverPricing, setServerPricing] = useState<{
     subtotalAfterDiscount: number;
     effectiveCarrierPrice: number;
+    tvaOnCart: number;
+    tvaOnShipping: number;
     tvaAmount: number;
     totalTTC: number;
     codeError?: string;
@@ -332,7 +334,10 @@ export default function CartWizardClient({
 
   useEffect(() => {
     // Ne calculer qu'à partir de l'étape 2 (livraison choisie).
-    if (currentStep < 2 || !carrierIdForPricing) return;
+    if (currentStep < 2 || !carrierIdForPricing) {
+      setServerPricing(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
       const r = await computeCartCheckoutPricing({
@@ -346,6 +351,8 @@ export default function CartWizardClient({
         setServerPricing({
           subtotalAfterDiscount: r.subtotalAfterDiscount,
           effectiveCarrierPrice: r.effectiveCarrierPrice,
+          tvaOnCart: r.tvaOnCart,
+          tvaOnShipping: r.tvaOnShipping,
           tvaAmount: r.tvaAmount,
           totalTTC: r.totalTTC,
           codeError: r.codeError,
@@ -357,7 +364,7 @@ export default function CartWizardClient({
     };
   }, [currentStep, carrierIdForPricing, carrierPriceForPricing, addrCountryForPricing, promoApplied?.code, cart]);
 
-  // Fallback (formules identiques au serveur — floor, formule additive) si serveur pas encore répondu.
+  // Fallback local (formules serveur identiques) si serveur pas encore répondu — étape 1 seulement.
   const floor2 = (n: number) => Math.floor(n * 100) / 100;
   const finalItemsHT = Math.max(0, floor2(subtotalAfterDiscount - promoAmount));
   const totalBaseHT = finalItemsHT + effectiveCarrierPrice;
@@ -597,9 +604,9 @@ export default function CartWizardClient({
       ? `${tCart("summaryClientDiscount")} ${clientDiscount.discountValue} %`
       : tCart("summaryClientDiscount");
 
-  // Décomposition TVA panier vs livraison pour affichage cascade.
-  const tvaOnCart = floor2(finalItemsHT * tvaRate);
-  const tvaOnShipping = floor2(effectiveCarrierPrice * tvaRate);
+  // Décomposition TVA panier vs livraison pour affichage cascade — override serveur si dispo.
+  const tvaOnCart = serverPricing?.tvaOnCart ?? floor2(finalItemsHT * tvaRate);
+  const tvaOnShipping = serverPricing?.tvaOnShipping ?? floor2(effectiveCarrierPrice * tvaRate);
 
   // Trace cascade livraison (dérivée du même calcul que effectiveCarrierPrice).
   const shippingTraceLocal = useMemo(() => {

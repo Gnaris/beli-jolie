@@ -52,7 +52,7 @@ export const PRODUCT_FIELDS_FRAGMENT = /* GraphQL */ `
     }
     customCategory {
       id
-      name
+      label
     }
     featuredImage {
       id

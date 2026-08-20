@@ -75,7 +75,8 @@ export async function getOrderchampHeaders(): Promise<Record<string, string>> {
 
 /**
  * Teste une clé API Orderchamp sans la persister. Ping GraphQL très léger :
- * `{ viewer { id } }` ou équivalent. Distingue invalide (401) / temporaire (5xx).
+ * `{ account { id email } }` (racine réelle de leur schéma — pas `viewer`).
+ * Distingue invalide (401) / temporaire (5xx).
  */
 export async function testOrderchampApiKey(
   apiKey: string,
@@ -93,7 +94,7 @@ export async function testOrderchampApiKey(
         "User-Agent":
           "Mozilla/5.0 (compatible; BeliJolie/1.0; +https://beliandjolie.com)",
       },
-      body: JSON.stringify({ query: "{ viewer { id email } }" }),
+      body: JSON.stringify({ query: "{ account { id email } }" }),
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -106,7 +107,7 @@ export async function testOrderchampApiKey(
       };
     }
     const body = (await res.json().catch(() => null)) as {
-      data?: { viewer?: { id?: string } };
+      data?: { account?: { id?: string } };
       errors?: Array<{ message?: string }>;
     } | null;
     if (body?.errors && body.errors.length > 0) {
@@ -117,8 +118,8 @@ export async function testOrderchampApiKey(
       }
       return { valid: false, error: first };
     }
-    if (!body?.data?.viewer?.id) {
-      return { valid: false, error: "Réponse Orderchamp inattendue (pas de viewer)." };
+    if (!body?.data?.account?.id) {
+      return { valid: false, error: "Réponse Orderchamp inattendue (pas de compte)." };
     }
     return { valid: true };
   } catch {
