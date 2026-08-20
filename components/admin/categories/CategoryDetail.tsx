@@ -16,7 +16,6 @@ export type CategoryDetailData = {
   pfsLabel: string | null;
   efashionLabel: string | null;
   faireLabel: string | null;
-  orderchampLabel: string | null;
 };
 
 type Props = {
@@ -28,7 +27,7 @@ type Props = {
   onSubAdd: () => void;
   onSubEdit: (sub: Sub) => void;
   onSubDelete: (sub: Sub) => void;
-  onEditMapping: (mp: "pfs" | "efashion" | "faire" | "orderchamp") => void;
+  onEditMapping: (mp: "pfs" | "efashion" | "faire") => void;
 };
 
 export default function CategoryDetail({
@@ -114,7 +113,6 @@ export default function CategoryDetail({
           pfsLabel={category.pfsLabel}
           efashionLabel={category.efashionLabel}
           faireLabel={category.faireLabel}
-          orderchampLabel={category.orderchampLabel}
           onEditMapping={onEditMapping}
         />
       </section>

@@ -15,7 +15,6 @@ import {
   updateCategoryDirect,
   updateCategoryPfsTaxonomy,
   updateCategoryFaireTaxonomy,
-  updateCategoryOrderchampTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
@@ -33,14 +32,12 @@ export type CategoryRow = {
   pfsCategoryName: string | null;
   efashionCategorieId: number | null;
   faireTaxonomyId: string | null;
-  orderchampCategoryPath: string | null;
   productCount: number;
   createdAt: Date;
   subCategories: Sub[];
   pfsLabel: string | null;
   efashionLabel: string | null;
   faireLabel: string | null;
-  orderchampLabel: string | null;
 };
 
 type Props = {
@@ -75,7 +72,7 @@ export default function CategoriesMasterDetail({
   const [createOpen, setCreateOpen] = useState(false);
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
   const [editSub, setEditSub] = useState<{ sub: Sub; catId: string } | null>(null);
-  const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | "orderchamp" | undefined>(undefined);
+  const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | undefined>(undefined);
   // ID d'une catégorie tout juste créée dont on veut la sélection différée :
   // items n'inclut la nouvelle cat qu'après router.refresh(), on sélectionne
   // au bon moment (voir useEffect ci-dessous). Sans ce délai, la sélection
@@ -183,7 +180,6 @@ export default function CategoriesMasterDetail({
     _patternImage?: string | null,
     pfs?: { pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
     faire?: { taxonomyId?: string | null },
-    orderchamp?: { categoryPath?: string | null },
   ) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
@@ -199,12 +195,6 @@ export default function CategoriesMasterDetail({
     if (newFaireTaxonomy !== (editCat.faireTaxonomyId ?? null)) {
       const res = await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
       // Impact non-null → modale « X produits impactés sur Faire ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
-    const newOrderchampPath = orderchamp?.categoryPath ?? null;
-    if (newOrderchampPath !== (editCat.orderchampCategoryPath ?? null)) {
-      const res = await updateCategoryOrderchampTaxonomy(editCat.id, newOrderchampPath);
-      // Impact non-null → modale « X produits impactés sur Orderchamp ».
       if (res.impact) showMappingImpact(res.impact);
     }
     router.refresh();
@@ -240,7 +230,6 @@ export default function CategoriesMasterDetail({
         pfsLabel: selectedCat.pfsLabel,
         efashionLabel: selectedCat.efashionLabel,
         faireLabel: selectedCat.faireLabel,
-        orderchampLabel: selectedCat.orderchampLabel,
       }
     : null;
 
@@ -256,7 +245,6 @@ export default function CategoriesMasterDetail({
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
             hasFaireConfig={hasFaireConfig}
-            hasOrderchampConfig={hasOrderchampConfig}
             onReorder={handleReorder}
           />
         </div>
@@ -308,9 +296,8 @@ export default function CategoriesMasterDetail({
             pfsCategoryName: editCat.pfsCategoryName,
             efashionCurrentId: editCat.efashionCategorieId,
             faireCurrentTaxonomyId: editCat.faireTaxonomyId,
-            orderchampCurrentCategoryPath: editCat.orderchampCategoryPath,
-            onSave: async (name, translations, pfs, faire, orderchamp) => {
-              await handleSaveCat(name, translations, undefined, undefined, pfs, faire, orderchamp);
+            onSave: async (name, translations, pfs, faire) => {
+              await handleSaveCat(name, translations, undefined, undefined, pfs, faire);
             },
           }}
         />

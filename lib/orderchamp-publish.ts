@@ -88,7 +88,6 @@ interface FullProduct {
   category: {
     id: string;
     name: string;
-    orderchampCategoryPath: string | null;
   } | null;
   colors: FullVariant[];
   colorImages: { path: string; order: number; colorId: string }[];
@@ -113,7 +112,7 @@ export async function loadOrderchampProductFull(
     where: { id: productId },
     include: {
       category: {
-        select: { id: true, name: true, orderchampCategoryPath: true },
+        select: { id: true, name: true },
       },
       colors: {
         where: { disabled: false },
@@ -208,7 +207,6 @@ interface PublishContext {
   madeInAlpha2: string;
   brandName: string;
   orderchampCategoryId: string | null;
-  orderchampCategoryPath: string | null;
 }
 
 function buildOrderchampProductPayload(
@@ -316,7 +314,9 @@ function buildOrderchampProductPayload(
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
-    category: ctx.orderchampCategoryPath ?? undefined,
+    // Note : on n'envoie pas `category` (feuille standard OC) — Orderchamp
+    // détecte automatiquement la catégorie de marché depuis le titre + la
+    // description. Le mapping manuel a été retiré de l'UI en 2026-08-20.
     customCategory: ctx.orderchampCategoryId ?? undefined,
     variants: variantExpansion.map((v) => ({
       sku: v.sku,
@@ -362,10 +362,6 @@ export async function orderchampPublishProduct(
     return { success: false, error: `Catégorie perso Orderchamp : ${catRes.error}` };
   }
   const orderchampCustomCategoryId = catRes.orderchampCustomCategoryId ?? null;
-  // Le mapping catégorie standard (feuille CategoryPath) doit avoir été fait
-  // manuellement dans /admin/categories — colonne `orderchampCategoryPath`
-  // (feuille de l'enum ProductCategoryPath, ex "JEWELRY_..._BANGLE_BRACELETS").
-  const orderchampCategoryPath = product.category.orderchampCategoryPath ?? null;
 
   // 2) Contexte pricing + tenant
   const pricing = await loadOrderchampPricingConfig();
@@ -385,7 +381,6 @@ export async function orderchampPublishProduct(
     madeInAlpha2: countryAlpha2,
     brandName: "Beli & Jolie",
     orderchampCategoryId: orderchampCustomCategoryId,
-    orderchampCategoryPath,
   };
 
   // 3) Build payload

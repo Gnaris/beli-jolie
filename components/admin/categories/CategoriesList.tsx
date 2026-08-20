@@ -13,7 +13,6 @@ type Props = {
   hasPfsConfig: boolean;
   hasEfashionConfig: boolean;
   hasFaireConfig: boolean;
-  hasOrderchampConfig: boolean;
   onReorder: (newOrderedIds: string[]) => void;
 };
 
@@ -24,7 +23,6 @@ export default function CategoriesList({
   hasPfsConfig,
   hasEfashionConfig,
   hasFaireConfig,
-  hasOrderchampConfig,
   onReorder,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -59,7 +57,6 @@ export default function CategoriesList({
       { key: "missingPfs", label: "Sans PFS", show: hasPfsConfig },
       { key: "missingEfashion", label: "Sans eFashion", show: hasEfashionConfig },
       { key: "missingFaire", label: "Sans Faire", show: hasFaireConfig },
-      { key: "missingOrderchamp", label: "Sans Orderchamp", show: hasOrderchampConfig },
     ] satisfies { key: FilterKey; label: string; show: boolean }[]
   ).filter((f) => f.show);
 

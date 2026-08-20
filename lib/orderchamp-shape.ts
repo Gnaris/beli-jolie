@@ -31,7 +31,6 @@
  * Règles douces (avertissement) :
  *   - description vide
  *   - countryAlpha2 non résolu → fallback CN
- *   - categoryId non renseigné
  *   - dimensions manquantes ou nulles (poids ou 3 dimensions)
  */
 
@@ -122,9 +121,6 @@ export function validateOrderchampProductShape(
     }
   }
 
-  if (!input.categoryId) {
-    warnings.push("Catégorie Orderchamp non renseignée — utiliser Paramètres > Marketplaces > Orderchamp pour la lier.");
-  }
   if (!input.countryAlpha2) {
     warnings.push("Pays de fabrication inconnu — fallback `CN` appliqué.");
   }

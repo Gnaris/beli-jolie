@@ -13,7 +13,6 @@ import {
 import { buildTranslationsMap } from "@/lib/translations";
 import { getFaireTaxonomy } from "@/lib/faire-taxonomy";
 import { findFaireTaxonomyById } from "@/lib/faire-taxonomy-types";
-import { getCachedOrderchampTaxonomy, findByPath as findOrderchampByPath } from "@/lib/orderchamp-taxonomy";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -39,7 +38,7 @@ function buildPfsLabel(g: string | null, f: string | null, c: string | null): st
 }
 
 export default async function CategoriesPage() {
-  const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig, faireTypes, orderchampTaxonomy] = await Promise.all([
+  const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig, faireTypes] = await Promise.all([
     prisma.category.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
@@ -60,9 +59,6 @@ export default async function CategoriesPage() {
     // avec breadcrumb "Bijoux › Bracelets". Renvoie [] en cas d'erreur ou si
     // Faire n'est pas configuré, auquel cas l'ID brut reste le fallback.
     getFaireTaxonomy().catch(() => []),
-    // Taxonomie Orderchamp (cachée 24h) — résout les enum path "JEWELRY_..._BRACELETS"
-    // en libellé FR "Bracelets" avec le fil d'Ariane complet.
-    getCachedOrderchampTaxonomy().catch(() => []),
   ]);
 
   function buildFaireLabel(taxonomyId: string | null): string | null {
@@ -71,21 +67,6 @@ export default async function CategoriesPage() {
     if (!hit) return taxonomyId;
     const trail = hit.categoryBreadcrumb?.join(" › ");
     return trail ? `${hit.name} · ${trail}` : hit.name;
-  }
-
-  function buildOrderchampLabel(path: string | null): string | null {
-    if (!path) return null;
-    const hit = findOrderchampByPath(orderchampTaxonomy, path);
-    if (!hit) return path;
-    // Construit le breadcrumb via les préfixes du path.
-    const segments = path.split("_");
-    const trail: string[] = [];
-    for (let i = 1; i <= segments.length; i++) {
-      const p = segments.slice(0, i).join("_");
-      const n = findOrderchampByPath(orderchampTaxonomy, p);
-      if (n) trail.push(n.nameFr);
-    }
-    return trail.length > 1 ? trail.join(" › ") : hit.nameFr;
   }
 
   const rows: CategoryRow[] = categories.map((c) => ({
@@ -99,7 +80,6 @@ export default async function CategoriesPage() {
     pfsCategoryName: c.pfsCategoryName,
     efashionCategorieId: c.efashionCategorieId,
     faireTaxonomyId: c.faireTaxonomyId,
-    orderchampCategoryPath: c.orderchampCategoryPath,
     productCount: c._count.products,
     createdAt: c.createdAt,
     subCategories: c.subCategories.map((s) => ({
@@ -110,7 +90,6 @@ export default async function CategoriesPage() {
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,
     faireLabel: buildFaireLabel(c.faireTaxonomyId),
-    orderchampLabel: buildOrderchampLabel(c.orderchampCategoryPath),
   }));
 
   // hasTranslations = a déjà au moins une traduction non-FR (FR est le nom de

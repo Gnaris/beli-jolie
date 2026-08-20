@@ -109,9 +109,8 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
   };
-  if (product.category?.orderchampCategoryPath) {
-    productInput.category = product.category.orderchampCategoryPath;
-  }
+  // `category` non envoyé — Orderchamp détecte automatiquement depuis
+  // titre + description (mapping manuel retiré 2026-08-20).
 
   for (const k of Object.keys(productInput)) {
     if (productInput[k] === undefined) delete productInput[k];
