@@ -43,6 +43,7 @@ import {
 import { loadOrderchampPricingConfig, getOrderchampWholesalePrice, getOrderchampChainedRetailPrice } from "@/lib/orderchamp-pricing";
 import { buildOrderchampDescription } from "@/lib/orderchamp-description";
 import { resolveOrderchampCountry } from "@/lib/orderchamp-country";
+import { buildOrderchampVariantSkus } from "@/lib/orderchamp-sku";
 
 export interface OrderchampUpdateResult {
   success: boolean;
@@ -82,18 +83,6 @@ export async function orderchampUpdateProduct(
 
   const product = await loadOrderchampProductFull(productId);
   if (!product) return { success: false, error: "Impossible de recharger le produit BJ." };
-
-  // Garde-fou : mapping compositions obligatoire (voir orderchamp-publish.ts).
-  const unmappedCompos = product.compositions.filter(
-    (c) => !c.composition.orderchampMaterialCode?.trim(),
-  );
-  if (unmappedCompos.length > 0) {
-    const names = unmappedCompos.map((c) => c.composition.name).join(", ");
-    return {
-      success: false,
-      error: `Composition non mappée Orderchamp : ${names}. Ouvrez /admin/compositions et renseignez le mapping Orderchamp pour ces matériaux avant de synchroniser.`,
-    };
-  }
 
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
@@ -186,31 +175,45 @@ export async function orderchampUpdateProduct(
     if (inv.errors.length > 0) warnings.push(...inv.errors);
   }
 
-  // 3) Réenvoie filterMaterial sur chaque variante — Orderchamp écrase à chaque
-  // update, donc on doit renvoyer la liste complète à chaque synchro pour que
-  // la modif du mapping composition BJ se répercute côté OC. Sans ce bloc, le
-  // champ « Matériaux » restait figé sur ce que productCreate avait envoyé.
-  const materialsCodes = product.compositions
-    .map((c) => c.composition.orderchampMaterialCode?.trim() || null)
-    .filter((c): c is string => !!c)
-    .slice(0, 4); // OC : max 4 matériaux pour bijoux
-  if (materialsCodes.length > 0) {
-    let matUpdated = 0;
-    for (const v of activeVariants) {
-      if (!v.orderchampVariantId) continue;
-      try {
-        await orderchampGraphQL(
-          PRODUCT_VARIANT_UPDATE_MUTATION,
-          { input: { id: v.orderchampVariantId, filterMaterial: materialsCodes } },
-          "productVariantUpdate/filterMaterial",
-        );
-        matUpdated += 1;
-      } catch (e) {
-        warnings.push(`Matériaux variante ${v.orderchampVariantId} : ${e instanceof Error ? e.message : "?"}`);
-      }
+  // 3) Update variantes : sku (si la référence BJ a changé).
+  // Orderchamp identifie chaque variante par son id GraphQL, donc renvoyer un
+  // `sku` différent est accepté et propage le renommage côté fiche OC.
+  const baseSkuByVariantId = buildOrderchampVariantSkus(
+    product.reference,
+    activeVariants.map((v) => ({ id: v.id, saleType: v.saleType, color: v.color })),
+  );
+  let variantsUpdated = 0;
+  let skusRenamed = 0;
+  for (const v of activeVariants) {
+    if (!v.orderchampVariantId) continue;
+    const input: Record<string, unknown> = { id: v.orderchampVariantId };
+    const baseSku = baseSkuByVariantId.get(v.id);
+    // On ne renvoie le sku qu'en mono-taille : c'est le seul cas où la valeur
+    // persistée côté OC == `baseSku` sans suffixe. En multi-tailles, chaque
+    // variante OC porte un suffixe `-{taille}` et on ne stocke que la 1re
+    // (cf. orderchamp-publish.ts) — un rename groupé nécessiterait de requêter
+    // les tailles côté OC. On laisse un warning pour ce cas rare.
+    if (baseSku && v.variantSizes.length <= 1) {
+      input.sku = baseSku;
+    } else if (baseSku && v.variantSizes.length > 1) {
+      warnings.push(
+        `Variante multi-tailles ${v.color?.name ?? v.id} : renommage du code Orderchamp non appliqué automatiquement (rafraîchir manuellement si besoin).`,
+      );
     }
-    if (matUpdated > 0) changedFields.push("materials");
+    if (Object.keys(input).length <= 1) continue;
+    try {
+      await orderchampGraphQL(
+        PRODUCT_VARIANT_UPDATE_MUTATION,
+        { input },
+        "productVariantUpdate",
+      );
+      variantsUpdated += 1;
+      if (input.sku) skusRenamed += 1;
+    } catch (e) {
+      warnings.push(`Variante ${v.orderchampVariantId} : ${e instanceof Error ? e.message : "?"}`);
+    }
   }
+  if (variantsUpdated > 0 && skusRenamed > 0) changedFields.push("sku");
 
   // 4) Reset syncRequired + timestamp
   await prisma.product.update({

@@ -27,10 +27,7 @@ import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 import MarketplaceMappingSection from "@/components/admin/MarketplaceMappingSection";
 import EfashionMappingPicker from "@/components/admin/EfashionMappingPicker";
 import PfsSuggestions, { type PfsRefOption } from "@/components/admin/pfs/PfsSuggestions";
-import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
-import { ORDERCHAMP_MATERIALS } from "@/lib/orderchamp-materials";
-
-export type CompositionFocusMarketplace = "pfs" | "efashion" | "orderchamp";
+export type CompositionFocusMarketplace = "pfs" | "efashion";
 
 export interface CompositionEditorEditMode {
   id: string;
@@ -38,13 +35,12 @@ export interface CompositionEditorEditMode {
   translations: Record<string, string>;
   pfsRef?: string | null;
   efashionCurrentId?: number | null;
-  orderchampCurrentCode?: string | null;
   onSave: (
     name: string,
     translations: Record<string, string>,
     _hex?: string,
     _patternImage?: string | null,
-    extra?: { ref?: string; orderchampCode?: string | null },
+    extra?: { ref?: string },
   ) => Promise<void>;
 }
 
@@ -71,7 +67,6 @@ export default function CompositionEditorModal({
   const [names, setNames] = useState<Record<string, string>>({});
   const [pfsRef, setPfsRef] = useState<string | null>(null);
   const [efashionCreateId, setEfashionCreateId] = useState<number | null>(null);
-  const [orderchampCode, setOrderchampCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -86,12 +81,10 @@ export default function CompositionEditorModal({
     if (editMode) {
       setNames({ fr: editMode.name, ...editMode.translations });
       setPfsRef(editMode.pfsRef ?? null);
-      setOrderchampCode(editMode.orderchampCurrentCode ?? null);
     } else {
       setNames({});
       setPfsRef(null);
       setEfashionCreateId(null);
-      setOrderchampCode(null);
     }
     setError("");
     setLoading(false);
@@ -135,17 +128,8 @@ export default function CompositionEditorModal({
   const efashionMapped = isEdit
     ? editMode?.efashionCurrentId != null
     : efashionCreateId != null;
-  const orderchampMapped = !!orderchampCode;
-  const totalMapped = [pfsMapped, efashionMapped, orderchampMapped].filter(Boolean).length;
-  const TOTAL_MARKETPLACES = 3;
-
-  // Options du CustomSelect Orderchamp — groupées par famille (préfixe visuel).
-  const orderchampOptions: SelectOption[] = useMemo(() => {
-    return ORDERCHAMP_MATERIALS.map((m) => ({
-      value: m.value,
-      label: `${m.labelFr} — ${m.group}`,
-    }));
-  }, []);
+  const totalMapped = [pfsMapped, efashionMapped].filter(Boolean).length;
+  const TOTAL_MARKETPLACES = 2;
 
   async function handleSubmit() {
     if (!frName) { setError("Le nom en français est obligatoire."); return; }
@@ -162,7 +146,7 @@ export default function CompositionEditorModal({
           translations,
           undefined,
           undefined,
-          { ref: pfsRef || undefined, orderchampCode: orderchampCode || null },
+          { ref: pfsRef || undefined },
         );
         onClose();
         return;
@@ -172,7 +156,7 @@ export default function CompositionEditorModal({
         setLoading(false);
         return;
       }
-      const result = await createCompositionQuick(names, pfsRef || null, efashionCreateId, orderchampCode || null);
+      const result = await createCompositionQuick(names, pfsRef || null, efashionCreateId);
       onCreated?.(result);
       onClose();
     } catch (e) {
@@ -412,41 +396,6 @@ export default function CompositionEditorModal({
                 )}
               </MarketplaceCard>
 
-              {/* ─ Carte Orderchamp ─────────────────────────────────── */}
-              <MarketplaceCard
-                dataKey="orderchamp"
-                icon={<AvatarBadge gradient="linear-gradient(135deg,#F97316,#FDBA74)" text="Oc" />}
-                title="Orderchamp"
-                subtitle="Facultatif — sert au filtre matériau côté acheteur Orderchamp"
-                mapped={orderchampMapped}
-              >
-                <div className="space-y-2">
-                  <p className="font-body text-[10px] uppercase tracking-wider text-text-muted">Matériau Orderchamp</p>
-                  <CustomSelect
-                    value={orderchampCode ?? ""}
-                    onChange={(v) => setOrderchampCode(v || null)}
-                    options={orderchampOptions}
-                    placeholder="Choisir un matériau…"
-                    searchable
-                    emptyMessage="Aucun matériau ne correspond."
-                    aria-label="Matériau Orderchamp"
-                  />
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[10.5px] text-text-muted leading-snug">
-                      Max 4 matériaux affichés par variante côté OC. Si le matériau exact manque, choisis le plus proche.
-                    </p>
-                    {orderchampCode && (
-                      <button
-                        type="button"
-                        onClick={() => setOrderchampCode(null)}
-                        className="shrink-0 text-[11px] text-[#DC2626] hover:underline"
-                      >
-                        Retirer
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </MarketplaceCard>
             </div>
           </div>
         </div>

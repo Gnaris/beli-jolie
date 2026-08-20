@@ -11,10 +11,8 @@ import {
   deleteComposition,
   updateCompositionDirect,
   updateCompositionPfsRef,
-  updateCompositionOrderchampMaterial,
   reorderCompositions,
 } from "@/app/actions/admin/compositions";
-import { findOrderchampMaterial } from "@/lib/orderchamp-materials";
 import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 
 export type CompositionRow = {
@@ -24,7 +22,6 @@ export type CompositionRow = {
   pfsCompositionRef: string | null;
   efashionId: number | null;
   efashionLabel: string | null;
-  orderchampMaterialCode: string | null;
   productCount: number;
   position: number;
   createdAt: Date;
@@ -34,14 +31,12 @@ type Props = {
   compositions: CompositionRow[];
   hasPfsConfig: boolean;
   hasEfashionConfig: boolean;
-  hasOrderchampConfig: boolean;
 };
 
 export default function CompositionsMasterDetail({
   compositions,
   hasPfsConfig,
   hasEfashionConfig,
-  hasOrderchampConfig,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -148,7 +143,7 @@ export default function CompositionsMasterDetail({
     translations: Record<string, string>,
     _hex?: string,
     _patternImage?: string | null,
-    extra?: { ref?: string; orderchampCode?: string | null },
+    extra?: { ref?: string },
   ) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
@@ -156,11 +151,6 @@ export default function CompositionsMasterDetail({
     if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
       const res = await updateCompositionPfsRef(editTarget.id, newRef);
       // Impact non-null → modale « X produits impactés sur PFS ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
-    const newOrderchampCode = extra?.orderchampCode ?? null;
-    if (newOrderchampCode !== (editTarget.orderchampMaterialCode ?? null)) {
-      const res = await updateCompositionOrderchampMaterial(editTarget.id, newOrderchampCode);
       if (res.impact) showMappingImpact(res.impact);
     }
     router.refresh();
@@ -178,9 +168,6 @@ export default function CompositionsMasterDetail({
         efashionLabel:
           selectedComp.efashionLabel ??
           (selectedComp.efashionId != null ? `id ${selectedComp.efashionId}` : null),
-        orderchampLabel:
-          findOrderchampMaterial(selectedComp.orderchampMaterialCode)?.labelFr ??
-          selectedComp.orderchampMaterialCode,
       }
     : null;
 
@@ -195,7 +182,6 @@ export default function CompositionsMasterDetail({
             onSelect={handleSelect}
             hasPfsConfig={hasPfsConfig}
             hasEfashionConfig={hasEfashionConfig}
-            hasOrderchampConfig={hasOrderchampConfig}
             onReorder={handleReorder}
           />
         </div>
@@ -240,7 +226,6 @@ export default function CompositionsMasterDetail({
             translations: editTarget.translations,
             pfsRef: editTarget.pfsCompositionRef,
             efashionCurrentId: editTarget.efashionId ?? null,
-            orderchampCurrentCode: editTarget.orderchampMaterialCode,
             onSave: handleSaveComposition,
           }}
         />

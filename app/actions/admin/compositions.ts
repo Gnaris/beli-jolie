@@ -118,49 +118,6 @@ export async function updateCompositionPfsRef(
   return { success: true, impact };
 }
 
-/**
- * Mappe une composition BJ à une valeur `FilterMaterialValue` d'Orderchamp
- * (ex : "STAINLESS_STEEL", "GOLD_PLATED"). Sert au champ `filterMaterial`
- * (max 4 par variante) envoyé à chaque publish/update OC.
- *
- * Retourne un `impact` non-null si le mapping a réellement changé ET si des
- * produits publiés sur Orderchamp utilisent cette composition.
- */
-export async function updateCompositionOrderchampMaterial(
-  id: string,
-  orderchampMaterialCode: string | null,
-): Promise<{ success: true; impact: MappingChangeSummary | null }> {
-  await requireAdmin();
-  const normalized = orderchampMaterialCode?.trim() || null;
-
-  const before = await prisma.composition.findUnique({
-    where: { id },
-    select: { name: true, orderchampMaterialCode: true },
-  });
-  if (!before) throw new Error("Composition introuvable.");
-
-  await prisma.composition.update({
-    where: { id },
-    data: { orderchampMaterialCode: normalized },
-  });
-  revalidatePath("/admin/compositions");
-  revalidatePath("/admin/produits");
-  revalidateTag("compositions", "default");
-
-  if (before.orderchampMaterialCode === normalized) return { success: true, impact: null };
-
-  const impact = await buildMappingImpactSummary({
-    attribute: "composition",
-    marketplace: "orderchamp",
-    localId: id,
-    localName: before.name,
-    oldValueLabel: before.orderchampMaterialCode,
-    newValueLabel: normalized,
-    rollbackFields: { orderchampMaterialCode: before.orderchampMaterialCode },
-  });
-  return { success: true, impact };
-}
-
 export async function deleteComposition(id: string) {
   await requireAdmin();
   const used = await prisma.productComposition.count({ where: { compositionId: id } });

@@ -6,7 +6,6 @@ import CompositionsMasterDetail, { type CompositionRow } from "@/components/admi
 import {
   getCachedHasPfsConfig,
   getCachedHasEfashionConfig,
-  getCachedHasOrderchampConfig,
 } from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveCompositionLabel } from "@/lib/efashion-labels";
 import { buildTranslationsMap } from "@/lib/translations";
@@ -14,7 +13,7 @@ import { buildTranslationsMap } from "@/lib/translations";
 export const metadata: Metadata = { title: "Bibliothèque de compositions" };
 
 export default async function CompositionsPage() {
-  const [compositions, efashionLabels, hasPfsConfig, hasEfashionConfig, hasOrderchampConfig] = await Promise.all([
+  const [compositions, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.composition.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
@@ -25,7 +24,6 @@ export default async function CompositionsPage() {
     getEfashionLabelMaps(),
     getCachedHasPfsConfig(),
     getCachedHasEfashionConfig(),
-    getCachedHasOrderchampConfig(),
   ]);
 
   const rows: CompositionRow[] = compositions.map((c) => ({
@@ -35,7 +33,6 @@ export default async function CompositionsPage() {
     pfsCompositionRef: c.pfsCompositionRef,
     efashionId: c.efashionId,
     efashionLabel: resolveCompositionLabel(efashionLabels, c.efashionId) ?? null,
-    orderchampMaterialCode: c.orderchampMaterialCode,
     productCount: c._count.products,
     position: c.position,
     createdAt: c.createdAt,
@@ -60,7 +57,6 @@ export default async function CompositionsPage() {
         compositions={rows}
         hasPfsConfig={hasPfsConfig}
         hasEfashionConfig={hasEfashionConfig}
-        hasOrderchampConfig={hasOrderchampConfig}
       />
     </div>
   );

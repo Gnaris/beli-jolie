@@ -4,14 +4,12 @@ export type CompositionForFilters = {
   translations: Record<string, string>;
   pfsCompositionRef: string | null;
   efashionId: number | null;
-  orderchampMaterialCode: string | null;
 };
 
 export type CompositionFilterKey =
   | "missingTranslation"
   | "missingPfs"
-  | "missingEfashion"
-  | "missingOrderchamp";
+  | "missingEfashion";
 
 export function matchesSearch(comp: CompositionForFilters, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -32,7 +30,6 @@ export function matchesFilters(comp: CompositionForFilters, active: Set<Composit
   }
   if (active.has("missingPfs") && comp.pfsCompositionRef && comp.pfsCompositionRef.trim() !== "") return false;
   if (active.has("missingEfashion") && comp.efashionId != null) return false;
-  if (active.has("missingOrderchamp") && comp.orderchampMaterialCode && comp.orderchampMaterialCode.trim() !== "") return false;
   return true;
 }
 

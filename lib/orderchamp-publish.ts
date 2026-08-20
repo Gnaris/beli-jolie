@@ -294,8 +294,11 @@ function buildOrderchampProductPayload(
     }
   }
 
-  // Compositions mappées → filterMaterial[] (max 4)
-  // NOTE : filterMaterial se pose au niveau variante en post-passe, pas ici.
+  // Composition matériaux : envoyée uniquement dans la description
+  // (`formatCompositionLine` de orderchamp-description.ts). Le champ structuré
+  // OC (Product.materials / attributes) a été retiré le 2026-08-20 —
+  // impossible de le modifier après création côté OC + trop d'exceptions
+  // vs la richesse des compositions BJ.
 
   // Description enrichie (matériaux + tailles). Pas de « Made in » côté OC
   // (retiré à la demande de la cliente le 2026-08-20 — le champ `madeIn`
@@ -312,18 +315,6 @@ function buildOrderchampProductPayload(
     sizeDetailsTu: product.sizeDetailsTu,
     madeInCountryEn: null,
   });
-
-  // Attributes matériaux — le champ « Matériaux » du back-office OC lit
-  // `Product.materials` qui n'est POSABLE QU'À LA CRÉATION via
-  // `attributes: [{attribute:"f_material", value: ENUM}, ...]`. `productUpdate`
-  // ne l'accepte pas ; pour modifier après coup il faut delete+recreate.
-  // `filterMaterial` sur variante = filtres acheteur, indépendant du champ
-  // Matériaux affiché sur la fiche.
-  const materialAttributes = product.compositions
-    .map((c) => c.composition.orderchampMaterialCode?.trim() || null)
-    .filter((c): c is string => !!c)
-    .slice(0, 4)
-    .map((code) => ({ attribute: "f_material", value: code }));
 
   const input: Record<string, unknown> = {
     title: product.name,
@@ -342,7 +333,6 @@ function buildOrderchampProductPayload(
     // détecte automatiquement la catégorie de marché depuis le titre + la
     // description. Le mapping manuel a été retiré de l'UI en 2026-08-20.
     customCategory: ctx.orderchampCategoryId ?? undefined,
-    attributes: materialAttributes.length > 0 ? materialAttributes : undefined,
     variants: variantExpansion.map((v) => ({
       sku: v.sku,
       price: v.priceEur,
@@ -379,21 +369,6 @@ export async function orderchampPublishProduct(
 
   if (!product.category?.id) {
     return { success: false, error: "Produit sans catégorie BJ — impossible de publier." };
-  }
-
-  // Garde-fou : toutes les compositions du produit doivent avoir un mapping
-  // Orderchamp (`orderchampMaterialCode`). Sinon on bloque — Orderchamp doit
-  // refléter la vraie composition matériaux (obligation légale d'affichage
-  // pour la vente en gros aux acheteurs pros).
-  const unmappedCompos = product.compositions.filter(
-    (c) => !c.composition.orderchampMaterialCode?.trim(),
-  );
-  if (unmappedCompos.length > 0) {
-    const names = unmappedCompos.map((c) => c.composition.name).join(", ");
-    return {
-      success: false,
-      error: `Composition non mappée Orderchamp : ${names}. Ouvrez /admin/compositions et renseignez le mapping Orderchamp pour ces matériaux avant de publier.`,
-    };
   }
 
   // 1) Assure la customCategory OC. Si le produit a au moins une sous-catégorie
@@ -525,12 +500,8 @@ export async function orderchampPublishProduct(
       }
     });
 
-    // 7) Post-passe : attribuer image par couleur + matériaux
+    // 7) Post-passe : attribuer image par couleur
     const imageIds = created.images.edges.map((e) => e.node.id);
-    const materialsCodes = product.compositions
-      .map((c) => c.composition.orderchampMaterialCode?.trim() || null)
-      .filter((c): c is string => !!c)
-      .slice(0, 4);
 
     // Ordre des images racine == ordre de nos colorIds imagesByColor
     const colorOrder: string[] = [];
@@ -583,7 +554,6 @@ export async function orderchampPublishProduct(
       const imgId = bj?.color?.id ? imageIdByColorId.get(bj.color.id) : undefined;
       const varInput: Record<string, unknown> = { id: m.orderchampVariantId };
       if (imgId) varInput.productImageId = imgId;
-      if (materialsCodes.length > 0) varInput.filterMaterial = materialsCodes;
       if (Object.keys(varInput).length > 1) {
         try {
           await orderchampGraphQL(

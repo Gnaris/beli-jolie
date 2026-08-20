@@ -241,7 +241,6 @@ export async function createCompositionQuick(
   translations: Record<string, string>,
   pfsCompositionRef?: string | null,
   efashionId?: number | null,
-  orderchampMaterialCode?: string | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -255,7 +254,6 @@ export async function createCompositionQuick(
         data: {
           ...(pfsCompositionRef !== undefined ? { pfsCompositionRef: pfsCompositionRef ?? null } : {}),
           ...(efashionId !== undefined ? { efashionId } : {}),
-          ...(orderchampMaterialCode !== undefined ? { orderchampMaterialCode: orderchampMaterialCode ?? null } : {}),
         },
       })
     : await prisma.composition.create({
@@ -263,7 +261,6 @@ export async function createCompositionQuick(
           name,
           pfsCompositionRef: pfsCompositionRef ?? null,
           efashionId: efashionId ?? null,
-          orderchampMaterialCode: orderchampMaterialCode ?? null,
         },
       });
   for (const [locale, value] of Object.entries(translations)) {
