@@ -71,7 +71,7 @@ export async function ensureOrderchampCustomCategory(
       customCategories: {
         edges: Array<{ node: { id: string; value: string; label: string; isPublished: boolean } }>;
       };
-    }>(CUSTOM_CATEGORIES_QUERY, { first: 250 }, "customCategoriesLookup");
+    }>(CUSTOM_CATEGORIES_QUERY, { first: 100 }, "customCategoriesLookup");
 
     // Cas A : ID stocké encore valide → on le retourne.
     if (cat.orderchampCustomCategoryId) {
