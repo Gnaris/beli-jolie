@@ -1,9 +1,14 @@
 /**
  * Orderchamp Refresh — bouton « ↻ Rafraîchir » côté BJ.
  *
- * Grande différence vs Faire : `productRepublish(id)` garde le MÊME ID.
- * Pas besoin d'archiver + recréer + renommer comme Faire — l'URL fiche
- * acheteur reste stable (bon pour SEO + réassorts habituels).
+ * Étape 1 : `orderchampUpdateProduct({forceFullSync:true})` — pousse tout
+ *   l'état BJ vers OC (title, dimensions, stock, matériaux, sous-catégorie…).
+ *   Sans ça, le refresh ne synchronisait aucune donnée BJ → les modifs de
+ *   matériaux / sous-cat / prix ne remontaient jamais côté OC.
+ * Étape 2 : `productRepublish(id)` — bump la date côté OC pour ré-apparaître
+ *   dans les nouveautés. Garde le MÊME ID (grande diff vs Faire — pas de
+ *   delete+recreate, l'URL fiche acheteur reste stable, bon pour SEO +
+ *   réassorts habituels).
  *
  * Après le republish, on met à jour `Product.orderchampLastRefreshedAt` (BJ)
  * pour que le badge « Nouveauté » se recalcule et pour tracker la date du
@@ -17,6 +22,7 @@ import {
   OrderchampGraphQLError,
 } from "@/lib/orderchamp-client";
 import { PRODUCT_REPUBLISH_MUTATION } from "@/lib/orderchamp-queries";
+import { orderchampUpdateProduct } from "@/lib/orderchamp-update";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { logger } from "@/lib/logger";
@@ -40,6 +46,13 @@ export async function orderchampRefreshProduct(
   }
   if (!product.orderchampProductId) {
     return { success: false, error: "Produit non lié à Orderchamp — publier d'abord." };
+  }
+
+  // 1) Sync complète du produit vers OC (title, stock, matériaux, sous-cat…)
+  // avant le republish. Sans ça, les modifs BJ ne remontent jamais.
+  const syncRes = await orderchampUpdateProduct(productId, { forceFullSync: true });
+  if (!syncRes.success) {
+    return { success: false, error: syncRes.error ?? "Erreur sync avant refresh" };
   }
 
   try {
