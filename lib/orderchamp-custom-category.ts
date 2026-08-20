@@ -2,15 +2,17 @@
  * Orderchamp Custom Category — auto-création + publication d'une catégorie
  * perso à partir d'une catégorie BJ (nom + slug).
  *
- * Séquence obligatoire (validée le 2026-08-19) :
- *   1. `customCategoryCreate({ value, label })` → renvoie l'ID GraphQL
- *      (isPublished: false par défaut)
- *   2. `customCategoryUpdate({ id, isPublished: true })` → indispensable, sinon
- *      l'attribution silencieuse au productUpdate est ignorée
- *   3. Stocke l'ID dans `Category.orderchampCustomCategoryId` (colonne Phase 1)
- *
- * Idempotent : si `Category.orderchampCustomCategoryId` est déjà renseigné et existe
- * toujours côté OC, on ne recrée pas.
+ * Séquence :
+ *   1. Liste toutes les customCategories OC (query légère). Sert à 2 choses :
+ *      - valider que l'ID stocké en BDD existe toujours (si la cliente a
+ *        supprimé la cat manuellement dans le back-office OC, on tombait sur
+ *        « CustomFieldsValue not found » en publish).
+ *      - éviter les doublons quand plusieurs workers publient en parallèle
+ *        pour la même catégorie BJ (race condition sans lock BDD).
+ *   2. Si un match par slug existe côté OC → on relie (auto-publie si besoin).
+ *   3. Sinon → `customCategoryCreate` puis `customCategoryUpdate({isPublished:true})`
+ *      (indispensable, sinon l'attribution silencieuse au productUpdate est ignorée).
+ *   4. Stocke l'ID dans `Category.orderchampCustomCategoryId`.
  */
 
 import {
@@ -60,26 +62,51 @@ export async function ensureOrderchampCustomCategory(
   });
   if (!cat) return { success: false, error: "Catégorie BJ introuvable." };
 
-  // Idempotent : si déjà mappée, on renvoie tel quel.
-  if (cat.orderchampCustomCategoryId) {
-    return { success: true, orderchampCustomCategoryId: cat.orderchampCustomCategoryId };
-  }
-
   const slug = slugifyForOrderchamp(cat.name);
 
   try {
-    // 0) Anti-doublon : chercher si une customCategory avec ce slug existe
-    // déjà chez OC (race condition entre workers concurrents, ou reliquat d'un
-    // ancien run avant que le lien BDD n'ait été sauvé). Si oui, on la
-    // récupère au lieu d'en créer une nouvelle.
+    // 1) Liste des customCategories OC — source de vérité. Sert à valider
+    // l'ID stocké ET à retrouver une customCategory existante par slug.
     const existing = await orderchampGraphQL<{
       customCategories: {
         edges: Array<{ node: { id: string; value: string; label: string; isPublished: boolean } }>;
       };
     }>(CUSTOM_CATEGORIES_QUERY, { first: 250 }, "customCategoriesLookup");
+
+    // Cas A : ID stocké encore valide → on le retourne.
+    if (cat.orderchampCustomCategoryId) {
+      const stored = existing.customCategories.edges.find(
+        (e) => e.node.id === cat.orderchampCustomCategoryId,
+      );
+      if (stored) {
+        // Vérifie qu'elle est bien publiée (peut avoir été dépublée manuellement).
+        if (!stored.node.isPublished) {
+          await orderchampGraphQL<{
+            customCategoryUpdate: { userErrors: Array<Record<string, unknown>> };
+          }>(
+            CUSTOM_CATEGORY_UPDATE_MUTATION,
+            { input: { id: stored.node.id, isPublished: true } },
+            "customCategoryUpdate",
+          );
+        }
+        return { success: true, orderchampCustomCategoryId: stored.node.id };
+      }
+      // ID stocké mais introuvable côté OC → cliente a supprimé la cat.
+      // On oublie le lien BDD et on tombe dans le lookup par slug ci-dessous.
+      logger.warn("[Orderchamp CustomCategory] ID stocké obsolète — reset", {
+        bjCategoryId,
+        staleId: cat.orderchampCustomCategoryId,
+      });
+      await prisma.category.update({
+        where: { id: bjCategoryId },
+        data: { orderchampCustomCategoryId: null },
+      });
+    }
+
+    // Cas B : match par slug (existante mais pas encore reliée en BDD, ou
+    // rescapée du reset ci-dessus).
     const match = existing.customCategories.edges.find((e) => e.node.value === slug);
     if (match) {
-      // Publier si pas encore publiée (état intermédiaire d'un run interrompu).
       if (!match.node.isPublished) {
         await orderchampGraphQL<{
           customCategoryUpdate: { userErrors: Array<Record<string, unknown>> };
@@ -101,7 +128,7 @@ export async function ensureOrderchampCustomCategory(
       return { success: true, orderchampCustomCategoryId: match.node.id };
     }
 
-    // 1) Création côté OC
+    // Cas C : rien côté OC → création.
     const createRes = await orderchampGraphQL<{
       customCategoryCreate: {
         customCategory: { id: string; label: string; isPublished: boolean } | null;
@@ -124,7 +151,7 @@ export async function ensureOrderchampCustomCategory(
     }
     const created = createRes.customCategoryCreate.customCategory;
 
-    // 2) Publication (obligatoire pour être attribuable à un produit)
+    // Publication (obligatoire pour être attribuable à un produit).
     if (!created.isPublished) {
       const pubRes = await orderchampGraphQL<{
         customCategoryUpdate: {
@@ -145,7 +172,6 @@ export async function ensureOrderchampCustomCategory(
       }
     }
 
-    // 3) Persist l'ID côté BJ
     await prisma.category.update({
       where: { id: bjCategoryId },
       data: { orderchampCustomCategoryId: created.id },
