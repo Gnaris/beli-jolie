@@ -44,20 +44,9 @@ export const PRODUCT_FIELDS_FRAGMENT = /* GraphQL */ `
     createdAt
     updatedAt
     contentUpdatedAt
-    category {
-      id
-      name
-      path
-      rawPath
-    }
     customCategory {
       id
       label
-    }
-    featuredImage {
-      id
-      originalUrl
-      thumbnailUrl
     }
     images(first: 50) {
       edges {
