@@ -20,7 +20,6 @@ import {
   ceilCent,
   type ActivePromotion,
   type ItemPromoContext,
-  type ClientDiscountForCumul,
   type ClientShippingDiscountForCumul,
 } from "@/lib/promotion-engine";
 
@@ -71,7 +70,7 @@ export interface OrderPricingResult {
     savedPerUnit: number;
     promotionId: string | null;
     promotionName: string | null;
-    source: "none" | "product" | "promotion" | "client" | "stack";
+    source: "none" | "product" | "promotion" | "stack";
   }>;
   /** Sous-total avant TOUTE réduction (vrai prix des articles × quantités). */
   subtotalBrutHT: number;
@@ -167,16 +166,15 @@ function computeSubtotalBrut(items: CartItemInput[]): number {
   return floorMoney(s);
 }
 
-/** Somme des prix résolus par le moteur avec une liste donnée de promos + optionnellement le client %. Troncature stricte. */
+/** Somme des prix résolus par le moteur avec une liste donnée de promos. Troncature stricte. */
 function computeSubtotalWithPromos(
   items: CartItemInput[],
   activePromos: ActivePromotion[],
   code: ActivePromotion | null,
-  clientPct: ClientDiscountForCumul | null,
 ): number {
   let s = 0;
   for (const it of items) {
-    const r = resolveBestItemDiscount(it.promoContext, activePromos, code, clientPct);
+    const r = resolveBestItemDiscount(it.promoContext, activePromos, code);
     s += r.finalUnitPrice * it.quantity;
   }
   return floorMoney(s);
@@ -192,7 +190,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   const totalItemQuantity = input.items.reduce((s, i) => s + i.quantity, 0);
 
   const subtotalBrutHT = computeSubtotalBrut(input.items);
-  const subtotalHT = computeSubtotalWithPromos(input.items, activePromos, itemsCodePromo, null);
+  const subtotalHT = computeSubtotalWithPromos(input.items, activePromos, itemsCodePromo);
 
   const clientDiscountApplies = (() => {
     if (!user.discountType || user.discountValue == null) return false;
@@ -207,32 +205,27 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     return true;
   })();
 
-  const clientPercentForEngine: ClientDiscountForCumul | null =
-    clientDiscountApplies && user.discountType === "PERCENT" && user.discountValue != null
-      ? { type: "PERCENT", value: user.discountValue }
-      : null;
-
   // ── 2. Snapshot par item (pour OrderItem BDD) ──────────────────────
+  // La remise commerciale client n'entre pas ici — elle est appliquée
+  // exclusivement sur le total panier (étape 3).
   const itemFinalPrices: OrderPricingResult["itemFinalPrices"] = new Map();
   for (const item of input.items) {
-    const withoutClient = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo, null);
+    const resolved = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo);
     itemFinalPrices.set(item.id, {
-      finalUnitPrice: withoutClient.finalUnitPrice,
-      savedPerUnit: withoutClient.savedPerUnit,
-      promotionId: withoutClient.promotion?.id ?? null,
-      promotionName: withoutClient.promotion?.name ?? null,
-      source: withoutClient.source,
+      finalUnitPrice: resolved.finalUnitPrice,
+      savedPerUnit: resolved.savedPerUnit,
+      promotionId: resolved.promotion?.id ?? null,
+      promotionName: resolved.promotion?.name ?? null,
+      source: resolved.source,
     });
   }
 
-  // ── 3. Remise commerciale client ───────────────────────────────────
+  // ── 3. Remise commerciale client — appliquée UNE FOIS sur le sous-total ──
   let clientDiscountAmt = 0;
   if (clientDiscountApplies && user.discountType && user.discountValue != null) {
     if (user.discountType === "PERCENT") {
-      const subtotalWithClient = computeSubtotalWithPromos(input.items, activePromos, itemsCodePromo, clientPercentForEngine);
-      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT - subtotalWithClient));
+      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT * (user.discountValue / 100)));
     } else {
-      // AMOUNT — cascade sur le sous-total (ceilCent sur la coupe).
       clientDiscountAmt = Math.min(subtotalHT, user.discountValue);
     }
   }
@@ -247,7 +240,6 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     input.items,
     activePromos.filter((p) => !p.stackable),
     itemsCodePromo && !itemsCodePromo.stackable ? itemsCodePromo : null,
-    null,
   );
   if (subtotalAfterNonStackable < running - 0.005) {
     const gain = floorMoney(running - subtotalAfterNonStackable);
@@ -273,7 +265,6 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       input.items,
       [...nonStackList, ...cumulative],
       nonStackCodeArg,
-      null,
     );
     if (newSubtotal < running - 0.005) {
       const gain = floorMoney(running - newSubtotal);
@@ -292,7 +283,6 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       input.items,
       [...nonStackList, ...cumulative],
       stackableCode,
-      null,
     );
     if (newSubtotal < running - 0.005) {
       const gain = floorMoney(running - newSubtotal);
@@ -466,8 +456,8 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       promoCodeSaved = shipping.promotion?.id === appliedCodePromo.id ? shipping.savedAmount : 0;
     } else {
       for (const item of input.items) {
-        const withoutCode = resolveBestItemDiscount(item.promoContext, activePromos, null, clientPercentForEngine);
-        const withCode = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo, clientPercentForEngine);
+        const withoutCode = resolveBestItemDiscount(item.promoContext, activePromos, null);
+        const withCode = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo);
         promoCodeSaved += (withoutCode.finalUnitPrice - withCode.finalUnitPrice) * item.quantity;
       }
     }

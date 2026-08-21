@@ -136,10 +136,14 @@ function RelatedCard({ product, showPrice }: { product: RelatedProduct; showPric
   );
 }
 
-function applyClientDiscount(price: number, discount: ClientDiscountInfo | null | undefined): number {
-  if (!discount) return price;
-  if (discount.discountType === "PERCENT") return Math.max(0, price * (1 - discount.discountValue / 100));
-  return Math.max(0, price - discount.discountValue);
+/**
+ * La remise commerciale client n'entre plus dans le prix produit affiché sur
+ * la fiche : elle est appliquée une seule fois sur le total panier. On garde
+ * le helper (renvoie le prix inchangé) pour ne pas casser les callers en
+ * attendant leur nettoyage.
+ */
+function applyClientDiscount(price: number, _discount: ClientDiscountInfo | null | undefined): number {
+  return price;
 }
 
 export default function ProductDetail({

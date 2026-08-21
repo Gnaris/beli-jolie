@@ -4,12 +4,16 @@
  * `lib/promotions.ts` s'appuie dessus pour la validation code promo et
  * l'application au flow placeOrder.
  *
- * Depuis 2026-08-18, chaque promotion peut être « stackable ». Une promo
- * stackable se cumule additivement avec :
- *   - les autres promos stackable qui ciblent le même item / la livraison,
- *   - la remise commerciale du client (profil).
- * Les promos non-stackable gardent le comportement historique « la meilleure
- * gagne ». Le résultat final = max(cumul stackable, meilleur candidat seul).
+ * Règle métier (2026-08-21) : le prix « produit final » est calculé
+ * exclusivement à partir de la remise fiche produit (`productDiscountPercent`)
+ * et des promotions AUTO/CODE ciblant le produit. Il vit tel quel partout
+ * (cartes, fiche, ligne panier, snapshot commande, facture).
+ *   - Remise fiche produit + promos stackable → cascade multiplicative
+ *     (avec troncature centime à chaque palier).
+ *   - Promo non-stackable → « meilleure gagne » avec la remise fiche seule.
+ * La remise commerciale du client (`User.discountType/Value`) n'entre PLUS
+ * dans le calcul par item : elle s'applique une seule fois sur le total
+ * panier (voir `lib/order-pricing.ts`).
  */
 
 import type { DiscountKind, PromotionScope, PromotionType } from "@prisma/client";
@@ -51,16 +55,6 @@ export interface ItemPromoContext {
 }
 
 /**
- * Remise commerciale du client à cumuler éventuellement avec les promos
- * stackable. Ne passer que si elle est effectivement applicable (seuils
- * validés en amont).
- */
-export interface ClientDiscountForCumul {
-  type: "PERCENT" | "AMOUNT";
-  value: number;
-}
-
-/**
  * Remise commerciale livraison du client. `isFree=true` équivaut à 100 %.
  * Les 2 champs discountType/discountValue ne sont pris en compte que si
  * `isFree=false`. Ne passer que si effectivement applicable.
@@ -75,12 +69,10 @@ export interface ResolvedItemDiscount {
   finalUnitPrice: number;
   savedPerUnit: number;
   displayPercent: number;
-  source: "none" | "product" | "promotion" | "client" | "stack";
+  source: "none" | "product" | "promotion" | "stack";
   promotion: ActivePromotion | null;
   /** Vrai si le résultat vient du cluster cumulé (plusieurs remises additionnées). */
   stacked: boolean;
-  /** Économie unitaire attribuable à la remise commerciale client (subset de savedPerUnit). */
-  savedByClientDiscount: number;
 }
 
 export interface ResolvedShippingDiscount {
@@ -156,15 +148,6 @@ function shippingSavingsForPromo(promo: ActivePromotion, carrierPrice: number): 
   return carrierPrice; // FREE_SHIPPING legacy = 100 %
 }
 
-function clientDiscountSavingsOnItem(client: ClientDiscountForCumul, unitPrice: number): number {
-  if (unitPrice <= 0) return 0;
-  if (client.type === "PERCENT") {
-    return Math.max(0, unitPrice * (client.value / 100));
-  }
-  // AMOUNT — non traité au niveau item (appliqué en fin dans order-pricing).
-  return 0;
-}
-
 function clientShippingSavings(
   client: ClientShippingDiscountForCumul,
   carrierPrice: number,
@@ -186,20 +169,23 @@ export function resolveBestItemDiscount(
   item: ItemPromoContext,
   activePromos: ActivePromotion[],
   appliedCodePromo: ActivePromotion | null = null,
-  clientDiscount: ClientDiscountForCumul | null = null,
 ): ResolvedItemDiscount {
-  // Client discount participe au cumul cascade uniquement en mode PERCENT.
-  // AMOUNT sera appliqué en fin de commande dans order-pricing.
-  const clientPercentForStack = clientDiscount && clientDiscount.type === "PERCENT"
-    ? clientDiscount
-    : null;
-
-  // ── 1. Cluster cumulable : cascade multiplicative + ceilCent à chaque palier ─
-  // Chaque promo stackable ciblant l'item s'applique sur le prix courant, puis
-  // la remise commerciale client s'applique aussi en cascade sur le résiduel.
-  // Règle métier : arrondi au centime supérieur (ceilCent) à chaque palier.
+  // ── 1. Cluster cumulable : remise fiche produit puis promos stackable ──
+  // Cascade multiplicative, troncature au centime à chaque palier.
+  // La remise fiche produit est toujours cumulée en tête ; les promos AUTO
+  // (et un éventuel code) stackable ciblant l'item s'ajoutent ensuite.
   let cascadePrice = item.unitPrice;
   let stackFirstPromo: ActivePromotion | null = null;
+  let stackHasManual = false;
+  let stackHasAnyPromo = false;
+
+  if (item.productDiscountPercent > 0) {
+    const saved = Math.min(cascadePrice, cascadePrice * (item.productDiscountPercent / 100));
+    if (saved > 0) {
+      cascadePrice = Math.max(0, ceilCent(cascadePrice - saved));
+      stackHasManual = true;
+    }
+  }
 
   for (const promo of activePromos) {
     if (promo.type !== "AUTO") continue;
@@ -209,6 +195,7 @@ export function resolveBestItemDiscount(
     if (saved > 0) {
       cascadePrice = Math.max(0, ceilCent(cascadePrice - saved));
       if (!stackFirstPromo) stackFirstPromo = promo;
+      stackHasAnyPromo = true;
     }
   }
   if (appliedCodePromo && appliedCodePromo.stackable && promotionTargetsItem(appliedCodePromo, item)) {
@@ -216,35 +203,22 @@ export function resolveBestItemDiscount(
     if (saved > 0) {
       cascadePrice = Math.max(0, ceilCent(cascadePrice - saved));
       if (!stackFirstPromo) stackFirstPromo = appliedCodePromo;
+      stackHasAnyPromo = true;
     }
   }
-  const stackHasAnyPromo = stackFirstPromo != null;
-  const priceAfterPromosStack = cascadePrice; // avant remise client
-
-  let stackHasClient = false;
-  if (clientPercentForStack && stackHasAnyPromo) {
-    const saved = clientDiscountSavingsOnItem(clientPercentForStack, cascadePrice);
-    if (saved > 0) {
-      cascadePrice = Math.max(0, ceilCent(cascadePrice - saved));
-      stackHasClient = true;
-    }
-  }
+  const stackActive = stackHasManual || stackHasAnyPromo;
   const stackSaved = item.unitPrice - cascadePrice;
 
   // ── 2. Candidats « seul » (meilleure gagne) ───────────────────
-  //   Remise manuelle produit, chaque promo non-stackable, code non-stackable,
-  //   et remise commerciale client (seule, si aucune promo stackable ne s'est
-  //   déclenchée pour ne pas la compter deux fois — sinon elle vit dans le
-  //   cluster ci-dessus).
+  //   Remise manuelle seule + chaque promo non-stackable ciblant l'item.
   const soloCandidates: Array<{
     saved: number;
-    source: "product" | "promotion" | "client";
+    source: "product" | "promotion";
     promotion?: ActivePromotion;
   }> = [];
 
   if (item.productDiscountPercent > 0) {
     const rawSaved = Math.min(item.unitPrice, item.unitPrice * (item.productDiscountPercent / 100));
-    // On enregistre l'économie qui produira un finalPrice = ceilCent(unitPrice - rawSaved).
     const finalPrice = Math.max(0, ceilCent(item.unitPrice - rawSaved));
     soloCandidates.push({ saved: item.unitPrice - finalPrice, source: "product" });
   }
@@ -265,19 +239,12 @@ export function resolveBestItemDiscount(
       soloCandidates.push({ saved: item.unitPrice - finalPrice, source: "promotion", promotion: appliedCodePromo });
     }
   }
-  if (clientPercentForStack) {
-    const rawSaved = clientDiscountSavingsOnItem(clientPercentForStack, item.unitPrice);
-    if (rawSaved > 0) {
-      const finalPrice = Math.max(0, ceilCent(item.unitPrice - rawSaved));
-      soloCandidates.push({ saved: item.unitPrice - finalPrice, source: "client" });
-    }
-  }
 
   soloCandidates.sort((a, b) => b.saved - a.saved);
   const bestSolo = soloCandidates[0];
 
   // ── 3. Choix final : max(cascade cumulée, meilleur candidat seul) ─
-  const useStack = stackHasAnyPromo && stackSaved >= (bestSolo?.saved ?? 0);
+  const useStack = stackActive && stackSaved >= (bestSolo?.saved ?? 0);
 
   if (!useStack && !bestSolo) {
     return {
@@ -287,7 +254,6 @@ export function resolveBestItemDiscount(
       source: "none",
       promotion: null,
       stacked: false,
-      savedByClientDiscount: 0,
     };
   }
 
@@ -296,17 +262,16 @@ export function resolveBestItemDiscount(
     const displayPercent = item.unitPrice > 0
       ? Math.round((stackSaved / item.unitPrice) * 100)
       : 0;
-    const savedByClientDiscount = stackHasClient
-      ? Math.max(0, priceAfterPromosStack - cascadePrice)
-      : 0;
+    // Si au moins une promo participe au cluster → source "stack" (badge Promo
+    // ancré sur la promo). Sinon seule la remise fiche joue → source "product".
+    const source: "product" | "stack" = stackHasAnyPromo ? "stack" : "product";
     return {
       finalUnitPrice,
       savedPerUnit: stackSaved,
       displayPercent,
-      source: "stack",
+      source,
       promotion: stackFirstPromo,
-      stacked: true,
-      savedByClientDiscount,
+      stacked: stackHasAnyPromo,
     };
   }
 
@@ -323,137 +288,80 @@ export function resolveBestItemDiscount(
     source: best.source,
     promotion: best.promotion ?? null,
     stacked: false,
-    savedByClientDiscount: best.source === "client" ? best.saved : 0,
   };
 }
 
 /**
- * Décompose l'affichage prix d'une carte / fiche produit en 3 paliers
- * pour la cascade « prix initial → prix après promo → prix final client ».
- * Renvoie aussi `showPromoBadge` : true dès qu'une promo produit est active
- * (remise manuelle, AUTO ciblant, code stackable ciblant), indépendamment
- * de la remise commerciale du client.
- */
-/**
  * Version « côté client » ultra-légère : ne dépend pas d'ActivePromotion.
- * Reçoit directement le `productDiscountPercent` (déjà résolu au badge, cf.
- * `enrichProductsWithBestPromoPercent`) et applique la cascade
- * (produit → client). Utilisé par les cards / la fiche produit pour afficher
- * les 3 paliers de prix.
+ * Reçoit directement le `productDiscountPercent` cumulé (déjà résolu par
+ * `enrichProductsWithBestPromoPercent`, = cascade remise fiche + promo AUTO
+ * ciblante) et l'applique. La remise commerciale du client n'entre pas dans
+ * ce calcul — elle est appliquée une seule fois sur le total panier.
  */
 export interface CardPriceCascade {
   basePrice: number;
-  priceAfterPromo: number;
   finalPrice: number;
   hasPromo: boolean;
-  hasClient: boolean;
   promoPercent: number;
-  clientPercent: number;
-  totalPercent: number;
 }
 
 export function computeCardPriceCascade(
   basePrice: number,
   productDiscountPercent?: number | null,
-  clientDiscount?: { discountType: "PERCENT" | "AMOUNT"; discountValue: number } | null,
 ): CardPriceCascade {
   const promoPercent = productDiscountPercent && productDiscountPercent > 0
     ? productDiscountPercent
     : 0;
-  const priceAfterPromo = promoPercent > 0
+  const finalPrice = promoPercent > 0
     ? Math.max(0, ceilCent(basePrice * (1 - promoPercent / 100)))
     : basePrice;
 
-  let finalPrice = priceAfterPromo;
-  let clientPercent = 0;
-  if (clientDiscount && clientDiscount.discountValue > 0) {
-    if (clientDiscount.discountType === "PERCENT") {
-      clientPercent = clientDiscount.discountValue;
-      finalPrice = Math.max(0, ceilCent(priceAfterPromo * (1 - clientDiscount.discountValue / 100)));
-    } else {
-      const cutAbs = Math.min(clientDiscount.discountValue, priceAfterPromo);
-      finalPrice = Math.max(0, ceilCent(priceAfterPromo - clientDiscount.discountValue));
-      clientPercent = priceAfterPromo > 0 ? Math.round((cutAbs / priceAfterPromo) * 100) : 0;
-    }
-  }
-
-  const hasPromo = promoPercent > 0;
-  const hasClient = finalPrice < priceAfterPromo - 0.005;
-  const totalPercent = basePrice > 0
-    ? Math.round(((basePrice - finalPrice) / basePrice) * 100)
-    : 0;
-
   return {
     basePrice,
-    priceAfterPromo,
     finalPrice,
-    hasPromo,
-    hasClient,
+    hasPromo: promoPercent > 0,
     promoPercent,
-    clientPercent,
-    totalPercent,
   };
 }
 
 export interface ResolvedCardPricing {
   basePrice: number;
-  priceAfterPromo: number;   // = basePrice si aucune promo produit
-  finalPrice: number;        // = priceAfterPromo si pas de remise client applicable
-  promoPercent: number;      // 0..100 — remise attribuable aux promos (arrondi)
-  clientPercent: number;     // 0..100 — remise attribuable au client (arrondi)
-  totalPercent: number;      // 0..100 — remise totale affichée (arrondi)
-  hasPromo: boolean;         // true si un badge Promo doit s'afficher
-  hasClient: boolean;        // true si la remise client contribue au prix final
+  finalPrice: number;         // = basePrice si aucune remise/promo produit
+  promoPercent: number;       // 0..100 — remise totale appliquée sur la fiche produit
+  hasPromo: boolean;          // true si un badge Promo doit s'afficher
+  hasAutoPromotion: boolean;  // true si au moins une promo AUTO cible le produit
 }
 
 export function resolveCardPricing(
   item: ItemPromoContext,
   activePromos: ActivePromotion[],
-  clientDiscount: ClientDiscountForCumul | null = null,
 ): ResolvedCardPricing {
   const basePrice = item.unitPrice;
+  const resolved = resolveBestItemDiscount(item, activePromos, null);
 
-  const withoutClient = resolveBestItemDiscount(item, activePromos, null, null);
-  const withClient = resolveBestItemDiscount(item, activePromos, null, clientDiscount);
-
-  const priceAfterPromo = withoutClient.finalUnitPrice;
-  const finalPrice = withClient.finalUnitPrice;
-
-  // Y a-t-il une vraie promo (badge à afficher) ?
-  const hasPromo = withoutClient.source === "product"
-    || withoutClient.source === "promotion"
-    || withoutClient.source === "stack";
-
-  const hasClient = finalPrice < priceAfterPromo - 0.005;
-
+  const finalPrice = resolved.finalUnitPrice;
+  const hasPromo = resolved.source !== "none";
+  const hasAutoPromotion = activePromos.some(
+    (p) => p.type === "AUTO" && p.scope !== "SHIPPING" && promotionTargetsItem(p, item),
+  );
   const promoPercent = basePrice > 0 && hasPromo
-    ? Math.round(((basePrice - priceAfterPromo) / basePrice) * 100)
-    : 0;
-  const clientPercent = hasClient && priceAfterPromo > 0
-    ? Math.round(((priceAfterPromo - finalPrice) / priceAfterPromo) * 100)
-    : 0;
-  const totalPercent = basePrice > 0
     ? Math.round(((basePrice - finalPrice) / basePrice) * 100)
     : 0;
 
   return {
     basePrice,
-    priceAfterPromo,
     finalPrice,
     promoPercent,
-    clientPercent,
-    totalPercent,
     hasPromo,
-    hasClient,
+    hasAutoPromotion,
   };
 }
 
 /**
- * Meilleur % équivalent pour un badge sur une card produit (avant sélection
- * d'une variante). Compare la remise manuelle aux promotions AUTO ciblant le
- * produit — ignore SHIPPING. Ignore aussi la remise commerciale client
- * (variable selon client, pas affichable sur un badge public).
- * Cumul stackable inclus pour refléter au mieux le prix affiché.
+ * Meilleur % équivalent pour l'affichage sur une card produit. Réutilise le
+ * moteur `resolveBestItemDiscount` avec un item factice à 100 € pour
+ * bénéficier de la même logique (cascade remise fiche + promos stackable vs
+ * meilleure gagne non-stackable).
  */
 export function resolveBestPercentForProductBadge(
   ctx: {
@@ -469,37 +377,11 @@ export function resolveBestPercentForProductBadge(
     categoryId: ctx.categoryId,
     collectionIds: ctx.collectionIds,
     unitPrice: 100,
-    productDiscountPercent: 0,
+    productDiscountPercent: ctx.productDiscountPercent,
   };
-
-  // Candidat cumulable — cascade multiplicative sur 100 (produit).
-  let cascade = 100;
-  let hasAnyStack = false;
-  for (const promo of activePromos) {
-    if (promo.type !== "AUTO") continue;
-    if (promo.scope === "SHIPPING") continue;
-    if (!promo.stackable) continue;
-    if (!promotionTargetsItem(promo, dummyItem)) continue;
-    const saved = itemSavingsForPromo(promo, cascade);
-    if (saved > 0) {
-      cascade = Math.max(0, cascade - saved);
-      hasAnyStack = true;
-    }
-  }
-  const stackSaved = 100 - cascade;
-
-  // Candidats non-stackables + remise manuelle.
-  let bestSolo = ctx.productDiscountPercent > 0 ? ctx.productDiscountPercent : 0;
-  for (const promo of activePromos) {
-    if (promo.type !== "AUTO") continue;
-    if (promo.scope === "SHIPPING") continue;
-    if (promo.stackable) continue;
-    if (!promotionTargetsItem(promo, dummyItem)) continue;
-    const saved = itemSavingsForPromo(promo, 100);
-    if (saved > bestSolo) bestSolo = saved;
-  }
-
-  return Math.round(hasAnyStack ? Math.max(stackSaved, bestSolo) : bestSolo);
+  const noShipping = activePromos.filter((p) => p.scope !== "SHIPPING");
+  const resolved = resolveBestItemDiscount(dummyItem, noShipping, null);
+  return Math.round(100 - resolved.finalUnitPrice);
 }
 
 export function resolveBestShippingDiscount(

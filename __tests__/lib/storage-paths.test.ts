@@ -41,9 +41,11 @@ describe("lib/storage — slugify", () => {
     expect(slugify("foo---bar")).toBe("foo-bar");
   });
 
-  it("keeps accents (UTF-8 filenames are supported)", () => {
-    expect(slugify("Doré")).toBe("doré");
-    expect(slugify("Été 2026")).toBe("été-2026");
+  it("strips accents (URL compat marketplaces — Orderchamp rejette %C3%A9)", () => {
+    expect(slugify("Doré")).toBe("dore");
+    expect(slugify("Été 2026")).toBe("ete-2026");
+    expect(slugify("Ça va")).toBe("ca-va");
+    expect(slugify("Naïve")).toBe("naive");
   });
 
   it("strips Windows-illegal characters", () => {
@@ -92,7 +94,7 @@ describe("lib/storage — slugify", () => {
   });
 
   it("productImageBaseName strips parentheses from reference", () => {
-    expect(productImageBaseName("A2251(2)", "Doré", 1)).toBe("a2251_2-doré-1");
+    expect(productImageBaseName("A2251(2)", "Doré", 1)).toBe("a2251_2-dore-1");
   });
 });
 
@@ -102,8 +104,8 @@ describe("lib/storage — path helpers", () => {
     expect(productImageDir("ref 123")).toBe("uploads/produits/ref-123");
   });
 
-  it("productImageBaseName with color → ref-color-n", () => {
-    expect(productImageBaseName("E310B", "Doré", 1)).toBe("e310b-doré-1");
+  it("productImageBaseName with color → ref-color-n (accents strippés)", () => {
+    expect(productImageBaseName("E310B", "Doré", 1)).toBe("e310b-dore-1");
     expect(productImageBaseName("REF-123", "Bleu Roi", 3)).toBe("ref-123-bleu-roi-3");
   });
 
@@ -114,12 +116,12 @@ describe("lib/storage — path helpers", () => {
   });
 
   it("productImageBaseName clamps non-positive index to 1", () => {
-    expect(productImageBaseName("E310B", "Doré", 0)).toBe("e310b-doré-1");
+    expect(productImageBaseName("E310B", "Doré", 0)).toBe("e310b-dore-1");
     expect(productImageBaseName("E310B", null, -3)).toBe("e310b-1");
   });
 
-  it("collectionImageDir uses slug", () => {
-    expect(collectionImageDir("Été 2026")).toBe("uploads/collections/été-2026");
+  it("collectionImageDir uses slug (accents strippés)", () => {
+    expect(collectionImageDir("Été 2026")).toBe("uploads/collections/ete-2026");
   });
 
   it("kbisDir / clientDocumentsDir live under private/", () => {

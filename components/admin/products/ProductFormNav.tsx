@@ -86,18 +86,14 @@ export { computeSectionsProgress, SECTIONS };
 
 interface ProductFormNavProps {
   checklistInput: ChecklistInput;
-  productStatus?: "OFFLINE" | "ONLINE" | "ARCHIVED" | "SYNCING";
   hasUnsavedChanges?: boolean;
-  mode?: "create" | "edit";
   activeSection?: ProductFormSectionKey;
   onSectionChange?: (key: ProductFormSectionKey) => void;
 }
 
 export default function ProductFormNav({
   checklistInput,
-  productStatus,
   hasUnsavedChanges,
-  mode,
   activeSection,
   onSectionChange,
 }: ProductFormNavProps) {
@@ -115,115 +111,61 @@ export default function ProductFormNav({
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const overallStatusLabel = (() => {
-    if (productStatus === "ARCHIVED") return "Archivé";
-    if (productStatus === "ONLINE") return "En ligne";
-    if (productStatus === "SYNCING") return "Publication en cours";
-    return mode === "create" ? "Nouveau brouillon" : "Hors ligne";
-  })();
-
-  const overallStatusTone = (() => {
-    if (productStatus === "ONLINE") return "online";
-    if (productStatus === "ARCHIVED") return "archived";
-    if (productStatus === "SYNCING") return "syncing";
-    return "offline";
-  })();
+  const orderedSections = GROUP_ORDER.flatMap((g) =>
+    SECTIONS.filter((s) => s.group === g),
+  );
 
   return (
     <nav
       aria-label="Sections du formulaire produit"
       data-testid="product-form-nav"
-      className="hidden xl:block xl:sticky xl:top-4 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto bg-bg-primary border border-border rounded-2xl p-3 shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+      className="hidden md:block sticky top-2 z-10 bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
     >
-      {GROUP_ORDER.map((groupName) => {
-        const sectionsInGroup = SECTIONS.filter((s) => s.group === groupName);
-        return (
-          <div key={groupName} className="mb-4 last:mb-0">
-            <p className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted mb-1.5 px-2 pt-1">
-              {groupName}
-            </p>
-            <ul className="space-y-0.5">
-              {sectionsInGroup.map((sec) => {
-                const p = progress[sec.key];
-                const isActive = sec.key === activeKey;
-                return (
-                  <li key={sec.key}>
-                    <button
-                      type="button"
-                      onClick={() => handleClick(sec.key)}
-                      aria-current={isActive ? "true" : undefined}
-                      data-testid={`nav-${sec.key}`}
-                      className={`group relative w-full text-left px-2.5 py-2 rounded-lg transition-colors flex items-center gap-2.5 ${
-                        isActive
-                          ? "bg-bg-dark text-text-inverse"
-                          : "hover:bg-bg-secondary text-text-primary"
-                      }`}
-                    >
-                      <span className="text-[15px] leading-none shrink-0" aria-hidden>
-                        {sec.icon}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span
-                          className={`block text-[13px] font-semibold font-body leading-tight ${
-                            isActive ? "text-text-inverse" : "text-text-primary"
-                          }`}
-                        >
-                          {sec.label}
-                        </span>
-                      </span>
-                      <SectionDot progress={p} isActive={isActive} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        );
-      })}
+      <div className="flex flex-wrap items-center gap-y-1 px-3 py-2">
+        {orderedSections.map((sec, idx) => {
+          const p = progress[sec.key];
+          const isActive = sec.key === activeKey;
+          return (
+            <div key={sec.key} className="flex items-center">
+              {idx > 0 && (
+                <span
+                  aria-hidden
+                  className="w-px h-5 bg-border mx-1"
+                  data-testid="nav-section-separator"
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => handleClick(sec.key)}
+                aria-current={isActive ? "true" : undefined}
+                data-testid={`nav-${sec.key}`}
+                title={sec.hint}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full transition-colors font-body ${
+                  isActive
+                    ? "bg-bg-dark text-text-inverse text-[13px] font-semibold"
+                    : "hover:bg-bg-secondary text-text-primary text-[13px] font-medium"
+                }`}
+              >
+                <span className="text-[14px] leading-none shrink-0" aria-hidden>
+                  {sec.icon}
+                </span>
+                <span className="whitespace-nowrap">{sec.label}</span>
+                <SectionDot progress={p} isActive={isActive} />
+              </button>
+            </div>
+          );
+        })}
 
-      <div className="mt-3 pt-3 border-t border-border space-y-2">
-        <span
-          data-testid="nav-status"
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold font-body w-full justify-center ${
-            overallStatusTone === "online"
-              ? "bg-[#DCFCE7] text-[#15803D] border border-[#BBF7D0]"
-              : overallStatusTone === "archived"
-                ? "bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]"
-                : overallStatusTone === "syncing"
-                  ? "bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA]"
-                  : "bg-[#F3E8FF] text-[#7C3AED] border border-[#DDD6FE]"
-          }`}
-        >
-          {overallStatusTone === "syncing" && (
-            <svg
-              className="w-3 h-3 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-              />
-            </svg>
-          )}
-          {overallStatusLabel}
-        </span>
         {hasUnsavedChanges && (
-          <p
-            data-testid="nav-unsaved"
-            className="text-[10px] text-[#C2410C] font-body text-center"
-          >
-            Modifications non enregistrées
-          </p>
+          <div className="flex items-center ml-auto pl-2">
+            <span
+              data-testid="nav-unsaved"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold font-body bg-[#FFF7ED] text-[#C2410C] border border-[#FED7AA] whitespace-nowrap"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#EA580C] animate-pulse" />
+              Modifications non enregistrées
+            </span>
+          </div>
         )}
       </div>
     </nav>

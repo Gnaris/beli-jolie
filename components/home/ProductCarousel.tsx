@@ -39,6 +39,7 @@ export interface CarouselProduct {
   isBestSeller: boolean;
   isNew: boolean;
   discountPercent: number | null;
+  hasAutoPromotion?: boolean;
 }
 
 export interface ClientDiscountInfo {
@@ -171,6 +172,7 @@ export default function ProductCarousel({
                   isBestSeller={p.isBestSeller}
                   isNew={p.isNew}
                   discountPercent={p.discountPercent}
+                  hasAutoPromotion={p.hasAutoPromotion ?? false}
                   clientDiscount={clientDiscount}
                   isFavorite={favSet?.has(p.id) ?? false}
                 />

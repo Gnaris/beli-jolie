@@ -2477,12 +2477,10 @@ export default function ProductForm({
 
   return (
     <>
-      <div className="xl:grid xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-6 xl:items-start">
+      <div className="space-y-4">
         <ProductFormNav
           checklistInput={checklistInput}
-          productStatus={productStatus}
           hasUnsavedChanges={hasUnsavedChanges}
-          mode={mode}
           activeSection={activeSection}
           onSectionChange={setActiveSection}
         />

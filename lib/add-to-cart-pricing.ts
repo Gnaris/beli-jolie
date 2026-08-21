@@ -30,24 +30,22 @@ export function pricePerUnit(v: CartVariant): number {
   return p;
 }
 
-/** Applique remise produit puis remise client (PERCENT ou AMOUNT). Ne descend jamais sous 0. */
+/**
+ * Applique la cascade produit (remise fiche + promo AUTO déjà résolue en amont
+ * dans `productDiscountPercent`). La remise commerciale client n'entre plus
+ * ici : elle est appliquée sur le total panier uniquement. On garde la
+ * signature avec `clientDiscount` optionnel pour la rétrocompatibilité mais
+ * elle est ignorée.
+ */
 export function applyDiscount(
   price: number,
   productDiscountPercent?: number | null,
-  clientDiscount?: ClientDiscount | null,
+  _clientDiscount?: ClientDiscount | null,
 ): number {
-  let p = price;
   if (productDiscountPercent && productDiscountPercent > 0) {
-    p = Math.max(0, p * (1 - productDiscountPercent / 100));
+    return Math.max(0, price * (1 - productDiscountPercent / 100));
   }
-  if (clientDiscount) {
-    if (clientDiscount.discountType === "PERCENT") {
-      p = Math.max(0, p * (1 - clientDiscount.discountValue / 100));
-    } else {
-      p = Math.max(0, p - clientDiscount.discountValue);
-    }
-  }
-  return p;
+  return price;
 }
 
 /** Stock effectif : pour un PACK, on divise par la taille du pack (nb de paquets vendables). */
@@ -67,7 +65,7 @@ export function computeCartSummary(
   colors: CartColor[],
   quantities: Record<string, number>,
   productDiscountPercent?: number | null,
-  clientDiscount?: ClientDiscount | null,
+  _clientDiscount?: ClientDiscount | null,
 ): { totalItems: number; totalPacks: number; totalPrice: number } {
   let totalItems = 0;
   let totalPacks = 0;
@@ -78,7 +76,7 @@ export function computeCartSummary(
       if (qty <= 0) continue;
       totalItems += qty;
       if (v.saleType === "PACK") totalPacks += qty;
-      const unit = applyDiscount(pricePerUnit(v), productDiscountPercent, clientDiscount);
+      const unit = applyDiscount(pricePerUnit(v), productDiscountPercent);
       const packQty = v.saleType === "PACK" && v.packQuantity ? v.packQuantity : 1;
       totalPrice += unit * packQty * qty;
     }

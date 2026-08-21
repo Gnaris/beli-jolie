@@ -96,8 +96,10 @@ describe("Refonte Ardoise fiche produit — layout onglets", () => {
     }
   });
 
-  it("le picker mobile existe et est masqué sur desktop (xl:hidden)", () => {
-    expect(PICKER).toContain("xl:hidden");
+  it("le picker mobile existe et est masqué dès la tablette (md:hidden)", () => {
+    // Bascule 2026-08-21 : au-dessus de md la barre horizontale wrappée prend
+    // la main, en dessous on garde le picker modal compact pour les phones.
+    expect(PICKER).toContain("md:hidden");
     expect(PICKER).toContain("Section actuelle");
     expect(PICKER).toContain("onSectionChange");
     // Utilisé dans ProductForm

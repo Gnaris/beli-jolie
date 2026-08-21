@@ -38,6 +38,8 @@ export interface FavoritesGridItem {
   isNew:        boolean;
   /** Meilleur % de remise applicable (manuel + promos AUTO ciblantes). */
   discountPercent: number | null;
+  /** Vrai si au moins une promo AUTO cible le produit. */
+  hasAutoPromotion: boolean;
 }
 
 interface Props {
@@ -77,6 +79,7 @@ export default function FavoritesGrid({ items, clientDiscount }: Props) {
           isBestSeller={p.isBestSeller}
           isNew={p.isNew}
           discountPercent={p.discountPercent}
+          hasAutoPromotion={p.hasAutoPromotion}
           clientDiscount={clientDiscount}
           onFavoriteChange={(isFav) => handleFavoriteChange(p.id, isFav)}
         />

@@ -50,7 +50,14 @@ interface ProductCardProps {
   isFavorite?: boolean;
   isBestSeller?: boolean;
   isNew?: boolean;
+  /**
+   * Cascade cumulée (remise fiche + promos AUTO stackable ciblant le produit),
+   * OU meilleure promo non-stackable seule. Ne contient JAMAIS la remise
+   * commerciale client — celle-ci est appliquée uniquement sur le total panier.
+   */
   discountPercent?: number | null;
+  /** Vrai si au moins une promo AUTO (/admin/promotions) cible le produit. */
+  hasAutoPromotion?: boolean;
   clientDiscount?: ClientDiscountInfo | null;
   filteredColorIds?: string[];
   onFavoriteChange?: (isFavorite: boolean) => void;
@@ -65,17 +72,9 @@ function variantPricePerUnit(v: VariantData): number {
   return price;
 }
 
-function applyDiscounts(
-  price: number,
-  productDiscountPercent?: number | null,
-  clientDiscount?: ClientDiscountInfo | null,
-): number {
-  return computeCardPriceCascade(price, productDiscountPercent, clientDiscount).finalPrice;
-}
-
 export default function ProductCard({
   id, name, reference, category, subCategory, colors, tags = [], isFavorite = false,
-  isBestSeller = false, isNew = false, discountPercent, clientDiscount, filteredColorIds = [], onFavoriteChange,
+  isBestSeller = false, isNew = false, discountPercent, hasAutoPromotion = false, clientDiscount, filteredColorIds = [], onFavoriteChange,
 }: ProductCardProps) {
   const { data: session } = useSession();
   const { tp, tc } = useProductTranslation();
@@ -114,7 +113,8 @@ export default function ProductCard({
   const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
 
   // ── Prix affiché : première variante UNIT (fallback = première variante) ──
-  // Cascade en 3 paliers : base → après promo → après remise client.
+  // Cascade produit UNIQUEMENT (remise fiche + promo AUTO stackable).
+  // La remise commerciale client s'applique en fin de panier, pas ici.
   const priceStats = (() => {
     const pool = visibleColors.length > 0 ? visibleColors : colors;
     const allVariants: VariantData[] = [];
@@ -126,16 +126,12 @@ export default function ProductCard({
     if (allVariants.length === 0) return null;
     const refVariant = allVariants.find((v) => v.saleType === "UNIT") ?? allVariants[0];
     const rawPrice = variantPricePerUnit(refVariant);
-    const cascade = computeCardPriceCascade(rawPrice, discountPercent, clientDiscount);
+    const cascade = computeCardPriceCascade(rawPrice, discountPercent);
     return {
       rawPrice,
-      priceAfterPromo: cascade.priceAfterPromo,
       finalPrice: cascade.finalPrice,
       hasPromo: cascade.hasPromo,
-      hasClient: cascade.hasClient,
       promoPercent: cascade.promoPercent,
-      clientPercent: cascade.clientPercent,
-      totalPercent: cascade.totalPercent,
     };
   })();
 
@@ -180,11 +176,9 @@ export default function ProductCard({
             </div>
           )}
 
-          {/* Badges — max 2 */}
+          {/* Badges gauche — Stock/BestSeller/New (max 2) */}
           <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5">
             {(() => {
-              // Badge « Promo » retiré volontairement — les promotions ne s'affichent
-              // qu'au récap du panier (règle métier révisée).
               const badges: { label: string; bg: string }[] = [];
               if (allOutOfStock) badges.push({ label: t("outOfStock"), bg: "bg-text-secondary" });
               if (isBestSeller) badges.push({ label: t("badgeBestSeller"), bg: "bg-warning" });
@@ -197,8 +191,13 @@ export default function ProductCard({
             })()}
           </div>
 
-          {/* Favori + coloris count */}
-          <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          {/* Coin haut-droit : badge Promo + favori + coloris count */}
+          <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5">
+            {(hasAutoPromotion || anyVariantHasDiscount) && (
+              <span className="bg-error text-text-inverse text-[11px] font-bold font-heading px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm">
+                {t("badgePromo")}
+              </span>
+            )}
             {visibleColors.length > 1 && (
               <span className="bg-bg-primary text-text-muted text-[9px] font-body px-1.5 py-0.5 rounded-full border border-border">
                 {t("colorCount", { count: visibleColors.length })}
@@ -299,11 +298,8 @@ export default function ProductCard({
         )}
 
         {/* Prix affiché :
-             • Prix catalogue de base par défaut.
-             • Si UNIQUEMENT la remise manuelle sur variante est active (champ « Remise »
-               dans /admin/produits/[id] section variante) → prix barré + prix rouge.
-             • Les promotions issues de /admin/promotions et la remise commerciale
-               client ne s'appliquent QUE dans le récap du panier. */}
+             • Prix produit final = prix initial − remise fiche − promotion (cascade).
+             • Remise commerciale client appliquée uniquement au total panier. */}
         <div>
           {showPrices && priceStats ? (
             <div className="flex items-baseline gap-1 flex-wrap">
@@ -313,7 +309,7 @@ export default function ProductCard({
                     {priceStats.rawPrice.toFixed(2)} &euro;
                   </span>
                   <span className="font-heading font-semibold text-xs sm:text-sm text-error">
-                    {priceStats.priceAfterPromo.toFixed(2)} &euro;
+                    {priceStats.finalPrice.toFixed(2)} &euro;
                   </span>
                 </>
               ) : (

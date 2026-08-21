@@ -23,6 +23,7 @@ type ProductItem = {
   createdAt?:    string | Date;
   lastRefreshedAt?: string | Date | null;
   discountPercent?: number | null;
+  hasAutoPromotion?: boolean;
   category:      { name: string };
   subCategories: { name: string }[];
   tags:          { tag: { id: string; name: string } }[];
@@ -183,6 +184,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
             tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
             colors={product.colors}
             discountPercent={product.discountPercent}
+            hasAutoPromotion={product.hasAutoPromotion ?? false}
             clientDiscount={clientDiscount}
             filteredColorIds={filteredColorIds}
           />

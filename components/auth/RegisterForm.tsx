@@ -656,11 +656,11 @@ export default function RegisterForm({
                         <span className="font-medium">{t("wizardTermsLabel")}</span>
                         <span className="block text-xs text-text-muted mt-0.5">
                           {t("wizardTermsDesc")} · {" "}
-                          <Link href="/mentions-legales" className="underline underline-offset-2">
+                          <Link href="/cgu" target="_blank" className="underline underline-offset-2">
                             {t("wizardTermsCgu")}
                           </Link>
                           {" · "}
-                          <Link href="/politique-confidentialite" className="underline underline-offset-2">
+                          <Link href="/confidentialite" target="_blank" className="underline underline-offset-2">
                             {t("wizardTermsPrivacy")}
                           </Link>
                         </span>

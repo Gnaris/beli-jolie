@@ -227,7 +227,13 @@ export async function listFiles(prefix: string): Promise<string[]> {
 export function slugify(input: string): string {
   if (input == null) return "sans-nom";
   const stripped = String(input)
-    .normalize("NFC")
+    // Décompose les caractères accentués en base + diacritique (NFD) puis
+    // retire les diacritiques (`é` → `e`, `à` → `a`, `ç` → `c`…). Sans
+    // ça, les URLs marketplaces contiennent `%C3%A9` (`é` encodé) qui
+    // fait échouer Orderchamp avec « Invalid attachment » (validateur
+    // strict qui refuse les percent-encoded chars non-ASCII).
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .trim()
     // Strip filesystem-illegal characters and ASCII control chars / null bytes.

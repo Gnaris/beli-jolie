@@ -8,7 +8,6 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { buildProductHandle } from "@/lib/product-url";
 import { setCartItemQuantity } from "@/app/actions/client/cart";
 import type { CartValidationError } from "@/lib/cart-validation";
-import { ceilCent } from "@/lib/promotion-engine";
 import type {
   WizardCart,
   WizardProductsMeta,
@@ -269,23 +268,14 @@ function VariantRow({
   const isOutOfStock = effectiveStock <= 0;
   const displayQty = parseInt(qtyDraft, 10) || 0;
   const isCommanded = displayQty > 0;
-  // Prix serveur (inclut promos AUTO + code + remise manuelle produit).
-  // Fallback = calcul local si pas d'info serveur pour cet item (nouvel item ajouté).
+  // Prix serveur produit final (cascade remise fiche + promo AUTO + code).
+  // La remise commerciale client s'applique une seule fois sur le total panier
+  // (voir SummaryPanel/CheckoutClient), pas ici.
   const serverFinalPrice = cartItemId ? promoInfoByItemId[cartItemId]?.finalUnitPrice ?? null : null;
   const priceAfterPromos = serverFinalPrice ?? computeUnitPrice(variant.unitPrice, discountPercent);
-  // Application de la remise commerciale client par-dessus (cascade + ceilCent).
-  const finalWithClient = (() => {
-    if (!clientDiscount || clientDiscount.value <= 0) return priceAfterPromos;
-    if (clientDiscount.type === "PERCENT") {
-      return Math.max(0, ceilCent(priceAfterPromos * (1 - clientDiscount.value / 100)));
-    }
-    // AMOUNT n'est pas appliqué par ligne (traité au global côté récap).
-    return priceAfterPromos;
-  })();
-  const unitPrice = finalWithClient;
+  const unitPrice = priceAfterPromos;
   const lineTotal = unitPrice * displayQty;
-  const hasAnyReduction = priceAfterPromos < variant.unitPrice - 0.005
-    || finalWithClient < priceAfterPromos - 0.005;
+  const hasAnyReduction = priceAfterPromos < variant.unitPrice - 0.005;
 
   function commitToServer(nextQty: number) {
     dirtyRef.current = true;
