@@ -69,6 +69,29 @@ describe("lib/storage — slugify", () => {
   it("handles multi-color labels (Brun + Kaki)", () => {
     expect(slugify("Brun + Kaki")).toBe("brun-+-kaki");
   });
+
+  it("converts (N) duplicate suffix to _N (Orderchamp URL compat)", () => {
+    // Référence type `A2251(2)` = doublon BJ. Orderchamp rejette les
+    // parenthèses non-encodées comme « Invalid attachment ». Doit être
+    // rendu comme `a2251_2` dans le path fichier.
+    expect(slugify("A2251(2)")).toBe("a2251_2");
+    expect(slugify("REF-42(3)")).toBe("ref-42_3");
+    expect(slugify("A(10)")).toBe("a_10");
+  });
+
+  it("converts orphan parentheses to _ (defensive fallback)", () => {
+    // Parenthèses sans chiffre à l'intérieur : remplacées par `_`.
+    expect(slugify("A(B)C")).toBe("a_b_c");
+    expect(slugify("test(abc)")).toBe("test_abc_");
+  });
+
+  it("productImageDir strips parentheses from reference", () => {
+    expect(productImageDir("A2251(2)")).toBe("uploads/produits/a2251_2");
+  });
+
+  it("productImageBaseName strips parentheses from reference", () => {
+    expect(productImageBaseName("A2251(2)", "Doré", 1)).toBe("a2251_2-doré-1");
+  });
 });
 
 describe("lib/storage — path helpers", () => {

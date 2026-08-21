@@ -3161,75 +3161,27 @@ export default function ProductForm({
           )}
 
           {/* ── Bloc Remise (s'applique à toutes les variantes du produit) ── */}
-          <div hidden={activeSection !== "var"} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end bg-gradient-to-br from-bg-primary to-bg-secondary border border-border rounded-xl p-4">
-            <div>
-              <label htmlFor="product-discount" className="block text-xs font-body font-semibold text-text-primary mb-1">
-                Remise appliquée (%)
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="product-discount"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  placeholder="Aucune remise"
-                  value={discountPercent}
-                  onChange={(e) => setDiscountPercent(e.target.value)}
-                  className="field-input w-32 text-right"
-                />
-                <span className="text-sm font-semibold text-text-secondary">%</span>
-              </div>
-              <p className="text-[11px] text-text-muted font-body mt-1">
-                S'applique à toutes les variantes du produit.
-              </p>
+          <div hidden={activeSection !== "var"} className="bg-gradient-to-br from-bg-primary to-bg-secondary border border-border rounded-xl p-4">
+            <label htmlFor="product-discount" className="block text-xs font-body font-semibold text-text-primary mb-1">
+              Remise appliquée (%)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="product-discount"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                placeholder="Aucune remise"
+                value={discountPercent}
+                onChange={(e) => setDiscountPercent(e.target.value)}
+                className="field-input w-32 text-right"
+              />
+              <span className="text-sm font-semibold text-text-secondary">%</span>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] font-body font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Aperçu
-              </div>
-              {(() => {
-                const disc = discountPercent ? parseFloat(discountPercent) : 0;
-                const prices = variants
-                  .map((v) => parseFloat(v.unitPrice))
-                  .filter((n) => !isNaN(n) && n > 0);
-                if (prices.length === 0) {
-                  return <div className="font-heading font-extrabold text-lg text-text-muted mt-1">—</div>;
-                }
-                const fmt = (n: number) =>
-                  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
-                // Troncature au centime — cohérent avec le pricing panier (jamais Math.round).
-                const trunc = (n: number) => Math.floor(n * 100) / 100;
-                if (disc > 0 && disc <= 100) {
-                  const min = Math.min(...prices);
-                  const max = Math.max(...prices);
-                  const minAfter = trunc(min * (1 - disc / 100));
-                  const maxAfter = trunc(max * (1 - disc / 100));
-                  const rangeAfter =
-                    min === max ? fmt(minAfter) : `${fmt(minAfter)} → ${fmt(maxAfter)}`;
-                  const rangeBefore = min === max ? fmt(min) : `${fmt(min)} → ${fmt(max)}`;
-                  return (
-                    <div className="flex flex-col items-end mt-1">
-                      <span className="font-heading font-extrabold text-lg text-[#B91C1C]">
-                        {rangeAfter}
-                      </span>
-                      <span className="text-xs text-text-muted line-through">{rangeBefore}</span>
-                      <span className="text-[10px] text-text-muted mt-0.5">
-                        Chaque variante conserve son propre prix — la remise s'applique
-                        individuellement.
-                      </span>
-                    </div>
-                  );
-                }
-                const min = Math.min(...prices);
-                const max = Math.max(...prices);
-                return (
-                  <div className="font-heading font-extrabold text-lg text-text-primary mt-1">
-                    {min === max ? fmt(min) : `${fmt(min)} → ${fmt(max)}`}
-                  </div>
-                );
-              })()}
-            </div>
+            <p className="text-[11px] text-text-muted font-body mt-1">
+              S'applique à toutes les variantes du produit.
+            </p>
           </div>
 
           {(() => {

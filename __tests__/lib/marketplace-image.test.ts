@@ -10,6 +10,7 @@ import sharp from "sharp";
 import {
   buildFaireImageUrl,
   buildMarketplaceImageUrl,
+  buildOrderchampImageUrl,
   ensureMinDimensions,
   ensureMinWidth,
   guessContentType,
@@ -221,6 +222,73 @@ describe("lib/marketplace-image", () => {
       expect(result.resized).toBe(false);
       expect(result.width).toBe(800);
       expect(result.height).toBe(339);
+    });
+  });
+
+  describe("buildOrderchampImageUrl", () => {
+    it("builds a direct static URL to the WebP file (no proxy route)", () => {
+      const url = buildOrderchampImageUrl(
+        "/uploads/beliandjolie/produits/abc/abc-1.webp",
+        "https://example.com",
+      );
+      expect(url).toBe(
+        "https://example.com/uploads/beliandjolie/produits/abc/abc-1.webp",
+      );
+    });
+
+    it("URL-encodes accented characters (é → %C3%A9)", () => {
+      const url = buildOrderchampImageUrl(
+        "/uploads/beliandjolie/produits/ref/ref-doré-1.webp",
+        "https://example.com",
+      );
+      expect(url).toContain("dor%C3%A9");
+    });
+
+    it("URL-encodes parentheses (rejected by Orderchamp validator as Invalid attachment)", () => {
+      // Reproduit le bug 2026-08-21 : référence type `a2251(2)` (doublon BJ)
+      // → Orderchamp rejette « images.0.sourceUrl: Invalid attachment ».
+      const url = buildOrderchampImageUrl(
+        "/uploads/beliandjolie/produits/a2251(2)/a2251(2)-doré-1-msxb0q5b9q0d.webp",
+        "https://example.com",
+      );
+      expect(url).not.toContain("(");
+      expect(url).not.toContain(")");
+      expect(url).toContain("a2251%282%29");
+      expect(url).toContain("dor%C3%A9");
+    });
+
+    it("URL-encodes apostrophes and other sub-delims left alone by encodeURI", () => {
+      // Cas historique Ankor : « Vert d'Eau » avait cassé la publication.
+      // Prévention côté OC : on force le percent-encoding.
+      const url = buildOrderchampImageUrl(
+        "/uploads/beliandjolie/produits/ref/vert-d'eau-1.webp",
+        "https://example.com",
+      );
+      expect(url).toContain("vert-d%27eau-1.webp");
+    });
+
+    it("preserves the slashes between path segments", () => {
+      const url = buildOrderchampImageUrl(
+        "/uploads/a/b/c.webp",
+        "https://example.com",
+      );
+      expect(url).toBe("https://example.com/uploads/a/b/c.webp");
+    });
+
+    it("strips trailing slash from the base", () => {
+      const url = buildOrderchampImageUrl(
+        "/uploads/a.webp",
+        "https://example.com/",
+      );
+      expect(url).toBe("https://example.com/uploads/a.webp");
+    });
+
+    it("adds a leading slash if missing", () => {
+      const url = buildOrderchampImageUrl(
+        "uploads/a.webp",
+        "https://example.com",
+      );
+      expect(url).toBe("https://example.com/uploads/a.webp");
     });
   });
 

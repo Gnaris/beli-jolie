@@ -71,6 +71,12 @@ export function buildFaireImageUrl(dbPath: string, baseOverride?: string): strin
  * attendues (Orderchamp accepte WebP + accepte les images ≥ 500 px). Pas
  * d'upscale côté proxy — les tailles WebP standards de BJ (large ≥ 1024 px)
  * suffisent.
+ *
+ * Encodage strict : `encodeURI` laisse passer `!`, `'`, `(`, `)`, `*` — le
+ * validateur d'Orderchamp rejette au moins les parenthèses (référence type
+ * `a2251(2)` = doublon BJ). On encode chaque segment via `encodeURIComponent`
+ * puis on ré-injecte les `/`, et on force le percent-encoding des sub-delims
+ * restants pour éviter tout autre piège.
  */
 export function buildOrderchampImageUrl(dbPath: string, baseOverride?: string): string {
   const base = (
@@ -80,10 +86,16 @@ export function buildOrderchampImageUrl(dbPath: string, baseOverride?: string): 
     "https://beliandjolie.com"
   ).replace(/\/$/, "");
   const normalized = dbPath.startsWith("/") ? dbPath : `/${dbPath}`;
-  // encodeURI préserve `/` et les caractères URL-safe, mais encode les
-  // caractères non-ASCII (ex : `é` → `%C3%A9`). Sans ça, le parser d'URL
-  // strict d'Orderchamp rejette avec « Cannot represent value as URL ».
-  return `${base}${encodeURI(normalized)}`;
+  const encodedPath = normalized
+    .split("/")
+    .map((segment) =>
+      encodeURIComponent(segment).replace(
+        /[!'()*]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
+    )
+    .join("/");
+  return `${base}${encodedPath}`;
 }
 
 /**

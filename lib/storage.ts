@@ -233,6 +233,12 @@ export function slugify(input: string): string {
     // Strip filesystem-illegal characters and ASCII control chars / null bytes.
     // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\x00-\x1F]/g, "")
+    // Références type `A2251(2)` (doublon) : transforme `(N)` en `_N` pour
+    // éviter les parenthèses dans les URLs marketplaces (Orderchamp rejette
+    // « Invalid attachment » sur les parenthèses non-encodées).
+    .replace(/\((\d+)\)/g, "_$1")
+    // Parenthèses orphelines restantes → `_` (filet de sécurité).
+    .replace(/[()]/g, "_")
     // Whitespace -> "-"
     .replace(/\s+/g, "-")
     // Collapse repeated "-"
