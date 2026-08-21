@@ -335,6 +335,62 @@ export const getCachedEasyExpressApiKey = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Smarty365 API key (from SiteConfig) ────────────────────────────────────
+export const getCachedSmarty365ApiKey = tenantScopedCacheWithTid(
+  "smarty365-api-key",
+  async (tid) => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "smarty365_api_key" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "smarty365_api_key", tenantId: tid } });
+    return row?.value ? decryptIfSensitive("smarty365_api_key", row.value) : null;
+  },
+  ["smarty365-api-key"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+/**
+ * Fournisseur d'expédition actif pour ce tenant.
+ * "easy_express" (défaut) | "smarty365"
+ * Détermine quel provider répond à /api/carriers (checkout client) et par
+ * défaut à la génération du bordereau admin. Chaque commande garde son
+ * provider (Order.shippingProvider) même si l'admin bascule après coup.
+ */
+export type ShippingProvider = "easy_express" | "smarty365";
+
+export const getCachedActiveShippingProvider = tenantScopedCacheWithTid(
+  "active-shipping-provider",
+  async (tid): Promise<ShippingProvider> => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "active_shipping_provider" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "active_shipping_provider", tenantId: tid } });
+    return row?.value === "smarty365" ? "smarty365" : "easy_express";
+  },
+  ["active-shipping-provider"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
+/**
+ * Taux d'assurance Smarty365 appliqué au prix de port pour couvrir le colis
+ * à hauteur de la valeur du panier. Exprimé en % de la valeur HT du panier.
+ * Défaut 0,6 % — taux Claisy "public" observé sur le compte BJ (les niveaux
+ * privés HEXAGONA/Starter/Gold peuvent avoir un taux différent).
+ *
+ * L'assurance est TOUJOURS active (obligatoire côté boutique) : le supplément
+ * est fondu dans le prix de port affiché à la cliente sans mention séparée.
+ */
+export const getCachedSmarty365InsuranceRatePct = tenantScopedCacheWithTid(
+  "smarty365-insurance-rate",
+  async (tid): Promise<number> => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "smarty365_insurance_rate_pct" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "smarty365_insurance_rate_pct", tenantId: tid } });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n >= 0 ? n : 0.6;
+  },
+  ["smarty365-insurance-rate"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Shipping margin (from SiteConfig) ───────────────────────────────────────
 
 export const getCachedShippingMargin = tenantScopedCacheWithTid(

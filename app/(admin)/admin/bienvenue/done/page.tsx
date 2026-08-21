@@ -85,7 +85,7 @@ export default async function DoneStepPage() {
     {
       key: "shipping",
       emoji: "🚚",
-      label: "Livraison Easy-Express",
+      label: "Mode de livraison",
       ok: !!eeRow,
       hint: !eeRow ? "Clé API non renseignée (facultatif)" : undefined,
     },

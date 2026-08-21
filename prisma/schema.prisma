@@ -841,9 +841,9 @@ model OrderchampOrder {
   orderchampOrderId String // ID GraphQL Orderchamp
   displayId         String? // Numéro visible acheteur
 
-  status      OrderchampOrderStatus
-  statusRaw   String // Statut brut retourné par Orderchamp
-  currency    String                @default("EUR")
+  status    OrderchampOrderStatus
+  statusRaw String // Statut brut retourné par Orderchamp
+  currency  String                @default("EUR")
 
   createdAtOrderchamp DateTime
   updatedAtOrderchamp DateTime?
@@ -1087,17 +1087,17 @@ enum ProductStatus {
 
 // Catégorie principale (ex: Colliers, Bracelets)
 model Category {
-  id                  String                @id @default(cuid())
-  name                String
-  slug                String
-  pfsCategoryId       String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
-  pfsGender           String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
-  pfsFamilyId         String? // ID famille PFS (ex: "a035J00000185J7QAI")
-  pfsFamilyName       String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
-  pfsCategoryName     String? // Nom catégorie PFS (ex: "Bagues", "Colliers") — colonne 4 de l'export Excel
-  efashionCategorieId Int?
-  faireTaxonomyId     String?
-  faireHsCode         String?
+  id                         String                @id @default(cuid())
+  name                       String
+  slug                       String
+  pfsCategoryId              String? // ID catégorie sur PFS (ex: "a045J000003KWwDQAW")
+  pfsGender                  String? // Genre PFS : WOMAN | MAN | KID | SUPPLIES
+  pfsFamilyId                String? // ID famille PFS (ex: "a035J00000185J7QAI")
+  pfsFamilyName              String? // Nom lisible de la famille PFS (ex: "Bijoux_Fantaisie") — pour export Excel
+  pfsCategoryName            String? // Nom catégorie PFS (ex: "Bagues", "Colliers") — colonne 4 de l'export Excel
+  efashionCategorieId        Int?
+  faireTaxonomyId            String?
+  faireHsCode                String?
   // Mapping Orderchamp — 2 champs distincts :
   //   `orderchampCategoryPath` = enum `ProductCategoryPath` feuille (ex :
   //     "JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS"), sélectionné par
@@ -1105,14 +1105,14 @@ model Category {
   //   `orderchampCustomCategoryId` = ID GraphQL de la CustomCategory OC
   //     auto-créée à partir du nom de la catégorie BJ. Envoyé en
   //     `customCategory`. Auto-géré, pas d'action manuelle.
-  orderchampCategoryPath      String?
-  orderchampCustomCategoryId  String?
-  position            Int                   @default(0)
-  subCategories       SubCategory[]
-  products            Product[]
-  translations        CategoryTranslation[]
-  promotions          PromotionCategory[]
-  createdAt           DateTime              @default(now())
+  orderchampCategoryPath     String?
+  orderchampCustomCategoryId String?
+  position                   Int                   @default(0)
+  subCategories              SubCategory[]
+  products                   Product[]
+  translations               CategoryTranslation[]
+  promotions                 PromotionCategory[]
+  createdAt                  DateTime              @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
   tenantId String?
@@ -1136,19 +1136,19 @@ model CategoryTranslation {
 
 // Sous-catégorie (ex: Sautoir, Jonc)
 model SubCategory {
-  id                 String                   @id @default(cuid())
-  name               String
-  slug               String
-  categoryId         String
-  category           Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  products           Product[]                @relation("ProductSubCategories")
-  microstoreProducts Product[]                @relation("ProductMicrostoreSubCategory")
-  translations       SubCategoryTranslation[]
+  id                         String                   @id @default(cuid())
+  name                       String
+  slug                       String
+  categoryId                 String
+  category                   Category                 @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products                   Product[]                @relation("ProductSubCategories")
+  microstoreProducts         Product[]                @relation("ProductMicrostoreSubCategory")
+  translations               SubCategoryTranslation[]
   // Orderchamp : customCategory enfant (créée auto avec parentId = OC ID de
   // la Category parente). Attribuée au produit à la place de la category
   // quand le produit BJ a au moins une sous-catégorie.
   orderchampCustomCategoryId String?
-  createdAt          DateTime                 @default(now())
+  createdAt                  DateTime                 @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
   tenantId String?
@@ -1250,25 +1250,25 @@ model SeasonTranslation {
 
 // Bibliothèque de compositions (matériaux) — scopée par tenant
 model Composition {
-  id                 String                   @id @default(cuid())
-  name               String
-  pfsCompositionRef  String?
+  id                     String                   @id @default(cuid())
+  name                   String
+  pfsCompositionRef      String?
   // Salesforce Uid PFS (globalement stable, immunisé aux fautes d'orthographe
   // et aux renommages côté PFS). Rempli à la volée par le fallback mobile
   // via le dictionnaire /attributes/composition, et par backfill sur les
   // compos existantes. Match prioritaire par Uid dans resolvePfsCompositionsToLocal.
-  pfsCompositionUid  String?
-  efashionId         Int?
-  faireMaterialLabel String?
+  pfsCompositionUid      String?
+  efashionId             Int?
+  faireMaterialLabel     String?
   // Mapping Orderchamp : un des ~35 codes bijoux de l'enum `FilterMaterialValue`
   // (ex "STAINLESS_STEEL", "GOLD_PLATED", "ENAMEL"). Sélectionné par l'admin
   // dans /admin/compositions. Envoyé en `filterMaterial` sur chaque variante
   // au publish. Max 4 matériaux par produit, triés par % décroissant.
   orderchampMaterialCode String?
-  position           Int                      @default(0)
-  createdAt          DateTime                 @default(now())
-  products           ProductComposition[]
-  translations       CompositionTranslation[]
+  position               Int                      @default(0)
+  createdAt              DateTime                 @default(now())
+  products               ProductComposition[]
+  translations           CompositionTranslation[]
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
   tenantId String?
@@ -1618,14 +1618,14 @@ enum MarketplaceJobStatus {
 }
 
 model MarketplaceRefreshJob {
-  id                String               @id @default(cuid())
+  id                String                @id @default(cuid())
   productId         String
-  product           Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product           Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
   marketplace       MarketplaceJobTarget
   mode              MarketplaceJobMode
   /// { reference, productName, firstImage, options } figés au enqueue pour l'affichage
   payload           Json
-  status            MarketplaceJobStatus @default(QUEUED)
+  status            MarketplaceJobStatus  @default(QUEUED)
   /// TargetOutcome sérialisé (forme identique côté client) ou null
   localOutcome      Json?
   pfsOutcome        Json?
@@ -1647,8 +1647,8 @@ model MarketplaceRefreshJob {
   steps             Json?
   /// Opération Ankorstore liée quand status == AWAITING_CALLBACK (suit la chaîne 2 phases)
   ankorsOperationId String?
-  errorMessage      String?              @db.Text
-  createdAt         DateTime             @default(now())
+  errorMessage      String?               @db.Text
+  createdAt         DateTime              @default(now())
   /// Heure à laquelle le job peut être démarré. Null = immédiat.
   /// Utilisé pour étaler un lot de rafraîchissements (1 produit toutes les N min).
   scheduledFor      DateTime?
@@ -1933,72 +1933,72 @@ model PendingSimilar {
 // PACK: une couleur principale + tailles×qty + packQuantity + prix/poids/stock
 //       (ou packLines pour un PACK multi-couleurs — voir PackColorLine)
 model ProductColor {
-  id                      String                           @id @default(cuid())
-  productId               String
-  product                 Product                          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId                 String? // Couleur (requise en business logic, nullable en DB pour legacy)
-  color                   Color?                           @relation(fields: [colorId], references: [id])
-  unitPrice               Decimal                          @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
-  weight                  Float // Poids en kg
-  stock                   Int                              @default(0)
-  isPrimary               Boolean                          @default(false)
-  saleType                SaleType // UNIT ou PACK
-  packQuantity            Int? // Quantité par paquet (null si UNIT)
+  id                          String                           @id @default(cuid())
+  productId                   String
+  product                     Product                          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId                     String? // Couleur (requise en business logic, nullable en DB pour legacy)
+  color                       Color?                           @relation(fields: [colorId], references: [id])
+  unitPrice                   Decimal                          @db.Decimal(12, 2) // Prix HT (par unité ou par paquet)
+  weight                      Float // Poids en kg
+  stock                       Int                              @default(0)
+  isPrimary                   Boolean                          @default(false)
+  saleType                    SaleType // UNIT ou PACK
+  packQuantity                Int? // Quantité par paquet (null si UNIT)
   // Tailles avec quantités (UNIT, ou PACK mono-couleur)
-  variantSizes            VariantSize[]
+  variantSizes                VariantSize[]
   // Lignes couleur×tailles d'un PACK multi-couleurs.
   // Si présentes, elles SUPPLANTENT colorId/variantSizes pour la composition du paquet.
-  packLines               PackColorLine[]
-  images                  ProductColorImage[] // Images (UNIT seulement)
-  cartItems               CartItem[]
-  collectionOverrides     CollectionProduct[]
-  stockMovements          StockMovement[]
-  priceHistory            PriceHistory[]
-  pfsOrderItems           PfsOrderItem[]
-  efashionOrderItems      EfashionOrderItem[]
-  ankorstoreOrderItems    AnkorstoreOrderItem[]
-  faireOrderItems         FaireOrderItem[]
-  orderchampOrderItems    OrderchampOrderItem[]
-  microstoreOrderItems    MicrostoreOrderItem[]
-  adminCardPurchases      AdminClientCardProductPurchase[]
-  disabled                Boolean                          @default(false) // Masquer côté client sans supprimer
-  sku                     String?                          @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
+  packLines                   PackColorLine[]
+  images                      ProductColorImage[] // Images (UNIT seulement)
+  cartItems                   CartItem[]
+  collectionOverrides         CollectionProduct[]
+  stockMovements              StockMovement[]
+  priceHistory                PriceHistory[]
+  pfsOrderItems               PfsOrderItem[]
+  efashionOrderItems          EfashionOrderItem[]
+  ankorstoreOrderItems        AnkorstoreOrderItem[]
+  faireOrderItems             FaireOrderItem[]
+  orderchampOrderItems        OrderchampOrderItem[]
+  microstoreOrderItems        MicrostoreOrderItem[]
+  adminCardPurchases          AdminClientCardProductPurchase[]
+  disabled                    Boolean                          @default(false) // Masquer côté client sans supprimer
+  sku                         String?                          @unique // SKU universel: {ref}_{couleur}_{UNIT|PACK}_{index}
   // Identifiant variante marketplace — renseigné à la publication live
-  pfsVariantId            String?
+  pfsVariantId                String?
   // Identifiant variante Ankorstore — renseigné à la publication live
-  ankorsVariantId         String?
+  ankorsVariantId             String?
   // Identifiant "produit-couleur" eFashion (1 ligne par couleur côté eFashion).
   // Renseigné lors de la liaison manuelle ou de la publication via shooting.
-  efashionProductId       Int?
+  efashionProductId           Int?
   // Identifiant variante Faire ("po_xxx") — renseigné à la publication
-  faireVariantId          String?
+  faireVariantId              String?
   // Identifiant variante Orderchamp (ID GraphQL) — renseigné à la publication
-  orderchampVariantId     String?
+  orderchampVariantId         String?
   // Mapping PFS secondaire propre à cette variante (override du pfsColorRef de Color).
   // Sert à différencier 2 variantes dont les couleurs partagent le même mapping principal.
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
-  pfsColorRefOverride     String?
+  pfsColorRefOverride         String?
   // Mapping eFashion secondaire propre à cette variante (override de Color.efashionColorId).
   // Même logique que pfsColorRefOverride, mais avec l'ID entier de la biblio eFashion.
-  efashionColorIdOverride Int?
+  efashionColorIdOverride     Int?
   // Override du nom de couleur envoyé à Ankorstore pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel (Ankor n'a pas
   // de bibliothèque de couleurs formelle, le match se fait par nom).
-  ankorsColorNameOverride String?
+  ankorsColorNameOverride     String?
   // SKU réel envoyé à Ankorstore : {REF}_{COULEUR}_{5 chars aléatoires}.
   // Persisté à la 1re publication et RÉUTILISÉ à chaque update pour que Ankor reconnaisse
   // la même variante. Vidé quand on delete/archive côté Ankor → un futur re-publish
   // regénère un nouveau suffixe (contourne le refus « SKU already assigned » sur produits
   // archivés Ankor).
-  ankorsSku               String?
+  ankorsSku                   String?
   // Override du nom de couleur envoyé à Faire pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
-  faireColorNameOverride  String?
+  faireColorNameOverride      String?
   // Override du nom de couleur envoyé à Orderchamp pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
   orderchampColorNameOverride String?
-  createdAt               DateTime                         @default(now())
-  updatedAt               DateTime                         @updatedAt
+  createdAt                   DateTime                         @default(now())
+  updatedAt                   DateTime                         @updatedAt
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -2066,26 +2066,26 @@ model VariantSize {
 // Ligne d'un PACK multi-couleurs : une couleur incluse dans le pack avec ses tailles
 // Ex: Pack tricolore = 1× ligne Rouge (S×2, M×3) + 1× ligne Bleu (M×2) + 1× ligne Noir (L×1)
 model PackColorLine {
-  id                      String              @id @default(cuid())
-  productColorId          String
-  productColor            ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
-  colorId                 String
-  color                   Color               @relation(fields: [colorId], references: [id])
-  position                Int                 @default(0) // ordre d'affichage
-  sizes                   PackColorLineSize[]
+  id                          String              @id @default(cuid())
+  productColorId              String
+  productColor                ProductColor        @relation(fields: [productColorId], references: [id], onDelete: Cascade)
+  colorId                     String
+  color                       Color               @relation(fields: [colorId], references: [id])
+  position                    Int                 @default(0) // ordre d'affichage
+  sizes                       PackColorLineSize[]
   // Mapping PFS secondaire propre à cette ligne dans ce pack (override de Color.pfsColorRef).
   // Doit être différent du pfsColorRef principal de la couleur sélectionnée (validé applicatif).
-  pfsColorRefOverride     String?
+  pfsColorRefOverride         String?
   // Override eFashion propre à cette ligne du pack (pendant de pfsColorRefOverride).
-  efashionColorIdOverride Int?
+  efashionColorIdOverride     Int?
   // Override du nom de couleur envoyé à Ankorstore pour cette ligne du pack.
   // null/vide = on envoie Color.name (pendant de ankorsColorNameOverride sur ProductColor).
-  ankorsColorNameOverride String?
+  ankorsColorNameOverride     String?
   // Override du nom de couleur envoyé à Faire pour cette ligne du pack.
-  faireColorNameOverride  String?
+  faireColorNameOverride      String?
   // Override du nom de couleur envoyé à Orderchamp pour cette ligne du pack.
   orderchampColorNameOverride String?
-  createdAt               DateTime            @default(now())
+  createdAt                   DateTime            @default(now())
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -2296,14 +2296,14 @@ model Order {
   clientVatNumber String?
 
   // Transporteur
-  carrierId    String
-  carrierName  String
-  carrierPrice Decimal @db.Decimal(12, 2) // prix EFFECTIF (après remises)
+  carrierId             String
+  carrierName           String
+  carrierPrice          Decimal  @db.Decimal(12, 2) // prix EFFECTIF (après remises)
   // Snapshots pour afficher séparément promotion vs remise commerciale livraison en admin.
   // Nullable pour compat historique — fallback affiché.
-  carrierBasePrice          Decimal? @db.Decimal(12, 2)
-  carrierPromoDiscount      Decimal  @default(0) @db.Decimal(12, 2)
-  carrierClientDiscount     Decimal  @default(0) @db.Decimal(12, 2)
+  carrierBasePrice      Decimal? @db.Decimal(12, 2)
+  carrierPromoDiscount  Decimal  @default(0) @db.Decimal(12, 2)
+  carrierClientDiscount Decimal  @default(0) @db.Decimal(12, 2)
 
   // Transporteur privé (alternative aux transporteurs Easy-Express)
   // Quand carrierId === "private_carrier", le client a son propre fournisseur
@@ -2328,14 +2328,14 @@ model Order {
   // Snapshot du HT BRUT (avant toute réduction) — pour afficher séparément
   // promotion et remise commerciale dans le récap commande. Nullable pour
   // compat commandes historiques ; recalculé au fallback (subtotalHT + clientDiscountAmt + promoDiscount).
-  subtotalBrutHT     Decimal? @db.Decimal(12, 2)
+  subtotalBrutHT    Decimal? @db.Decimal(12, 2)
   // Somme des promotions AUTO appliquées par item (via règles Promotion) —
   // distinct de promoDiscount qui est le code promo saisi manuellement.
-  promoAutoDiscount  Decimal  @default(0) @db.Decimal(12, 2)
+  promoAutoDiscount Decimal  @default(0) @db.Decimal(12, 2)
   // Snapshot JSON des promotions appliquées à la commande.
   // Persiste MÊME si la promotion est supprimée en BDD après.
   // Format : [{ id, name, kind:"AUTO"|"CODE", scope, discountKind, discountValue, amountSaved }]
-  appliedPromotions  Json?
+  appliedPromotions Json?
 
   // Stripe
   stripePaymentIntentId String? @unique // pi_xxx
@@ -2344,6 +2344,16 @@ model Order {
   // Easy-Express
   eeTrackingId String? // Numéro de suivi
   eeLabelUrl   String? // URL du bordereau PDF @db.Text
+
+  // Smarty365 (alternative à Easy-Express — cf. lib/smarty365.ts)
+  smartyParcelId    Int? // id numérique du parcel Smarty365
+  smartyTrackingId  String? // trackingNumber renvoyé par Smarty365
+  smartyLabelUrl    String? @db.Text // URL S3 signée du bordereau PDF
+  smartyTransporter String? // ex "CHRONOPOST" (utilisé pour re-générer si besoin)
+  smartyRouteCode   String? // ex "CHRONOPOST_SML_CLASSIC" (route utilisée)
+
+  // Fournisseur d'expédition utilisé pour cette commande (null = historique / manuel)
+  shippingProvider String? // "easy_express" | "smarty365"
 
   // Facture uploadée par l'admin
   invoicePath    String? // Chemin relatif depuis /private/uploads/invoices/

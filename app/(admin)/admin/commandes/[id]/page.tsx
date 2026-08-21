@@ -177,8 +177,8 @@ export default async function AdminCommandeDetailPage({
         hasCreditNote={!!order.creditNotePath}
         carrierName={order.carrierName}
         carrierId={order.carrierId}
-        eeTrackingId={order.eeTrackingId}
-        eeLabelUrl={order.eeLabelUrl}
+        eeTrackingId={order.smartyTrackingId ?? order.eeTrackingId}
+        eeLabelUrl={order.smartyLabelUrl ?? order.eeLabelUrl}
         isOutsideEu={isOutsideEu}
       />
 

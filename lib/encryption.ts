@@ -15,6 +15,7 @@ const PREFIX = "enc:v1:";
 /** Clés SiteConfig considérées sensibles — chiffrées en BDD. */
 export const SENSITIVE_KEYS = new Set([
   "easy_express_api_key",
+  "smarty365_api_key",
   "pfs_email",
   "pfs_password",
   "ankors_client_id",

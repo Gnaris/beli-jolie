@@ -369,6 +369,11 @@ function VariantRow({
   //    exclusivement au récap panier).
   const displayPrice = serverFinalPrice ?? computeUnitPrice(variant.unitPrice, discountPercent);
   const hasReduction = displayPrice < variant.unitPrice - 0.005;
+  // Pour un PACK, on affiche aussi le prix par unité (troncature au centime).
+  // Si remise : perUnitRaw barré + perUnitFinal rouge, comme sur le total pack.
+  const isPackWithQty = variant.saleType === "PACK" && !!variant.packQuantity && variant.packQuantity > 0;
+  const perUnitFinal = isPackWithQty ? Math.floor((displayPrice / variant.packQuantity!) * 100) / 100 : null;
+  const perUnitRaw = isPackWithQty ? Math.floor((variant.unitPrice / variant.packQuantity!) * 100) / 100 : null;
   const priceBlock = (
     <div className="text-center text-sm">
       {hasReduction ? (
@@ -380,6 +385,19 @@ function VariantRow({
         </>
       ) : (
         <span className="font-medium text-slate-900">{variant.unitPrice.toFixed(2)} €</span>
+      )}
+      {perUnitFinal != null && perUnitRaw != null && (
+        <div className="text-[10px] font-body mt-0.5">
+          {hasReduction ? (
+            <>
+              <span className="text-slate-400 line-through mr-1">{perUnitRaw.toFixed(2)} €</span>
+              <span className="text-error font-medium">{perUnitFinal.toFixed(2)} €</span>
+              <span className="text-text-muted"> / u.</span>
+            </>
+          ) : (
+            <span className="text-text-muted">{perUnitFinal.toFixed(2)} € / u.</span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -485,8 +503,25 @@ function VariantRow({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs">
-            <span className="text-slate-900 font-medium">{unitPrice.toFixed(2)} €</span>
+          <div className="mt-1 flex items-center gap-2 text-xs flex-wrap">
+            {hasReduction ? (
+              <span className="flex items-baseline gap-1">
+                <span className="text-slate-400 line-through">{variant.unitPrice.toFixed(2)} €</span>
+                <span className="text-error font-medium">{unitPrice.toFixed(2)} €</span>
+              </span>
+            ) : (
+              <span className="text-slate-900 font-medium">{unitPrice.toFixed(2)} €</span>
+            )}
+            {perUnitFinal != null && perUnitRaw != null && (
+              hasReduction ? (
+                <span className="text-text-muted">
+                  (<span className="line-through text-slate-400">{perUnitRaw.toFixed(2)} €</span>
+                  {" "}<span className="text-error">{perUnitFinal.toFixed(2)} €</span> / u.)
+                </span>
+              ) : (
+                <span className="text-text-muted">({perUnitFinal.toFixed(2)} € / u.)</span>
+              )
+            )}
             <span className={`font-medium ${stockColor}`}>· {stockLabel}</span>
           </div>
         </div>

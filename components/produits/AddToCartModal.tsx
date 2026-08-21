@@ -14,6 +14,11 @@ import {
   computeCartSummary,
 } from "@/lib/add-to-cart-pricing";
 
+// Règle métier : jamais d'arrondi à la hausse, on tronque au centime.
+function floor2(n: number): number {
+  return Math.floor(n * 100) / 100;
+}
+
 interface VariantData {
   id: string;
   saleType: "UNIT" | "PACK";
@@ -345,14 +350,16 @@ export default function AddToCartModal({
                         option.variants.map((v) => {
                           const qty = quantities[v.id] ?? 0;
                           const unitPriceRaw = pricePerUnit(v);
-                          const unitPriceFinal = applyDiscount(unitPriceRaw, discountPercent, clientDiscount);
+                          const unitPriceFinal = floor2(applyDiscount(unitPriceRaw, discountPercent, clientDiscount));
                           const isPack = option.saleType === "PACK";
                           const packQty = option.packQuantity ?? 1;
-                          const packPrice = unitPriceFinal * packQty;
+                          const packPrice = floor2(unitPriceFinal * packQty);
+                          const packPriceRaw = floor2(unitPriceRaw * packQty);
                           const effectiveStock = effectiveStockOf(v);
                           const outOfStock = effectiveStock <= 0;
-                          const lineTotal = qty * (isPack ? packPrice : unitPriceFinal);
+                          const lineTotal = floor2(qty * (isPack ? packPrice : unitPriceFinal));
                           const active = qty > 0;
+                          const hasDiscount = !!discountPercent && discountPercent > 0;
                           const sizesLabel = v.sizes.length > 0
                             ? v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
                             : null;
@@ -395,12 +402,28 @@ export default function AddToCartModal({
                                   )}
                                 </div>
                                 <div className="text-[11px] sm:text-xs text-text-muted font-body">
-                                  <span className="font-mono text-text-secondary">{unitPriceFinal.toFixed(2)} &euro;</span>
+                                  {hasDiscount && (
+                                    <>
+                                      <span className="font-mono text-text-muted line-through mr-1">
+                                        {unitPriceRaw.toFixed(2)} &euro;
+                                      </span>
+                                    </>
+                                  )}
+                                  <span className={`font-mono ${hasDiscount ? "text-error font-semibold" : "text-text-secondary"}`}>
+                                    {unitPriceFinal.toFixed(2)} &euro;
+                                  </span>
                                   {" "}{t("perUnit")}
                                   {isPack && (
                                     <>
-                                      {" · "}
-                                      <span className="font-mono text-text-secondary">{packPrice.toFixed(2)} &euro;</span>
+                                      {" × "}{packQty}{" = "}
+                                      {hasDiscount && (
+                                        <span className="font-mono text-text-muted line-through mr-1">
+                                          {packPriceRaw.toFixed(2)} &euro;
+                                        </span>
+                                      )}
+                                      <span className={`font-mono ${hasDiscount ? "text-error font-semibold" : "text-text-secondary"}`}>
+                                        {packPrice.toFixed(2)} &euro;
+                                      </span>
                                       {" "}{t("perPack")}
                                     </>
                                   )}
@@ -515,7 +538,7 @@ export default function AddToCartModal({
                 {t("totalHT")}
               </div>
               <div className="font-heading font-bold text-xl sm:text-2xl text-text-primary tabular-nums">
-                {totalPrice.toFixed(2)} &euro;
+                {floor2(totalPrice).toFixed(2)} &euro;
               </div>
             </div>
             <button

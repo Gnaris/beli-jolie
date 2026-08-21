@@ -42,7 +42,7 @@ const TILES: Record<SettingsTileKey, TileMeta> = {
   societe:      { key: "societe",      title: "Société & mentions",   description: "SIRET, TVA, adresse expéditeur — factures & légal.",       group: "boutique", accent: "slate" },
   horaires:     { key: "horaires",     title: "Horaires d'ouverture", description: "Affichés sur la page contact.",                            group: "boutique", accent: "sky" },
   paiement:     { key: "paiement",     title: "Paiement Stripe",      description: "Encaissement par carte bancaire.",                          group: "ventes",   accent: "emerald" },
-  livraison:    { key: "livraison",    title: "Livraison Easy-Express", description: "Bordereaux + marge sur les frais de port.",              group: "ventes",   accent: "emerald" },
+  livraison:    { key: "livraison",    title: "Mode de livraison",    description: "Fournisseur d'expédition, bordereaux, marge sur les frais de port.", group: "ventes", accent: "emerald" },
   regles:       { key: "regles",       title: "Règles de vente",      description: "Commande mini, ruptures, ordre catalogue, badge photo.",   group: "ventes",   accent: "emerald" },
   marketplaces: { key: "marketplaces", title: "Marketplaces",         description: "PFS, Ankorstore, eFashion, Faire, Microstore.",            group: "canaux",   accent: "sky",    wide: true },
   contenu:      { key: "contenu",      title: "Contenu & Google",     description: "Carrousels d'accueil, textes SEO.",                        group: "canaux",   accent: "violet" },

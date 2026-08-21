@@ -339,6 +339,67 @@ export async function validateEasyExpressApiKey(
   }
 }
 
+// ─── Smarty365 API key (alternative à Easy-Express) ──────────────────────────
+
+export async function updateSmarty365ApiKey(
+  apiKey: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      await prisma.siteConfig.deleteMany({ where: { key: "smarty365_api_key" } });
+    } else {
+      const encrypted = encryptIfSensitive("smarty365_api_key", trimmed);
+      await setSiteConfig("smarty365_api_key", encrypted);
+    }
+    // Invalide le cache local des pricingRanges (l'ancien token n'est plus valide).
+    const { clearSmarty365RangesCache } = await import("@/lib/smarty365");
+    clearSmarty365RangesCache();
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export async function validateSmarty365ApiKey(
+  apiKey: string
+): Promise<{ valid: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { testSmarty365ApiKey } = await import("@/lib/smarty365");
+    return await testSmarty365ApiKey(apiKey.trim());
+  } catch {
+    return { valid: false, error: "Impossible de tester la clé Smarty365." };
+  }
+}
+
+/**
+ * Fournisseur actif pour l'expédition ("easy_express" | "smarty365").
+ * L'admin bascule via la tuile Livraison. Impacte /api/carriers (client)
+ * et par défaut le bouton "Générer bordereau" (admin), sauf si la commande
+ * a déjà été passée avec un carrierId lié à l'autre fournisseur.
+ */
+export async function setActiveShippingProvider(
+  provider: "easy_express" | "smarty365",
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (provider !== "easy_express" && provider !== "smarty365") {
+      return { success: false, error: "Fournisseur inconnu." };
+    }
+    await setSiteConfig("active_shipping_provider", provider);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── PFS (Marketplace) Configuration ─────────────────────────────────────────
 
 export async function updatePfsCredentials(config: {

@@ -290,7 +290,7 @@ export default function ShippingSection({
           disabled={pending}
           className="btn-primary text-sm w-full"
         >
-          Générer le bordereau Easy-Express
+          Générer le bordereau d&apos;expédition
         </button>
       )}
 

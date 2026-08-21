@@ -14,6 +14,9 @@ const mockPrisma = vi.hoisted(() => ({
   orderItem: {
     findMany: vi.fn().mockResolvedValue([]),
   },
+  productColor: {
+    findMany: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 const mockSession = vi.hoisted(() => ({
@@ -36,7 +39,35 @@ vi.mock("@/lib/easy-express", () => mockEasyExpress);
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+  // Passthrough : renvoie la fonction telle quelle. Utilisé par lib/cached-data.ts,
+  // tiré indirectement via lib/smarty365.ts → cached-data pour getCachedActiveShippingProvider.
+  unstable_cache: <A extends unknown[], R>(fn: (...a: A) => R): ((...a: A) => R) => fn,
+}));
+// Résolution du provider actif : par défaut Easy-Express dans tous les tests
+// existants (les tests Smarty365 sont couverts par __tests__/lib/smarty365.test.ts).
+vi.mock("@/lib/cached-data", () => ({
+  getCachedActiveShippingProvider: vi.fn().mockResolvedValue("easy_express"),
+  getCachedSmarty365ApiKey: vi.fn().mockResolvedValue(null),
+  getCachedEasyExpressApiKey: vi.fn().mockResolvedValue("dummy-easy-express-key"),
+  getCachedCompanyInfo: vi.fn().mockResolvedValue({
+    name: "Test", shopName: "Test", email: "a@a.com", phone: "0",
+    address: "1 rue", city: "Paris", postalCode: "75001", country: "FR", siret: "0",
+  }),
+}));
+vi.mock("@/lib/smarty365", () => ({
+  createSmarty365Parcel: vi.fn(),
+  smarty365Rates: vi.fn(),
+  isSmarty365CarrierId: (id: string | null | undefined) => !!id && id.startsWith("smarty:"),
+  parseSmarty365CarrierId: (id: string) => {
+    if (!id?.startsWith("smarty:")) return null;
+    const rest = id.slice(7);
+    const idx = rest.indexOf(":");
+    return idx < 0 ? null : { transporter: rest.slice(0, idx), routeCode: rest.slice(idx + 1) };
+  },
+}));
 
 import {
   generateShipmentLabel,
@@ -98,7 +129,11 @@ describe("generateShipmentLabel", () => {
     );
     expect(mockPrisma.order.update).toHaveBeenCalledWith({
       where: { id: "o1" },
-      data: { eeTrackingId: "TR-123", eeLabelUrl: "https://easy-express.fr/label/abc.pdf" },
+      data: {
+        eeTrackingId: "TR-123",
+        eeLabelUrl: "https://easy-express.fr/label/abc.pdf",
+        shippingProvider: "easy_express",
+      },
     });
   });
 
@@ -181,7 +216,15 @@ describe("setManualShipping", () => {
     expect(res.success).toBe(true);
     expect(mockPrisma.order.update).toHaveBeenCalledWith({
       where: { id: "o1" },
-      data: { carrierName: "Chronopost", eeTrackingId: "CH123", eeLabelUrl: null },
+      data: {
+        carrierName: "Chronopost",
+        eeTrackingId: "CH123",
+        eeLabelUrl: null,
+        smartyTrackingId: null,
+        smartyLabelUrl: null,
+        smartyParcelId: null,
+        shippingProvider: null,
+      },
     });
   });
 
@@ -216,6 +259,98 @@ describe("setManualShipping", () => {
   });
 });
 
+describe("generateShipmentLabel — Smarty365 DOM-TOM check code SH", () => {
+  const REUNION_ORDER = {
+    ...FAKE_ORDER,
+    id: "oRE",
+    orderNumber: "REU001",
+    carrierId: "smarty:CHRONOPOST:CHRONOPOST_EXPRESS_SML",
+    carrierName: "Chronopost Express International",
+    shipCountry: "RE",
+    shipZipCode: "97400",
+    shipCity: "Saint-Denis",
+    shippingProvider: "smarty365",
+    eeLabelUrl: null,
+    smartyLabelUrl: null,
+    subtotalHT: "100",
+    paidSubtotalHT: "100",
+  };
+
+  it("bloque la génération si un produit DOM-TOM n'a pas de code SH", async () => {
+    mockPrisma.order.findUnique.mockResolvedValue(REUNION_ORDER);
+    mockPrisma.orderItem.findMany.mockResolvedValue([
+      { productRef: "A1720", productColorId: "pc-1", quantity: 1, unitPrice: "50", lineTotal: "50", variantSnapshot: null },
+      { productRef: "B0501", productColorId: "pc-2", quantity: 2, unitPrice: "25", lineTotal: "50", variantSnapshot: null },
+    ]);
+    mockPrisma.productColor.findMany.mockResolvedValue([
+      { id: "pc-1", product: { reference: "A1720", hsCodeId: "hs-bijoux" } },  // OK
+      { id: "pc-2", product: { reference: "B0501", hsCodeId: null } },         // ❌ manque HS
+    ]);
+
+    const res = await generateShipmentLabel("oRE");
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain("code SH");
+    expect(res.error).toContain("B0501");
+    // La ref valide ne doit PAS apparaître dans le message
+    expect(res.error).not.toMatch(/A1720/);
+  });
+
+  it("laisse passer si TOUS les produits DOM-TOM ont un code SH", async () => {
+    const { createSmarty365Parcel } = await import("@/lib/smarty365");
+    vi.mocked(createSmarty365Parcel).mockResolvedValue({
+      success: true, parcelId: 1, trackingId: "XF1", labelUrl: "https://x/p.pdf",
+      transporter: "CHRONOPOST", routeCode: "CHRONOPOST_EXPRESS_SML",
+    });
+    mockPrisma.order.findUnique.mockResolvedValue(REUNION_ORDER);
+    mockPrisma.orderItem.findMany.mockResolvedValue([
+      { productRef: "A1720", productColorId: "pc-1", quantity: 1, unitPrice: "100", lineTotal: "100", variantSnapshot: null, productName: "Boucles rose" },
+    ]);
+    mockPrisma.productColor.findMany.mockResolvedValue([
+      { id: "pc-1", product: { reference: "A1720", hsCodeId: "hs-bijoux", countryIsoCode: "CN", hsCode: { code: "71171900" } } },
+    ]);
+
+    const res = await generateShipmentLabel("oRE");
+
+    expect(res.success).toBe(true);
+    expect(createSmarty365Parcel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customsItems: expect.arrayContaining([
+          expect.objectContaining({ hscode: "71171900", originCountry: "CN" }),
+        ]),
+      }),
+    );
+  });
+
+  it("skip le check code SH pour destinations FR / UE (pas de douane)", async () => {
+    const { createSmarty365Parcel } = await import("@/lib/smarty365");
+    vi.mocked(createSmarty365Parcel).mockResolvedValue({
+      success: true, parcelId: 1, trackingId: "T1", labelUrl: "https://x/p.pdf",
+      transporter: "CHRONOPOST", routeCode: "CHRONOPOST_18_B2C_SML",
+    });
+    mockPrisma.order.findUnique.mockResolvedValue({
+      ...REUNION_ORDER,
+      shipCountry: "FR",
+      shipZipCode: "75001",
+      shipCity: "Paris",
+    });
+    // Produits SANS code SH → devrait passer quand même (FR métropole)
+    mockPrisma.orderItem.findMany.mockResolvedValue([
+      { productRef: "X", productColorId: "pc-x", quantity: 1, unitPrice: "10", lineTotal: "10", variantSnapshot: null, productName: "X" },
+    ]);
+    mockPrisma.productColor.findMany.mockResolvedValue([
+      { id: "pc-x", product: { reference: "X", hsCodeId: null } },
+    ]);
+
+    const res = await generateShipmentLabel("oRE");
+    expect(res.success).toBe(true);
+    // Aucun customsItems ne doit être passé pour FR
+    expect(createSmarty365Parcel).toHaveBeenCalledWith(
+      expect.not.objectContaining({ customsItems: expect.anything() }),
+    );
+  });
+});
+
 describe("clearShipping", () => {
   it("met à null le suivi et le bordereau", async () => {
     const res = await clearShipping("o1");
@@ -223,7 +358,16 @@ describe("clearShipping", () => {
     expect(res.success).toBe(true);
     expect(mockPrisma.order.update).toHaveBeenCalledWith({
       where: { id: "o1" },
-      data: { eeTrackingId: null, eeLabelUrl: null },
+      data: {
+        eeTrackingId: null,
+        eeLabelUrl: null,
+        smartyTrackingId: null,
+        smartyLabelUrl: null,
+        smartyParcelId: null,
+        smartyTransporter: null,
+        smartyRouteCode: null,
+        shippingProvider: null,
+      },
     });
   });
 

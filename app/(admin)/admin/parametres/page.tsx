@@ -30,6 +30,8 @@ import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
+import Smarty365ApiKeyConfig from "@/components/admin/settings/Smarty365ApiKeyConfig";
+import ActiveShippingProviderSelect from "@/components/admin/settings/ActiveShippingProviderSelect";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeSettingsForm from "@/components/admin/settings/StripeSettingsForm";
 import StripeAccountStatusCard from "@/components/admin/onboarding/StripeAccountStatusCard";
@@ -339,24 +341,33 @@ async function buildPaiementTile(): Promise<DashboardTile> {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TUILE 5 — Livraison Easy-Express + marge
+   TUILE 5 — Mode de livraison (Easy-Express + Smarty365) + marge
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildLivraisonTile(): Promise<DashboardTile> {
-  const [eeApiKeyConfig, marginTypeRow, marginValueRow] = await Promise.all([
+  const [eeApiKeyConfig, smartyApiKeyConfig, activeProviderRow, marginTypeRow, marginValueRow] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "smarty365_api_key" }, select: { key: true } }),
+    prisma.siteConfig.findFirst({ where: { key: "active_shipping_provider" }, select: { value: true } }),
     prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
     prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
   ]);
   const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
   const marginValue = Number(marginValueRow?.value) || 0;
   const eeConnected = !!eeApiKeyConfig;
+  const smartyConnected = !!smartyApiKeyConfig;
+  const activeProvider: "easy_express" | "smarty365" =
+    activeProviderRow?.value === "smarty365" ? "smarty365" : "easy_express";
+  const anyConnected = eeConnected || smartyConnected;
+  const providerLabel = activeProvider === "smarty365" ? "Smarty365" : "Easy-Express";
 
-  const tileStatus: TileStatus = eeConnected
-    ? { tone: "ok", label: "Connectée" }
+  const tileStatus: TileStatus = anyConnected
+    ? { tone: "ok", label: `Actif : ${providerLabel}` }
     : { tone: "off", label: "Non configurée" };
 
   const marginLabel = marginType === "percent" ? `+${marginValue} %` : `+${nf.format(marginValue)} €`;
-  const summary = eeConnected ? `Clé API OK · Marge ${marginLabel}` : "Clé API à renseigner";
+  const summary = anyConnected
+    ? `${providerLabel} actif · Marge ${marginLabel}`
+    : "Aucun fournisseur configuré";
 
   return {
     key: "livraison",
@@ -375,9 +386,32 @@ async function buildLivraisonTile(): Promise<DashboardTile> {
         </SettingCard>
 
         <SettingCard
+          icon={Ico.truck}
+          title="Smarty365"
+          description="Fournisseur alternatif — utilise vos contrats négociés en direct (Colissimo, Chronopost, Mondial Relay, GLS, GPX)"
+          status={smartyConnected ? { tone: "ok", label: "Connectée" } : { tone: "off", label: "Non configurée" }}
+        >
+          <Smarty365ApiKeyConfig hasKey={smartyConnected} />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.truck}
+          title="Fournisseur actif"
+          description="Choisissez lequel des deux propose ses tarifs aux clientes et génère les bordereaux par défaut"
+          accent="dark"
+          status={{ tone: "ok", label: providerLabel }}
+        >
+          <ActiveShippingProviderSelect
+            initialProvider={activeProvider}
+            hasEasyExpressKey={eeConnected}
+            hasSmarty365Key={smartyConnected}
+          />
+        </SettingCard>
+
+        <SettingCard
           icon={Ico.margin}
           title="Marge sur les frais de port"
-          description="Différence entre le coût réel Easy-Express et le prix facturé au client"
+          description="Différence entre le coût réel du fournisseur et le prix facturé au client"
         >
           <ShippingMarginConfig initialType={marginType} initialValue={marginValue} />
 

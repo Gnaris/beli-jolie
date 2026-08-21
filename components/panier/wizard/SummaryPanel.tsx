@@ -93,9 +93,6 @@ export default function SummaryPanel({
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
   const modelsCount = cart.items.length;
 
-  // Détermination du prix de vente HT à afficher (utilisé si cartCascade absent).
-  const subtotalDisplay = cartCascade?.subtotalAfterDiscount ?? cartFallbackSubtotal;
-  const brutHT = cartCascade?.subtotalBrutHT ?? cartFallbackSubtotal;
 
   const shippingLabel =
     shippingLabelOverride ??
@@ -164,50 +161,29 @@ export default function SummaryPanel({
         </ul>
       </details>
 
-      {/* ─── SECTION PANIER — 2 blocs séparés : Promotion puis Remise commerciale ─── */}
+      {/* ─── SECTION PANIER — Prix HT (déjà remisé) + remise commerciale au total ─── */}
       {(() => {
-        // Découpage strict : lignes "product"/"promo" = promotions ; lignes "client" = remise commerciale.
-        const promoLines = cartCascade?.discountTrace.filter((l) => l.kind !== "client") ?? [];
+        // Nouvelle règle métier : le prix des produits est DÉJÀ remisé au niveau
+        // ligne (cascade remise fiche + promos ciblantes). Le récap n'affiche donc
+        // plus les lignes de promos individuelles ni le « Total après promotion ».
+        // Seule la remise commerciale client reste affichée, car elle ne s'applique
+        // qu'ici sur le total panier.
         const clientLines = cartCascade?.discountTrace.filter((l) => l.kind === "client") ?? [];
-        // Total après promotion = brut − somme promo (troncature au centime, pas d'arrondi).
         const floor2 = (n: number) => Math.floor(n * 100) / 100;
-        const totalPromosAmount = floor2(promoLines.reduce((s, l) => s + l.amount, 0));
-        const subtotalAfterPromo = floor2(brutHT - totalPromosAmount);
+        // subtotalHT = somme des prix produit finals (déjà remisés).
+        const subtotalHT = cartCascade?.subtotalHT ?? cartFallbackSubtotal;
         const totalClientAmount = floor2(clientLines.reduce((s, l) => s + l.amount, 0));
-        const subtotalAfterClient = floor2(subtotalAfterPromo - totalClientAmount);
+        const subtotalAfterClient = floor2(subtotalHT - totalClientAmount);
 
         return (
           <div className="space-y-4 text-sm">
-            {/* ▸ BLOC 1 — Promotions */}
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-600">Prix total HT</span>
-                <span className="font-medium tabular-nums">{brutHT.toFixed(2)} €</span>
-              </div>
-              {promoLines.map((line, idx) => (
-                <div key={`promo-${idx}`} className="flex justify-between text-emerald-700 pl-3">
-                  <span className="truncate mr-2">
-                    {line.label}
-                    {line.percent != null && (
-                      <span className="text-emerald-600/70"> −{line.percent}%</span>
-                    )}
-                  </span>
-                  <span className="font-medium tabular-nums whitespace-nowrap">
-                    −{line.amount.toFixed(2)} €
-                  </span>
-                </div>
-              ))}
-              {promoLines.length > 0 && (
-                <div className="flex justify-between border-t border-slate-100 pt-2">
-                  <span className="text-slate-700 font-medium">Total après promotion</span>
-                  <span className="font-semibold tabular-nums">
-                    {subtotalAfterPromo.toFixed(2)} €
-                  </span>
-                </div>
-              )}
+            {/* ▸ Prix HT (déjà remisé au niveau produit) */}
+            <div className="flex justify-between">
+              <span className="text-slate-600">Prix total HT</span>
+              <span className="font-medium tabular-nums">{subtotalHT.toFixed(2)} €</span>
             </div>
 
-            {/* ▸ BLOC 2 — Remise commerciale (séparé, base = total après promotion) */}
+            {/* ▸ Remise commerciale (uniquement si applicable) */}
             {clientLines.length > 0 && (
               <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
                 {clientLines.map((line, idx) => (
@@ -232,13 +208,6 @@ export default function SummaryPanel({
               </div>
             )}
 
-            {/* Cas simple sans aucune remise : afficher juste le prix HT */}
-            {promoLines.length === 0 && clientLines.length === 0 && (
-              <div className="flex justify-between border-t border-slate-100 pt-2">
-                <span className="text-slate-700 font-medium">Total HT</span>
-                <span className="font-semibold tabular-nums">{brutHT.toFixed(2)} €</span>
-              </div>
-            )}
           </div>
         );
       })()}

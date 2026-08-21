@@ -3,12 +3,19 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchEasyExpressLabel } from "@/lib/easy-express";
+import { fetchSmarty365Label } from "@/lib/smarty365";
 
 /**
  * GET /api/admin/commandes/[id]/label
  *
- * Proxy sécurisé : télécharge le bordereau d'expédition Easy-Express
- * et le sert à l'admin en téléchargement direct.
+ * Proxy sécurisé : télécharge le bordereau d'expédition depuis Easy-Express
+ * ou Smarty365 selon le fournisseur associé à la commande, et le sert en
+ * téléchargement direct à l'admin.
+ *
+ * Priorité :
+ *   1. Order.shippingProvider = "smarty365" → Smarty365
+ *   2. Order.shippingProvider = "easy_express" → Easy-Express
+ *   3. Fallback : la présence de smartyLabelUrl vs eeLabelUrl.
  */
 export async function GET(
   _req: NextRequest,
@@ -23,16 +30,31 @@ export async function GET(
 
   const order = await prisma.order.findUnique({
     where: { id },
-    select: { orderNumber: true, eeLabelUrl: true },
+    select: {
+      orderNumber: true,
+      shippingProvider: true,
+      eeLabelUrl: true,
+      smartyLabelUrl: true,
+    },
   });
 
   if (!order) return new NextResponse("Commande introuvable", { status: 404 });
 
-  if (!order.eeLabelUrl) {
+  // Résolution du fournisseur pour ce téléchargement.
+  const useSmarty =
+    order.shippingProvider === "smarty365" ||
+    (!order.shippingProvider && !!order.smartyLabelUrl);
+
+  const targetUrl = useSmarty ? order.smartyLabelUrl : order.eeLabelUrl;
+
+  if (!targetUrl) {
     return new NextResponse("Aucun bordereau disponible pour cette commande.", { status: 404 });
   }
 
-  const buffer = await fetchEasyExpressLabel(order.eeLabelUrl);
+  const buffer = useSmarty
+    ? await fetchSmarty365Label(targetUrl)
+    : await fetchEasyExpressLabel(targetUrl);
+
   if (!buffer) {
     return new NextResponse("Impossible de récupérer le bordereau.", { status: 502 });
   }

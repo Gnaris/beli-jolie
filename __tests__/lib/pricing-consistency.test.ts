@@ -132,6 +132,69 @@ describe("Cohérence pricing panier ↔ commande", () => {
     expect(r.totalTTC).toBe(27);
   });
 
+  it("Remise commerciale client PERCENT appliquée UNE FOIS sur subtotalHT, pas par item", () => {
+    // 3 items à 3,33 € → subtotalHT = 9,99 €. Client -10 %.
+    // Nouvelle règle : clientDiscountAmt = floor(9,99 × 0,10) = 0,99 €.
+    // Le snapshot par item reste à 3,33 € (pas 2,99 par ligne comme avant).
+    const items = [
+      makeItem("i1", 3.33, 1),
+      makeItem("i2", 3.33, 1),
+      makeItem("i3", 3.33, 1),
+    ];
+    const user = {
+      ...baseUser,
+      discountType: "PERCENT" as const,
+      discountValue: 10,
+    };
+    const input = {
+      items,
+      carrierId: "pickup_store",
+      carrierPrice: 0,
+      addressCountry: "FR",
+      user,
+      activePromos: [] as ActivePromotion[],
+      appliedCodePromo: null,
+    };
+    const r = computeOrderPricing(input);
+    expect(r.subtotalHT).toBeCloseTo(9.99, 2);
+    expect(r.clientDiscountAmt).toBeCloseTo(0.99, 2);
+    expect(r.subtotalAfterDiscount).toBeCloseTo(9.0, 2);
+    // Chaque ligne conserve le prix produit final complet (pas de remise client par ligne)
+    for (const [, entry] of r.itemFinalPrices) {
+      expect(entry.finalUnitPrice).toBeCloseTo(3.33, 2);
+    }
+  });
+
+  it("Cascade remise fiche + promo stackable au niveau item (rend 2,02 € au lieu de 2,25 €)", () => {
+    // BL235 : prix 2,50 €, remise fiche 10 %, promo stackable 10 %.
+    // Ancienne règle : max(remise, promo) = 10 % → 2,25 €. Nouvelle : cascade → 2,02 €.
+    const items = [{
+      id: "bl235-unit",
+      quantity: 1,
+      promoContext: {
+        productId: "bl235",
+        categoryId: null,
+        collectionIds: [] as string[],
+        unitPrice: 2.5,
+        productDiscountPercent: 10,
+      },
+    }];
+    const stackablePromo = makePercentPromo("p-summer", 10, { stackable: true });
+    const input = {
+      items,
+      carrierId: "pickup_store",
+      carrierPrice: 0,
+      addressCountry: "FR",
+      user: baseUser,
+      activePromos: [stackablePromo],
+      appliedCodePromo: null,
+    };
+    const r = computeOrderPricing(input);
+    const entry = r.itemFinalPrices.get("bl235-unit");
+    expect(entry?.finalUnitPrice).toBeCloseTo(2.02, 2);
+    expect(entry?.source).toBe("stack");
+  });
+
   it("promoAutoDiscount = subtotalBrut - subtotalHT (sans code) — pour affichage séparé du récap", () => {
     const items = [makeItem("i1", 100, 1)];
     const promo = makePercentPromo("p1", 20);
