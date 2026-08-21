@@ -2544,11 +2544,23 @@ export default function ProductForm({
               </p>
 
               {/* Référence (always FR, not locale-dependent) */}
-              <Field label="Référence produit *" hint="Ex: BJ-COL-001">
+              {/* Verrouillée en mode édition : la référence sert de clé aux
+                  marketplaces (PFS, Ankor, eFashion, Faire, Orderchamp) et
+                  aux chemins fichiers. La modifier a posteriori provoque des
+                  décalages (images fantômes, images considérées orphelines
+                  et supprimées, échec « Invalid attachment » côté OC…).
+                  Décidé le 2026-08-21 après incident A2251(2)/(3). */}
+              <Field
+                label="Référence produit *"
+                hint={mode === "edit"
+                  ? "La référence est figée à la création — elle sert d'identifiant pour toutes les marketplaces."
+                  : "Ex: BJ-COL-001"}
+              >
                 <input
                   type="text"
                   value={reference}
                   onChange={(e) => {
+                    if (mode === "edit") return;
                     const next = e.target.value.replace(/\s/g, "").toUpperCase();
                     setReference(next);
                     if (pfsRefCheckedValueRef.current !== next) {
@@ -2557,30 +2569,32 @@ export default function ProductForm({
                     }
                   }}
                   onBlur={() => {
+                    if (mode === "edit") return;
                     markTouched("reference");
                     void runPfsRefCheck(reference);
                   }}
                   placeholder="BJ-COL-001"
+                  readOnly={mode === "edit"}
                   className={`field-input${
                     (touchedFields.has("reference") && !reference.trim()) || pfsRefStatus === "exists"
                       ? " field-error"
                       : ""
-                  }`}
+                  }${mode === "edit" ? " bg-bg-secondary/60 text-text-muted cursor-not-allowed" : ""}`}
                   required
                 />
                 {touchedFields.has("reference") && !reference.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La référence est requise.</p>
                 )}
-                {pfsRefStatus === "checking" && (
+                {mode !== "edit" && pfsRefStatus === "checking" && (
                   <p className="text-[11px] text-text-muted mt-1 font-body">Vérification sur Paris Fashion Shop…</p>
                 )}
-                {pfsRefStatus === "exists" && pfsRefMessage && (
+                {mode !== "edit" && pfsRefStatus === "exists" && pfsRefMessage && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">{pfsRefMessage}</p>
                 )}
-                {pfsRefStatus === "ok" && reference.trim() && (
+                {mode !== "edit" && pfsRefStatus === "ok" && reference.trim() && (
                   <p className="text-[11px] text-[#15803D] mt-1 font-body">✓ Référence disponible sur Paris Fashion Shop</p>
                 )}
-                {pfsRefStatus === "error" && pfsRefMessage && (
+                {mode !== "edit" && pfsRefStatus === "error" && pfsRefMessage && (
                   <p className="text-[11px] text-text-muted mt-1 font-body">{pfsRefMessage}</p>
                 )}
               </Field>

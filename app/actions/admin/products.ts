@@ -892,8 +892,26 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     },
   });
 
+  // ── Référence verrouillée après création ────────────────────────
+  // Décision cliente 2026-08-21 (incident A2251(2)/(3)) : la référence
+  // sert de clé aux marketplaces (PFS/Ankor/eFa/Faire/OC) et aux chemins
+  // fichiers. La modifier a posteriori provoque des décalages (images
+  // fantômes, images considérées orphelines et supprimées, échec
+  // « Invalid attachment » côté OC…). Le UI passe déjà le champ en
+  // readOnly, ce bloc est un garde-fou serveur.
+  const _oldRefLocked = oldProduct?.reference ?? "";
+  const _submittedRefLocked = input.reference.trim().toUpperCase();
+  const _effectiveRef = _oldRefLocked || _submittedRefLocked;
+  if (_oldRefLocked && _submittedRefLocked && _submittedRefLocked !== _oldRefLocked) {
+    logger.warn("[updateProduct] Reference change ignored (locked after creation)", {
+      productId: id,
+      oldRef: _oldRefLocked,
+      submittedRef: _submittedRefLocked,
+    });
+  }
+
   const dup = await prisma.product.findFirst({
-    where: { reference: input.reference.trim().toUpperCase(), NOT: { id } },
+    where: { reference: _effectiveRef, NOT: { id } },
     select: { id: true },
   });
   if (dup) throw new Error("Cette référence est déjà utilisée par un autre produit.");
@@ -923,31 +941,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     })
   );
 
-  // ── Renommage du dossier d'images si la référence change ───────
-  // On déplace le dossier `public/uploads/produits/{ancienne}` →
-  // `public/uploads/produits/{nouvelle}` et on calcule la map des swaps
-  // de paths à appliquer en BDD à l'intérieur de la transaction.
-  const newRefUpper = input.reference.trim().toUpperCase();
-  const oldRef = oldProduct?.reference ?? "";
-  let folderRenameSwaps: { oldDbPath: string; newDbPath: string }[] = [];
-  let folderRenamed = false;
-  if (oldRef && oldRef !== newRefUpper) {
-    try {
-      const { renamed } = await renameProductFolder(oldRef, newRefUpper, tenant.slug);
-      folderRenameSwaps = renamed;
-      folderRenamed = true;
-    } catch (err) {
-      logger.error("[Storage] renameProductFolder failed", {
-        productId: id,
-        oldRef,
-        newRef: newRefUpper,
-        error: err,
-      });
-      // On laisse passer : le swap de path ne sera pas effectué, mais la
-      // BDD reste cohérente. L'admin peut relancer un save plus tard.
-      folderRenameSwaps = [];
-    }
-  }
+  // Référence verrouillée : cf. bloc « Référence verrouillée après
+  // création » plus haut. Ces variables restent utilisées par les
+  // requêtes en aval mais ne déclenchent aucun renommage.
+  const oldRef = _oldRefLocked;
+  const newRefUpper = _effectiveRef;
+  const folderRenameSwaps: { oldDbPath: string; newDbPath: string }[] = [];
+  const folderRenamed = false;
 
   // Map BDD-path → BDD-path (toutes tailles : large/md/thumb).
   const pathRenameMap = new Map<string, string>();
@@ -1050,10 +1050,13 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
 
     // Mise à jour des champs de base
+    // NB : `reference` est verrouillée après création — on force `newRefUpper`
+    // (= ancienne référence si le client tente d'en soumettre une nouvelle,
+    // cf. bloc « Référence verrouillée après création » plus haut).
     await tx.product.update({
       where: { id },
       data: {
-        reference:             input.reference.trim().toUpperCase(),
+        reference:             newRefUpper,
         name:                  input.name.trim(),
         description:           input.description.trim(),
         note:                  input.note === undefined ? undefined : (input.note?.trim() ? input.note.trim() : null),
