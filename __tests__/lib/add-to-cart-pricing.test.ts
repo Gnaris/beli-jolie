@@ -41,28 +41,24 @@ describe("pricePerUnit", () => {
 });
 
 describe("applyDiscount", () => {
-  it("laisse le prix intact si aucune remise", () => {
+  it("laisse le prix intact si aucune remise produit", () => {
     expect(applyDiscount(10)).toBe(10);
     expect(applyDiscount(10, 0)).toBe(10);
     expect(applyDiscount(10, null, null)).toBe(10);
   });
 
-  it("applique une remise produit en pourcentage", () => {
+  it("applique la remise produit en pourcentage", () => {
     expect(applyDiscount(10, 20)).toBeCloseTo(8, 4);
   });
 
-  it("applique une remise client PERCENT après la remise produit", () => {
-    // 10 → -20% = 8 → -10% = 7,20
-    expect(applyDiscount(10, 20, { discountType: "PERCENT", discountValue: 10 })).toBeCloseTo(7.2, 4);
+  it("ignore la remise commerciale client (appliquée au total panier uniquement)", () => {
+    // Nouvelle règle métier : clientDiscount ne modifie plus le prix ligne.
+    expect(applyDiscount(10, 20, { discountType: "PERCENT", discountValue: 10 })).toBeCloseTo(8, 4);
+    expect(applyDiscount(10, 20, { discountType: "AMOUNT", discountValue: 1 })).toBeCloseTo(8, 4);
+    expect(applyDiscount(10, 0, { discountType: "PERCENT", discountValue: 50 })).toBe(10);
   });
 
-  it("applique une remise client AMOUNT après la remise produit", () => {
-    // 10 → -20% = 8 → -1€ = 7
-    expect(applyDiscount(10, 20, { discountType: "AMOUNT", discountValue: 1 })).toBeCloseTo(7, 4);
-  });
-
-  it("ne descend jamais sous 0 même avec une remise supérieure au prix", () => {
-    expect(applyDiscount(5, 0, { discountType: "AMOUNT", discountValue: 100 })).toBe(0);
+  it("ne descend jamais sous 0 même avec une remise produit > 100 %", () => {
     expect(applyDiscount(5, 200)).toBe(0);
   });
 });
@@ -132,15 +128,15 @@ describe("computeCartSummary", () => {
     expect(res.totalPrice).toBeCloseTo(4.2 + 5 * 2, 4);
   });
 
-  it("applique la remise produit puis la remise client au total", () => {
-    // 1 paquet à 42 € - 20% = 33,60 € - 10% = 30,24 €
+  it("applique uniquement la remise produit ; la remise client est ignorée par ligne", () => {
+    // 1 paquet à 42 € - 20% = 33,60 € (remise client -10% ignorée ici)
     const res = computeCartSummary(
       [{ variants: [p] }],
       { p1: 1 },
       20,
       { discountType: "PERCENT", discountValue: 10 },
     );
-    expect(res.totalPrice).toBeCloseTo(30.24, 4);
+    expect(res.totalPrice).toBeCloseTo(33.6, 4);
   });
 
   it("ne compte comme paquets que les PACK, pas les UNIT (même quand qty>0)", () => {
