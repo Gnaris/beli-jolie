@@ -595,6 +595,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorstoreLastExportedAt: p.ankorstoreLastExportedAt ? p.ankorstoreLastExportedAt.toISOString() : null,
     faireLastExportedAt:      p.faireLastExportedAt      ? p.faireLastExportedAt.toISOString()      : null,
     orderchampLastExportedAt: p.orderchampLastExportedAt ? p.orderchampLastExportedAt.toISOString() : null,
+    discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
     colors:          p.colors.map((c) => ({
       id:                c.id,
       colorId:           c.colorId ?? "",
