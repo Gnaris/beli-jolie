@@ -95,7 +95,12 @@ export function buildOrderchampImageUrl(dbPath: string, baseOverride?: string): 
       ),
     )
     .join("/");
-  return `${base}${encodedPath}`;
+  // Cache-buster obligatoire : Orderchamp dédupe silencieusement par URL
+  // (même URL déjà vue → skip download, `images.edges` reste vide sans
+  // erreur). Sans query différent à chaque envoi, un republish après
+  // suppression du produit côté OC ne récupère jamais les images.
+  const bust = `?v=${Date.now()}`;
+  return `${base}${encodedPath}${bust}`;
 }
 
 /**

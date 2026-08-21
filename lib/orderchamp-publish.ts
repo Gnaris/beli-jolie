@@ -333,6 +333,11 @@ function buildOrderchampProductPayload(
     // détecte automatiquement la catégorie de marché depuis le titre + la
     // description. Le mapping manuel a été retiré de l'UI en 2026-08-20.
     customCategory: ctx.orderchampCategoryId ?? undefined,
+    // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
+    // si le canal n'est pas activé côté compte (Settings > Sales channels
+    // dans le back-office OC). Dès activation, tous les publish futurs
+    // apparaîtront sur la marketplace acheteuses sans autre config.
+    salesChannels: ["MARKETPLACE"],
     variants: variantExpansion.map((v) => ({
       sku: v.sku,
       price: v.priceEur,

@@ -154,6 +154,10 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
     customCategory: catRes.orderchampCustomCategoryId ?? undefined,
+    // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
+    // si le canal n'est pas activé côté compte (Settings > Sales channels
+    // dans le back-office OC).
+    salesChannels: ["MARKETPLACE"],
     // Envoie la liste complète des images à chaque update. Orderchamp
     // remplace le set d'images du produit — les ajouts, suppressions et
     // remplacements côté BJ sont donc propagés en une seule mutation.
