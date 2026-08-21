@@ -203,8 +203,12 @@ export async function orderchampUpdateProduct(
       .sort((a, b) => a.node.position - b.node.position)
       .map((e) => e.node.id);
     if (updatedImageIds.length === 0 && imageUrls.length > 0) {
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        await new Promise((r) => setTimeout(r, 2000));
+      // Orderchamp télécharge les images de manière très asynchrone (souvent
+      // 2 à 5 minutes après productUpdate). On poll 30 × 3s = 90s max :
+      // suffisant pour la majorité des cas ; sinon un « Rafraîchir » manuel
+      // ultérieur relance l'attribution une fois les images arrivées côté OC.
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 3000));
         try {
           const re = await orderchampGraphQL<{
             product: { images: { edges: Array<{ node: { id: string; position: number } }> } } | null;

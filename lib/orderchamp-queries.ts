@@ -240,11 +240,9 @@ export const PRODUCT_DELETE_MUTATION = /* GraphQL */ `
 export const PRODUCT_PUBLISH_MUTATION = /* GraphQL */ `
   mutation ProductPublish($input: ProductPublishInput!) {
     productPublish(input: $input) {
-      product {
+      listing {
         id
-        listing {
-          id
-        }
+        status
       }
       userErrors {
         field
