@@ -303,6 +303,7 @@ export async function orderchampUpdateProduct(
   );
   let variantsUpdated = 0;
   let skusRenamed = 0;
+  let pricesUpdated = 0;
   for (const v of activeVariants) {
     if (!v.orderchampVariantId) continue;
     const input: Record<string, unknown> = { id: v.orderchampVariantId };
@@ -319,6 +320,15 @@ export async function orderchampUpdateProduct(
         `Variante multi-tailles ${v.color?.name ?? v.id} : renommage du code Orderchamp non appliqué automatiquement (rafraîchir manuellement si besoin).`,
       );
     }
+    // Prix wholesale + retail : on renvoie systématiquement à chaque update
+    // pour propager les changements de basePrice BJ ou de configuration
+    // markup Orderchamp. Sans ça, les prix côté OC restaient figés sur
+    // ceux du premier publish.
+    const unitTotal = Number(v.unitPrice);
+    const priceEur = getOrderchampWholesalePrice(unitTotal, v.packQuantity, v.saleType, pricing.wholesale);
+    const msrpEur = getOrderchampChainedRetailPrice(unitTotal, v.packQuantity, v.saleType, pricing.wholesale, pricing.retail);
+    if (priceEur > 0) input.price = priceEur;
+    if (msrpEur > 0) input.msrp = msrpEur;
     if (Object.keys(input).length <= 1) continue;
     try {
       await orderchampGraphQL(
@@ -328,11 +338,13 @@ export async function orderchampUpdateProduct(
       );
       variantsUpdated += 1;
       if (input.sku) skusRenamed += 1;
+      if (input.price !== undefined || input.msrp !== undefined) pricesUpdated += 1;
     } catch (e) {
       warnings.push(`Variante ${v.orderchampVariantId} : ${e instanceof Error ? e.message : "?"}`);
     }
   }
   if (variantsUpdated > 0 && skusRenamed > 0) changedFields.push("sku");
+  if (pricesUpdated > 0) changedFields.push("price");
 
   // 4) Reset syncRequired + timestamp
   await prisma.product.update({

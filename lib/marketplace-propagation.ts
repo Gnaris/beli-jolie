@@ -19,6 +19,7 @@ export interface MarketplaceCandidates {
   ankorstore: MarketplaceCandidate[];
   efashion: MarketplaceCandidate[];
   faire: MarketplaceCandidate[];
+  orderchamp: MarketplaceCandidate[];
 }
 
 export interface MarketplacePropagateOptions {
@@ -26,6 +27,7 @@ export interface MarketplacePropagateOptions {
   ankorstore?: boolean;
   efashion?: boolean;
   faire?: boolean;
+  orderchamp?: boolean;
 }
 
 export interface MarketplaceEnqueueInput {
@@ -39,9 +41,10 @@ export interface MarketplaceEnqueueInput {
     ankorstore?: boolean;
     efashion?: boolean;
     faire?: boolean;
+    orderchamp?: boolean;
   };
   mode: "publish" | "refresh" | "resync";
-  marketplace: "pfs" | "ankorstore" | "efashion" | "faire";
+  marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
 }
 
 /**
@@ -54,6 +57,7 @@ export function allCandidateIds(c: MarketplaceCandidates): string[] {
       ...c.ankorstore.map((p) => p.id),
       ...c.efashion.map((p) => p.id),
       ...c.faire.map((p) => p.id),
+      ...c.orderchamp.map((p) => p.id),
     ]),
   );
 }
@@ -63,7 +67,7 @@ export function allCandidateIds(c: MarketplaceCandidates): string[] {
  */
 export function hasAnyCandidate(c: MarketplaceCandidates): boolean {
   return (
-    c.pfs.length + c.ankorstore.length + c.efashion.length + c.faire.length > 0
+    c.pfs.length + c.ankorstore.length + c.efashion.length + c.faire.length + c.orderchamp.length > 0
   );
 }
 
@@ -132,6 +136,26 @@ export function buildMarketplaceInputs(
         },
         mode,
         marketplace: "faire",
+      });
+    }
+  }
+  if (options.orderchamp) {
+    for (const p of candidates.orderchamp) {
+      inputs.push({
+        productId: p.id,
+        reference: p.reference,
+        productName: p.name,
+        firstImage: p.firstImage,
+        options: {
+          local: false,
+          pfs: false,
+          ankorstore: false,
+          efashion: false,
+          faire: false,
+          orderchamp: true,
+        },
+        mode,
+        marketplace: "orderchamp",
       });
     }
   }

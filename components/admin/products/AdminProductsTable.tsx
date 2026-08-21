@@ -1155,6 +1155,9 @@ interface AdminProduct {
   /** Nombre de couleurs actives (non désactivées) sans aucune image.
    *  Calculé côté serveur. 0 pour les produits archivés. */
   colorsMissingImageCount: number;
+  /** Remise fiche produit (Product.discountPercent) — 0..100. Sert à afficher
+   *  le prix barré + prix rouge sur la ligne admin quand le produit est remisé. */
+  discountPercent: number | null;
   /** Champs manquants dérivés côté serveur (catégorie, description trop courte,
    *  compo, pays, saison, prix, poids, stock, tailles). Rendus en badges ambre
    *  sous le badge de statut. [] pour ARCHIVED. */
@@ -3596,9 +3599,29 @@ function ProductRow({
                   sélection de la ligne en cliquant sur ⭐ ou 🔒. */}
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 {!isNaN(minPrice) ? (
-                  <span className="font-semibold text-text-primary text-[12.5px] tabular-nums">
-                    {minPrice.toFixed(2)} EUR
-                  </span>
+                  (() => {
+                    const pct = product.discountPercent && product.discountPercent > 0
+                      ? product.discountPercent
+                      : 0;
+                    // Troncature au centime (règle métier : jamais d'arrondi à la hausse).
+                    const finalPrice = pct > 0
+                      ? Math.floor(minPrice * (1 - pct / 100) * 100) / 100
+                      : minPrice;
+                    return pct > 0 ? (
+                      <span className="inline-flex items-baseline gap-1 tabular-nums">
+                        <span className="text-text-muted text-[11px] line-through">
+                          {minPrice.toFixed(2)} EUR
+                        </span>
+                        <span className="font-semibold text-error text-[12.5px]">
+                          {finalPrice.toFixed(2)} EUR
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-text-primary text-[12.5px] tabular-nums">
+                        {minPrice.toFixed(2)} EUR
+                      </span>
+                    );
+                  })()
                 ) : (
                   <span className="text-text-muted text-[11px]">—</span>
                 )}
@@ -5318,6 +5341,10 @@ export default function AdminProductsTable({
       const faireCandidates = showFaire
         ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
         : [];
+      const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+      const orderchampCandidates = showOrderchamp
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.orderchampProductId)
+        : [];
       const microstoreCandidates = hasMicrostoreConfig
         ? allProducts.filter(
             (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
@@ -5329,6 +5356,7 @@ export default function AdminProductsTable({
         ankorstore: ankorsCandidates,
         efashion: efashionCandidates,
         faire: faireCandidates,
+        orderchamp: orderchampCandidates,
       };
       if (hasAnyCandidate(candidates) || microstoreCandidates.length > 0) {
         const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
@@ -5343,6 +5371,7 @@ export default function AdminProductsTable({
           showAnkorstore: ankorsCandidates.length > 0,
           showEfashion: efashionCandidates.length > 0,
           showFaire: faireCandidates.length > 0,
+          showOrderchamp: orderchampCandidates.length > 0,
           showMicrostore: microstoreCandidates.length > 0,
           showBoutique: false,
           defaultAllChecked: true,
@@ -5448,6 +5477,10 @@ export default function AdminProductsTable({
     const faireCandidates = showFaire
       ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
       : [];
+    const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+    const orderchampCandidates = showOrderchamp
+      ? allProducts.filter((p) => successIds.includes(p.id) && p.orderchampProductId)
+      : [];
     const microstoreCandidates = hasMicrostoreConfig
       ? allProducts.filter(
           (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
@@ -5459,6 +5492,7 @@ export default function AdminProductsTable({
       ankorstore: ankorsCandidates,
       efashion: efashionCandidates,
       faire: faireCandidates,
+      orderchamp: orderchampCandidates,
     };
     if (!hasAnyCandidate(candidates) && microstoreCandidates.length === 0) return;
 
@@ -5479,6 +5513,7 @@ export default function AdminProductsTable({
         showAnkorstore: ankorsCandidates.length > 0,
         showEfashion: efashionCandidates.length > 0,
         showFaire: faireCandidates.length > 0,
+        showOrderchamp: orderchampCandidates.length > 0,
         showMicrostore: microstoreCandidates.length > 0,
         showBoutique: false,
         defaultAllChecked: true,
@@ -5866,6 +5901,7 @@ export default function AdminProductsTable({
     if (ids.length === 0) return;
     const showEfashion = hasEfashionConfig && efashionEnabled;
     const showFaireLocal = hasFaireConfig && faireEnabled;
+    const showOrderchampLocal = hasOrderchampConfig && orderchampEnabled;
     const targets = allProducts.filter((p) => ids.includes(p.id));
     const pfsTargets = hasPfsConfig ? targets.filter((p) => p.pfsProductId) : [];
     const ankorsTargets = showAnkorstore ? targets.filter((p) => p.ankorsProductId) : [];
@@ -5873,6 +5909,7 @@ export default function AdminProductsTable({
       ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
       : [];
     const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
+    const orderchampTargets = showOrderchampLocal ? targets.filter((p) => p.orderchampProductId) : [];
     const microstoreTargets = hasMicrostoreConfig
       ? targets.filter((p) => isMicrostorePropagationEligible(p))
       : [];
@@ -5882,6 +5919,7 @@ export default function AdminProductsTable({
       ankorsTargets.length === 0 &&
       efashionTargets.length === 0 &&
       faireTargets.length === 0 &&
+      orderchampTargets.length === 0 &&
       microstoreTargets.length === 0
     ) {
       toast.error("Rien à synchroniser", "Ce produit n'est publié sur aucune marketplace.");
@@ -5893,6 +5931,7 @@ export default function AdminProductsTable({
       ankorstore: ankorsTargets,
       efashion: efashionTargets,
       faire: faireTargets,
+      orderchamp: orderchampTargets,
     };
     const firstName = targets[0]?.name;
     const options = await askMarketplaceOptions({
@@ -5906,6 +5945,7 @@ export default function AdminProductsTable({
       showAnkorstore: ankorsTargets.length > 0,
       showEfashion: efashionTargets.length > 0,
       showFaire: faireTargets.length > 0,
+      showOrderchamp: orderchampTargets.length > 0,
       showMicrostore: microstoreTargets.length > 0,
       showBoutique: false,
       defaultAllChecked: true,
