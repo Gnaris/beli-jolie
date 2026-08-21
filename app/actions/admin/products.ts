@@ -17,6 +17,9 @@ import {
   productImageDir,
   renameProductFolder,
   deleteDirectory,
+  slugify,
+  substituteReferenceInPath,
+  substituteReferenceInDestDir,
 } from "@/lib/storage";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
@@ -987,6 +990,60 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           await tx.productColorImage.update({
             where: { id: img.id },
             data: { path: next },
+          });
+        }
+      }
+    }
+
+    // ── Filet de sécurité : rattrapage des paths desync ─────────────
+    // renameProductFolder ne rattrape que les fichiers présents sur le
+    // disque au moment du save. Si un upload async est terminé APRÈS le
+    // rename (worker écrit à l'ancien destDir capturé à l'enqueue), le
+    // path BDD reste sur l'ancien slug produit → orphelin à jamais.
+    //
+    // On fait une substitution textuelle sur `ProductColorImage.path`
+    // pour toute entrée qui contient encore l'ancien slug + on réécrit
+    // les jobs `ImageProcessingJob` en vol pour qu'ils atterrissent au
+    // bon endroit.
+    if (oldRef && oldRef !== newRefUpper) {
+      const oldSlugRef = slugify(oldRef);
+      const newSlugRef = slugify(newRefUpper);
+      if (oldSlugRef !== newSlugRef) {
+        const oldFolderPart = `/uploads/${tenant.slug}/produits/${oldSlugRef}/`;
+
+        const desyncedImages = await tx.productColorImage.findMany({
+          where: { productId: id, path: { contains: oldFolderPart } },
+          select: { id: true, path: true },
+        });
+        for (const img of desyncedImages) {
+          const nextPath = substituteReferenceInPath(img.path, oldSlugRef, newSlugRef, tenant.slug);
+          if (nextPath !== img.path) {
+            await tx.productColorImage.update({
+              where: { id: img.id },
+              data: { path: nextPath },
+            });
+          }
+        }
+
+        // Réécrit les jobs image en vol (PENDING/PROCESSING) pour qu'ils
+        // écrivent le fichier au nouveau path.
+        const inflightJobs = await tx.imageProcessingJob.findMany({
+          where: {
+            productId: id,
+            status: { in: ["PENDING", "PROCESSING"] },
+            destDir: { contains: `/produits/${oldSlugRef}` },
+          },
+          select: { id: true, destDir: true, filename: true, dbPath: true },
+        });
+        for (const job of inflightJobs) {
+          const newDestDir = substituteReferenceInDestDir(job.destDir, oldSlugRef, newSlugRef);
+          const newFilename = job.filename.startsWith(`${oldSlugRef}-`)
+            ? `${newSlugRef}-` + job.filename.slice(oldSlugRef.length + 1)
+            : job.filename;
+          const newDbPath = substituteReferenceInPath(job.dbPath, oldSlugRef, newSlugRef, tenant.slug);
+          await tx.imageProcessingJob.update({
+            where: { id: job.id },
+            data: { destDir: newDestDir, filename: newFilename, dbPath: newDbPath },
           });
         }
       }

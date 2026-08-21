@@ -24,6 +24,8 @@ import {
   claimDir,
   bordereauDir,
   renameProductFolder,
+  substituteReferenceInPath,
+  substituteReferenceInDestDir,
 } from "@/lib/storage";
 
 describe("lib/storage — slugify", () => {
@@ -135,6 +137,99 @@ describe("lib/storage — path helpers", () => {
 
   it("bordereauDir uses client id", () => {
     expect(bordereauDir("client-42")).toBe("uploads/bordereaux/client-42");
+  });
+});
+
+describe("lib/storage — substituteReferenceInPath", () => {
+  it("replaces the folder slug AND the basename prefix in one shot", () => {
+    // Cas nominal : upload async terminé APRÈS rename produit A2251(2) → A2251(3).
+    // Le path BDD contient encore l'ancien slug côté dossier ET côté basename.
+    expect(
+      substituteReferenceInPath(
+        "/uploads/beliandjolie/produits/a2251_2/a2251_2-doré-1-msxb0q5b9q0d.webp",
+        "a2251_2",
+        "a2251_3",
+        "beliandjolie",
+      ),
+    ).toBe("/uploads/beliandjolie/produits/a2251_3/a2251_3-doré-1-msxb0q5b9q0d.webp");
+  });
+
+  it("only replaces the folder if the basename does not start with the old slug", () => {
+    // Path bizarre où le fichier a un nom manuel (pas préfixé par le slug).
+    expect(
+      substituteReferenceInPath(
+        "/uploads/beliandjolie/produits/a2251_2/manual-photo.jpg",
+        "a2251_2",
+        "a2251_3",
+        "beliandjolie",
+      ),
+    ).toBe("/uploads/beliandjolie/produits/a2251_3/manual-photo.jpg");
+  });
+
+  it("returns the path unchanged if the old slug is not present", () => {
+    expect(
+      substituteReferenceInPath(
+        "/uploads/beliandjolie/produits/xyz/xyz-1.webp",
+        "a2251_2",
+        "a2251_3",
+        "beliandjolie",
+      ),
+    ).toBe("/uploads/beliandjolie/produits/xyz/xyz-1.webp");
+  });
+
+  it("no-op if oldSlug === newSlug", () => {
+    expect(
+      substituteReferenceInPath(
+        "/uploads/beliandjolie/produits/xyz/xyz-1.webp",
+        "xyz",
+        "xyz",
+        "beliandjolie",
+      ),
+    ).toBe("/uploads/beliandjolie/produits/xyz/xyz-1.webp");
+  });
+
+  it("works with tenant slug in the middle of the path (multi-tenant)", () => {
+    expect(
+      substituteReferenceInPath(
+        "/uploads/issyma/produits/z178_2/z178_2-vert-3-abc.webp",
+        "z178_2",
+        "z178_3",
+        "issyma",
+      ),
+    ).toBe("/uploads/issyma/produits/z178_3/z178_3-vert-3-abc.webp");
+  });
+});
+
+describe("lib/storage — substituteReferenceInDestDir", () => {
+  it("replaces slug at the end of destDir (no trailing slash)", () => {
+    expect(
+      substituteReferenceInDestDir("uploads/beliandjolie/produits/a2251_2", "a2251_2", "a2251_3"),
+    ).toBe("uploads/beliandjolie/produits/a2251_3");
+  });
+
+  it("replaces slug when followed by a trailing slash or subpath", () => {
+    expect(
+      substituteReferenceInDestDir("uploads/beliandjolie/produits/a2251_2/", "a2251_2", "a2251_3"),
+    ).toBe("uploads/beliandjolie/produits/a2251_3/");
+  });
+
+  it("does not match if the slug is a prefix of a longer folder name", () => {
+    // Boundary check : a2251_2 ne doit pas matcher dans "a2251_20"
+    expect(
+      substituteReferenceInDestDir("uploads/beliandjolie/produits/a2251_20", "a2251_2", "a2251_3"),
+    ).toBe("uploads/beliandjolie/produits/a2251_20");
+  });
+
+  it("no-op if oldSlug === newSlug", () => {
+    expect(
+      substituteReferenceInDestDir("uploads/beliandjolie/produits/xyz", "xyz", "xyz"),
+    ).toBe("uploads/beliandjolie/produits/xyz");
+  });
+
+  it("returns destDir unchanged if the slug is not present", () => {
+    expect(
+      substituteReferenceInDestDir("uploads/beliandjolie/produits/xyz", "a2251_2", "a2251_3"),
+    ).toBe("uploads/beliandjolie/produits/xyz");
   });
 });
 

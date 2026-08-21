@@ -502,6 +502,64 @@ export async function renameProductFolder(
 }
 
 /**
+ * Substitue textuellement l'ancien slug produit par le nouveau dans un
+ * chemin BDD ou un destDir de job image. Gère à la fois le nom de dossier
+ * et le préfixe du basename fichier.
+ *
+ * Utilisé pour rattraper les paths qui ont été posés APRÈS un renameProductFolder :
+ *  - `ProductColorImage.path` créé par le worker image en vol
+ *  - `ImageProcessingJob.destDir/filename/dbPath` d'un job encore PENDING/PROCESSING
+ *
+ * Retourne le path inchangé si l'ancien slug n'y apparaît pas.
+ *
+ * @example
+ * substituteReferenceInPath(
+ *   "/uploads/tid/produits/a2251_2/a2251_2-doré-1-abc.webp",
+ *   "a2251_2",
+ *   "a2251_3",
+ *   "tid",
+ * ) === "/uploads/tid/produits/a2251_3/a2251_3-doré-1-abc.webp"
+ */
+export function substituteReferenceInPath(
+  originalPath: string,
+  oldSlug: string,
+  newSlug: string,
+  tenantSlug: string,
+): string {
+  if (oldSlug === newSlug) return originalPath;
+  const oldFolder = `/uploads/${tenantSlug}/produits/${oldSlug}/`;
+  const newFolder = `/uploads/${tenantSlug}/produits/${newSlug}/`;
+  if (!originalPath.includes(oldFolder)) return originalPath;
+  const afterFolder = originalPath.replace(oldFolder, newFolder);
+  // Remplace aussi le préfixe basename `{oldSlug}-` juste après le dossier.
+  const filePrefixIdx = afterFolder.indexOf(newFolder) + newFolder.length;
+  const rest = afterFolder.slice(filePrefixIdx);
+  if (rest.startsWith(`${oldSlug}-`)) {
+    return afterFolder.slice(0, filePrefixIdx) + newSlug + "-" + rest.slice(oldSlug.length + 1);
+  }
+  return afterFolder;
+}
+
+/**
+ * Variante pour un `ImageProcessingJob.destDir` (pas de leading `/`, pas
+ * de basename fichier). Ex : `uploads/tid/produits/a2251_2` → `uploads/tid/produits/a2251_3`.
+ */
+export function substituteReferenceInDestDir(
+  destDir: string,
+  oldSlug: string,
+  newSlug: string,
+): string {
+  if (oldSlug === newSlug) return destDir;
+  const marker = `/produits/${oldSlug}`;
+  const idx = destDir.indexOf(marker);
+  if (idx < 0) return destDir;
+  const afterMarker = destDir.slice(idx + marker.length);
+  // Vérifie que ce qui suit est soit "/" soit rien (frontière).
+  if (afterMarker !== "" && !afterMarker.startsWith("/")) return destDir;
+  return destDir.slice(0, idx) + `/produits/${newSlug}` + afterMarker;
+}
+
+/**
  * Same idea for collection folders. Returns DB-path swaps for the
  * `Collection.image` field.
  */
