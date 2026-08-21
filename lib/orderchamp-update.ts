@@ -89,7 +89,10 @@ export async function orderchampUpdateProduct(
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
   const warnings: string[] = [];
-  const activeVariants = product.colors.filter((c) => !c.disabled);
+  // Décision cliente 2026-08-21 : Orderchamp ne reçoit QUE les variantes
+  // UNIT. Les PACK ne sont pas envoyées (marketplace B2B → acheteuses
+  // commandent par multiple UNIT via `minimumOrderQuantity`).
+  const activeVariants = product.colors.filter((c) => !c.disabled && c.saleType !== "PACK");
   const countryAlpha2 = resolveOrderchampCountry(product.countryIsoCode);
   let countryEnName: string | null = null;
   try {
@@ -126,10 +129,16 @@ export async function orderchampUpdateProduct(
   // fiche OC reste figée sur les images initiales.
   const tenantId = await getCurrentTenantIdSafe();
   const imageBaseUrl = (tenantId ? await getTenantBaseUrl(tenantId) : null) ?? "https://www.beliandjolie.com";
+  // Restreint aux couleurs qui ont au moins une variante UNIT active
+  // (PACK non envoyées à OC).
+  const activeColorIds = new Set(
+    activeVariants.map((v) => v.color?.id).filter((x): x is string => !!x),
+  );
   const imageUrls: string[] = [];
   {
     const imagesByColor = new Map<string, string[]>();
     for (const img of product.colorImages) {
+      if (!activeColorIds.has(img.colorId)) continue;
       if (!imagesByColor.has(img.colorId)) imagesByColor.set(img.colorId, []);
       imagesByColor.get(img.colorId)!.push(img.path);
     }

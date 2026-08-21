@@ -237,7 +237,14 @@ function buildOrderchampProductPayload(
   }>;
   imageUrls: string[];
 } {
-  const activeVariants = product.colors.filter((c) => !c.disabled);
+  // Décision cliente 2026-08-21 : Orderchamp ne reçoit QUE les variantes
+  // UNIT (vente à l'unité). Les variantes PACK ne sont pas envoyées —
+  // OC est une marketplace B2B, la quantité minimum est déjà gérée via
+  // `minimumOrderQuantity` côté OC + les acheteuses passent commande par
+  // multiple UNIT si besoin. Les PACK gonflaient artificiellement le
+  // nombre de variantes OC et affichaient des prix incohérents (prix total
+  // pack divisé par qty vs prix unité BJ).
+  const activeVariants = product.colors.filter((c) => !c.disabled && c.saleType !== "PACK");
   const expansions = activeVariants.flatMap(expandBjVariantToOrderchamp);
 
   // SKU : pour chaque BJ variant (colorId), on génère un SKU de base ; les
@@ -274,9 +281,15 @@ function buildOrderchampProductPayload(
   // Images racine du produit : on ordonne par couleur principale d'abord,
   // puis par ordre de couleur, pour que la featured image OC soit celle
   // de la couleur principale BJ.
+  // Restreint aux couleurs qui ont au moins une variante UNIT (les PACK
+  // ne partent pas côté OC → pas la peine d'envoyer leur image seule).
+  const activeColorIds = new Set(
+    activeVariants.map((v) => v.color?.id).filter((x): x is string => !!x),
+  );
   const primaryColorId = product.primaryColorId;
   const imagesByColor = new Map<string, string[]>();
   for (const img of product.colorImages) {
+    if (!activeColorIds.has(img.colorId)) continue;
     if (!imagesByColor.has(img.colorId)) imagesByColor.set(img.colorId, []);
     imagesByColor.get(img.colorId)!.push(img.path);
   }
@@ -550,10 +563,11 @@ export async function orderchampPublishProduct(
       }
     }
 
-    // Ordre des images racine == ordre de nos colorIds imagesByColor
+    // Ordre des images racine == ordre de nos colorIds imagesByColor.
+    // On itère sur les variantes UNIT uniquement (PACK non envoyées à OC).
     const colorOrder: string[] = [];
     if (product.primaryColorId) colorOrder.push(product.primaryColorId);
-    for (const c of product.colors) {
+    for (const c of product.colors.filter((c) => !c.disabled && c.saleType !== "PACK")) {
       if (c.color?.id && !colorOrder.includes(c.color.id)) colorOrder.push(c.color.id);
     }
     const imageIdByColorId = new Map<string, string>();
