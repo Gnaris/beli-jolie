@@ -141,6 +141,8 @@ interface ProductFormProps {
   efashionEnabled?: boolean;
   hasFaireConfig?: boolean;
   faireEnabled?: boolean;
+  hasOrderchampConfig?: boolean;
+  orderchampEnabled?: boolean;
   hasMicrostoreConfig?: boolean;
   /** Toggle SiteConfig « branded_reference_badge_enabled ». Active la vignette
    *  « photo marquée » (aperçu du badge « Réf ») avec un cadenas sur la 1ère
@@ -193,6 +195,8 @@ interface ProductFormProps {
     efashionReferenceBase?: string | null;
     /** Faire : id `p_xxx` du produit créé chez Faire (null = jamais publié) */
     faireProductId?: string | null;
+    /** Orderchamp : id du produit créé chez OC (null = jamais publié) */
+    orderchampProductId?: string | null;
     /** Microstore : date du dernier push réussi (null = jamais publié). */
     microstoreLastPushedAt?: Date | string | null;
     /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
@@ -200,6 +204,7 @@ interface ProductFormProps {
     ankorsEnabledForProduct?: boolean;
     efashionEnabledForProduct?: boolean;
     faireEnabledForProduct?: boolean;
+    orderchampEnabledForProduct?: boolean;
     microstoreEnabledForProduct?: boolean;
     /** Couleur principale du produit (refonte : ne dépend plus de la variante isPrimary) */
     primaryColorId?: string | null;
@@ -449,6 +454,8 @@ export default function ProductForm({
   ankorstoreEnabled = false,
   hasFaireConfig = false,
   faireEnabled = false,
+  hasOrderchampConfig = false,
+  orderchampEnabled = false,
   hasMicrostoreConfig = false,
   brandedBadgeEnabled = false,
   pfsColorOptions,
@@ -2173,9 +2180,11 @@ export default function ProductForm({
       const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
       const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
       const alreadyOnFaire = !!initialData?.faireProductId;
+      const alreadyOnOrderchamp = !!initialData?.orderchampProductId;
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
+      const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
       // Microstore : contrairement aux 4 autres marketplaces, il n'y a pas de
       // notion « déjà lié » (upsert par référence + pas d'upload photo). La
       // case doit apparaître dès qu'on modifie une info clé si Microstore est
@@ -2197,11 +2206,12 @@ export default function ProductForm({
         alreadyOnAnkorstore ||
         alreadyOnEfashion ||
         alreadyOnFaire ||
+        alreadyOnOrderchamp ||
         showMicrostore;
       const canPublish =
         savedProductId &&
         !isIncomplete &&
-        (hasPfsConfig || showAnkorstore || showEfashion || showFaire || showMicrostore) &&
+        (hasPfsConfig || showAnkorstore || showEfashion || showFaire || showOrderchamp || showMicrostore) &&
         anyMarketplaceLinked &&
         // Garde-fou ergonomique : si seuls des champs locaux ont changé (mots-
         // clés, sous-catégories, produits similaires, contenu de l'ensemble),
@@ -2298,6 +2308,7 @@ export default function ProductForm({
         const showEfashionCase =
           !onlyMicrostoreFieldChanged && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
         const showFaireCase = !onlyMicrostoreFieldChanged && showFaire && alreadyOnFaire;
+        const showOrderchampCase = !onlyMicrostoreFieldChanged && showOrderchamp && alreadyOnOrderchamp;
         // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
         // En brouillon (produit OFFLINE), on ne propose pas le push Microstore —
         // un produit encore hors ligne n'a rien à faire sur le point de vente.
@@ -2308,6 +2319,7 @@ export default function ProductForm({
           showAnkorstoreCase ||
           showEfashionCase ||
           showFaireCase ||
+          showOrderchampCase ||
           showMicrostoreCase
         ) {
           // Boucle : les flags syncRequired sont déjà posés par updateProduct.
@@ -2323,6 +2335,7 @@ export default function ProductForm({
               showAnkorstore: showAnkorstoreCase,
               showEfashion: showEfashionCase,
               showFaire: showFaireCase,
+              showOrderchamp: showOrderchampCase,
               showMicrostore: showMicrostoreCase,
               showBoutique: false,
               defaultAllChecked: true,
@@ -2403,6 +2416,17 @@ export default function ProductForm({
                 options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: true },
                 mode: "publish",
                 marketplace: "faire",
+              });
+            }
+            if (options.orderchamp) {
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+                mode: "publish",
+                marketplace: "orderchamp",
               });
             }
             if (inputs.length > 0) enqueuePublish(inputs);

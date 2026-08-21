@@ -44,6 +44,8 @@ import { loadOrderchampPricingConfig, getOrderchampWholesalePrice, getOrderchamp
 import { buildOrderchampDescription } from "@/lib/orderchamp-description";
 import { resolveOrderchampCountry } from "@/lib/orderchamp-country";
 import { buildOrderchampVariantSkus } from "@/lib/orderchamp-sku";
+import { buildOrderchampImageUrl } from "@/lib/marketplace-image";
+import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 
 export interface OrderchampUpdateResult {
   success: boolean;
@@ -118,6 +120,30 @@ export async function orderchampUpdateProduct(
     warnings.push(`Catégorie perso Orderchamp : ${catRes.error}`);
   }
 
+  // Reconstruit la liste d'URLs images (même règle qu'au publish : 1 image
+  // par couleur, couleur principale d'abord). Sans ça, l'update ignore
+  // silencieusement les ajouts/suppressions/remplacements côté BJ et la
+  // fiche OC reste figée sur les images initiales.
+  const tenantId = await getCurrentTenantIdSafe();
+  const imageBaseUrl = (tenantId ? await getTenantBaseUrl(tenantId) : null) ?? "https://www.beliandjolie.com";
+  const imageUrls: string[] = [];
+  {
+    const imagesByColor = new Map<string, string[]>();
+    for (const img of product.colorImages) {
+      if (!imagesByColor.has(img.colorId)) imagesByColor.set(img.colorId, []);
+      imagesByColor.get(img.colorId)!.push(img.path);
+    }
+    const orderedColorIds: string[] = [];
+    if (product.primaryColorId && imagesByColor.has(product.primaryColorId)) orderedColorIds.push(product.primaryColorId);
+    for (const cid of imagesByColor.keys()) {
+      if (cid !== product.primaryColorId) orderedColorIds.push(cid);
+    }
+    for (const cid of orderedColorIds) {
+      const paths = imagesByColor.get(cid) ?? [];
+      if (paths.length > 0) imageUrls.push(buildOrderchampImageUrl(paths[0], imageBaseUrl));
+    }
+  }
+
   const productInput: Record<string, unknown> = {
     id: bj.orderchampProductId,
     title: product.name,
@@ -128,6 +154,10 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
     customCategory: catRes.orderchampCustomCategoryId ?? undefined,
+    // Envoie la liste complète des images à chaque update. Orderchamp
+    // remplace le set d'images du produit — les ajouts, suppressions et
+    // remplacements côté BJ sont donc propagés en une seule mutation.
+    images: imageUrls.length > 0 ? imageUrls.map((url) => ({ sourceUrl: url })) : undefined,
   };
   // `category` non envoyé — Orderchamp détecte automatiquement depuis
   // titre + description (mapping manuel retiré 2026-08-20).
@@ -136,10 +166,14 @@ export async function orderchampUpdateProduct(
     if (productInput[k] === undefined) delete productInput[k];
   }
 
+  let updatedImageIds: string[] = [];
   try {
     const upd = await orderchampGraphQL<{
       productUpdate: {
-        product: { id: string } | null;
+        product: {
+          id: string;
+          images: { edges: Array<{ node: { id: string; position: number } }> };
+        } | null;
         userErrors: Array<Record<string, unknown>>;
       };
     }>(
@@ -153,8 +187,46 @@ export async function orderchampUpdateProduct(
       return { success: false, error: msg };
     }
     changedFields.push("meta");
+    if (imageUrls.length > 0) changedFields.push("images");
+    // Récupère les nouveaux IDs d'images (dans l'ordre d'envoi = ordre couleur
+    // principale d'abord) pour ré-attribuer chaque image à sa variante.
+    const productImages = upd.productUpdate.product?.images?.edges ?? [];
+    updatedImageIds = productImages
+      .slice()
+      .sort((a, b) => a.node.position - b.node.position)
+      .map((e) => e.node.id);
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Erreur productUpdate" };
+  }
+
+  // Post-passe attribution image → variante (identique au publish). Sans ça,
+  // chaque variante OC affiche la première image du produit au lieu de la
+  // sienne dans le back-office acheteurs.
+  if (updatedImageIds.length > 0) {
+    const colorOrder: string[] = [];
+    if (product.primaryColorId) colorOrder.push(product.primaryColorId);
+    for (const c of activeVariants) {
+      if (c.color?.id && !colorOrder.includes(c.color.id)) colorOrder.push(c.color.id);
+    }
+    const imageIdByColorId = new Map<string, string>();
+    colorOrder.forEach((cid, idx) => {
+      const imgId = updatedImageIds[idx];
+      if (imgId) imageIdByColorId.set(cid, imgId);
+    });
+    for (const v of activeVariants) {
+      if (!v.orderchampVariantId) continue;
+      const imgId = v.color?.id ? imageIdByColorId.get(v.color.id) : undefined;
+      if (!imgId) continue;
+      try {
+        await orderchampGraphQL(
+          PRODUCT_VARIANT_UPDATE_MUTATION,
+          { input: { id: v.orderchampVariantId, productImageId: imgId } },
+          "productVariantUpdate/imageAttach",
+        );
+      } catch (e) {
+        warnings.push(`Attribution image variante ${v.color?.name ?? v.id} : ${e instanceof Error ? e.message : "?"}`);
+      }
+    }
   }
 
   // 2) Update stock bulk (SET) pour toutes les variantes liées

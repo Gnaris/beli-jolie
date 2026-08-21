@@ -1051,6 +1051,8 @@ export default function MarketplaceConfig({
           microstore: microMarkup,
           faireWholesale: faiWholesale,
           faireRetail: faiRetail,
+          orderchampWholesale: ocWholesale,
+          orderchampRetail: ocRetail,
         });
         if (r.success) toast.success("Enregistré", "Réglages prix sauvegardés.");
         else toast.error("Erreur", r.error ?? "Une erreur est survenue.");
