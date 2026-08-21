@@ -190,11 +190,41 @@ export async function orderchampUpdateProduct(
     if (imageUrls.length > 0) changedFields.push("images");
     // Récupère les nouveaux IDs d'images (dans l'ordre d'envoi = ordre couleur
     // principale d'abord) pour ré-attribuer chaque image à sa variante.
+    // Attention : Orderchamp télécharge les images de manière asynchrone.
+    // Le retour peut avoir `images.edges = []` alors que le champ a été
+    // accepté. Fallback : polling `product(id)` pour récupérer les IDs.
     const productImages = upd.productUpdate.product?.images?.edges ?? [];
     updatedImageIds = productImages
       .slice()
       .sort((a, b) => a.node.position - b.node.position)
       .map((e) => e.node.id);
+    if (updatedImageIds.length === 0 && imageUrls.length > 0) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const re = await orderchampGraphQL<{
+            product: { images: { edges: Array<{ node: { id: string; position: number } }> } } | null;
+          }>(
+            `query($id: ID!) { product(id: $id) { images(first: 20) { edges { node { id position } } } } }`,
+            { id: bj.orderchampProductId },
+            `productImagesPoll/${attempt}`,
+          );
+          const edges = re.product?.images.edges ?? [];
+          if (edges.length > 0) {
+            updatedImageIds = edges
+              .slice()
+              .sort((a, b) => a.node.position - b.node.position)
+              .map((e) => e.node.id);
+            break;
+          }
+        } catch {
+          // continue retry
+        }
+      }
+      if (updatedImageIds.length === 0) {
+        warnings.push("Images Orderchamp non attribuées aux variantes (téléchargement asynchrone trop lent — refaire un Rafraîchir dans quelques minutes).");
+      }
+    }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Erreur productUpdate" };
   }

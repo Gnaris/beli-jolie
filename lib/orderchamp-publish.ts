@@ -500,8 +500,46 @@ export async function orderchampPublishProduct(
       }
     });
 
+    const warnings: string[] = [...shape.warnings];
+
     // 7) Post-passe : attribuer image par couleur
-    const imageIds = created.images.edges.map((e) => e.node.id);
+    // Orderchamp télécharge les images de manière asynchrone. Le retour de
+    // productCreate contient souvent `images.edges = []` alors que les URLs
+    // ont été acceptées — les images n'apparaissent que quelques secondes
+    // plus tard côté OC. Si le premier retour est vide alors qu'on a envoyé
+    // des URLs, on refait un `product(id)` avec retry pour récupérer les
+    // vrais IDs images créés.
+    let imageIds: string[] = created.images.edges
+      .slice()
+      .sort((a, b) => a.node.position - b.node.position)
+      .map((e) => e.node.id);
+    if (imageIds.length === 0 && imageUrls.length > 0) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const re = await orderchampGraphQL<{
+            product: { images: { edges: Array<{ node: { id: string; position: number } }> } } | null;
+          }>(
+            `query($id: ID!) { product(id: $id) { images(first: 20) { edges { node { id position } } } } }`,
+            { id: created.id },
+            `productImagesPoll/${attempt}`,
+          );
+          const edges = re.product?.images.edges ?? [];
+          if (edges.length > 0) {
+            imageIds = edges
+              .slice()
+              .sort((a, b) => a.node.position - b.node.position)
+              .map((e) => e.node.id);
+            break;
+          }
+        } catch {
+          // continue à retry
+        }
+      }
+      if (imageIds.length === 0) {
+        warnings.push("Images Orderchamp non attribuées aux variantes (téléchargement asynchrone trop lent — refaire un Rafraîchir dans quelques minutes).");
+      }
+    }
 
     // Ordre des images racine == ordre de nos colorIds imagesByColor
     const colorOrder: string[] = [];
@@ -514,8 +552,6 @@ export async function orderchampPublishProduct(
       const imgId = imageIds[idx];
       if (imgId) imageIdByColorId.set(cid, imgId);
     });
-
-    const warnings: string[] = [...shape.warnings];
 
     // Publier automatiquement sur la storefront du tenant si le produit BJ
     // est en ligne. Sans ça le produit reste en brouillon côté OC (invisible
