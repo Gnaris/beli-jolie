@@ -168,4 +168,74 @@ describe("computeBulkVariantMarketplaceTargets", () => {
     );
     expect(resultMissing.faireProducts).toEqual([]);
   });
+
+  describe("Orderchamp — upsert-style, pas besoin de `orderchampProductId`", () => {
+    const ocProduct = (
+      id: string,
+      variantIds: string[],
+      opts: {
+        orderchampEnabled?: boolean;
+        isIncomplete?: boolean;
+        orderchampProductId?: string | null;
+      } = {},
+    ) => ({
+      id,
+      pfsProductId: null,
+      ankorsProductId: null,
+      faireProductId: null,
+      orderchampProductId: opts.orderchampProductId ?? null,
+      orderchampEnabled: opts.orderchampEnabled ?? true,
+      isIncomplete: opts.isIncomplete ?? false,
+      colors: variantIds.map((vId) => ({ id: vId, efashionProductId: null })),
+    });
+
+    it("inclut un produit complet OC-activé même sans `orderchampProductId`", () => {
+      const products = [
+        ocProduct("p-first", ["v1"], { orderchampProductId: null }),
+        ocProduct("p-linked", ["v2"], { orderchampProductId: "oc-xyz" }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showOrderchamp: true },
+      );
+      expect(result.orderchampProducts.map((p) => p.id)).toEqual(["p-first", "p-linked"]);
+    });
+
+    it("exclut les brouillons (isIncomplete)", () => {
+      const products = [
+        ocProduct("p-draft", ["v1"], { isIncomplete: true }),
+        ocProduct("p-ok", ["v2"], { isIncomplete: false }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showOrderchamp: true },
+      );
+      expect(result.orderchampProducts.map((p) => p.id)).toEqual(["p-ok"]);
+    });
+
+    it("exclut les produits dont le toggle produit `orderchampEnabled` est OFF", () => {
+      const products = [
+        ocProduct("p-off", ["v1"], { orderchampEnabled: false }),
+        ocProduct("p-on", ["v2"], { orderchampEnabled: true }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showOrderchamp: true },
+      );
+      expect(result.orderchampProducts.map((p) => p.id)).toEqual(["p-on"]);
+    });
+
+    it("retourne une liste vide si `showOrderchamp` est false", () => {
+      const products = [ocProduct("p-ok", ["v1"])];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1"],
+        { hasPfsConfig: false, showAnkorstore: false, showOrderchamp: false },
+      );
+      expect(result.orderchampProducts).toEqual([]);
+    });
+  });
 });

@@ -46,6 +46,7 @@ import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/componen
 import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
+import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
 import {
   MISSING_FIELD_LABELS,
   MISSING_FIELD_TITLES,
@@ -4832,13 +4833,20 @@ export default function AdminProductsTable({
 
       // Regroupe les produits impactés par marketplace pour la pop-up.
       const variantIds = Object.keys(snapshot);
-      const { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts } =
-        computeBulkVariantMarketplaceTargets(allProducts, variantIds, {
-          hasPfsConfig,
-          showAnkorstore,
-          showEfashion,
-          showFaire,
-        });
+      const {
+        affectedProducts,
+        pfsProducts,
+        ankorsProducts,
+        efashionProducts,
+        faireProducts,
+        orderchampProducts,
+      } = computeBulkVariantMarketplaceTargets(allProducts, variantIds, {
+        hasPfsConfig,
+        showAnkorstore,
+        showEfashion,
+        showFaire,
+        showOrderchamp,
+      });
 
       // Microstore : produits impactés Microstore-activés (config globale +
       // toggle par produit). Contrat cliente : « push stock ou créer produit
@@ -4861,6 +4869,7 @@ export default function AdminProductsTable({
         ankorsProducts.length === 0 &&
         efashionProducts.length === 0 &&
         faireProducts.length === 0 &&
+        orderchampProducts.length === 0 &&
         microstoreProducts.length === 0
       ) {
         return;
@@ -4874,6 +4883,7 @@ export default function AdminProductsTable({
           ...ankorsProducts.map((p) => p.id),
           ...efashionProducts.map((p) => p.id),
           ...faireProducts.map((p) => p.id),
+          ...orderchampProducts.map((p) => p.id),
           ...microstoreProducts.map((p) => p.id),
         ]),
       );
@@ -4891,6 +4901,7 @@ export default function AdminProductsTable({
           showAnkorstore: ankorsProducts.length > 0,
           showEfashion: efashionProducts.length > 0,
           showFaire: faireProducts.length > 0,
+          showOrderchamp: orderchampProducts.length > 0,
           showMicrostore: microstoreProducts.length > 0,
           // Propagation stock/prix/poids : pas de section "Boutique/Nouveauté"
           // (elle ne concerne que le parcours Rafraîchir), et on pré-coche
@@ -4981,6 +4992,19 @@ export default function AdminProductsTable({
           });
         }
       }
+      if (options.orderchamp) {
+        for (const p of orderchampProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+            mode: "publish",
+            marketplace: "orderchamp",
+          });
+        }
+      }
       if (inputs.length > 0) enqueuePfs(inputs);
 
       // Microstore : hors queue (POST /goods/import_v1 synchrone). Fire-and-
@@ -5042,6 +5066,7 @@ export default function AdminProductsTable({
     showAnkorstore,
     showEfashion,
     showFaire,
+    showOrderchamp,
     askMarketplaceOptions,
     enqueuePfs,
     router,
@@ -5478,8 +5503,16 @@ export default function AdminProductsTable({
       ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
       : [];
     const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+    // Orderchamp est upsert-style (comme Microstore) : la case peut apparaître
+    // même si le produit n'est pas encore lié à OC. `orderchampUpdateProduct`
+    // retombe automatiquement sur `orderchampPublishProduct` si l'ID OC
+    // manque, donc un premier push crée la fiche.
     const orderchampCandidates = showOrderchamp
-      ? allProducts.filter((p) => successIds.includes(p.id) && p.orderchampProductId)
+      ? allProducts.filter(
+          (p) =>
+            successIds.includes(p.id) &&
+            isOrderchampPropagationEligible(p),
+        )
       : [];
     const microstoreCandidates = hasMicrostoreConfig
       ? allProducts.filter(

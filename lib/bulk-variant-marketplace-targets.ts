@@ -18,13 +18,25 @@
  * Un produit est éligible à Faire si :
  *   - Faire est configuré ET activé (kill switch)
  *   - Le produit est déjà publié (faireProductId connu)
+ *
+ * Un produit est éligible à Orderchamp si :
+ *   - Orderchamp est configuré ET activé (kill switch)
+ *   - Le produit est complet ET son toggle `orderchampEnabled` est ON.
+ *   Contrairement aux 4 autres, PAS de contrainte « déjà publié » — OC est
+ *   upsert-style (`orderchampUpdateProduct` retombe sur publish si pas de
+ *   `orderchampProductId`), donc un premier push peut créer la fiche OC.
  */
+
+import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
 
 export interface BulkVariantProduct {
   id: string;
   pfsProductId: string | null;
   ankorsProductId: string | null;
   faireProductId?: string | null;
+  orderchampProductId?: string | null;
+  orderchampEnabled?: boolean;
+  isIncomplete?: boolean;
   colors: { id: string; efashionProductId?: number | null }[];
 }
 
@@ -34,6 +46,7 @@ export interface BulkVariantMarketplaceTargets<P extends BulkVariantProduct> {
   ankorsProducts: P[];
   efashionProducts: P[];
   faireProducts: P[];
+  orderchampProducts: P[];
 }
 
 export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduct>(
@@ -44,6 +57,7 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
     showAnkorstore: boolean;
     showEfashion?: boolean;
     showFaire?: boolean;
+    showOrderchamp?: boolean;
   },
 ): BulkVariantMarketplaceTargets<P> {
   const affectedProductIds = new Set<string>();
@@ -64,5 +78,20 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
   const faireProducts = flags.showFaire
     ? affectedProducts.filter((p) => !!p.faireProductId)
     : [];
-  return { affectedProducts, pfsProducts, ankorsProducts, efashionProducts, faireProducts };
+  const orderchampProducts = flags.showOrderchamp
+    ? affectedProducts.filter((p) =>
+        isOrderchampPropagationEligible({
+          orderchampEnabled: p.orderchampEnabled,
+          isIncomplete: !!p.isIncomplete,
+        }),
+      )
+    : [];
+  return {
+    affectedProducts,
+    pfsProducts,
+    ankorsProducts,
+    efashionProducts,
+    faireProducts,
+    orderchampProducts,
+  };
 }
