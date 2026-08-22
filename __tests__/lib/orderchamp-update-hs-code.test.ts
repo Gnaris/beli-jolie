@@ -179,4 +179,32 @@ describe("orderchampUpdateProduct — code SH", () => {
       if (input) expect(input).not.toHaveProperty("hsCode");
     }
   });
+
+  it("n'envoie PAS `images` sur productUpdate quand le set d'URLs (hors cache-buster) est identique au snapshot", async () => {
+    // Le produit BJ a une image sur la couleur bleue
+    const productWithImage = {
+      ...baseProduct({ code: HS_CODE }),
+      colorImages: [{ path: "/uploads/beliandjolie/produits/x/x-bleu-1-abc.webp", order: 0, colorId: "c-bleu" }],
+    };
+    loadOrderchampProductFullSpy.mockResolvedValue(productWithImage);
+    // Snapshot précédent avec la même image, mais un cache-buster différent
+    prismaFindUniqueSpy.mockResolvedValue({
+      orderchampProductId: OC_PRODUCT_ID,
+      status: "ONLINE",
+      orderchampLastSyncSnapshot: {
+        product: {
+          images: ["https://example.test/uploads/beliandjolie/produits/x/x-bleu-1-abc.webp?v=999"],
+        },
+      },
+    });
+
+    const res = await orderchampUpdateProduct("p1");
+    expect(res.success).toBe(true);
+
+    const productUpdateCall = orderchampGraphQLSpy.mock.calls.find(
+      (c) => c[2] === "productUpdate",
+    );
+    const input = (productUpdateCall![1] as { input: Record<string, unknown> }).input;
+    expect(input).not.toHaveProperty("images");
+  });
 });

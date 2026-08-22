@@ -59,13 +59,36 @@ export interface OrderchampUpdateResult {
  * Update d'un produit déjà lié. Si non lié → délègue à publish (fallback).
  * Si `forceFullSync` = renvoie tout, même si le snapshot semble à jour.
  */
+/** Retire le cache-buster `?v=timestamp` d'une URL image OC pour comparaison
+ *  stable au snapshot. Sans ça, chaque update aurait un cache-buster différent
+ *  et paraîtrait « images changées », alors que le contenu est identique. */
+function stripImageCacheBuster(url: string): string {
+  const q = url.indexOf("?");
+  return q === -1 ? url : url.slice(0, q);
+}
+
+function imageListsEqualIgnoringCacheBuster(
+  a: readonly string[],
+  b: readonly string[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (stripImageCacheBuster(a[i]!) !== stripImageCacheBuster(b[i]!)) return false;
+  }
+  return true;
+}
+
 export async function orderchampUpdateProduct(
   productId: string,
   options?: { forceFullSync?: boolean },
 ): Promise<OrderchampUpdateResult> {
   const bj = await prisma.product.findUnique({
     where: { id: productId },
-    select: { orderchampProductId: true, status: true },
+    select: {
+      orderchampProductId: true,
+      status: true,
+      orderchampLastSyncSnapshot: true,
+    },
   });
   if (!bj) return { success: false, error: "Produit BJ introuvable." };
 
@@ -153,6 +176,21 @@ export async function orderchampUpdateProduct(
     }
   }
 
+  // ── Skip images quand le set est inchangé vs le dernier snapshot ──────
+  // Sans ça : la modif d'un champ produit (HS code, description…) déclenche
+  // un re-download de TOUTES les images côté OC. Leur ingesteur rejette
+  // parfois avec « Invalid attachment » alors que l'URL est joignable
+  // (bug intermittent OC — même URL sans cache-buster serait dédupée
+  // silencieusement, avec cache-buster re-fetch et échec aléatoire).
+  const prevSnapshot = (bj.orderchampLastSyncSnapshot ?? null) as
+    | { product?: { images?: string[] } }
+    | null;
+  const prevImageUrls = prevSnapshot?.product?.images ?? [];
+  const imagesUnchanged =
+    !options?.forceFullSync &&
+    prevImageUrls.length > 0 &&
+    imageListsEqualIgnoringCacheBuster(imageUrls, prevImageUrls);
+
   const productInput: Record<string, unknown> = {
     id: bj.orderchampProductId,
     title: product.name,
@@ -171,10 +209,12 @@ export async function orderchampUpdateProduct(
     // si le canal n'est pas activé côté compte (Settings > Sales channels
     // dans le back-office OC).
     salesChannels: ["MARKETPLACE"],
-    // Envoie la liste complète des images à chaque update. Orderchamp
-    // remplace le set d'images du produit — les ajouts, suppressions et
-    // remplacements côté BJ sont donc propagés en une seule mutation.
-    images: imageUrls.length > 0 ? imageUrls.map((url) => ({ sourceUrl: url })) : undefined,
+    // Envoie la liste complète des images à chaque update SAUF si elle est
+    // identique au dernier snapshot (ignore le cache-buster `?v=…`). Évite
+    // les rejets « Invalid attachment » d'OC sur re-download inutile.
+    images: (!imagesUnchanged && imageUrls.length > 0)
+      ? imageUrls.map((url) => ({ sourceUrl: url }))
+      : undefined,
   };
   // `category` non envoyé — Orderchamp détecte automatiquement depuis
   // titre + description (mapping manuel retiré 2026-08-20).
@@ -204,7 +244,10 @@ export async function orderchampUpdateProduct(
       return { success: false, error: msg };
     }
     changedFields.push("meta");
-    if (imageUrls.length > 0) changedFields.push("images");
+    // On ne poll les IDs d'images que si on en a réellement renvoyé — sinon
+    // la ré-attribution image→variante n'a rien à faire (les images côté OC
+    // n'ont pas bougé, leurs IDs restent stables).
+    if (!imagesUnchanged && imageUrls.length > 0) changedFields.push("images");
     // Récupère les nouveaux IDs d'images (dans l'ordre d'envoi = ordre couleur
     // principale d'abord) pour ré-attribuer chaque image à sa variante.
     // Attention : Orderchamp télécharge les images de manière asynchrone.
@@ -215,7 +258,7 @@ export async function orderchampUpdateProduct(
       .slice()
       .sort((a, b) => a.node.position - b.node.position)
       .map((e) => e.node.id);
-    if (updatedImageIds.length === 0 && imageUrls.length > 0) {
+    if (updatedImageIds.length === 0 && !imagesUnchanged && imageUrls.length > 0) {
       // Orderchamp télécharge les images de manière très asynchrone (souvent
       // 2 à 5 minutes après productUpdate). On poll 30 × 3s = 90s max :
       // suffisant pour la majorité des cas ; sinon un « Rafraîchir » manuel
