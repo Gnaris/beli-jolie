@@ -640,6 +640,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
                   hasAnkorstoreConfig={hasAnkorstoreConfig}
                   hasEfashionConfig={hasEfashionConfig}
                   hasFaireConfig={hasFaireConfig}
+                  hasOrderchampConfig={hasOrderchampConfig}
                 />
                 <LowStockPdfButton />
                 <PfsAuditButton hasPfsConfig={hasPfsConfig} />

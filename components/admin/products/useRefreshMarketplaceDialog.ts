@@ -33,6 +33,10 @@ export interface RefreshableProduct {
   /** Verrou manuel : si true, le produit est traité comme inéligible
    *  au rafraîchissement (priorité sur le statut). */
   locked?: boolean;
+  /** ID Orderchamp : présent = fiche existe côté OC (refresh via
+   *  productRepublish possible), absent = enqueue en mode "publish"
+   *  (crée la fiche OC de zéro). */
+  orderchampProductId?: string | null;
 }
 
 export interface UseRefreshMarketplaceDialogOptions {
@@ -256,7 +260,8 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         !options.pfs &&
         !options.ankorstore &&
         !options.efashion &&
-        !options.faire
+        !options.faire &&
+        !options.orderchamp
       ) {
         try {
           await refreshProductOnMarketplaces(target.productId, options);
@@ -331,6 +336,28 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
             faire: true,
           },
           marketplace: "faire",
+        });
+        localConsumed = options.local;
+      }
+      if (options.orderchamp) {
+        // OC upsert-style : si la fiche existe déjà côté OC → mode "refresh"
+        // (productRepublish garde l'ID). Sinon → mode "publish" pour créer la
+        // fiche de zéro.
+        inputs.push({
+          productId: target.productId,
+          reference: target.reference,
+          productName: target.productName,
+          firstImage: target.firstImage ?? null,
+          options: {
+            local: options.local && !localConsumed,
+            pfs: false,
+            ankorstore: false,
+            efashion: false,
+            faire: false,
+            orderchamp: true,
+          },
+          marketplace: "orderchamp",
+          mode: target.orderchampProductId ? "refresh" : "publish",
         });
         localConsumed = options.local;
       }
@@ -417,7 +444,8 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         !options.pfs &&
         !options.ankorstore &&
         !options.efashion &&
-        !options.faire
+        !options.faire &&
+        !options.orderchamp
       ) {
         // Run sequentially for local-only — quick operations
         try {
@@ -487,6 +515,25 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
               faire: true,
             },
             marketplace: "faire",
+          });
+          localConsumed = options.local;
+        }
+        if (options.orderchamp) {
+          inputs.push({
+            productId: p.productId,
+            reference: p.reference,
+            productName: p.productName,
+            firstImage: p.firstImage ?? null,
+            options: {
+              local: options.local && !localConsumed,
+              pfs: false,
+              ankorstore: false,
+              efashion: false,
+              faire: false,
+              orderchamp: true,
+            },
+            marketplace: "orderchamp",
+            mode: p.orderchampProductId ? "refresh" : "publish",
           });
           localConsumed = options.local;
         }

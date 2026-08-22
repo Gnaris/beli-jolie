@@ -535,6 +535,9 @@ export default async function ModifierProduitPage({
                 efashionEnabled={efashionEnabled}
                 hasFaireConfig={hasFaireConfig}
                 faireEnabled={faireEnabled}
+                hasOrderchampConfig={hasOrderchampConfig}
+                orderchampEnabled={orderchampEnabled}
+                orderchampProductId={product.orderchampProductId}
               />
               <ProductImportantToggle
                 productId={product.id}

@@ -4053,6 +4053,7 @@ function ProductRow({
                       isIncomplete: product.isIncomplete,
                       wasImported: !!product.pfsProductId,
                       locked: product.locked,
+                      orderchampProductId: product.orderchampProductId,
                     });
                   } finally {
                     setRefreshing(false);
@@ -5942,7 +5943,15 @@ export default function AdminProductsTable({
       ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
       : [];
     const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
-    const orderchampTargets = showOrderchampLocal ? targets.filter((p) => p.orderchampProductId) : [];
+    // Orderchamp est upsert-style (règle transversale — voir mémoire) : la case
+    // apparaît même si le produit n'est pas encore lié à OC. Les produits déjà
+    // liés partent en mode "resync" (productRepublish + forceFullSync), les
+    // non-liés partent en mode "publish" (crée la fiche OC).
+    const orderchampTargets = showOrderchampLocal
+      ? targets.filter((p) => isOrderchampPropagationEligible(p))
+      : [];
+    const orderchampLinkedTargets = orderchampTargets.filter((p) => !!p.orderchampProductId);
+    const orderchampUnlinkedTargets = orderchampTargets.filter((p) => !p.orderchampProductId);
     const microstoreTargets = hasMicrostoreConfig
       ? targets.filter((p) => isMicrostorePropagationEligible(p))
       : [];
@@ -5994,7 +6003,27 @@ export default function AdminProductsTable({
       actionMode: "update",
     });
     if (!options) return;
-    const inputs = buildMarketplaceInputs(candidates, options, "resync");
+    // Split OC : le mode "resync" ne fonctionne QUE pour les fiches déjà liées
+    // (productRepublish exige l'ID OC). Les fiches non-liées passent en mode
+    // "publish" — le worker appellera orderchampPublishProduct pour créer la
+    // fiche de zéro.
+    const candidatesLinkedOc: MarketplaceCandidates = {
+      ...candidates,
+      orderchamp: orderchampLinkedTargets,
+    };
+    const inputs = buildMarketplaceInputs(candidatesLinkedOc, options, "resync");
+    if (options.orderchamp && orderchampUnlinkedTargets.length > 0) {
+      const ocPublishCandidates: MarketplaceCandidates = {
+        pfs: [], ankorstore: [], efashion: [], faire: [],
+        orderchamp: orderchampUnlinkedTargets,
+      };
+      const ocPublishInputs = buildMarketplaceInputs(
+        ocPublishCandidates,
+        { orderchamp: true },
+        "publish",
+      );
+      inputs.push(...ocPublishInputs);
+    }
     if (inputs.length > 0) enqueuePfs(inputs);
 
     // Microstore : hors queue, appel synchrone bulk.
@@ -6436,6 +6465,7 @@ export default function AdminProductsTable({
         isIncomplete: p.isIncomplete,
         wasImported: !!p.pfsProductId,
         locked: p.locked,
+        orderchampProductId: p.orderchampProductId,
       }));
     await refreshBulk(selectedProductsPayload);
   }, [allProducts, selectedIds, refreshBulk]);

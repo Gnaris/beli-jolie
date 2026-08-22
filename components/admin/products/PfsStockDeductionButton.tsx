@@ -12,6 +12,7 @@ export interface PfsStockDeductionButtonProps {
   hasAnkorstoreConfig: boolean;
   hasEfashionConfig: boolean;
   hasFaireConfig: boolean;
+  hasOrderchampConfig?: boolean;
 }
 
 export default function PfsStockDeductionButton({
@@ -20,6 +21,7 @@ export default function PfsStockDeductionButton({
   hasAnkorstoreConfig,
   hasEfashionConfig,
   hasFaireConfig,
+  hasOrderchampConfig = false,
 }: PfsStockDeductionButtonProps) {
   const router = useRouter();
   const [pendingCount, setPendingCount] = useState<number>(initialPendingCount);
@@ -34,6 +36,7 @@ export default function PfsStockDeductionButton({
     showAnkorstore: hasAnkorstoreConfig,
     showEfashion: hasEfashionConfig,
     showFaire: hasFaireConfig,
+    showOrderchamp: hasOrderchampConfig,
   });
 
   const handleDone = useCallback(

@@ -37,6 +37,9 @@ export interface PfsStockDeductionRefreshPayload {
   isIncomplete: boolean;
   wasImported: boolean;
   locked: boolean;
+  /** ID Orderchamp — présent = fiche déjà côté OC (refresh via republish),
+   *  absent = enqueue en mode "publish" pour créer la fiche. */
+  orderchampProductId: string | null;
 }
 
 export type PfsStockDeductionActionResult =
@@ -125,6 +128,7 @@ async function buildRefreshPayloads(
       isIncomplete: true,
       locked: true,
       pfsProductId: true,
+      orderchampProductId: true,
       primaryColorId: true,
       colors: {
         orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
@@ -156,5 +160,6 @@ async function buildRefreshPayloads(
     isIncomplete: p.isIncomplete,
     wasImported: !!p.pfsProductId,
     locked: p.locked,
+    orderchampProductId: p.orderchampProductId,
   }));
 }
