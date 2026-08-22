@@ -372,6 +372,11 @@ function buildOrderchampProductPayload(
       width: mmToCm(product.dimensionWidth),
       height: mmToCm(product.dimensionHeight),
       diameter: mmToCm(product.dimensionDiameter),
+      // Code SH aussi sur la variante — OC n'a pas d'endpoint pour modifier
+      // le HS au niveau produit après création (`ProductUpdateInput` ne
+      // l'expose pas). Le poser sur chaque variante garantit qu'il est
+      // toujours propagé lors d'un update ultérieur.
+      hsCode: product.hsCode?.code ?? undefined,
     })),
     images: imageUrls.map((url) => ({ sourceUrl: url })),
   };

@@ -144,31 +144,39 @@ beforeEach(() => {
 });
 
 describe("orderchampUpdateProduct — code SH", () => {
-  it("envoie le code SH BJ dans productUpdate.input.hsCode", async () => {
+  it("envoie le code SH BJ dans productVariantUpdate.input.hsCode (pas sur productUpdate)", async () => {
     loadOrderchampProductFullSpy.mockResolvedValue(baseProduct({ code: HS_CODE }));
 
     const res = await orderchampUpdateProduct("p1");
     expect(res.success).toBe(true);
 
+    // OC n'accepte PAS hsCode sur ProductUpdateInput — introspection schéma
+    // 2026-08-22 : le champ n'existe que sur ProductVariantUpdateInput.
     const productUpdateCall = orderchampGraphQLSpy.mock.calls.find(
       (c) => c[2] === "productUpdate",
     );
     expect(productUpdateCall).toBeDefined();
-    const input = (productUpdateCall![1] as { input: Record<string, unknown> }).input;
-    expect(input.hsCode).toBe(HS_CODE);
+    const productInput = (productUpdateCall![1] as { input: Record<string, unknown> }).input;
+    expect(productInput).not.toHaveProperty("hsCode");
+
+    // En revanche, hsCode DOIT être présent sur au moins un productVariantUpdate.
+    const variantCallsWithHs = orderchampGraphQLSpy.mock.calls.filter((c) => {
+      if (typeof c[2] !== "string" || !(c[2] as string).startsWith("productVariantUpdate")) return false;
+      const inp = (c[1] as { input: Record<string, unknown> } | undefined)?.input;
+      return inp?.hsCode === HS_CODE;
+    });
+    expect(variantCallsWithHs.length).toBeGreaterThan(0);
   });
 
-  it("omet hsCode du payload quand le produit BJ n'en a pas", async () => {
+  it("omet hsCode partout quand le produit BJ n'en a pas", async () => {
     loadOrderchampProductFullSpy.mockResolvedValue(baseProduct(null));
 
     const res = await orderchampUpdateProduct("p1");
     expect(res.success).toBe(true);
 
-    const productUpdateCall = orderchampGraphQLSpy.mock.calls.find(
-      (c) => c[2] === "productUpdate",
-    );
-    expect(productUpdateCall).toBeDefined();
-    const input = (productUpdateCall![1] as { input: Record<string, unknown> }).input;
-    expect(input).not.toHaveProperty("hsCode");
+    for (const call of orderchampGraphQLSpy.mock.calls) {
+      const input = (call[1] as { input?: Record<string, unknown> } | undefined)?.input;
+      if (input) expect(input).not.toHaveProperty("hsCode");
+    }
   });
 });

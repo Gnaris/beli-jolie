@@ -158,10 +158,10 @@ export async function orderchampUpdateProduct(
     title: product.name,
     description: newDescription,
     madeIn: countryAlpha2,
-    // Code SH (numéro douanier) : renvoyé à chaque update pour propager les
-    // changements côté BJ (retrait ou remplacement du HS). Undefined si non
-    // renseigné, ce qui laisse Orderchamp appliquer son fallback catégorie.
-    hsCode: product.hsCode?.code ?? undefined,
+    // ⚠️ `hsCode` n'est PAS un champ de `ProductUpdateInput` côté OC — il vit
+    // uniquement sur `ProductVariantUpdateInput`. Introspection schéma
+    // confirmée le 2026-08-22. Le HS code est propagé plus bas dans la
+    // boucle `productVariantUpdate` (une valeur par variante).
     length: mmToCm(product.dimensionLength),
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
@@ -333,6 +333,10 @@ export async function orderchampUpdateProduct(
     const msrpEur = getOrderchampChainedRetailPrice(unitTotal, v.packQuantity, v.saleType, pricing.wholesale, pricing.retail);
     if (priceEur > 0) input.price = priceEur;
     if (msrpEur > 0) input.msrp = msrpEur;
+    // Code SH : OC n'expose ce champ que sur `ProductVariantUpdateInput`
+    // (pas sur `ProductUpdateInput`). On l'envoie par variante à chaque
+    // update pour propager les changements de HS côté BJ.
+    if (product.hsCode?.code) input.hsCode = product.hsCode.code;
     if (Object.keys(input).length <= 1) continue;
     try {
       await orderchampGraphQL(
