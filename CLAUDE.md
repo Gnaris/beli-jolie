@@ -91,7 +91,7 @@ Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on s
   - **Gestion Produits** (SiteConfig `{mkt}_products_management_enabled`, défaut ON) : OFF = aucun push/publish/refresh/resync/synchro/delete ; badge grisé. Lu via `getCachedXEnabled()` (= hasConfig ∧ productsManagementEnabled).
   - **Gestion Commandes** (SiteConfig `{mkt}_orders_worker_enabled`, défaut ON) : OFF = worker sync commandes skip. Lu via `isMarketplaceAutoSyncEnabled(tid, source)`.
   - Actions : `setMarketplaceProductsManagement()` + `setMarketplaceAutoSyncEnabled()`. Anciens `togglePfsEnabled/…` supprimés. Migration : `npx tsx scripts/migrate-marketplace-toggles.ts --apply`.
-- **Modale save** : case par marketplace si produit complet + configurée → enqueue `MarketplaceRefreshWidget`.
+- **Modale save** : case par marketplace si produit complet + configurée → enqueue `MarketplaceRefreshWidget`. PFS/Ankor/eFa/Faire n'apparaissent que si le produit y est **déjà lié** (1ʳᵉ publication via badge fiche). **Orderchamp + Microstore** apparaissent dès qu'elles sont configurées, même sans lien préalable (upsert-style : `orderchampUpdateProduct` retombe sur `orderchampPublishProduct` si `orderchampProductId` absent). OC caché quand produit OFFLINE.
 - **Publish vs Update** : `*UpdateProductInPlace()` si ID connu (PATCH + diff snapshot), sinon `*PublishProduct()`. Fallback publish si update échoue.
 - **Diff snapshot** (`pfsLastSyncSnapshot` Json?) : envoie que le delta. Reset `Prisma.DbNull` quand ID change. `null` = sync complète.
 - **Resync forcé** (↻) : `forceFullSync: true`, ne touche pas l'ID. **Best Seller PFS** : STAR/REMOVE_STAR si changé.
