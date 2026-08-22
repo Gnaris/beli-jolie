@@ -894,7 +894,7 @@ function VariantRow({
 
   const priceTotalHT = qty * price;
   const totalHT = Math.max(0, priceTotalHT - discountAmt);
-  const totalTTC = floorCents(totalHT * (1 + tvaRate));
+  const totalTTC = floorCents(totalHT + totalHT * tvaRate);
 
   const isRemoved = qty === 0;
   const perUnit = perUnitFactor(item);
@@ -1247,7 +1247,7 @@ function MobileItemCard({
   const discountAmt = Number(item.lineDiscountAmt ?? 0);
   const priceTotalHT = qty * price;
   const totalHT = Math.max(0, priceTotalHT - discountAmt);
-  const totalTTC = floorCents(totalHT * (1 + tvaRate));
+  const totalTTC = floorCents(totalHT + totalHT * tvaRate);
   const perUnit = perUnitFactor(item);
   const qtyTotal = qty * perUnit;
   const qtyChanged = !!mod && mod.originalQuantity !== mod.newQuantity;

@@ -13,6 +13,18 @@ describe("floorMoney — arrondi vers le bas au centime", () => {
     expect(floorMoney(0)).toBe(0);
     expect(floorMoney(100)).toBe(100);
   });
+
+  // Régression 2026-08-22 : sur la fiche commande admin, chaque ligne affichait
+  // un total TTC calculé via `HT * (1 + tvaRate)`. IEEE-754 fait dériver
+  // 57 × 1.2 vers 68.39999999999999, et floorMoney tombe alors à 68.39 au lieu
+  // de 68.40 (cas réel commande CYKVNHNP, ligne A2350E : 6 × 9,50 € HT).
+  // La formule additive `HT + HT * tvaRate` évite le piège.
+  it("piège IEEE-754 : préférer `HT + HT*rate` à `HT*(1+rate)`", () => {
+    const totalHT = 57;
+    const tvaRate = 0.2;
+    expect(floorMoney(totalHT * (1 + tvaRate))).toBe(68.39); // formule fautive
+    expect(floorMoney(totalHT + totalHT * tvaRate)).toBe(68.40); // formule à utiliser
+  });
 });
 
 describe("recomputeOrderTotals — arrondi vers le bas (aligné facturation)", () => {
