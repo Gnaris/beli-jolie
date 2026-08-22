@@ -872,6 +872,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       categoryId: true,
       countryIsoCode: true,
       seasonId: true,
+      hsCodeId: true,
       dimensionLength: true,
       dimensionWidth: true,
       dimensionHeight: true,
@@ -1638,6 +1639,10 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       oldProduct.categoryId !== input.categoryId ||
       oldProduct.countryIsoCode !== (input.countryIsoCode || null) ||
       oldProduct.seasonId !== (input.seasonId || null) ||
+      // Le code SH (numéro douanier) est envoyé à Orderchamp (champ `hsCode`)
+      // et à Faire (colonne `code_douanier`). Changer ce champ doit poser
+      // le flag orange « Synchro nécessaire » pour propager la nouvelle valeur.
+      oldProduct.hsCodeId !== (input.hsCodeId || null) ||
       oldProduct.reference !== newRefUpper ||
       // Changement de couleur principale : impacte les marketplaces qui exposent
       // la photo principale du produit (Faire racine, PFS, Ankorstore, eFashion).

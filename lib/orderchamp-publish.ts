@@ -102,6 +102,9 @@ interface FullProduct {
     composition: { name: string; orderchampMaterialCode: string | null };
   }[];
   countryIsoCode: string | null;
+  /** Code SH (Système Harmonisé) — numéro douanier envoyé à Orderchamp
+   *  dans le champ `hsCode`. Null = non renseigné côté BJ. */
+  hsCode: { code: string } | null;
   dimensionLength: number | null;
   dimensionWidth: number | null;
   dimensionHeight: number | null;
@@ -146,6 +149,7 @@ export async function loadOrderchampProductFull(
         },
         orderBy: { percentage: "desc" },
       },
+      hsCode: { select: { code: true } },
     },
   });
   if (!p) return null;
@@ -334,6 +338,10 @@ function buildOrderchampProductPayload(
     description,
     brand: ctx.brandName,
     madeIn: ctx.madeInAlpha2,
+    // Code SH (numéro douanier) : Orderchamp l'affiche dans la fiche produit
+    // acheteur et l'utilise pour le calcul des droits d'import cross-border.
+    // Vide côté BJ = pas envoyé (OC garde son fallback catégorie).
+    hsCode: product.hsCode?.code ?? undefined,
     minimumOrderQuantity: 1,
     option1: "Color",
     option2: "Size",

@@ -411,6 +411,9 @@ export default async function ModifierProduitPage({
           efashionEnabled={efashionEnabled}
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
+          hasOrderchampConfig={hasOrderchampConfig}
+          orderchampEnabled={orderchampEnabled}
+          hasMicrostoreConfig={hasMicrostoreConfig}
           brandedBadgeEnabled={brandedBadgeEnabled}
           pfsColorOptions={pfsColorOptions}
           efashionColorOptions={efashionColorOptions}
@@ -470,6 +473,8 @@ export default async function ModifierProduitPage({
             ankorsProductId: product.ankorsProductId,
             efashionReferenceBase: product.efashionReferenceBase,
             faireProductId: product.faireProductId,
+            orderchampProductId: product.orderchampProductId,
+            orderchampEnabledForProduct: product.orderchampEnabled,
             primaryColorId: product.primaryColorId ?? null,
             microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
             note: product.note ?? "",
@@ -617,6 +622,8 @@ export default async function ModifierProduitPage({
         efashionEnabled={efashionEnabled}
         hasFaireConfig={hasFaireConfig}
         faireEnabled={faireEnabled}
+        hasOrderchampConfig={hasOrderchampConfig}
+        orderchampEnabled={orderchampEnabled}
         hasMicrostoreConfig={hasMicrostoreConfig}
         brandedBadgeEnabled={brandedBadgeEnabled}
         pfsColorOptions={pfsColorOptions}
@@ -678,11 +685,13 @@ export default async function ModifierProduitPage({
           ankorsProductId: product.ankorsProductId,
           efashionReferenceBase: product.efashionReferenceBase,
           faireProductId: product.faireProductId,
+          orderchampProductId: product.orderchampProductId,
           microstoreLastPushedAt: product.microstoreLastPushedAt,
           pfsEnabledForProduct: product.pfsEnabled,
           ankorsEnabledForProduct: product.ankorsEnabled,
           efashionEnabledForProduct: product.efashionEnabled,
           faireEnabledForProduct: product.faireEnabled,
+          orderchampEnabledForProduct: product.orderchampEnabled,
           microstoreEnabledForProduct: product.microstoreEnabled,
           primaryColorId: product.primaryColorId ?? null,
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,

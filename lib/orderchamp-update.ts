@@ -158,6 +158,10 @@ export async function orderchampUpdateProduct(
     title: product.name,
     description: newDescription,
     madeIn: countryAlpha2,
+    // Code SH (numéro douanier) : renvoyé à chaque update pour propager les
+    // changements côté BJ (retrait ou remplacement du HS). Undefined si non
+    // renseigné, ce qui laisse Orderchamp appliquer son fallback catégorie.
+    hsCode: product.hsCode?.code ?? undefined,
     length: mmToCm(product.dimensionLength),
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
