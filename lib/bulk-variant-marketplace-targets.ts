@@ -21,10 +21,13 @@
  *
  * Un produit est éligible à Orderchamp si :
  *   - Orderchamp est configuré ET activé (kill switch)
- *   - Le produit est complet ET son toggle `orderchampEnabled` est ON.
- *   Contrairement aux 4 autres, PAS de contrainte « déjà publié » — OC est
- *   upsert-style (`orderchampUpdateProduct` retombe sur publish si pas de
- *   `orderchampProductId`), donc un premier push peut créer la fiche OC.
+ *   - Le produit est déjà publié (orderchampProductId connu) — aligné sur
+ *     les 4 autres marketplaces depuis 2026-08-24. La 1ʳᵉ publication OC
+ *     passe par le badge OC de la fiche, jamais par la modale de propagation
+ *     (sinon un simple changement de stock crée la fiche via le fallback
+ *     publish de `orderchampUpdateProduct`).
+ *   - Toggle `orderchampEnabled` ON et produit complet (via
+ *     `isOrderchampPropagationEligible`).
  */
 
 import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
@@ -79,11 +82,13 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
     ? affectedProducts.filter((p) => !!p.faireProductId)
     : [];
   const orderchampProducts = flags.showOrderchamp
-    ? affectedProducts.filter((p) =>
-        isOrderchampPropagationEligible({
-          orderchampEnabled: p.orderchampEnabled,
-          isIncomplete: !!p.isIncomplete,
-        }),
+    ? affectedProducts.filter(
+        (p) =>
+          !!p.orderchampProductId &&
+          isOrderchampPropagationEligible({
+            orderchampEnabled: p.orderchampEnabled,
+            isIncomplete: !!p.isIncomplete,
+          }),
       )
     : [];
   return {

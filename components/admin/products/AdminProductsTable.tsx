@@ -5507,14 +5507,16 @@ export default function AdminProductsTable({
       ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
       : [];
     const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
-    // Orderchamp est upsert-style (comme Microstore) : la case peut apparaître
-    // même si le produit n'est pas encore lié à OC. `orderchampUpdateProduct`
-    // retombe automatiquement sur `orderchampPublishProduct` si l'ID OC
-    // manque, donc un premier push crée la fiche.
+    // Orderchamp : aligné sur PFS/Ankor/eFa/Faire depuis 2026-08-24 —
+    // la case n'apparaît que si le produit est déjà lié (`orderchampProductId`
+    // posé). La 1ʳᵉ publication OC passe par le badge OC de la fiche, jamais
+    // par la modale de propagation (sinon un simple changement d'attribut
+    // créerait la fiche via le fallback publish).
     const orderchampCandidates = showOrderchamp
       ? allProducts.filter(
           (p) =>
             successIds.includes(p.id) &&
+            !!p.orderchampProductId &&
             isOrderchampPropagationEligible(p),
         )
       : [];
