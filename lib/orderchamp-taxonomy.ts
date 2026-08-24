@@ -114,6 +114,26 @@ async function loadStoredTranslations(): Promise<Map<string, string[]>> {
   return map;
 }
 
+/** Lit les paths OC déjà mappés par la cliente (Category + SubCategory, tous
+ *  tenants). Ces paths passent en tête de la file de traduction pour que la
+ *  cliente voie immédiatement en FR les catégories qu'elle utilise. */
+async function loadUsedOrderchampPaths(): Promise<Set<string>> {
+  const [cats, subs] = await Promise.all([
+    prisma.category.findMany({
+      where: { orderchampCategoryPath: { not: null } },
+      select: { orderchampCategoryPath: true },
+    }),
+    prisma.subCategory.findMany({
+      where: { orderchampCategoryPath: { not: null } },
+      select: { orderchampCategoryPath: true },
+    }),
+  ]);
+  const set = new Set<string>();
+  for (const c of cats) if (c.orderchampCategoryPath) set.add(c.orderchampCategoryPath);
+  for (const s of subs) if (s.orderchampCategoryPath) set.add(s.orderchampCategoryPath);
+  return set;
+}
+
 const TRANSLATION_BATCH_SIZE = 30;
 
 /** Fire-and-forget : traduit en fond les feuilles pas encore traduites, upsert
@@ -126,6 +146,22 @@ async function translateMissingInBackground(
 ): Promise<void> {
   const missing = leaves.filter((l) => !alreadyTranslated.has(l.path));
   if (missing.length === 0) return;
+
+  // Priorise les catégories déjà mappées par la cliente — elle voit tout de
+  // suite en FR ce qu'elle utilise, au lieu d'attendre la fin du job
+  // (~30-60 min pour 1400 termes via l'API PFS, ordre alphabétique sinon).
+  // Charger les paths mappés est best-effort — un échec ne bloque pas la
+  // traduction, on retombe simplement sur l'ordre alphabétique par défaut.
+  try {
+    const usedPaths = await loadUsedOrderchampPaths();
+    if (usedPaths.size > 0) {
+      missing.sort((a, b) => {
+        const ua = usedPaths.has(a.path) ? 0 : 1;
+        const ub = usedPaths.has(b.path) ? 0 : 1;
+        return ua - ub;
+      });
+    }
+  } catch { /* pas grave, ordre alpha */ }
 
   logger.info("[Orderchamp Taxonomy] traduction FR en fond", {
     total: missing.length,
