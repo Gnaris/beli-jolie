@@ -46,7 +46,10 @@ export function ProductEditRefreshButton({
   const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
   const showEfashion = hasEfashionConfig && efashionEnabled;
   const showFaire = hasFaireConfig && faireEnabled;
-  const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+  // OC : aligné sur les autres marketplaces — la case n'apparaît que si le
+  // produit est déjà lié. Un « Rafraîchir » sur un produit non-lié
+  // enclencherait sinon la création côté OC (fallback publish).
+  const showOrderchamp = hasOrderchampConfig && orderchampEnabled && !!orderchampProductId;
   const { refreshSingle } = useRefreshMarketplaceDialog({
     showPfs: hasPfsConfig,
     showAnkorstore,

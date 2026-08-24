@@ -2184,13 +2184,12 @@ export default function ProductForm({
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
-      // Orderchamp : traité comme Microstore côté modale — visible même sur
-      // un tout premier push. `orderchampUpdateProduct` retombe automatiquement
-      // sur `orderchampPublishProduct` quand `orderchampProductId` est absent,
-      // donc cocher la case pour un produit pas encore lié le publie de zéro
-      // (2026-08-22 — demande cliente : la ligne OC doit apparaître comme les
-      // autres, pas la peine de passer par le badge pour la 1ʳᵉ publication).
-      const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
+      // Orderchamp : aligné sur PFS/Ankor/eFa/Faire depuis 2026-08-24 —
+      // la case n'apparaît QUE si le produit est déjà lié (`orderchampProductId`
+      // posé). La 1ʳᵉ publication passe par le badge OC de la fiche, sinon
+      // toute modif de stock proposait la création OC et déclenchait un push
+      // non désiré côté serveur (fallback `orderchampPublishProduct`).
+      const showOrderchamp = hasOrderchampConfig && orderchampEnabled && alreadyOnOrderchamp;
       // Microstore : contrairement aux 4 autres marketplaces, il n'y a pas de
       // notion « déjà lié » (upsert par référence + pas d'upload photo). La
       // case doit apparaître dès qu'on modifie une info clé si Microstore est
@@ -2203,16 +2202,16 @@ export default function ProductForm({
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
       //
       // ⚠️ Demande cliente : ne PAS proposer la modale tant qu'aucune
-      // marketplace n'est liée. La 1ʳᵉ publication PFS/Ankor/eFa doit être
+      // marketplace n'est liée. La 1ʳᵉ publication PFS/Ankor/eFa/OC doit être
       // déclenchée explicitement depuis le badge marketplace de la fiche.
-      // Exceptions Orderchamp + Microstore : upsert-style, on ouvre la modale
-      // même sur un premier push tant que la marketplace est configurée.
+      // Exception Microstore : upsert-style, on ouvre la modale même sur un
+      // premier push tant que la marketplace est configurée.
       const anyMarketplaceLinked =
         alreadyOnPfs ||
         alreadyOnAnkorstore ||
         alreadyOnEfashion ||
         alreadyOnFaire ||
-        showOrderchamp ||
+        alreadyOnOrderchamp ||
         showMicrostore;
       const canPublish =
         savedProductId &&
@@ -2314,14 +2313,9 @@ export default function ProductForm({
         const showEfashionCase =
           !onlyMicrostoreFieldChanged && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
         const showFaireCase = !onlyMicrostoreFieldChanged && showFaire && alreadyOnFaire;
-        // Orderchamp : pas de contrainte « déjà lié » (cf. commentaire sur
-        // `showOrderchamp` plus haut). L'action serveur `orderchampUpdateProduct`
-        // retombe sur `orderchampPublishProduct` si `orderchampProductId` est
-        // absent. En brouillon (OFFLINE), on masque quand même la case : rien
-        // à publier tant que le produit n'est pas en ligne côté boutique.
-        const showOrderchampCase =
-          !onlyMicrostoreFieldChanged && showOrderchamp &&
-          (alreadyOnOrderchamp || finalStatus !== "OFFLINE");
+        // Orderchamp : uniquement si déjà lié (`showOrderchamp` intègre déjà
+        // `alreadyOnOrderchamp`). La 1ʳᵉ publication passe par le badge OC.
+        const showOrderchampCase = !onlyMicrostoreFieldChanged && showOrderchamp;
         // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
         // En brouillon (produit OFFLINE), on ne propose pas le push Microstore —
         // un produit encore hors ligne n'a rien à faire sur le point de vente.

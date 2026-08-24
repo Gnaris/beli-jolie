@@ -2934,7 +2934,10 @@ function ProductRow({
     showAnkorstore: ankorstoreOperational,
     showEfashion: efashionOperational,
     showFaire: faireOperational,
-    showOrderchamp: orderchampOperational,
+    // OC : aligné sur les autres marketplaces — la case n'apparaît que si le
+    // produit est déjà lié. Un « Rafraîchir » sur un produit non-lié
+    // enclencherait sinon la création côté OC (fallback publish).
+    showOrderchamp: orderchampOperational && !!product.orderchampProductId,
   });
 
   // Optimistic UI : quand la cliente clique la croix « ignorer » d'un badge

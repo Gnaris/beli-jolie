@@ -190,8 +190,8 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
     "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus", "pfsVerify",
-    "pfsLink", "ankorsLink", "efashionLink", "faireLink",
-    "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "microstoreExportedAt",
+    "pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink",
+    "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt",
   ];
   let n = 0;
   for (const k of keys) {
@@ -231,6 +231,7 @@ interface PageProps {
     ankorsLink?: string;
     efashionLink?: string;
     faireLink?: string;
+    orderchampLink?: string;
     syncRequired?: string;
     hsCodeId?: string;
     locked?: string;
@@ -239,6 +240,7 @@ interface PageProps {
     microstoreExportedAt?: string;
     ankorstoreExportedAt?: string;
     faireExportedAt?: string;
+    orderchampExportedAt?: string;
     translationStatus?: string;
     pfsVerify?: string;
   }>;
@@ -335,6 +337,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsLink = "",
     efashionLink = "",
     faireLink = "",
+    orderchampLink = "",
     syncRequired = "",
     hsCodeId = "",
     locked = "",
@@ -343,6 +346,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreExportedAt = "",
     ankorstoreExportedAt = "",
     faireExportedAt = "",
+    orderchampExportedAt = "",
     translationStatus = "",
     pfsVerify = "",
   } = params;
@@ -390,6 +394,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorsLink,
     efashionLink,
     faireLink,
+    orderchampLink,
     syncRequired,
     hsCodeId,
     locked,
@@ -398,6 +403,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreExportedAt,
     ankorstoreExportedAt,
     faireExportedAt,
+    orderchampExportedAt,
     translationStatus,
     pfsVerify,
     productIdsIn,
@@ -679,6 +685,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
               hasAnkorstoreConfig={hasAnkorstoreConfig}
               hasEfashionConfig={hasEfashionConfig}
               hasFaireConfig={hasFaireConfig}
+              hasOrderchampConfig={hasOrderchampConfig}
             />
           </Suspense>
         </div>

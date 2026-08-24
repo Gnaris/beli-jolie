@@ -339,10 +339,10 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         });
         localConsumed = options.local;
       }
-      if (options.orderchamp) {
-        // OC upsert-style : si la fiche existe déjà côté OC → mode "refresh"
-        // (productRepublish garde l'ID). Sinon → mode "publish" pour créer la
-        // fiche de zéro.
+      // OC : uniquement si le produit est déjà lié. La case ne devrait pas
+      // apparaître autrement (guard côté caller), mais on double-check ici pour
+      // éviter tout push publish involontaire depuis un caller mal configuré.
+      if (options.orderchamp && target.orderchampProductId) {
         inputs.push({
           productId: target.productId,
           reference: target.reference,
@@ -357,7 +357,7 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
             orderchamp: true,
           },
           marketplace: "orderchamp",
-          mode: target.orderchampProductId ? "refresh" : "publish",
+          mode: "refresh",
         });
         localConsumed = options.local;
       }
@@ -518,7 +518,10 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
           });
           localConsumed = options.local;
         }
-        if (options.orderchamp) {
+        // OC : uniquement pour les produits déjà liés. Un produit non-lié
+        // déclencherait sinon la création côté OC (fallback publish) — non
+        // désiré pour un « Rafraîchir ». La 1ʳᵉ publication passe par le badge.
+        if (options.orderchamp && p.orderchampProductId) {
           inputs.push({
             productId: p.productId,
             reference: p.reference,
@@ -533,9 +536,19 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
               orderchamp: true,
             },
             marketplace: "orderchamp",
-            mode: p.orderchampProductId ? "refresh" : "publish",
+            mode: "refresh",
           });
           localConsumed = options.local;
+        }
+      }
+      // Toast d'info si des produits non liés OC ont été écartés silencieusement.
+      if (options.orderchamp) {
+        const skipped = filtered.filter((p) => !p.orderchampProductId).length;
+        if (skipped > 0) {
+          toast.info(
+            "Orderchamp ignoré",
+            `${skipped} produit${skipped > 1 ? "s" : ""} non lié${skipped > 1 ? "s" : ""} à Orderchamp — 1ʳᵉ publication à faire depuis la fiche.`,
+          );
         }
       }
       enqueue(inputs, { intervalMs: options.intervalMs ?? 0 });

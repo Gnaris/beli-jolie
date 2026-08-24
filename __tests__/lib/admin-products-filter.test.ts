@@ -410,6 +410,32 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ faireLink: "nope" }).faireProductId).toBeUndefined();
   });
 
+  it("requires both product and all UNIT colors to be linked when orderchampLink=linked", () => {
+    const where = buildAdminProductsWhere({ orderchampLink: "linked" });
+    expect(where.orderchampProductId).toEqual({ not: null });
+    expect(where.AND).toEqual([
+      { NOT: { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } } },
+    ]);
+  });
+
+  it("matches products without orderchampProductId OR with at least one unlinked UNIT color when orderchampLink=unlinked", () => {
+    const where = buildAdminProductsWhere({ orderchampLink: "unlinked" });
+    expect(where.orderchampProductId).toBeUndefined();
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { orderchampProductId: null },
+          { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } },
+        ],
+      },
+    ]);
+  });
+
+  it("ignores orderchampLink when value is empty or unknown", () => {
+    expect(buildAdminProductsWhere({ orderchampLink: "" }).orderchampProductId).toBeUndefined();
+    expect(buildAdminProductsWhere({ orderchampLink: "nope" }).orderchampProductId).toBeUndefined();
+  });
+
   it("syncRequired='1' ajoute un OR sur les quatre drapeaux *SyncRequired ET impose que la marketplace correspondante soit liée (évite les drapeaux orphelins qui ne peuvent pas afficher de badge orange)", () => {
     const where = buildAdminProductsWhere({ syncRequired: "1" });
     expect(where.AND).toEqual([
@@ -540,6 +566,11 @@ describe("buildAdminProductsWhere", () => {
     it("ankorstoreExportedAt='never' filtre sur ankorstoreLastExportedAt IS NULL", () => {
       const where = buildAdminProductsWhere({ ankorstoreExportedAt: "never", now: NOW });
       expect(where.AND).toEqual([{ ankorstoreLastExportedAt: null }]);
+    });
+
+    it("orderchampExportedAt='never' filtre sur orderchampLastExportedAt IS NULL", () => {
+      const where = buildAdminProductsWhere({ orderchampExportedAt: "never", now: NOW });
+      expect(where.AND).toEqual([{ orderchampLastExportedAt: null }]);
     });
 
     it("lt7d : retient les produits exportés dans les 7 derniers jours (gte cutoff)", () => {

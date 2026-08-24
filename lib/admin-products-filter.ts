@@ -115,6 +115,15 @@ export interface AdminProductsFilterParams {
    */
   faireLink?: string;
   /**
+   * Filtre sur le lien Orderchamp — Orderchamp attend une variante par couleur
+   * UNIT (option1=Color + option2=Size). Un produit est considéré « lié »
+   * seulement s'il a son `orderchampProductId` ET que toutes ses couleurs
+   * UNIT portent leur `orderchampVariantId`.
+   *   - "linked"   = `orderchampProductId` renseigné ET aucune couleur UNIT sans `orderchampVariantId`
+   *   - "unlinked" = `orderchampProductId` vide OU au moins une couleur UNIT sans `orderchampVariantId`
+   */
+  orderchampLink?: string;
+  /**
    * Filtre « Synchronisation marketplace nécessaire » : ne retient que les
    * produits avec au moins un drapeau `*SyncRequired = true` (PFS, Ankorstore
    * ou eFashion). Sert à retrouver d'un coup les fiches qui attendent un
@@ -133,6 +142,7 @@ export interface AdminProductsFilterParams {
   microstoreExportedAt?: string;
   ankorstoreExportedAt?: string;
   faireExportedAt?: string;
+  orderchampExportedAt?: string;
   /**
    * Filtre « Statut de traduction » — vérifie la présence de traductions pour
    * chaque locale non-FR (cf. `NON_DEFAULT_LOCALES`). Cohérent avec le comptage
@@ -192,6 +202,7 @@ const EXPORT_FIELD_BY_MARKETPLACE = {
   microstore: "microstoreLastExportedAt",
   ankorstore: "ankorstoreLastExportedAt",
   faire:      "faireLastExportedAt",
+  orderchamp: "orderchampLastExportedAt",
 } as const;
 
 type ExportMarketplaceKey = keyof typeof EXPORT_FIELD_BY_MARKETPLACE;
@@ -420,6 +431,24 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     ];
   }
 
+  if (params.orderchampLink === "linked") {
+    where.orderchampProductId = { not: null };
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      { NOT: { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } } },
+    ];
+  } else if (params.orderchampLink === "unlinked") {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { orderchampProductId: null },
+          { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } },
+        ],
+      },
+    ];
+  }
+
   if (params.syncRequired === "1") {
     // Le badge orange « Synchro nécessaire » ne s'affiche que si le produit
     // est effectivement lié à la marketplace (badge vert + orange).
@@ -463,6 +492,7 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     buildExportedAtClause("microstore", params.microstoreExportedAt, now),
     buildExportedAtClause("ankorstore", params.ankorstoreExportedAt, now),
     buildExportedAtClause("faire", params.faireExportedAt, now),
+    buildExportedAtClause("orderchamp", params.orderchampExportedAt, now),
   ].filter((c): c is Prisma.ProductWhereInput => c !== null);
   if (exportClauses.length > 0) {
     where.AND = [

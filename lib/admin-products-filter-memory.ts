@@ -34,6 +34,7 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "ankorsLink",
   "efashionLink",
   "faireLink",
+  "orderchampLink",
   "syncRequired",
   "hsCodeId",
   "locked",
