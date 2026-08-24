@@ -19,6 +19,7 @@ import {
   buildOrderchampCategoryTree,
   searchOrderchampCategoryLeaves,
   getOrderchampCategoryLabel,
+  localizedOrderchampDisplayPath,
   type OrderchampCategoryLeaf,
   type OrderchampCategoryTreeNode,
 } from "@/lib/orderchamp-taxonomy-shared";
@@ -38,7 +39,7 @@ export default function OrderchampCategoryCascadeSelector({
   value,
   onChange,
   canClear = true,
-  placeholder = "Rechercher une catégorie Orderchamp (ex. bracelet, ring, necklace…)",
+  placeholder = "Rechercher une catégorie Orderchamp (ex. bracelet, bague, collier…)",
 }: Props) {
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
@@ -178,8 +179,8 @@ function SearchResults({
   if (leaves.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-[12.5px] text-text-muted">
-        Aucun résultat parmi {total} catégories. Essayez un mot en anglais
-        (ex : « bracelet », « ring »).
+        Aucun résultat parmi {total} catégories. Essayez un autre mot
+        (ex : « bracelet », « bague »).
       </div>
     );
   }
@@ -187,6 +188,7 @@ function SearchResults({
     <ul className="divide-y divide-border">
       {leaves.map((l) => {
         const isCurrent = l.path === value;
+        const path = localizedOrderchampDisplayPath(l);
         return (
           <li key={l.path}>
             <button
@@ -198,10 +200,10 @@ function SearchResults({
               }`}
             >
               <span className="text-[12.5px] text-text-primary font-medium">
-                {l.displayPath[l.displayPath.length - 1]}
+                {path[path.length - 1]}
               </span>
               <span className="block text-[11px] text-text-muted mt-0.5">
-                {l.displayPath.slice(0, -1).join(" › ") || "Racine"}
+                {path.slice(0, -1).join(" › ") || "Racine"}
               </span>
             </button>
           </li>

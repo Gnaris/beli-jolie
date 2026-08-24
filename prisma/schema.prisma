@@ -1163,6 +1163,19 @@ model SubCategory {
   @@index([tenantId])
 }
 
+// Cache des traductions FR des feuilles standard Orderchamp
+// (`ProductCategoryPath` GraphQL enum). Global (l'enum OC est le même pour
+// tous les tenants) — pas de scoping tenant. Peuplé en fond via l'API PFS
+// translate au premier chargement de la page catégories, réutilisé ensuite.
+model OrderchampCategoryTranslation {
+  /// Path brut de l'enum OC, ex `JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS`.
+  path      String   @id
+  /// Libellé prettifié FR complet ("Bijoux Accessoires › Bracelets › Joncs").
+  labelFr   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model SubCategoryTranslation {
   id            String      @id @default(cuid())
   subCategoryId String

@@ -1,25 +1,25 @@
 /**
  * Orderchamp Taxonomy — server-only : récupère la liste des feuilles de
  * catégorie standard (`ProductCategoryPath` GraphQL enum) via introspection,
- * avec cache in-memory 24 h.
+ * avec cache in-memory 24 h, enrichie de leur traduction FR (via API PFS).
+ *
+ * Séquence au 1ᵉʳ chargement :
+ *   1. Fetch introspection GraphQL Orderchamp → ~1400 feuilles anglaises
+ *   2. Lecture des traductions FR déjà stockées en BDD
+ *      (`OrderchampCategoryTranslation`) — jointes au retour synchrone
+ *   3. Fire-and-forget : traduire en fond via `translatePhrases` (PFS) les
+ *      feuilles pas encore traduites, upsert en BDD, invalider le cache
+ *      in-memory pour que le prochain appel remonte les nouvelles FR
  *
  * Les helpers purs (build tree, search, label) et les types sont dans
  * `lib/orderchamp-taxonomy-shared.ts` — safe à importer depuis un Client
- * Component. Ce fichier-ci embarque prisma/logger/client GraphQL et ne doit
- * jamais être importé d'un composant client.
- *
- * Pourquoi cache in-memory et pas `unstable_cache` (Next 16) :
- *   1. `unstable_cache` casse l'AsyncLocalStorage — le callback tournait sans
- *      tenant, donc `getOrderchampApiKey()` retournait null même quand un
- *      token était bien posé côté BJ → cache poisonné à `[]` pour 24 h.
- *   2. On ne veut pas cacher un résultat vide (retry au prochain call si
- *      l'appel a foiré). `unstable_cache` cache tout, y compris `[]`.
- *   3. La taxonomie OC est identique pour tous les tenants (enum du schéma
- *      GraphQL global) → un cache process partagé est correct.
+ * Component.
  */
 
 import { orderchampGraphQL, OrderchampGraphQLError } from "@/lib/orderchamp-client";
 import { logger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
+import { translatePhrases } from "@/lib/pfs-translate";
 import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy-shared";
 
 // Re-exports pour compatibilité — permet d'importer depuis `orderchamp-taxonomy`
@@ -33,6 +33,7 @@ export {
   buildOrderchampCategoryTree,
   searchOrderchampCategoryLeaves,
   getOrderchampCategoryLabel,
+  localizedOrderchampDisplayPath,
 } from "@/lib/orderchamp-taxonomy-shared";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,7 +66,13 @@ function toDisplayPath(rawName: string, description: string | null): string[] {
   return rawName.split("_").map(prettifySegment);
 }
 
-async function fetchOrderchampTaxonomyRaw(): Promise<OrderchampCategoryLeaf[]> {
+interface RawLeaf {
+  path: string;
+  displayPath: string[];
+  description: string | null;
+}
+
+async function fetchOrderchampTaxonomyRaw(): Promise<RawLeaf[]> {
   try {
     const data = await orderchampGraphQL<{
       __type: { enumValues: Array<{ name: string; description: string | null }> } | null;
@@ -73,7 +80,7 @@ async function fetchOrderchampTaxonomyRaw(): Promise<OrderchampCategoryLeaf[]> {
 
     const values = data.__type?.enumValues ?? [];
     return values
-      .map<OrderchampCategoryLeaf>((v) => ({
+      .map<RawLeaf>((v) => ({
         path: v.name,
         displayPath: toDisplayPath(v.name, v.description),
         description: v.description,
@@ -95,10 +102,81 @@ async function fetchOrderchampTaxonomyRaw(): Promise<OrderchampCategoryLeaf[]> {
   }
 }
 
-// Cache in-memory global (process-level). Partagé entre tenants (l'enum
-// GraphQL est identique). Reset au restart PM2.
+/** Lit toutes les traductions FR déjà stockées en BDD.  */
+async function loadStoredTranslations(): Promise<Map<string, string[]>> {
+  const rows = await prisma.orderchampCategoryTranslation.findMany({
+    select: { path: true, labelFr: true },
+  });
+  const map = new Map<string, string[]>();
+  for (const r of rows) {
+    map.set(r.path, r.labelFr.split(" › ").map((s) => s.trim()).filter(Boolean));
+  }
+  return map;
+}
+
+const TRANSLATION_BATCH_SIZE = 60;
+
+/** Fire-and-forget : traduit en fond les feuilles pas encore traduites, upsert
+ *  en BDD, invalide le cache in-memory à la fin pour que le prochain appel
+ *  remonte les nouvelles FR. */
+async function translateMissingInBackground(
+  leaves: readonly RawLeaf[],
+  alreadyTranslated: ReadonlySet<string>,
+): Promise<void> {
+  const missing = leaves.filter((l) => !alreadyTranslated.has(l.path));
+  if (missing.length === 0) return;
+
+  logger.info("[Orderchamp Taxonomy] traduction FR en fond", {
+    total: missing.length,
+    batchSize: TRANSLATION_BATCH_SIZE,
+  });
+
+  let translated = 0;
+  for (let i = 0; i < missing.length; i += TRANSLATION_BATCH_SIZE) {
+    const batch = missing.slice(i, i + TRANSLATION_BATCH_SIZE);
+    const phrases: Record<string, string> = {};
+    for (const l of batch) {
+      phrases[l.path] = l.displayPath.join(" › ");
+    }
+    try {
+      const res = await translatePhrases(phrases, { sourceLanguage: "en" });
+      if (!res) continue;
+      const upserts: Promise<unknown>[] = [];
+      for (const l of batch) {
+        const fr = res[l.path]?.fr;
+        if (!fr || !fr.trim()) continue;
+        upserts.push(
+          prisma.orderchampCategoryTranslation.upsert({
+            where: { path: l.path },
+            update: { labelFr: fr },
+            create: { path: l.path, labelFr: fr },
+          }),
+        );
+      }
+      await Promise.all(upserts);
+      translated += upserts.length;
+    } catch (err) {
+      logger.warn("[Orderchamp Taxonomy] batch FR a échoué", {
+        offset: i,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  logger.info("[Orderchamp Taxonomy] traduction FR terminée", {
+    translated,
+    total: missing.length,
+  });
+
+  // Invalider le cache pour que le prochain fetch remonte les nouvelles FR.
+  cache = null;
+}
+
+// Cache in-memory global (process-level). Reset au restart PM2 ou après
+// traduction en fond réussie.
 let cache: { data: OrderchampCategoryLeaf[]; expiresAt: number } | null = null;
 let inflight: Promise<OrderchampCategoryLeaf[]> | null = null;
+let backgroundTranslationInFlight = false;
 
 /** Vide le cache. Utile après (re)configuration d'un token OC pour forcer
  *  un fetch propre sans devoir attendre 24 h ou redémarrer PM2. */
@@ -107,9 +185,9 @@ export function clearOrderchampTaxonomyCache(): void {
   inflight = null;
 }
 
-/** Renvoie la liste des feuilles OC. Cache in-memory 24 h. Un résultat vide
- *  n'est PAS caché — le prochain appel refera la requête (utile si le token
- *  n'était pas encore posé au 1er appel). */
+/** Renvoie la liste des feuilles OC (EN + FR quand disponible en BDD). Cache
+ *  in-memory 24 h. Un résultat vide n'est PAS caché — le prochain appel
+ *  refera la requête. Traduit en fond les feuilles pas encore traduites. */
 export async function getCachedOrderchampTaxonomy(): Promise<OrderchampCategoryLeaf[]> {
   const now = Date.now();
   if (cache && cache.expiresAt > now && cache.data.length > 0) {
@@ -118,13 +196,30 @@ export async function getCachedOrderchampTaxonomy(): Promise<OrderchampCategoryL
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const data = await fetchOrderchampTaxonomyRaw();
-      if (data.length > 0) {
-        cache = { data, expiresAt: Date.now() + ONE_DAY_MS };
+      const [raw, stored] = await Promise.all([
+        fetchOrderchampTaxonomyRaw(),
+        loadStoredTranslations().catch(() => new Map<string, string[]>()),
+      ]);
+      const leaves: OrderchampCategoryLeaf[] = raw.map((r) => ({
+        path: r.path,
+        displayPath: r.displayPath,
+        displayPathFr: stored.get(r.path) ?? null,
+        description: r.description,
+      }));
+      if (leaves.length > 0) {
+        cache = { data: leaves, expiresAt: Date.now() + ONE_DAY_MS };
       } else {
         cache = null;
       }
-      return data;
+      // Lance la traduction des manquantes en fond (pas d'await : le prochain
+      // affichage remontera les FR, sans bloquer le chargement actuel).
+      if (leaves.length > 0 && !backgroundTranslationInFlight) {
+        backgroundTranslationInFlight = true;
+        void translateMissingInBackground(raw, new Set(stored.keys())).finally(() => {
+          backgroundTranslationInFlight = false;
+        });
+      }
+      return leaves;
     } finally {
       inflight = null;
     }
