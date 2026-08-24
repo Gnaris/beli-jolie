@@ -114,11 +114,12 @@ async function loadStoredTranslations(): Promise<Map<string, string[]>> {
   return map;
 }
 
-const TRANSLATION_BATCH_SIZE = 60;
+const TRANSLATION_BATCH_SIZE = 30;
 
 /** Fire-and-forget : traduit en fond les feuilles pas encore traduites, upsert
- *  en BDD, invalide le cache in-memory à la fin pour que le prochain appel
- *  remonte les nouvelles FR. */
+ *  en BDD, invalide le cache in-memory **à chaque batch** pour que la cliente
+ *  voie les catégories basculer en FR au fur et à mesure (au lieu d'attendre
+ *  la fin complète du job, ~1400 termes = plusieurs heures via l'API PFS). */
 async function translateMissingInBackground(
   leaves: readonly RawLeaf[],
   alreadyTranslated: ReadonlySet<string>,
@@ -155,6 +156,16 @@ async function translateMissingInBackground(
       }
       await Promise.all(upserts);
       translated += upserts.length;
+      // Invalider le cache après chaque batch — le prochain rendu de la page
+      // remontera les nouvelles FR (au lieu de servir le cache figé au
+      // début de la session).
+      cache = null;
+      if (translated % 300 === 0) {
+        logger.info("[Orderchamp Taxonomy] avancement FR", {
+          translated,
+          total: missing.length,
+        });
+      }
     } catch (err) {
       logger.warn("[Orderchamp Taxonomy] batch FR a échoué", {
         offset: i,
@@ -167,8 +178,6 @@ async function translateMissingInBackground(
     translated,
     total: missing.length,
   });
-
-  // Invalider le cache pour que le prochain fetch remonte les nouvelles FR.
   cache = null;
 }
 
