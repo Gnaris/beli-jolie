@@ -5,8 +5,7 @@
  * `lib/orderchamp-taxonomy.ts` (server-only).
  */
 
-/** Une feuille de catégorie OC — envoyable directement en `category` sur
- *  productCreate/Update. */
+/** Une catégorie OC — envoyable directement en `category` sur productCreate/Update. */
 export interface OrderchampCategoryLeaf {
   /** Valeur brute de l'enum (ex `JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS`). */
   path: string;
@@ -17,6 +16,11 @@ export interface OrderchampCategoryLeaf {
    *  traduction n'est pas encore arrivée — le sélecteur retombe alors sur
    *  `displayPath` anglais. Rempli quelques secondes après le 1ᵉʳ chargement. */
   displayPathFr: string[] | null;
+  /** `true` si feuille terminale (`ProductCategoryPath`, back-office OC
+   *  affiche la « catégorie de marché »). `false` si regroupement (branche
+   *  de `CategoryPath` uniquement) — dans ce cas la fiche acheteur peut
+   *  afficher un champ « catégorie de marché » vide, cf. warning UI. */
+  isLeaf: boolean;
   /** Description brute exposée par le schéma GraphQL (souvent null). */
   description: string | null;
 }
