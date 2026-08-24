@@ -124,9 +124,19 @@ function baseProduct(hsCode: { code: string } | null) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Le mock est utilisé à la fois par `orderchampUpdateProduct` (select :
+  // orderchampProductId + status) et par `resolveOrderchampCategoryForProduct`
+  // (select : category + subCategories). On retourne un mega-objet qui couvre
+  // les deux appels.
   prismaFindUniqueSpy.mockResolvedValue({
     orderchampProductId: OC_PRODUCT_ID,
     status: "ONLINE",
+    category: {
+      id: "cat-1",
+      name: "Bracelets",
+      orderchampCategoryPath: "JEWELRY_ACCESSORIES_BRACELETS_OTHER",
+    },
+    subCategories: [],
   });
   ensureOrderchampCustomCategorySpy.mockResolvedValue({
     success: true,
@@ -187,7 +197,8 @@ describe("orderchampUpdateProduct — code SH", () => {
       colorImages: [{ path: "/uploads/beliandjolie/produits/x/x-bleu-1-abc.webp", order: 0, colorId: "c-bleu" }],
     };
     loadOrderchampProductFullSpy.mockResolvedValue(productWithImage);
-    // Snapshot précédent avec la même image, mais un cache-buster différent
+    // Snapshot précédent avec la même image, mais un cache-buster différent.
+    // On garde category + subCategories pour resolveOrderchampCategoryForProduct.
     prismaFindUniqueSpy.mockResolvedValue({
       orderchampProductId: OC_PRODUCT_ID,
       status: "ONLINE",
@@ -196,6 +207,12 @@ describe("orderchampUpdateProduct — code SH", () => {
           images: ["https://example.test/uploads/beliandjolie/produits/x/x-bleu-1-abc.webp?v=999"],
         },
       },
+      category: {
+        id: "cat-1",
+        name: "Bracelets",
+        orderchampCategoryPath: "JEWELRY_ACCESSORIES_BRACELETS_OTHER",
+      },
+      subCategories: [],
     });
 
     const res = await orderchampUpdateProduct("p1");

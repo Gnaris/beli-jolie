@@ -37,6 +37,9 @@ import {
   ensureOrderchampSubCategoryCustomCategory,
 } from "@/lib/orderchamp-custom-category";
 import {
+  resolveOrderchampCategoryForProduct,
+} from "@/lib/orderchamp-category-resolve";
+import {
   orderchampAdjustInventory,
   type OrderchampInventoryUpdate,
 } from "@/lib/orderchamp-inventory";
@@ -108,6 +111,13 @@ export async function orderchampUpdateProduct(
 
   const product = await loadOrderchampProductFull(productId);
   if (!product) return { success: false, error: "Impossible de recharger le produit BJ." };
+
+  // Vérifie le mapping catégorie OC (règle cliente 2026-08-24) — obligatoire
+  // sur la catégorie principale, la sous-catégorie mappée l'emporte si posée.
+  const categoryResolution = await resolveOrderchampCategoryForProduct(productId);
+  if (!categoryResolution.ok) {
+    return { success: false, error: categoryResolution.error };
+  }
 
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
@@ -205,6 +215,10 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
     customCategory: catRes.orderchampCustomCategoryId ?? undefined,
+    // Feuille standard OC obligatoire (règle cliente 2026-08-24) — envoyée à
+    // chaque update pour reprendre les produits historiques dont la fiche OC
+    // n'avait pas de « Catégorie de marché » peuplée.
+    category: categoryResolution.path,
     // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
     // si le canal n'est pas activé côté compte (Settings > Sales channels
     // dans le back-office OC).
@@ -216,8 +230,6 @@ export async function orderchampUpdateProduct(
       ? imageUrls.map((url) => ({ sourceUrl: url }))
       : undefined,
   };
-  // `category` non envoyé — Orderchamp détecte automatiquement depuis
-  // titre + description (mapping manuel retiré 2026-08-20).
 
   for (const k of Object.keys(productInput)) {
     if (productInput[k] === undefined) delete productInput[k];

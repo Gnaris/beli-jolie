@@ -1,19 +1,27 @@
 "use client";
 
-type Sub = { id: string; name: string; translations: Record<string, string> };
+type Sub = {
+  id: string;
+  name: string;
+  translations: Record<string, string>;
+  orderchampCategoryPath?: string | null;
+  orderchampLabel?: string | null;
+};
 
 type Props = {
   subs: Sub[];
   onAdd: () => void;
   onEdit: (sub: Sub) => void;
   onDelete: (sub: Sub) => void;
+  onOrderchamp?: (sub: Sub) => void;
 };
 
-export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete }: Props) {
+export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrderchamp }: Props) {
   return (
     <div className="flex flex-wrap gap-2">
       {subs.map((s) => {
         const translated = !!(s.translations.fr && s.translations.fr.trim() && s.translations.en && s.translations.en.trim());
+        const ocMapped = !!s.orderchampCategoryPath;
         return (
           <div
             key={s.id}
@@ -27,6 +35,25 @@ export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete }: Prop
             >
               {s.name}
             </button>
+            {onOrderchamp && (
+              <button
+                type="button"
+                onClick={() => onOrderchamp(s)}
+                title={
+                  ocMapped
+                    ? `Orderchamp : ${s.orderchampLabel ?? s.orderchampCategoryPath}`
+                    : "Orderchamp : mapping facultatif — hérité de la catégorie parente"
+                }
+                aria-label={ocMapped ? "Modifier le mapping Orderchamp" : "Ajouter un mapping Orderchamp"}
+                className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[9px] font-bold shrink-0 transition-colors ${
+                  ocMapped
+                    ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                    : "bg-bg-primary border border-dashed border-border text-text-muted hover:text-orange-600 hover:border-orange-300"
+                }`}
+              >
+                O
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onDelete(s)}

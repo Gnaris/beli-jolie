@@ -1148,6 +1148,11 @@ model SubCategory {
   // la Category parente). Attribuée au produit à la place de la category
   // quand le produit BJ a au moins une sous-catégorie.
   orderchampCustomCategoryId String?
+  // Orderchamp : feuille standard OC (enum `CategoryPath`, ex
+  // "JEWELRY_ACCESSORIES_BRACELETS_BANGLE_BRACELETS"). Optionnel à ce niveau.
+  // Résolution au publish : priorité aux sous-catégories mappées, sinon
+  // fallback sur `Category.orderchampCategoryPath` (obligatoire pour publier).
+  orderchampCategoryPath     String?
   createdAt                  DateTime                 @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12

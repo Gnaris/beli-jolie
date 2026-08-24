@@ -5,7 +5,13 @@ import SubCategoryChips from "./SubCategoryChips";
 import MarketplaceMappingCards from "./MarketplaceMappingCards";
 import { formatDate } from "@/lib/format-date";
 
-type Sub = { id: string; name: string; translations: Record<string, string> };
+type Sub = {
+  id: string;
+  name: string;
+  translations: Record<string, string>;
+  orderchampCategoryPath?: string | null;
+  orderchampLabel?: string | null;
+};
 export type CategoryDetailData = {
   id: string;
   name: string;
@@ -16,6 +22,7 @@ export type CategoryDetailData = {
   pfsLabel: string | null;
   efashionLabel: string | null;
   faireLabel: string | null;
+  orderchampLabel: string | null;
 };
 
 type Props = {
@@ -27,7 +34,8 @@ type Props = {
   onSubAdd: () => void;
   onSubEdit: (sub: Sub) => void;
   onSubDelete: (sub: Sub) => void;
-  onEditMapping: (mp: "pfs" | "efashion" | "faire") => void;
+  onSubOrderchamp: (sub: Sub) => void;
+  onEditMapping: (mp: "pfs" | "efashion" | "faire" | "orderchamp") => void;
 };
 
 export default function CategoryDetail({
@@ -39,6 +47,7 @@ export default function CategoryDetail({
   onSubAdd,
   onSubEdit,
   onSubDelete,
+  onSubOrderchamp,
   onEditMapping,
 }: Props) {
   return (
@@ -103,7 +112,13 @@ export default function CategoryDetail({
           Sous-catégories
           <span className="text-[11px] font-semibold text-text-muted bg-bg-secondary px-2 py-0.5 rounded-full">{category.subCategories.length}</span>
         </h3>
-        <SubCategoryChips subs={category.subCategories} onAdd={onSubAdd} onEdit={onSubEdit} onDelete={onSubDelete} />
+        <SubCategoryChips
+          subs={category.subCategories}
+          onAdd={onSubAdd}
+          onEdit={onSubEdit}
+          onDelete={onSubDelete}
+          onOrderchamp={onSubOrderchamp}
+        />
       </section>
 
       {/* Marketplaces */}
@@ -113,6 +128,7 @@ export default function CategoryDetail({
           pfsLabel={category.pfsLabel}
           efashionLabel={category.efashionLabel}
           faireLabel={category.faireLabel}
+          orderchampLabel={category.orderchampLabel}
           onEditMapping={onEditMapping}
         />
       </section>

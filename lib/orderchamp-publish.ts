@@ -47,6 +47,9 @@ import {
   ensureOrderchampSubCategoryCustomCategory,
 } from "@/lib/orderchamp-custom-category";
 import {
+  resolveOrderchampCategoryForProduct,
+} from "@/lib/orderchamp-category-resolve";
+import {
   ORDERCHAMP_SNAPSHOT_VERSION,
   type OrderchampSyncSnapshot,
   type OrderchampVariantSnapshot,
@@ -221,6 +224,9 @@ interface PublishContext {
   madeInAlpha2: string;
   brandName: string;
   orderchampCategoryId: string | null;
+  /** Feuille standard OC (enum `ProductCategoryPath`) résolue via mapping
+   *  Category/SubCategory BJ. Envoyée dans `productCreate.category`. */
+  orderchampCategoryPath: string;
 }
 
 function buildOrderchampProductPayload(
@@ -350,9 +356,11 @@ function buildOrderchampProductPayload(
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
-    // Note : on n'envoie pas `category` (feuille standard OC) — Orderchamp
-    // détecte automatiquement la catégorie de marché depuis le titre + la
-    // description. Le mapping manuel a été retiré de l'UI en 2026-08-20.
+    // Feuille standard OC — obligatoire (résolue via mapping BJ Category /
+    // SubCategory dans `resolveOrderchampCategoryForProduct`). Sans elle, OC
+    // essaie de deviner depuis titre/description et rate parfois — d'où le
+    // mapping manuel obligatoire réintroduit le 2026-08-24.
+    category: ctx.orderchampCategoryPath,
     customCategory: ctx.orderchampCategoryId ?? undefined,
     // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
     // si le canal n'est pas activé côté compte (Settings > Sales channels
@@ -402,6 +410,14 @@ export async function orderchampPublishProduct(
     return { success: false, error: "Produit sans catégorie BJ — impossible de publier." };
   }
 
+  // 0) Vérifie que la catégorie du produit est mappée vers une feuille standard
+  // Orderchamp. Priorité : première sous-catégorie mappée → sinon catégorie
+  // principale. Sans mapping, on refuse le push (règle cliente 2026-08-24).
+  const categoryResolution = await resolveOrderchampCategoryForProduct(productId);
+  if (!categoryResolution.ok) {
+    return { success: false, error: categoryResolution.error };
+  }
+
   // 1) Assure la customCategory OC. Si le produit a au moins une sous-catégorie
   // BJ, on prend la première (ordre alphabétique) et on crée une customCategory
   // enfant chez OC (parentId = ID de la catégorie parente OC). Sinon on tombe
@@ -433,6 +449,7 @@ export async function orderchampPublishProduct(
     madeInAlpha2: countryAlpha2,
     brandName: "Beli & Jolie",
     orderchampCategoryId: orderchampCustomCategoryId,
+    orderchampCategoryPath: categoryResolution.path,
   };
 
   // 3) Build payload

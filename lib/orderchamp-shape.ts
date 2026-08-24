@@ -31,6 +31,9 @@
  * Règles douces (avertissement) :
  *   - description vide
  *   - countryAlpha2 non résolu → fallback CN
+ *   - categoryId (customCategory OC) non résolu — la fiche OC n'aura pas de
+ *     « catégorie perso » (distinct de la feuille standard OC qui, elle,
+ *     est validée en amont par `resolveOrderchampCategoryForProduct`).
  *   - dimensions manquantes ou nulles (poids ou 3 dimensions)
  */
 
@@ -121,6 +124,11 @@ export function validateOrderchampProductShape(
     }
   }
 
+  if (!input.categoryId) {
+    warnings.push(
+      "Catégorie personnalisée Orderchamp non résolue — la fiche n'aura pas de « catégorie perso » côté OC (la catégorie standard reste, elle, obligatoire et vérifiée en amont).",
+    );
+  }
   if (!input.countryAlpha2) {
     warnings.push("Pays de fabrication inconnu — fallback `CN` appliqué.");
   }

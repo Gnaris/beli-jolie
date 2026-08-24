@@ -79,9 +79,19 @@ const OC_VARIANT_ID = "gid://orderchamp/ProductVariant/42";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Le mock est utilisé à la fois par `orderchampUpdateProduct` (select :
+  // orderchampProductId + status) et par `resolveOrderchampCategoryForProduct`
+  // (select : category + subCategories). On retourne un mega-objet qui couvre
+  // les deux appels.
   prismaFindUniqueSpy.mockResolvedValue({
     orderchampProductId: "gid://orderchamp/Product/1",
     status: "ONLINE",
+    category: {
+      id: "cat-1",
+      name: "Bracelets",
+      orderchampCategoryPath: "JEWELRY_ACCESSORIES_BRACELETS_OTHER",
+    },
+    subCategories: [],
   });
   loadOrderchampProductFullSpy.mockResolvedValue({
     id: "p1",

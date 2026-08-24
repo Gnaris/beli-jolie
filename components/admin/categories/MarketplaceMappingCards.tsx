@@ -1,11 +1,12 @@
 "use client";
 
-type Marketplace = "pfs" | "efashion" | "faire";
+type Marketplace = "pfs" | "efashion" | "faire" | "orderchamp";
 
 type Props = {
   pfsLabel: string | null;
   efashionLabel: string | null;
   faireLabel: string | null;
+  orderchampLabel: string | null;
   onEditMapping: (mp: Marketplace) => void;
 };
 
@@ -13,16 +14,24 @@ const ITEMS: { key: Marketplace; label: string }[] = [
   { key: "pfs", label: "PFS" },
   { key: "efashion", label: "eFashion" },
   { key: "faire", label: "Faire" },
+  { key: "orderchamp", label: "Orderchamp" },
 ];
 
-export default function MarketplaceMappingCards({ pfsLabel, efashionLabel, faireLabel, onEditMapping }: Props) {
+export default function MarketplaceMappingCards({
+  pfsLabel,
+  efashionLabel,
+  faireLabel,
+  orderchampLabel,
+  onEditMapping,
+}: Props) {
   const values: Record<Marketplace, string | null> = {
     pfs: pfsLabel,
     efashion: efashionLabel,
     faire: faireLabel,
+    orderchamp: orderchampLabel,
   };
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {ITEMS.map((m) => {
         const value = values[m.key];
         const mapped = !!value;

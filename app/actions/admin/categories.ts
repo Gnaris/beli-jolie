@@ -208,6 +208,80 @@ export async function updateCategoryFaireTaxonomy(
 }
 
 /**
+ * Mappe une catégorie BJ vers une feuille standard Orderchamp
+ * (`ProductCategoryPath` enum). Envoyé dans `productCreate/Update.category`
+ * pour peupler la « Catégorie de marché » côté back-office OC.
+ *
+ * Retourne un `impact` non-null si le mapping a réellement changé ET que des
+ * produits publiés sur Orderchamp utilisent cette catégorie.
+ */
+export async function updateCategoryOrderchampCategoryPath(
+  id: string,
+  orderchampCategoryPath: string | null,
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
+  await requireAdmin();
+  const normalized = orderchampCategoryPath?.trim() || null;
+
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true, orderchampCategoryPath: true },
+  });
+  if (!before) throw new Error("Catégorie introuvable.");
+
+  await prisma.category.update({
+    where: { id },
+    data: { orderchampCategoryPath: normalized },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+
+  if (before.orderchampCategoryPath === normalized) {
+    return { success: true, impact: null };
+  }
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "category",
+    marketplace: "orderchamp",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.orderchampCategoryPath,
+    newValueLabel: normalized,
+    rollbackFields: { orderchampCategoryPath: before.orderchampCategoryPath },
+  });
+  return { success: true, impact };
+}
+
+/**
+ * Mappe une sous-catégorie BJ vers une feuille standard Orderchamp. Facultatif :
+ * si absent, on retombe sur le mapping de la catégorie parente au moment du
+ * publish (cf. `resolveOrderchampCategoryForProduct`).
+ */
+export async function updateSubCategoryOrderchampCategoryPath(
+  id: string,
+  orderchampCategoryPath: string | null,
+) {
+  await requireAdmin();
+  const normalized = orderchampCategoryPath?.trim() || null;
+
+  const before = await prisma.subCategory.findUnique({
+    where: { id },
+    select: { orderchampCategoryPath: true, categoryId: true },
+  });
+  if (!before) throw new Error("Sous-catégorie introuvable.");
+
+  await prisma.subCategory.update({
+    where: { id },
+    data: { orderchampCategoryPath: normalized },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+
+  return { success: true };
+}
+
+/**
  * Saisie manuelle du code SH douanier Faire pour une catégorie BJ. Le code
  * dépend du type de produit (ex: "7117.19.00" pour bijoux acier,
  * "6109.10.00" pour t-shirts coton, "9004.10" pour lunettes). Stocké par

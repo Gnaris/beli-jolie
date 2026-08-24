@@ -6,6 +6,9 @@ import CategoriesList from "./CategoriesList";
 import CategoryDetail, { type CategoryDetailData } from "./CategoryDetail";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import CategoryEditorModal from "./CategoryEditorModal";
+import OrderchampMappingDrawer, {
+  type OrderchampMappingTarget,
+} from "./OrderchampMappingDrawer";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -18,8 +21,15 @@ import {
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
+import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy";
 
-type Sub = { id: string; name: string; translations: Record<string, string> };
+type Sub = {
+  id: string;
+  name: string;
+  translations: Record<string, string>;
+  orderchampCategoryPath?: string | null;
+  orderchampLabel?: string | null;
+};
 
 export type CategoryRow = {
   id: string;
@@ -32,12 +42,14 @@ export type CategoryRow = {
   pfsCategoryName: string | null;
   efashionCategorieId: number | null;
   faireTaxonomyId: string | null;
+  orderchampCategoryPath: string | null;
   productCount: number;
   createdAt: Date;
   subCategories: Sub[];
   pfsLabel: string | null;
   efashionLabel: string | null;
   faireLabel: string | null;
+  orderchampLabel: string | null;
 };
 
 type Props = {
@@ -46,6 +58,7 @@ type Props = {
   hasEfashionConfig: boolean;
   hasFaireConfig: boolean;
   hasOrderchampConfig: boolean;
+  orderchampTaxonomy: OrderchampCategoryLeaf[];
 };
 
 export default function CategoriesMasterDetail({
@@ -54,6 +67,7 @@ export default function CategoriesMasterDetail({
   hasEfashionConfig,
   hasFaireConfig,
   hasOrderchampConfig,
+  orderchampTaxonomy,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -73,6 +87,10 @@ export default function CategoriesMasterDetail({
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
   const [editSub, setEditSub] = useState<{ sub: Sub; catId: string } | null>(null);
   const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | undefined>(undefined);
+  const [orderchampTarget, setOrderchampTarget] = useState<{
+    target: OrderchampMappingTarget;
+    currentPath: string | null;
+  } | null>(null);
   // ID d'une catégorie tout juste créée dont on veut la sélection différée :
   // items n'inclut la nouvelle cat qu'après router.refresh(), on sélectionne
   // au bon moment (voir useEffect ci-dessous). Sans ce délai, la sélection
@@ -230,8 +248,42 @@ export default function CategoriesMasterDetail({
         pfsLabel: selectedCat.pfsLabel,
         efashionLabel: selectedCat.efashionLabel,
         faireLabel: selectedCat.faireLabel,
+        orderchampLabel: selectedCat.orderchampLabel,
       }
     : null;
+
+  function openOrderchampMappingForCategory(cat: CategoryRow) {
+    if (!hasOrderchampConfig) {
+      toast.error(
+        "Orderchamp non configuré",
+        "Ajoute d'abord le token Orderchamp dans Paramètres → Marketplaces.",
+      );
+      return;
+    }
+    setOrderchampTarget({
+      target: { kind: "category", id: cat.id, name: cat.name },
+      currentPath: cat.orderchampCategoryPath,
+    });
+  }
+
+  function openOrderchampMappingForSub(sub: Sub, parentCat: CategoryRow) {
+    if (!hasOrderchampConfig) {
+      toast.error(
+        "Orderchamp non configuré",
+        "Ajoute d'abord le token Orderchamp dans Paramètres → Marketplaces.",
+      );
+      return;
+    }
+    setOrderchampTarget({
+      target: {
+        kind: "subcategory",
+        id: sub.id,
+        name: sub.name,
+        parentCategoryName: parentCat.name,
+      },
+      currentPath: sub.orderchampCategoryPath ?? null,
+    });
+  }
 
   return (
     <>
@@ -260,7 +312,15 @@ export default function CategoriesMasterDetail({
               onSubAdd={() => setSubModalCatId(selectedCat!.id)}
               onSubEdit={(s) => setEditSub({ sub: s, catId: selectedCat!.id })}
               onSubDelete={handleSubDelete}
-              onEditMapping={(mp) => { setEditFocusMarketplace(mp); setEditCat(selectedCat); }}
+              onSubOrderchamp={(s) => selectedCat && openOrderchampMappingForSub(s, selectedCat)}
+              onEditMapping={(mp) => {
+                if (mp === "orderchamp") {
+                  if (selectedCat) openOrderchampMappingForCategory(selectedCat);
+                  return;
+                }
+                setEditFocusMarketplace(mp);
+                setEditCat(selectedCat);
+              }}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -337,6 +397,15 @@ export default function CategoriesMasterDetail({
         data-trigger-create-category
         className="hidden"
         onClick={() => setCreateOpen(true)}
+      />
+
+      {/* Drawer mapping Orderchamp (feuille standard OC) — commun cat + sous-cat */}
+      <OrderchampMappingDrawer
+        open={!!orderchampTarget}
+        onClose={() => setOrderchampTarget(null)}
+        target={orderchampTarget?.target ?? null}
+        currentPath={orderchampTarget?.currentPath ?? null}
+        leaves={orderchampTaxonomy}
       />
     </>
   );

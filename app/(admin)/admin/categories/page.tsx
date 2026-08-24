@@ -13,6 +13,10 @@ import {
 import { buildTranslationsMap } from "@/lib/translations";
 import { getFaireTaxonomy } from "@/lib/faire-taxonomy";
 import { findFaireTaxonomyById } from "@/lib/faire-taxonomy-types";
+import {
+  getCachedOrderchampTaxonomy,
+  getOrderchampCategoryLabel,
+} from "@/lib/orderchamp-taxonomy";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -38,7 +42,16 @@ function buildPfsLabel(g: string | null, f: string | null, c: string | null): st
 }
 
 export default async function CategoriesPage() {
-  const [categories, efashionLabels, hasPfsConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig, faireTypes] = await Promise.all([
+  const [
+    categories,
+    efashionLabels,
+    hasPfsConfig,
+    hasEfashionConfig,
+    hasFaireConfig,
+    hasOrderchampConfig,
+    faireTypes,
+    orderchampTaxonomy,
+  ] = await Promise.all([
     prisma.category.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
@@ -59,6 +72,10 @@ export default async function CategoriesPage() {
     // avec breadcrumb "Bijoux › Bracelets". Renvoie [] en cas d'erreur ou si
     // Faire n'est pas configuré, auquel cas l'ID brut reste le fallback.
     getFaireTaxonomy().catch(() => []),
+    // Taxonomie Orderchamp (cachée 24h) — nécessaire pour proposer les
+    // feuilles standard OC + résoudre le libellé humain d'un mapping stocké.
+    // Retourne [] si OC pas configuré (le sélecteur affiche alors un message).
+    getCachedOrderchampTaxonomy().catch(() => []),
   ]);
 
   function buildFaireLabel(taxonomyId: string | null): string | null {
@@ -80,16 +97,24 @@ export default async function CategoriesPage() {
     pfsCategoryName: c.pfsCategoryName,
     efashionCategorieId: c.efashionCategorieId,
     faireTaxonomyId: c.faireTaxonomyId,
+    orderchampCategoryPath: c.orderchampCategoryPath,
     productCount: c._count.products,
     createdAt: c.createdAt,
     subCategories: c.subCategories.map((s) => ({
       id: s.id,
       name: s.name,
       translations: buildTranslationsMap(s.name, s.translations),
+      orderchampCategoryPath: s.orderchampCategoryPath,
+      orderchampLabel: s.orderchampCategoryPath
+        ? getOrderchampCategoryLabel(s.orderchampCategoryPath, orderchampTaxonomy)
+        : null,
     })),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,
     faireLabel: buildFaireLabel(c.faireTaxonomyId),
+    orderchampLabel: c.orderchampCategoryPath
+      ? getOrderchampCategoryLabel(c.orderchampCategoryPath, orderchampTaxonomy)
+      : null,
   }));
 
   // hasTranslations = a déjà au moins une traduction non-FR (FR est le nom de
@@ -126,6 +151,7 @@ export default async function CategoriesPage() {
         hasEfashionConfig={hasEfashionConfig}
         hasFaireConfig={hasFaireConfig}
         hasOrderchampConfig={hasOrderchampConfig}
+        orderchampTaxonomy={orderchampTaxonomy}
       />
     </div>
   );
