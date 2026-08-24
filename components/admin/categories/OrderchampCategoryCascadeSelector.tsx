@@ -226,17 +226,6 @@ export default function OrderchampCategoryCascadeSelector({
   );
 }
 
-function BranchWarningBadge() {
-  return (
-    <span
-      title="Regroupement Orderchamp — la fiche acheteur pourra afficher un champ « catégorie de marché » vide. Préférez une sous-catégorie précise si possible."
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[9.5px] font-bold uppercase tracking-wider shrink-0"
-    >
-      Regroupement
-    </span>
-  );
-}
-
 function SearchResults({
   leaves,
   value,
@@ -273,12 +262,9 @@ function SearchResults({
                 isCurrent ? "bg-emerald-50/50" : ""
               }`}
             >
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[12.5px] text-text-primary font-medium">
-                  {path[path.length - 1]}
-                </span>
-                {!l.isLeaf && <BranchWarningBadge />}
-              </div>
+              <span className="text-[12.5px] text-text-primary font-medium">
+                {path[path.length - 1]}
+              </span>
               <span className="block text-[11px] text-text-muted mt-0.5">
                 {path.slice(0, -1).join(" › ") || "Racine"}
               </span>
@@ -333,13 +319,12 @@ function CascadeNode({
           type="button"
           onClick={() => onPick(node.leaf!.path)}
           disabled={disabled}
-          className={`w-full text-left py-1.5 text-[12.5px] hover:bg-bg-secondary transition-colors disabled:opacity-50 flex items-center gap-2 ${
+          className={`w-full text-left py-1.5 text-[12.5px] hover:bg-bg-secondary transition-colors disabled:opacity-50 ${
             isCurrentLeaf ? "bg-emerald-50/50 text-emerald-700 font-semibold" : "text-text-primary"
           }`}
           style={{ paddingLeft, paddingRight: 12 }}
         >
-          <span>{node.label}</span>
-          {!node.leaf.isLeaf && <BranchWarningBadge />}
+          {node.label}
         </button>
       </li>
     );
@@ -363,9 +348,7 @@ function CascadeNode({
           </svg>
           <span className="font-medium text-text-primary">{node.label}</span>
           {node.leaf && (
-            <span className="ml-auto text-[10px] text-text-muted italic">
-              cliquable ci-dessous
-            </span>
+            <span className="ml-auto text-[10px] text-text-muted italic">peut être sélectionnée</span>
           )}
         </summary>
         {node.leaf && (
@@ -373,13 +356,12 @@ function CascadeNode({
             type="button"
             onClick={() => onPick(node.leaf!.path)}
             disabled={disabled}
-            className={`w-full text-left py-1.5 text-[12px] hover:bg-bg-secondary transition-colors disabled:opacity-50 flex items-center gap-2 ${
+            className={`w-full text-left py-1.5 text-[12px] hover:bg-bg-secondary transition-colors disabled:opacity-50 italic ${
               value === node.leaf.path ? "bg-emerald-50/50 text-emerald-700 font-semibold" : "text-text-secondary"
             }`}
             style={{ paddingLeft: paddingLeft + 20, paddingRight: 12 }}
           >
-            <span className="italic">Choisir « {node.label} » (regroupement)</span>
-            {!node.leaf.isLeaf && <BranchWarningBadge />}
+            Choisir « {node.label} » (branche parente)
           </button>
         )}
         <ul>

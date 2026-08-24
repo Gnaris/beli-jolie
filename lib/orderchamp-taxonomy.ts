@@ -38,21 +38,13 @@ export {
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-// Deux enums OC :
-//   - `ProductCategoryPath` = feuilles seulement (~1382). Back-office OC
-//     affiche la « catégorie de marché » quand on envoie une de ces valeurs.
-//   - `CategoryPath` = superset (~1639) = feuilles + regroupements parents.
-//     Le back-office affiche vide sur regroupement mais la cliente veut
-//     pouvoir choisir « Boucles d'oreilles » sans préciser un sous-type.
-// On introspecte les 2 : `CategoryPath` fournit la liste complète,
-// `ProductCategoryPath` sert à marquer `isLeaf` (utilisé pour warning UI).
 const INTROSPECT_QUERY = /* GraphQL */ `
-  query IntrospectOrderchampCategories {
-    productPaths: __type(name: "ProductCategoryPath") {
-      enumValues { name description }
-    }
-    allPaths: __type(name: "CategoryPath") {
-      enumValues { name description }
+  query IntrospectProductCategoryPath {
+    __type(name: "ProductCategoryPath") {
+      enumValues {
+        name
+        description
+      }
     }
   }
 `;
@@ -77,26 +69,20 @@ function toDisplayPath(rawName: string, description: string | null): string[] {
 interface RawLeaf {
   path: string;
   displayPath: string[];
-  isLeaf: boolean;
   description: string | null;
 }
 
 async function fetchOrderchampTaxonomyRaw(): Promise<RawLeaf[]> {
   try {
     const data = await orderchampGraphQL<{
-      productPaths: { enumValues: Array<{ name: string; description: string | null }> } | null;
-      allPaths: { enumValues: Array<{ name: string; description: string | null }> } | null;
-    }>(INTROSPECT_QUERY, {}, "introspectOrderchampCategories");
+      __type: { enumValues: Array<{ name: string; description: string | null }> } | null;
+    }>(INTROSPECT_QUERY, {}, "introspectProductCategoryPath");
 
-    const leafSet = new Set(
-      (data.productPaths?.enumValues ?? []).map((v) => v.name),
-    );
-    const all = data.allPaths?.enumValues ?? data.productPaths?.enumValues ?? [];
-    return all
+    const values = data.__type?.enumValues ?? [];
+    return values
       .map<RawLeaf>((v) => ({
         path: v.name,
         displayPath: toDisplayPath(v.name, v.description),
-        isLeaf: leafSet.has(v.name),
         description: v.description,
       }))
       .sort((a, b) =>
@@ -263,7 +249,6 @@ export async function getCachedOrderchampTaxonomy(): Promise<OrderchampCategoryL
         path: r.path,
         displayPath: r.displayPath,
         displayPathFr: stored.get(r.path) ?? null,
-        isLeaf: r.isLeaf,
         description: r.description,
       }));
       if (leaves.length > 0) {
