@@ -14,7 +14,8 @@
  *     posée (sous-catégorie : retombe sur la catégorie parente).
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   buildOrderchampCategoryTree,
   searchOrderchampCategoryLeaves,
@@ -41,8 +42,27 @@ export default function OrderchampCategoryCascadeSelector({
   canClear = true,
   placeholder = "Rechercher une catégorie Orderchamp (ex. bracelet, bague, collier…)",
 }: Props) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
+
+  // Statut traduction FR : ready quand toutes les feuilles ont un displayPathFr.
+  const translatedCount = useMemo(
+    () => leaves.filter((l) => l.displayPathFr !== null).length,
+    [leaves],
+  );
+  const translationReady = leaves.length > 0 && translatedCount === leaves.length;
+
+  // Tant que la traduction n'est pas complète, on auto-refresh la page toutes
+  // les 15 s pour remonter les nouvelles FR au fur et à mesure. Stop dès que
+  // ready ou si le composant est démonté (drawer fermé).
+  useEffect(() => {
+    if (translationReady || leaves.length === 0) return;
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [translationReady, leaves.length, router]);
 
   const tree = useMemo(() => buildOrderchampCategoryTree(leaves), [leaves]);
   const searchResults = useMemo(() => {
@@ -70,6 +90,48 @@ export default function OrderchampCategoryCascadeSelector({
         Catégories Orderchamp non chargées. Vérifiez que le token Orderchamp est
         bien renseigné dans <em>Paramètres → Marketplaces</em>, puis rechargez la
         page.
+      </div>
+    );
+  }
+
+  // Bloque le sélecteur tant que la traduction FR n'est pas terminée
+  // (règle cliente 2026-08-24 — ne pas afficher un mélange EN/FR).
+  if (!translationReady) {
+    const pct = leaves.length > 0 ? Math.round((translatedCount / leaves.length) * 100) : 0;
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-10 px-6 rounded-xl border border-border bg-bg-secondary text-center">
+        <svg className="w-8 h-8 animate-spin text-orange-500" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />
+          <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+        </svg>
+        <div>
+          <p className="text-[14px] font-semibold text-text-primary">
+            Traduction des catégories Orderchamp en cours…
+          </p>
+          <p className="text-[12px] text-text-secondary mt-1.5 leading-relaxed max-w-[380px]">
+            Nous traduisons les {leaves.length} catégories Orderchamp en français
+            pour vous. Cette étape ne se fait qu'une seule fois — laissez cette
+            page ouverte, elle se rafraîchit toute seule.
+          </p>
+        </div>
+        <div className="w-full max-w-[320px] flex flex-col gap-1.5">
+          <div className="h-2 rounded-full bg-bg-tertiary overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-text-muted">
+            {translatedCount} sur {leaves.length} traduites ({pct} %)
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="text-[11.5px] text-text-secondary hover:text-text-primary underline"
+        >
+          Rafraîchir maintenant
+        </button>
       </div>
     );
   }
