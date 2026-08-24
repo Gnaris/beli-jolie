@@ -20,7 +20,7 @@ import {
   updateSubCategoryOrderchampCategoryPath,
 } from "@/app/actions/admin/categories";
 import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
-import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy";
+import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy-shared";
 
 type CategoryTarget = { kind: "category"; id: string; name: string };
 type SubCategoryTarget = {

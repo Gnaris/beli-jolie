@@ -21,7 +21,7 @@ import {
   getOrderchampCategoryLabel,
   type OrderchampCategoryLeaf,
   type OrderchampCategoryTreeNode,
-} from "@/lib/orderchamp-taxonomy";
+} from "@/lib/orderchamp-taxonomy-shared";
 
 type Props = {
   leaves: OrderchampCategoryLeaf[];

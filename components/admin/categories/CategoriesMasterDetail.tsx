@@ -21,7 +21,7 @@ import {
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
-import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy";
+import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy-shared";
 
 type Sub = {
   id: string;
