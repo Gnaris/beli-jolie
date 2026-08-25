@@ -12,6 +12,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildProductMarketplaceSnapshot,
+  buildProductMarketplaceSnapshotExcludingOrderchampFields,
   LOCAL_ONLY_PRODUCT_FIELDS,
   type ProductMarketplaceSnapshotInput,
 } from "@/lib/product-marketplace-snapshot";
@@ -23,6 +24,7 @@ function baseInput(): ProductMarketplaceSnapshotInput {
     name: "Bague test",
     description: "Une description suffisamment longue pour valider la fiche.",
     categoryId: "cat-1",
+    subCategoryIds: ["sub-1"],
     variants: [
       {
         colorId: "col-1",
@@ -50,10 +52,11 @@ function baseInput(): ProductMarketplaceSnapshotInput {
     dimCircumference: null,
     hsCodeId: null,
     productStatus: "OFFLINE",
-    manufacturingCountryId: "fr",
+    countryIsoCode: "FR",
     seasonId: "spring",
     sizeDetailsTu: null,
     primaryColorId: "col-1",
+    microstoreSubCategoryId: null,
   };
 }
 
@@ -129,17 +132,53 @@ describe("buildProductMarketplaceSnapshot", () => {
     b.primaryColorId = "col-2";
     expect(buildProductMarketplaceSnapshot(a)).not.toBe(buildProductMarketplaceSnapshot(b));
   });
+
+  it("CHANGE quand on touche subCategoryIds (impacte le mapping catégorie Orderchamp)", () => {
+    const a = baseInput();
+    const b = baseInput();
+    b.subCategoryIds = ["sub-1", "sub-2"];
+    expect(buildProductMarketplaceSnapshot(a)).not.toBe(buildProductMarketplaceSnapshot(b));
+  });
+
+  it("est indépendant de l'ordre de subCategoryIds (tri déterministe)", () => {
+    const a = baseInput();
+    a.subCategoryIds = ["sub-A", "sub-B", "sub-C"];
+    const b = baseInput();
+    b.subCategoryIds = ["sub-C", "sub-A", "sub-B"];
+    expect(buildProductMarketplaceSnapshot(a)).toBe(buildProductMarketplaceSnapshot(b));
+  });
+});
+
+describe("buildProductMarketplaceSnapshotExcludingOrderchampFields", () => {
+  it("ne change PAS quand on modifie uniquement subCategoryIds (Orderchamp exclu)", () => {
+    const a = baseInput();
+    const b = baseInput();
+    b.subCategoryIds = ["sub-2", "sub-3"];
+    expect(buildProductMarketplaceSnapshotExcludingOrderchampFields(a)).toBe(
+      buildProductMarketplaceSnapshotExcludingOrderchampFields(b),
+    );
+  });
+
+  it("CHANGE quand on modifie autre chose que subCategoryIds (nom, prix…)", () => {
+    const a = baseInput();
+    const b = baseInput();
+    b.name = "Autre nom";
+    expect(buildProductMarketplaceSnapshotExcludingOrderchampFields(a)).not.toBe(
+      buildProductMarketplaceSnapshotExcludingOrderchampFields(b),
+    );
+  });
 });
 
 describe("LOCAL_ONLY_PRODUCT_FIELDS", () => {
-  // Documentation : ces 4 champs sont EXCLUS du snapshot marketplace pour
+  // Documentation : ces champs sont EXCLUS du snapshot marketplace pour
   // permettre le skip de la modale demandé par l'utilisatrice. Toute évolution
   // de cette liste doit être consciente (impact UX direct au save).
-  it("liste exactement les 4 champs locaux exclus (mots-clés, sous-cat, similaires, bundle)", () => {
+  // `subCategoryIds` a été retiré 2026-08-24 : le mapping catégorie Orderchamp
+  // est résolu via la 1ʳᵉ sous-cat, donc ce champ EST marketplace-pertinent.
+  it("liste exactement les 3 champs locaux exclus (mots-clés, similaires, bundle)", () => {
     expect([...LOCAL_ONLY_PRODUCT_FIELDS].sort()).toEqual([
       "bundleChildIds",
       "similarProductIds",
-      "subCategoryIds",
       "tagNames",
     ]);
   });

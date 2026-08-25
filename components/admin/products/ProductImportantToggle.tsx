@@ -72,8 +72,8 @@ export function ProductImportantToggle({ productId, initialImportant, variant = 
       aria-pressed={important}
       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border font-body text-[12px] font-semibold transition-all whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-wait ${
         important
-          ? "bg-gradient-to-br from-amber-100 to-amber-200 border-amber-400 text-amber-800"
-          : "bg-bg-primary border-border text-text-secondary hover:border-border-dark"
+          ? "bg-amber-100 border-amber-300 text-amber-900"
+          : "bg-bg-secondary border-border-dark text-text-primary hover:bg-bg-tertiary"
       }`}
     >
       <StarIcon filled={important} className="w-3.5 h-3.5" />

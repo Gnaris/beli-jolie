@@ -32,8 +32,8 @@ export default function AdminClientModeButton({ compact = false }: { compact?: b
       title={compact ? (pending ? "Activation..." : "Mode client") : undefined}
       className={
         compact
-          ? "w-full flex items-center justify-center px-3 py-2.5 text-[#4B5563] hover:text-[#1F2937] hover:bg-gray-50 rounded-lg transition-colors"
-          : "w-full flex items-center gap-3 px-3 py-2.5 text-sm font-body text-[#4B5563] hover:text-[#1F2937] hover:bg-gray-50 rounded-lg transition-colors group"
+          ? "w-full flex items-center justify-center px-3 py-2.5 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors"
+          : "w-full flex items-center gap-3 px-3 py-2.5 text-sm font-body text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors group"
       }
     >
       <svg className={`${compact ? "w-5 h-5" : "w-4 h-4"} shrink-0`} fill="none" stroke="currentColor" viewBox="0 0 24 24">

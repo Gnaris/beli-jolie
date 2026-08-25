@@ -408,10 +408,19 @@ export default function BulkActionBar({
         <div
           ref={barRef}
           data-stuck={isStuck ? "true" : undefined}
-          className={`relative rounded-2xl border transition-colors duration-200 ${
+          data-bulk-bar-surface=""
+          // Le style « collée en haut » (fond slate-900 + bordure claire) ne
+          // vaut que sur desktop (md:sticky top-4). Sur mobile la barre est
+          // fixed bottom : la sentinelle sort du viewport dès qu'on scrolle et
+          // basculerait la barre en dark-blue-border-blanche — visuel cassé
+          // en mode sombre où `border-slate-800` se remappe en `#e4e4e7`.
+          // Le `data-bulk-bar-surface` sert de hook CSS pour assombrir la
+          // surface en mode sombre (cf. globals.css) : `bg-white` remappé à
+          // `#1e1e22` restait trop clair pour une barre flottante sur mobile.
+          className={`relative rounded-2xl md:border transition-colors duration-200 bg-white shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)] ${
             isStuck
-              ? "bg-slate-900 border-slate-800 shadow-[0_10px_25px_-8px_rgba(0,0,0,0.35),0_4px_10px_-2px_rgba(0,0,0,0.2)]"
-              : "bg-white border-border-strong/80 shadow-[0_10px_25px_-8px_rgba(24,24,27,0.12),0_4px_10px_-2px_rgba(24,24,27,0.06)]"
+              ? "md:bg-slate-900 md:border-slate-800 md:shadow-[0_10px_25px_-8px_rgba(0,0,0,0.35),0_4px_10px_-2px_rgba(0,0,0,0.2)]"
+              : "md:border-border-strong/80"
           }`}
         >
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-2 lg:gap-3 md:flex-wrap px-3 lg:px-4 py-3">
@@ -425,15 +434,15 @@ export default function BulkActionBar({
                 </svg>
               </div>
               <div className="leading-tight">
-                <div className={`font-heading font-bold text-[15px] tabular-nums transition-colors ${isStuck ? "text-white" : "text-text-primary"}`}>
+                <div className={`font-heading font-bold text-[15px] tabular-nums transition-colors text-text-primary ${isStuck ? "md:text-white" : ""}`}>
                   {selectedProducts.length} produit{selectedProducts.length > 1 ? "s" : ""}
                 </div>
-                <div className={`text-[11px] font-medium flex items-center gap-1 transition-colors ${isStuck ? "text-slate-400" : "text-text-muted"}`}>
-                  {counts.online > 0 && <span className={`tabular-nums ${isStuck ? "text-emerald-400" : "text-emerald-600"}`}>{counts.online} en ligne</span>}
+                <div className={`text-[11px] font-medium flex items-center gap-1 transition-colors text-text-muted ${isStuck ? "md:text-slate-400" : ""}`}>
+                  {counts.online > 0 && <span className={`tabular-nums text-emerald-600 ${isStuck ? "md:text-emerald-400" : ""}`}>{counts.online} en ligne</span>}
                   {counts.online > 0 && counts.draft > 0 && <span>·</span>}
-                  {counts.draft > 0 && <span className={`tabular-nums ${isStuck ? "text-slate-300" : "text-slate-500"}`}>{counts.draft} brouillon{counts.draft > 1 ? "s" : ""}</span>}
+                  {counts.draft > 0 && <span className={`tabular-nums text-slate-500 ${isStuck ? "md:text-slate-300" : ""}`}>{counts.draft} brouillon{counts.draft > 1 ? "s" : ""}</span>}
                   {(counts.online > 0 || counts.draft > 0) && counts.archived > 0 && <span>·</span>}
-                  {counts.archived > 0 && <span className={`tabular-nums ${isStuck ? "text-amber-400" : "text-amber-600"}`}>{counts.archived} archivé{counts.archived > 1 ? "s" : ""}</span>}
+                  {counts.archived > 0 && <span className={`tabular-nums text-amber-600 ${isStuck ? "md:text-amber-400" : ""}`}>{counts.archived} archivé{counts.archived > 1 ? "s" : ""}</span>}
                 </div>
               </div>
             </div>
@@ -442,10 +451,10 @@ export default function BulkActionBar({
             <button
               type="button"
               onClick={onDeselectAll}
-              className={`shrink-0 md:order-last md:ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+              className={`shrink-0 md:order-last md:ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors text-text-muted hover:bg-slate-100 ${
                 isStuck
-                  ? "text-slate-300 hover:bg-slate-800"
-                  : "text-text-muted hover:bg-slate-100"
+                  ? "md:text-slate-300 md:hover:bg-slate-800"
+                  : ""
               }`}
               title="Désélectionner"
               aria-label="Désélectionner"
@@ -797,7 +806,11 @@ export default function BulkActionBar({
               type="button"
               onClick={() => setActionsOpen(true)}
               disabled={isPending}
-              className="md:hidden flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white font-semibold text-[14px] shadow-md active:opacity-90 disabled:opacity-50"
+              // Bouton solide (pas de dégradé) fortement contrasté vs. le
+              // fond de la barre : violet plein, halo coloré + fine bordure
+              // claire pour se démarquer sur fond blanc (clair) comme sur
+              // fond noir profond (sombre).
+              className="md:hidden flex items-center justify-center gap-2 w-full h-12 rounded-xl bg-violet-600 hover:bg-violet-700 active:bg-violet-700 text-white font-semibold text-[14px] shadow-[0_8px_20px_-4px_rgba(139,92,246,0.5)] ring-1 ring-white/15 disabled:opacity-50"
               aria-haspopup="dialog"
               aria-expanded={actionsOpen}
             >

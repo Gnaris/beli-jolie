@@ -37,11 +37,7 @@ interface SectionDef {
 }
 
 const SECTIONS: SectionDef[] = [
-  { key: "general", group: "Base", label: "Général", hint: "Nom, référence, description", icon: "📝", checklistKeys: ["reference", "name", "description"], anchor: "section-general" },
-  { key: "cat", group: "Base", label: "Catégorie", hint: "Classement, pays, saison", icon: "📂", checklistKeys: ["category"], anchor: "section-cat" },
-  { key: "dim", group: "Base", label: "Dimensions", hint: "L, l, H, poids", icon: "📏", checklistKeys: [], anchor: "section-dim" },
-  { key: "comp", group: "Base", label: "Composition", hint: "Matières et %", icon: "⚗️", checklistKeys: ["composition"], anchor: "section-comp" },
-  { key: "tags", group: "Base", label: "Mots-clés", hint: "Tags de recherche", icon: "🏷️", checklistKeys: [], anchor: "section-tags" },
+  { key: "general", group: "Base", label: "Général", hint: "Nom, référence, description, catégorie, composition, dimensions, mots-clés", icon: "📝", checklistKeys: ["reference", "name", "description", "category", "composition"], anchor: "section-general" },
   { key: "var", group: "Catalogue", label: "Variantes", hint: "Couleurs, tailles, prix, stock", icon: "🎨", checklistKeys: ["variants", "prices", "weights", "stocks", "sizes"], anchor: "section-var" },
   { key: "img", group: "Catalogue", label: "Photos", hint: "5 photos par couleur", icon: "📷", checklistKeys: ["images"], anchor: "section-img" },
   { key: "map", group: "Marketplace", label: "Mapping Marketplaces", hint: "PFS, Ankor, eFashion, Faire", icon: "🔗", checklistKeys: [], anchor: "section-map" },
@@ -119,7 +115,7 @@ export default function ProductFormNav({
     <nav
       aria-label="Sections du formulaire produit"
       data-testid="product-form-nav"
-      className="hidden md:block sticky top-2 z-10 bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
+      className="hidden md:block sticky top-0 z-20 bg-bg-primary border border-border rounded-2xl shadow-[0_1px_4px_rgba(0,0,0,0.06)]"
     >
       <div className="flex flex-wrap items-center gap-y-1 px-3 py-2">
         {orderedSections.map((sec, idx) => {

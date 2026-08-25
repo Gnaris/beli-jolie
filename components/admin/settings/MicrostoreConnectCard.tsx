@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+// useRef reste nécessaire pour l'abort controller du polling QR
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -26,10 +27,9 @@ function daysUntil(iso: string): number {
   return Math.max(0, Math.floor((d - Date.now()) / (1000 * 60 * 60 * 24)));
 }
 
-// Bookmarklet : lit les tokens dans localStorage de web.mc.app puis redirige
-// vers l'onglet Marketplaces avec les tokens en fragment URL. Aucun caractère
-// accentué — certains navigateurs les URL-encodent au drag-and-drop, ce qui
-// casse le script.
+// Bookmarklet legacy — remplacé par le flow QR compagnon depuis 2026-08-25.
+// Conservé exporté pour compat avec d'éventuels callers externes ; ne plus utiliser.
+/** @deprecated utiliser le flow QR compagnon via /api/admin/microstore/qr */
 export function buildMicrostoreBookmarklet(originForRedirect: string): string {
   const target = `${originForRedirect}/admin/parametres?tab=marketplaces`;
   const script =
@@ -64,32 +64,8 @@ export default function MicrostoreConnectCard({
     keyMasked?: string;
   }>(null);
   const [pinging, setPinging] = useState(false);
-  const [bookmarkletUrl, setBookmarkletUrl] = useState<string>("");
-  const bookmarkletAnchorRef = useRef<HTMLAnchorElement | null>(null);
 
-  useEffect(() => {
-    setBookmarkletUrl(buildMicrostoreBookmarklet(window.location.origin));
-  }, []);
-
-  // React 19 refuse silencieusement les URL `javascript:` dans les attributs
-  // `href` par sécurité. On pose donc l'attribut impérativement.
-  //
-  // Callback ref (au lieu d'un useEffect) : le noeud <a> n'existe dans le DOM
-  // que dans la branche « non connecté » du rendu. Avec un useEffect(deps=[url])
-  // classique, le href n'était plus posé si on passait de "connecté" à
-  // "déconnecté" à chaud (le useEffect ne redéclenche pas puisque url ne
-  // change pas). Résultat : un bouton draggable sans href, favori inutilisable.
-  const setBookmarkletAnchor = useCallback(
-    (node: HTMLAnchorElement | null) => {
-      bookmarkletAnchorRef.current = node;
-      if (node && bookmarkletUrl) {
-        node.setAttribute("href", bookmarkletUrl);
-      }
-    },
-    [bookmarkletUrl],
-  );
-
-  // Import automatique du token si le fragment d'URL en contient un (bookmarklet)
+  // Import automatique du token si le fragment d'URL en contient un (bookmarklet legacy)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hash = window.location.hash;
@@ -136,7 +112,7 @@ export default function MicrostoreConnectCard({
       type: "danger",
       title: "Déconnecter Microstore ?",
       message:
-        "Vous devrez refaire la manip du favori depuis web.mc.app pour vous reconnecter.",
+        "Vous devrez re-scanner un QR code avec votre appli MC Gérant pour vous reconnecter.",
       confirmLabel: "Déconnecter",
     });
     if (ok !== true) return;
@@ -213,7 +189,7 @@ export default function MicrostoreConnectCard({
             <div className={`text-xs mt-0.5 ${soon ? "text-amber-800" : "text-emerald-700"}`}>
               {dateLabel
                 ? soon
-                  ? `⚠️ Session valide jusqu'au ${dateLabel} — pensez à refaire la manip du favori bientôt (${days} j restants).`
+                  ? `⚠️ Session valide jusqu'au ${dateLabel} — pensez à re-scanner un QR bientôt (${days} j restants).`
                   : `Session valide jusqu'au ${dateLabel} (${days} j restants).`
                 : "Session active. Vous pouvez importer vos commandes depuis la page Commandes."}
             </div>
@@ -304,52 +280,188 @@ export default function MicrostoreConnectCard({
     );
   }
 
-  // Non connecté — seule méthode : bookmarklet à glisser dans la barre de favoris
+  // Non connecté — flow QR compagnon (comme WhatsApp Web)
+  return <MicrostoreQrConnect onConnected={(iso) => {
+    setConnected(true);
+    setEnabled(true);
+    setExpiresAtIso(iso);
+    router.refresh();
+  }} />;
+}
+
+// ─── Composant QR compagnon ──────────────────────────────────────────────
+
+function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: string | null) => void }) {
+  const toast = useToast();
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "generating" | "waiting" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const generateQr = useCallback(async () => {
+    setStatus("generating");
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/admin/microstore/qr", { method: "POST" });
+      const data = (await res.json()) as { code?: string; qrDataUrl?: string; error?: string };
+      if (!res.ok || !data.code || !data.qrDataUrl) {
+        setErrorMsg(data.error ?? "Impossible de générer le QR");
+        setStatus("error");
+        return;
+      }
+      setCode(data.code);
+      setQrDataUrl(data.qrDataUrl);
+      setStatus("waiting");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Erreur réseau");
+      setStatus("error");
+    }
+  }, []);
+
+  // Poll toutes les 1s tant qu'on attend le scan (max 3 min)
+  useEffect(() => {
+    if (status !== "waiting" || !code) return;
+    const abort = new AbortController();
+    abortRef.current = abort;
+    let stopped = false;
+    let elapsed = 0;
+
+    const poll = async () => {
+      while (!stopped && elapsed < 180) {
+        await new Promise((r) => setTimeout(r, 1000));
+        elapsed++;
+        if (stopped) return;
+        try {
+          const res = await fetch("/api/admin/microstore/poll", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+            signal: abort.signal,
+          });
+          const data = (await res.json()) as
+            | { status: "success"; expiresAt: string | null }
+            | { status: "waiting" }
+            | { status: "error"; error?: string }
+            | { error: string };
+          if ("status" in data) {
+            if (data.status === "success") {
+              stopped = true;
+              toast.success("Microstore connecté", "Ton appli MC Gérant reste connectée en parallèle.");
+              onConnected("expiresAt" in data ? data.expiresAt : null);
+              return;
+            }
+            if (data.status === "error") {
+              if (data.error === "expired") {
+                stopped = true;
+                setErrorMsg("QR expiré — regénère-en un nouveau");
+                setStatus("error");
+                return;
+              }
+              if (data.error === "timeout") {
+                stopped = true;
+                setErrorMsg("Aucun scan reçu — regénère un nouveau QR");
+                setStatus("error");
+                return;
+              }
+            }
+          }
+        } catch (err) {
+          if ((err as Error).name === "AbortError") return;
+          // ignore fetch errors intermédiaires, retry
+        }
+      }
+      if (!stopped && elapsed >= 180) {
+        setErrorMsg("Aucun scan après 3 min — regénère un nouveau QR");
+        setStatus("error");
+      }
+    };
+
+    void poll();
+    return () => {
+      stopped = true;
+      abort.abort();
+    };
+  }, [status, code, onConnected, toast]);
+
   return (
-    <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/40 p-4">
-      <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 mt-0.5">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 4v16l7-4 7 4V4H5z" />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="font-heading text-sm font-bold text-emerald-900">
-            Connecter via la barre de favoris
+    <div className="rounded-xl border-2 border-cyan-200 bg-cyan-50/40 p-5">
+      <div className="text-center">
+        <div className="inline-flex items-center gap-2 mb-3">
+          <span className="w-10 h-10 rounded-full bg-cyan-500 text-white flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <path d="M14 14h3v3M14 21h7M17 17v4" />
+            </svg>
+          </span>
+          <div className="font-heading text-base font-bold text-cyan-900">
+            Connecter Microstore par QR code
           </div>
-          <p className="text-xs text-emerald-800 mt-1 font-body">
-            Vous restez connectée à <code className="px-1 rounded bg-emerald-100">web.mc.app</code> ET dans votre admin en même temps.
-          </p>
+        </div>
 
-          <ol className="mt-4 space-y-1 text-xs text-emerald-900 font-body list-decimal list-inside">
-            <li>Appuyez sur <b>Ctrl+Maj+B</b> pour afficher votre barre de favoris.</li>
-            <li><b>Faites glisser</b> le bouton vert ci-dessous dans la barre de favoris.</li>
-            <li>Allez sur <code className="px-1 rounded bg-emerald-100">web.mc.app</code> (connectée) et cliquez sur le favori.</li>
-          </ol>
-
-          <div className="pt-3">
-            {/* href posé impérativement via callback ref — React 19 bloque les
-                URL javascript: dans le JSX. La callback ref garantit que le
-                href est reposé si le bouton (re)monte dans le DOM après un
-                cycle connecté → déconnecté. */}
-            {/* eslint-disable-next-line jsx-a11y/anchor-is-valid -- href posé via ref pour contourner React 19 */}
-            <a
-              ref={setBookmarkletAnchor}
-              onClick={(e) => {
-                e.preventDefault();
-                toast.info(
-                  "Ce n'est pas un bouton à cliquer",
-                  "Faites-le glisser dans votre barre de favoris.",
-                );
-              }}
-              draggable
-              className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-emerald-600 text-white text-sm font-heading font-bold hover:bg-emerald-700 transition-colors cursor-grab active:cursor-grabbing shadow-md select-none"
-              title="Faites glisser dans votre barre de favoris"
+        {status === "idle" && (
+          <>
+            <p className="text-xs text-cyan-800 mb-4 max-w-md mx-auto">
+              Tu vas scanner un QR code avec ton appli mobile MC Gérant (exactement comme WhatsApp Web).
+              <br />
+              <b>Ton appli mobile reste connectée</b> en parallèle — aucun risque d'être déconnectée.
+            </p>
+            <button
+              type="button"
+              onClick={generateQr}
+              className="inline-flex items-center gap-2 h-11 px-6 rounded-xl bg-cyan-600 text-white text-sm font-heading font-bold hover:bg-cyan-700 transition-colors shadow-md"
             >
-              📎 Connecter Microstore
-            </a>
+              🔗 Générer un QR code
+            </button>
+          </>
+        )}
+
+        {status === "generating" && (
+          <div className="py-8 text-cyan-700 text-sm">Génération du QR…</div>
+        )}
+
+        {status === "waiting" && qrDataUrl && (
+          <div className="space-y-3">
+            <div className="inline-block bg-white p-3 rounded-2xl border border-cyan-200 shadow-md">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qrDataUrl} alt="QR code Microstore" width={280} height={280} className="block" />
+            </div>
+            <div className="text-xs text-cyan-800 max-w-md mx-auto space-y-1">
+              <p className="font-bold">📱 Scanne ce QR avec ton appli MC Gérant</p>
+              <p>Ouvre l'appli → menu Scanner (icône ⁝) → dirige la caméra sur le QR.</p>
+              <p className="text-cyan-600 italic">En attente du scan…</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                abortRef.current?.abort();
+                setStatus("idle");
+                setQrDataUrl(null);
+                setCode(null);
+              }}
+              className="text-xs text-cyan-700 hover:underline"
+            >
+              Annuler
+            </button>
           </div>
-        </div>
+        )}
+
+        {status === "error" && (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-800">
+              {errorMsg}
+            </div>
+            <button
+              type="button"
+              onClick={generateQr}
+              className="inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-cyan-600 text-white text-sm font-heading font-bold hover:bg-cyan-700 transition-colors"
+            >
+              🔄 Regénérer un QR
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

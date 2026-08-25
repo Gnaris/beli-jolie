@@ -112,12 +112,12 @@ export async function orderchampUpdateProduct(
   const product = await loadOrderchampProductFull(productId);
   if (!product) return { success: false, error: "Impossible de recharger le produit BJ." };
 
-  // Vérifie le mapping catégorie OC (règle cliente 2026-08-24) — obligatoire
-  // sur la catégorie principale, la sous-catégorie mappée l'emporte si posée.
+  // Résout le mapping catégorie OC (facultatif — décision cliente 2026-08-24).
+  // Sans mapping, on omet le champ `category` de l'update : OC garde sa
+  // catégorie actuelle (ou devine à la 1ʳᵉ publication). Évite de spammer
+  // la cliente avec un blocage à chaque save d'un produit non mappé.
   const categoryResolution = await resolveOrderchampCategoryForProduct(productId);
-  if (!categoryResolution.ok) {
-    return { success: false, error: categoryResolution.error };
-  }
+  const resolvedCategoryPath = categoryResolution.ok ? categoryResolution.path : null;
 
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
@@ -215,10 +215,10 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
     customCategory: catRes.orderchampCustomCategoryId ?? undefined,
-    // Feuille standard OC obligatoire (règle cliente 2026-08-24) — envoyée à
-    // chaque update pour reprendre les produits historiques dont la fiche OC
-    // n'avait pas de « Catégorie de marché » peuplée.
-    category: categoryResolution.path,
+    // Feuille standard OC facultative (décision cliente 2026-08-24) — envoyée
+    // seulement si mapping BJ résolu. Sinon omise : OC garde la catégorie
+    // actuelle de la fiche (ou reste vide au 1ᵉʳ publish si jamais mappée).
+    category: resolvedCategoryPath ?? undefined,
     // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
     // si le canal n'est pas activé côté compte (Settings > Sales channels
     // dans le back-office OC).

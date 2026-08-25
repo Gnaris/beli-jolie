@@ -230,7 +230,10 @@ Aucune contrainte OSS observée. Les tailles envoyées côté BJ sont celles de 
 Base URL : `https://api2.dokkr.net/index.php`.
 Format : requêtes POST avec un paramètre `service=` en query string qui route vers l'action. Retour JSON.
 
-### 4.1 `POST /goods/import_v1` — Push produits (create + update)
+### 4.1 `POST /goods/import_v1` — Push produits (create + update) **[LEGACY]**
+
+> ⚠ **Legacy depuis 2026-08-25** : remplacé par `/goods/add` + `/goods/update` (§ 4.3+).
+> Le CSV reste supporté comme fallback pendant la migration mais n'est plus le chemin par défaut.
 
 **Un seul endpoint** pour create ET update. Microstore reconnaît le produit via `item_ref` (= `Product.reference`) et fait un upsert.
 
@@ -323,6 +326,135 @@ Utilisée comme fallback pour retrouver un client par téléphone ou id. Renvoie
 - `lib/microstore-customers-sync.ts` — passe clients (upsert AdminClientCard)
 - `lib/microstore-orders-import-state.ts` — orchestration rattrapage 2 phases (CUSTOMERS puis ORDERS)
 - `lib/microstore-orders-worker.ts` — tick auto 5 min (page 1 clients + commandes récentes)
+
+---
+
+### 4.3 CRUD produit natif (add / get / update / disable / del) **[recommandé]**
+
+> Reversé le 2026-08-25 via HAR de l'appli mobile MC Gérant. **Ce sont les mêmes
+> endpoints que l'appli mobile** — remplace avantageusement le CSV `/goods/import_v1`
+> car retourne l'ID Microstore direct, permet updates ciblés et suppression
+> de variantes proprement (via `del_id`).
+
+Format wire : `application/x-www-form-urlencoded`. Les tableaux (sku, del_id) sont
+sérialisés en **JSON string** dans le body (pas en URL-encoded array).
+
+Code : `lib/microstore-goods-crud.ts`.
+
+#### `POST /goods/add` — Créer un produit
+
+Retourne l'`id` numérique attribué par Microstore.
+
+Body form-urlencoded :
+```
+key=<sessionKey>              # préfixe 5_ (QR compagnon) OU 1_ (mobile) — les 2 marchent
+item_ref=A2630                # = Product.reference BJ
+name=Anneau Doré              # nom vitrine
+desc=Description longue…
+price=56.12                   # prix HT unitaire par défaut
+sale_1=1 sale_2=1 sale_3=1 sale_4=1  # constants
+num_per_pack=1                # colisage
+product_country=CN            # pays fabrication (ISO alpha-2)
+weight=25                     # POIDS EN GRAMMES (pas kg — l'API attend des g)
+remark_material=50% Laiton…   # composition texte libre
+remark_package=1              # nb pièces par unité (typiquement 1)
+cat_id=495                    # id catégorie Microstore
+brand_id=50                   # id marque
+year_id=160                   # id année
+season_id=165                 # id saison
+box1=0 box2=0 box3=0          # dimensions colis (facultatif)
+del_id=[]                     # JSON string, vide en create
+size_list=[]                  # JSON string
+size_ratio_switch=0
+new_order=1
+sku=[{color_id:"158",color_name:"Anthracite",color_alias:"",pic_url:null,imgs:[],goods_sn:"",bhb_status:1,stock_1:"125",num_1:"125",order_by:1,price:"56.12",price_1:"56.12",sale_1:1,sale_2:1,sale_3:1,sale_4:1}, …]
+app_version=2.76.21 app_pid=91 api_version=1.0 lang=en
+```
+
+Réponse succès : `{"err":0, "id":10929, "msg":"Success"}` → **persister `id` dans `Product.microstoreProductId`**.
+
+#### `POST /goods/get` — Lire fiche complète
+
+Body : `key + id + cover_color=0`.
+
+Réponse : `{err:0, info:{…}}`. Champs pertinents dans `info` :
+- `id, item_ref, name, desc, price, weight` — identité
+- `disable` ("0"|"1"), `bhb_updown` ("0"|"1") — flags statut
+- `sku[]` — chaque SKU a `id` (SKU Microstore id), `color_id`, `color_name`, `num_1` (stock warehouse 1), `price_1`..`price_8` (8 grilles tarifaires), `goods_sn`, `bhb_status`
+
+Utilisé par le backfill (`scripts/backfill-microstore-goods-ids.ts`) pour matcher les SKUs BJ ↔ Microstore.
+
+#### `POST /goods/update` — Modifier fiche + gérer variantes
+
+Payload identique à `/goods/add` **avec en plus** :
+- `id=<microstoreProductId>` — obligatoire
+- `del_id=["25442","25441"]` — JSON string des SKU id Microstore à supprimer
+- `sku=[{id:25443, color_id:…, …}, …]` — **les SKUs existants à préserver DOIVENT porter leur `id`** (sinon `err=9999 debug=same sku but no id`)
+
+⚠ **Piège majeur** : si tu envoies un SKU existant SANS son `id`, Microstore refuse tout le call avec `err=9999`. Toujours inclure `id` sur les SKUs à préserver, et OMETTRE `id` sur les nouveaux (Microstore l'assigne).
+
+#### `POST /goods/disable` — Désactiver / réactiver
+
+Body : `key + id + disable=1|0`. `disable=1` masque la fiche de la vitrine H5 ; `disable=0` la réaffiche.
+
+Réponse : `{err:0, msg:"Success"}`. La fiche reste en base, juste invisible côté acheteur.
+
+#### `POST /goods/del` — Suppression définitive
+
+Body : `key + id`. Hard delete. Après cet appel, `microstoreProductId` ne pointe plus vers rien — remettre `Product.microstoreProductId = null` + `ProductColor.microstoreVariantId = null` côté BJ.
+
+Réponse : `{err:0, msg:"Success"}`.
+
+### 4.4 CRUD attributs bibliothèque (catégorie, marque, année, saison, composition)
+
+> Reversé le 2026-08-25 — endpoint générique unique pour 5 types d'attributs.
+
+Code : `lib/microstore-attributes.ts`.
+
+#### `POST /user/set_attr` — Bulk CRUD
+
+Body :
+```
+key=<sessionKey>
+type=category|brand|year|season|composition   # sélectionne le type d'attribut
+cat_order=["-11","0","532","531","527","new51",…]   # JSON string — ORDRE COMPLET des IDs
+data=[{op:"add|edit|del", …}]                       # JSON string — mutations bulk
+app_version app_pid api_version lang                # constantes
+```
+
+**`cat_order` est obligatoire** — c'est la liste complète des IDs dans l'ordre d'affichage souhaité. Sans ça, Microstore refuse. Pour un `add`, on insère un alias `"newXX"` (ex "new51") dans `cat_order` à la position voulue — Microstore lui assigne un id définitif en retour (`list:[{id:"533", name:"…"}]`).
+
+**Actions supportées via `op`** :
+
+- `{op:"add", order:"51", name:"CatégorieTest2", order_alias:"new51"}` — crée un nouvel attribut. Retourne `{list:[{id:"533", name:"CatégorieTest2"}]}` → **persister l'id en BDD**.
+- `{op:"edit", id:"533", name:"NouveauNom", order:"51"}` — renomme / réordonne.
+- `{op:"del", id:"533", force_del:"0"}` — supprime. `force_del:"1"` pour ignorer les produits qui l'utilisent (à ses risques).
+
+Helpers pratiques : `microstoreCreateAttribute({type, name})`, `microstoreEditAttribute({type, id, name})`, `microstoreDeleteAttribute({type, id, force})`.
+
+#### `POST /user/set_attr_alias` — Libellés multilangue
+
+Body : `key + list=[{alias:"Marque", attr:"goods.brand"}]`.
+
+Renomme l'étiquette système d'un attribut dans la langue courante. Attributs connus : `goods.brand`, `goods.year`, `goods.season`, `goods.category`, `goods.remark_material`, `goods.color`.
+
+### 4.5 CRUD couleur (bibliothèque)
+
+#### `POST /user/set_color` — Bulk CRUD
+
+Body : `key + data=[{op, id, name, total_quantity, unit_number, order}]`.
+
+- `{op:"add", id:"183", name:"Couleurtest", total_quantity:"0", unit_number:"1"}` — l'`id` semble être fourni côté client (max+1 des existants).
+- `{op:"edit", id:"187", name:"Nouveau", total_quantity:"0", order:"0", unit_number:"1"}`.
+- `{op:"del", id:"187", name:"…", total_quantity:"0", order:"0", unit_number:"1"}` — Microstore veut TOUT le payload même pour un del (pas juste l'id).
+
+Helpers : `microstoreCreateColor({name})`, `microstoreEditColor({id, name})`, `microstoreDeleteColor({id, name})`.
+
+#### `POST /user/get_color` — Liste
+
+Body : `key`. Retourne `{list:[{id, name, total_quantity, unit_number, order}, …]}`.
+
+Utilisé pour dériver `max(id)+1` avant un add, et pour matcher les couleurs BJ ↔ Microstore par nom (case-insensitive, sans accents).
 
 ---
 
@@ -470,7 +602,10 @@ Flux :
 |---|---|
 | `lib/microstore-auth.ts` | Login QR code BOSS + cache session par tenant |
 | `lib/microstore-client.ts` | Wrapper HTTP BOSS + gestion erreurs `MicrostoreSessionExpiredError` |
-| `lib/microstore-products.ts` | Push produits `POST /goods/import_v1` |
+| `lib/microstore-goods-crud.ts` | **CRUD produit natif** (add/get/update/disable/del + delete variantes via del_id) — remplace le CSV |
+| `lib/microstore-attributes.ts` | **CRUD attributs bibliothèque** (category/brand/year/season/composition + color) |
+| `lib/microstore-products.ts` | Push produits `POST /goods/import_v1` **[LEGACY]** — fallback CSV pendant migration |
+| `scripts/backfill-microstore-goods-ids.ts` | Backfill `Product.microstoreProductId` + `ProductColor.microstoreVariantId` pour les produits déjà poussés en CSV (mode --dry-run par défaut) |
 | `lib/microstore-picture-station.ts` | Toute la partie H5 + OSS (validation key, upload, PATCH images, bulk import) |
 | `lib/microstore-orders-*.ts` | Récupération des commandes marketplace |
 | `lib/microstore-stock-deduction.ts` | Déduction stock BJ après commande Microstore |
@@ -499,10 +634,22 @@ Flux :
 
 ---
 
-## 10. Ce qui n'est PAS supporté
+## 10. Ce qui est supporté et ce qui ne l'est PAS
 
-- **Upload photo via API BOSS** — les photos passent obligatoirement par l'API H5 + OSS.
-- **Suppression via API** — archivage/désactivation reste manuel dans le back Microstore.
-- **Refresh** — pas d'endpoint dédié. Un re-push écrase l'existant.
-- **PACK** — Microstore ne référence que les ventes à l'unité (UNIT). Les variantes PACK sont exclues (`filterUnitVariantsOnly` dans `lib/microstore-products.ts`).
-- **Callback / webhook** — Microstore ne propose pas de webhook côté marchand. Tout est en polling depuis BJ.
+### ✅ Supporté (via lib `microstore-goods-crud.ts` + `microstore-attributes.ts`)
+
+- **CRUD produit natif** : create (`/goods/add`), read (`/goods/get`), update (`/goods/update`), disable (`/goods/disable`), delete définitif (`/goods/del`).
+- **Suppression variante** : via `del_id` dans `/goods/update` (reversé 2026-08-25).
+- **CRUD attributs bibliothèque** : catégorie, marque, année, saison, composition (via `/user/set_attr`).
+- **CRUD couleur** : bibliothèque couleurs (via `/user/set_color`).
+- **Libellé alias multilangue** des attributs système (`/user/set_attr_alias`).
+
+### ⚠ Encore via H5 / OSS Aliyun (pas API BOSS)
+
+- **Upload photo** — obligatoirement via API H5 + OSS. Voir § 2-3.
+
+### ❌ Non supporté
+
+- **PACK** — Microstore ne référence que les UNIT (`filterUnitVariantsOnly`).
+- **Callback / webhook** — pas de webhook côté marchand. Polling uniquement.
+- **Refresh dédié** — pas d'endpoint dédié (mais un `/goods/update` sans changement fait l'effet).

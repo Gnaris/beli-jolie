@@ -181,7 +181,7 @@ export function RightRail() {
           aria-label="Fermer le menu de raccourcis"
           data-testid="rail-backdrop"
           onClick={() => setMenuOpen(false)}
-          className="fixed inset-0 z-[8998] bg-slate-900/10 backdrop-blur-[2px] cursor-default"
+          className="fixed inset-0 z-[8998] bg-black/30 backdrop-blur-[2px] cursor-default"
         />
       )}
 

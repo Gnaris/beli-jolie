@@ -1107,6 +1107,9 @@ model Category {
   //     `customCategory`. Auto-géré, pas d'action manuelle.
   orderchampCategoryPath     String?
   orderchampCustomCategoryId String?
+  // Mapping Microstore : ID catégorie côté MC Gérant. Rempli manuellement via
+  // CustomSelect dans CategoryEditorModal. Priorité sur matching par nom au push.
+  microstoreCategoryId       Int?
   position                   Int                   @default(0)
   subCategories              SubCategory[]
   products                   Product[]
@@ -1195,6 +1198,10 @@ model Color {
   patternImage       String?
   pfsColorRef        String?
   efashionColorId    Int?
+  // Mapping Microstore : ID de la couleur équivalente côté MC Gérant.
+  // Rempli manuellement via le CustomSelect « Correspondance Microstore » dans
+  // ColorEditorModal. Priorité sur le matching par nom au moment du push produit.
+  microstoreColorId  Int?
   position           Int                 @default(0)
   createdAt          DateTime            @default(now())
   productColors      ProductColor[]
@@ -1242,6 +1249,9 @@ model Season {
   name                 String
   pfsRef               String?
   efashionCollectionId Int?
+  // Mapping Microstore : ID saison côté MC Gérant. Rempli manuellement via
+  // CustomSelect dans SeasonEditorModal. Priorité sur matching par nom au push.
+  microstoreSeasonId   Int?
   position             Int                 @default(0)
   createdAt            DateTime            @default(now())
   products             Product[]
@@ -1283,6 +1293,9 @@ model Composition {
   // dans /admin/compositions. Envoyé en `filterMaterial` sur chaque variante
   // au publish. Max 4 matériaux par produit, triés par % décroissant.
   orderchampMaterialCode String?
+  // Mapping Microstore : ID composition côté MC Gérant. Rempli manuellement via
+  // CustomSelect dans CompositionEditorModal. Priorité sur matching par nom au push.
+  microstoreCompositionId Int?
   position               Int                      @default(0)
   createdAt              DateTime                 @default(now())
   products               ProductComposition[]
@@ -1504,11 +1517,13 @@ model Product {
   orderchampLastSyncSnapshot Json?
   orderchampLastRefreshedAt  DateTime?
 
-  // Microstore (Dokkr) — pas d'ID produit côté API : l'upsert se fait sur
-  // `item_ref` = Product.reference. On ne stocke donc qu'un snapshot pour le
-  // diff incrémental + la date du dernier push réussi (pas de refresh possible
-  // — Microstore ne supporte pas la suppression via API, l'export reste manuel
-  // pour ce cas).
+  // Microstore (Dokkr) — depuis 2026-08-25, on utilise POST /goods/add (create)
+  // + POST /goods/update (modif) au lieu du CSV /goods/import_v1. `/goods/add`
+  // retourne un `id` numérique qu'on persiste dans `microstoreProductId` pour
+  // ensuite piloter update/delete-variant proprement (via `del_id` sur
+  // /goods/update). Le CSV historique reste utilisable en fallback tant que le
+  // backfill n'est pas terminé sur tous les produits déjà poussés.
+  microstoreProductId        Int?
   microstoreLastSyncSnapshot Json?
   microstoreLastPushedAt     DateTime?
 
@@ -1557,6 +1572,7 @@ model Product {
   @@unique([tenantId, ankorsProductId])
   @@unique([tenantId, faireProductId])
   @@unique([tenantId, orderchampProductId])
+  @@unique([tenantId, microstoreProductId])
   // Performance indexes for 78k+ products
   @@index([tenantId]) // multi-tenant scoping
   // Index composites préfixés par tenantId : couvrent les listings admin
@@ -2015,6 +2031,10 @@ model ProductColor {
   // Override du nom de couleur envoyé à Orderchamp pour cette variante précise.
   // null/vide = on envoie Color.name. Rempli = on envoie ce texte tel quel.
   orderchampColorNameOverride String?
+  // Identifiant SKU Microstore — renseigné après /goods/add ou /goods/get lors
+  // du backfill. Permet de faire des updates ciblés (garder ce SKU) et des
+  // suppressions propres (`del_id=[microstoreVariantId]` dans /goods/update).
+  microstoreVariantId         Int?
   createdAt                   DateTime                         @default(now())
   updatedAt                   DateTime                         @updatedAt
 
@@ -2033,6 +2053,7 @@ model ProductColor {
   @@index([efashionProductId])
   @@index([faireVariantId])
   @@index([orderchampVariantId])
+  @@index([microstoreVariantId])
 }
 
 // ─────────────────────────────────────────────

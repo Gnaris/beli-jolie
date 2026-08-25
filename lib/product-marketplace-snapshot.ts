@@ -10,9 +10,15 @@
  *
  * Liste des champs EXCLUS (locaux uniquement, jamais envoyés aux marketplaces) :
  *   - `tagNames` (mots-clés)
- *   - `subCategoryIds` (sous-catégories)
  *   - `similarProductIds` (produits similaires)
  *   - `bundleChildIds` (contenu de l'ensemble)
+ *
+ * `subCategoryIds` est inclus depuis 2026-08-24 : le mapping catégorie
+ * Orderchamp est résolu en priorité via la 1ʳᵉ sous-catégorie mappée
+ * (cf. `lib/orderchamp-category-resolve.ts`). Changer une sous-catégorie
+ * peut donc changer la catégorie envoyée à OC. Les autres marketplaces
+ * ignorent ce champ — la modale n'affiche qu'OC dans ce cas via
+ * `buildProductMarketplaceSnapshotExcludingOrderchampFields`.
  *
  * ⚠️ Cohérence : si un nouveau champ marketplace-relevant est ajouté à
  * `buildSnapshot` côté ProductForm, il doit être ajouté ici AUSSI. Le test
@@ -24,6 +30,10 @@ export interface ProductMarketplaceSnapshotInput {
   name: string;
   description: string;
   categoryId: string | null;
+  /** IDs des sous-catégories BJ. Impacte la catégorie envoyée à Orderchamp
+   *  (résolue en priorité via la 1ʳᵉ sous-cat mappée alphabétiquement).
+   *  Ignoré par PFS / Ankor / eFa / Faire / Microstore. */
+  subCategoryIds: string[];
   variants: Array<{
     colorId: string | null;
     unitPrice: number | string;
@@ -77,7 +87,6 @@ export interface ProductMarketplaceSnapshotInput {
  */
 export const LOCAL_ONLY_PRODUCT_FIELDS = [
   "tagNames",
-  "subCategoryIds",
   "similarProductIds",
   "bundleChildIds",
 ] as const;
@@ -90,6 +99,9 @@ export function buildProductMarketplaceSnapshot(
     name: input.name,
     description: input.description,
     categoryId: input.categoryId,
+    // Tri déterministe — l'ordre dans le multi-select peut varier sans
+    // impact sémantique, on veut le même snapshot pour {A,B} et {B,A}.
+    subCategoryIds: input.subCategoryIds.slice().sort(),
     variants: input.variants.map((v) => ({
       colorId: v.colorId,
       unitPrice: v.unitPrice,
@@ -148,5 +160,20 @@ export function buildProductMarketplaceSnapshotExcludingMicrostore(
   return buildProductMarketplaceSnapshot({
     ...input,
     microstoreSubCategoryId: null,
+  });
+}
+
+/**
+ * Snapshot marketplace SANS les champs qui ne concernent QUE Orderchamp.
+ * Aujourd'hui = `subCategoryIds` (résolution catégorie OC). Permet à
+ * `ProductForm` de détecter « seule la sous-catégorie a changé » → dans ce
+ * cas seule la case Orderchamp est proposée dans la modale de propagation.
+ */
+export function buildProductMarketplaceSnapshotExcludingOrderchampFields(
+  input: ProductMarketplaceSnapshotInput,
+): string {
+  return buildProductMarketplaceSnapshot({
+    ...input,
+    subCategoryIds: [],
   });
 }

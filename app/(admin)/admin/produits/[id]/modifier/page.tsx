@@ -8,7 +8,6 @@ import { ProductEditWrapper, StatusToggle } from "@/components/admin/products/Pr
 import { BestSellerToggle } from "@/components/admin/products/BestSellerToggle";
 import { HeaderInlineBadges } from "@/components/admin/products/HeaderInlineBadges";
 import { ProductReferenceBadge } from "@/components/admin/products/ProductReferenceBadge";
-import { KpiRow } from "@/components/admin/products/KpiRow";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
@@ -32,6 +31,8 @@ import {
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
 import { getMarketplaceMaintenance } from "@/lib/platform-config";
+import { getMicrostoreSessionExpirations } from "@/lib/microstore-session-status";
+import { getMicrostoreAlertLevel } from "@/lib/microstore-session-alert-logic";
 import { extractLiveMarketplaceColorLabels } from "@/lib/marketplace-live-color-labels";
 import { buildProductHandle } from "@/lib/product-url";
 
@@ -161,6 +162,16 @@ export default async function ModifierProduitPage({
     getMarketplaceMaintenance(),
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
   ]);
+
+  // Session BOSS Microstore expirée (ou pas encore renouvelée) — dans ce cas la
+  // carte Microstore doit afficher « expiré » (cas exceptionnel, badge rouge).
+  const microstoreSessionExpired = hasMicrostoreConfig
+    ? await getMicrostoreSessionExpirations().then(({ bossExpiresAtIso }) =>
+        bossExpiresAtIso === null
+          ? true
+          : getMicrostoreAlertLevel("boss", bossExpiresAtIso) === "expired",
+      )
+    : false;
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
 
   if (!product) notFound();
@@ -377,13 +388,13 @@ export default async function ModifierProduitPage({
             <span className="text-text-secondary font-medium truncate max-w-xs">{product.name || "Brouillon"}</span>
           </nav>
 
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-3 flex-nowrap min-w-0">
-                <h1 className="font-heading text-[26px] leading-tight font-bold tracking-tight text-text-primary truncate min-w-0">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4 md:flex-wrap">
+            <div className="min-w-0 md:flex-1 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 md:flex-nowrap min-w-0">
+                <h1 className="font-heading text-[17px] md:text-[26px] leading-tight font-bold tracking-tight text-text-primary md:truncate min-w-0 break-words w-full md:w-auto">
                   {product.name || "Continuer le brouillon"}
                 </h1>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
                   {product.reference && (
                     <ProductReferenceBadge reference={product.reference} />
                   )}
@@ -397,8 +408,6 @@ export default async function ModifierProduitPage({
               <BestSellerToggle />
             </div>
           </div>
-
-          <KpiRow />
         </div>
 
         <ProductForm
@@ -498,13 +507,13 @@ export default async function ModifierProduitPage({
             <span className="text-text-secondary font-medium truncate max-w-xs">{product.name}</span>
           </nav>
 
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-3 flex-nowrap min-w-0">
-                <h1 className="font-heading text-[26px] leading-tight font-bold tracking-tight text-text-primary truncate min-w-0">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 md:gap-4 md:flex-wrap">
+            <div className="min-w-0 md:flex-1 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 md:flex-nowrap min-w-0">
+                <h1 className="font-heading text-[17px] md:text-[26px] leading-tight font-bold tracking-tight text-text-primary md:truncate min-w-0 break-words w-full md:w-auto">
                   {product.name}
                 </h1>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 md:gap-3 shrink-0 flex-wrap">
                   <ProductReferenceBadge reference={product.reference} />
                   <HeaderInlineBadges />
                 </div>
@@ -565,7 +574,7 @@ export default async function ModifierProduitPage({
           </div>
 
           {/* Ligne 2 dédiée Marketplaces */}
-          <div className="flex items-center gap-3 flex-wrap mt-4 pt-3 border-t border-border">
+          <div className="flex items-center justify-center md:justify-start gap-3 flex-wrap mt-4 pt-3 border-t border-border">
             <span className="text-[10px] font-heading font-bold uppercase tracking-[0.12em] text-text-muted">
               Marketplaces
             </span>
@@ -605,6 +614,8 @@ export default async function ModifierProduitPage({
               microstoreEnabled={microstoreEnabled}
               microstoreSyncRequired={product.microstoreSyncRequired}
               microstoreEnabledForProduct={product.microstoreEnabled}
+              microstoreSessionExpired={microstoreSessionExpired}
+              microstoreProductId={(product as { microstoreProductId?: number | null }).microstoreProductId ?? null}
               pfsMaintenance={maintenance.pfs}
               ankorstoreMaintenance={maintenance.ankorstore}
               efashionMaintenance={maintenance.efashion}

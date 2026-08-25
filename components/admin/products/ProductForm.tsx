@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useRef, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import ColorVariantManager, { VariantState, ColorImageState, AvailableColor, AvailableSize, PackLineState, PfsColorOption, uid as genUid, variantGroupKeyFromState, imageGroupKeyFromVariant, variantColorFingerprint, computeTotalPrice, isMultiColorPack, packLinesColorList, buildVariantDuplicateKey } from "./ColorVariantManager";
 import PhotosPanel from "./PhotosPanel";
@@ -36,7 +37,11 @@ import { useProductFormHeader } from "./ProductFormHeaderContext";
 import { getImageSrc } from "@/lib/image-utils";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { getAnkorstoreReferenceSuffixLength } from "@/lib/marketplace-description";
-import { buildProductMarketplaceSnapshot, buildProductMarketplaceSnapshotExcludingMicrostore } from "@/lib/product-marketplace-snapshot";
+import {
+  buildProductMarketplaceSnapshot,
+  buildProductMarketplaceSnapshotExcludingMicrostore,
+  buildProductMarketplaceSnapshotExcludingOrderchampFields,
+} from "@/lib/product-marketplace-snapshot";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 
 const DESCRIPTION_MIN_CHARS = 30;
@@ -271,9 +276,20 @@ function TagsDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [mounted, setMounted] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Verrouille le scroll body quand le picker est ouvert (plein \u00e9cran mobile /
+  // modal centr\u00e9 desktop \u2014 dans les 2 cas la page derri\u00e8re ne doit pas d\u00e9filer).
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
 
   // Accent-insensitive normalize
   function normalize(s: string) {
@@ -285,19 +301,6 @@ function TagsDropdown({
     const q = normalize(search);
     return localTags.filter((t) => normalize(t.name).includes(q));
   }, [localTags, search]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    function onClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearch("");
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [open]);
 
   // Close on Escape
   useEffect(() => {
@@ -311,6 +314,13 @@ function TagsDropdown({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // Auto-focus la barre de recherche du picker \u00e0 l'ouverture.
+  useEffect(() => {
+    if (!open) return;
+    const timer = setTimeout(() => searchInputRef.current?.focus(), 40);
+    return () => clearTimeout(timer);
   }, [open]);
 
   function toggleTag(name: string) {
@@ -351,12 +361,12 @@ function TagsDropdown({
         </div>
       )}
 
-      {/* Dropdown trigger & menu */}
-      <div ref={containerRef} className="relative">
+      {/* Dropdown trigger — le picker s'ouvre par-dessus (portalé) */}
+      <div className="relative">
         <button
           ref={triggerRef}
           type="button"
-          onClick={() => { setOpen((v) => !v); setTimeout(() => inputRef.current?.focus(), 50); }}
+          onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-label="Sélectionner des mots-clés"
@@ -373,65 +383,156 @@ function TagsDropdown({
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
+      </div>
 
-        {open && (
-          <div className="absolute z-30 mt-1 w-full bg-bg-primary border border-border rounded-xl shadow-lg overflow-hidden">
-            {/* Search input */}
-            <div className="p-2 border-b border-border-light">
-              <input
-                ref={inputRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Rechercher un mot-clé…"
-                className="w-full px-2.5 py-2 text-sm border border-border rounded-md font-body focus:outline-none focus:border-[#1A1A1A] focus:ring-1 focus:ring-[#1A1A1A]"
-              />
+      {/* Picker unifié (portalé) — plein écran mobile / modal centré + voile
+          noir sur ≥ md. Multi-select : tap = toggle, bouton Valider ferme. */}
+      {mounted && open && createPortal(
+        <div
+          className="fixed inset-0 z-[10500] flex md:items-center md:justify-center md:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Mots-clés"
+        >
+          {/* Voile noir — visible ≥ md (mobile prend tout l'écran) */}
+          <button
+            type="button"
+            aria-label="Fermer"
+            tabIndex={-1}
+            onClick={() => { setOpen(false); setSearch(""); }}
+            className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
+          />
+          {/* Modal */}
+          <div className="relative w-full h-full flex flex-col bg-bg-primary md:w-[min(92vw,460px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-[0_24px_60px_rgba(0,0,0,0.25)] md:overflow-hidden">
+            {/* Header */}
+            <div className="shrink-0 border-b border-border md:border-border-light bg-bg-primary px-4 pb-3 md:px-5 md:pt-5 pt-[max(env(safe-area-inset-top),16px)]">
+              <div className="flex items-center gap-3 md:items-start">
+                {/* Mobile : flèche retour */}
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setSearch(""); }}
+                  aria-label="Retour"
+                  className="md:hidden w-11 h-11 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center shrink-0"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted">Choisir</p>
+                  <h3 className="font-heading text-lg font-bold text-text-primary truncate">
+                    Mots-clés
+                    {tagNames.length > 0 && (
+                      <span className="ml-2 text-text-muted font-normal text-base">
+                        ({tagNames.length})
+                      </span>
+                    )}
+                  </h3>
+                </div>
+                {/* Desktop : croix fermer */}
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setSearch(""); }}
+                  aria-label="Fermer"
+                  className="hidden md:flex shrink-0 w-9 h-9 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-secondary items-center justify-center text-xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="relative mt-3">
+                <svg
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.8}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher un mot-clé…"
+                  className="w-full h-12 md:h-11 pl-11 pr-3 rounded-xl border border-border bg-bg-primary text-[14px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary"
+                />
+              </div>
             </div>
 
-            {/* Options list */}
-            <div className="max-h-48 overflow-y-auto" role="listbox" aria-label="Mots-clés disponibles">
+            {/* Liste scrollable */}
+            <div className="flex-1 overflow-y-auto" role="listbox" aria-label="Mots-clés disponibles">
               {loading ? (
-                <div className="flex items-center justify-center gap-2 px-3 py-4">
-                  <svg className="w-4 h-4 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
+                <div className="flex items-center justify-center gap-2 px-4 py-6">
+                  <svg className="w-5 h-5 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-xs text-text-muted font-body">Chargement…</span>
+                  <span className="text-[14px] text-text-muted font-body">Chargement…</span>
                 </div>
-              ) : filtered.length > 0 ? filtered.map((t) => {
-                const selected = tagNames.includes(t.name);
-                return (
-                  <button key={t.id} type="button"
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => toggleTag(t.name)}
-                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm text-left font-body transition-colors hover:bg-bg-secondary ${
-                      selected ? "text-text-primary font-medium" : "text-text-secondary"
-                    }`}
-                  >
-                    <span className={`flex items-center justify-center w-4 h-4 rounded border text-[10px] ${
-                      selected
-                        ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
-                        : "border-[#D1D5DB] bg-bg-primary"
-                    }`}>
-                      {selected && "✓"}
-                    </span>
-                    {t.name}
-                  </button>
-                );
-              }) : localTags.length === 0 ? (
-                <p className="px-3 py-3 text-xs text-text-secondary font-body">
+              ) : filtered.length > 0 ? (
+                filtered.map((t) => {
+                  const selected = tagNames.includes(t.name);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => toggleTag(t.name)}
+                      className={`w-full min-h-[56px] md:min-h-[52px] px-4 md:px-5 flex items-center justify-between gap-3 border-b border-border-light text-left transition-colors ${
+                        selected ? "bg-emerald-50" : "hover:bg-bg-secondary active:bg-bg-secondary"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className={`flex items-center justify-center w-5 h-5 rounded border text-[11px] shrink-0 ${
+                          selected
+                            ? "bg-bg-dark border-[#1A1A1A] text-text-inverse"
+                            : "border-[#D1D5DB] bg-bg-primary"
+                        }`}>
+                          {selected && "✓"}
+                        </span>
+                        <span
+                          className={`text-[15px] md:text-[14px] truncate ${
+                            selected ? "font-semibold text-text-primary" : "text-text-secondary"
+                          }`}
+                        >
+                          {t.name}
+                        </span>
+                      </div>
+                      {selected && (
+                        <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  );
+                })
+              ) : localTags.length === 0 ? (
+                <p className="px-4 py-6 text-[14px] text-text-muted text-center">
                   Aucun mot-clé n&apos;est créé.
                 </p>
               ) : (
-                <p className="px-3 py-3 text-xs text-text-secondary font-body">
+                <p className="px-4 py-6 text-[14px] text-text-muted text-center">
                   Aucun mot-clé trouvé.
                 </p>
               )}
             </div>
+
+            {/* Footer sticky avec bouton Valider (mobile + desktop) */}
+            <div className="shrink-0 border-t border-border bg-bg-primary px-4 pt-3 md:px-5 md:pt-3 pb-[max(env(safe-area-inset-bottom),16px)] md:pb-3">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setSearch(""); }}
+                className="w-full h-12 md:h-11 rounded-xl bg-ink text-white text-[15px] md:text-[14px] font-bold hover:bg-primary-hover transition-colors"
+              >
+                Valider
+              </button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Best-seller, Remise et Code SH sont maintenant respectivement dans l'en-tête, Variantes et Général */}
     </div>
@@ -810,6 +911,10 @@ export default function ProductForm({
   // Microstore dans la modale de propagation (les autres marketplaces
   // ignorent la sous-catégorie Microstore).
   const initialMarketplaceSnapshotExcludingMicrostore = useRef<string | null>(null);
+  // Idem pour Orderchamp — le mapping catégorie OC est résolu via la 1ʳᵉ
+  // sous-catégorie mappée (cf. `lib/orderchamp-category-resolve.ts`). Sans
+  // ce snapshot, changer une sous-catégorie ne proposerait aucune marketplace.
+  const initialMarketplaceSnapshotExcludingOrderchamp = useRef<string | null>(null);
   const isDirty = useRef(false);
   const snapshotReady = useRef(false);
   // ⚠️ Reset post-save : on ne peut pas appeler `initialSnapshot.current =
@@ -861,21 +966,31 @@ export default function ProductForm({
   // pertinent n'a bougé. Logique extraite dans lib/product-marketplace-snapshot
   // pour tests unitaires + cohérence cross-fichier.
   const buildMarketplaceSnapshot = useCallback(() => buildProductMarketplaceSnapshot({
-    reference, name, description, categoryId,
+    reference, name, description, categoryId, subCategoryIds,
     variants, colorImages, compositions, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
     countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
-  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Snapshot sans microstoreSubCategoryId — sert à détecter si SEULE la
   // sous-catégorie Microstore a changé (dans ce cas la modale ne proposera
   // que Microstore, pas les autres marketplaces qui ignorent ce champ).
   const buildMarketplaceSnapshotExcludingMicrostore = useCallback(() => buildProductMarketplaceSnapshotExcludingMicrostore({
-    reference, name, description, categoryId,
+    reference, name, description, categoryId, subCategoryIds,
     variants, colorImages, compositions, isBestSeller, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
     countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
-  }), [reference, name, description, categoryId, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+
+  // Snapshot sans subCategoryIds — détecte le cas « seule la sous-catégorie
+  // a changé » (dans ce cas la modale propose uniquement Orderchamp puisque
+  // les autres marketplaces ignorent ce champ, cf. mapping OC via sous-cat).
+  const buildMarketplaceSnapshotExcludingOrderchamp = useCallback(() => buildProductMarketplaceSnapshotExcludingOrderchampFields({
+    reference, name, description, categoryId, subCategoryIds,
+    variants, colorImages, compositions, isBestSeller, discountPercent,
+    dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
+    countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Détecte si au moins une variante utilise "Taille Unique" / "TU"
   const hasTailleUnique = useMemo(() => {
@@ -900,6 +1015,7 @@ export default function ProductForm({
         initialSnapshot.current = buildSnapshot();
         initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
         initialMarketplaceSnapshotExcludingMicrostore.current = buildMarketplaceSnapshotExcludingMicrostore();
+        initialMarketplaceSnapshotExcludingOrderchamp.current = buildMarketplaceSnapshotExcludingOrderchamp();
         snapshotReady.current = true;
         setHasUnsavedChanges(false);
       }, 500);
@@ -914,6 +1030,7 @@ export default function ProductForm({
       initialSnapshot.current = buildSnapshot();
       initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
       initialMarketplaceSnapshotExcludingMicrostore.current = buildMarketplaceSnapshotExcludingMicrostore();
+      initialMarketplaceSnapshotExcludingOrderchamp.current = buildMarketplaceSnapshotExcludingOrderchamp();
       isDirty.current = false;
       setHasUnsavedChanges(false);
       return;
@@ -921,7 +1038,7 @@ export default function ProductForm({
     const dirty = buildSnapshot() !== initialSnapshot.current;
     isDirty.current = dirty;
     setHasUnsavedChanges(dirty);
-  }, [buildSnapshot, buildMarketplaceSnapshot, buildMarketplaceSnapshotExcludingMicrostore]);
+  }, [buildSnapshot, buildMarketplaceSnapshot, buildMarketplaceSnapshotExcludingMicrostore, buildMarketplaceSnapshotExcludingOrderchamp]);
 
   // Browser close / refresh / hard navigation
   useEffect(() => {
@@ -2097,6 +2214,16 @@ export default function ProductForm({
     const onlyMicrostoreFieldChanged =
       marketplaceFieldsChanged && !nonMicrostoreFieldsChanged;
 
+    // Idem pour Orderchamp : le mapping catégorie OC est résolu via la 1ʳᵉ
+    // sous-catégorie mappée. Si seule la sous-cat change, PFS/Ankor/eFa/Faire/
+    // Microstore n'ont rien à recevoir — la modale ne proposera qu'OC.
+    const nonOrderchampFieldsChanged =
+      initialMarketplaceSnapshotExcludingOrderchamp.current === null
+      || buildMarketplaceSnapshotExcludingOrderchamp()
+        !== initialMarketplaceSnapshotExcludingOrderchamp.current;
+    const onlyOrderchampFieldChanged =
+      marketplaceFieldsChanged && !nonOrderchampFieldsChanged;
+
     showLoading();
     startTransition(async () => {
       let savedProductId: string | null = null;
@@ -2305,21 +2432,25 @@ export default function ProductForm({
 
         // On ne propose que les marketplaces déjà liées — la 1ʳᵉ publication
         // passe par le badge de la fiche, jamais par la modale de save.
-        // Cas particulier : si SEULE la sous-catégorie Microstore a changé
-        // (onlyMicrostoreFieldChanged), on masque PFS/Ankor/eFa/Faire — ces
-        // marketplaces ignorent ce champ, aucune raison de les proposer.
-        const showPfsCase = !onlyMicrostoreFieldChanged && hasPfsConfig && !hasPfsConflict && alreadyOnPfs;
-        const showAnkorstoreCase = !onlyMicrostoreFieldChanged && showAnkorstore && alreadyOnAnkorstore;
+        // Cas particuliers :
+        //   - `onlyMicrostoreFieldChanged` → seule la sous-cat Microstore a
+        //     bougé, on masque tout sauf Microstore.
+        //   - `onlyOrderchampFieldChanged` → seule la sous-catégorie BJ a bougé
+        //     (impacte OC via mapping), on masque tout sauf Orderchamp.
+        const hideForMicrostoreOnly = onlyMicrostoreFieldChanged;
+        const hideForOrderchampOnly = onlyOrderchampFieldChanged;
+        const showPfsCase = !hideForMicrostoreOnly && !hideForOrderchampOnly && hasPfsConfig && !hasPfsConflict && alreadyOnPfs;
+        const showAnkorstoreCase = !hideForMicrostoreOnly && !hideForOrderchampOnly && showAnkorstore && alreadyOnAnkorstore;
         const showEfashionCase =
-          !onlyMicrostoreFieldChanged && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
-        const showFaireCase = !onlyMicrostoreFieldChanged && showFaire && alreadyOnFaire;
+          !hideForMicrostoreOnly && !hideForOrderchampOnly && showEfashion && !hasEfashionConflict && alreadyOnEfashion;
+        const showFaireCase = !hideForMicrostoreOnly && !hideForOrderchampOnly && showFaire && alreadyOnFaire;
         // Orderchamp : uniquement si déjà lié (`showOrderchamp` intègre déjà
         // `alreadyOnOrderchamp`). La 1ʳᵉ publication passe par le badge OC.
-        const showOrderchampCase = !onlyMicrostoreFieldChanged && showOrderchamp;
+        const showOrderchampCase = !hideForMicrostoreOnly && showOrderchamp;
         // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
         // En brouillon (produit OFFLINE), on ne propose pas le push Microstore —
         // un produit encore hors ligne n'a rien à faire sur le point de vente.
-        const showMicrostoreCase = showMicrostore && finalStatus !== "OFFLINE";
+        const showMicrostoreCase = !hideForOrderchampOnly && showMicrostore && finalStatus !== "OFFLINE";
 
         if (
           showPfsCase ||
@@ -2514,7 +2645,7 @@ export default function ProductForm({
         <div className="space-y-4">
 
           {/* Row 1 : chaque bloc (Général / Catégorie / Mots-clés) est un panel dédié */}
-          <div id="section-info" hidden={!(["general","cat","tags"] as const).some((k) => k === activeSection)} className="space-y-4">
+          <div id="section-info" hidden={activeSection !== "general"} className="space-y-4">
 
             {/* ── BLOC GÉNÉRAL ── */}
             <div hidden={activeSection !== "general"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
@@ -2728,7 +2859,7 @@ export default function ProductForm({
             </div>
 
             {/* ── BLOC CATÉGORIE ── */}
-            <div hidden={activeSection !== "cat"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+            <div hidden={activeSection !== "general"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-5 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
               <PanelHeader
                 title="Catégorie & classement"
                 subtitle="Où votre produit apparaîtra sur le site et les marketplaces."
@@ -2958,63 +3089,13 @@ export default function ProductForm({
 
             </div>
 
-            {/* ── BLOC MOTS CLÉS ── */}
-            <div hidden={activeSection !== "tags"}>
-            <TagsDropdown
-              localTags={localTags}
-              tagNames={tagNames}
-              setTagNames={setTagNames}
-              onCreateClick={() => setModalType("tag")}
-              isBestSeller={isBestSeller}
-              setIsBestSeller={setIsBestSeller}
-              productId={productId}
-              mode={mode}
-              loading={!attributesLoaded}
-              discountPercent={discountPercent}
-              setDiscountPercent={setDiscountPercent}
-              hsCodeId={hsCodeId}
-              setHsCodeId={setHsCodeId}
-              hsCodeOptions={localHsCodes}
-              onCreateHsCodeClick={() => setHsCodeQuickCreateOpen(true)}
-            />
-            </div>
           </div>
 
-          {/* Row 2 : Bloc dimensions (left) + Bloc composition (right) */}
-          <div id="section-details" hidden={!(["dim","comp"] as const).some((k) => k === activeSection)} className="space-y-4">
-
-            {/* ── BLOC DIMENSIONS ── */}
-            <div hidden={activeSection !== "dim"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-              <PanelHeader
-                title="Dimensions & poids"
-                subtitle="Facultatif — en millimètres. Le poids par pièce se règle sur chaque variante couleur."
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <Field label="Longueur">
-                  <input type="number" min="0" step="0.1" value={dimLength} placeholder="—"
-                    onChange={(e) => setDimLength(e.target.value)} className="field-input text-right" />
-                </Field>
-                <Field label="Largeur">
-                  <input type="number" min="0" step="0.1" value={dimWidth} placeholder="—"
-                    onChange={(e) => setDimWidth(e.target.value)} className="field-input text-right" />
-                </Field>
-                <Field label="Hauteur">
-                  <input type="number" min="0" step="0.1" value={dimHeight} placeholder="—"
-                    onChange={(e) => setDimHeight(e.target.value)} className="field-input text-right" />
-                </Field>
-                <Field label="Diamètre">
-                  <input type="number" min="0" step="0.1" value={dimDiameter} placeholder="—"
-                    onChange={(e) => setDimDiameter(e.target.value)} className="field-input text-right" />
-                </Field>
-                <Field label="Circonférence">
-                  <input type="number" min="0" step="0.1" value={dimCircumference} placeholder="—"
-                    onChange={(e) => setDimCircumference(e.target.value)} className="field-input text-right" />
-                </Field>
-              </div>
-            </div>
+          {/* Row 2 : Bloc composition puis bloc dimensions (Dimensions en bas sur demande cliente 2026-08-24) */}
+          <div id="section-details" hidden={activeSection !== "general"} className="space-y-4">
 
             {/* ── BLOC COMPOSITION ── */}
-            <div hidden={activeSection !== "comp"} className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
+            <div hidden={activeSection !== "general"} className={`bg-bg-primary border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)] ${
               compositions.length === 0 || Math.abs(totalPct - 100) > 0.5 ? "border-[#EF4444]" : "border-border"
             }`}>
               <SectionEyebrow
@@ -3148,6 +3229,57 @@ export default function ProductForm({
                   </div>
                 </>
               )}
+            </div>
+
+            {/* ── BLOC DIMENSIONS ── */}
+            <div hidden={activeSection !== "general"} className="bg-bg-primary border border-border rounded-2xl p-6 space-y-4 shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+              <PanelHeader
+                title="Dimensions & poids"
+                subtitle="Facultatif — en millimètres. Le poids par pièce se règle sur chaque variante couleur."
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <Field label="Longueur">
+                  <input type="number" min="0" step="0.1" value={dimLength} placeholder="—"
+                    onChange={(e) => setDimLength(e.target.value)} className="field-input text-right" />
+                </Field>
+                <Field label="Largeur">
+                  <input type="number" min="0" step="0.1" value={dimWidth} placeholder="—"
+                    onChange={(e) => setDimWidth(e.target.value)} className="field-input text-right" />
+                </Field>
+                <Field label="Hauteur">
+                  <input type="number" min="0" step="0.1" value={dimHeight} placeholder="—"
+                    onChange={(e) => setDimHeight(e.target.value)} className="field-input text-right" />
+                </Field>
+                <Field label="Diamètre">
+                  <input type="number" min="0" step="0.1" value={dimDiameter} placeholder="—"
+                    onChange={(e) => setDimDiameter(e.target.value)} className="field-input text-right" />
+                </Field>
+                <Field label="Circonférence">
+                  <input type="number" min="0" step="0.1" value={dimCircumference} placeholder="—"
+                    onChange={(e) => setDimCircumference(e.target.value)} className="field-input text-right" />
+                </Field>
+              </div>
+            </div>
+
+            {/* ── BLOC MOTS CLÉS ── */}
+            <div hidden={activeSection !== "general"}>
+              <TagsDropdown
+                localTags={localTags}
+                tagNames={tagNames}
+                setTagNames={setTagNames}
+                onCreateClick={() => setModalType("tag")}
+                isBestSeller={isBestSeller}
+                setIsBestSeller={setIsBestSeller}
+                productId={productId}
+                mode={mode}
+                loading={!attributesLoaded}
+                discountPercent={discountPercent}
+                setDiscountPercent={setDiscountPercent}
+                hsCodeId={hsCodeId}
+                setHsCodeId={setHsCodeId}
+                hsCodeOptions={localHsCodes}
+                onCreateHsCodeClick={() => setHsCodeQuickCreateOpen(true)}
+              />
             </div>
           </div>
         </div>
@@ -3495,8 +3627,8 @@ export default function ProductForm({
         />
 
         {(error || onlineErrors.length > 0 || isSyncLocked || mode !== "edit" || hasUnsavedChanges) && (
-        <div className="sticky bottom-0 z-10 flex justify-center py-4">
-          <div className="bg-bg-primary rounded-2xl px-6 py-4 shadow-[0_0_12px_rgba(0,0,0,0.08)] border border-border space-y-3 w-fit max-w-full">
+        <div className="sticky bottom-0 z-10 flex justify-center py-0 md:py-4 -mx-4 md:mx-0">
+          <div className="bg-bg-primary rounded-none md:rounded-2xl px-4 py-3 md:px-6 md:py-4 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] md:shadow-[0_0_12px_rgba(0,0,0,0.08)] border-t md:border border-border space-y-3 w-full md:w-fit max-w-full">
             {/* ── Erreurs ── */}
             {error && (
               <div className="bg-[#FEE2E2] border border-[#FECACA] text-[#DC2626] px-4 py-3 text-sm font-body rounded-xl">

@@ -1405,6 +1405,17 @@ html.admin-dark,
 /* ─── Fonds figés (bg-white, bg-zinc-*, bg-slate-*) ───────────────────── */
 html.admin-dark .bg-white,
 html.admin-dark .bg-bg-primary { background-color: #1e1e22 !important; }
+
+/* `--color-ink` est inversé en sombre (#d4d4d8) car il sert de couleur de
+   texte/bordure d'accent. Mais utilisé comme fond (`bg-ink` = boutons
+   filtres actifs, badges de recherche, cases à cocher…), ça donne un
+   gris clair + texte blanc → invisible. On force le fond à rester sombre
+   pour préserver le contraste « CTA sombre + texte clair » commun aux
+   deux modes, comme `bg-bg-dark`. Ne concerne QUE la propriété
+   `background-color` : `text-ink` et `border-ink` gardent leur teinte
+   claire attendue. */
+html.admin-dark .bg-ink,
+html.admin-dark .hover\:bg-ink:hover { background-color: #141417 !important; }
 html.admin-dark .bg-white\/70 { background-color: rgba(28,28,31,0.7) !important; }
 html.admin-dark .bg-white\/60 { background-color: rgba(28,28,31,0.6) !important; }
 html.admin-dark .bg-white\/20 { background-color: rgba(255,255,255,0.14) !important; }
@@ -1548,6 +1559,20 @@ html.admin-dark [data-drawer-accent] > .blur-3xl {
   opacity: 0.25 !important;
 }
 
+/* ─── Barre d'actions bulk (admin/produits) — surface plus sombre ─────
+   La barre flottante en bas mobile utilise `bg-white`, remappé à
+   `#1e1e22` par l'override générique. Sur une petite surface flottante,
+   cette teinte proche du gris de page fait paraître la barre « trop
+   claire » (feedback cliente 2026-08-24). On descend à un noir profond
+   uniquement sur mobile (barre `fixed bottom-3` isolée du reste de la
+   page) — sur desktop la barre reste à `#1e1e22` pour ne pas assombrir
+   le contexte des SegButtons colorés à côté. */
+@media (max-width: 767px) {
+  html.admin-dark [data-bulk-bar-surface] {
+    background-color: #0a0a0d !important;
+  }
+}
+
 /* ─── Bordures figées ─────────────────────────────────────────────────── */
 html.admin-dark .border-zinc-100,
 html.admin-dark .border-slate-100 { border-color: #27272a !important; }
@@ -1619,6 +1644,9 @@ html.admin-dark select {
   color: #f4f4f5;
   border-color: #3f3f46;
 }
+html.admin-dark input.bg-transparent,
+html.admin-dark textarea.bg-transparent,
+html.admin-dark select.bg-transparent { background-color: transparent !important; border-color: transparent !important; }
 html.admin-dark input::placeholder,
 html.admin-dark textarea::placeholder { color: #71717a; }
 
@@ -1716,6 +1744,35 @@ html.admin-dark #admin-theme-wrapper { background-color: #141417 !important; }
    règle CSS custom, donc pas affectée par cette ligne). ─── */
 html.admin-dark .bg-bg-dark { background-color: #141417 !important; }
 html.admin-dark .border-bg-dark { border-color: #27272a !important; }
+
+/* ─── Tuile « Total visiteurs » (dashboard) — en sombre, la variante
+   `dark=true` du TodayCard fondrait dans le fond de page (bg-bg-dark
+   = fond wrapper). On la ramène au look des autres tuiles (bg-primary
+   + border neutre) pour rester lisible. Texte blanc → texte primaire. */
+html.admin-dark [data-visitor-tile="dark"] {
+  background-color: var(--color-bg-primary) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-text-primary) !important;
+}
+html.admin-dark [data-visitor-tile="dark"] p { color: var(--color-text-primary) !important; }
+html.admin-dark [data-visitor-tile="dark"] p.text-white\/60 { color: var(--color-text-muted) !important; }
+html.admin-dark [data-visitor-tile-icon="dark"] {
+  background-color: var(--color-bg-tertiary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* ─── Tooltips flottants sidebar admin (nav + Mode client + Déconnexion +
+   warning tooltip portalé). En clair : fond zinc-900 (noir) + texte blanc.
+   En dark, .bg-zinc-900 est inversé en clair par les règles admin-dark
+   au-dessus → tooltip devient blanc sur blanc, illisible. On force le
+   fond noir et le texte blanc pour ces bulles précises. */
+html.admin-dark [data-admin-tooltip] {
+  background-color: #18181b !important;
+  color: #fafafa !important;
+}
+html.admin-dark [data-admin-tooltip-arrow] {
+  background-color: #18181b !important;
+}
 
 /* ─── Textes pastel Tailwind (amber/rose/emerald/sky/violet 700-800) ───
    Les AlertPill et « Action requise » posent du texte foncé pastel
@@ -1854,8 +1911,12 @@ html.admin-dark .hover\:bg-slate-900:hover { background-color: #020617 !importan
    bg-slate-900/25 + pill bg-slate-900/90) devenait un pill blanc sur backdrop
    blanc — le texte blanc du pill était invisible. On force les variantes
    d'opacité vers du vrai marine foncé. */
-html.admin-dark .bg-slate-900\/25.bg-slate-900\/25 { background-color: rgba(15, 23, 42, 0.55) !important; }
+html.admin-dark .bg-slate-900\/10.bg-slate-900\/10 { background-color: rgba(15, 23, 42, 0.55) !important; }
+html.admin-dark .bg-slate-900\/20.bg-slate-900\/20 { background-color: rgba(15, 23, 42, 0.58) !important; }
+html.admin-dark .bg-slate-900\/25.bg-slate-900\/25 { background-color: rgba(15, 23, 42, 0.6) !important; }
+html.admin-dark .bg-slate-900\/40.bg-slate-900\/40 { background-color: rgba(15, 23, 42, 0.62) !important; }
 html.admin-dark .bg-slate-900\/50.bg-slate-900\/50 { background-color: rgba(15, 23, 42, 0.65) !important; }
+html.admin-dark .bg-slate-900\/60.bg-slate-900\/60 { background-color: rgba(15, 23, 42, 0.72) !important; }
 html.admin-dark .bg-slate-900\/70.bg-slate-900\/70 { background-color: rgba(15, 23, 42, 0.8) !important; }
 html.admin-dark .bg-slate-900\/90.bg-slate-900\/90 { background-color: rgba(15, 23, 42, 0.95) !important; }
 html.admin-dark .bg-slate-900\/90 .text-white,
@@ -2117,8 +2178,9 @@ html.admin-dark .border-text-primary {
 /* ─── Badges marketplace « synchro nécessaire » ───────────────────────
    Les couleurs pastel orange (#FFF7ED / #FED7AA / #9A3412) restent
    éclatantes sur fond sombre. On les remplace par une variante nuit
-   (fond brun ambré profond + bord orange foncé + texte ambré vif)
-   pour rester lisible sans brûler l'œil.
+   « post-it moutarde » (fond jaune moutarde plein + bord brun foncé
+   + texte crème pâle) : la carte ressort comme un bloc jaune sur le noir
+   sans rappeler l'orangé qui juraient avec la palette dark admin.
    `sync-required-badge` = petits badges du tableau produits (AdminProductsTable).
    `sync-required-card`  = cartes format fiche produit (MarketplaceStatusButtons + Microstore).
 
@@ -2126,23 +2188,123 @@ html.admin-dark .border-text-primary {
    dessus des utilities arbitraires Tailwind v4 (`bg-[#FFF7ED]`) qui,
    selon l'ordre de génération, peuvent gagner malgré `!important`. */
 html.admin-dark .sync-required-badge.sync-required-badge {
-  background-color: #3a1e05 !important;
-  border-color: #9a3412 !important;
-  color: #fdba74 !important;
+  background-color: #854d0e !important;
+  border-color: #422006 !important;
+  color: #fef3c7 !important;
 }
 html.admin-dark .sync-required-badge.sync-required-badge:hover {
-  background-color: #4a2708 !important;
-  border-color: #c2410c !important;
+  background-color: #9a5b0f !important;
+  border-color: #713f12 !important;
 }
 html.admin-dark .sync-required-card.sync-required-card {
-  background-color: #3b2a08 !important;
-  border-color: #78350f !important;
+  background-color: #854d0e !important;
+  border-color: #422006 !important;
 }
 html.admin-dark .sync-required-text.sync-required-text {
-  color: #fbbf24 !important;
+  color: #fef3c7 !important;
 }
 html.admin-dark .sync-required-divider.sync-required-divider {
-  border-color: #78350f !important;
+  border-color: #713f12 !important;
+}
+
+/* ─── Autres statuts marketplace (en ligne / en cours / shooting /
+   non publié / hors ligne) — même principe « post-it fond plein »
+   pour rester cohérent avec la moutarde sync-required en dark mode.
+   Naming : `mp-*-badge` = badge mono-élément du tableau produits.
+            `mp-*-card`  = wrapper carte de la fiche produit.
+            `mp-*-text`  = libellé dans la carte.
+            `mp-*-divide`= filet séparateur dans la carte. */
+
+/* EN LIGNE — vert sapin très foncé */
+html.admin-dark .mp-online-badge.mp-online-badge {
+  background-color: #052e16 !important;
+  border-color: #022c22 !important;
+  color: #bbf7d0 !important;
+}
+html.admin-dark .mp-online-badge.mp-online-badge:hover {
+  background-color: #0a3f22 !important;
+  border-color: #052e16 !important;
+}
+html.admin-dark .mp-online-card.mp-online-card {
+  background-color: #052e16 !important;
+  border-color: #022c22 !important;
+}
+html.admin-dark .mp-online-text.mp-online-text {
+  color: #bbf7d0 !important;
+}
+html.admin-dark .mp-online-divide.mp-online-divide {
+  border-color: #14532d !important;
+}
+
+/* EN COURS — indigo très foncé */
+html.admin-dark .mp-loading-badge.mp-loading-badge {
+  background-color: #1e1b4b !important;
+  border-color: #0f0d2e !important;
+  color: #c7d2fe !important;
+}
+html.admin-dark .mp-loading-card.mp-loading-card {
+  background-color: #1e1b4b !important;
+  border-color: #0f0d2e !important;
+}
+html.admin-dark .mp-loading-text.mp-loading-text {
+  color: #c7d2fe !important;
+}
+html.admin-dark .mp-loading-divide.mp-loading-divide {
+  border-color: #312e81 !important;
+}
+
+/* SHOOTING eFashion — moutarde yellow-600 (distinct de sync yellow-800) */
+html.admin-dark .mp-shooting-badge.mp-shooting-badge {
+  background-color: #ca8a04 !important;
+  border-color: #713f12 !important;
+  color: #422006 !important;
+}
+html.admin-dark .mp-shooting-badge.mp-shooting-badge:hover {
+  background-color: #b47708 !important;
+  border-color: #854d0e !important;
+}
+html.admin-dark .mp-shooting-card.mp-shooting-card {
+  background-color: #ca8a04 !important;
+  border-color: #713f12 !important;
+}
+html.admin-dark .mp-shooting-text.mp-shooting-text {
+  color: #422006 !important;
+}
+html.admin-dark .mp-shooting-divide.mp-shooting-divide {
+  border-color: #854d0e !important;
+}
+
+/* NON PUBLIÉ / NON LIÉ — rouge foncé, action requise */
+html.admin-dark .mp-unpublished-badge.mp-unpublished-badge {
+  background-color: #7f1d1d !important;
+  border-color: #450a0a !important;
+  color: #fecaca !important;
+}
+html.admin-dark .mp-unpublished-badge.mp-unpublished-badge:hover {
+  background-color: #991b1b !important;
+  border-color: #7f1d1d !important;
+}
+html.admin-dark .mp-unpublished-card.mp-unpublished-card {
+  background-color: #7f1d1d !important;
+  border-color: #450a0a !important;
+}
+html.admin-dark .mp-unpublished-text.mp-unpublished-text {
+  color: #fecaca !important;
+}
+html.admin-dark .mp-unpublished-divide.mp-unpublished-divide {
+  border-color: #991b1b !important;
+}
+
+/* HORS LIGNE / neutre — ardoise plein */
+html.admin-dark .mp-offline-card.mp-offline-card {
+  background-color: #2d2d33 !important;
+  border-color: #3f3f46 !important;
+}
+html.admin-dark .mp-offline-text.mp-offline-text {
+  color: #a1a1aa !important;
+}
+html.admin-dark .mp-offline-divide.mp-offline-divide {
+  border-color: #3f3f46 !important;
 }
 
 /* ─── Délimiteur des drawers de widgets ───────────────────────────────
@@ -2235,6 +2397,77 @@ html.admin-dark .settings-modal-header--amber   { border-bottom-color: #b45309; 
 html.admin-dark .settings-modal-icon {
   background: rgba(255, 255, 255, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Cellules éditables du tiroir « Modifier les variantes »
+   ─────────────────────────────────────────────────────────────────────────
+   Le hover de `.variant-cell-editable` applique un fond slate clair
+   (#F1F5F9) codé en dur. En mode sombre le texte reste clair (var
+   --color-text-primary = #d4d4d8) → valeur invisible au survol du Prix/u
+   et du Stock. On repose un fond sombre + un texte clair explicite.
+   Idem pour l'input custom qui a `background: #FFFFFF` codé en dur. */
+#admin-theme-wrapper.admin-dark .variant-cell-editable:hover,
+html.admin-dark .variant-cell-editable:hover {
+  border-color: #52525b;
+  background: #2d2d33;
+  color: #f4f4f5;
+}
+#admin-theme-wrapper.admin-dark .variant-cell-input,
+html.admin-dark .variant-cell-input {
+  background: #26262b;
+  border-color: #2dd4bf;
+  color: #f4f4f5;
+}
+
+/* Pilule Activée / Désactivée du tiroir variantes : en mode sombre les
+   verts/rouges Tailwind (600/700) brûlent l'œil, on assombrit fortement.
+   Sélecteur stable via `data-variant-field="disabled"` posé sur le bouton. */
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].bg-emerald-600,
+html.admin-dark [data-variant-field="disabled"].bg-emerald-600 {
+  background-color: #0a3d2a !important;
+}
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].bg-emerald-600:hover,
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].hover\:bg-emerald-700:hover,
+html.admin-dark [data-variant-field="disabled"].bg-emerald-600:hover,
+html.admin-dark [data-variant-field="disabled"].hover\:bg-emerald-700:hover {
+  background-color: #072b1e !important;
+}
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].bg-red-600,
+html.admin-dark [data-variant-field="disabled"].bg-red-600 {
+  background-color: #4a1414 !important;
+}
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].bg-red-600:hover,
+#admin-theme-wrapper.admin-dark [data-variant-field="disabled"].hover\:bg-red-700:hover,
+html.admin-dark [data-variant-field="disabled"].bg-red-600:hover,
+html.admin-dark [data-variant-field="disabled"].hover\:bg-red-700:hover {
+  background-color: #3a1010 !important;
+}
+
+/* Badge de statut mobile posé sur chaque ligne d'`/admin/produits`.
+   Le fond est en style inline (couleur pleine emerald/blue/orange/slate)
+   → en mode sombre les tons vifs brûlent. On aligne « En ligne » sur le
+   même vert profond que la pilule « Activée » du tiroir variantes, et on
+   assombrit les autres statuts pour rester cohérent. */
+#admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="ONLINE"],
+html.admin-dark .product-row-status-badge[data-status="ONLINE"] {
+  background-color: #0a3d2a !important;
+}
+#admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="OFFLINE"],
+html.admin-dark .product-row-status-badge[data-status="OFFLINE"] {
+  background-color: #2d2d33 !important;
+}
+#admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="ARCHIVED"],
+html.admin-dark .product-row-status-badge[data-status="ARCHIVED"] {
+  background-color: #4a2708 !important;
+}
+#admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="SYNCING"],
+html.admin-dark .product-row-status-badge[data-status="SYNCING"] {
+  background-color: #172554 !important;
+}
+#admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="incomplete"],
+html.admin-dark .product-row-status-badge[data-status="incomplete"] {
+  background-color: #2a154a !important;
 }
 
 

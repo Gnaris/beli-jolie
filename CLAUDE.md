@@ -84,6 +84,17 @@ Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on s
 - **API routes** (`app/api/`) : webhooks, SSE, file-serving.
 - **Lib** (`lib/`) : `pfs-*`, `ankorstore-*`, `smarty365`, `easy-express`, `marketplace-pricing`, `storage`, `email`, `cached-data`, `security`, `encryption`, `logger`, `seo`.
 
+### Microstore (Dokkr) — API native (2026-08-25)
+Depuis 2026-08-25, Microstore utilise l'API native `/goods/add` + `/goods/update` + `/goods/disable` + `/goods/del` (au lieu du CSV `/goods/import_v1` historique). Endpoints reversés via HAR HTTP Toolkit de l'appli mobile MC Gérant. Le token QR compagnon `5_XXX` (déjà en place) autorise write. **Doc complète** : `docs/microstore-api.md` § 4.3-4.5.
+- **Prisma** : `Product.microstoreProductId Int?` (unique par tenant) + `ProductColor.microstoreVariantId Int?` — remplis auto par push, permettent update ciblé + delete variantes propre (`del_id` dans /goods/update).
+- **Mapping BJ ↔ Microstore** : `Color.microstoreColorId`, `Category.microstoreCategoryId`, `Composition.microstoreCompositionId`, `Season.microstoreSeasonId` (Int?) — mapping MANUEL via `<MicrostoreAttributeSelect>` dans les formulaires d'attributs BJ. Priorité sur match par nom au push. **Branchement UI en cours** — voir `docs/microstore-mapping-plan.md`.
+- **Libs** : `lib/microstore-goods-crud.ts` (CRUD produit + variantes), `lib/microstore-attributes.ts` (CRUD cat/brand/year/season/composition + couleur), `lib/microstore-products.ts` (refactor pour utiliser les 2 précédentes au lieu du CSV).
+- **Server actions** : `app/actions/admin/microstore-products.ts` étendu (`toggleMicrostoreProductDisabled`, `deleteProductFromMicrostore`) + `app/actions/admin/microstore-attributes.ts` (CRUD complet).
+- **UI** : `MicrostoreStatusCard` a 2 nouveaux boutons ronds (masquer/afficher, supprimer) — visibles si `microstoreProductId != null`. Composant `MicrostoreAttributeSelect` (`components/admin/shared/`) prêt à brancher dans les formulaires BJ.
+- **Connexion QR** : `MicrostoreConnectCard` remplace le bookmarklet historique par un vrai flow QR compagnon (`/api/admin/microstore/qr` + poll) — cliente scanne 1 fois par an avec son appli MC Gérant, ça coexiste avec sa session mobile.
+- **Backfill IDs Microstore** : `scripts/backfill-microstore-goods-ids.ts` (dry-run par défaut, `--apply` pour écrire). À exécuter après le déploiement prod pour retrouver les IDs des produits déjà poussés en CSV.
+- **CSV legacy** : `/goods/import_v1` conservé dans `microstore-products.ts` (fonctions dépréciées `MICROSTORE_API_HEADERS` + `productToMicrostoreApiRows`) uniquement pour rollback d'urgence.
+
 ### Marketplaces (PFS + Ankorstore + eFashion + Faire + Orderchamp + Microstore)
 - **IDs** : `Product.pfsProductId`/`ankorsProductId`/`efashionReferenceBase`/`faireProductId`/`orderchampProductId` + `ProductColor.pfsVariantId`/`ankorsVariantId`/`orderchampVariantId`. `null` = non publié.
 - **`*SyncRequired`** : posé par `updateProduct` (champ clé modifié) + worker images (`lib/image-queue.ts`). Reset par sync réussie ou `clearSyncRequiredFlag()`. Badge orange dans `MarketplaceStatusButtons` + `AdminProductsTable`. Priorité : loading > syncRequired > online > offline.

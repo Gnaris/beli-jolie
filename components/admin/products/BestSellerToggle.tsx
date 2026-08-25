@@ -18,8 +18,8 @@ export function BestSellerToggle() {
       className={
         "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border font-body text-[12px] font-semibold transition-all whitespace-nowrap " +
         (isBestSeller
-          ? "bg-gradient-to-br from-[#FEF3C7] to-[#FDE68A] border-[#F59E0B] text-[#92400E] shadow-sm"
-          : "bg-bg-primary border-border text-text-secondary hover:border-border-dark")
+          ? "bg-amber-100 border-amber-300 text-amber-900 shadow-sm"
+          : "bg-bg-secondary border-border-dark text-text-primary hover:bg-bg-tertiary")
       }
     >
       <svg

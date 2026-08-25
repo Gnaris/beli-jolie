@@ -85,11 +85,15 @@ describe("Refonte Ardoise fiche produit — layout onglets", () => {
     expect(FORM).toContain('id="section-links"');
     // 2 nouvelles sections dédiées (Marketplaces + Note)
     expect(FORM).toContain('id="section-note"');
-    // La nav publie bien les 10 clés attendues (Marketplaces retirée sur demande cliente)
-    for (const key of ["general", "cat", "dim", "comp", "tags", "var", "img", "map", "assoc", "note"]) {
+    // La nav publie bien les 6 clés attendues (Catégorie/Dimensions/Composition/Mots-clés
+    // fusionnées dans "Général" sur demande cliente 2026-08-24).
+    for (const key of ["general", "var", "img", "map", "assoc", "note"]) {
       expect(NAV).toContain(`key: "${key}"`);
     }
-    expect(NAV).not.toContain('key: "mp"');
+    // Les 4 clés fusionnées ne doivent plus apparaître dans la nav
+    for (const key of ["cat", "dim", "comp", "tags", "mp"]) {
+      expect(NAV).not.toContain(`key: "${key}"`);
+    }
     // Groupes visuels de la maquette
     for (const group of ["Base", "Catalogue", "Diffusion", "Interne"]) {
       expect(NAV).toContain(`group: "${group}"`);

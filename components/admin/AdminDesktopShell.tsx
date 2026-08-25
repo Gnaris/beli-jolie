@@ -298,7 +298,7 @@ export default function AdminDesktopShell({
                           />
                         )}
                         <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
-                          <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                          <span data-admin-tooltip className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
                             <span className="flex items-center gap-2">
                               {item.label}
                               {showBlueBadge && (
@@ -312,7 +312,7 @@ export default function AdminDesktopShell({
                                 </span>
                               )}
                             </span>
-                            <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                            <span aria-hidden data-admin-tooltip-arrow className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
                           </span>
                         </span>
                       </Link>
@@ -447,9 +447,9 @@ export default function AdminDesktopShell({
               <div className="relative group">
                 <AdminClientModeButton compact />
                 <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
-                  <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                  <span data-admin-tooltip className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
                     Mode client
-                    <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                    <span aria-hidden data-admin-tooltip-arrow className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
                   </span>
                 </span>
               </div>
@@ -496,9 +496,9 @@ export default function AdminDesktopShell({
             <div className="relative group">
               <LogoutButton compact />
               <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-150 z-[60] whitespace-nowrap">
-                <span className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
+                <span data-admin-tooltip className="relative block bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)]">
                   Déconnexion
-                  <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+                  <span aria-hidden data-admin-tooltip-arrow className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
                 </span>
               </span>
             </div>

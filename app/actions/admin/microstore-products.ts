@@ -404,6 +404,121 @@ export async function bulkPushProductsToMicrostore(
 }
 
 /**
+ * Désactive (ou réactive) un produit côté Microstore.
+ *
+ * Appel direct `POST /goods/disable` via la nouvelle lib `microstore-goods-crud`.
+ * La fiche reste en base côté Microstore (contrairement à `deleteProductFromMicrostore`)
+ * mais devient invisible dans la vitrine H5. Côté BJ, on marque le produit comme
+ * ayant été "synchronisé" (baisse le flag microstoreSyncRequired) mais on
+ * conserve microstoreProductId — un réactivation ultérieur reprendra la même fiche.
+ *
+ * Le produit doit déjà être publié sur Microstore (microstoreProductId ≠ null).
+ */
+export async function toggleMicrostoreProductDisabled(
+  productId: string,
+  disabled: boolean,
+): Promise<ActionResult> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      microstoreProductId: true,
+    } as never,
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  const msId = (product as { microstoreProductId: number | null }).microstoreProductId;
+  if (msId == null) {
+    return {
+      success: false,
+      error: "Ce produit n'est pas encore publié sur Microstore.",
+    };
+  }
+
+  try {
+    const { microstoreDisableGoods } = await import("@/lib/microstore-goods-crud");
+    await microstoreDisableGoods({ microstoreProductId: msId, disabled });
+  } catch (err) {
+    logger.error("[Microstore] toggle disable failed", { error: err, productId });
+    return { success: false, error: await humanizeError(err) };
+  }
+
+  revalidateTag("products", "default");
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  return { success: true };
+}
+
+/**
+ * Supprime définitivement le produit côté Microstore (hard delete).
+ *
+ * Séquence :
+ *   1. POST /goods/del sur Microstore
+ *   2. Reset des champs de liaison BJ : microstoreProductId = null,
+ *      ProductColor[].microstoreVariantId = null, microstoreLastPushedAt = null,
+ *      microstoreSyncRequired = false, microstoreLastSyncSnapshot = null
+ *
+ * Après ça, le produit BJ apparaît comme "jamais publié" côté Microstore — un
+ * futur push le recréera avec un nouvel ID Microstore.
+ *
+ * Le produit doit déjà être publié sur Microstore (microstoreProductId ≠ null).
+ */
+export async function deleteProductFromMicrostore(
+  productId: string,
+): Promise<ActionResult> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      reference: true,
+      microstoreProductId: true,
+    } as never,
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  const msId = (product as { microstoreProductId: number | null }).microstoreProductId;
+  if (msId == null) {
+    return {
+      success: false,
+      error: "Ce produit n'est pas publié sur Microstore.",
+    };
+  }
+
+  try {
+    const { microstoreDeleteGoods } = await import("@/lib/microstore-goods-crud");
+    await microstoreDeleteGoods(msId);
+  } catch (err) {
+    logger.error("[Microstore] delete product failed", { error: err, productId });
+    return { success: false, error: await humanizeError(err) };
+  }
+
+  // Reset des champs de liaison BJ
+  await prisma.$transaction([
+    prisma.product.update({
+      where: { id: productId },
+      data: {
+        microstoreProductId: null,
+        microstoreLastPushedAt: null,
+        microstoreSyncRequired: false,
+        microstoreLastSyncSnapshot: null,
+      } as never,
+    }),
+    prisma.productColor.updateMany({
+      where: { productId },
+      data: { microstoreVariantId: null } as never,
+    }),
+  ]);
+
+  revalidateTag("products", "default");
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  return { success: true };
+}
+
+/**
  * Toggle `microstoreEnabled` sur un produit. Utilisé par la case
  * "Marketplace activée" de la fiche produit.
  */

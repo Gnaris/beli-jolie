@@ -380,7 +380,7 @@ function MarketplaceBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication PFS en cours…"
       >
         <svg
@@ -409,10 +409,6 @@ function MarketplaceBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Paris Fashion Shop"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           PFS
         </button>
         {onCancelSyncRequired && (
@@ -431,7 +427,7 @@ function MarketplaceBadge({
           onSyncClick();
         }}
         disabled={!onSyncClick}
-        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
           onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={
@@ -458,7 +454,7 @@ function MarketplaceBadge({
       disabled={!onActionClick}
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
         onActionClick
-          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
       }`}
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Paris Fashion Shop" : "Non publié sur Paris Fashion Shop"}
@@ -493,7 +489,7 @@ function AnkorstoreBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Ankorstore en cours… (1 à 5 minutes)"
       >
         <svg
@@ -522,10 +518,6 @@ function AnkorstoreBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Ankorstore"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           ANKOR
         </button>
         {onCancelSyncRequired && (
@@ -544,7 +536,7 @@ function AnkorstoreBadge({
           onSyncClick();
         }}
         disabled={!onSyncClick}
-        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
           onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={
@@ -571,7 +563,7 @@ function AnkorstoreBadge({
       disabled={!onActionClick}
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold transition-colors ${
         onActionClick
-          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
       }`}
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Ankorstore" : "Non publié sur Ankorstore"}
@@ -610,7 +602,7 @@ function EfashionBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication eFashion Paris en cours…"
       >
         <svg
@@ -641,7 +633,7 @@ function EfashionBadge({
           onShootingClick();
         }}
         disabled={!onShootingClick}
-        className={`inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10.5px] font-semibold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] leading-tight ${
+        className={`inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10.5px] font-semibold mp-shooting-badge bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] leading-tight ${
           onShootingClick ? "hover:bg-[#FDE68A] hover:border-[#FCD34D] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={tooltip}
@@ -665,10 +657,6 @@ function EfashionBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à eFashion Paris"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           EF
         </button>
         {onCancelSyncRequired && (
@@ -687,7 +675,7 @@ function EfashionBadge({
           onSyncClick();
         }}
         disabled={!onSyncClick}
-        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
           onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={
@@ -714,7 +702,7 @@ function EfashionBadge({
       disabled={!onActionClick}
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
         onActionClick
-          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
       }`}
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur eFashion Paris" : "Non lié à eFashion Paris"}
@@ -749,7 +737,7 @@ function FaireBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Faire en cours…"
       >
         <svg
@@ -778,10 +766,6 @@ function FaireBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Faire"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           Faire
         </button>
         {onCancelSyncRequired && (
@@ -800,7 +784,7 @@ function FaireBadge({
           onSyncClick();
         }}
         disabled={!onSyncClick}
-        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
           onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={
@@ -827,7 +811,7 @@ function FaireBadge({
       disabled={!onActionClick}
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold transition-colors ${
         onActionClick
-          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
       }`}
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Faire" : "Non publié sur Faire"}
@@ -862,7 +846,7 @@ function OrderchampBadge({
   if (publishing) {
     return (
       <span
-        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
         title="Publication Orderchamp en cours…"
       >
         <svg
@@ -891,10 +875,6 @@ function OrderchampBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Orderchamp"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           OC
         </button>
         {onCancelSyncRequired && (
@@ -913,7 +893,7 @@ function OrderchampBadge({
           onSyncClick();
         }}
         disabled={!onSyncClick}
-        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
           onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
         }`}
         title={
@@ -941,7 +921,7 @@ function OrderchampBadge({
       disabled={!onActionClick}
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
         onActionClick
-          ? "bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+          ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
           : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
       }`}
       title={onActionClick ? "Cliquer pour publier ou lier ce produit sur Orderchamp" : "Non publié sur Orderchamp"}
@@ -993,10 +973,6 @@ function MicrostoreBadge({
           className="inline-flex flex-row items-center justify-center gap-1.5 w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold sync-required-badge bg-[#FFF7ED] text-[#9A3412] border border-[#FED7AA] hover:bg-[#FFEDD5] transition-colors cursor-pointer"
           title="Synchronisation nécessaire — cliquez pour envoyer vos dernières modifications à Microstore"
         >
-          <span className="relative inline-flex">
-            <span className="w-1 h-1 rounded-full bg-[#F97316] animate-pulse pointer-coarse:animate-none" />
-            <span className="absolute inset-0 w-1 h-1 rounded-full bg-[#F97316] opacity-60 animate-ping pointer-coarse:animate-none" />
-          </span>
           MC
         </button>
         {onCancelSyncRequired && (
@@ -1014,7 +990,7 @@ function MicrostoreBadge({
         onSyncClick();
       }}
       disabled={!onSyncClick}
-      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
+      className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
         onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
       }`}
       title={onSyncClick ? "Cliquer pour synchroniser sur Microstore" : "Microstore configuré"}
@@ -3900,7 +3876,7 @@ function ProductRow({
             <div className="flex items-center gap-1.5 flex-nowrap">
               {showRuptureBadge && isFullyOutOfStock && (
                 <span
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]"
                   title="Toutes les variantes sont en rupture de stock"
                 >
                   Rupture
@@ -3987,9 +3963,12 @@ function ProductRow({
                   : product.status === "ARCHIVED"
                     ? "Archivé"
                     : "Hors ligne";
-            const baseCls = "md:hidden absolute top-0 right-0 z-20 inline-flex items-center px-2.5 py-1 rounded-bl-md text-[11px] font-bold uppercase tracking-wide text-white shadow-md whitespace-nowrap";
+            const dataStatus = product.isIncomplete
+              ? "incomplete"
+              : product.status;
+            const baseCls = "product-row-status-badge md:hidden absolute top-0 right-0 z-20 inline-flex items-center px-2.5 py-1 rounded-bl-md text-[11px] font-bold uppercase tracking-wide text-white shadow-md whitespace-nowrap";
             if (statusLocked) {
-              return <span className={baseCls} style={{ backgroundColor: bg }}>{label}</span>;
+              return <span className={baseCls} data-status={dataStatus} style={{ backgroundColor: bg }}>{label}</span>;
             }
             return (
               <button
@@ -3997,6 +3976,7 @@ function ProductRow({
                 onClick={() => setMobileStatusOpen(true)}
                 aria-label={`Statut actuel : ${label}. Toucher pour changer.`}
                 className={`${baseCls} cursor-pointer active:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-white/60`}
+                data-status={dataStatus}
                 style={{ backgroundColor: bg }}
               >
                 {label}
@@ -6548,7 +6528,7 @@ export default function AdminProductsTable({
       {bulkMessage && (
         <div className={`mb-3 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-body ${
           bulkMessage.type === "success"
-            ? "bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
+            ? "mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0]"
             : "bg-red-50 text-red-700 border border-red-200"
         }`}>
           <span>{bulkMessage.text}</span>
@@ -6865,9 +6845,9 @@ function MpDot({
   const cls = isSync
     ? "sync-required-badge bg-[#FFF7ED] text-[#9A3412] border-[#FED7AA]"
     : active
-      ? "bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
+      ? "mp-online-badge bg-[#F0FDF4] text-[#15803D] border-[#BBF7D0]"
       : canAct
-        ? "bg-[#FEF2F2] text-[#B91C1C] border-[#FECACA]"
+        ? "mp-unpublished-badge bg-[#FEF2F2] text-[#B91C1C] border-[#FECACA]"
         : "bg-bg-secondary text-text-muted border-border";
   const dotCls = isSync
     ? "bg-[#F97316]"

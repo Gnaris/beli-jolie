@@ -50,8 +50,8 @@ export function AdminWarningTooltip({ warning, children, wrapperClassName, as = 
           className="fixed z-[9999] pointer-events-none"
           style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
         >
-          <div className="relative w-[280px] rounded-xl bg-zinc-900 text-white text-[12.5px] leading-relaxed shadow-[0_18px_40px_-8px_rgba(9,9,11,0.55)] px-4 py-3">
-            <span className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-zinc-900 rotate-45" />
+          <div data-admin-tooltip className="relative w-[280px] rounded-xl bg-zinc-900 text-white text-[12.5px] leading-relaxed shadow-[0_18px_40px_-8px_rgba(9,9,11,0.55)] px-4 py-3">
+            <span data-admin-tooltip-arrow className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-zinc-900 rotate-45" />
             {warning?.title && (
               <p className="font-semibold text-amber-300 text-[11px] uppercase tracking-wider mb-1.5">{warning.title}</p>
             )}

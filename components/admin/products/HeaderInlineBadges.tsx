@@ -5,14 +5,6 @@ export function HeaderInlineBadges() {
   const { productStatus, isIncomplete, stockState } = useProductFormHeader();
 
   const statusBadge = (() => {
-    if (productStatus === "ONLINE") {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold font-body bg-[#DCFCE7] text-[#15803D] border border-[#BBF7D0]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
-          En ligne
-        </span>
-      );
-    }
     if (productStatus === "ARCHIVED") {
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold font-body bg-[#F3F4F6] text-[#4B5563] border border-[#E5E7EB]">
@@ -28,12 +20,7 @@ export function HeaderInlineBadges() {
         </span>
       );
     }
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold font-body bg-bg-tertiary text-text-secondary border border-border">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#9CA3AF]" />
-        Hors ligne
-      </span>
-    );
+    return null;
   })();
 
   return (

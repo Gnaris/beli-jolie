@@ -17,6 +17,7 @@
  */
 
 import { orderchampGraphQL, OrderchampGraphQLError } from "@/lib/orderchamp-client";
+import { getOrderchampApiKey } from "@/lib/orderchamp-auth";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { translatePhrases } from "@/lib/pfs-translate";
@@ -73,6 +74,12 @@ interface RawLeaf {
 }
 
 async function fetchOrderchampTaxonomyRaw(): Promise<RawLeaf[]> {
+  // Court-circuit propre : les tenants sans intégration Orderchamp n'ont pas
+  // de clé — on retourne un tableau vide sans faire de requête réseau ni
+  // logger d'erreur (le page produit affiche « catégories OC non chargées »).
+  const apiKey = await getOrderchampApiKey().catch(() => null);
+  if (!apiKey) return [];
+
   try {
     const data = await orderchampGraphQL<{
       __type: { enumValues: Array<{ name: string; description: string | null }> } | null;

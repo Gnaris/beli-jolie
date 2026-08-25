@@ -78,9 +78,15 @@ function TodayCard({
   const hintColor = dark ? "text-white/60" : "text-text-muted";
 
   return (
-    <div className={`relative overflow-hidden border rounded-2xl p-4 sm:p-5 shadow-sm ${cardBg}`}>
+    <div
+      data-visitor-tile={dark ? "dark" : undefined}
+      className={`relative overflow-hidden border rounded-2xl p-4 sm:p-5 shadow-sm ${cardBg}`}
+    >
       <div className="flex items-center gap-2 mb-3">
-        <span className={`inline-flex items-center justify-center w-9 h-9 rounded-xl ${iconBox}`}>
+        <span
+          data-visitor-tile-icon={dark ? "dark" : undefined}
+          className={`inline-flex items-center justify-center w-9 h-9 rounded-xl ${iconBox}`}
+        >
           <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
             <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
             <circle cx="12" cy="12" r="3" />

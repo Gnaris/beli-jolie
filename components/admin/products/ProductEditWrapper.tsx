@@ -1,7 +1,6 @@
 "use client";
 import { ProductFormHeaderProvider, ProductFormHeaderState, useProductFormHeader } from "./ProductFormHeaderContext";
 import { useToast } from "@/components/ui/Toast";
-import { KpiRow } from "./KpiRow";
 
 function StatusToggle({ mode }: { mode: "create" | "edit" }) {
   const { productStatus, statusToggle } = useProductFormHeader();
@@ -83,7 +82,6 @@ export function ProductEditWrapper({
       <div className="max-w-[1600px] mx-auto space-y-8">
         <div className="z-20 bg-bg-secondary border-b border-border -mx-6 px-6 pt-3 pb-4">
           {staticHeader}
-          <KpiRow />
         </div>
         {children}
       </div>

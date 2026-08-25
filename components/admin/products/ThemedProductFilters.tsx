@@ -75,6 +75,123 @@ const TRANSLATION_OPTS = [
   { v: "translated", label: "Traduit" },
 ];
 
+// Extrait au niveau module pour garder un type de composant stable :
+// à l'intérieur de ThemedProductFilters, PopoverContent est recréée à
+// chaque re-render → React remonte l'input date → focus perdu à chaque
+// frappe. Rendu depuis le parent avec un type stable, React réconcilie
+// et l'input conserve le focus.
+// Vide ou YYYY-MM-DD avec une année 1900-2100 (évite "0026" quand la
+// cliente tape 2 chiffres dans l'année).
+function isDatePartValid(s: string): boolean {
+  if (!s) return true;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const y = Number(m[1]);
+  return y >= 1900 && y <= 2100;
+}
+
+function DatesFilterContent({
+  dateFromDraft, setDateFromDraft,
+  dateToDraft, setDateToDraft,
+  updatedFromDraft, setUpdatedFromDraft,
+  updatedToDraft, setUpdatedToDraft,
+  datesChanged, applyDates,
+}: {
+  dateFromDraft: string;
+  setDateFromDraft: (v: string) => void;
+  dateToDraft: string;
+  setDateToDraft: (v: string) => void;
+  updatedFromDraft: string;
+  setUpdatedFromDraft: (v: string) => void;
+  updatedToDraft: string;
+  setUpdatedToDraft: (v: string) => void;
+  datesChanged: boolean;
+  applyDates: () => void;
+}) {
+  const allDatesValid =
+    isDatePartValid(dateFromDraft) &&
+    isDatePartValid(dateToDraft) &&
+    isDatePartValid(updatedFromDraft) &&
+    isDatePartValid(updatedToDraft);
+  const canApply = datesChanged && allDatesValid;
+  const onEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && canApply) applyDates();
+  };
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-3">
+        <div className="text-[13px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de création</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[12px] text-text-secondary mb-1.5">Créé après le</label>
+            <input
+              type="date"
+              value={dateFromDraft}
+              onChange={(e) => setDateFromDraft(e.target.value)}
+              onKeyDown={onEnter}
+              className="w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] text-text-secondary mb-1.5">Créé avant le</label>
+            <input
+              type="date"
+              value={dateToDraft}
+              onChange={(e) => setDateToDraft(e.target.value)}
+              onKeyDown={onEnter}
+              className="w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-3 border-t border-border pt-5">
+        <div className="text-[13px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de dernière modification</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[12px] text-text-secondary mb-1.5">Modifié après le</label>
+            <input
+              type="date"
+              value={updatedFromDraft}
+              onChange={(e) => setUpdatedFromDraft(e.target.value)}
+              onKeyDown={onEnter}
+              className="w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] text-text-secondary mb-1.5">Modifié avant le</label>
+            <input
+              type="date"
+              value={updatedToDraft}
+              onChange={(e) => setUpdatedToDraft(e.target.value)}
+              onKeyDown={onEnter}
+              className="w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
+            />
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={applyDates}
+        disabled={!canApply}
+        title={
+          !datesChanged
+            ? "Aucun changement à appliquer"
+            : !allDatesValid
+            ? "Date incomplète ou année invalide"
+            : "Appliquer les dates"
+        }
+        className={`w-full h-11 rounded-lg font-semibold text-[14px] transition-colors ${
+          canApply
+            ? "bg-ink text-white hover:bg-primary-hover cursor-pointer"
+            : "bg-bg-secondary text-text-muted border border-border cursor-not-allowed"
+        }`}
+      >
+        Appliquer
+      </button>
+    </div>
+  );
+}
+
 export default function ThemedProductFilters({
   totalCount, activeCount, categories, tags, compositions, hsCodes,
   hasPfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig,
@@ -104,11 +221,10 @@ export default function ThemedProductFilters({
     return () => document.removeEventListener("keydown", onKey);
   }, [openTheme]);
 
-  // Verrouille le scroll de la page derrière le sheet sur mobile.
+  // Verrouille le scroll de la page derrière le modal (plein écran mobile /
+  // centré avec voile noir sur ≥ md — dans les deux cas la page ne défile plus).
   useEffect(() => {
     if (!openTheme) return;
-    if (typeof window === "undefined") return;
-    if (!window.matchMedia("(max-width: 767px)").matches) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
@@ -126,13 +242,14 @@ export default function ThemedProductFilters({
     });
   }, [searchParams, router, startTransition]);
 
-  // Helper pour les selects radio (lié/non lié)
+  // Helper pour les selects radio (lié/non lié). Sur mobile : boutons hauts
+  // (48 px) et texte lisible ; sur desktop on garde le compact d'origine.
   function LinkRadio({ urlKey, label }: { urlKey: string; label: string }) {
     const v = searchParams.get(urlKey) ?? "";
     return (
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">{label}</div>
-        <div className="flex gap-1">
+        <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">{label}</div>
+        <div className="flex gap-1.5">
           {[
             { val: "", txt: "Tous" },
             { val: "linked", txt: "Lié" },
@@ -142,7 +259,7 @@ export default function ThemedProductFilters({
               key={opt.val}
               type="button"
               onClick={() => setParam({ [urlKey]: opt.val })}
-              className={`flex-1 text-[12px] py-1.5 rounded-md border transition-colors ${
+              className={`flex-1 text-[14px] h-12 rounded-lg border transition-colors ${
                 v === opt.val
                   ? "bg-ink text-white border-ink font-semibold"
                   : "bg-bg-primary text-text-secondary border-border hover:border-ink hover:text-text-primary"
@@ -160,12 +277,13 @@ export default function ThemedProductFilters({
     const v = searchParams.get(urlKey) ?? "";
     return (
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">{label}</div>
+        <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">{label}</div>
         <CustomSelect
           value={v}
           onChange={(val) => setParam({ [urlKey]: val })}
           options={EXPORT_OPTS.map((o) => ({ value: o.v, label: o.label }))}
-          size="sm"
+          size="md"
+          title={label}
         />
       </div>
     );
@@ -177,16 +295,16 @@ export default function ThemedProductFilters({
       <button
         type="button"
         onClick={() => setParam({ [urlKey]: v ? null : "1" })}
-        className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[12.5px] border transition-colors text-left ${
+        className={`w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-[14px] border transition-colors text-left ${
           v
             ? "bg-bg-tertiary text-text-primary border-ink font-medium"
             : "bg-bg-primary text-text-secondary border-border hover:border-ink hover:text-text-primary"
         }`}
       >
-        <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+        <span className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
           v ? "bg-ink border-ink text-white" : "bg-white border-border-dark"
         }`}>
-          {v && <span className="text-[10px] font-bold">✓</span>}
+          {v && <span className="text-[12px] font-bold">✓</span>}
         </span>
         {label}
       </button>
@@ -204,57 +322,62 @@ export default function ThemedProductFilters({
 
     if (theme === "catalogue") {
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Catégorie</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Catégorie</div>
             <CustomSelect
               value={cat}
               onChange={(val) => setParam({ cat: val, subCat: null })}
               options={[{ value: "", label: "Toutes les catégories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
-              size="sm"
+              size="md"
               searchable
+              title="Catégorie"
             />
           </div>
           {cat && subCats.length > 0 && (
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Sous-catégorie</div>
+              <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Sous-catégorie</div>
               <CustomSelect
                 value={subCat}
                 onChange={(val) => setParam({ subCat: val })}
                 options={[{ value: "", label: "Toutes les sous-catégories" }, ...subCats.map((s) => ({ value: s.id, label: s.name }))]}
-                size="sm"
+                size="md"
                 searchable
+                title="Sous-catégorie"
               />
             </div>
           )}
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Composition</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Composition</div>
             <CustomSelect
               value={composition}
               onChange={(val) => setParam({ composition: val })}
               options={[{ value: "", label: "Toutes les compositions" }, ...compositions.map((c) => ({ value: c.id, label: c.name }))]}
-              size="sm"
+              size="md"
               searchable
+              title="Composition"
             />
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Mot-clé</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Mot-clé</div>
             <CustomSelect
               value={tag}
               onChange={(val) => setParam({ tag: val })}
               options={[{ value: "", label: "Tous les mots-clés" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]}
-              size="sm"
+              size="md"
               searchable
+              title="Mot-clé"
             />
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Code SH</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Code SH</div>
             <CustomSelect
               value={hsCodeId}
               onChange={(val) => setParam({ hsCodeId: val })}
               options={[{ value: "", label: "Tous les codes SH" }, ...hsCodes.map((h) => ({ value: h.id, label: `${h.code} · ${h.label}` }))]}
-              size="sm"
+              size="md"
               searchable
+              title="Code SH"
             />
           </div>
         </div>
@@ -266,9 +389,9 @@ export default function ThemedProductFilters({
       const maxPrice = searchParams.get("maxPrice") ?? "";
       const stockBelow = searchParams.get("stockBelow") ?? "";
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Fourchette de prix (€)</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Fourchette de prix (€)</div>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -276,7 +399,7 @@ export default function ThemedProductFilters({
                 defaultValue={minPrice}
                 onBlur={(e) => setParam({ minPrice: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+                className="flex-1 min-w-0 w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
               />
               <span className="text-text-muted shrink-0">–</span>
               <input
@@ -285,20 +408,20 @@ export default function ThemedProductFilters({
                 defaultValue={maxPrice}
                 onBlur={(e) => setParam({ maxPrice: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="flex-1 min-w-0 w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+                className="flex-1 min-w-0 w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
               />
             </div>
-            <div className="text-[10px] text-text-muted mt-1">Entrée ou clic ailleurs pour appliquer</div>
+            <div className="text-[11px] text-text-muted mt-1.5">Entrée ou clic ailleurs pour appliquer</div>
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Stock inférieur à</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Stock inférieur à</div>
             <input
               type="number"
               placeholder="ex. 5"
               defaultValue={stockBelow}
               onBlur={(e) => setParam({ stockBelow: e.target.value })}
               onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-              className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
+              className="w-full h-12 text-[14px] px-3 rounded-lg border border-border bg-bg-primary"
             />
           </div>
         </div>
@@ -309,26 +432,28 @@ export default function ThemedProductFilters({
       const refresh = searchParams.get("refresh") ?? "";
       const translationStatus = searchParams.get("translationStatus") ?? "";
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Rafraîchissement</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Rafraîchissement</div>
             <CustomSelect
               value={refresh}
               onChange={(val) => setParam({ refresh: val })}
               options={REFRESH_OPTS.map((o) => ({ value: o.v, label: o.label }))}
-              size="sm"
+              size="md"
+              title="Rafraîchissement"
             />
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">Traduction</div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Traduction</div>
             <CustomSelect
               value={translationStatus}
               onChange={(val) => setParam({ translationStatus: val })}
               options={TRANSLATION_OPTS.map((o) => ({ value: o.v, label: o.label }))}
-              size="sm"
+              size="md"
+              title="Traduction"
             />
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             <BoolBtn urlKey="important" label="⭐ Importants seulement" />
             <BoolBtn urlKey="bestSeller" label="Best-sellers uniquement" />
             <BoolBtn urlKey="syncRequired" label="Synchro nécessaire" />
@@ -341,7 +466,7 @@ export default function ThemedProductFilters({
 
     if (theme === "marketplaces") {
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           {hasPfsConfig && <LinkRadio urlKey="pfsLink" label="Lien PFS" />}
           {hasEfashionConfig && <LinkRadio urlKey="efashionLink" label="Lien EF" />}
           {hasAnkorstoreConfig && <LinkRadio urlKey="ankorsLink" label="Lien ANKOR" />}
@@ -351,7 +476,7 @@ export default function ThemedProductFilters({
               Produit (lib/pfs-verify.ts). Ne concerne que les produits liés. */}
           {hasPfsConfig && (
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">
+              <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">
                 Vérification PFS
               </div>
               <CustomSelect
@@ -363,11 +488,12 @@ export default function ThemedProductFilters({
                   { value: "ok", label: "Vérif conforme" },
                   { value: "unchecked", label: "Jamais vérifié" },
                 ]}
-                size="sm"
+                size="md"
+                title="Vérification PFS"
               />
             </div>
           )}
-          <div className="border-t border-border pt-3 flex flex-col gap-2.5">
+          <div className="border-t border-border pt-5 flex flex-col gap-4">
             {hasPfsConfig && <ExportSelect urlKey="pfsExportedAt" label="Dernier export PFS" />}
             {hasEfashionConfig && <ExportSelect urlKey="efashionExportedAt" label="Dernier export EF" />}
             {hasAnkorstoreConfig && <ExportSelect urlKey="ankorstoreExportedAt" label="Dernier export ANKOR" />}
@@ -382,18 +508,19 @@ export default function ThemedProductFilters({
       const raw = searchParams.get("sort") ?? "";
       const v = SORT_VALUES.has(raw) ? raw : "";
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted mb-1.5">
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">
               Trier les produits par
             </div>
             <CustomSelect
               value={v}
               onChange={(val) => setParam({ sort: val })}
               options={SORT_OPTS.map((o) => ({ value: o.v, label: o.label }))}
-              size="sm"
+              size="md"
+              title="Trier les produits par"
             />
-            <div className="text-[10px] text-text-muted mt-1.5 leading-relaxed">
+            <div className="text-[11px] text-text-muted mt-2 leading-relaxed">
               « Créé » = date de création du produit. « Modifié » = dernière
               modification (édition de la fiche).
             </div>
@@ -402,61 +529,10 @@ export default function ThemedProductFilters({
       );
     }
 
-    // theme === "more" (renommé « Dates »)
-    const dateFrom = searchParams.get("dateFrom") ?? "";
-    const dateTo = searchParams.get("dateTo") ?? "";
-    const updatedFrom = searchParams.get("updatedFrom") ?? "";
-    const updatedTo = searchParams.get("updatedTo") ?? "";
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de création</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[11px] text-text-secondary mb-1">Créé après le</label>
-              <input
-                type="date"
-                defaultValue={dateFrom}
-                onBlur={(e) => setParam({ dateFrom: e.target.value })}
-                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-text-secondary mb-1">Créé avant le</label>
-              <input
-                type="date"
-                defaultValue={dateTo}
-                onBlur={(e) => setParam({ dateTo: e.target.value })}
-                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-muted">Date de dernière modification</div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-[11px] text-text-secondary mb-1">Modifié après le</label>
-              <input
-                type="date"
-                defaultValue={updatedFrom}
-                onBlur={(e) => setParam({ updatedFrom: e.target.value })}
-                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] text-text-secondary mb-1">Modifié avant le</label>
-              <input
-                type="date"
-                defaultValue={updatedTo}
-                onBlur={(e) => setParam({ updatedTo: e.target.value })}
-                className="w-full text-[12.5px] px-2.5 py-1.5 rounded-md border border-border bg-bg-primary"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // theme === "more" (« Dates ») — rendu par DatesFilterContent au niveau
+    // module (voir plus bas dans le return du parent) pour ne PAS être
+    // remonté à chaque re-render. Fallback ici pour satisfaire TS.
+    return null;
   }
 
   // ─── Helpers : compte de filtres par thème (badges sur les boutons) ──────
@@ -513,6 +589,12 @@ export default function ThemedProductFilters({
     const updates: Record<string, string | null> = {};
     CLEAR_KEYS[theme].forEach((k) => { updates[k] = null; });
     setParam(updates);
+    if (theme === "more") {
+      setDateFromDraft("");
+      setDateToDraft("");
+      setUpdatedFromDraft("");
+      setUpdatedToDraft("");
+    }
   }
 
   // ─── Recherche multi-références : Entrée ajoute un badge ─────────────────
@@ -531,6 +613,35 @@ export default function ThemedProductFilters({
   const exactRef = searchParams.get("exactRef") === "1";
   const perPage = searchParams.get("perPage") ?? "20";
   const [perPageDraft, setPerPageDraft] = useState(perPage);
+
+  // Drafts locaux pour les 4 filtres date : on ne commit que sur clic
+  // « Appliquer ». `defaultValue` + `onBlur` étaient perdus quand le
+  // sélecteur natif fermait le popover avant le blur.
+  const dateFromUrl = searchParams.get("dateFrom") ?? "";
+  const dateToUrl = searchParams.get("dateTo") ?? "";
+  const updatedFromUrl = searchParams.get("updatedFrom") ?? "";
+  const updatedToUrl = searchParams.get("updatedTo") ?? "";
+  const [dateFromDraft, setDateFromDraft] = useState(dateFromUrl);
+  const [dateToDraft, setDateToDraft] = useState(dateToUrl);
+  const [updatedFromDraft, setUpdatedFromDraft] = useState(updatedFromUrl);
+  const [updatedToDraft, setUpdatedToDraft] = useState(updatedToUrl);
+  useEffect(() => { setDateFromDraft(dateFromUrl); }, [dateFromUrl]);
+  useEffect(() => { setDateToDraft(dateToUrl); }, [dateToUrl]);
+  useEffect(() => { setUpdatedFromDraft(updatedFromUrl); }, [updatedFromUrl]);
+  useEffect(() => { setUpdatedToDraft(updatedToUrl); }, [updatedToUrl]);
+  const datesChanged =
+    dateFromDraft !== dateFromUrl ||
+    dateToDraft !== dateToUrl ||
+    updatedFromDraft !== updatedFromUrl ||
+    updatedToDraft !== updatedToUrl;
+  function applyDates() {
+    setParam({
+      dateFrom: dateFromDraft || null,
+      dateTo: dateToDraft || null,
+      updatedFrom: updatedFromDraft || null,
+      updatedTo: updatedToDraft || null,
+    });
+  }
 
   // Auto-bascule du tri sur « Personnalisé » quand la cliente a ≥ 2 références
   // saisies et qu'aucun tri explicite n'est posé. Retrait auto quand on
@@ -631,18 +742,22 @@ export default function ThemedProductFilters({
     }
   }
 
+  function submitSearch() {
+    const v = draft.trim();
+    if (v) {
+      const next = localTerms.includes(v) ? localTerms : [...localTerms, v];
+      setLocalTerms(next);
+      setDraft("");
+      applyTerms(next);
+    } else {
+      applyTerms(localTerms);
+    }
+  }
+
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const v = draft.trim();
-      if (v) {
-        const next = localTerms.includes(v) ? localTerms : [...localTerms, v];
-        setLocalTerms(next);
-        setDraft("");
-        applyTerms(next);
-      } else {
-        applyTerms(localTerms);
-      }
+      submitSearch();
     } else if (e.key === "," || e.key === "Tab") {
       if (draft.trim().length > 0) {
         e.preventDefault();
@@ -657,6 +772,10 @@ export default function ThemedProductFilters({
   function clearAll() {
     setLocalTerms([]);
     setDraft("");
+    setDateFromDraft("");
+    setDateToDraft("");
+    setUpdatedFromDraft("");
+    setUpdatedToDraft("");
     startTransition(() => { router.push("/admin/produits"); });
   }
 
@@ -668,9 +787,17 @@ export default function ThemedProductFilters({
           className="relative w-full sm:w-auto sm:flex-1 sm:min-w-[240px] flex flex-wrap items-center gap-1.5 pl-9 pr-2 py-1.5 bg-bg-primary border border-border-strong rounded-lg shadow-[var(--shadow-card)] focus-within:border-ink focus-within:ring-2 focus-within:ring-ink/10 cursor-text"
           onClick={() => inputRef.current?.focus()}
         >
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted opacity-50 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); submitSearch(); inputRef.current?.focus(); }}
+            aria-label="Lancer la recherche"
+            title="Lancer la recherche"
+            className="absolute left-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-text-muted opacity-60 hover:opacity-100 hover:bg-bg-secondary cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </button>
           {localTerms.map((term, idx) => {
             const isCopied = copiedIdx === idx;
             const isEditing = editingIdx === idx;
@@ -758,7 +885,7 @@ export default function ThemedProductFilters({
             onKeyDown={handleSearchKeyDown}
             onBlur={() => { if (draft.trim()) commitDraft(); }}
             placeholder={localTerms.length === 0 ? "Rechercher une ou plusieurs références…" : "Ajouter…"}
-            className="flex-1 min-w-[110px] py-1 bg-transparent border-none focus:outline-none text-[13px] font-body text-text-primary placeholder:text-text-muted"
+            className="flex-1 min-w-[110px] py-1 bg-bg-primary border-none focus:outline-none text-[13px] font-body text-text-primary placeholder:text-text-muted"
           />
         </div>
         {/* Réf. exacte toggle */}
@@ -821,11 +948,10 @@ export default function ThemedProductFilters({
 
       {/* 5 boutons-thèmes */}
       <div ref={barRef} className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start">
-        {THEMES.map((t, idx) => {
+        {THEMES.map((t) => {
           const count = countForTheme(t.key);
           const active = count > 0;
           const isOpen = openTheme === t.key;
-          const alignRight = idx >= THEMES.length - 2; // 2 derniers : aligner à droite
           return (
             <div key={t.key} className="relative">
               <button
@@ -851,63 +977,77 @@ export default function ThemedProductFilters({
                 </svg>
               </button>
               {isOpen && (
-                <>
-                  {/* Backdrop mobile seulement. Sur desktop le popover est
-                      compact et se ferme via clic extérieur (handler global). */}
-                  <div
-                    className="md:hidden fixed inset-0 bg-slate-900/50 z-[9499]"
-                    onMouseDown={() => setOpenTheme(null)}
-                    aria-hidden
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="fixed inset-0 z-[9500] flex md:items-center md:justify-center md:p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={`Filtre ${t.label}`}
+                >
+                  {/* Voile noir — visible ≥ md (mobile prend tout l'écran) */}
+                  <button
+                    type="button"
+                    aria-label="Fermer"
+                    tabIndex={-1}
+                    onClick={() => setOpenTheme(null)}
+                    className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
                   />
-                  {/* Panel : plein écran sur mobile, popover flottant sur desktop.
-                      z-index : au-dessus de la BulkActionBar (mobile z-[9002] /
-                      desktop z-40) mais sous les CustomSelect portalés (z-[10001])
-                      qui sont rendus à l'intérieur de ce popover. */}
-                  <div
-                    onMouseDown={(e) => e.stopPropagation()}
-                    className={`fixed inset-x-0 bottom-0 top-0 flex flex-col bg-bg-primary z-[9500]
-                      md:absolute md:inset-auto md:top-full md:mt-1.5 md:h-auto md:w-[320px] md:max-w-[calc(100vw-24px)]
-                      md:border md:border-border md:rounded-xl md:shadow-[var(--shadow-pop)] md:z-[45]
-                      ${alignRight ? "md:right-0" : "md:left-0"}`}
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={`Filtre ${t.label}`}
-                  >
-                    {/* Handle décoratif (mobile) */}
-                    <div className="md:hidden pt-2 pb-1 flex justify-center shrink-0">
-                      <div className="w-10 h-1 rounded-full bg-border-strong" />
-                    </div>
-
-                    {/* Header */}
-                    <div className="flex items-center gap-3 shrink-0 px-4 pt-2 pb-3 border-b border-border md:px-4 md:pt-4 md:pb-3 md:border-b-0">
-                      <div className="flex-1 min-w-0">
-                        <p className="md:hidden text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">
-                          Filtre
-                        </p>
-                        <h4 className="font-heading text-lg font-bold text-text-primary truncate md:font-body md:text-[12px] md:font-bold md:uppercase md:tracking-[0.12em] md:text-text-muted">
-                          {t.emoji} {t.label}
-                        </h4>
+                  {/* Modal : plein écran mobile / centré desktop */}
+                  <div className="relative w-full h-full flex flex-col bg-bg-primary md:w-[min(92vw,460px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-[0_24px_60px_rgba(0,0,0,0.25)] md:overflow-hidden">
+                    {/* Header — flèche retour mobile, croix desktop */}
+                    <div className="shrink-0 border-b border-border md:border-border-light bg-bg-primary px-4 pb-3 md:px-5 md:pt-5 pt-[max(env(safe-area-inset-top),16px)]">
+                      <div className="flex items-center gap-3 md:items-start">
+                        <button
+                          type="button"
+                          onClick={() => setOpenTheme(null)}
+                          aria-label="Retour"
+                          className="md:hidden shrink-0 w-11 h-11 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted">Filtre</p>
+                          <h3 className="font-heading text-lg font-bold text-text-primary truncate">
+                            {t.emoji} {t.label}
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOpenTheme(null)}
+                          aria-label="Fermer"
+                          className="hidden md:flex shrink-0 w-9 h-9 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-secondary items-center justify-center text-xl leading-none"
+                        >
+                          ×
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setOpenTheme(null)}
-                        aria-label="Fermer"
-                        className="shrink-0 w-10 h-10 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center md:w-auto md:h-auto md:rounded-none md:bg-transparent md:hover:bg-transparent md:text-text-muted md:hover:text-text-primary"
-                      >
-                        <svg className="w-5 h-5 md:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        <span className="hidden md:inline text-lg leading-none">×</span>
-                      </button>
                     </div>
 
                     {/* Body */}
-                    <div className="flex-1 overflow-y-auto px-4 py-4 md:flex-none md:overflow-visible md:px-4 md:pb-4 md:pt-0">
-                      <PopoverContent theme={t.key} />
+                    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5">
+                      {t.key === "more" ? (
+                        <DatesFilterContent
+                          dateFromDraft={dateFromDraft}
+                          setDateFromDraft={setDateFromDraft}
+                          dateToDraft={dateToDraft}
+                          setDateToDraft={setDateToDraft}
+                          updatedFromDraft={updatedFromDraft}
+                          setUpdatedFromDraft={setUpdatedFromDraft}
+                          updatedToDraft={updatedToDraft}
+                          setUpdatedToDraft={setUpdatedToDraft}
+                          datesChanged={datesChanged}
+                          applyDates={applyDates}
+                        />
+                      ) : (
+                        <PopoverContent theme={t.key} />
+                      )}
                     </div>
 
-                    {/* Footer d'actions (mobile seulement) */}
-                    <div className="md:hidden border-t border-border p-3 flex items-center gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),12px)]">
+                    {/* Footer d'actions (mobile + desktop) — le voile noir cache
+                        les résultats, donc « Voir les résultats » a du sens
+                        aussi en tablette / PC pour fermer le modal. */}
+                    <div className="border-t border-border p-3 md:px-5 md:py-3 flex items-center gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),12px)] md:pb-3">
                       <button
                         type="button"
                         onClick={() => clearTheme(t.key)}
@@ -925,7 +1065,7 @@ export default function ThemedProductFilters({
                       </button>
                     </div>
                   </div>
-                </>
+                </div>
               )}
             </div>
           );

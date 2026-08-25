@@ -59,6 +59,8 @@ interface MarketplaceStatusButtonsProps {
   microstoreLastPushedAt: Date | string | null;
   hasMicrostoreConfig: boolean;
   microstoreEnabled: boolean;
+  /** Session BOSS/QR Microstore expirée — carte affichée en rouge « expiré ». */
+  microstoreSessionExpired?: boolean;
   pfsSyncRequired?: boolean;
   ankorsSyncRequired?: boolean;
   efashionSyncRequired?: boolean;
@@ -72,6 +74,8 @@ interface MarketplaceStatusButtonsProps {
   faireEnabledForProduct?: boolean;
   orderchampEnabledForProduct?: boolean;
   microstoreEnabledForProduct?: boolean;
+  /** ID Microstore du produit (Product.microstoreProductId). null tant que pas publié. */
+  microstoreProductId?: number | null;
   /** Maintenance plateforme (contrôle Beliandjolie, affecte toutes les boutiques). Défaut false. */
   pfsMaintenance?: boolean;
   ankorstoreMaintenance?: boolean;
@@ -233,16 +237,16 @@ function getCardStateClasses({
   }
   if (state.loading) {
     return {
-      cardClasses: "bg-[#EEF2FF] border-[#C7D2FE] cursor-wait",
-      textClasses: "text-[#4F46E5]",
-      dividerClass: "border-[#C7D2FE]",
+      cardClasses: "mp-loading-card bg-[#EEF2FF] border-[#C7D2FE] cursor-wait",
+      textClasses: "mp-loading-text text-[#4F46E5]",
+      dividerClass: "mp-loading-divide border-[#C7D2FE]",
     };
   }
   if (awaitingShooting) {
     return {
-      cardClasses: "bg-[#FEF08A] border-[#EAB308]",
-      textClasses: "text-[#713F12]",
-      dividerClass: "border-[#EAB308]/70",
+      cardClasses: "mp-shooting-card bg-[#FEF08A] border-[#EAB308]",
+      textClasses: "mp-shooting-text text-[#713F12]",
+      dividerClass: "mp-shooting-divide border-[#EAB308]/70",
     };
   }
   if (state.syncRequired) {
@@ -254,15 +258,15 @@ function getCardStateClasses({
   }
   if (state.online) {
     return {
-      cardClasses: "bg-[#DCFCE7] border-[#BBF7D0]",
-      textClasses: "text-[#15803D]",
-      dividerClass: "border-[#BBF7D0]/70",
+      cardClasses: "mp-online-card bg-[#DCFCE7] border-[#BBF7D0]",
+      textClasses: "mp-online-text text-[#15803D]",
+      dividerClass: "mp-online-divide border-[#BBF7D0]/70",
     };
   }
   return {
-    cardClasses: "bg-bg-tertiary border-border",
-    textClasses: "text-text-muted",
-    dividerClass: "border-border",
+    cardClasses: "mp-offline-card bg-bg-tertiary border-border",
+    textClasses: "mp-offline-text text-text-muted",
+    dividerClass: "mp-offline-divide border-border",
   };
 }
 
@@ -296,7 +300,7 @@ function MarketplaceCard({
   title: string;
   loadingLabel: string;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "global" | "maintenance";
+  disabledReason?: "product" | "global" | "maintenance" | "not_configured";
   awaitingShooting?: boolean;
   awaitingShootingLabel?: string;
   actions?: React.ReactNode;
@@ -324,11 +328,13 @@ function MarketplaceCard({
         : "cursor-pointer";
 
   // Sous-libellé (2ᵉ ligne) — affiché seulement quand pertinent, en gras.
-  // Priorité identique au header : loading > awaiting shooting > syncRequired
+  // Priorité : disabled > loading > awaiting shooting > syncRequired
   // > online+sublabel (marque PFS…). Un état simple « en ligne » sans marque
   // ou « hors ligne » n'affiche rien pour garder la carte compacte.
   let secondaryLabel: string | null = null;
-  if (!disabledForProduct && !state.loading) {
+  if (disabledForProduct) {
+    secondaryLabel = "désactivé";
+  } else if (!state.loading) {
     if (awaitingShooting) {
       secondaryLabel = awaitingShootingLabel ?? "en attente shooting";
     } else if (state.syncRequired) {
@@ -362,41 +368,13 @@ function MarketplaceCard({
         </span>
 
         {/* Label principal (1ère ligne) */}
-        {disabledForProduct ? (
-          <span className="line-through decoration-[1.5px] decoration-text-muted">
-            {label}
-          </span>
-        ) : state.loading ? (
+        {state.loading && !disabledForProduct ? (
           <span className="inline-flex items-center gap-1.5">
             {Icon.Spinner}
             {loadingLabel}
           </span>
         ) : (
           <span>{label}</span>
-        )}
-
-        {/* Dot d'état */}
-        {!state.loading && !disabledForProduct && (
-          awaitingShooting ? (
-            <span className="relative inline-flex">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#EAB308] animate-pulse pointer-coarse:animate-none" />
-              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#EAB308] opacity-60 animate-ping pointer-coarse:animate-none" />
-            </span>
-          ) : state.syncRequired ? (
-            <span className="relative inline-flex">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B] animate-pulse pointer-coarse:animate-none" />
-              <span className="absolute inset-0 w-1.5 h-1.5 rounded-full bg-[#F59E0B] opacity-60 animate-ping pointer-coarse:animate-none" />
-            </span>
-          ) : (
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                state.online ? "bg-[#22C55E] animate-pulse pointer-coarse:animate-none" : "bg-border-dark"
-              }`}
-            />
-          )
-        )}
-        {disabledForProduct && (
-          <span className="w-1.5 h-1.5 rounded-full bg-text-muted" />
         )}
       </span>
 
@@ -412,6 +390,8 @@ function MarketplaceCard({
   const disabledTooltip =
     disabledReason === "maintenance"
       ? `${label} · en maintenance sur la plateforme`
+      : disabledReason === "not_configured"
+      ? `${label} · non configurée dans Paramètres`
       : disabledReason === "global"
       ? `${label} · marketplace désactivée dans Paramètres`
       : `${label} · marketplace désactivée pour ce produit`;
@@ -485,6 +465,7 @@ export function MarketplaceStatusButtons({
   microstoreLastPushedAt,
   hasMicrostoreConfig,
   microstoreEnabled,
+  microstoreSessionExpired = false,
   pfsSyncRequired = false,
   ankorsSyncRequired = false,
   efashionSyncRequired = false,
@@ -497,6 +478,7 @@ export function MarketplaceStatusButtons({
   faireEnabledForProduct = true,
   orderchampEnabledForProduct = true,
   microstoreEnabledForProduct = true,
+  microstoreProductId = null,
   pfsMaintenance: pfsMaintenanceProp,
   ankorstoreMaintenance: ankorstoreMaintenanceProp,
   efashionMaintenance: efashionMaintenanceProp,
@@ -1041,39 +1023,33 @@ export function MarketplaceStatusButtons({
     }
   };
 
-  // Bloc affiché dès que la marketplace est CONFIGURÉE. Si le kill switch
-  // global (Paramètres) est OFF, on affiche le badge barré (via `disabledOverall`)
-  // au lieu de masquer complètement — la cliente veut voir visuellement quelles
-  // marketplaces sont en pause. Les IconBtn deviennent disabled à ce moment-là.
-  const showAnkorstore = hasAnkorstoreConfig;
-  const showEfashion = hasEfashionConfig;
-  const showFaire = hasFaireConfig;
-  const showOrderchamp = hasOrderchampConfig;
-  if (!hasPfsConfig && !showAnkorstore && !showEfashion && !showFaire && !showOrderchamp) return null;
-
+  // Cliente veut TOUJOURS voir les 6 badges marketplaces sur la fiche produit,
+  // même désactivés / non configurés. Les cartes affichent « désactivé » en
+  // sous-libellé, les IconBtn deviennent disabled.
   // Maintenance = priorité max (contrôle Beli & Jolie, affecte toutes les boutiques).
-  const pfsDisabledOverall = pfsMaintenance || !pfsEnabledForProduct || !pfsEnabled;
-  const ankorsDisabledOverall = ankorstoreMaintenance || !ankorsEnabledForProduct || !ankorstoreEnabled;
-  const efashionDisabledOverall = efashionMaintenance || !efashionEnabledForProduct || !efashionEnabled;
-  const faireDisabledOverall = faireMaintenance || !faireEnabledForProduct || !faireEnabled;
-  const orderchampDisabledOverall = orderchampMaintenance || !orderchampEnabledForProduct || !orderchampEnabled;
-  const pfsDisabledReason: "product" | "global" | "maintenance" =
-    pfsMaintenance ? "maintenance" : !pfsEnabled ? "global" : "product";
-  const ankorsDisabledReason: "product" | "global" | "maintenance" =
-    ankorstoreMaintenance ? "maintenance" : !ankorstoreEnabled ? "global" : "product";
-  const efashionDisabledReason: "product" | "global" | "maintenance" =
-    efashionMaintenance ? "maintenance" : !efashionEnabled ? "global" : "product";
-  const faireDisabledReason: "product" | "global" | "maintenance" =
-    faireMaintenance ? "maintenance" : !faireEnabled ? "global" : "product";
-  const orderchampDisabledReason: "product" | "global" | "maintenance" =
-    orderchampMaintenance ? "maintenance" : !orderchampEnabled ? "global" : "product";
+  // Non configuré = même effet qu'un kill switch global.
+  const pfsDisabledOverall = !hasPfsConfig || pfsMaintenance || !pfsEnabledForProduct || !pfsEnabled;
+  const ankorsDisabledOverall = !hasAnkorstoreConfig || ankorstoreMaintenance || !ankorsEnabledForProduct || !ankorstoreEnabled;
+  const efashionDisabledOverall = !hasEfashionConfig || efashionMaintenance || !efashionEnabledForProduct || !efashionEnabled;
+  const faireDisabledOverall = !hasFaireConfig || faireMaintenance || !faireEnabledForProduct || !faireEnabled;
+  const orderchampDisabledOverall = !hasOrderchampConfig || orderchampMaintenance || !orderchampEnabledForProduct || !orderchampEnabled;
+  type DisabledReason = "product" | "global" | "maintenance" | "not_configured";
+  const pfsDisabledReason: DisabledReason =
+    !hasPfsConfig ? "not_configured" : pfsMaintenance ? "maintenance" : !pfsEnabled ? "global" : "product";
+  const ankorsDisabledReason: DisabledReason =
+    !hasAnkorstoreConfig ? "not_configured" : ankorstoreMaintenance ? "maintenance" : !ankorstoreEnabled ? "global" : "product";
+  const efashionDisabledReason: DisabledReason =
+    !hasEfashionConfig ? "not_configured" : efashionMaintenance ? "maintenance" : !efashionEnabled ? "global" : "product";
+  const faireDisabledReason: DisabledReason =
+    !hasFaireConfig ? "not_configured" : faireMaintenance ? "maintenance" : !faireEnabled ? "global" : "product";
+  const orderchampDisabledReason: DisabledReason =
+    !hasOrderchampConfig ? "not_configured" : orderchampMaintenance ? "maintenance" : !orderchampEnabled ? "global" : "product";
 
   return (
     <>
-      <div className="inline-flex items-start gap-2 flex-wrap">
+      <div className="flex md:inline-flex items-start justify-center md:justify-start gap-2 flex-wrap w-full md:w-auto">
         {/* ─── Paris Fashion Shop ──────────────────────────────────────── */}
-        {hasPfsConfig && (
-          <MarketplaceCard
+        <MarketplaceCard
             state={pfsState}
             marketplace="pfs"
             label="PFS"
@@ -1165,11 +1141,9 @@ export function MarketplaceStatusButtons({
               </>
             }
           />
-        )}
 
         {/* ─── Ankorstore ──────────────────────────────────────────────── */}
-        {showAnkorstore && (
-          <MarketplaceCard
+        <MarketplaceCard
             state={ankorstoreState}
             marketplace="ankorstore"
             label="Ankorstore"
@@ -1252,11 +1226,9 @@ export function MarketplaceStatusButtons({
               </>
             }
           />
-        )}
 
         {/* ─── eFashion Paris ──────────────────────────────────────────── */}
-        {showEfashion && (
-          <MarketplaceCard
+        <MarketplaceCard
             state={efashionState}
             marketplace="efashion"
             label="eFashion"
@@ -1338,11 +1310,9 @@ export function MarketplaceStatusButtons({
               </>
             }
           />
-        )}
 
         {/* ─── Faire ──────────────────────────────────────────────────── */}
-        {showFaire && (
-          <MarketplaceCard
+        <MarketplaceCard
             state={faireState}
             marketplace="faire"
             label="Faire"
@@ -1423,11 +1393,9 @@ export function MarketplaceStatusButtons({
               </>
             }
           />
-        )}
 
         {/* ─── Orderchamp ─────────────────────────────────────────────── */}
-        {showOrderchamp && (
-          <MarketplaceCard
+        <MarketplaceCard
             state={orderchampState}
             marketplace="orderchamp"
             label="Orderchamp"
@@ -1491,7 +1459,6 @@ export function MarketplaceStatusButtons({
               </>
             }
           />
-        )}
 
         {/* ─── Microstore (sync directe, sans queue) ──────────────────── */}
         <MicrostoreStatusCard
@@ -1503,6 +1470,8 @@ export function MarketplaceStatusButtons({
           microstoreLastPushedAt={microstoreLastPushedAt}
           microstoreSyncRequired={microstoreSyncRequired}
           microstoreEnabledForProduct={microstoreEnabledForProduct}
+          microstoreSessionExpired={microstoreSessionExpired}
+          microstoreProductId={microstoreProductId}
         />
       </div>
 
