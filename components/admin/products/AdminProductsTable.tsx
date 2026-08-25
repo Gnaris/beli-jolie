@@ -1202,9 +1202,12 @@ interface AdminProduct {
   faireSyncRequired: boolean;
   orderchampSyncRequired: boolean;
   microstoreSyncRequired: boolean;
-  /** Microstore n'a pas d'ID marketplace : `microstoreLastPushedAt != null` sert
-   *  d'équivalent « déjà publié ». Null = jamais poussé (la modale bulk peut
-   *  quand même proposer un premier push si Microstore est configuré). */
+  /** Microstore : `microstoreLastPushedAt != null` sert d'équivalent
+   *  « déjà publié ». Null = jamais poussé — dans ce cas la modale bulk
+   *  post-modification n'apparaît PAS pour Microstore (alignement avec les
+   *  5 autres marketplaces). Le 1ᵉʳ push passe par le badge « M » de la
+   *  fiche produit. Le bouton « Rafraîchir » reste upsert-style (peut créer
+   *  la fiche depuis un produit non lié). */
   microstoreLastPushedAt: string | null;
   /** Drapeaux « Marketplace activée pour ce produit » — quand false, aucune
    *  action ne partira vers ce marketplace et le badge s'affiche barré. */
@@ -4893,6 +4896,10 @@ export default function AdminProductsTable({
       router.refresh();
 
       // Regroupe les produits impactés par marketplace pour la pop-up.
+      // Microstore : aligné sur PFS/Ankor/eFa/Faire/OC depuis 2026-08-25 —
+      // la case n'apparaît QUE si le produit est déjà lié
+      // (`microstoreLastPushedAt` posé). La 1ʳᵉ publication passe par le
+      // badge « M » de la fiche.
       const variantIds = Object.keys(snapshot);
       const {
         affectedProducts,
@@ -4901,29 +4908,15 @@ export default function AdminProductsTable({
         efashionProducts,
         faireProducts,
         orderchampProducts,
+        microstoreProducts,
       } = computeBulkVariantMarketplaceTargets(allProducts, variantIds, {
         hasPfsConfig,
         showAnkorstore,
         showEfashion,
         showFaire,
         showOrderchamp,
+        showMicrostore: hasMicrostoreConfig && microstoreEnabled,
       });
-
-      // Microstore : produits impactés Microstore-activés (config globale +
-      // toggle par produit). Contrat cliente : « push stock ou créer produit
-      // c'est pareil » — l'API `/goods/import_v1` upsert par `item_ref`, donc
-      // un premier push crée automatiquement la fiche côté Microstore, un
-      // push suivant la met à jour. Pas de restriction sur
-      // `microstoreLastPushedAt` — sinon la case n'apparaîtrait jamais avant
-      // le tout premier envoi manuel. Les brouillons sont exclus (cf.
-      // `isMicrostorePropagationEligible`) : sinon on créerait une fiche
-      // vide côté Microstore au premier push.
-      const microstoreProducts = hasMicrostoreConfig
-        ? affectedProducts.flatMap((p) => {
-            const full = allProducts.find((ap) => ap.id === p.id);
-            return full && isMicrostorePropagationEligible(full) ? [p] : [];
-          })
-        : [];
 
       if (
         pfsProducts.length === 0 &&
@@ -5385,9 +5378,15 @@ export default function AdminProductsTable({
       const orderchampCandidates = showOrderchamp
         ? allProducts.filter((p) => successIds.includes(p.id) && p.orderchampProductId)
         : [];
+      // Microstore : aligné sur les 5 autres marketplaces — la case
+      // n'apparaît QUE si le produit est déjà lié (`microstoreLastPushedAt`
+      // posé). La 1ʳᵉ publication passe par le badge « M » de la fiche.
       const microstoreCandidates = hasMicrostoreConfig
         ? allProducts.filter(
-            (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
+            (p) =>
+              successIds.includes(p.id)
+              && p.microstoreLastPushedAt != null
+              && isMicrostorePropagationEligible(p),
           )
         : [];
 
@@ -5508,9 +5507,15 @@ export default function AdminProductsTable({
             isOrderchampPropagationEligible(p),
         )
       : [];
+    // Microstore : aligné sur les 5 autres marketplaces — la case n'apparaît
+    // QUE si le produit est déjà lié (`microstoreLastPushedAt` posé). La 1ʳᵉ
+    // publication passe par le badge « M » de la fiche.
     const microstoreCandidates = hasMicrostoreConfig
       ? allProducts.filter(
-          (p) => successIds.includes(p.id) && isMicrostorePropagationEligible(p),
+          (p) =>
+            successIds.includes(p.id)
+            && p.microstoreLastPushedAt != null
+            && isMicrostorePropagationEligible(p),
         )
       : [];
 
@@ -5741,14 +5746,20 @@ export default function AdminProductsTable({
       })
       .filter((x): x is { reference: string; name: string } => x !== null);
     const otpAction = archiveCount === 0 ? "delete" : archiveCount > 0 && deleteCount === 0 ? "archive" : "delete";
-    const otpRes = await otpConfirm({
-      action: otpAction,
-      title: title,
-      message: "Un code de sécurité vient d'être envoyé sur votre boîte mail pro pour confirmer cette action.",
-      productIds: ids,
-      productLabels: otpLabels,
-      confirmLabel,
-    });
+    // Bypass local (dev) pour "delete" — évite l'envoi du code par mail pendant
+    // les tests de suppression. Prod (NODE_ENV=production) passe toujours par la modale.
+    const skipOtpLocally =
+      process.env.NODE_ENV !== "production" && otpAction === "delete";
+    const otpRes: { confirmed: boolean; otp?: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null } = skipOtpLocally
+      ? { confirmed: true, otp: null }
+      : await otpConfirm({
+          action: otpAction,
+          title: title,
+          message: "Un code de sécurité vient d'être envoyé sur votre boîte mail pro pour confirmer cette action.",
+          productIds: ids,
+          productLabels: otpLabels,
+          confirmLabel,
+        });
     if (!otpRes.confirmed) return;
 
     const confirmPfsDelete = pfsRef.current && pfsCandidates.length > 0;

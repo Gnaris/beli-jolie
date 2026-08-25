@@ -10,6 +10,8 @@
  *  - Respect du budget Ankorstore (sous-limite dédiée).
  *  - Respect du budget Faire (sous-limite dédiée, protection Cloudflare
  *    rate-limit — 2026-08-15).
+ *  - Respect du budget Microstore (sous-limite dédiée, protection contre
+ *    l'erreur Microstore "Send it too frequently" — 2026-08-25).
  *  - **Sérialisation par produit côté Ankorstore** : un seul job Ankor à la
  *    fois par `productId` (2026-08-15). Sans ce verrou, deux jobs Ankor
  *    concurrents sur le même produit orphelinent les SKU (cf. incident
@@ -40,12 +42,18 @@ export interface SelectJobsInput<T extends SelectableJob> {
    * ciblent pas Faire peuvent omettre ce champ).
    */
   fairesBudget?: number;
+  /**
+   * Budget Microstore restant (limite dédiée, typiquement 1). Optionnel — si
+   * absent, aucun plafond spécifique à Microstore n'est appliqué.
+   */
+  microstoresBudget?: number;
 }
 
 export function selectJobsToStart<T extends SelectableJob>(input: SelectJobsInput<T>): T[] {
   const lockedAnkorProductIds = new Set(input.inFlightAnkorProductIds);
   let ankorsBudget = input.ankorsBudget;
   let fairesBudget = input.fairesBudget ?? Infinity;
+  let microstoresBudget = input.microstoresBudget ?? Infinity;
   const toStart: T[] = [];
   for (const job of input.queued) {
     if (toStart.length >= input.totalBudget) break;
@@ -57,6 +65,9 @@ export function selectJobsToStart<T extends SelectableJob>(input: SelectJobsInpu
     } else if (job.marketplace === "FAIRE") {
       if (fairesBudget <= 0) continue;
       fairesBudget--;
+    } else if (job.marketplace === "MICROSTORE") {
+      if (microstoresBudget <= 0) continue;
+      microstoresBudget--;
     }
     toStart.push(job);
   }

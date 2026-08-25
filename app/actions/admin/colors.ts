@@ -311,10 +311,14 @@ export async function updateColorMicrostoreMapping(
     where: { id },
     data: { microstoreColorId },
   });
+  const { findMicrostoreProductsForColorMapping } = await import(
+    "@/lib/microstore-mapping-propagation"
+  );
+  const affectedProducts = await findMicrostoreProductsForColorMapping(id);
   revalidatePath("/admin/couleurs");
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
-  return { success: true as const };
+  return { success: true as const, affectedProducts };
 }
 
 /** Reorder colors by providing an ordered array of ids */

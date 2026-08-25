@@ -69,7 +69,7 @@ export function resolveMicrostoreCategoryChoice(
     if (input.subCategoryMicrostoreId == null) {
       return {
         ok: false,
-        missing: `Sous-catégorie « ${input.subCategoryName} » → à mapper dans /admin/categories (badge M sur la chip de la sous-catégorie)`,
+        missing: `Sous-catégorie « ${input.subCategoryName} »`,
       };
     }
     return {
@@ -82,7 +82,7 @@ export function resolveMicrostoreCategoryChoice(
   if (input.categoryMicrostoreId == null) {
     return {
       ok: false,
-      missing: `Catégorie « ${input.categoryName} » → à mapper dans /admin/categories (carte Microstore)`,
+      missing: `Catégorie « ${input.categoryName} »`,
     };
   }
   return {

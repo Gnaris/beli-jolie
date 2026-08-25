@@ -305,6 +305,9 @@ export async function updateCategoryFaireHsCode(
  * Mappe une catégorie BJ vers un ID catégorie Microstore. Envoyé au push
  * produit natif (`lib/microstore-goods-crud.ts`) pour renseigner l'attribut
  * catégorie côté MC Gérant.
+ *
+ * Retourne aussi `affectedProducts` : les produits déjà connus de Microstore
+ * qui utilisent cette catégorie. La modale propose de les resynchroniser.
  */
 export async function updateCategoryMicrostoreMapping(
   id: string,
@@ -315,10 +318,14 @@ export async function updateCategoryMicrostoreMapping(
     where: { id },
     data: { microstoreCategoryId },
   });
+  const { findMicrostoreProductsForCategoryMapping } = await import(
+    "@/lib/microstore-mapping-propagation"
+  );
+  const affectedProducts = await findMicrostoreProductsForCategoryMapping(id);
   revalidatePath("/admin/categories");
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
-  return { success: true as const };
+  return { success: true as const, affectedProducts };
 }
 
 /**
@@ -336,10 +343,14 @@ export async function updateSubCategoryMicrostoreMapping(
     where: { id },
     data: { microstoreCategoryId } as never,
   });
+  const { findMicrostoreProductsForSubCategoryMapping } = await import(
+    "@/lib/microstore-mapping-propagation"
+  );
+  const affectedProducts = await findMicrostoreProductsForSubCategoryMapping(id);
   revalidatePath("/admin/categories");
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
-  return { success: true as const };
+  return { success: true as const, affectedProducts };
 }
 
 // ─────────────────────────────────────────────

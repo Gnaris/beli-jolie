@@ -477,22 +477,59 @@ export function isVariantOutOfStock(v: Pick<VariantState, "stock">): boolean {
   return v.stock.trim() !== "" && Number(v.stock) === 0;
 }
 
-export interface BulkEditState { unitPrice: string; weight: string; stock: string; }
-function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "" }; }
+export interface BulkEditState { unitPrice: string; weight: string; stock: string; sizeId: string; sizeName: string; }
+function defaultBulkEdit(): BulkEditState { return { unitPrice: "", weight: "", stock: "", sizeId: "", sizeName: "" }; }
+
+type BulkNumericField = "unitPrice" | "weight" | "stock";
 
 /**
- * Applique en direct la valeur d'un champ d'édition en masse (prix/poids/stock) aux variantes sélectionnées.
- * Renvoie la nouvelle liste de variantes (ou la liste d'origine si rien à appliquer).
- * Une valeur vide n'écrase pas les variantes (sécurité : permet à l'utilisateur d'effacer le champ sans perte).
+ * Applique en direct la valeur d'un champ d'édition en masse (prix/poids/stock) aux variantes.
+ * - Sélection non vide → applique uniquement aux variantes cochées.
+ * - Sélection vide → applique à toutes les variantes.
+ * - Valeur vide → renvoie la liste d'origine (sécurité : permet d'effacer le champ sans perte).
  */
 export function applyBulkFieldToVariants<T extends VariantState>(
   variants: T[],
   selectedIds: Set<string>,
-  field: keyof BulkEditState,
+  field: BulkNumericField,
   value: string,
 ): T[] {
-  if (value === "" || selectedIds.size === 0) return variants;
-  return variants.map((v) => selectedIds.has(v.tempId) ? { ...v, [field]: value } : v);
+  if (value === "") return variants;
+  const targetAll = selectedIds.size === 0;
+  return variants.map((v) => (targetAll || selectedIds.has(v.tempId)) ? { ...v, [field]: value } : v);
+}
+
+/**
+ * Applique une taille en masse aux variantes.
+ * - Variantes déjà enregistrées (dbId) → ignorées (on ne peut pas changer la taille d'une variante existante).
+ * - Variantes PACK (mono ou multi-couleurs) → ignorées (une PACK a plusieurs tailles + quantités).
+ * - Sélection vide → cible toutes les variantes candidates (UNIT neuves).
+ * - Sélection non vide → cible uniquement les cochées parmi les candidates.
+ * - sizeId vide → renvoie la liste d'origine.
+ */
+export function applyBulkSizeToVariants<T extends VariantState>(
+  variants: T[],
+  selectedIds: Set<string>,
+  size: { id: string; name: string } | null,
+  makeId: () => string,
+): T[] {
+  if (!size || !size.id) return variants;
+  const targetAll = selectedIds.size === 0;
+  let changed = false;
+  const next = variants.map((v) => {
+    if (v.dbId) return v;
+    if (v.saleType === "PACK") return v;
+    if (v.packLines.length > 0) return v;
+    if (!(targetAll || selectedIds.has(v.tempId))) return v;
+    const existingQty = v.sizeEntries[0]?.quantity || "1";
+    const existingTempId = v.sizeEntries[0]?.tempId || makeId();
+    changed = true;
+    return {
+      ...v,
+      sizeEntries: [{ tempId: existingTempId, sizeId: size.id, sizeName: size.name, quantity: existingQty }],
+    };
+  });
+  return changed ? next : variants;
 }
 
 // ─────────────────────────────────────────────
@@ -1853,9 +1890,17 @@ export default function ColorVariantManager({
     updateVariant(variantTempId, patch);
   }
 
-  function applyBulkField(field: keyof BulkEditState, value: string) {
+  function applyBulkField(field: BulkNumericField, value: string) {
     setBulkEdit((b) => ({ ...b, [field]: value }));
     const next = applyBulkFieldToVariants(variants, selectedIds, field, value);
+    if (next !== variants) onChange(next);
+  }
+
+  function applyBulkSize(sizeId: string) {
+    const size = availableSizes.find((s) => s.id === sizeId) ?? null;
+    setBulkEdit((b) => ({ ...b, sizeId: size?.id ?? "", sizeName: size?.name ?? "" }));
+    if (!size) return;
+    const next = applyBulkSizeToVariants(variants, selectedIds, size, uid);
     if (next !== variants) onChange(next);
   }
 
@@ -1957,7 +2002,7 @@ export default function ColorVariantManager({
           {/* Mobile cards — saved variants */}
           {savedVariants.length > 0 && (
           <div className="block md:hidden border border-border rounded-xl overflow-visible divide-y divide-[#F0F0F0]">
-            <div className={`px-3 py-2 flex items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
+            <div className={`px-3 py-2 flex flex-wrap items-center gap-2 ${showBulkRow ? "bg-[#F0FDF4]" : "bg-[#FAFAFA]"}`}>
               <input type="checkbox"
                 checked={selectedIds.size === variants.length && variants.length > 0}
                 onChange={(e) => {
@@ -1965,17 +2010,27 @@ export default function ColorVariantManager({
                   else setSelectedIds(new Set());
                 }}
                 className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
-              <span className={`text-[10px] font-body flex-1 ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
-                {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Tout sélectionner"}
+              <span className={`text-[10px] font-body flex-1 ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-text-muted"}`}>
+                {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Modification en masse"}
               </span>
-              {showBulkRow && (
-                <div className="flex items-center gap-1.5">
-                  <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
-                    onChange={(e) => applyBulkField("unitPrice", e.target.value)}
-                    className="w-16 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
-                  <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
-                    onChange={(e) => applyBulkField("stock", e.target.value)}
-                    className="w-14 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
+                  onChange={(e) => applyBulkField("unitPrice", e.target.value)}
+                  className="w-16 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
+                <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
+                  onChange={(e) => applyBulkField("stock", e.target.value)}
+                  className="w-14 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
+                <div className="w-20">
+                  <CustomSelect
+                    value={bulkEdit.sizeId}
+                    onChange={applyBulkSize}
+                    options={availableSizes.map((s) => ({ value: s.id, label: fmtSize(s.name) }))}
+                    placeholder="Taille"
+                    size="sm"
+                    aria-label="Taille (nouvelles variantes uniquement)"
+                  />
+                </div>
+                {showBulkRow && (
                   <div className="relative" ref={bulkActionRef}>
                     <button type="button" onClick={() => setBulkActionOpen(!bulkActionOpen)}
                       className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -1994,8 +2049,8 @@ export default function ColorVariantManager({
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {savedVariants.map((v) => {
@@ -2218,6 +2273,40 @@ export default function ColorVariantManager({
               );
             })}
           </div>
+          )}
+
+          {/* Mobile — bulk row visible même quand il n'y a que des nouvelles variantes */}
+          {savedVariants.length === 0 && newVariants.length > 0 && (
+            <div className="block md:hidden border border-border rounded-xl px-3 py-2 flex flex-wrap items-center gap-2 bg-[#FAFAFA]">
+              <input type="checkbox"
+                checked={selectedIds.size === variants.length && variants.length > 0}
+                onChange={(e) => {
+                  if (e.target.checked) setSelectedIds(new Set(variants.map((v) => v.tempId)));
+                  else setSelectedIds(new Set());
+                }}
+                className="accent-[#22C55E] cursor-pointer w-3.5 h-3.5 shrink-0" />
+              <span className={`text-[10px] font-body flex-1 ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-text-muted"}`}>
+                {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Modification en masse"}
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
+                  onChange={(e) => applyBulkField("unitPrice", e.target.value)}
+                  className="w-16 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
+                <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
+                  onChange={(e) => applyBulkField("stock", e.target.value)}
+                  className="w-14 border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
+                <div className="w-20">
+                  <CustomSelect
+                    value={bulkEdit.sizeId}
+                    onChange={applyBulkSize}
+                    options={availableSizes.map((s) => ({ value: s.id, label: fmtSize(s.name) }))}
+                    placeholder="Taille"
+                    size="sm"
+                    aria-label="Taille (nouvelles variantes uniquement)"
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Mobile — New variants section */}
@@ -2482,36 +2571,39 @@ export default function ColorVariantManager({
                 </tr>
                 <tr className={`border-b transition-colors ${showBulkRow ? "bg-[#F0FDF4] border-[#BBF7D0]" : "bg-[#FAFAFA] border-border"}`}>
                   <td className="px-2 py-1.5 text-center">
-                    <span className={`text-[9px] font-semibold ${showBulkRow ? "text-[#16A34A]" : "text-[#D1D5DB]"}`}>
+                    <span className={`text-[9px] font-semibold ${showBulkRow ? "text-[#16A34A]" : "text-text-muted"}`}>
                       {showBulkRow ? selectedIds.size : "—"}
                     </span>
                   </td>
                   <td className="px-2 py-1.5" colSpan={4}>
-                    <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-[#D1D5DB]"}`}>
+                    <span className={`text-[10px] font-body ${showBulkRow ? "text-[#16A34A] font-semibold" : "text-text-muted"}`}>
                       {showBulkRow ? `${selectedIds.size} sélectionnée${selectedIds.size > 1 ? "s" : ""}` : "Modification en masse"}
                     </span>
                   </td>
-                  <td className="px-1 py-1.5" />
                   <td className="px-1 py-1.5">
-                    <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock} disabled={!showBulkRow}
+                    <CustomSelect
+                      value={bulkEdit.sizeId}
+                      onChange={applyBulkSize}
+                      options={availableSizes.map((s) => ({ value: s.id, label: fmtSize(s.name) }))}
+                      placeholder="Taille"
+                      size="sm"
+                      aria-label="Taille (nouvelles variantes uniquement)"
+                    />
+                  </td>
+                  <td className="px-1 py-1.5">
+                    <input type="number" min="0" step="1" placeholder="Stock" value={bulkEdit.stock}
                       onChange={(e) => applyBulkField("stock", e.target.value)}
-                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                      }`} />
+                      className="w-full border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
                   </td>
                   <td className="px-1 py-1.5">
-                    <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight} disabled={!showBulkRow}
+                    <input type="number" min="0" step="0.001" placeholder="Poids" value={bulkEdit.weight}
                       onChange={(e) => applyBulkField("weight", e.target.value)}
-                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                      }`} />
+                      className="w-full border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
                   </td>
                   <td className="px-1 py-1.5">
-                    <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice} disabled={!showBulkRow}
+                    <input type="number" min="0" step="0.01" placeholder="Prix" value={bulkEdit.unitPrice}
                       onChange={(e) => applyBulkField("unitPrice", e.target.value)}
-                      className={`w-full border px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body ${
-                        showBulkRow ? "border-[#86EFAC] bg-bg-primary" : "border-border bg-bg-secondary text-[#D1D5DB] cursor-not-allowed"
-                      }`} />
+                      className="w-full border border-[#86EFAC] bg-bg-primary px-1.5 py-1 text-xs text-right rounded-md focus:outline-none font-body" />
                   </td>
                   <td className="px-1 py-1.5" />
                   <td className="px-1 py-1.5 text-center">

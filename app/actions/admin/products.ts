@@ -884,7 +884,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       efashionReferenceBase: true,
       faireProductId: true,
       orderchampProductId: true,
-      microstoreLastPushedAt: true,
+      microstoreProductId: true,
       // Compositions actuelles — utilisées pour détecter un changement de
       // composition sur le save (sinon le badge orange resterait éteint).
       compositions: {
@@ -1663,7 +1663,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (oldProduct.efashionReferenceBase) flagsData.efashionSyncRequired = true;
       if (oldProduct.faireProductId) flagsData.faireSyncRequired = true;
       if (oldProduct.orderchampProductId) flagsData.orderchampSyncRequired = true;
-      if (oldProduct.microstoreLastPushedAt) flagsData.microstoreSyncRequired = true;
+      if (oldProduct.microstoreProductId != null) flagsData.microstoreSyncRequired = true;
       if (Object.keys(flagsData).length > 0) {
         await prisma.product.update({ where: { id }, data: flagsData });
       }
@@ -2363,7 +2363,7 @@ export async function bulkUpdateProductAttributes(
       efashionReferenceBase: true,
       faireProductId: true,
       orderchampProductId: true,
-      microstoreLastPushedAt: true,
+      microstoreProductId: true,
     },
   });
   if (products.length === 0) throw new Error("Aucun produit trouvé.");
@@ -2425,7 +2425,7 @@ export async function bulkUpdateProductAttributes(
           if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
           if (p.faireProductId) syncFlags.faireSyncRequired = true;
           if (p.orderchampProductId) syncFlags.orderchampSyncRequired = true;
-          if (p.microstoreLastPushedAt) syncFlags.microstoreSyncRequired = true;
+          if (p.microstoreProductId != null) syncFlags.microstoreSyncRequired = true;
         }
 
         await tx.product.update({
@@ -2695,7 +2695,7 @@ export async function updateVariantQuick(
       efashionReferenceBase: true,
       faireProductId: true,
       orderchampProductId: true,
-      microstoreLastPushedAt: true,
+      microstoreProductId: true,
     },
   });
   if (productForFlags) {
@@ -2705,7 +2705,7 @@ export async function updateVariantQuick(
     if (productForFlags.efashionReferenceBase) flagsData.efashionSyncRequired = true;
     if (productForFlags.faireProductId) flagsData.faireSyncRequired = true;
     if (productForFlags.orderchampProductId) flagsData.orderchampSyncRequired = true;
-    if (productForFlags.microstoreLastPushedAt) flagsData.microstoreSyncRequired = true;
+    if (productForFlags.microstoreProductId != null) flagsData.microstoreSyncRequired = true;
     if (Object.keys(flagsData).length > 0) {
       await prisma.product.update({
         where: { id: variant.productId },

@@ -29,6 +29,13 @@ export function buildProductHandle(name: string, reference: string): string {
 export interface ParsedProductHandle {
   reference: string | null;
   legacyCuid: string | null;
+  /**
+   * Toutes les références à tester en DB, dans l'ordre. Couvre le cas des
+   * refs dupliquées par refresh (`A2251(2)`) que `slugify()` transforme en
+   * `a2251-2` (tiret) ou `a2251_2` (underscore) — dans les deux cas
+   * `lastIndexOf("-")` extrait juste `2` qui ne matche rien.
+   */
+  referenceCandidates: string[];
 }
 
 export function parseProductHandle(handle: string): ParsedProductHandle {
@@ -38,13 +45,30 @@ export function parseProductHandle(handle: string): ParsedProductHandle {
   } catch {
     clean = handle.trim().toLowerCase();
   }
-  if (!clean) return { reference: null, legacyCuid: null };
+  if (!clean) return { reference: null, legacyCuid: null, referenceCandidates: [] };
   if (CUID_REGEX.test(clean)) {
-    return { reference: null, legacyCuid: clean };
+    return { reference: null, legacyCuid: clean, referenceCandidates: [] };
   }
   const lastDash = clean.lastIndexOf("-");
   if (lastDash === -1) {
-    return { reference: clean, legacyCuid: null };
+    return { reference: clean, legacyCuid: null, referenceCandidates: [clean] };
   }
-  return { reference: clean.slice(lastDash + 1), legacyCuid: null };
+  const tail = clean.slice(lastDash + 1);
+  const candidates: string[] = [tail];
+
+  // Ref `A2251(2)` slugifiée en `-a2251-2` : quand le tail est un chiffre
+  // isolé, on tente aussi `{prevSeg}({tail})` en remontant d'un cran.
+  if (/^\d+$/.test(tail) && lastDash > 0) {
+    const prevDash = clean.lastIndexOf("-", lastDash - 1);
+    const prevSeg = clean.slice(prevDash + 1, lastDash);
+    if (prevSeg) candidates.push(`${prevSeg}(${tail})`);
+  }
+
+  // Format underscore `a2251_2` → `A2251(2)` (au cas où slugify évoluerait).
+  const underscoreN = tail.match(/^(.+)_(\d+)$/);
+  if (underscoreN) {
+    candidates.push(`${underscoreN[1]}(${underscoreN[2]})`);
+  }
+
+  return { reference: tail, legacyCuid: null, referenceCandidates: candidates };
 }

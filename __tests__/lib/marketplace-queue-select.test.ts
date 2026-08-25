@@ -230,6 +230,37 @@ describe("selectJobsToStart", () => {
     expect(res.map((j) => j.id)).toEqual(["a1", "f1", "a2", "f2", "a3", "p1"]);
   });
 
+  it("respecte le budget Microstore dédié (1 seul job Microstore par tenant)", () => {
+    const queued: Job[] = Array.from({ length: 4 }, (_, i) =>
+      job(`m${i}`, "MICROSTORE", `p${i}`),
+    );
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      microstoresBudget: 1,
+    });
+    expect(res.map((j) => j.id)).toEqual(["m0"]);
+  });
+
+  it("saute les jobs Microstore quand microstoresBudget = 0 mais laisse passer les autres", () => {
+    const queued: Job[] = [
+      job("m1", "MICROSTORE", "p1"), // skip (budget 0)
+      job("p1", "PFS", "p2"),
+      job("m2", "MICROSTORE", "p3"), // skip
+      job("a1", "ANKORSTORE", "p4"),
+    ];
+    const res = selectJobsToStart({
+      queued,
+      inFlightAnkorProductIds: [],
+      totalBudget: 10,
+      ankorsBudget: 5,
+      microstoresBudget: 0,
+    });
+    expect(res.map((j) => j.id)).toEqual(["p1", "a1"]);
+  });
+
   it("ne mute pas le Set inFlight passé en entrée", () => {
     const inFlight = new Set(["prodA"]);
     selectJobsToStart({

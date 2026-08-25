@@ -59,7 +59,7 @@ describe("resolveMicrostoreCategoryChoice", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.missing).toContain("Bracelet");
-      expect(res.missing).toContain("/admin/categories");
+      expect(res.missing).toContain("Catégorie");
     }
   });
 
@@ -88,7 +88,7 @@ describe("resolveMicrostoreCategoryChoice", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.missing).toContain("Bracelet de main");
-      expect(res.missing).toContain("badge M");
+      expect(res.missing).toContain("Sous-catégorie");
     }
   });
 

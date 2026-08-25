@@ -278,6 +278,16 @@ export async function guardAdminActionOtp(params: {
   tenantId: string;
   otp?: { otpId: string; code: string } | null;
 }): Promise<void> {
+  // Bypass local (dev/test) pour l'action "delete" — facilite les tests de
+  // suppression sans devoir attendre un code par mail. Prod (NODE_ENV=production)
+  // reste protégée.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    params.action === "delete"
+  ) {
+    return;
+  }
+
   const pauseActive = await isOtpPauseActive(params.tenantId);
   if (pauseActive) return;
 

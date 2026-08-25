@@ -2423,6 +2423,16 @@ html.admin-dark .variant-cell-input {
   border-color: #2dd4bf;
   color: #f4f4f5;
 }
+/* Cellule modifiée (dirty) — le pastel jaune + texte marron du mode clair
+   devient illisible en dark. On garde l'accent ambré pour marquer « modifié »
+   mais avec fond sombre et texte clair. */
+#admin-theme-wrapper.admin-dark .variant-cell-dirty,
+html.admin-dark .variant-cell-dirty {
+  background: linear-gradient(135deg, #3a2408, #4a2e0a) !important;
+  border-color: #b45309 !important;
+  color: #fde68a !important;
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.25);
+}
 
 /* Pilule Activée / Désactivée du tiroir variantes : en mode sombre les
    verts/rouges Tailwind (600/700) brûlent l'œil, on assombrit fortement.

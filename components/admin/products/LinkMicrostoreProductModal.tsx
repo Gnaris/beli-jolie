@@ -28,6 +28,7 @@ import {
   unlinkMicrostoreProduct,
   type MicrostoreLinkCandidate,
 } from "@/app/actions/admin/microstore-linking";
+import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
 
 interface Props {
   open: boolean;
@@ -63,6 +64,7 @@ export default function LinkMicrostoreProductModal({
   const router = useRouter();
   const toast = useToast();
   const { confirm } = useConfirm();
+  const { enqueueLinkJob, hasActiveJobForProduct } = useMarketplaceLinkJobs();
   const backdrop = useBackdropClose(onClose);
 
   const [mounted, setMounted] = useState(false);
@@ -101,38 +103,84 @@ export default function LinkMicrostoreProductModal({
   }
 
   async function handleLink(candidate: MicrostoreLinkCandidate) {
+    // Refuse une deuxième liaison en parallèle sur le même produit — évite
+    // que 2 push Microstore se marchent dessus.
+    if (hasActiveJobForProduct(productId, "microstore")) {
+      toast.warning(
+        "Liaison déjà en cours",
+        "Attends que la liaison Microstore en cours soit terminée avant d'en relancer une pour ce produit.",
+      );
+      return;
+    }
     const ok = await confirm({
       type: "info",
       title: `Lier ce produit à Microstore #${candidate.microstoreProductId} ?`,
       message:
-        `Le produit BJ « ${productName} » sera rattaché à la fiche Microstore « ${candidate.name} » (référence ${candidate.itemRef}). Les couleurs BJ seront reliées aux SKUs Microstore par nom (${candidate.colors.length} couleur${candidate.colors.length > 1 ? "s" : ""} détectée${candidate.colors.length > 1 ? "s" : ""}). Aucune donnée n'est envoyée côté Microstore — c'est juste un rattachement local pour éviter de dupliquer la fiche au prochain envoi.`,
-      confirmLabel: "Oui, lier",
+        `Le produit BJ « ${productName} » sera rattaché à la fiche Microstore « ${candidate.name} » (référence ${candidate.itemRef}). Les couleurs BJ seront reliées aux SKUs Microstore par nom (${candidate.colors.length} couleur${candidate.colors.length > 1 ? "s" : ""} détectée${candidate.colors.length > 1 ? "s" : ""}). Une synchronisation complète de la fiche + des photos sera lancée dans la foulée pour aligner Microstore sur tes données BJ.`,
+      confirmLabel: "Oui, lier et synchroniser",
     });
     if (!ok) return;
+
+    // Enqueue le job dans le widget « Marketplaces » (colonne Liaison). La
+    // liaison + le push tournent en fond, le résultat (succès / erreur avec
+    // détail) s'affiche dans le tiroir, plus dans un toast fugace. Cohérent
+    // avec la façon dont PFS / Ankor / eFa / Faire enregistrent leurs liaisons.
     setLinking(true);
-    try {
-      const res = await linkMicrostoreProductManually(
+    enqueueLinkJob(
+      {
+        marketplace: "microstore",
         productId,
-        candidate.microstoreProductId,
-      );
-      if (res.success && res.data) {
-        const { matched, orphansBj, orphansMicrostore } = res.data;
-        let msg = `${matched} couleur${matched > 1 ? "s" : ""} reliée${matched > 1 ? "s" : ""}.`;
+        productName,
+        reference,
+        productImage: null,
+      },
+      async () => {
+        const res = await linkMicrostoreProductManually(
+          productId,
+          candidate.microstoreProductId,
+        );
+        if (!res.success || !res.data) {
+          return { success: false, error: res.error ?? "Erreur inconnue." };
+        }
+        const { matched, orphansBj, orphansMicrostore, sync } = res.data;
+        const orphanParts: string[] = [];
         if (orphansBj.length > 0) {
-          msg += ` Sans équivalent Microstore : ${orphansBj.join(", ")}.`;
+          orphanParts.push(`Sans équivalent Microstore : ${orphansBj.join(", ")}.`);
         }
         if (orphansMicrostore.length > 0) {
-          msg += ` Sans équivalent BJ : ${orphansMicrostore.join(", ")}.`;
+          orphanParts.push(`Sans équivalent BJ : ${orphansMicrostore.join(", ")}.`);
         }
-        toast.success("Produit lié à Microstore", msg);
-        router.refresh();
-        onClose();
-      } else {
-        toast.error("Liaison échouée", res.error ?? "Erreur inconnue.");
-      }
-    } finally {
-      setLinking(false);
-    }
+        const orphanTail = orphanParts.length > 0 ? ` ${orphanParts.join(" ")}` : "";
+        // Cas 1 : push échoué (pays manquant, station expirée, incomplète…)
+        //   → remonté en erreur rouge dans la colonne Liaison, avec le motif.
+        // Cas 2 : succès partiel (fiche OK, photos KO)
+        //   → remonté aussi en erreur : la cliente doit voir que les photos
+        //     ne sont pas passées (LinkJobRow n'affiche `error` que si status
+        //     = "error", donc un "success + warning" resterait invisible).
+        if (sync.ran && (!sync.success || sync.error)) {
+          const prefix = sync.success
+            ? "Fiche synchronisée, photos non uploadées"
+            : "Synchro échouée";
+          return {
+            success: false,
+            error: `${matched} couleur(s) reliée(s).${orphanTail} ${prefix} : ${sync.error ?? "erreur inconnue"}.`,
+            linked: matched,
+          };
+        }
+        return { success: true, linked: matched };
+      },
+    );
+
+    // Petit délai UX pour que la modale reste ~500 ms — le temps que le job
+    // apparaisse dans le widget flottant avant qu'on ferme la modale.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    toast.success(
+      "Liaison Microstore lancée",
+      "Suis son avancement dans le widget « Marketplaces » en bas à droite.",
+    );
+    setLinking(false);
+    router.refresh();
+    onClose();
   }
 
   async function handleUnlink() {

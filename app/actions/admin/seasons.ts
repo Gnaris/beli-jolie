@@ -139,10 +139,14 @@ export async function updateSeasonMicrostoreMapping(
     where: { id },
     data: { microstoreSeasonId },
   });
+  const { findMicrostoreProductsForSeasonMapping } = await import(
+    "@/lib/microstore-mapping-propagation"
+  );
+  const affectedProducts = await findMicrostoreProductsForSeasonMapping(id);
   revalidatePath("/admin/saisons");
   revalidatePath("/admin/produits");
   revalidateTag("seasons", "default");
-  return { success: true as const };
+  return { success: true as const, affectedProducts };
 }
 
 export async function deleteSeason(id: string) {

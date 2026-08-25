@@ -246,9 +246,7 @@ interface MicrostoreMappings {
 export class MicrostoreMappingMissingError extends Error {
   public readonly missing: string[];
   constructor(missing: string[]) {
-    super(
-      `Mapping Microstore incomplet — corrige d'abord :\n  · ${missing.join("\n  · ")}`,
-    );
+    super(`Non mappé à Microstore : ${missing.join(", ")}`);
     this.name = "MicrostoreMappingMissingError";
     this.missing = missing;
   }
@@ -346,15 +344,11 @@ async function assertMicrostoreMappings(
   });
   if (!choice.ok) missing.push(choice.missing);
   if (snap.seasonName && snap.seasonMicrostoreId == null) {
-    missing.push(
-      `Saison « ${snap.seasonName} » → à mapper dans /admin/saisons (carte Microstore)`,
-    );
+    missing.push(`Saison « ${snap.seasonName} »`);
   }
   for (const c of snap.colors) {
     if (c.microstoreColorId == null) {
-      missing.push(
-        `Couleur « ${c.name} » → à mapper dans /admin/couleurs (carte Microstore)`,
-      );
+      missing.push(`Couleur « ${c.name} »`);
     }
   }
   if (missing.length > 0) throw new MicrostoreMappingMissingError(missing);
@@ -455,7 +449,7 @@ export async function microstorePushOneNative(
       // Sécurité : assertMicrostoreMappings a déjà couvert ce cas mais garde
       // ce garde-fou au cas où le snapshot et les buckets divergent.
       throw new MicrostoreMappingMissingError([
-        `Couleur « ${b.colorName} » → à mapper dans /admin/couleurs (carte Microstore)`,
+        `Couleur « ${b.colorName} »`,
       ]);
     }
     const colorId = await ensureColorId(cache, b.colorName, preferredColorId);

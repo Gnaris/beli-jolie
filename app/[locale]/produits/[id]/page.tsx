@@ -32,8 +32,8 @@ const getProduct = cache(async (handle: string, locale: string) => {
   const parsed = parseProductHandle(handle);
   const where = parsed.legacyCuid
     ? { id: parsed.legacyCuid }
-    : parsed.reference
-      ? { reference: parsed.reference }
+    : parsed.referenceCandidates.length > 0
+      ? { reference: { in: parsed.referenceCandidates } }
       : null;
   if (!where) return null;
   return prisma.product.findFirst({

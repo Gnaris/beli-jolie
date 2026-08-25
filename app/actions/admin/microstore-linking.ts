@@ -30,6 +30,7 @@ import {
   getStoredPictureStation,
   getMicrostoreGoodsByItemRef,
 } from "@/lib/microstore-picture-station";
+import { pushProductToMicrostore } from "@/app/actions/admin/microstore-products";
 
 interface ActionResult<T = unknown> {
   success: boolean;
@@ -139,6 +140,8 @@ export async function linkMicrostoreProductManually(
     matched: number;
     orphansBj: string[];
     orphansMicrostore: string[];
+    /** Résultat du push complet déclenché juste après la liaison. */
+    sync: { ran: boolean; success: boolean; error?: string };
   }>
 > {
   await requireAdmin();
@@ -148,6 +151,7 @@ export async function linkMicrostoreProductManually(
       select: {
         id: true,
         reference: true,
+        microstoreEnabled: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
@@ -195,15 +199,14 @@ export async function linkMicrostoreProductManually(
       }
     }
 
-    // Persiste les IDs dans une transaction pour garantir la cohérence
+    // Persiste les IDs dans une transaction pour garantir la cohérence.
+    // On NE pose PAS microstoreLastPushedAt ici : ça sera fait par le push qui
+    // suit (markPushed). Comme ça, si le push échoue, la cliente voit que le
+    // produit est lié mais pas encore synchro — pas un faux « à jour ».
     await prisma.$transaction([
       prisma.product.update({
         where: { id: bjProductId },
-        data: {
-          microstoreProductId,
-          microstoreLastPushedAt: new Date(),
-          microstoreSyncRequired: false,
-        },
+        data: { microstoreProductId },
       }),
       ...updates.map((u) =>
         prisma.productColor.update({
@@ -212,6 +215,26 @@ export async function linkMicrostoreProductManually(
         }),
       ),
     ]);
+
+    // Push complet dans la foulée : fiche via /goods/update (existingMsId
+    // détecté auto) + photos via Picture Station. Aligne Microstore sur les
+    // données BJ dès la liaison, sinon la fiche Microstore reste sur ses
+    // anciennes valeurs jusqu'au prochain « Envoyer » manuel.
+    let sync: { ran: boolean; success: boolean; error?: string };
+    if (!bj.microstoreEnabled) {
+      sync = {
+        ran: false,
+        success: false,
+        error: "Marketplace Microstore décochée sur ce produit — synchro non lancée.",
+      };
+    } else {
+      const pushRes = await pushProductToMicrostore(bjProductId);
+      sync = {
+        ran: true,
+        success: pushRes.success,
+        error: pushRes.error,
+      };
+    }
 
     revalidatePath("/admin/produits");
     revalidateTag("products", "default");
@@ -222,6 +245,7 @@ export async function linkMicrostoreProductManually(
         matched: updates.length,
         orphansBj,
         orphansMicrostore,
+        sync,
       },
     };
   } catch (err) {

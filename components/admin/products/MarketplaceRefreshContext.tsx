@@ -175,6 +175,8 @@ export function hasError(item: MarketplaceRefreshItem): boolean {
   if (item.ankorsOutcome && !item.ankorsOutcome.ok) return true;
   if (item.efashionOutcome && !item.efashionOutcome.ok) return true;
   if (item.faireOutcome && !item.faireOutcome.ok) return true;
+  if (item.orderchampOutcome && !item.orderchampOutcome.ok) return true;
+  if (item.microstoreOutcome && !item.microstoreOutcome.ok) return true;
   return false;
 }
 
@@ -214,6 +216,8 @@ function outcomeForMarketplace(
   if (target === "ankorstore") return item.ankorsOutcome;
   if (target === "efashion") return item.efashionOutcome;
   if (target === "faire") return item.faireOutcome;
+  if (target === "orderchamp") return item.orderchampOutcome;
+  if (target === "microstore") return item.microstoreOutcome;
   return item.pfsOutcome;
 }
 

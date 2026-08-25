@@ -65,7 +65,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-blue-700",
     barActive: "bg-gradient-to-r from-blue-600 to-cyan-500",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
       </svg>
     ),
@@ -75,7 +75,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-emerald-700",
     barActive: "bg-gradient-to-r from-emerald-600 to-emerald-400",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -89,7 +89,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-violet-700",
     barActive: "bg-gradient-to-r from-violet-600 to-violet-400",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -103,7 +103,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-fuchsia-700",
     barActive: "bg-gradient-to-r from-fuchsia-600 to-pink-400",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -117,7 +117,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-sky-700",
     barActive: "bg-gradient-to-r from-sky-600 to-sky-400",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -131,7 +131,7 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
     chipText: "text-amber-800",
     barActive: "bg-gradient-to-r from-amber-500 to-orange-400",
     icon: (
-      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
@@ -153,7 +153,6 @@ const MARKETPLACES_ICON = (
 // ────────────────────────────────────────────────────────────────
 
 type StatusFilter = "all" | "active" | "errors" | "done";
-type MarketplaceFilter = "all" | MarketplaceTarget;
 
 export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
@@ -196,7 +195,6 @@ export function MarketplacesDrawer() {
   // au moment de l'ouverture — évite l'écran « Aucune activité » d'entrée.
   const [activeTab, setActiveTab] = useState<ViewKey>("creation");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [marketplaceFilter, setMarketplaceFilter] = useState<MarketplaceFilter>("all");
 
   useEffect(() => {
     if (openWidget !== "marketplaces") return;
@@ -317,16 +315,16 @@ export function MarketplacesDrawer() {
       icon={MARKETPLACES_ICON}
       footer={
         !isEmpty ? (
-          <div className="flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-slate-500 tabular-nums">
               {totalProcessed} / {totalPlanned} traités
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               {queuedCount > 0 && (
                 <button
                   type="button"
                   onClick={() => void onStopQueued()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 font-semibold hover:bg-rose-200 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-100 text-rose-700 font-semibold hover:bg-rose-200 transition-colors"
                 >
                   Arrêter ({queuedCount})
                 </button>
@@ -334,7 +332,7 @@ export function MarketplacesDrawer() {
               <button
                 type="button"
                 onClick={clearDone}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-semibold hover:bg-slate-900 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 text-white font-semibold hover:bg-slate-900 transition-colors"
               >
                 Vider terminés
               </button>
@@ -346,9 +344,9 @@ export function MarketplacesDrawer() {
       <div className="flex flex-col h-full min-h-0 bg-slate-50/60">
         {/* ─── Bandeau KPI aurora sky compact ─── */}
         {!isEmpty && (
-          <div className="flex-shrink-0 px-6 pt-4 pb-3">
-            <div className="mx-auto max-w-3xl grid grid-cols-4 gap-2">
-              <KpiTile label="En cours" value={activeCount - queuedCount} tone="sky" pulse={activeCount > 0} />
+          <div className="flex-shrink-0 px-6 pt-5 pb-4">
+            <div className="mx-auto max-w-4xl grid grid-cols-4 gap-3">
+              <KpiTile label="En cours" value={runningCount} tone="sky" pulse={runningCount > 0} />
               <KpiTile label="En attente" value={queuedCount} tone="slate" />
               <KpiTile label="Erreurs" value={errorCount + linkErrorCount} tone="rose" />
               <KpiTile label="Terminés" value={totalProcessed} tone="emerald" />
@@ -379,20 +377,20 @@ export function MarketplacesDrawer() {
                     setActiveTab(key);
                     setStatusFilter("all");
                   }}
-                  className={`relative flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-bold whitespace-nowrap transition-colors border-b-2 ${
+                  className={`relative flex items-center gap-2 px-4 py-3 text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
                     isActive
                       ? `${accent.chipText} border-current`
                       : "text-slate-500 hover:text-slate-700 border-transparent"
                   }`}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <span className={`w-5 h-5 rounded-md flex items-center justify-center ${isActive ? accent.chip : "bg-slate-100"} ${isActive ? accent.chipText : "text-slate-500"}`}>
+                  <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${isActive ? accent.chip : "bg-slate-100"} ${isActive ? accent.chipText : "text-slate-500"}`}>
                     {accent.icon}
                   </span>
                   <span>{meta.title}</span>
                   {badge > 0 && (
                     <span
-                      className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold tabular-nums ${
+                      className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold tabular-nums ${
                         hasErrors
                           ? "bg-rose-500 text-white"
                           : isActive
@@ -409,28 +407,10 @@ export function MarketplacesDrawer() {
           </div>
         </div>
 
-        {/* ─── Filtres marketplace + statut ─── */}
+        {/* ─── Filtre statut ─── */}
         {activeView && (activeView.groups.length > 0 || activeView.linkJobs.length > 0) && (
-          <div className="flex-shrink-0 px-6 py-2.5 bg-white border-b border-slate-200 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold mr-1">Marketplaces</span>
-              <FilterChip
-                active={marketplaceFilter === "all"}
-                onClick={() => setMarketplaceFilter("all")}
-                label="Tous"
-                variant="dark"
-              />
-              {MARKETPLACE_ORDER.map((m) => (
-                <MarketplaceInitialChip
-                  key={m}
-                  target={m}
-                  active={marketplaceFilter === m}
-                  onClick={() => setMarketplaceFilter(marketplaceFilter === m ? "all" : m)}
-                />
-              ))}
-            </div>
-            <div className="h-4 w-px bg-slate-200" />
-            <div className="flex items-center gap-1">
+          <div className="flex-shrink-0 px-6 py-3.5 bg-white border-b border-slate-200 flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5">
               <FilterChip active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="Tous" />
               <FilterChip
                 active={statusFilter === "active"}
@@ -455,9 +435,9 @@ export function MarketplacesDrawer() {
               <button
                 type="button"
                 onClick={retryAllErrorsInView}
-                className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-700 text-[11px] font-bold hover:bg-rose-200 transition"
+                className="ml-auto inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-100 text-rose-700 text-sm font-bold hover:bg-rose-200 transition"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0113.5-4M20 14a8 8 0 01-13.5 4" />
                 </svg>
                 Relancer les {activeView.kpi.errors} erreurs
@@ -474,7 +454,6 @@ export function MarketplacesDrawer() {
             <ViewContent
               view={activeView}
               statusFilter={statusFilter}
-              marketplaceFilter={marketplaceFilter}
               nowMs={nowMs}
               onRetry={retryOneGroup}
               onDismiss={dismissGroup}
@@ -493,13 +472,13 @@ export function MarketplacesDrawer() {
 
 function EmptyState() {
   return (
-    <div className="p-6 h-full min-h-[280px] flex items-center justify-center text-center">
+    <div className="p-8 h-full min-h-[280px] flex items-center justify-center text-center">
       <div>
-        <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-sky-100 to-sky-50 flex items-center justify-center text-sky-500 mb-3">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-sky-100 to-sky-50 flex items-center justify-center text-sky-500 mb-4">
           {MARKETPLACES_ICON}
         </div>
-        <p className="text-sm font-semibold text-slate-700">Aucune synchro en cours</p>
-        <p className="text-[11px] text-slate-500 mt-1 max-w-[280px] mx-auto">
+        <p className="text-base font-semibold text-slate-700">Aucune synchro en cours</p>
+        <p className="text-sm text-slate-500 mt-1.5 max-w-[340px] mx-auto">
           Vos envois vers PFS, Ankorstore, eFashion, Faire et Orderchamp s'afficheront ici, rangés par type d'action.
         </p>
       </div>
@@ -525,12 +504,12 @@ function KpiTile({
     slate: "bg-slate-50 border-slate-200 text-slate-600",
   };
   return (
-    <div className={`rounded-lg border px-2 py-1.5 ${toneClasses[tone]}`}>
-      <div className="text-[9px] uppercase tracking-widest font-bold opacity-80">{label}</div>
-      <div className="flex items-center gap-1 mt-0.5">
-        <span className="text-lg font-bold tabular-nums leading-none">{value}</span>
+    <div className={`rounded-xl border px-4 py-3 ${toneClasses[tone]}`}>
+      <div className="text-[11px] uppercase tracking-widest font-bold opacity-80">{label}</div>
+      <div className="flex items-center gap-2 mt-1">
+        <span className="text-2xl font-bold tabular-nums leading-none">{value}</span>
         {pulse && value > 0 && (
-          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-current opacity-70 animate-pulse" />
         )}
       </div>
     </div>
@@ -550,7 +529,7 @@ function FilterChip({
   dot?: string;
   variant?: "dark";
 }) {
-  const base = "px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors";
+  const base = "px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors";
   const styles = active
     ? variant === "dark"
       ? "bg-slate-900 text-white"
@@ -558,33 +537,8 @@ function FilterChip({
     : "text-slate-500 hover:bg-slate-100";
   return (
     <button type="button" onClick={onClick} className={`${base} ${styles}`}>
-      {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+      {dot && <span className={`w-2 h-2 rounded-full ${dot}`} />}
       {label}
-    </button>
-  );
-}
-
-function MarketplaceInitialChip({
-  target,
-  active,
-  onClick,
-}: {
-  target: MarketplaceTarget;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const meta = MARKETPLACE_META[target];
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={meta.name}
-      style={{ background: meta.grad }}
-      className={`w-6 h-6 rounded-md text-white text-[10px] font-bold flex items-center justify-center transition ${
-        active ? "ring-2 ring-offset-1 ring-slate-900" : "opacity-80 hover:opacity-100"
-      }`}
-    >
-      {meta.letter}
     </button>
   );
 }
@@ -596,7 +550,6 @@ function MarketplaceInitialChip({
 function ViewContent({
   view,
   statusFilter,
-  marketplaceFilter,
   nowMs,
   onRetry,
   onDismiss,
@@ -604,7 +557,6 @@ function ViewContent({
 }: {
   view: ViewBucketProduct;
   statusFilter: StatusFilter;
-  marketplaceFilter: MarketplaceFilter;
   nowMs: number;
   onRetry: (group: ProductGroup) => void;
   onDismiss: (group: ProductGroup) => void;
@@ -613,18 +565,27 @@ function ViewContent({
   const filteredGroups = useMemo(() => {
     let arr = view.groups.slice();
 
-    // Filtre marketplace : masque les cartes dont AUCUN item ne cible la marketplace choisie
-    if (marketplaceFilter !== "all") {
-      arr = arr.filter((g) => g.items.some((it) => it.marketplace === marketplaceFilter));
-    }
-
-    // Filtre statut : errors / active / done / all
+    // Filtre statut cellule-par-cellule : un produit peut apparaître dans PLUSIEURS
+    // filtres (ex: "En cours" ET "Erreurs" si une marketplace tourne et une autre a échoué).
+    // - En cours : au moins une case marketplace active/queued
+    // - Erreurs  : au moins une case marketplace en erreur
+    // - Terminés : TOUTES les cases ciblées sont "done", zéro erreur, zéro active/queued
     if (statusFilter === "errors") {
-      arr = arr.filter((g) => g.section === "errors");
+      arr = arr.filter((g) =>
+        Object.values(g.cells).some((c) => c?.kind === "error"),
+      );
     } else if (statusFilter === "active") {
-      arr = arr.filter((g) => g.section === "active" || g.section === "queued" || g.section === "scheduled");
+      arr = arr.filter((g) =>
+        Object.values(g.cells).some((c) => c?.kind === "active" || c?.kind === "queued"),
+      );
     } else if (statusFilter === "done") {
-      arr = arr.filter((g) => g.section === "done");
+      arr = arr.filter((g) => {
+        const targeted = Object.values(g.cells).filter(
+          (c): c is NonNullable<typeof c> => c != null && c.kind !== "not-targeted",
+        );
+        if (targeted.length === 0) return false;
+        return targeted.every((c) => c.kind === "done");
+      });
     }
 
     // Ordre : erreurs > actifs > scheduled/queued > done
@@ -645,12 +606,11 @@ function ViewContent({
     });
 
     return arr;
-  }, [view.groups, statusFilter, marketplaceFilter]);
+  }, [view.groups, statusFilter]);
 
   const filteredLinkJobs = useMemo(() => {
     if (view.key !== "link") return [];
     let arr = view.linkJobs.slice();
-    if (marketplaceFilter !== "all") arr = arr.filter((j) => j.marketplace === marketplaceFilter);
     if (statusFilter === "errors") arr = arr.filter((j) => j.status === "error");
     else if (statusFilter === "active") arr = arr.filter((j) => j.status === "in_progress");
     else if (statusFilter === "done") arr = arr.filter((j) => j.status === "done");
@@ -662,22 +622,22 @@ function ViewContent({
       return b.startedAt - a.startedAt;
     });
     return arr;
-  }, [view.key, view.linkJobs, statusFilter, marketplaceFilter]);
+  }, [view.key, view.linkJobs, statusFilter]);
 
   if (filteredGroups.length === 0 && filteredLinkJobs.length === 0) {
     return (
-      <div className="p-6 text-center">
-        <p className="text-sm text-slate-500">Rien à afficher dans cette vue avec les filtres actifs.</p>
+      <div className="p-8 text-center">
+        <p className="text-base text-slate-500">Rien à afficher dans cette vue avec les filtres actifs.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-3">
+    <div className="p-4 md:p-6 space-y-4">
       {view.key === "scheduled" && (
         <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
       )}
-      <div className="space-y-2">
+      <div className="space-y-3">
         {filteredGroups.map((group) => (
           <ProductJobRow
             key={`${group.productId}::${group.dominantMode}`}
@@ -732,22 +692,22 @@ function ScheduleHeader({
   if (!nextSlot) return null;
 
   return (
-    <div className="mx-auto max-w-4xl rounded-2xl bg-gradient-to-br from-amber-50 via-white to-amber-50 border-2 border-amber-200 p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-700">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <div className="mx-auto max-w-4xl rounded-2xl bg-gradient-to-br from-amber-50 via-white to-amber-50 border-2 border-amber-200 p-5 shadow-sm">
+      <div className="flex items-start gap-4">
+        <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 text-amber-700">
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] uppercase tracking-widest font-bold text-amber-700">
+          <div className="text-xs uppercase tracking-widest font-bold text-amber-700">
             Planificateur actif
           </div>
-          <div className="text-sm font-bold text-slate-800 mt-0.5">
+          <div className="text-base font-bold text-slate-800 mt-1">
             {remaining} rafraîchissement{remaining > 1 ? "s" : ""} étalé{remaining > 1 ? "s" : ""}
             {intervalMs !== null && <> · 1 toutes les {formatDurationHuman(intervalMs)}</>}
           </div>
-          <div className="text-[11px] text-slate-600 mt-1">
+          <div className="text-sm text-slate-600 mt-1.5">
             Prochain envoi dans{" "}
             <span className="font-bold text-amber-700 tabular-nums">
               {countdownMs !== null ? formatCountdownMMSS(countdownMs) : "—"}
@@ -763,24 +723,24 @@ function ScheduleHeader({
       </div>
 
       {/* Timeline horizontale mini — 6 prochains créneaux max */}
-      <div className="mt-4 grid grid-cols-6 gap-1.5">
+      <div className="mt-5 grid grid-cols-6 gap-2">
         {groups.slice(0, 6).map((g, idx) => {
           const atMs = g.earliestScheduledFor ? Date.parse(g.earliestScheduledFor) : null;
           const isNext = idx === 0;
           return (
             <div
               key={g.productId}
-              className={`rounded-lg border p-1.5 text-center ${
+              className={`rounded-lg border p-2 text-center ${
                 isNext
                   ? "bg-amber-100 border-amber-400 ring-2 ring-amber-200"
                   : "bg-white border-slate-200"
               }`}
               title={g.productName}
             >
-              <div className="text-[9px] font-semibold text-slate-500">
+              <div className="text-[11px] font-semibold text-slate-500">
                 {atMs !== null ? formatClockTime(atMs) : "—"}
               </div>
-              <div className="text-[9px] font-bold text-slate-700 truncate mt-0.5">
+              <div className="text-[11px] font-bold text-slate-700 truncate mt-0.5">
                 {g.reference || g.productName.slice(0, 6)}
               </div>
             </div>
@@ -823,30 +783,30 @@ function ProductJobRow({
   const cardShadow = isError ? "shadow-sm shadow-rose-100" : "";
 
   return (
-    <article className={`bg-white rounded-xl ${cardBorder} ${cardShadow} overflow-hidden transition-shadow hover:shadow-sm`}>
-      <div className="p-2.5 flex flex-col md:flex-row md:items-center gap-3">
+    <article className={`bg-white rounded-2xl ${cardBorder} ${cardShadow} overflow-hidden transition-shadow hover:shadow-sm`}>
+      <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
         {/* Colonne 1 : image + nom + réf */}
-        <div className="flex items-center gap-2.5 md:w-[260px] md:flex-shrink-0 min-w-0">
+        <div className="flex items-center gap-3 md:w-[300px] md:flex-shrink-0 min-w-0">
           <ProductImage src={group.firstImage} alt={group.productName} active={isActive} error={isError} />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1 mb-0.5">
+            <div className="flex items-center gap-1.5 mb-1">
               <ActionChip view={view} />
               {isScheduled && dominantItem?.scheduledFor && (
-                <span className="px-1 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] uppercase tracking-widest font-bold">
+                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] uppercase tracking-widest font-bold">
                   À {formatClockTime(Date.parse(dominantItem.scheduledFor))}
                 </span>
               )}
             </div>
-            <h3 className="text-[12.5px] font-bold text-slate-900 leading-tight truncate">
+            <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">
               {group.productName}
             </h3>
-            <div className="text-[10px] text-slate-400 font-mono truncate">{group.reference}</div>
+            <div className="text-xs text-slate-400 font-mono truncate mt-0.5">{group.reference}</div>
           </div>
         </div>
 
         {/* Colonne 2 : 6 cases marketplace */}
         <div className="flex-1 min-w-0">
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5">
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
             {MARKETPLACE_ORDER.map((m) => (
               <MarketplaceCellBox key={m} target={m} cell={group.cells[m]} />
             ))}
@@ -854,9 +814,9 @@ function ProductJobRow({
         </div>
 
         {/* Colonne 3 : durée + retirer si non-actif/non-erreur */}
-        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-1 md:w-[80px] md:flex-shrink-0">
+        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-1.5 md:w-[90px] md:flex-shrink-0">
           {startedAtMs !== null && (
-            <span className="text-[10px] text-slate-400 tabular-nums">
+            <span className="text-xs text-slate-400 tabular-nums">
               {isDone ? "en " : ""}
               <LiveDuration startedAtMs={startedAtMs} completedAtMs={completedAtMs} />
             </span>
@@ -865,7 +825,7 @@ function ProductJobRow({
             <button
               type="button"
               onClick={onDismiss}
-              className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold"
+              className="text-xs text-slate-400 hover:text-slate-700 font-semibold"
             >
               ✕ Retirer
             </button>
@@ -934,16 +894,16 @@ function MarketplaceCellBox({
 
   return (
     <div
-      className={`rounded-md border ${tone.bg} ${tone.border} px-1.5 py-1 flex items-center gap-1.5`}
+      className={`rounded-lg border ${tone.bg} ${tone.border} px-2.5 py-2 flex items-center gap-2`}
       title={`${meta.name} — ${label}${errorMessage ? " : " + errorMessage : ""}`}
     >
       <span
-        className="w-4 h-4 rounded text-white text-[8px] font-bold flex items-center justify-center flex-shrink-0"
+        className="w-6 h-6 rounded-md text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0"
         style={{ background: meta.grad }}
       >
         {meta.letter}
       </span>
-      <span className={`text-[10px] font-bold ${tone.text} truncate`}>{label}</span>
+      <span className={`text-xs font-bold ${tone.text} truncate`}>{label}</span>
     </div>
   );
 }
@@ -982,20 +942,20 @@ function ProductImage({
       : "ring-1 ring-slate-200";
   const imgSrc = src ? getImageSrc(src) : null;
   return (
-    <div className="relative w-14 h-14 flex-shrink-0">
+    <div className="relative w-16 h-16 flex-shrink-0">
       <div className={`w-full h-full rounded-xl overflow-hidden ${halo} bg-gradient-to-br from-slate-100 to-slate-200`}>
         {imgSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={imgSrc} alt={alt} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-400 font-medium">
+          <div className="w-full h-full flex items-center justify-center text-xs text-slate-400 font-medium">
             IMG
           </div>
         )}
       </div>
       {active && (
-        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-sky-500 ring-2 ring-white flex items-center justify-center z-10">
-          <svg className="w-2.5 h-2.5 text-white animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+        <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-sky-500 ring-2 ring-white flex items-center justify-center z-10">
+          <svg className="w-3 h-3 text-white animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6" />
           </svg>
         </div>
@@ -1008,7 +968,7 @@ function ActionChip({ view }: { view: ViewKey }) {
   const accent = VIEW_ACCENT[view];
   const meta = VIEW_LABEL[view];
   return (
-    <span className={`px-1.5 py-0.5 rounded-md ${accent.chip} ${accent.chipText} text-[9px] uppercase tracking-widest font-bold`}>
+    <span className={`px-2 py-0.5 rounded-md ${accent.chip} ${accent.chipText} text-[11px] uppercase tracking-widest font-bold`}>
       {meta.title}
     </span>
   );
@@ -1038,38 +998,38 @@ function ErrorPanel({
   if (errors.length === 0) return null;
 
   return (
-    <div className="mx-3 mb-3 rounded-xl bg-rose-50 border border-rose-200 p-3 space-y-2">
+    <div className="mx-4 mb-4 rounded-xl bg-rose-50 border border-rose-200 p-4 space-y-3">
       {errors.map((err) => {
         const meta = MARKETPLACE_META[err.target];
         return (
-          <div key={err.target} className="flex items-start gap-2">
+          <div key={err.target} className="flex items-start gap-3">
             <div
-              className="w-5 h-5 rounded flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
+              className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center text-white text-xs font-bold"
               style={{ background: meta.grad }}
             >
               {meta.letter}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] font-bold text-rose-800">
+              <div className="text-sm font-bold text-rose-800">
                 {meta.name} — {err.message.split(":")[0] || "Erreur"}
               </div>
-              <div className="text-[10.5px] text-rose-700 mt-0.5 leading-snug">{err.message}</div>
+              <div className="text-[13px] text-rose-700 mt-1 leading-snug">{err.message}</div>
             </div>
           </div>
         );
       })}
-      <div className="flex gap-1.5 pt-1">
+      <div className="flex gap-2 pt-1">
         <button
           type="button"
           onClick={onRetry}
-          className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10.5px] font-bold transition"
+          className="px-3.5 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold transition"
         >
           Relancer
         </button>
         <button
           type="button"
           onClick={onDismiss}
-          className="px-2.5 py-1 rounded-md bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 text-[10.5px] font-bold transition"
+          className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 text-sm font-bold transition"
         >
           Ignorer
         </button>
@@ -1091,32 +1051,32 @@ function LinkJobRow({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => voi
   const borderClass = isError ? "border-2 border-rose-200" : "border border-slate-200";
 
   return (
-    <article className={`bg-white rounded-xl ${borderClass} overflow-hidden`}>
-      <div className="p-2.5 flex flex-col md:flex-row md:items-center gap-3">
-        <div className="flex items-center gap-2.5 md:w-[260px] md:flex-shrink-0 min-w-0">
+    <article className={`bg-white rounded-2xl ${borderClass} overflow-hidden`}>
+      <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
+        <div className="flex items-center gap-3 md:w-[300px] md:flex-shrink-0 min-w-0">
           <ProductImage src={job.productImage} alt={job.productName} active={isActive} error={isError} />
           <div className="flex-1 min-w-0">
-            <span className="inline-block px-1.5 py-0.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-[9px] uppercase tracking-widest font-bold mb-0.5">
+            <span className="inline-block px-2 py-0.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-[11px] uppercase tracking-widest font-bold mb-1">
               Liaison
             </span>
-            <h3 className="text-[12.5px] font-bold text-slate-900 leading-tight truncate">
+            <h3 className="text-sm font-bold text-slate-900 leading-tight truncate">
               {job.productName}
             </h3>
-            <div className="text-[10px] text-slate-400 font-mono truncate">{job.reference}</div>
+            <div className="text-xs text-slate-400 font-mono truncate mt-0.5">{job.reference}</div>
           </div>
         </div>
 
-        <div className="flex-1 flex items-center gap-2 min-w-0">
+        <div className="flex-1 flex items-center gap-3 min-w-0">
           <span
-            className="w-6 h-6 rounded-md text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0"
+            className="w-8 h-8 rounded-lg text-white text-xs font-bold flex items-center justify-center flex-shrink-0"
             style={{ background: meta.grad }}
           >
             {meta.letter}
           </span>
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-slate-500 font-medium">→ Vers {meta.name}</div>
+            <div className="text-sm text-slate-500 font-medium">→ Vers {meta.name}</div>
             {isDone && (
-              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px] leading-snug mt-0.5">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] leading-snug mt-1">
                 {job.linkedCount !== undefined && job.linkedCount > 0 && (
                   <span className="text-emerald-700 font-semibold">
                     ✓ {job.linkedCount} liée{job.linkedCount > 1 ? "s" : ""}
@@ -1143,11 +1103,11 @@ function LinkJobRow({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => voi
         </div>
 
         {!isActive && (
-          <div className="flex md:flex-col items-center md:items-end gap-1 md:w-[80px] md:flex-shrink-0">
+          <div className="flex md:flex-col items-center md:items-end gap-1.5 md:w-[90px] md:flex-shrink-0">
             <button
               type="button"
               onClick={onDismiss}
-              className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold"
+              className="text-xs text-slate-400 hover:text-slate-700 font-semibold"
             >
               ✕ Retirer
             </button>
@@ -1156,7 +1116,7 @@ function LinkJobRow({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => voi
       </div>
 
       {isError && job.error && (
-        <div className="mx-2.5 mb-2.5 rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-700 leading-snug">
+        <div className="mx-4 mb-4 rounded-lg bg-rose-50 border border-rose-200 p-3 text-sm text-rose-700 leading-snug">
           {job.error}
         </div>
       )}
@@ -1245,6 +1205,7 @@ function outcomeForMarketplace(
   if (target === "efashion") return item.efashionOutcome;
   if (target === "faire") return item.faireOutcome;
   if (target === "orderchamp") return item.orderchampOutcome;
+  if (target === "microstore") return item.microstoreOutcome;
   return item.pfsOutcome;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { TileAccent } from "@/lib/settings-tiles";
 
@@ -34,6 +34,10 @@ interface Props {
 export default function SettingsModal({ open, onClose, title, description, icon, accent, children, headerRight }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const style = ACCENT_STYLES[accent];
+  // Portail rendu uniquement après l'hydratation client : évite le mismatch SSR (createPortal ne rend rien
+  // côté serveur) quand la modale est ouverte au 1er rendu via ?open=... dans l'URL.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // ESC ferme la modale + verrou du scroll body pendant l'ouverture
   useEffect(() => {
@@ -53,8 +57,7 @@ export default function SettingsModal({ open, onClose, title, description, icon,
     if (open && bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [open]);
 
-  if (!open) return null;
-  if (typeof window === "undefined") return null;
+  if (!open || !mounted) return null;
 
   return createPortal(
     <div

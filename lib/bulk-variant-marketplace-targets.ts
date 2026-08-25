@@ -28,8 +28,18 @@
  *     publish de `orderchampUpdateProduct`).
  *   - Toggle `orderchampEnabled` ON et produit complet (via
  *     `isOrderchampPropagationEligible`).
+ *
+ * Un produit est éligible à Microstore si :
+ *   - Microstore est configuré ET activé (kill switch)
+ *   - Le produit est déjà publié (`microstoreLastPushedAt` non nul) — aligné
+ *     sur les 5 autres marketplaces depuis 2026-08-25. Avant : upsert-style,
+ *     toute modif de prix/stock proposait Microstore même sur un produit qui
+ *     n'y avait jamais été poussé.
+ *   - Toggle `microstoreEnabled` ON et produit complet (via
+ *     `isMicrostorePropagationEligible`).
  */
 
+import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
 import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
 
 export interface BulkVariantProduct {
@@ -39,6 +49,8 @@ export interface BulkVariantProduct {
   faireProductId?: string | null;
   orderchampProductId?: string | null;
   orderchampEnabled?: boolean;
+  microstoreLastPushedAt?: Date | string | null;
+  microstoreEnabled?: boolean;
   isIncomplete?: boolean;
   colors: { id: string; efashionProductId?: number | null }[];
 }
@@ -50,6 +62,7 @@ export interface BulkVariantMarketplaceTargets<P extends BulkVariantProduct> {
   efashionProducts: P[];
   faireProducts: P[];
   orderchampProducts: P[];
+  microstoreProducts: P[];
 }
 
 export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduct>(
@@ -61,6 +74,7 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
     showEfashion?: boolean;
     showFaire?: boolean;
     showOrderchamp?: boolean;
+    showMicrostore?: boolean;
   },
 ): BulkVariantMarketplaceTargets<P> {
   const affectedProductIds = new Set<string>();
@@ -91,6 +105,16 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
           }),
       )
     : [];
+  const microstoreProducts = flags.showMicrostore
+    ? affectedProducts.filter(
+        (p) =>
+          p.microstoreLastPushedAt != null &&
+          isMicrostorePropagationEligible({
+            microstoreEnabled: p.microstoreEnabled,
+            isIncomplete: !!p.isIncomplete,
+          }),
+      )
+    : [];
   return {
     affectedProducts,
     pfsProducts,
@@ -98,5 +122,6 @@ export function computeBulkVariantMarketplaceTargets<P extends BulkVariantProduc
     efashionProducts,
     faireProducts,
     orderchampProducts,
+    microstoreProducts,
   };
 }

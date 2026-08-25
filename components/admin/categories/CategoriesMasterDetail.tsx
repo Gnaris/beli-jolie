@@ -420,9 +420,7 @@ export default function CategoriesMasterDetail({
             entityLabel={`Catégorie « ${selectedCat.name} »`}
             kind="category"
             currentValue={selectedCat.microstoreCategoryId}
-            onSave={async (next) => {
-              await updateCategoryMicrostoreMapping(selectedCat.id, next);
-            }}
+            onSave={(next) => updateCategoryMicrostoreMapping(selectedCat.id, next)}
           />
         </>
       )}
@@ -444,9 +442,7 @@ export default function CategoriesMasterDetail({
           entityLabel={`Sous-catégorie « ${microstoreSubTarget.name} »`}
           kind="category"
           currentValue={microstoreSubTarget.microstoreCategoryId ?? null}
-          onSave={async (next) => {
-            await updateSubCategoryMicrostoreMapping(microstoreSubTarget.id, next);
-          }}
+          onSave={(next) => updateSubCategoryMicrostoreMapping(microstoreSubTarget.id, next)}
         />
       )}
     </>

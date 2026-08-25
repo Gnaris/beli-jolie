@@ -285,7 +285,12 @@ export function buildGoodsFormBody(opts: {
   p.set("box1", "0");
   p.set("box2", "0");
   p.set("box3", "0");
-  p.set("extension_2", "");
+  // ⚠ Champ obligatoire côté Microstore (attribut custom tenant, valeur "5"
+  // par défaut sur A2630). Nom exact = `extension_1` : envoyer `extension_2`
+  // faisait planter /goods/update avec `err=9999 debug=extensions not found`.
+  // Passer `""` n'écrase pas la valeur existante côté serveur (vérifié
+  // 2026-08-25 : ext1="5" avant, update ext1="", ext1="5" après).
+  p.set("extension_1", "");
   // Flag visibilité vitrine H5 — même champ que /goods/disable (reversé côté
   // GET). Passer ici évite l'endpoint /goods/disable séparé qui répond
   // "Service App error" sur certains tokens.
@@ -317,9 +322,11 @@ export async function microstoreCreateGoods(
   const body = buildGoodsFormBody({ sessionKey: key, productId: null, payload });
   const res = await callMicrostorePost<{ id?: number }>("/goods/add", body);
   if (res.err !== 0 || typeof res.id !== "number") {
-    throw new Error(
-      `Microstore /goods/add a refusé la création : ${res.msg || res.debug_msg || `err=${res.err}`}`,
-    );
+    const raw = res.msg || res.debug_msg || `err=${res.err}`;
+    if (/reference already exists/i.test(raw)) {
+      throw new Error("Cette référence existe déjà sur Microstore");
+    }
+    throw new Error(`Microstore /goods/add a refusé la création : ${raw}`);
   }
   return { microstoreProductId: res.id };
 }

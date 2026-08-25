@@ -11,6 +11,9 @@ import {
   getCachedEfashionEnabled,
   getCachedHasFaireConfig,
   getCachedFaireEnabled,
+  getCachedHasOrderchampConfig,
+  getCachedOrderchampEnabled,
+  getCachedHasMicrostoreConfig,
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
@@ -108,6 +111,9 @@ export default async function NouveauProduitPage({
     efashionEnabled,
     hasFaireConfig,
     faireEnabled,
+    hasOrderchampConfig,
+    orderchampEnabled,
+    hasMicrostoreConfig,
   ] = await Promise.all([
     getCachedPfsEnabled(),
     getCachedHasAnkorstoreConfig(),
@@ -116,6 +122,9 @@ export default async function NouveauProduitPage({
     getCachedEfashionEnabled(),
     getCachedHasFaireConfig(),
     getCachedFaireEnabled(),
+    getCachedHasOrderchampConfig(),
+    getCachedOrderchampEnabled(),
+    getCachedHasMicrostoreConfig(),
   ]);
 
   const pfsColorOptions = hasPfsConfig ? await getPfsColorOptions() : [];
@@ -291,6 +300,9 @@ export default async function NouveauProduitPage({
           efashionEnabled={efashionEnabled}
           hasFaireConfig={hasFaireConfig}
           faireEnabled={faireEnabled}
+          hasOrderchampConfig={hasOrderchampConfig}
+          orderchampEnabled={orderchampEnabled}
+          hasMicrostoreConfig={hasMicrostoreConfig}
           pfsColorOptions={pfsColorOptions}
           efashionColorOptions={efashionColorOptions}
           initialData={initialData}

@@ -289,9 +289,7 @@ export default function ColorsMasterDetail({
             entityLabel={`Couleur « ${selectedColor.name} »`}
             kind="color"
             currentValue={selectedColor.microstoreColorId}
-            onSave={async (next) => {
-              await updateColorMicrostoreMapping(selectedColor.id, next);
-            }}
+            onSave={(next) => updateColorMicrostoreMapping(selectedColor.id, next)}
           />
         </>
       )}

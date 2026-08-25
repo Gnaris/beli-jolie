@@ -130,11 +130,13 @@ export async function sendProductPhotosToMicrostoreCore(
         reference: true,
         name: true,
         primaryColorId: true,
+        microstoreProductId: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
             id: true,
             isPrimary: true,
+            microstoreVariantId: true,
             color: { select: { id: true, name: true } },
           },
         },
@@ -191,25 +193,48 @@ export async function sendProductPhotosToMicrostoreCore(
     return { success: false, error: `Contact Microstore impossible : ${message}` };
   }
 
-  let mstGoods;
-  try {
-    mstGoods = await getMicrostoreGoodsByItemRef(stored.key, trimmedRef);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erreur inconnue.";
-    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
-      errorMessage: `Recherche Microstore échouée : ${message}`,
-      completed: true,
-    });
-    return { success: false, error: `Recherche Microstore échouée : ${message}` };
-  }
-  if (!mstGoods) {
-    const message = `Aucun produit Microstore avec la référence « ${trimmedRef} ». Publie-le d'abord depuis la boutique.`;
+  // Lecture directe des IDs Microstore stockés en BDD au moment du /goods/add
+  // ou /goods/update. On ne passe plus par le lookup H5 (endpoint
+  // `/api/companies/goods/itemRef`), qui a un délai d'indexation de quelques
+  // secondes après une création — chaîner immédiatement provoquait un faux
+  // « Aucun produit Microstore avec la référence » (2026-08-25, produit
+  // ADZSCS). Puisqu'on a déjà `microstoreProductId` + `microstoreVariantId`
+  // par couleur en BDD, aucun aller-retour supplémentaire n'est nécessaire.
+  const microstoreProductId = (product as unknown as { microstoreProductId: number | null })
+    .microstoreProductId;
+  if (!microstoreProductId) {
+    const message = `« ${trimmedRef} » n'est pas encore publié sur Microstore. Envoie la fiche d'abord.`;
     await markMicrostoreUploadJobStatus(jobId, "FAILED", {
       errorMessage: message,
       completed: true,
     });
     return { success: false, error: message };
   }
+  type ColorWithMst = { id: string; isPrimary: boolean; microstoreVariantId: number | null; color: { id: string; name: string } | null };
+  const colorsWithMst = product.colors as unknown as ColorWithMst[];
+  const skus = colorsWithMst
+    .filter((c) => typeof c.microstoreVariantId === "number" && c.color)
+    .map((c) => ({
+      skuId: c.microstoreVariantId as number,
+      colorId: 0,
+      colorName: c.color!.name,
+      sizeName: "",
+    }));
+  if (skus.length === 0) {
+    const message =
+      "Aucune variante Microstore connue pour ce produit. Envoie la fiche d'abord.";
+    await markMicrostoreUploadJobStatus(jobId, "FAILED", {
+      errorMessage: message,
+      completed: true,
+    });
+    return { success: false, error: message };
+  }
+  const mstGoods = {
+    goodsId: microstoreProductId,
+    itemRef: product.reference,
+    name: product.name ?? "",
+    skus,
+  };
 
   let plannedTotal = 0;
   for (const pc of sortedColors) {

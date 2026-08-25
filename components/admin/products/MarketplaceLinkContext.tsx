@@ -33,7 +33,7 @@ export type LinkJobStatus = "in_progress" | "done" | "error";
 
 export interface LinkJob {
   id: string;
-  marketplace: "pfs" | "ankorstore" | "efashion" | "faire";
+  marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "microstore";
   productId: string;
   productName: string;
   reference: string;

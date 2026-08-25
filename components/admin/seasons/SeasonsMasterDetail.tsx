@@ -246,9 +246,7 @@ export default function SeasonsMasterDetail({
             entityLabel={`Saison « ${selectedSeason.name} »`}
             kind="season"
             currentValue={selectedSeason.microstoreSeasonId}
-            onSave={async (next) => {
-              await updateSeasonMicrostoreMapping(selectedSeason.id, next);
-            }}
+            onSave={(next) => updateSeasonMicrostoreMapping(selectedSeason.id, next)}
           />
         </>
       )}

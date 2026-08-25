@@ -51,6 +51,15 @@ const PER_TENANT_ANKORSTORE_CONCURRENCY = 5;
  */
 const PER_TENANT_FAIRE_CONCURRENCY = 2;
 /**
+ * Microstore limité à 1 job en vol par tenant (2026-08-25). Au-delà, l'API
+ * Microstore répond `err=9999 msg="Send it too frequently, please wait system
+ * processing"` — le compte est protégé par un rate-limit strict côté serveur.
+ * En 1-par-1, chaque produit part quand le précédent est terminé, aucune rafale
+ * n'atteint le seuil. Les autres tenants gardent leur propre budget de 1
+ * (compte Microstore distinct), donc BJ et Issyma peuvent envoyer simultanément.
+ */
+const PER_TENANT_MICROSTORE_CONCURRENCY = 1;
+/**
  * Batch REFRESH désactivé par flag depuis le rollback 2026-08-12. Le mode
  * batch (5 produits par POST) restait exposé aux fusions Ankor quand plusieurs
  * batches se chevauchaient dans le temps. En 1-par-1 avec le mutex kickoff,
@@ -120,7 +129,7 @@ export function startMarketplaceQueueWorker(): void {
   }, POLL_MS);
 
   logger.info(
-    `[Marketplace Queue] Worker démarré (poll 1s, ${PER_TENANT_TOTAL_CONCURRENCY} slots/tenant, ${PER_TENANT_ANKORSTORE_CONCURRENCY} Ankorstore/tenant, ${PER_TENANT_FAIRE_CONCURRENCY} Faire/tenant, batch REFRESH ${ANKOR_BATCH_REFRESH_ENABLED ? `taille ${ANKOR_REFRESH_BATCH_SIZE}` : "désactivé"})`,
+    `[Marketplace Queue] Worker démarré (poll 1s, ${PER_TENANT_TOTAL_CONCURRENCY} slots/tenant, ${PER_TENANT_ANKORSTORE_CONCURRENCY} Ankorstore/tenant, ${PER_TENANT_FAIRE_CONCURRENCY} Faire/tenant, ${PER_TENANT_MICROSTORE_CONCURRENCY} Microstore/tenant, batch REFRESH ${ANKOR_BATCH_REFRESH_ENABLED ? `taille ${ANKOR_REFRESH_BATCH_SIZE}` : "désactivé"})`,
   );
 }
 
@@ -224,6 +233,19 @@ async function startQueuedForTenant(
   });
   const fairesBudget = Math.max(0, PER_TENANT_FAIRE_CONCURRENCY - faireInFlightCount);
 
+  // Count Microstore du tenant (budget dédié — rate-limit serveur Microstore).
+  const microstoreInFlightCount = await prisma.marketplaceRefreshJob.count({
+    where: {
+      ...tenantWhere,
+      marketplace: "MICROSTORE",
+      status: "IN_PROGRESS",
+    },
+  });
+  const microstoresBudget = Math.max(
+    0,
+    PER_TENANT_MICROSTORE_CONCURRENCY - microstoreInFlightCount,
+  );
+
   // scheduledFor = null → démarrage immédiat. Sinon on attend l'heure prévue.
   const queued = await prisma.marketplaceRefreshJob.findMany({
     where: {
@@ -241,6 +263,7 @@ async function startQueuedForTenant(
     totalBudget,
     ankorsBudget,
     fairesBudget,
+    microstoresBudget,
   });
 
   // ─── Batch REFRESH Ankorstore ───

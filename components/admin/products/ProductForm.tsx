@@ -42,6 +42,7 @@ import {
   buildProductMarketplaceSnapshotExcludingMicrostore,
   buildProductMarketplaceSnapshotExcludingOrderchampFields,
 } from "@/lib/product-marketplace-snapshot";
+import { computeProductMarketplaceAvailability } from "@/lib/product-marketplace-availability";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 
 const DESCRIPTION_MIN_CHARS = 30;
@@ -202,6 +203,8 @@ interface ProductFormProps {
     faireProductId?: string | null;
     /** Orderchamp : id du produit créé chez OC (null = jamais publié) */
     orderchampProductId?: string | null;
+    /** Microstore : id du produit chez Microstore (null = jamais publié). */
+    microstoreProductId?: number | null;
     /** Microstore : date du dernier push réussi (null = jamais publié). */
     microstoreLastPushedAt?: Date | string | null;
     /** Marketplace activée pour ce produit (Product.*Enabled). Défaut true. */
@@ -846,7 +849,7 @@ export default function ProductForm({
     hasMicrostoreConfig,
     initialData?.pfsProductId, initialData?.ankorsProductId,
     initialData?.efashionReferenceBase, initialData?.faireProductId,
-    initialData?.microstoreLastPushedAt,
+    initialData?.microstoreProductId,
   ]);
   useEffect(() => {
     updateHeader({ kpi: headerKpi });
@@ -928,6 +931,13 @@ export default function ProductForm({
   // true à la fin du save, et laisser un useEffect dédié re-prendre le
   // snapshot une fois React re-rendu avec les nouvelles valeurs.
   const pendingSnapshotResetRef = useRef(false);
+  // Filet garantissant que TOUTE manipulation d'image depuis l'onglet Photos
+  // (ajout, suppression, remplacement, changement de position, échange entre
+  // couleurs) propose systématiquement l'enregistrement — même quand la
+  // comparaison de snapshot pourrait, par hasard, produire un résultat
+  // identique (ex. suppression puis ré-ajout dans le même slot avec un
+  // fichier local). Reset au montage et après chaque save réussi.
+  const photosTouchedRef = useRef(false);
 
   const buildSnapshot = useCallback(() => JSON.stringify({
     reference, name, description, categoryId, subCategoryIds,
@@ -1031,11 +1041,12 @@ export default function ProductForm({
       initialMarketplaceSnapshot.current = buildMarketplaceSnapshot();
       initialMarketplaceSnapshotExcludingMicrostore.current = buildMarketplaceSnapshotExcludingMicrostore();
       initialMarketplaceSnapshotExcludingOrderchamp.current = buildMarketplaceSnapshotExcludingOrderchamp();
+      photosTouchedRef.current = false;
       isDirty.current = false;
       setHasUnsavedChanges(false);
       return;
     }
-    const dirty = buildSnapshot() !== initialSnapshot.current;
+    const dirty = buildSnapshot() !== initialSnapshot.current || photosTouchedRef.current;
     isDirty.current = dirty;
     setHasUnsavedChanges(dirty);
   }, [buildSnapshot, buildMarketplaceSnapshot, buildMarketplaceSnapshotExcludingMicrostore, buildMarketplaceSnapshotExcludingOrderchamp]);
@@ -2303,11 +2314,18 @@ export default function ProductForm({
       // - Déjà publié sur PFS → proposer "Mettre à jour"
       // - Pas encore publié + ONLINE + complet → proposer "Publier (en ligne sur PFS)"
       // - Pas encore publié + OFFLINE + complet → proposer "Publier (en brouillon sur PFS)"
-      const alreadyOnPfs = !!initialData?.pfsProductId;
-      const alreadyOnAnkorstore = !!initialData?.ankorsProductId;
-      const alreadyOnEfashion = !!initialData?.efashionReferenceBase;
-      const alreadyOnFaire = !!initialData?.faireProductId;
-      const alreadyOnOrderchamp = !!initialData?.orderchampProductId;
+      //
+      // La règle « quelle marketplace considérer comme déjà liée » (avec l'exception
+      // création vierge qui les force toutes) est isolée dans un helper pur testé
+      // à part — cf. `lib/product-marketplace-availability.ts`.
+      const {
+        alreadyOnPfs,
+        alreadyOnAnkorstore,
+        alreadyOnEfashion,
+        alreadyOnFaire,
+        alreadyOnOrderchamp,
+        alreadyOnMicrostore,
+      } = computeProductMarketplaceAvailability({ mode, productId, initialData });
       const showAnkorstore = hasAnkorstoreConfig && ankorstoreEnabled;
       const showEfashion = hasEfashionConfig && efashionEnabled;
       const showFaire = hasFaireConfig && faireEnabled;
@@ -2317,29 +2335,31 @@ export default function ProductForm({
       // toute modif de stock proposait la création OC et déclenchait un push
       // non désiré côté serveur (fallback `orderchampPublishProduct`).
       const showOrderchamp = hasOrderchampConfig && orderchampEnabled && alreadyOnOrderchamp;
-      // Microstore : contrairement aux 4 autres marketplaces, il n'y a pas de
-      // notion « déjà lié » (upsert par référence + pas d'upload photo). La
-      // case doit apparaître dès qu'on modifie une info clé si Microstore est
-      // configuré et activé pour le produit, même sur un tout premier push.
+      // Microstore : aligné sur les 5 autres marketplaces — la case n'apparaît
+      // QUE si le produit est déjà lié (`microstoreProductId` posé). La 1ʳᵉ
+      // publication passe par le badge « M » de la fiche produit. Avant ce
+      // changement, toute modif (ex. prix depuis le tiroir variant) proposait
+      // Microstore alors que le produit n'y avait jamais été poussé.
       const showMicrostore =
-        hasMicrostoreConfig && (initialData?.microstoreEnabledForProduct ?? true);
+        hasMicrostoreConfig
+        && (initialData?.microstoreEnabledForProduct ?? true)
+        && alreadyOnMicrostore;
 
       // La popup marketplace s'affiche aussi pour le passage en ARCHIVED
       // (Ankorstore : on envoie stock 0 → produit non commandable, équivalent
       //  "hors ligne" — leur API n'a pas de vraie archive côté produit).
       //
       // ⚠️ Demande cliente : ne PAS proposer la modale tant qu'aucune
-      // marketplace n'est liée. La 1ʳᵉ publication PFS/Ankor/eFa/OC doit être
-      // déclenchée explicitement depuis le badge marketplace de la fiche.
-      // Exception Microstore : upsert-style, on ouvre la modale même sur un
-      // premier push tant que la marketplace est configurée.
+      // marketplace n'est liée. La 1ʳᵉ publication PFS/Ankor/eFa/OC/Microstore
+      // doit être déclenchée explicitement depuis le badge marketplace de la
+      // fiche.
       const anyMarketplaceLinked =
         alreadyOnPfs ||
         alreadyOnAnkorstore ||
         alreadyOnEfashion ||
         alreadyOnFaire ||
         alreadyOnOrderchamp ||
-        showMicrostore;
+        alreadyOnMicrostore;
       const canPublish =
         savedProductId &&
         !isIncomplete &&
@@ -2447,9 +2467,11 @@ export default function ProductForm({
         // Orderchamp : uniquement si déjà lié (`showOrderchamp` intègre déjà
         // `alreadyOnOrderchamp`). La 1ʳᵉ publication passe par le badge OC.
         const showOrderchampCase = !hideForMicrostoreOnly && showOrderchamp;
-        // Microstore : pas de contrainte « déjà lié », voir showMicrostore.
-        // En brouillon (produit OFFLINE), on ne propose pas le push Microstore —
-        // un produit encore hors ligne n'a rien à faire sur le point de vente.
+        // Microstore : uniquement si déjà lié (`showMicrostore` intègre déjà
+        // `alreadyOnMicrostore`). La 1ʳᵉ publication passe par le badge « M »
+        // de la fiche. En brouillon (produit OFFLINE), on ne propose pas non
+        // plus le push — un produit encore hors ligne n'a rien à faire sur le
+        // point de vente.
         const showMicrostoreCase = !hideForOrderchampOnly && showMicrostore && finalStatus !== "OFFLINE";
 
         if (
@@ -2769,6 +2791,15 @@ export default function ProductForm({
                   <label className="block text-sm font-body font-semibold text-text-secondary">
                     Nom du produit *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
+                  {activeName && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveName("")}
+                      className="2xl:hidden text-[11px] font-body font-medium text-text-muted hover:text-text-primary transition-colors px-2 py-0.5 rounded-md border border-border hover:border-border-dark active:scale-95"
+                    >
+                      Vider
+                    </button>
+                  )}
                 </div>
                 <input
                   type="text"
@@ -2818,19 +2849,30 @@ export default function ProductForm({
                   <label className="block text-sm font-body font-semibold text-text-secondary">
                     Description *{activeLocale !== "fr" ? ` (${LOCALE_LABELS[activeLocale]})` : ""}
                   </label>
-                  {activeLocale === "fr" && (() => {
-                    const refSuffixLen = getAnkorstoreReferenceSuffixLength(reference);
-                    const effectiveLen = description.trim().length + refSuffixLen;
-                    const tooShort = effectiveLen < DESCRIPTION_MIN_CHARS;
-                    return (
-                      <span
-                        className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
-                        title={refSuffixLen > 0 ? `Inclut ${refSuffixLen} caractères de la ligne « Référence produit : ${reference.trim()} » ajoutée automatiquement.` : undefined}
+                  <div className="flex items-center gap-2">
+                    {activeDescription && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveDescription("")}
+                        className="2xl:hidden text-[11px] font-body font-medium text-text-muted hover:text-text-primary transition-colors px-2 py-0.5 rounded-md border border-border hover:border-border-dark active:scale-95"
                       >
-                        {effectiveLen} / {DESCRIPTION_MIN_CHARS} min
-                      </span>
-                    );
-                  })()}
+                        Vider
+                      </button>
+                    )}
+                    {activeLocale === "fr" && (() => {
+                      const refSuffixLen = getAnkorstoreReferenceSuffixLength(reference);
+                      const effectiveLen = description.trim().length + refSuffixLen;
+                      const tooShort = effectiveLen < DESCRIPTION_MIN_CHARS;
+                      return (
+                        <span
+                          className={`text-[11px] font-body ${tooShort ? "text-[#EF4444]" : "text-text-tertiary"}`}
+                          title={refSuffixLen > 0 ? `Inclut ${refSuffixLen} caractères de la ligne « Référence produit : ${reference.trim()} » ajoutée automatiquement.` : undefined}
+                        >
+                          {effectiveLen} / {DESCRIPTION_MIN_CHARS} min
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <textarea
                   value={activeDescription}
@@ -3326,7 +3368,15 @@ export default function ProductForm({
               variants={variants}
               colorImages={colorImages}
               availableColors={localColors}
-              onChangeImages={setColorImages}
+              onChangeImages={(next) => {
+                // Toute manipulation d'image dans l'onglet Photos (ajout /
+                // suppression / remplacement / réordonnancement / échange
+                // entre couleurs) marque le formulaire comme modifié, y
+                // compris quand la comparaison de snapshot pourrait
+                // conclure à un état identique par coïncidence.
+                photosTouchedRef.current = true;
+                setColorImages(next);
+              }}
               primaryColorId={primaryColorId}
               onChangePrimaryColorId={setPrimaryColorId}
               productReference={reference}

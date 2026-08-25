@@ -31,8 +31,6 @@ import {
   type BulkSendPhotosResult,
 } from "@/lib/microstore-photos-sync";
 
-export type { SendProductPhotosResult, BulkSendPhotosResult };
-
 export interface SavePictureStationResult {
   success: boolean;
   error?: string;

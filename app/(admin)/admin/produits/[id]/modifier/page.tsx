@@ -705,6 +705,7 @@ export default async function ModifierProduitPage({
           efashionReferenceBase: product.efashionReferenceBase,
           faireProductId: product.faireProductId,
           orderchampProductId: product.orderchampProductId,
+          microstoreProductId: (product as { microstoreProductId?: number | null }).microstoreProductId ?? null,
           microstoreLastPushedAt: product.microstoreLastPushedAt,
           pfsEnabledForProduct: product.pfsEnabled,
           ankorsEnabledForProduct: product.ankorsEnabled,

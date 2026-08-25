@@ -271,7 +271,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
       efashionReferenceBase: true,
       faireProductId: true,
       orderchampProductId: true,
-      microstoreLastPushedAt: true,
+      microstoreProductId: true,
     },
   });
   if (!product) return;
@@ -282,11 +282,7 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
   if (product.efashionReferenceBase) data.efashionSyncRequired = true;
   if (product.faireProductId) data.faireSyncRequired = true;
   if (product.orderchampProductId) data.orderchampSyncRequired = true;
-  // Microstore n'a pas d'ID de produit stocké côté BJ (upsert par référence).
-  // On utilise `microstoreLastPushedAt` comme preuve que le produit a déjà été
-  // envoyé au moins une fois — sinon l'envoi photos n'aurait pas de fiche à
-  // mettre à jour côté Microstore.
-  if (product.microstoreLastPushedAt) data.microstoreSyncRequired = true;
+  if (product.microstoreProductId != null) data.microstoreSyncRequired = true;
 
   if (Object.keys(data).length === 0) return;
   await prisma.product.update({ where: { id: productId }, data });

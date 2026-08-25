@@ -73,53 +73,80 @@ describe("buildProductHandle", () => {
 
 describe("parseProductHandle", () => {
   it("extrait la reference du dernier segment", () => {
-    expect(parseProductHandle("collier-boheme-dore-10019")).toEqual({
+    expect(parseProductHandle("collier-boheme-dore-10019")).toMatchObject({
       reference: "10019",
       legacyCuid: null,
     });
-    expect(parseProductHandle("bracelet-argente-a2380")).toEqual({
+    expect(parseProductHandle("bracelet-argente-a2380")).toMatchObject({
       reference: "a2380",
       legacyCuid: null,
     });
   });
 
   it("détecte un cuid legacy pour redirection 301", () => {
-    expect(parseProductHandle("cms7oy6sk001g945p63xk5ffc")).toEqual({
+    expect(parseProductHandle("cms7oy6sk001g945p63xk5ffc")).toMatchObject({
       reference: null,
       legacyCuid: "cms7oy6sk001g945p63xk5ffc",
     });
   });
 
   it("gère une URL avec la reference seule (pas de tiret)", () => {
-    expect(parseProductHandle("10019")).toEqual({
+    expect(parseProductHandle("10019")).toMatchObject({
       reference: "10019",
       legacyCuid: null,
     });
-    expect(parseProductHandle("a2380")).toEqual({
+    expect(parseProductHandle("a2380")).toMatchObject({
       reference: "a2380",
       legacyCuid: null,
     });
   });
 
   it("gère une chaîne vide", () => {
-    expect(parseProductHandle("")).toEqual({
+    expect(parseProductHandle("")).toMatchObject({
       reference: null,
       legacyCuid: null,
     });
   });
 
   it("gère une URL encodée", () => {
-    expect(parseProductHandle("collier%20boheme-10019")).toEqual({
+    expect(parseProductHandle("collier%20boheme-10019")).toMatchObject({
       reference: "10019",
       legacyCuid: null,
     });
   });
 
   it("est insensible à la casse", () => {
-    expect(parseProductHandle("Collier-BOHEME-10019")).toEqual({
+    expect(parseProductHandle("Collier-BOHEME-10019")).toMatchObject({
       reference: "10019",
       legacyCuid: null,
     });
+  });
+});
+
+describe("parseProductHandle — références avec parenthèses", () => {
+  // Contexte : les refs dupliquées par refresh (`A2251(2)`, `A2251(3)`…)
+  // sont slugifiées en `a2251-2` (parens → tiret). `lastIndexOf("-")` extrait
+  // alors `2` comme reference, qui ne matche aucun produit → 404.
+  it("propose A2251(2) en candidat quand le suffixe est un chiffre isolé", () => {
+    const parsed = parseProductHandle(
+      "lot-de-3-paires-boucles-d-oreilles-creoles-en-acier-inoxydable-a2251-2",
+    );
+    expect(parsed.referenceCandidates).toContain("a2251(2)");
+  });
+
+  it("propose aussi le tail brut comme premier candidat (comportement historique)", () => {
+    const parsed = parseProductHandle("bracelet-argente-a2380");
+    expect(parsed.referenceCandidates[0]).toBe("a2380");
+  });
+
+  it("reconstruit depuis le format underscore _N (nouveau slugify potentiel)", () => {
+    const parsed = parseProductHandle("collier-a2251_2");
+    expect(parsed.referenceCandidates).toContain("a2251(2)");
+  });
+
+  it("ne fabrique pas de candidat parasite quand le suffixe n'est pas numérique", () => {
+    const parsed = parseProductHandle("bracelet-argente-a2380");
+    expect(parsed.referenceCandidates.every((c) => !c.includes("("))).toBe(true);
   });
 });
 

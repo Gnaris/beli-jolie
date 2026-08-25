@@ -238,4 +238,89 @@ describe("computeBulkVariantMarketplaceTargets", () => {
       expect(result.orderchampProducts).toEqual([]);
     });
   });
+
+  describe("Microstore — nécessite `microstoreLastPushedAt` (aligné sur PFS/Ankor/eFa/Faire/OC depuis 2026-08-25)", () => {
+    const msProduct = (
+      id: string,
+      variantIds: string[],
+      opts: {
+        microstoreEnabled?: boolean;
+        microstoreLastPushedAt?: Date | string | null;
+        isIncomplete?: boolean;
+      } = {},
+    ) => ({
+      id,
+      pfsProductId: null,
+      ankorsProductId: null,
+      faireProductId: null,
+      orderchampProductId: null,
+      microstoreEnabled: opts.microstoreEnabled ?? true,
+      microstoreLastPushedAt: opts.microstoreLastPushedAt ?? null,
+      isIncomplete: opts.isIncomplete ?? false,
+      colors: variantIds.map((vId) => ({ id: vId, efashionProductId: null })),
+    });
+
+    it("exclut un produit jamais poussé sur Microstore (1ʳᵉ publication passe par le badge « M » de la fiche, pas par la modale post-modification)", () => {
+      const products = [
+        msProduct("p-first", ["v1"], { microstoreLastPushedAt: null }),
+        msProduct("p-linked", ["v2"], { microstoreLastPushedAt: "2026-08-01T10:00:00Z" }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showMicrostore: true },
+      );
+      expect(result.microstoreProducts.map((p) => p.id)).toEqual(["p-linked"]);
+    });
+
+    it("exclut les brouillons (isIncomplete) même déjà poussés", () => {
+      const products = [
+        msProduct("p-draft", ["v1"], {
+          isIncomplete: true,
+          microstoreLastPushedAt: "2026-08-01T10:00:00Z",
+        }),
+        msProduct("p-ok", ["v2"], {
+          isIncomplete: false,
+          microstoreLastPushedAt: "2026-08-01T10:00:00Z",
+        }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showMicrostore: true },
+      );
+      expect(result.microstoreProducts.map((p) => p.id)).toEqual(["p-ok"]);
+    });
+
+    it("exclut les produits dont le toggle `microstoreEnabled` est OFF même déjà poussés", () => {
+      const products = [
+        msProduct("p-off", ["v1"], {
+          microstoreEnabled: false,
+          microstoreLastPushedAt: "2026-08-01T10:00:00Z",
+        }),
+        msProduct("p-on", ["v2"], {
+          microstoreEnabled: true,
+          microstoreLastPushedAt: "2026-08-01T10:00:00Z",
+        }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1", "v2"],
+        { hasPfsConfig: false, showAnkorstore: false, showMicrostore: true },
+      );
+      expect(result.microstoreProducts.map((p) => p.id)).toEqual(["p-on"]);
+    });
+
+    it("retourne une liste vide si `showMicrostore` est false", () => {
+      const products = [
+        msProduct("p-ok", ["v1"], { microstoreLastPushedAt: "2026-08-01T10:00:00Z" }),
+      ];
+      const result = computeBulkVariantMarketplaceTargets(
+        products,
+        ["v1"],
+        { hasPfsConfig: false, showAnkorstore: false, showMicrostore: false },
+      );
+      expect(result.microstoreProducts).toEqual([]);
+    });
+  });
 });
