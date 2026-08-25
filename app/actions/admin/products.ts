@@ -3126,7 +3126,7 @@ export async function fetchProductFormAttributes() {
       include: {
         subCategories: {
           orderBy: { name: "asc" },
-          select: { id: true, name: true, slug: true, microstoreCategoryId: true } as never,
+          select: { id: true, name: true, slug: true, microstoreCategoryId: true },
         },
       },
     }),
