@@ -150,6 +150,37 @@ describe("parseProductHandle — références avec parenthèses", () => {
   });
 });
 
+describe("parseProductHandle — références multi-segments avec tirets internes", () => {
+  // Refs comme `PRT-BRACELET33`, `PRT-OREILLE127`, `COUSSIN-BAGUE12-27` :
+  // slugifiées en `prt-bracelet33` → `lastIndexOf("-")` extrait `bracelet33`
+  // seul → 404. Il faut tester les suffixes plus longs.
+  it("propose PRT-BRACELET33 en candidat pour un slug avec tiret interne", () => {
+    const parsed = parseProductHandle(
+      "lot-de-11-bracelets-jonc-a-tissu-avec-coussin-prt-bracelet33",
+    );
+    expect(parsed.referenceCandidates).toContain("prt-bracelet33");
+  });
+
+  it("propose COUSSIN-BAGUE12-27 (3 segments) pour un slug très fragmenté", () => {
+    const parsed = parseProductHandle(
+      "lot-de-12-bagues-ajustables-en-acier-inoxydable-coussin-bague12-27",
+    );
+    expect(parsed.referenceCandidates).toContain("coussin-bague12-27");
+  });
+
+  it("garde le tail simple en premier candidat (priorité aux refs courtes majoritaires)", () => {
+    const parsed = parseProductHandle("bracelet-argente-a2380");
+    expect(parsed.referenceCandidates[0]).toBe("a2380");
+  });
+
+  it("plafonne le nombre de candidats pour éviter les listes IN énormes", () => {
+    const parsed = parseProductHandle("a-b-c-d-e-f-g-h-i-j-k-l-m-n-o-p");
+    // Cap raisonnable — évite un IN avec 15+ éléments et des faux positifs
+    // sur des mots courants ("de", "a", "et"…).
+    expect(parsed.referenceCandidates.length).toBeLessThanOrEqual(6);
+  });
+});
+
 describe("roundtrip build → parse", () => {
   const samples = [
     { name: "Collier bohème doré", reference: "10019" },

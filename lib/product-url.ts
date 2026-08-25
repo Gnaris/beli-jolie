@@ -38,6 +38,11 @@ export interface ParsedProductHandle {
   referenceCandidates: string[];
 }
 
+// Nombre de suffixes progressifs générés comme candidats. Couvre les refs
+// jusqu'à 6 segments (`COUSSIN-BAGUE12-27` en fait 3), tout en évitant un
+// `WHERE reference IN (...)` avec des dizaines d'éléments.
+const MAX_REFERENCE_SEGMENTS = 6;
+
 export function parseProductHandle(handle: string): ParsedProductHandle {
   let clean: string;
   try {
@@ -49,18 +54,30 @@ export function parseProductHandle(handle: string): ParsedProductHandle {
   if (CUID_REGEX.test(clean)) {
     return { reference: null, legacyCuid: clean, referenceCandidates: [] };
   }
-  const lastDash = clean.lastIndexOf("-");
-  if (lastDash === -1) {
-    return { reference: clean, legacyCuid: null, referenceCandidates: [clean] };
+
+  // Génère progressivement des suffixes de plus en plus longs comme candidats
+  // de référence. Couvre les refs multi-segments avec tirets internes
+  // (`PRT-BRACELET33`, `PRT-OREILLE127`, `COUSSIN-BAGUE12-27`).
+  const candidates: string[] = [];
+  let pos = clean.length;
+  for (let i = 0; i < MAX_REFERENCE_SEGMENTS; i++) {
+    const dash = clean.lastIndexOf("-", pos - 1);
+    if (dash === -1) {
+      candidates.push(clean);
+      break;
+    }
+    candidates.push(clean.slice(dash + 1));
+    pos = dash;
   }
-  const tail = clean.slice(lastDash + 1);
-  const candidates: string[] = [tail];
+
+  const tail = candidates[0]!;
 
   // Ref `A2251(2)` slugifiée en `-a2251-2` : quand le tail est un chiffre
   // isolé, on tente aussi `{prevSeg}({tail})` en remontant d'un cran.
-  if (/^\d+$/.test(tail) && lastDash > 0) {
-    const prevDash = clean.lastIndexOf("-", lastDash - 1);
-    const prevSeg = clean.slice(prevDash + 1, lastDash);
+  if (/^\d+$/.test(tail) && clean.length > tail.length + 1) {
+    const beforeTail = clean.slice(0, clean.length - tail.length - 1);
+    const prevDash = beforeTail.lastIndexOf("-");
+    const prevSeg = beforeTail.slice(prevDash + 1);
     if (prevSeg) candidates.push(`${prevSeg}(${tail})`);
   }
 

@@ -36,8 +36,9 @@ const getProduct = cache(async (handle: string, locale: string) => {
       ? { reference: { in: parsed.referenceCandidates } }
       : null;
   if (!where) return null;
-  return prisma.product.findFirst({
+  const matches = await prisma.product.findMany({
     where,
+    take: 5,
     include: {
       category:      { select: categorySelect },
       subCategories: { select: { name: true } },
@@ -107,6 +108,14 @@ const getProduct = cache(async (handle: string, locale: string) => {
       },
     },
   });
+  if (matches.length <= 1) return matches[0] ?? null;
+  // Ambiguïté : plusieurs refs candidates ont matché (ex `BRACELET33` et
+  // `PRT-BRACELET33` existent tous deux). Préfère celui dont le handle
+  // canonique correspond exactement au handle demandé ; sinon la ref la plus
+  // longue (la plus spécifique).
+  const exact = matches.find((p) => buildProductHandle(p.name, p.reference) === handle);
+  if (exact) return exact;
+  return [...matches].sort((a, b) => b.reference.length - a.reference.length)[0]!;
 });
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
