@@ -48,6 +48,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "E803",
     name: "Collier",
     description: "Description longue qui dépasse 30 caractères pour Ankorstore.",
+    status: "ONLINE",
     pfsGenderCode: null,
     pfsFamilyName: null,
     pfsCategoryName: null,

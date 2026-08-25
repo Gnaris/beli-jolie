@@ -13,42 +13,45 @@ export default function CtaBanner() {
   return (
     <section
       ref={sectionRef}
-      className="scroll-fade-up relative overflow-hidden bg-bg-darker text-white py-24 lg:py-32"
+      className="scroll-fade-up relative overflow-hidden bg-bg-darker text-white py-20 lg:py-28"
     >
-      {/* Grain texture subtile */}
+      {/* Grille fond très discrète */}
       <div
-        className="absolute inset-0 opacity-[0.035] pointer-events-none"
+        className="absolute inset-0 opacity-[0.05] pointer-events-none"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.7) 1px, transparent 0)",
-          backgroundSize: "24px 24px",
+            "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
         }}
       />
 
       <div className="relative z-10 max-w-[1400px] mx-auto px-6 lg:px-10 text-center">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-white/50 font-medium mb-6">
-          {t("ctaEyebrow")}
-        </p>
+        <p className="text-[11px] uppercase tracking-[0.3em] text-white/50 mb-4">{t("ctaEyebrow")}</p>
         <h2
-          className="font-heading font-bold leading-tight mb-6 max-w-3xl mx-auto"
+          className="font-heading font-bold leading-[1.05] mx-auto max-w-3xl"
           style={{ fontSize: "clamp(2rem, 5vw, 4rem)", letterSpacing: "-0.02em" }}
         >
-          {t("ctaTitle")}
+          <span className="relative inline-block">
+            <span
+              aria-hidden
+              className="absolute left-0 right-0 bg-gold"
+              style={{ bottom: "0.08em", height: "0.28em", opacity: 0.85, zIndex: 0 }}
+            />
+            <span className="relative">{t("ctaTitle")}</span>
+          </span>
         </h2>
-        <p className="font-body text-white/70 text-lg max-w-xl mx-auto mb-10 leading-relaxed">
-          {t("ctaDesc")}
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <p className="mt-6 max-w-lg mx-auto text-white/70 leading-relaxed">{t("ctaDesc")}</p>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href="/produits"
-            className="inline-flex items-center gap-2 px-7 py-3.5 bg-white text-bg-darker font-heading font-medium text-sm rounded-full hover:bg-white/90 hover:-translate-y-0.5 transition-all shadow-lg shadow-black/30"
+            className="inline-flex items-center gap-2 px-7 py-3.5 bg-white text-bg-darker font-heading font-semibold text-sm rounded-full hover:bg-white/90 transition"
           >
             {t("heroCta")} <span aria-hidden>→</span>
           </Link>
           {!session && (
             <Link
               href="/inscription"
-              className="inline-flex items-center gap-2 px-7 py-3.5 border border-white/30 text-white font-heading font-medium text-sm rounded-full hover:bg-white hover:text-bg-darker hover:border-white transition-colors"
+              className="inline-flex items-center gap-2 px-7 py-3.5 border border-white/25 text-white font-heading text-sm rounded-full hover:bg-white hover:text-bg-darker transition-colors"
             >
               {t("heroRegister")}
             </Link>

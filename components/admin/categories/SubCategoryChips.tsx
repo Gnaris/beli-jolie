@@ -6,6 +6,7 @@ type Sub = {
   translations: Record<string, string>;
   orderchampCategoryPath?: string | null;
   orderchampLabel?: string | null;
+  microstoreCategoryId?: number | null;
 };
 
 type Props = {
@@ -14,14 +15,16 @@ type Props = {
   onEdit: (sub: Sub) => void;
   onDelete: (sub: Sub) => void;
   onOrderchamp?: (sub: Sub) => void;
+  onMicrostore?: (sub: Sub) => void;
 };
 
-export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrderchamp }: Props) {
+export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrderchamp, onMicrostore }: Props) {
   return (
     <div className="flex flex-wrap gap-2">
       {subs.map((s) => {
         const translated = !!(s.translations.fr && s.translations.fr.trim() && s.translations.en && s.translations.en.trim());
         const ocMapped = !!s.orderchampCategoryPath;
+        const msMapped = s.microstoreCategoryId != null;
         return (
           <div
             key={s.id}
@@ -52,6 +55,25 @@ export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrde
                 }`}
               >
                 O
+              </button>
+            )}
+            {onMicrostore && (
+              <button
+                type="button"
+                onClick={() => onMicrostore(s)}
+                title={
+                  msMapped
+                    ? `Microstore : ID ${s.microstoreCategoryId}`
+                    : "Microstore : à mapper pour pouvoir choisir cette sous-catégorie comme étiquette Microstore d'un produit"
+                }
+                aria-label={msMapped ? "Modifier le mapping Microstore" : "Ajouter un mapping Microstore"}
+                className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[9px] font-bold shrink-0 transition-colors ${
+                  msMapped
+                    ? "bg-cyan-100 text-cyan-700 hover:bg-cyan-200"
+                    : "bg-bg-primary border border-dashed border-border text-text-muted hover:text-cyan-600 hover:border-cyan-300"
+                }`}
+              >
+                M
               </button>
             )}
             <button

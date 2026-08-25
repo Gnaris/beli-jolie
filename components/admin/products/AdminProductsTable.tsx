@@ -80,6 +80,10 @@ const LinkAnkorstoreProductModal = dynamic(
 const LinkEfashionProductModal = LinkPfsProductModal;
 const LinkFaireProductModal = LinkPfsProductModal;
 const LinkOrderchampProductModal = LinkPfsProductModal;
+// Microstore utilise sa propre modale (recherche H5 par référence).
+const LinkMicrostoreProductModal = dynamic(
+  () => import("@/components/admin/products/LinkMicrostoreProductModal"),
+);
 const BulkPublishDraftsModal = dynamic(
   () => import("@/components/admin/products/BulkPublishDraftsModal"),
 );
@@ -934,17 +938,26 @@ function OrderchampBadge({
 
 function MicrostoreBadge({
   configured,
+  published,
   syncRequired = false,
   onSyncClick,
+  onActionClick,
   onCancelSyncRequired,
   disabledForProduct = false,
   disabledGlobally = false,
 }: {
-  /** Microstore n'a pas d'ID marketplace côté produit — on considère qu'il est
-   *  actif dès qu'il est configuré globalement ET pas décoché pour le produit. */
+  /** Microstore globalement configurée dans Paramètres. */
   configured: boolean;
+  /** Produit déjà envoyé à Microstore au moins une fois
+   *  (`microstoreLastPushedAt != null`). Depuis 2026-08-25, l'API native
+   *  populate ce champ + `microstoreProductId` au push — la couleur du badge
+   *  reflète maintenant le vrai statut du produit, pas juste la config globale. */
+  published: boolean;
   syncRequired?: boolean;
+  /** Publié + à jour → clic déclenche une resynchronisation. */
   onSyncClick?: () => void;
+  /** Non publié → clic ouvre la modale « Publier / Lier ». */
+  onActionClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
   /** Kill switch global (Paramètres → Marketplaces → Gestion Produits OFF). */
@@ -961,7 +974,7 @@ function MicrostoreBadge({
   }
   if (disabledGlobally) return <DisabledMarketplaceBadge label="MC" reason="global" />;
   if (disabledForProduct) return <DisabledMarketplaceBadge label="MC" reason="product" />;
-  if (syncRequired) {
+  if (published && syncRequired) {
     return (
       <span className="relative inline-flex">
         <button
@@ -981,6 +994,33 @@ function MicrostoreBadge({
       </span>
     );
   }
+  if (!published) {
+    // Pas encore poussé : badge rouge qui ouvre la modale « Publier / Lier ».
+    // Fallback sur onSyncClick si onActionClick pas fourni (comportement direct).
+    const clickHandler = onActionClick ?? onSyncClick;
+    const canAct = !!clickHandler;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          if (!canAct) return;
+          e.stopPropagation();
+          clickHandler!();
+        }}
+        disabled={!canAct}
+        className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold transition-colors ${
+          canAct
+            ? "mp-unpublished-badge bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA] hover:bg-[#FEE2E2] hover:border-[#FCA5A5] cursor-pointer"
+            : "bg-bg-secondary text-text-muted border border-border opacity-60 cursor-not-allowed"
+        }`}
+        title={canAct ? "Cliquer pour publier ou lier ce produit sur Microstore" : "Non publié sur Microstore"}
+        aria-label="Publier ou lier sur Microstore"
+      >
+        MC
+      </button>
+    );
+  }
+  // Publié + à jour → vert.
   return (
     <button
       type="button"
@@ -993,7 +1033,7 @@ function MicrostoreBadge({
       className={`inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold mp-online-badge bg-[#F0FDF4] text-[#15803D] border border-[#BBF7D0] ${
         onSyncClick ? "hover:bg-[#DCFCE7] hover:border-[#86EFAC] cursor-pointer transition-colors" : "cursor-default"
       }`}
-      title={onSyncClick ? "Cliquer pour synchroniser sur Microstore" : "Microstore configuré"}
+      title={onSyncClick ? "En ligne sur Microstore — cliquer pour renvoyer les modifs" : "En ligne sur Microstore"}
     >
       MC
     </button>
@@ -2862,12 +2902,14 @@ function ProductRow({
   const [linkEfOpen, setLinkEfOpen] = useState(false);
   const [linkFaireOpen, setLinkFaireOpen] = useState(false);
   const [linkOrderchampOpen, setLinkOrderchampOpen] = useState(false);
+  const [linkMicrostoreOpen, setLinkMicrostoreOpen] = useState(false);
   // Modales « Publier / Lier » : une par marketplace, ouvertes au clic du badge
   const [actionModalPfs, setActionModalPfs] = useState(false);
   const [actionModalAk, setActionModalAk] = useState(false);
   const [actionModalEf, setActionModalEf] = useState(false);
   const [actionModalFaire, setActionModalFaire] = useState(false);
   const [actionModalOrderchamp, setActionModalOrderchamp] = useState(false);
+  const [actionModalMicrostore, setActionModalMicrostore] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
   // Suivi du tap sur la ligne : distinguer un scroll (le doigt a bougé) d'un
   // vrai tap pour éviter la sélection accidentelle sur mobile.
@@ -3295,39 +3337,42 @@ function ProductRow({
   }, [enqueue, product, isOrderchampPublishing, confirmMarketplaceSync]);
 
   const [microstoreBusy, setMicrostoreBusy] = useState(false);
+  // Push Microstore — passe par la même queue asynchrone que les autres
+  // marketplaces (PFS/Ankor/eFa/Faire/OC). Résultat + éventuelle erreur
+  // affichés dans le widget flottant en bas à droite (aucun toast).
+  const doPushMicrostore = useCallback(() => {
+    if (microstoreBusy) return;
+    setMicrostoreBusy(true);
+    nudgeRailWidget("microstore-upload");
+    enqueue([
+      {
+        productId: product.id,
+        reference: product.reference,
+        productName: product.name,
+        firstImage: product.firstImage,
+        options: {
+          local: false,
+          pfs: false,
+          ankorstore: false,
+          efashion: false,
+          faire: false,
+          orderchamp: false,
+          microstore: true,
+        },
+        mode: !!product.microstoreLastPushedAt ? "resync" : "publish",
+        marketplace: "microstore",
+      },
+    ]);
+    // On libère microstoreBusy tout de suite : le suivi de l'état passe par
+    // le widget (le contexte marketplace-refresh a son propre "busy per item").
+    setMicrostoreBusy(false);
+  }, [microstoreBusy, product, enqueue, nudgeRailWidget]);
+
   const handleSyncMicrostore = useCallback(async () => {
     if (microstoreBusy) return;
-    const ok = await confirm({
-      type: "info",
-      title: `Synchroniser « ${product.name} » sur Microstore ?`,
-      message:
-        "La fiche Microstore sera créée si absente ou mise à jour (nom, prix, stock, couleurs, catégorie, description). " +
-        "Les photos ne sont pas envoyées — à ajouter manuellement côté Microstore si besoin.",
-      confirmLabel: "Oui, synchroniser",
-      cancelLabel: "Annuler",
-    });
-    if (!ok) return;
-    setMicrostoreBusy(true);
-    // Nudge le widget « Photos Microstore » — cf. MicrostoreStatusCard.
-    nudgeRailWidget("microstore-upload");
-    try {
-      const { pushProductToMicrostore } = await import(
-        "@/app/actions/admin/microstore-products"
-      );
-      const res = await pushProductToMicrostore(product.id);
-      if (res.success) {
-        toast.success("Fiche Microstore synchronisée");
-        router.refresh();
-      } else {
-        toast.error(
-          "Envoi Microstore échoué",
-          res.error ?? "Erreur inconnue.",
-        );
-      }
-    } finally {
-      setMicrostoreBusy(false);
-    }
-  }, [microstoreBusy, product.id, product.name, confirm, toast, router]);
+    if (!(await confirmMarketplaceSync("Microstore"))) return;
+    doPushMicrostore();
+  }, [microstoreBusy, confirmMarketplaceSync, doPushMicrostore]);
 
   const handleCancelMicrostoreSync = useCallback(async () => {
     const ok = await confirm({
@@ -3840,8 +3885,14 @@ function ProductRow({
               )}
               <MicrostoreBadge
                 configured={hasMicrostoreConfig}
+                published={!!product.microstoreLastPushedAt}
                 syncRequired={effectiveMicrostoreSyncRequired}
                 onSyncClick={microstoreBusy || !microstoreEnabled ? undefined : handleSyncMicrostore}
+                onActionClick={
+                  hasMicrostoreConfig && microstoreEnabled && product.microstoreEnabled && !microstoreBusy
+                    ? () => setActionModalMicrostore(true)
+                    : undefined
+                }
                 onCancelSyncRequired={handleCancelMicrostoreSync}
                 disabledForProduct={!product.microstoreEnabled}
                 disabledGlobally={!microstoreEnabled}
@@ -4466,6 +4517,32 @@ function ProductRow({
         onConfirm={() => { setActionModalOrderchamp(false); void handlePublishOrderchamp(); }}
         onLink={() => { setActionModalOrderchamp(false); setLinkOrderchampOpen(true); }}
       />
+      <MarketplacePushModal
+        open={actionModalMicrostore}
+        marketplace="microstore"
+        mode="publish-or-link"
+        title="Publier ce produit sur Microstore"
+        productName={product.name}
+        productReference={product.reference}
+        productImage={product.firstImage}
+        canCreate={!product.microstoreLastPushedAt}
+        canLink={hasMicrostoreConfig && !product.microstoreLastPushedAt}
+        createDisabledReason={!product.microstoreLastPushedAt ? undefined : "Produit déjà publié"}
+        onClose={() => setActionModalMicrostore(false)}
+        onConfirm={() => { setActionModalMicrostore(false); doPushMicrostore(); }}
+        onLink={() => { setActionModalMicrostore(false); setLinkMicrostoreOpen(true); }}
+      />
+      {linkMicrostoreOpen && (
+        <LinkMicrostoreProductModal
+          open={linkMicrostoreOpen}
+          onClose={() => setLinkMicrostoreOpen(false)}
+          productId={product.id}
+          reference={product.reference}
+          productName={product.name}
+          currentMicrostoreProductId={null}
+          microstoreLastPushedAt={product.microstoreLastPushedAt}
+        />
+      )}
 
       {/* Modale « Publier sur X ? » — confirmation simple avec message.
           Ouverte par les handlers handlePublishXxx (publishConfirmFor). */}
@@ -4989,49 +5066,22 @@ export default function AdminProductsTable({
           });
         }
       }
-      if (inputs.length > 0) enqueuePfs(inputs);
-
-      // Microstore : hors queue (POST /goods/import_v1 synchrone). Fire-and-
-      // forget avec toast récapitulatif à la fin.
+      // Microstore : passe désormais par la même file que les autres.
       if (options.microstore && microstoreProducts.length > 0) {
         nudgeRailWidget("microstore-upload");
-        const { bulkPushProductsToMicrostore } = await import(
-          "@/app/actions/admin/microstore-products"
-        );
-        void bulkPushProductsToMicrostore(
-          microstoreProducts.map((p) => p.id),
-        ).then((res) => {
-          if (res.success) {
-            const n = res.totals?.pushed ?? 0;
-            const skipped = (res.results ?? []).filter((r) => !r.success);
-            if (n === 0 && skipped.length > 0) {
-              toast.error(
-                "Microstore : rien envoyé",
-                skipped
-                  .slice(0, 3)
-                  .map((s) => `${s.reference} : ${s.error}`)
-                  .join(" · "),
-              );
-            } else if (skipped.length > 0) {
-              const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
-              toast.info(
-                `Microstore : ${n} envoyé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
-                `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
-              );
-            } else {
-              toast.success(
-                `Microstore mis à jour`,
-                `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-              );
-            }
-          } else {
-            toast.error(
-              "Microstore : envoi bulk échoué",
-              res.error ?? "Erreur inconnue.",
-            );
-          }
-        });
+        for (const p of microstoreProducts) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+            mode: "publish",
+            marketplace: "microstore",
+          });
+        }
       }
+      if (inputs.length > 0) enqueuePfs(inputs);
     } catch (e) {
       toast.error(
         "Enregistrement impossible",
@@ -5173,9 +5223,9 @@ export default function AdminProductsTable({
         }
       }
 
-      // 4) Microstore : upsert synchrone via /goods/import_v1 (pas de queue).
-      //    On ne pousse que les produits effectivement mis en ligne + avec
-      //    toggle Microstore activé.
+      // 4) Microstore : passe désormais par la file marketplace comme les
+      //    autres. On enqueue un job publish par produit effectivement mis
+      //    en ligne ET avec toggle Microstore activé.
       if (
         decision.publishMicrostore &&
         hasMicrostoreConfig &&
@@ -5184,40 +5234,21 @@ export default function AdminProductsTable({
         const toPushIds = decision.microstoreEligibleIds.filter((id) => onlineIds.has(id));
         if (toPushIds.length > 0) {
           nudgeRailWidget("microstore-upload");
-          const { bulkPushProductsToMicrostore } = await import(
-            "@/app/actions/admin/microstore-products"
-          );
-          void bulkPushProductsToMicrostore(toPushIds).then((res) => {
-            if (res.success) {
-              const n = res.totals?.pushed ?? 0;
-              const skipped = (res.results ?? []).filter((r) => !r.success);
-              if (n === 0 && skipped.length > 0) {
-                toast.error(
-                  "Microstore : rien envoyé",
-                  skipped
-                    .slice(0, 3)
-                    .map((s) => `${s.reference} : ${s.error}`)
-                    .join(" · "),
-                );
-              } else if (skipped.length > 0) {
-                const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
-                toast.info(
-                  `Microstore : ${n} envoyé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
-                  `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
-                );
-              } else {
-                toast.success(
-                  "Microstore mis à jour",
-                  `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-                );
-              }
-            } else {
-              toast.error(
-                "Microstore : envoi bulk échoué",
-                res.error ?? "Erreur inconnue.",
-              );
-            }
-          });
+          const microstoreInputs: Parameters<typeof enqueuePfs>[0] = [];
+          for (const id of toPushIds) {
+            const p = eligibleProducts.find((ep) => ep.id === id);
+            if (!p) continue;
+            microstoreInputs.push({
+              productId: p.id,
+              reference: p.reference,
+              productName: p.name,
+              firstImage: p.firstImage,
+              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+              mode: "publish" as const,
+              marketplace: "microstore" as const,
+            });
+          }
+          if (microstoreInputs.length > 0) enqueuePfs(microstoreInputs);
         }
       }
 
@@ -5366,16 +5397,14 @@ export default function AdminProductsTable({
         efashion: efashionCandidates,
         faire: faireCandidates,
         orderchamp: orderchampCandidates,
+        microstore: microstoreCandidates,
       };
-      if (hasAnyCandidate(candidates) || microstoreCandidates.length > 0) {
+      if (hasAnyCandidate(candidates)) {
         const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
         const options = await askMarketplaceOptions({
           count: successIds.length,
           firstProductName: firstName,
-          productIds: [
-            ...allCandidateIds(candidates),
-            ...microstoreCandidates.map((p) => p.id),
-          ],
+          productIds: allCandidateIds(candidates),
           showPfs: pfsCandidates.length > 0,
           showAnkorstore: ankorsCandidates.length > 0,
           showEfashion: efashionCandidates.length > 0,
@@ -5394,30 +5423,9 @@ export default function AdminProductsTable({
           confirmLabel: "Mettre à jour",
         });
         if (options) {
+          if (options.microstore) nudgeRailWidget("microstore-upload");
           const inputs = buildMarketplaceInputs(candidates, options);
           if (inputs.length > 0) enqueuePfs(inputs);
-          if (options.microstore && microstoreCandidates.length > 0) {
-            nudgeRailWidget("microstore-upload");
-            const { bulkPushProductsToMicrostore } = await import(
-              "@/app/actions/admin/microstore-products"
-            );
-            void bulkPushProductsToMicrostore(
-              microstoreCandidates.map((p) => p.id),
-            ).then((res) => {
-              if (res.success) {
-                const n = res.totals?.pushed ?? 0;
-                toast.success(
-                  `Microstore mis à jour`,
-                  `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-                );
-              } else {
-                toast.error(
-                  "Microstore : envoi bulk échoué",
-                  res.error ?? "Erreur inconnue.",
-                );
-              }
-            });
-          }
         }
       }
     }
@@ -5512,8 +5520,9 @@ export default function AdminProductsTable({
       efashion: efashionCandidates,
       faire: faireCandidates,
       orderchamp: orderchampCandidates,
+      microstore: microstoreCandidates,
     };
-    if (!hasAnyCandidate(candidates) && microstoreCandidates.length === 0) return;
+    if (!hasAnyCandidate(candidates)) return;
 
     const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
     // Boucle avec confirmation à l'annulation — les flags sont déjà posés côté
@@ -5524,10 +5533,7 @@ export default function AdminProductsTable({
       options = await askMarketplaceOptions({
         count: successIds.length,
         firstProductName: firstName,
-        productIds: [
-          ...allCandidateIds(candidates),
-          ...microstoreCandidates.map((p) => p.id),
-        ],
+        productIds: allCandidateIds(candidates),
         showPfs: pfsCandidates.length > 0,
         showAnkorstore: ankorsCandidates.length > 0,
         showEfashion: efashionCandidates.length > 0,
@@ -5558,32 +5564,9 @@ export default function AdminProductsTable({
       });
       if (keepPending) return;
     }
+    if (options.microstore) nudgeRailWidget("microstore-upload");
     const inputs = buildMarketplaceInputs(candidates, options);
     if (inputs.length > 0) enqueuePfs(inputs);
-
-    // Microstore : hors queue, appel synchrone bulk avec toast récap.
-    if (options.microstore && microstoreCandidates.length > 0) {
-      nudgeRailWidget("microstore-upload");
-      const { bulkPushProductsToMicrostore } = await import(
-        "@/app/actions/admin/microstore-products"
-      );
-      void bulkPushProductsToMicrostore(
-        microstoreCandidates.map((p) => p.id),
-      ).then((res) => {
-        if (res.success) {
-          const n = res.totals?.pushed ?? 0;
-          toast.success(
-            `Microstore mis à jour`,
-            `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-          );
-        } else {
-          toast.error(
-            "Microstore : envoi bulk échoué",
-            res.error ?? "Erreur inconnue.",
-          );
-        }
-      });
-    }
   }, [selectedIds, startTransition, askMarketplaceOptions, allProducts, enqueuePfs, hasPfsConfig, hasMicrostoreConfig, showAnkorstore, showEfashion, showFaire, confirm, toast]);
 
   const handleBulkDelete = useCallback(async (idsOverride?: string[]) => {
@@ -5959,15 +5942,13 @@ export default function AdminProductsTable({
       efashion: efashionTargets,
       faire: faireTargets,
       orderchamp: orderchampTargets,
+      microstore: microstoreTargets,
     };
     const firstName = targets[0]?.name;
     const options = await askMarketplaceOptions({
       count: ids.length,
       firstProductName: firstName,
-      productIds: [
-        ...allCandidateIds(candidates),
-        ...microstoreTargets.map((p) => p.id),
-      ],
+      productIds: allCandidateIds(candidates),
       showPfs: pfsTargets.length > 0,
       showAnkorstore: ankorsTargets.length > 0,
       showEfashion: efashionTargets.length > 0,
@@ -5991,15 +5972,17 @@ export default function AdminProductsTable({
     // Split OC : le mode "resync" ne fonctionne QUE pour les fiches déjà liées
     // (productRepublish exige l'ID OC). Les fiches non-liées passent en mode
     // "publish" — le worker appellera orderchampPublishProduct pour créer la
-    // fiche de zéro.
+    // fiche de zéro. Idem Microstore : "resync" n'existe pas → toujours
+    // "publish" (le worker choisit create vs update selon microstoreProductId).
     const candidatesLinkedOc: MarketplaceCandidates = {
       ...candidates,
       orderchamp: orderchampLinkedTargets,
+      microstore: [],
     };
     const inputs = buildMarketplaceInputs(candidatesLinkedOc, options, "resync");
     if (options.orderchamp && orderchampUnlinkedTargets.length > 0) {
       const ocPublishCandidates: MarketplaceCandidates = {
-        pfs: [], ankorstore: [], efashion: [], faire: [],
+        pfs: [], ankorstore: [], efashion: [], faire: [], microstore: [],
         orderchamp: orderchampUnlinkedTargets,
       };
       const ocPublishInputs = buildMarketplaceInputs(
@@ -6009,48 +5992,17 @@ export default function AdminProductsTable({
       );
       inputs.push(...ocPublishInputs);
     }
-    if (inputs.length > 0) enqueuePfs(inputs);
-
-    // Microstore : hors queue, appel synchrone bulk.
     if (options.microstore && microstoreTargets.length > 0) {
       nudgeRailWidget("microstore-upload");
-      const { bulkPushProductsToMicrostore } = await import(
-        "@/app/actions/admin/microstore-products"
+      const microstorePublishCandidates: MarketplaceCandidates = {
+        pfs: [], ankorstore: [], efashion: [], faire: [], orderchamp: [],
+        microstore: microstoreTargets,
+      };
+      inputs.push(
+        ...buildMarketplaceInputs(microstorePublishCandidates, { microstore: true }, "publish"),
       );
-      void bulkPushProductsToMicrostore(
-        microstoreTargets.map((p) => p.id),
-      ).then((res) => {
-        if (res.success) {
-          const n = res.totals?.pushed ?? 0;
-          const skipped = (res.results ?? []).filter((r) => !r.success);
-          if (n === 0 && skipped.length > 0) {
-            toast.error(
-              "Microstore : rien synchronisé",
-              skipped
-                .slice(0, 3)
-                .map((s) => `${s.reference} : ${s.error}`)
-                .join(" · "),
-            );
-          } else if (skipped.length > 0) {
-            const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
-            toast.info(
-              `Microstore : ${n} synchronisé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
-              `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
-            );
-          } else {
-            toast.success(
-              `Microstore synchronisé`,
-              `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-            );
-          }
-        } else {
-          toast.error(
-            "Microstore : synchro bulk échouée",
-            res.error ?? "Erreur inconnue.",
-          );
-        }
-      });
     }
+    if (inputs.length > 0) enqueuePfs(inputs);
   }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast]);
 
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
@@ -6133,7 +6085,9 @@ export default function AdminProductsTable({
     const plural = count > 1 ? "s" : "";
     const label = MARKETPLACE_LABEL[marketplace] ?? marketplace;
 
-    // Microstore : upsert synchrone via /goods/import_v1, pas de queue.
+    // Microstore : passe désormais par la même file que les autres, via un
+    // job publish par produit. Le worker choisit create vs update selon
+    // microstoreProductId. Retour visuel dans le tiroir Marketplaces.
     if (marketplace === "microstore") {
       const ok = await confirm({
         type: "info",
@@ -6146,39 +6100,18 @@ export default function AdminProductsTable({
       });
       if (ok !== true) return;
       nudgeRailWidget("microstore-upload");
-      const { bulkPushProductsToMicrostore } = await import(
-        "@/app/actions/admin/microstore-products"
+      const products = allProducts.filter((p) => ids.includes(p.id));
+      enqueuePfs(
+        products.map((p) => ({
+          productId: p.id,
+          reference: p.reference,
+          productName: p.name,
+          firstImage: p.firstImage,
+          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+          mode: "publish" as const,
+          marketplace: "microstore" as const,
+        })),
       );
-      const res = await bulkPushProductsToMicrostore(ids);
-      if (res.success) {
-        const n = res.totals?.pushed ?? 0;
-        const skipped = (res.results ?? []).filter((r) => !r.success);
-        if (n === 0 && skipped.length > 0) {
-          toast.error(
-            "Microstore : rien synchronisé",
-            skipped
-              .slice(0, 3)
-              .map((s) => `${s.reference} : ${s.error}`)
-              .join(" · "),
-          );
-        } else if (skipped.length > 0) {
-          const refs = skipped.map((s) => s.reference).slice(0, 5).join(", ");
-          toast.info(
-            `Microstore : ${n} synchronisé${n > 1 ? "s" : ""}, ${skipped.length} sauté${skipped.length > 1 ? "s" : ""}`,
-            `À corriger : ${refs}${skipped.length > 5 ? "…" : ""}. Ex : ${skipped[0]!.error}`,
-          );
-        } else {
-          toast.success(
-            `Microstore synchronisé`,
-            `${n} produit${n > 1 ? "s" : ""} envoyé${n > 1 ? "s" : ""}.`,
-          );
-        }
-      } else {
-        toast.error(
-          "Microstore : synchro bulk échouée",
-          res.error ?? "Erreur inconnue.",
-        );
-      }
       return;
     }
 

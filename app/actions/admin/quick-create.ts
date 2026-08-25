@@ -62,18 +62,17 @@ export async function createCategoryQuick(
   pfsCategoryId?: string | null,
   efashionCategorieId?: number | null,
   faireTaxonomyId?: string | null,
+  microstoreCategoryId?: number | null,
 ): Promise<{ id: string; name: string; subCategories: { id: string; name: string }[] }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
   const gender = pfsGender?.trim() || null;
   // Filtre de sécurité : la famille doit être un nom connu de la taxonomie
-  // (pas un identifiant Salesforce brut comme "a035J00000185J7QAI"), sinon on
-  // refuse la création — l'admin verrait un mapping incomplet en BDD.
+  // (pas un identifiant Salesforce brut comme "a035J00000185J7QAI"). PFS est
+  // désormais optionnel à la création — l'admin peut mapper les marketplaces
+  // après-coup depuis la fiche catégorie (une carte = un mini-modal dédié).
   const familyName = sanitizePfsFamilyName(pfsFamilyName);
-  if (!gender || !familyName) {
-    throw new Error("Le genre et la famille Paris Fashion Shop sont obligatoires.");
-  }
   // Si une catégorie avec ce nom existe déjà, on la met à jour avec les infos PFS
   const existing = await prisma.category.findFirst({ where: { name } });
   if (existing) {
@@ -86,6 +85,7 @@ export async function createCategoryQuick(
         pfsCategoryId: pfsCategoryId?.trim() || null,
         ...(efashionCategorieId !== undefined ? { efashionCategorieId } : {}),
         ...(faireTaxonomyId !== undefined ? { faireTaxonomyId: faireTaxonomyId?.trim() || null } : {}),
+        ...(microstoreCategoryId !== undefined ? { microstoreCategoryId } : {}),
       },
     });
     for (const [locale, value] of Object.entries(translations)) {
@@ -118,6 +118,7 @@ export async function createCategoryQuick(
       pfsCategoryId: pfsCategoryId?.trim() || null,
       efashionCategorieId: efashionCategorieId ?? null,
       faireTaxonomyId: faireTaxonomyId?.trim() || null,
+      microstoreCategoryId: microstoreCategoryId ?? null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -171,6 +172,7 @@ export async function createColorQuick(
   patternImage: string | null | undefined,
   pfsColorRef?: string | null,
   efashionColorId?: number | null,
+  microstoreColorId?: number | null,
 ): Promise<CreateColorQuickResult> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
@@ -192,6 +194,7 @@ export async function createColorQuick(
       patternImage: patternImage ?? null,
       pfsColorRef: pfsColorRef?.trim() || null,
       efashionColorId: efashionColorId ?? null,
+      microstoreColorId: microstoreColorId ?? null,
     },
   });
   for (const [locale, value] of Object.entries(translations)) {
@@ -280,14 +283,14 @@ export async function createSeasonQuick(
   translations: Record<string, string>,
   pfsRef?: string | null,
   efashionCollectionId?: number | null,
+  microstoreSeasonId?: number | null,
 ): Promise<{ id: string; name: string }> {
   await requireAdmin();
   const name = titleCase(translations["fr"] ?? Object.values(translations)[0] ?? "");
   if (!name) throw new Error("Le nom (FR) est requis.");
+  // PFS optionnel à la création — l'admin peut mapper les marketplaces
+  // après-coup depuis la fiche saison (une carte = un mini-modal dédié).
   const normalizedRef = pfsRef?.trim().toUpperCase() || null;
-  if (!normalizedRef) {
-    throw new Error("La correspondance Paris Fashion Shop est obligatoire.");
-  }
   // Idempotent : si la saison existe déjà (contrainte unique sur name),
   // on met à jour ses champs marketplace + traductions au lieu de planter.
   const existing = await prisma.season.findFirst({ where: { name } });
@@ -297,10 +300,16 @@ export async function createSeasonQuick(
         data: {
           pfsRef: normalizedRef,
           ...(efashionCollectionId !== undefined ? { efashionCollectionId } : {}),
+          ...(microstoreSeasonId !== undefined ? { microstoreSeasonId } : {}),
         },
       })
     : await prisma.season.create({
-        data: { name, pfsRef: normalizedRef, efashionCollectionId: efashionCollectionId ?? null },
+        data: {
+          name,
+          pfsRef: normalizedRef,
+          efashionCollectionId: efashionCollectionId ?? null,
+          microstoreSeasonId: microstoreSeasonId ?? null,
+        },
       });
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;

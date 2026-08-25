@@ -1,11 +1,13 @@
 /**
- * Tests unitaires du regroupement en 5 vues (Création / Modification /
- * Liaison / Rafraîchissement / Étalement) dans marketplacesDrawerModel.
+ * Tests unitaires du regroupement en 6 vues (Création / Modification /
+ * Synchronisation / Liaison / Rafraîchissement / Étalement) dans
+ * marketplacesDrawerModel.
  *
  * Couvre la résolution d'intent → vue :
  *  - Priorité au champ `intent` (posé serveur-side depuis 2026-08-14)
  *  - Fallback sur mode + scheduledFor pour les anciens jobs sans intent
  *  - Fusion des LinkJob client + jobs BDD intent=link dans la vue Liaison
+ *  - Isolation mode="resync" → vue Synchronisation (depuis 2026-08-25)
  *  - KPI par vue (errors / active / queued / done)
  */
 import { describe, it, expect } from "vitest";
@@ -84,6 +86,10 @@ describe("viewKeyFromItem — routage par intent (priorité BDD)", () => {
     expect(viewKeyFromItem(mkItem({ intent: "update", mode: "publish" }), NOW)).toBe("update");
   });
 
+  it('intent="sync" → vue "sync"', () => {
+    expect(viewKeyFromItem(mkItem({ intent: "sync", mode: "resync" }), NOW)).toBe("sync");
+  });
+
   it('intent="link" → vue "link"', () => {
     expect(viewKeyFromItem(mkItem({ intent: "link", mode: "publish" }), NOW)).toBe("link");
   });
@@ -134,20 +140,41 @@ describe("viewKeyFromItem — fallback pour anciens jobs sans intent", () => {
     expect(viewKeyFromItem(mkItem({ mode: "refresh" }), NOW)).toBe("refresh");
   });
 
-  it('mode="resync" sans intent → "update"', () => {
-    expect(viewKeyFromItem(mkItem({ mode: "resync" }), NOW)).toBe("update");
+  it('mode="resync" sans intent → "sync"', () => {
+    expect(viewKeyFromItem(mkItem({ mode: "resync" }), NOW)).toBe("sync");
   });
 
   it('mode="publish" sans intent → "update" par défaut (heuristique conservatrice)', () => {
     expect(viewKeyFromItem(mkItem({ mode: "publish" }), NOW)).toBe("update");
   });
+
+  // Modes actions Microstore (2026-08-25) — masquer/réafficher/supprimer sont
+  // des modifications ciblées d'une fiche existante, donc classées dans la vue
+  // Modification.
+  it('mode="disable" sans intent → "update"', () => {
+    expect(viewKeyFromItem(mkItem({ mode: "disable", marketplace: "microstore" }), NOW)).toBe(
+      "update",
+    );
+  });
+
+  it('mode="enable" sans intent → "update"', () => {
+    expect(viewKeyFromItem(mkItem({ mode: "enable", marketplace: "microstore" }), NOW)).toBe(
+      "update",
+    );
+  });
+
+  it('mode="delete" sans intent → "update"', () => {
+    expect(viewKeyFromItem(mkItem({ mode: "delete", marketplace: "microstore" }), NOW)).toBe(
+      "update",
+    );
+  });
 });
 
 // ────────────────────────────────────────────────────────────────
-describe("bucketViews — retourne exactement 5 vues dans l'ordre", () => {
-  it("retourne les 5 clés dans VIEW_ORDER, même si toutes vides", () => {
+describe("bucketViews — retourne exactement 6 vues dans l'ordre", () => {
+  it("retourne les 6 clés dans VIEW_ORDER, même si toutes vides", () => {
     const views = bucketViews([], [], NOW);
-    expect(views).toHaveLength(5);
+    expect(views).toHaveLength(6);
     expect(views.map((v) => v.key)).toEqual(VIEW_ORDER);
     for (const v of views) {
       expect(v.kpi).toEqual({ errors: 0, active: 0, queued: 0, done: 0 });

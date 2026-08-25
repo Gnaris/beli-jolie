@@ -24,10 +24,14 @@ import { MicrostoreSessionExpiredError } from "@/lib/microstore-client";
 import { loadExportContext, loadExportProducts } from "@/lib/marketplace-excel/load-products";
 import type { ExportProduct } from "@/lib/marketplace-excel/types";
 import { getStoredPictureStation } from "@/lib/microstore-picture-station";
-import { sendProductPhotosToMicrostore } from "@/app/actions/admin/microstore-picture-station";
+import {
+  sendProductPhotosToMicrostoreCore,
+  bulkSendPhotosToMicrostoreCore,
+} from "@/lib/microstore-photos-sync";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { tenantALS } from "@/lib/tenant-als";
 import { checkProductComplete } from "@/lib/product-publishability-check";
+import { assertMicrostorePushAllowed } from "@/lib/microstore-preflight";
 
 interface ActionResult {
   success: boolean;
@@ -93,10 +97,10 @@ async function humanizeError(err: unknown): Promise<string> {
 export async function pushProductToMicrostore(productId: string): Promise<ActionResult> {
   await requireAdmin();
 
-  const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
-  if (!(await getCachedMicrostoreEnabled())) {
-    return { success: false, error: "Gestion des produits Microstore désactivée dans Paramètres › Marketplaces." };
-  }
+  // Refuse d'emblée si la gestion produits, le token QR ou la Station de
+  // transfert ne sont pas tous les 3 valides (message précis renvoyé au toast).
+  const preflight = await assertMicrostorePushAllowed();
+  if (!preflight.ok) return { success: false, error: preflight.error };
 
   const product = await prisma.product.findUnique({
     where: { id: productId },
@@ -165,33 +169,53 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
 
   await markPushed([productId], { productsSent: result.productsSent, rowsSent: result.rowsSent });
 
-  // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
-  // sinon les jobs MicrostoreUploadJob sont créés sans tenantId → invisibles
-  // dans le widget « Photos Microstore » (qui scope par tenant).
-  const currentTenant = await requireCurrentTenant();
-
-  // Chaîne l'envoi des photos via la Station de Transfert (fire-and-forget).
-  // Si la Station n'est pas configurée, no-op silencieux.
-  void tenantALS.run(currentTenant.id, async () => {
+  // Chaîne l'envoi des photos via la Station de Transfert — SYNCHRONE.
+  //
+  // Historiquement fire-and-forget, mais le fire-and-forget en Server Action
+  // Next 16 est peu fiable : la promise détachée peut être coupée par le
+  // runtime avant même de démarrer, aucun log, aucun job créé, widget vide
+  // (bug reporté 2026-08-25). On attend donc la fin de l'upload et on remonte
+  // l'erreur dans le toast si ça foire — la cliente sait ce qui se passe.
+  // Durée typique : 3-10s pour un produit à 2-3 couleurs.
+  //
+  // On appelle le CORE (pas la server action) pour éviter un second passage
+  // par `requireAdmin` (déjà validé en tête de cette action).
+  let photosResult: Awaited<ReturnType<typeof sendProductPhotosToMicrostoreCore>> | null = null;
+  try {
     const stored = await getStoredPictureStation();
-    if (!stored) return;
-    try {
-      const psRes = await sendProductPhotosToMicrostore(product.reference);
-      if (!psRes.success) {
+    if (stored) {
+      photosResult = await sendProductPhotosToMicrostoreCore(product.reference);
+      if (!photosResult.success) {
         logger.warn("[Microstore] photos sync failed after fiche push", {
           productId,
           reference: product.reference,
-          error: psRes.error,
+          error: photosResult.error,
         });
       }
-    } catch (err) {
-      logger.error("[Microstore] photos sync threw", { error: err, productId });
     }
-  });
+  } catch (err) {
+    logger.error("[Microstore] photos sync threw", { error: err, productId });
+    photosResult = {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 
   revalidateTag("products", "default");
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
+
+  // Succès partiel : produit poussé mais photos échouées → renvoie succès
+  // (le produit EST bien sur Microstore) avec un warning dans le message.
+  // La cliente peut alors relancer l'envoi photos manuellement depuis le
+  // widget si besoin.
+  if (photosResult && !photosResult.success) {
+    return {
+      success: true,
+      error: `Fiche envoyée mais photos non uploadées : ${photosResult.error}`,
+      totals: { pushed: 1, skipped: 0, failed: 0 },
+    };
+  }
 
   return { success: true, totals: { pushed: 1, skipped: 0, failed: 0 } };
 }
@@ -210,10 +234,8 @@ export async function bulkPushProductsToMicrostore(
     return { success: true, totals: { pushed: 0, skipped: 0, failed: 0 }, results: [] };
   }
 
-  const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
-  if (!(await getCachedMicrostoreEnabled())) {
-    return { success: false, error: "Gestion des produits Microstore désactivée dans Paramètres › Marketplaces." };
-  }
+  const preflight = await assertMicrostorePushAllowed();
+  if (!preflight.ok) return { success: false, error: preflight.error };
 
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
@@ -323,9 +345,10 @@ export async function bulkPushProductsToMicrostore(
   // Chaîne le bulk photos en fire-and-forget (mode « importation en masse »
   // Microstore : 1 seul POST pictureStations avec toutes les images). Si la
   // Station n'est pas configurée, no-op silencieux.
-  const { bulkSendPhotosToMicrostore } = await import(
-    "@/app/actions/admin/microstore-picture-station"
-  );
+  //
+  // ⚠ Même piège que le push unitaire : on appelle le CORE (pas la server
+  // action) car la réponse HTTP est déjà partie et `requireAdmin()` planterait
+  // silencieusement. Fix 2026-08-25.
   if (pushedIds.length > 0) {
     // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
     // sinon les jobs MicrostoreUploadJob sont créés sans tenantId → invisibles
@@ -335,7 +358,7 @@ export async function bulkPushProductsToMicrostore(
       const stored = await getStoredPictureStation();
       if (!stored) return;
       try {
-        const bulkRes = await bulkSendPhotosToMicrostore(pushedIds);
+        const bulkRes = await bulkSendPhotosToMicrostoreCore(pushedIds);
         if (!bulkRes.success) {
           logger.warn("[Microstore] bulk photos sync failed after fiche push", {
             productIds: pushedIds,
@@ -420,6 +443,9 @@ export async function toggleMicrostoreProductDisabled(
 ): Promise<ActionResult> {
   await requireAdmin();
 
+  const preflight = await assertMicrostorePushAllowed();
+  if (!preflight.ok) return { success: false, error: preflight.error };
+
   const product = await prisma.product.findUnique({
     where: { id: productId },
     select: {
@@ -469,6 +495,9 @@ export async function deleteProductFromMicrostore(
   productId: string,
 ): Promise<ActionResult> {
   await requireAdmin();
+
+  const preflight = await assertMicrostorePushAllowed();
+  if (!preflight.ok) return { success: false, error: preflight.error };
 
   const product = await prisma.product.findUnique({
     where: { id: productId },

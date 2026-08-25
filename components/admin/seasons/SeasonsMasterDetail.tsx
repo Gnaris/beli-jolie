@@ -7,8 +7,16 @@ import SeasonDetail, { type SeasonDetailData } from "./SeasonDetail";
 import SeasonEditorModal from "./SeasonEditorModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import { deleteSeason, updateSeasonDirect, updateSeasonPfsRef, reorderSeasons } from "@/app/actions/admin/seasons";
-import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
+import {
+  deleteSeason,
+  updateSeasonDirect,
+  updateSeasonPfsRef,
+  updateSeasonMicrostoreMapping,
+  reorderSeasons,
+} from "@/app/actions/admin/seasons";
+import PfsRefMappingModal from "@/components/admin/shared/mapping-modals/PfsRefMappingModal";
+import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
+import MicrostoreMappingModal from "@/components/admin/shared/mapping-modals/MicrostoreMappingModal";
 
 export type SeasonRow = {
   id: string;
@@ -17,6 +25,7 @@ export type SeasonRow = {
   pfsRef: string | null;
   efashionCollectionId: number | null;
   efashionLabel: string | null;
+  microstoreSeasonId: number | null;
   productCount: number;
   position: number;
   createdAt: Date;
@@ -38,7 +47,6 @@ export default function SeasonsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
-  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   // Copie locale pour permettre l'optimistic update lors du drag & drop.
@@ -50,6 +58,7 @@ export default function SeasonsMasterDetail({
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<SeasonRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [mappingModal, setMappingModal] = useState<"pfs" | "efashion" | "microstore" | null>(null);
 
   // Sync URL → state, mais UNIQUEMENT si l'ID de l'URL existe encore dans items.
   // Sans ce garde, la suppression de la saison affichée fait ping-pong entre
@@ -131,21 +140,9 @@ export default function SeasonsMasterDetail({
     });
   }
 
-  async function handleSaveSeason(
-    name: string,
-    translations: Record<string, string>,
-    _hex?: string,
-    _patternImage?: string | null,
-    extra?: { ref?: string },
-  ) {
+  async function handleSaveSeason(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateSeasonDirect(editTarget.id, name, translations);
-    const newRef = extra?.ref || null;
-    if (newRef !== (editTarget.pfsRef ?? null)) {
-      const res = await updateSeasonPfsRef(editTarget.id, newRef);
-      // Impact non-null → modale « X produits impactés sur PFS ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
     router.refresh();
   }
 
@@ -161,6 +158,10 @@ export default function SeasonsMasterDetail({
         efashionLabel:
           selectedSeason.efashionLabel ??
           (selectedSeason.efashionCollectionId != null ? `id ${selectedSeason.efashionCollectionId}` : null),
+        microstoreLabel:
+          selectedSeason.microstoreSeasonId != null
+            ? `Microstore #${selectedSeason.microstoreSeasonId}`
+            : null,
       }
     : null;
 
@@ -185,7 +186,7 @@ export default function SeasonsMasterDetail({
               onBack={handleBack}
               onEdit={() => selectedSeason && setEditTarget(selectedSeason)}
               onDelete={() => selectedSeason && handleDelete(selectedSeason)}
-              onEditMapping={() => selectedSeason && setEditTarget(selectedSeason)}
+              onEditMapping={(mp) => selectedSeason && setMappingModal(mp)}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -213,11 +214,43 @@ export default function SeasonsMasterDetail({
             id: editTarget.id,
             name: editTarget.name,
             translations: editTarget.translations,
-            pfsRef: editTarget.pfsRef,
-            efashionCurrentId: editTarget.efashionCollectionId ?? null,
             onSave: handleSaveSeason,
           }}
         />
+      )}
+
+      {/* Mini-modals mapping marketplace (1 par carte) */}
+      {selectedSeason && (
+        <>
+          <PfsRefMappingModal
+            open={mappingModal === "pfs"}
+            onClose={() => setMappingModal(null)}
+            entityType="season"
+            entityName={selectedSeason.name}
+            entityLabel={`Saison « ${selectedSeason.name} »`}
+            currentRef={selectedSeason.pfsRef}
+            onSave={(next) => updateSeasonPfsRef(selectedSeason.id, next)}
+          />
+          <EfashionMappingModal
+            open={mappingModal === "efashion"}
+            onClose={() => setMappingModal(null)}
+            entityId={selectedSeason.id}
+            entityName={selectedSeason.name}
+            entityLabel={`Saison « ${selectedSeason.name} »`}
+            kind="season"
+            currentValue={selectedSeason.efashionCollectionId}
+          />
+          <MicrostoreMappingModal
+            open={mappingModal === "microstore"}
+            onClose={() => setMappingModal(null)}
+            entityLabel={`Saison « ${selectedSeason.name} »`}
+            kind="season"
+            currentValue={selectedSeason.microstoreSeasonId}
+            onSave={async (next) => {
+              await updateSeasonMicrostoreMapping(selectedSeason.id, next);
+            }}
+          />
+        </>
       )}
 
       <button

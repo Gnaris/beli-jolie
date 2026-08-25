@@ -24,6 +24,7 @@ function outcomeForTarget(
   if (target === "efashion") return item.efashionOutcome;
   if (target === "faire") return item.faireOutcome;
   if (target === "orderchamp") return item.orderchampOutcome;
+  if (target === "microstore") return item.microstoreOutcome;
   return item.pfsOutcome;
 }
 

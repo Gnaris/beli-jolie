@@ -6,9 +6,19 @@ import ColorsList from "./ColorsList";
 import ColorDetail, { type ColorDetailData } from "./ColorDetail";
 import ColorEditorModal from "./ColorEditorModal";
 import ColorResyncModal from "./ColorResyncModal";
+import PfsRefMappingModal from "@/components/admin/shared/mapping-modals/PfsRefMappingModal";
+import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
+import MicrostoreMappingModal from "@/components/admin/shared/mapping-modals/MicrostoreMappingModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
-import { deleteColor, updateColorDirect, reorderColors, type AffectedProduct } from "@/app/actions/admin/colors";
+import {
+  deleteColor,
+  updateColorDirect,
+  updateColorPfsRef,
+  updateColorMicrostoreMapping,
+  reorderColors,
+  type AffectedProduct,
+} from "@/app/actions/admin/colors";
 
 export type ColorRow = {
   id: string;
@@ -20,6 +30,7 @@ export type ColorRow = {
   pfsSharedCount: number;
   efashionColorId: number | null;
   efashionLabel: string | null;
+  microstoreColorId: number | null;
   productCount: number;
   position: number;
   createdAt: Date;
@@ -61,6 +72,8 @@ export default function ColorsMasterDetail({
     pfsChecked: boolean;
     ankorsChecked: boolean;
   } | null>(null);
+  // Mini-modals de mapping marketplace (1 par carte)
+  const [mappingModal, setMappingModal] = useState<"pfs" | "efashion" | "microstore" | null>(null);
 
   // Sync URL → state, uniquement si l'ID de l'URL existe encore dans items.
   // Sans ce garde, supprimer la couleur affichée fait ping-pong avec l'effet
@@ -145,7 +158,6 @@ export default function ColorsMasterDetail({
     translations: Record<string, string>,
     hex: string | null,
     patternImage: string | null,
-    pfsRef: string | null,
   ) {
     if (!editTarget) return;
     const res = await updateColorDirect(
@@ -154,18 +166,16 @@ export default function ColorsMasterDetail({
       hex,
       translations,
       patternImage,
-      pfsRef,
     );
     router.refresh();
 
-    // Nom changé → Ankorstore concerné. Ref PFS changée → PFS concerné.
+    // Nom changé → Ankorstore concerné (le renommage impacte les slugs).
     const proposeAnkorstore = res.nameChanged && ankorstoreEnabled;
-    const proposePfs = res.pfsColorRefChanged && pfsEnabled;
-    if ((proposeAnkorstore || proposePfs) && res.affectedProducts.length > 0) {
+    if (proposeAnkorstore && res.affectedProducts.length > 0) {
       setEditResync({
         products: res.affectedProducts,
-        pfsChecked: proposePfs,
-        ankorsChecked: proposeAnkorstore,
+        pfsChecked: false,
+        ankorsChecked: true,
       });
     }
   }
@@ -185,6 +195,10 @@ export default function ColorsMasterDetail({
         efashionLabel:
           selectedColor.efashionLabel ??
           (selectedColor.efashionColorId != null ? `id ${selectedColor.efashionColorId}` : null),
+        microstoreLabel:
+          selectedColor.microstoreColorId != null
+            ? `Microstore #${selectedColor.microstoreColorId}`
+            : null,
       }
     : null;
 
@@ -211,7 +225,7 @@ export default function ColorsMasterDetail({
               onBack={handleBack}
               onEdit={() => selectedColor && setEditTarget(selectedColor)}
               onDelete={() => selectedColor && handleDelete(selectedColor)}
-              onEditMapping={() => selectedColor && setEditTarget(selectedColor)}
+              onEditMapping={(mp) => selectedColor && setMappingModal(mp)}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -243,11 +257,43 @@ export default function ColorsMasterDetail({
             translations: editTarget.translations,
             hex: editTarget.hex,
             patternImage: editTarget.patternImage,
-            pfsColorRef: editTarget.pfsColorRef,
-            efashionCurrentId: editTarget.efashionColorId ?? null,
             onSave: handleSaveColor,
           }}
         />
+      )}
+
+      {/* Mini-modals mapping marketplace (1 par carte) */}
+      {selectedColor && (
+        <>
+          <PfsRefMappingModal
+            open={mappingModal === "pfs"}
+            onClose={() => setMappingModal(null)}
+            entityType="color"
+            entityName={selectedColor.name}
+            entityLabel={`Couleur « ${selectedColor.name} »`}
+            currentRef={selectedColor.pfsColorRef}
+            onSave={(next) => updateColorPfsRef(selectedColor.id, next)}
+          />
+          <EfashionMappingModal
+            open={mappingModal === "efashion"}
+            onClose={() => setMappingModal(null)}
+            entityId={selectedColor.id}
+            entityName={selectedColor.name}
+            entityLabel={`Couleur « ${selectedColor.name} »`}
+            kind="color"
+            currentValue={selectedColor.efashionColorId}
+          />
+          <MicrostoreMappingModal
+            open={mappingModal === "microstore"}
+            onClose={() => setMappingModal(null)}
+            entityLabel={`Couleur « ${selectedColor.name} »`}
+            kind="color"
+            currentValue={selectedColor.microstoreColorId}
+            onSave={async (next) => {
+              await updateColorMicrostoreMapping(selectedColor.id, next);
+            }}
+          />
+        </>
       )}
 
       {/* Modale re-sync marketplaces */}

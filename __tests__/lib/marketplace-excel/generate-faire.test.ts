@@ -51,6 +51,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "E803",
     name: "Collier en acier",
     description: "Description du collier en acier inoxydable.",
+    status: "ONLINE",
     pfsGenderCode: null,
     pfsFamilyName: null,
     pfsCategoryName: null,

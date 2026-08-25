@@ -2,14 +2,15 @@
 
 /**
  * Composant réutilisable — CustomSelect qui liste les attributs Microstore
- * pour un type donné (category/brand/year/season/composition/color) et permet
- * à la cliente de mapper manuellement un attribut BJ vers son équivalent Microstore.
+ * pour un type donné (category/brand/year/season/color) et permet à la cliente
+ * de mapper manuellement un attribut BJ vers son équivalent Microstore.
  *
  * Utilisé dans les formulaires d'édition BJ :
  *   - ColorEditorModal → type="color"
  *   - CategoryEditorModal → type="category"
  *   - SeasonEditorModal → type="season"
- *   - CompositionEditorModal → type="composition"
+ *
+ * Composition = envoyée en texte libre dans `remark_material`, pas de mapping.
  *
  * Charge la liste au mount via listMicrostoreAttribute / listMicrostoreColors.
  * Affiche une option vide « Aucune correspondance » + les attributs Microstore.
@@ -41,7 +42,6 @@ const DEFAULT_LABELS: Record<Kind, string> = {
   brand: "Correspondance marque Microstore",
   year: "Correspondance année Microstore",
   season: "Correspondance saison Microstore",
-  composition: "Correspondance composition Microstore",
   color: "Correspondance couleur Microstore",
 };
 
@@ -110,6 +110,9 @@ export function MicrostoreAttributeSelect({
         options={options}
         disabled={disabled || loading}
         placeholder={loading ? "Chargement…" : placeholder}
+        searchable
+        title={label ?? DEFAULT_LABELS[kind]}
+        emptyMessage="Aucun attribut Microstore disponible"
       />
       {error && (
         <p className="text-[10px] text-rose-700">{error}</p>

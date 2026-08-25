@@ -24,6 +24,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "E803",
     name: "Collier en acier inoxydable",
     description: "Collier en acier inoxydable, longueur 45cm, fermoir mousqueton.",
+    status: "ONLINE",
     pfsGenderCode: "WOMAN",
     pfsFamilyName: "Bijoux_Fantaisie",
     pfsCategoryName: "Colliers",

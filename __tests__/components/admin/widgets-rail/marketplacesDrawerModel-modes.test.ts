@@ -163,7 +163,16 @@ describe("bucketGroupsByMode", () => {
     ]);
     const buckets = bucketGroupsByMode(groups);
     expect(buckets.map((b) => b.mode)).toEqual(["publish", "refresh", "resync"]);
-    expect(MODE_ORDER).toEqual(["publish", "refresh", "resync"]);
+    // 2026-08-25 : 3 nouveaux modes Microstore (disable/enable/delete) rajoutés
+    // à MODE_ORDER — les buckets ne les listent que quand un item les utilise.
+    expect(MODE_ORDER).toEqual([
+      "publish",
+      "refresh",
+      "resync",
+      "disable",
+      "enable",
+      "delete",
+    ]);
     const refresh = buckets.find((b) => b.mode === "refresh")!;
     expect(refresh.groups.map((g) => g.productId).sort()).toEqual(["pA", "pD"]);
   });

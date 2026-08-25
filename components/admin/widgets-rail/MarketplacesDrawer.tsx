@@ -16,7 +16,7 @@
  *   - **Timeline verticale des étapes** poussées par le worker
  *     (voir lib/marketplace-job-steps.ts). Pastilles + libellé FR + durée +
  *     message. Fallback compact si `steps` absent (anciens jobs).
- *   - Bloc erreur détaillé avec cause FR + boutons Rejouer / Ignorer
+ *   - Bloc erreur détaillé avec cause FR + boutons Relancer / Ignorer
  *
  * La vue Étalement montre en plus la timeline horizontale des prochains créneaux.
  */
@@ -30,7 +30,6 @@ import {
   hasError as itemHasError,
   isItemActive,
   useMarketplaceRefreshQueue,
-  type JobStepEntry,
   type MarketplaceRefreshItem,
   type MarketplaceTarget,
   type TargetOutcome,
@@ -50,30 +49,6 @@ import {
   MARKETPLACE_ORDER,
 } from "./marketplacesDrawerModel";
 
-// Libellés FR par défaut des kinds d'étapes. Doit rester aligné avec
-// lib/marketplace-job-steps.ts::STEP_LABELS (dupliqué ici pour ne pas importer
-// un module serveur dans un fichier client).
-const STEP_LABELS_FR: Record<string, string> = {
-  VALIDATE: "Validation des données",
-  AUTH: "Authentification marketplace",
-  DIFF: "Calcul du diff",
-  FETCH_REMOTE: "Lecture de l'état marketplace",
-  CREATE_PRODUCT: "Création du produit",
-  UPDATE_PRODUCT: "Mise à jour du produit",
-  CREATE_VARIANTS: "Création des variantes",
-  UPDATE_VARIANTS: "Mise à jour des variantes",
-  DELETE_VARIANTS: "Suppression des variantes orphelines",
-  UPLOAD_IMAGES: "Upload des images",
-  SYNC_ATTRIBUTES: "Sync composition et attributs",
-  ARCHIVE_OLD: "Archivage de l'ancienne fiche",
-  RENAME: "Renommage de la référence",
-  PUBLISH: "Publication finale",
-  SAVE_IDS: "Sauvegarde des identifiants",
-  IMPORT_VARIANT: "Import de la variante",
-  LINK_IDS: "Liaison des identifiants",
-  POST_SYNC: "Synchronisation complète post-liaison",
-};
-
 // Couleurs figées par marketplace (cf. CLAUDE.md — bloc « Couleurs des initiales »).
 const MARKETPLACE_META: Record<MarketplaceTarget, { letter: string; name: string; grad: string }> = {
   pfs: { letter: "P", name: "PFS", grad: "linear-gradient(135deg,#4f46e5,#6366f1)" },
@@ -81,6 +56,7 @@ const MARKETPLACE_META: Record<MarketplaceTarget, { letter: string; name: string
   efashion: { letter: "E", name: "eFashion", grad: "linear-gradient(135deg,#db2777,#ec4899)" },
   faire: { letter: "F", name: "Faire", grad: "linear-gradient(135deg,#f59e0b,#fbbf24)" },
   orderchamp: { letter: "O", name: "Orderchamp", grad: "linear-gradient(135deg,#f97316,#fdba74)" },
+  microstore: { letter: "M", name: "Microstore", grad: "linear-gradient(135deg,#0891b2,#22d3ee)" },
 };
 
 const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: string; icon: React.ReactNode }> = {
@@ -104,6 +80,20 @@ const VIEW_ACCENT: Record<ViewKey, { chip: string; chipText: string; barActive: 
           strokeLinecap="round"
           strokeLinejoin="round"
           d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+        />
+      </svg>
+    ),
+  },
+  sync: {
+    chip: "bg-violet-100",
+    chipText: "text-violet-700",
+    barActive: "bg-gradient-to-r from-violet-600 to-violet-400",
+    icon: (
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
         />
       </svg>
     ),
@@ -289,8 +279,8 @@ export function MarketplacesDrawer() {
     if (inputs.length > 0) {
       enqueue(inputs);
       toast.success(
-        "Rejoué",
-        `${inputs.length} envoi${inputs.length > 1 ? "s" : ""} en erreur re-planifié${inputs.length > 1 ? "s" : ""}.`,
+        "Relancé",
+        `${inputs.length} envoi${inputs.length > 1 ? "s" : ""} en erreur remis en file.`,
       );
     }
   };
@@ -470,7 +460,7 @@ export function MarketplacesDrawer() {
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M20 20v-6h-6M4 10a8 8 0 0113.5-4M20 14a8 8 0 01-13.5 4" />
                 </svg>
-                Rejouer les {activeView.kpi.errors} erreurs
+                Relancer les {activeView.kpi.errors} erreurs
               </button>
             )}
           </div>
@@ -683,13 +673,13 @@ function ViewContent({
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 md:p-6 space-y-3">
       {view.key === "scheduled" && (
         <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
       )}
-      <div className="grid items-start grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+      <div className="space-y-2">
         {filteredGroups.map((group) => (
-          <ProductJobCard
+          <ProductJobRow
             key={`${group.productId}::${group.dominantMode}`}
             group={group}
             view={view.key}
@@ -698,7 +688,7 @@ function ViewContent({
           />
         ))}
         {filteredLinkJobs.map((job) => (
-          <LinkJobCard key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
+          <LinkJobRow key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
         ))}
       </div>
     </div>
@@ -802,10 +792,14 @@ function ScheduleHeader({
 }
 
 // ────────────────────────────────────────────────────────────────
-// Carte produit d'un job marketplace
+// Ligne produit — une par produit + type d'action. Refonte 2026-08-25 :
+// affichage horizontal 1 ligne = 1 produit, avec 6 cases marketplace côte
+// à côte montrant l'état par marketplace (en cours + progression / ✓ /
+// message d'erreur court / « non envoyé » grisé). Cases responsive :
+// stack sous md, grid 6 colonnes au-delà.
 // ────────────────────────────────────────────────────────────────
 
-function ProductJobCard({
+function ProductJobRow({
   group,
   view,
   onRetry,
@@ -820,15 +814,8 @@ function ProductJobCard({
   const isDone = group.section === "done";
   const isActive = group.section === "active";
   const isScheduled = group.section === "scheduled";
-  const isQueued = group.section === "queued";
 
-  // On prend l'item le plus récent comme source de steps + outcome à afficher.
   const dominantItem = pickDominantItem(group.items);
-  const steps = Array.isArray(dominantItem?.steps) ? dominantItem?.steps ?? [] : [];
-  const targetedMarketplaces = uniqueMarketplaces(group.items);
-
-  // Durée écoulée si actif, ou durée totale si terminé.
-  // Le compteur en direct est géré par <LiveDuration> (tick 100 ms tant qu'actif).
   const startedAtMs = dominantItem?.startedAt ? Date.parse(dominantItem.startedAt) : null;
   const completedAtMs = dominantItem?.completedAt ? Date.parse(dominantItem.completedAt) : null;
 
@@ -836,87 +823,128 @@ function ProductJobCard({
   const cardShadow = isError ? "shadow-sm shadow-rose-100" : "";
 
   return (
-    <article className={`bg-white rounded-2xl ${cardBorder} ${cardShadow} overflow-hidden transition-shadow hover:shadow-md`}>
-      {/* Header */}
-      <div className="p-3 flex items-start gap-3">
-        <ProductImage src={group.firstImage} alt={group.productName} active={isActive} error={isError} />
+    <article className={`bg-white rounded-xl ${cardBorder} ${cardShadow} overflow-hidden transition-shadow hover:shadow-sm`}>
+      <div className="p-2.5 flex flex-col md:flex-row md:items-center gap-3">
+        {/* Colonne 1 : image + nom + réf */}
+        <div className="flex items-center gap-2.5 md:w-[260px] md:flex-shrink-0 min-w-0">
+          <ProductImage src={group.firstImage} alt={group.productName} active={isActive} error={isError} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1 mb-0.5">
+              <ActionChip view={view} />
+              {isScheduled && dominantItem?.scheduledFor && (
+                <span className="px-1 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] uppercase tracking-widest font-bold">
+                  À {formatClockTime(Date.parse(dominantItem.scheduledFor))}
+                </span>
+              )}
+            </div>
+            <h3 className="text-[12.5px] font-bold text-slate-900 leading-tight truncate">
+              {group.productName}
+            </h3>
+            <div className="text-[10px] text-slate-400 font-mono truncate">{group.reference}</div>
+          </div>
+        </div>
+
+        {/* Colonne 2 : 6 cases marketplace */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap mb-1">
-            <ActionChip view={view} />
-            {isError && (
-              <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[9px] uppercase tracking-widest font-bold">
-                Erreur
-              </span>
-            )}
-            {isScheduled && dominantItem?.scheduledFor && (
-              <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] uppercase tracking-widest font-bold">
-                À {formatClockTime(Date.parse(dominantItem.scheduledFor))}
-              </span>
-            )}
-            <span className="text-[10px] text-slate-400 font-mono">{group.reference}</span>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5">
+            {MARKETPLACE_ORDER.map((m) => (
+              <MarketplaceCellBox key={m} target={m} cell={group.cells[m]} />
+            ))}
           </div>
-          <h3 className="text-[13px] font-bold text-slate-900 leading-tight line-clamp-2">
-            {group.productName}
-          </h3>
-          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-            {targetedMarketplaces.map((m) => {
-              const cell = group.cells[m];
-              return <MarketplaceChip key={m} target={m} cell={cell} />;
-            })}
-            {startedAtMs !== null && (
-              <span className="ml-auto text-[10px] text-slate-400 tabular-nums">
-                {isDone ? "en " : ""}
-                <LiveDuration startedAtMs={startedAtMs} completedAtMs={completedAtMs} />
-              </span>
-            )}
-          </div>
+        </div>
+
+        {/* Colonne 3 : durée + retirer si non-actif/non-erreur */}
+        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-1 md:w-[80px] md:flex-shrink-0">
+          {startedAtMs !== null && (
+            <span className="text-[10px] text-slate-400 tabular-nums">
+              {isDone ? "en " : ""}
+              <LiveDuration startedAtMs={startedAtMs} completedAtMs={completedAtMs} />
+            </span>
+          )}
+          {!isActive && !isError && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold"
+            >
+              ✕ Retirer
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Barre de progression globale — visible si actif */}
-      {isActive && steps.length > 0 && (
-        <div className="px-3 pb-2">
-          <StepsProgress steps={steps} />
-        </div>
-      )}
-
-      {/* Encadré erreur — visible si erreur */}
-      {isError && (
-        <ErrorPanel group={group} onRetry={onRetry} onDismiss={onDismiss} />
-      )}
-
-      {/* Timeline détaillée des étapes — pliable, fermée par défaut */}
-      {steps.length > 0 && (
-        <div className="px-3 pb-3">
-          <details className="group rounded-xl bg-slate-50/50 border border-slate-100">
-            <summary className="flex items-center justify-between gap-2 p-3 cursor-pointer list-none select-none hover:bg-slate-100/60 rounded-xl transition-colors">
-              <span className="text-[10px] uppercase tracking-widest font-bold text-slate-400">
-                Étapes détaillées
-              </span>
-              <span className="text-slate-400 group-open:rotate-180 transition-transform text-[10px]">
-                ▼
-              </span>
-            </summary>
-            <div className="px-3 pb-3">
-              <StepsTimeline steps={steps} />
-            </div>
-          </details>
-        </div>
-      )}
-
-      {/* Footer actions — visible sur done/queued/scheduled */}
-      {!isActive && !isError && (
-        <div className="px-3 pb-2.5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold px-1"
-          >
-            ✕ Retirer
-          </button>
-        </div>
-      )}
+      {/* Encadré erreur — liste des marketplaces en erreur avec message détaillé */}
+      {isError && <ErrorPanel group={group} onRetry={onRetry} onDismiss={onDismiss} />}
     </article>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Case marketplace compacte — juste initiale + statut (Succès / En cours /
+// Erreur / Non envoyé). Le détail des erreurs est affiché en dessous de
+// la ligne dans ErrorPanel, une entrée par marketplace en erreur.
+// ────────────────────────────────────────────────────────────────
+
+function MarketplaceCellBox({
+  target,
+  cell,
+}: {
+  target: MarketplaceTarget;
+  cell?: MarketplaceCell;
+}) {
+  const meta = MARKETPLACE_META[target];
+  const kind = cell?.kind ?? "not-targeted";
+
+  const tone = (() => {
+    switch (kind) {
+      case "done":
+        return { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700" };
+      case "error":
+        return { bg: "bg-rose-50", border: "border-rose-200", text: "text-rose-700" };
+      case "active":
+        return { bg: "bg-sky-50", border: "border-sky-200", text: "text-sky-700" };
+      case "queued":
+        return { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800" };
+      case "not-targeted":
+      default:
+        return { bg: "bg-slate-50", border: "border-slate-200", text: "text-slate-400" };
+    }
+  })();
+
+  const label = (() => {
+    switch (kind) {
+      case "done":
+        return "Succès";
+      case "error":
+        return "Erreur";
+      case "active":
+        return cell?.driver?.status === "awaiting_callback" ? "Attente" : "En cours";
+      case "queued":
+        return cell?.driver?.scheduledFor ? "Programmé" : "En attente";
+      case "not-targeted":
+      default:
+        return "Non envoyé";
+    }
+  })();
+
+  const errorMessage =
+    kind === "error" && cell?.outcome && cell.outcome.ok === false
+      ? cell.outcome.message
+      : null;
+
+  return (
+    <div
+      className={`rounded-md border ${tone.bg} ${tone.border} px-1.5 py-1 flex items-center gap-1.5`}
+      title={`${meta.name} — ${label}${errorMessage ? " : " + errorMessage : ""}`}
+    >
+      <span
+        className="w-4 h-4 rounded text-white text-[8px] font-bold flex items-center justify-center flex-shrink-0"
+        style={{ background: meta.grad }}
+      >
+        {meta.letter}
+      </span>
+      <span className={`text-[10px] font-bold ${tone.text} truncate`}>{label}</span>
+    </div>
   );
 }
 
@@ -934,12 +962,6 @@ function recencyOf(item: MarketplaceRefreshItem): number {
     return Number.isFinite(t) ? t : 0;
   }
   return 0;
-}
-
-function uniqueMarketplaces(items: MarketplaceRefreshItem[]): MarketplaceTarget[] {
-  const set = new Set<MarketplaceTarget>();
-  for (const it of items) set.add(it.marketplace);
-  return MARKETPLACE_ORDER.filter((m) => set.has(m));
 }
 
 function ProductImage({
@@ -992,193 +1014,8 @@ function ActionChip({ view }: { view: ViewKey }) {
   );
 }
 
-function MarketplaceChip({ target, cell }: { target: MarketplaceTarget; cell?: MarketplaceCell }) {
-  const meta = MARKETPLACE_META[target];
-  const status = cell?.kind ?? "not-targeted";
-  const statusDot =
-    status === "done"
-      ? "bg-emerald-500"
-      : status === "error"
-        ? "bg-rose-500"
-        : status === "active"
-          ? "bg-sky-500 animate-pulse"
-          : status === "queued"
-            ? "bg-amber-400"
-            : "bg-slate-300";
-  return (
-    <span
-      title={`${meta.name} — ${statusLabel(status)}`}
-      className="relative w-5 h-5 rounded-md text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0"
-      style={{ background: meta.grad }}
-    >
-      {meta.letter}
-      <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1 ring-white ${statusDot}`} />
-    </span>
-  );
-}
-
-function statusLabel(kind: MarketplaceCell["kind"]): string {
-  switch (kind) {
-    case "done":
-      return "Terminé";
-    case "error":
-      return "Erreur";
-    case "active":
-      return "En cours";
-    case "queued":
-      return "En attente";
-    case "not-targeted":
-      return "Non ciblé";
-  }
-}
-
 // ────────────────────────────────────────────────────────────────
-// Barre de progression + Timeline verticale des étapes
-// ────────────────────────────────────────────────────────────────
-
-function StepsProgress({ steps }: { steps: JobStepEntry[] }) {
-  const total = steps.length;
-  const done = steps.filter((s) => s.status === "done" || s.status === "error" || s.status === "skipped").length;
-  const inProgress = steps.find((s) => s.status === "in_progress");
-  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-  return (
-    <div>
-      <div className="flex items-center gap-2 text-[10px] mb-1">
-        <span className="font-bold text-slate-600">
-          Étape {done + (inProgress ? 1 : 0)}/{total}
-        </span>
-        {inProgress && (
-          <>
-            <span className="text-slate-400">·</span>
-            <span className="text-sky-700 font-semibold truncate">
-              {inProgress.label ?? STEP_LABELS_FR[inProgress.kind] ?? inProgress.kind}
-            </span>
-          </>
-        )}
-        <span className="ml-auto tabular-nums font-bold text-sky-600">{pct}%</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden relative">
-        <div
-          className="h-full bg-gradient-to-r from-sky-400 via-sky-500 to-sky-600 rounded-full transition-all duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function StepsTimeline({ steps }: { steps: JobStepEntry[] }) {
-  return (
-    <ol className="space-y-2">
-      {steps.map((step, idx) => (
-        <StepRow key={`${step.kind}-${idx}`} step={step} isLast={idx === steps.length - 1} />
-      ))}
-    </ol>
-  );
-}
-
-function StepRow({ step, isLast }: { step: JobStepEntry; isLast: boolean }) {
-  const label = step.label ?? STEP_LABELS_FR[step.kind] ?? step.kind;
-  const stepStartMs = step.startedAt ? Date.parse(step.startedAt) : null;
-  const stepEndMs = step.completedAt ? Date.parse(step.completedAt) : null;
-
-  let dot: React.ReactNode;
-  let line: string;
-  let labelClass: string;
-  switch (step.status) {
-    case "done":
-      dot = (
-        <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center ring-2 ring-emerald-50">
-          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-      );
-      line = "bg-emerald-200";
-      labelClass = "text-slate-800 font-bold";
-      break;
-    case "in_progress":
-      dot = (
-        <div className="w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center ring-2 ring-sky-100">
-          <svg className="w-3 h-3 text-white animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6" />
-          </svg>
-        </div>
-      );
-      line = "bg-sky-200 opacity-50";
-      labelClass = "text-sky-800 font-bold";
-      break;
-    case "error":
-      dot = (
-        <div className="w-5 h-5 rounded-full bg-rose-500 flex items-center justify-center ring-2 ring-rose-50">
-          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </div>
-      );
-      line = "bg-rose-200";
-      labelClass = "text-rose-800 font-bold";
-      break;
-    case "skipped":
-      dot = (
-        <div className="w-5 h-5 rounded-full bg-slate-200 border-2 border-slate-300 flex items-center justify-center">
-          <div className="w-1 h-1 rounded-full bg-slate-400" />
-        </div>
-      );
-      line = "bg-slate-100";
-      labelClass = "text-slate-500 font-semibold italic";
-      break;
-    case "pending":
-    default:
-      dot = (
-        <div className="w-5 h-5 rounded-full bg-slate-100 border-2 border-slate-200 flex items-center justify-center">
-          <div className="w-1 h-1 rounded-full bg-slate-300" />
-        </div>
-      );
-      line = "bg-slate-100";
-      labelClass = "text-slate-400 font-semibold";
-      break;
-  }
-
-  return (
-    <li className="flex items-start gap-2.5 relative">
-      <div className="relative flex-shrink-0 pt-0.5">
-        {dot}
-        {!isLast && <div className={`absolute left-1/2 top-5 w-px h-5 -translate-x-1/2 ${line}`} />}
-      </div>
-      <div className="flex-1 min-w-0 pb-1">
-        <div className="flex items-center gap-2">
-          <div className={`text-[12px] leading-tight ${labelClass}`}>{label}</div>
-          {step.total !== undefined && step.current !== undefined && step.status === "in_progress" && (
-            <span className="text-[10px] text-sky-600 tabular-nums font-bold">
-              {step.current}/{step.total}
-            </span>
-          )}
-          {stepStartMs !== null && Number.isFinite(stepStartMs) && (
-            <span className="ml-auto text-[10px] text-slate-400 tabular-nums">
-              <LiveDuration
-                startedAtMs={stepStartMs}
-                completedAtMs={stepEndMs !== null && Number.isFinite(stepEndMs) ? stepEndMs : null}
-              />
-            </span>
-          )}
-        </div>
-        {step.message && (
-          <div
-            className={`text-[10.5px] leading-snug mt-0.5 ${
-              step.status === "error" ? "text-rose-700" : "text-slate-500"
-            }`}
-          >
-            {step.message}
-          </div>
-        )}
-      </div>
-    </li>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
-// Encadré erreur détaillé
+// Encadré erreur détaillé — 1 bloc par marketplace en erreur
 // ────────────────────────────────────────────────────────────────
 
 function ErrorPanel({
@@ -1227,7 +1064,7 @@ function ErrorPanel({
           onClick={onRetry}
           className="px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white text-[10.5px] font-bold transition"
         >
-          Rejouer
+          Relancer
         </button>
         <button
           type="button"
@@ -1242,83 +1079,85 @@ function ErrorPanel({
 }
 
 // ────────────────────────────────────────────────────────────────
-// Carte spécifique aux LinkJob (client-side)
+// Ligne spécifique aux LinkJob (client-side)
 // ────────────────────────────────────────────────────────────────
 
-function LinkJobCard({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => void }) {
+function LinkJobRow({ job, onDismiss }: { job: LinkJobLike; onDismiss: () => void }) {
   const meta = MARKETPLACE_META[job.marketplace];
-  const isDone = job.status === "done";
   const isError = job.status === "error";
   const isActive = job.status === "in_progress";
+  const isDone = job.status === "done";
 
   const borderClass = isError ? "border-2 border-rose-200" : "border border-slate-200";
 
   return (
-    <article className={`bg-white rounded-2xl ${borderClass} p-3`}>
-      <div className="flex items-start gap-3">
-        <ProductImage src={job.productImage} alt={job.productName} active={isActive} error={isError} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="px-1.5 py-0.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-[9px] uppercase tracking-widest font-bold">
+    <article className={`bg-white rounded-xl ${borderClass} overflow-hidden`}>
+      <div className="p-2.5 flex flex-col md:flex-row md:items-center gap-3">
+        <div className="flex items-center gap-2.5 md:w-[260px] md:flex-shrink-0 min-w-0">
+          <ProductImage src={job.productImage} alt={job.productName} active={isActive} error={isError} />
+          <div className="flex-1 min-w-0">
+            <span className="inline-block px-1.5 py-0.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-[9px] uppercase tracking-widest font-bold mb-0.5">
               Liaison
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">{job.reference}</span>
-          </div>
-          <h3 className="text-[13px] font-bold text-slate-900 leading-tight line-clamp-2">
-            {job.productName}
-          </h3>
-          <div className="flex items-center gap-2 mt-1.5">
-            <span
-              className="w-5 h-5 rounded-md text-white text-[9px] font-bold flex items-center justify-center"
-              style={{ background: meta.grad }}
-            >
-              {meta.letter}
-            </span>
-            <span className="text-[11px] text-slate-500 font-medium">→ Vers {meta.name}</span>
+            <h3 className="text-[12.5px] font-bold text-slate-900 leading-tight truncate">
+              {job.productName}
+            </h3>
+            <div className="text-[10px] text-slate-400 font-mono truncate">{job.reference}</div>
           </div>
         </div>
+
+        <div className="flex-1 flex items-center gap-2 min-w-0">
+          <span
+            className="w-6 h-6 rounded-md text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0"
+            style={{ background: meta.grad }}
+          >
+            {meta.letter}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] text-slate-500 font-medium">→ Vers {meta.name}</div>
+            {isDone && (
+              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px] leading-snug mt-0.5">
+                {job.linkedCount !== undefined && job.linkedCount > 0 && (
+                  <span className="text-emerald-700 font-semibold">
+                    ✓ {job.linkedCount} liée{job.linkedCount > 1 ? "s" : ""}
+                  </span>
+                )}
+                {job.createdCount !== undefined && job.createdCount > 0 && (
+                  <span className="text-sky-700 font-semibold">
+                    ＋ {job.createdCount} créée{job.createdCount > 1 ? "s" : ""}
+                  </span>
+                )}
+                {job.deletedCount !== undefined && job.deletedCount > 0 && (
+                  <span className="text-rose-700 font-semibold">
+                    − {job.deletedCount} suppr.
+                  </span>
+                )}
+                {job.importedCount !== undefined && job.importedCount > 0 && (
+                  <span className="text-emerald-700 font-semibold">
+                    ⇩ {job.importedCount} import.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!isActive && (
+          <div className="flex md:flex-col items-center md:items-end gap-1 md:w-[80px] md:flex-shrink-0">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold"
+            >
+              ✕ Retirer
+            </button>
+          </div>
+        )}
       </div>
 
-      {isDone && (
-        <div className="mt-2 space-y-0.5 text-[11px] leading-snug pl-1">
-          {job.linkedCount !== undefined && job.linkedCount > 0 && (
-            <div className="text-emerald-700 font-semibold">
-              ✓ {job.linkedCount} variante{job.linkedCount > 1 ? "s" : ""} liée{job.linkedCount > 1 ? "s" : ""}
-            </div>
-          )}
-          {job.createdCount !== undefined && job.createdCount > 0 && (
-            <div className="text-sky-700 font-semibold">
-              ＋ {job.createdCount} couleur{job.createdCount > 1 ? "s" : ""} créée{job.createdCount > 1 ? "s" : ""} chez le marketplace
-            </div>
-          )}
-          {job.deletedCount !== undefined && job.deletedCount > 0 && (
-            <div className="text-rose-700 font-semibold">
-              − {job.deletedCount} variante{job.deletedCount > 1 ? "s" : ""} supprimée{job.deletedCount > 1 ? "s" : ""}
-            </div>
-          )}
-          {job.importedCount !== undefined && job.importedCount > 0 && (
-            <div className="text-emerald-700 font-semibold">
-              ⇩ {job.importedCount} variante{job.importedCount > 1 ? "s" : ""} importée{job.importedCount > 1 ? "s" : ""}
-            </div>
-          )}
-        </div>
-      )}
-
       {isError && job.error && (
-        <div className="mt-2 rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-[11px] text-rose-700 leading-snug">
+        <div className="mx-2.5 mb-2.5 rounded-lg bg-rose-50 border border-rose-200 p-2 text-[11px] text-rose-700 leading-snug">
           {job.error}
-        </div>
-      )}
-
-      {!isActive && (
-        <div className="mt-2 flex items-center justify-end">
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="text-[10px] text-slate-400 hover:text-slate-700 font-semibold px-1"
-          >
-            ✕ Retirer
-          </button>
         </div>
       )}
     </article>

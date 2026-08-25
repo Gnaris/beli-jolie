@@ -28,6 +28,10 @@
   --color-accent-light:  #F4F4F5;
   --color-accent-dark:   #18181B;
 
+  /* Jaune signature — utilisé avec parcimonie en accent (hero, badges, hover) */
+  --color-gold:          #F5C518;
+  --color-gold-hover:    #E5B615;
+
   /* Sémantiques (alertes uniquement, jamais comme accent décoratif) */
   --color-success: #15803D;
   --color-warning: #B45309;

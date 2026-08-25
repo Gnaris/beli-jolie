@@ -55,6 +55,12 @@ export interface MicrostoreSkuInput {
   goodsSn?: string;
   /** État BHB (bhb_status) — 0 par défaut, 1 = actif pour vitrine H5. */
   bhbStatus?: number;
+  /**
+   * Facteur multiplicateur de vente sur les 4 grilles tarifaires SKU (`sale_1..sale_4`).
+   * 1 = prix plein tarif ; 0.75 = -25 % ; 0.5 = -50 %. Défaut 1.
+   * C'est ce que Microstore appelle « Remise » dans son appli.
+   */
+  saleFactor?: number;
 }
 
 /**
@@ -87,6 +93,19 @@ export interface MicrostoreGoodsPayload {
   seasonId: string | number;
   /** Nombre de pièces par paquet (colisage) — typiquement 1 pour vente à l'unité. */
   numPerPack?: number;
+  /**
+   * Masquer la fiche de la vitrine H5 ? `true` = équivalent au bouton "Masquer"
+   * de l'appli MC Gérant (produit reste en base mais invisible côté acheteur).
+   * Passé sur `/goods/add` et `/goods/update` via le champ `disable=1|0`.
+   * Défaut `false` (visible).
+   */
+  disabled?: boolean;
+  /**
+   * Facteur de remise appliqué aux 4 grilles tarifaires produit (`sale_1..sale_4`).
+   * 1 = pas de remise ; 0.75 = -25 %. Défaut 1. Propagé aussi sur chaque SKU
+   * si le SKU n'a pas son propre `saleFactor`.
+   */
+  saleFactor?: number;
   /** SKUs (1 par couleur). */
   skus: MicrostoreSkuInput[];
 }
@@ -161,12 +180,25 @@ async function callMicrostorePost<T>(
   if (!res.ok) {
     throw new Error(`Microstore a répondu HTTP ${res.status} sur ${path}.`);
   }
-  const data = (await res.json().catch(() => null)) as
-    | (T & McErrorPayload)
-    | null;
+  const rawText = await res.text();
+  const data = ((): (T & McErrorPayload) | null => {
+    try { return JSON.parse(rawText) as T & McErrorPayload; } catch { return null; }
+  })();
   if (!data) throw new Error("Réponse Microstore invalide.");
   if (isMicrostoreSessionExpiredError(data.err)) {
     throw new MicrostoreSessionExpiredError();
+  }
+  // Diagnostic : quand Microstore rejette (err != 0), log le body envoyé + la
+  // réponse brute pour permettre de reverse-engineerer le champ fautif.
+  if (data.err && data.err !== 0) {
+    logger.error("[Microstore CRUD] request refused", {
+      path,
+      err: data.err,
+      msg: data.msg,
+      debug_msg: data.debug_msg,
+      response: rawText.slice(0, 500),
+      sentBody: body.toString().slice(0, 1500),
+    });
   }
   return data;
 }
@@ -182,6 +214,7 @@ async function callMicrostorePost<T>(
 export function serializeSkuForApi(sku: MicrostoreSkuInput): Record<string, unknown> {
   const stockStr = String(sku.stock);
   const priceStr = sku.price.toFixed(2);
+  const saleStr = clampSaleFactor(sku.saleFactor).toFixed(4);
   const base: Record<string, unknown> = {
     color_id: String(sku.color_id),
     color_name: sku.color_name,
@@ -195,13 +228,24 @@ export function serializeSkuForApi(sku: MicrostoreSkuInput): Record<string, unkn
     order_by: sku.orderBy,
     price: priceStr,
     price_1: priceStr,
-    sale_1: 1,
-    sale_2: 1,
-    sale_3: 1,
-    sale_4: 1,
+    sale_1: saleStr,
+    sale_2: saleStr,
+    sale_3: saleStr,
+    sale_4: saleStr,
   };
   if (typeof sku.id === "number") base.id = sku.id;
   return base;
+}
+
+/**
+ * Ramène un facteur de vente dans [0, 1]. Défaut 1 (pas de remise).
+ * Microstore n'accepte pas de facteur > 1 (ne majore pas via ce canal) ni < 0.
+ */
+function clampSaleFactor(factor: number | undefined): number {
+  if (factor == null || Number.isNaN(factor)) return 1;
+  if (factor > 1) return 1;
+  if (factor < 0) return 0;
+  return factor;
 }
 
 /**
@@ -223,10 +267,12 @@ export function buildGoodsFormBody(opts: {
   p.set("name", payload.name);
   p.set("desc", payload.desc);
   p.set("price", payload.price.toFixed(2));
-  p.set("sale_1", "1");
-  p.set("sale_2", "1");
-  p.set("sale_3", "1");
-  p.set("sale_4", "1");
+  // Remise produit : 4 grilles tarifaires, même facteur (ex: 0.75 = -25 %).
+  const saleStr = clampSaleFactor(payload.saleFactor).toFixed(4);
+  p.set("sale_1", saleStr);
+  p.set("sale_2", saleStr);
+  p.set("sale_3", saleStr);
+  p.set("sale_4", saleStr);
   p.set("num_per_pack", String(payload.numPerPack ?? 1));
   p.set("product_country", payload.productCountry || "CN");
   p.set("weight", String(payload.weightGrams));
@@ -240,6 +286,10 @@ export function buildGoodsFormBody(opts: {
   p.set("box2", "0");
   p.set("box3", "0");
   p.set("extension_2", "");
+  // Flag visibilité vitrine H5 — même champ que /goods/disable (reversé côté
+  // GET). Passer ici évite l'endpoint /goods/disable séparé qui répond
+  // "Service App error" sur certains tokens.
+  p.set("disable", payload.disabled ? "1" : "0");
   p.set("del_id", JSON.stringify((deleteVariantIds ?? []).map(String)));
   p.set("size_list", "[]");
   p.set("size_ratio_switch", "0");
@@ -348,33 +398,63 @@ export async function microstoreUpdateGoods(opts: {
  * bouton "Masquer/Afficher" de l'appli mobile MC Gérant. La fiche reste en
  * base mais disparaît de la vitrine H5.
  *
- * @param disabled  true = masquer (`disable=1`), false = ré-afficher (`disable=0`).
+ * ⚠ Historique 2026-08-25 : cette fonction utilisait l'endpoint séparé
+ * `POST /goods/disable` (reversé de la doc mobile) qui répond en pratique
+ * `Service App error(<id>)` avec le token QR compagnon `5_XXX`. Basculée
+ * sur `/goods/update` avec le champ `disable` (fonctionne parfaitement) :
+ *
+ *   1. Lecture de l'état actuel via /goods/get (SKUs + attributs).
+ *   2. Repush via /goods/update avec toutes les valeurs inchangées, sauf
+ *      le champ `disable=1|0` qui bascule la visibilité vitrine H5.
+ *
+ * Microstore stocke `disable` comme timestamp Unix (secondes) de désactivation :
+ * `disable="0"` = visible, `disable != "0"` = masqué depuis ce timestamp.
+ *
+ * @param disabled  true = masquer, false = ré-afficher.
  */
 export async function microstoreDisableGoods(opts: {
   microstoreProductId: number;
   disabled: boolean;
 }): Promise<void> {
-  const key = await getMicrostoreSessionKey();
-  if (!key) throw new MicrostoreSessionExpiredError();
-
-  const body = new URLSearchParams({
-    key,
-    id: String(opts.microstoreProductId),
-    disable: opts.disabled ? "1" : "0",
-    app_version: "2.76.21",
-    app_pid: "91",
-    api_version: "1.0",
-    lang: "en",
-  });
-  const res = await callMicrostorePost<Record<string, unknown>>(
-    "/goods/disable",
-    body,
-  );
-  if (res.err !== 0) {
+  const info = await microstoreGetGoods(opts.microstoreProductId);
+  if (!info) {
     throw new Error(
-      `Microstore /goods/disable a refusé : ${res.msg || res.debug_msg || `err=${res.err}`}`,
+      `Produit Microstore #${opts.microstoreProductId} introuvable — impossible de changer sa visibilité.`,
     );
   }
+
+  const preservedSkus: MicrostoreSkuInput[] = info.sku.map((s, idx) => ({
+    id: Number(s.id),
+    color_id: s.color_id,
+    color_name: s.color_name,
+    color_alias: s.color_alias || "",
+    stock: Number(s.num_1) || 0,
+    price: Number(s.price_1) || Number(s.price) || 0,
+    orderBy: Number(s.order_by ?? idx + 1),
+    goodsSn: s.goods_sn,
+    bhbStatus: Number(s.bhb_status),
+  }));
+
+  await microstoreUpdateGoods({
+    microstoreProductId: opts.microstoreProductId,
+    payload: {
+      itemRef: info.item_ref,
+      name: info.name,
+      desc: info.desc || "",
+      price: Number(info.price) || 0,
+      weightGrams: Number(info.weight) || 0,
+      productCountry: info.product_country || "CN",
+      remarkMaterial: info.remark_material || "",
+      remarkPackage: Number(info.remark_package) || 1,
+      catId: info.cat_id,
+      brandId: info.brand_id || "0",
+      yearId: info.year_id || "0",
+      seasonId: info.season_id || "0",
+      numPerPack: Number(info.num_per_pack) || 1,
+      disabled: opts.disabled,
+      skus: preservedSkus,
+    },
+  });
 }
 
 /**

@@ -1,55 +1,32 @@
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 
-/* ── Mocks pour tenir la modale isolée ─────────────────────────────────── */
+/* ── Mocks ─────────────────────────────────────────────────────────────── */
 
-// Sous-composants riches : on les remplace par des stubs statiques pour ne
-// pas dépendre des server actions PFS/eFashion/Faire dans le test unitaire.
-vi.mock("@/components/admin/MarketplaceMappingSection", () => ({
-  __esModule: true,
-  default: () => <div data-testid="pfs-mapping-section">MOCK_PFS</div>,
-}));
-vi.mock("@/components/admin/EfashionMappingPicker", () => ({
-  __esModule: true,
-  default: () => <div data-testid="efashion-picker">MOCK_EFASHION</div>,
-}));
-vi.mock("@/components/admin/FaireTaxonomySelect", () => ({
-  __esModule: true,
-  default: () => <div data-testid="faire-select">MOCK_FAIRE</div>,
-}));
-vi.mock("@/components/admin/pfs/PfsSuggestions", () => ({
-  __esModule: true,
-  default: () => <div data-testid="pfs-suggestions">MOCK_SUGGESTIONS</div>,
-}));
 vi.mock("@/components/admin/TranslateButton", () => ({
   __esModule: true,
   default: () => <button type="button">Traduire</button>,
 }));
+vi.mock("@/components/admin/TranslatingInput", () => ({
+  __esModule: true,
+  default: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
+}));
+vi.mock("@/hooks/useAutoTranslateOnBlur", () => ({
+  useAutoTranslateOnBlur: () => ({ handleFrBlur: () => {}, isTranslating: () => false }),
+}));
 
-// Contextes / hooks utilisés par la modale.
 vi.mock("@/components/admin/DeeplConfigContext", () => ({
   useAutoTranslateEnabled: () => false,
 }));
-vi.mock("@/components/ui/Toast", () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
-}));
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
-}));
 
-// Server actions : renvoient des valeurs neutres.
-const mockCreateCategoryQuick = vi.fn(async () => ({ id: "cat-1", name: "Bague", subCategories: [] }));
+const mockCreateCategoryQuick = vi.fn(async () => ({
+  id: "cat-1",
+  name: "Bague",
+  subCategories: [],
+}));
 vi.mock("@/app/actions/admin/quick-create", () => ({
   createCategoryQuick: (...a: unknown[]) => mockCreateCategoryQuick(...(a as [])),
-}));
-vi.mock("@/app/actions/admin/categories", () => ({
-  updateCategoryFaireTaxonomy: vi.fn(async () => undefined),
-}));
-vi.mock("@/app/actions/admin/pfs-annexes", () => ({
-  fetchPfsMappingOptions: vi.fn(async () => ({
-    genders: [], families: [], categories: [], compositions: [], countries: [], seasons: [],
-  })),
 }));
 
 import CategoryEditorModal from "@/components/admin/categories/CategoryEditorModal";
@@ -66,7 +43,7 @@ afterEach(() => {
 
 /* ── Tests ─────────────────────────────────────────────────────────────── */
 
-describe("CategoryEditorModal", () => {
+describe("CategoryEditorModal (allégé)", () => {
   it("ne rend rien quand open=false", () => {
     const { container } = render(
       <CategoryEditorModal open={false} onClose={() => {}} />,
@@ -80,7 +57,7 @@ describe("CategoryEditorModal", () => {
     expect(screen.getByRole("button", { name: /Créer la catégorie/i })).toBeInTheDocument();
   });
 
-  it("titre « Modifier la catégorie » en mode édition avec le nom", () => {
+  it("titre « Renommer » en mode édition avec le nom", () => {
     render(
       <CategoryEditorModal
         open
@@ -88,18 +65,32 @@ describe("CategoryEditorModal", () => {
         editMode={{
           id: "c1",
           name: "Bague",
-          translations: { fr: "Bague", en: "Ring" },
-          pfsGender: "WOMAN",
-          pfsFamilyName: "Bijoux_Fantaisie",
-          pfsCategoryName: "Bagues",
-          efashionCurrentId: 111,
-          faireCurrentTaxonomyId: "tt_ring_01",
+          translations: { en: "Ring" },
           onSave: async () => {},
         }}
       />,
     );
-    expect(screen.getByRole("heading", { name: /Modifier la catégorie « Bague »/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Enregistrer les modifications/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Renommer « Bague »/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Enregistrer/i })).toBeInTheDocument();
+  });
+
+  it("ne contient PLUS de cartes marketplace (elles ont été extraites en mini-modals)", () => {
+    render(
+      <CategoryEditorModal
+        open
+        onClose={() => {}}
+        editMode={{
+          id: "c1",
+          name: "Bague",
+          translations: {},
+          onSave: async () => {},
+        }}
+      />,
+    );
+    expect(screen.queryByText(/Paris Fashion Shop/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/eFashion Paris/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Faire$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Microstore$/i)).not.toBeInTheDocument();
   });
 
   it("le bouton de création reste désactivé tant que le nom FR est vide", () => {
@@ -108,17 +99,25 @@ describe("CategoryEditorModal", () => {
     expect(submit).toBeDisabled();
   });
 
-  it("en création, le bouton reste désactivé sans mapping PFS complet", () => {
+  it("bouton actif dès qu'un nom FR est saisi — plus de contrainte PFS", () => {
     render(<CategoryEditorModal open onClose={() => {}} />);
     const nameInput = screen.getByPlaceholderText(/Ex : Bague, Collier/i);
     fireEvent.change(nameInput, { target: { value: "Bracelet" } });
-    // PFS non rempli : bouton toujours désactivé
-    expect(screen.getByRole("button", { name: /Créer la catégorie/i })).toBeDisabled();
-    // Le message d'aide en pied invite à compléter PFS
-    expect(screen.getByText(/Complète la correspondance Paris Fashion Shop/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Créer la catégorie/i })).not.toBeDisabled();
   });
 
-  it("en édition, un simple renommage suffit — pas besoin de re-remplir PFS", () => {
+  it("création : appelle createCategoryQuick avec juste les traductions", async () => {
+    const onClose = vi.fn();
+    render(<CategoryEditorModal open onClose={onClose} />);
+    const nameInput = screen.getByPlaceholderText(/Ex : Bague, Collier/i);
+    fireEvent.change(nameInput, { target: { value: "Bracelet" } });
+    fireEvent.click(screen.getByRole("button", { name: /Créer la catégorie/i }));
+    await waitFor(() => expect(mockCreateCategoryQuick).toHaveBeenCalled());
+    const args = mockCreateCategoryQuick.mock.calls[0];
+    expect(args[0]).toEqual({ fr: "Bracelet" });
+  });
+
+  it("édition : appelle editMode.onSave(name, translations)", async () => {
     const onSave = vi.fn(async () => {});
     render(
       <CategoryEditorModal
@@ -127,48 +126,20 @@ describe("CategoryEditorModal", () => {
         editMode={{
           id: "c1",
           name: "Bague",
-          translations: { fr: "Bague" },
-          pfsGender: null,
-          pfsFamilyName: null,
-          pfsCategoryName: null,
-          efashionCurrentId: null,
-          faireCurrentTaxonomyId: null,
+          translations: { en: "Ring" },
           onSave,
         }}
       />,
     );
-    expect(screen.getByRole("button", { name: /Enregistrer les modifications/i })).not.toBeDisabled();
-  });
-
-  it("Cartes marketplaces : « Reliée » quand mapping présent, « Non reliée » sinon (édition)", () => {
-    render(
-      <CategoryEditorModal
-        open
-        onClose={() => {}}
-        editMode={{
-          id: "c1",
-          name: "Bague",
-          translations: { fr: "Bague" },
-          pfsGender: "WOMAN",
-          pfsFamilyName: "Bijoux_Fantaisie",
-          pfsCategoryName: "Bagues",
-          efashionCurrentId: 111,   // eFashion mappé
-          faireCurrentTaxonomyId: null, // Faire non mappé
-          onSave: async () => {},
-        }}
-      />,
-    );
-    // 2 marketplaces reliées sur 3 → header à droite doit l'annoncer
-    expect(screen.getByText(/2 sur 3 reliées/i)).toBeInTheDocument();
-    // On doit trouver au moins un statut « Non reliée » (Faire) et des « Reliée »
-    expect(screen.getAllByText(/Reliée/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Non reliée/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Enregistrer/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith("Bague", { en: "Ring" });
   });
 
   it("click sur « Annuler » appelle onClose", () => {
     const onClose = vi.fn();
     render(<CategoryEditorModal open onClose={onClose} />);
-    fireEvent.click(screen.getByRole("button", { name: /Annuler/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Annuler$/ }));
     expect(onClose).toHaveBeenCalled();
   });
 

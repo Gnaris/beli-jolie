@@ -74,6 +74,10 @@ export interface ExportProduct {
   reference: string;
   name: string;
   description: string;
+  /** Statut BJ — sert notamment à Microstore : OFFLINE/ARCHIVED déclenche un
+   *  /goods/disable après le push pour masquer la fiche côté vitrine H5.
+   *  ONLINE la rend/laisse visible. SYNCING est traité comme ONLINE. */
+  status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
 
   // PFS taxonomy
   pfsGenderCode: string | null; // WOMAN | MAN | KID | SUPPLIES
@@ -120,6 +124,9 @@ export interface ExportProduct {
   translations: Record<string, { name: string; description: string }>;
 
   variants: ExportVariant[];
+
+  /** Remise manuelle en % (Product.discountPercent) — 0..100 ou null si aucune. */
+  discountPercent: number | null;
 }
 
 /** Legacy alias (kept for backwards-compat — used by helpers.ts and tests). */

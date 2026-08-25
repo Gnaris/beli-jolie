@@ -9,6 +9,10 @@ import CategoryEditorModal from "./CategoryEditorModal";
 import OrderchampMappingDrawer, {
   type OrderchampMappingTarget,
 } from "./OrderchampMappingDrawer";
+import PfsCategoryMappingModal from "@/components/admin/shared/mapping-modals/PfsCategoryMappingModal";
+import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
+import FaireCategoryMappingModal from "@/components/admin/shared/mapping-modals/FaireCategoryMappingModal";
+import MicrostoreMappingModal from "@/components/admin/shared/mapping-modals/MicrostoreMappingModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -16,11 +20,10 @@ import {
   deleteSubCategory,
   reorderCategories,
   updateCategoryDirect,
-  updateCategoryPfsTaxonomy,
-  updateCategoryFaireTaxonomy,
+  updateCategoryMicrostoreMapping,
   updateSubCategoryDirect,
+  updateSubCategoryMicrostoreMapping,
 } from "@/app/actions/admin/categories";
-import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
 import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy-shared";
 
 type Sub = {
@@ -29,6 +32,7 @@ type Sub = {
   translations: Record<string, string>;
   orderchampCategoryPath?: string | null;
   orderchampLabel?: string | null;
+  microstoreCategoryId?: number | null;
 };
 
 export type CategoryRow = {
@@ -43,6 +47,7 @@ export type CategoryRow = {
   efashionCategorieId: number | null;
   faireTaxonomyId: string | null;
   orderchampCategoryPath: string | null;
+  microstoreCategoryId: number | null;
   productCount: number;
   createdAt: Date;
   subCategories: Sub[];
@@ -74,7 +79,6 @@ export default function CategoriesMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
-  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   const urlSelectedId = searchParams.get("cat");
@@ -86,11 +90,18 @@ export default function CategoriesMasterDetail({
   const [createOpen, setCreateOpen] = useState(false);
   const [subModalCatId, setSubModalCatId] = useState<string | null>(null);
   const [editSub, setEditSub] = useState<{ sub: Sub; catId: string } | null>(null);
-  const [editFocusMarketplace, setEditFocusMarketplace] = useState<"pfs" | "efashion" | "faire" | undefined>(undefined);
   const [orderchampTarget, setOrderchampTarget] = useState<{
     target: OrderchampMappingTarget;
     currentPath: string | null;
   } | null>(null);
+  // Mini-modals de mapping marketplace (1 par marketplace). Chacun est ouvert
+  // par la carte correspondante dans <MarketplaceMappingCards>.
+  const [mappingModal, setMappingModal] = useState<
+    "pfs" | "efashion" | "faire" | "microstore" | null
+  >(null);
+  // Sous-catégorie ciblée par la modale Microstore (badge « M » sur les chips).
+  // null tant que l'utilisatrice n'a pas cliqué le badge.
+  const [microstoreSubTarget, setMicrostoreSubTarget] = useState<Sub | null>(null);
   // ID d'une catégorie tout juste créée dont on veut la sélection différée :
   // items n'inclut la nouvelle cat qu'après router.refresh(), on sélectionne
   // au bon moment (voir useEffect ci-dessous). Sans ce délai, la sélection
@@ -191,30 +202,9 @@ export default function CategoriesMasterDetail({
     router.refresh();
   }
 
-  async function handleSaveCat(
-    name: string,
-    translations: Record<string, string>,
-    _hex?: string,
-    _patternImage?: string | null,
-    pfs?: { pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
-    faire?: { taxonomyId?: string | null },
-  ) {
+  async function handleSaveCat(name: string, translations: Record<string, string>) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
-    const newGender = pfs?.pfsGender ?? null;
-    const newFamily = pfs?.pfsFamilyName ?? null;
-    const newCategory = pfs?.pfsCategoryName ?? null;
-    if (newGender !== editCat.pfsGender || newFamily !== editCat.pfsFamilyName || newCategory !== editCat.pfsCategoryName) {
-      const res = await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
-      // Impact non-null → modale « X produits impactés sur PFS ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
-    const newFaireTaxonomy = faire?.taxonomyId ?? null;
-    if (newFaireTaxonomy !== (editCat.faireTaxonomyId ?? null)) {
-      const res = await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
-      // Impact non-null → modale « X produits impactés sur Faire ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
     router.refresh();
   }
 
@@ -249,6 +239,10 @@ export default function CategoriesMasterDetail({
         efashionLabel: selectedCat.efashionLabel,
         faireLabel: selectedCat.faireLabel,
         orderchampLabel: selectedCat.orderchampLabel,
+        microstoreLabel:
+          selectedCat.microstoreCategoryId != null
+            ? `Microstore #${selectedCat.microstoreCategoryId}`
+            : null,
       }
     : null;
 
@@ -307,19 +301,20 @@ export default function CategoriesMasterDetail({
               category={selectedDetail}
               showBackButton={!!selectedId}
               onBack={handleBack}
-              onEdit={() => { setEditFocusMarketplace(undefined); setEditCat(selectedCat); }}
+              onEdit={() => setEditCat(selectedCat)}
               onDelete={() => selectedCat && handleDelete(selectedCat)}
               onSubAdd={() => setSubModalCatId(selectedCat!.id)}
               onSubEdit={(s) => setEditSub({ sub: s, catId: selectedCat!.id })}
               onSubDelete={handleSubDelete}
               onSubOrderchamp={(s) => selectedCat && openOrderchampMappingForSub(s, selectedCat)}
+              onSubMicrostore={(s) => setMicrostoreSubTarget(s)}
               onEditMapping={(mp) => {
+                if (!selectedCat) return;
                 if (mp === "orderchamp") {
-                  if (selectedCat) openOrderchampMappingForCategory(selectedCat);
+                  openOrderchampMappingForCategory(selectedCat);
                   return;
                 }
-                setEditFocusMarketplace(mp);
-                setEditCat(selectedCat);
+                setMappingModal(mp);
               }}
             />
           ) : (
@@ -341,24 +336,16 @@ export default function CategoriesMasterDetail({
         }}
       />
 
-      {/* Modale édition catégorie */}
+      {/* Modale renommage catégorie */}
       {editCat && (
         <CategoryEditorModal
           open={!!editCat}
           onClose={() => setEditCat(null)}
-          focusMarketplace={editFocusMarketplace}
           editMode={{
             id: editCat.id,
             name: editCat.name,
             translations: editCat.translations,
-            pfsGender: editCat.pfsGender,
-            pfsFamilyName: editCat.pfsFamilyName,
-            pfsCategoryName: editCat.pfsCategoryName,
-            efashionCurrentId: editCat.efashionCategorieId,
-            faireCurrentTaxonomyId: editCat.faireTaxonomyId,
-            onSave: async (name, translations, pfs, faire) => {
-              await handleSaveCat(name, translations, undefined, undefined, pfs, faire);
-            },
+            onSave: handleSaveCat,
           }}
         />
       )}
@@ -399,6 +386,47 @@ export default function CategoriesMasterDetail({
         onClick={() => setCreateOpen(true)}
       />
 
+      {/* Mini-modals mapping marketplace (1 par carte) */}
+      {selectedCat && (
+        <>
+          <PfsCategoryMappingModal
+            open={mappingModal === "pfs"}
+            onClose={() => setMappingModal(null)}
+            categoryId={selectedCat.id}
+            categoryName={selectedCat.name}
+            currentGender={selectedCat.pfsGender}
+            currentFamilyName={selectedCat.pfsFamilyName}
+            currentCategoryName={selectedCat.pfsCategoryName}
+          />
+          <EfashionMappingModal
+            open={mappingModal === "efashion"}
+            onClose={() => setMappingModal(null)}
+            entityId={selectedCat.id}
+            entityName={selectedCat.name}
+            entityLabel={`Catégorie « ${selectedCat.name} »`}
+            kind="category"
+            currentValue={selectedCat.efashionCategorieId}
+          />
+          <FaireCategoryMappingModal
+            open={mappingModal === "faire"}
+            onClose={() => setMappingModal(null)}
+            categoryId={selectedCat.id}
+            categoryName={selectedCat.name}
+            currentTaxonomyId={selectedCat.faireTaxonomyId}
+          />
+          <MicrostoreMappingModal
+            open={mappingModal === "microstore"}
+            onClose={() => setMappingModal(null)}
+            entityLabel={`Catégorie « ${selectedCat.name} »`}
+            kind="category"
+            currentValue={selectedCat.microstoreCategoryId}
+            onSave={async (next) => {
+              await updateCategoryMicrostoreMapping(selectedCat.id, next);
+            }}
+          />
+        </>
+      )}
+
       {/* Drawer mapping Orderchamp (feuille standard OC) — commun cat + sous-cat */}
       <OrderchampMappingDrawer
         open={!!orderchampTarget}
@@ -407,6 +435,20 @@ export default function CategoriesMasterDetail({
         currentPath={orderchampTarget?.currentPath ?? null}
         leaves={orderchampTaxonomy}
       />
+
+      {/* Modale mapping Microstore — sous-catégorie ciblée */}
+      {microstoreSubTarget && (
+        <MicrostoreMappingModal
+          open={!!microstoreSubTarget}
+          onClose={() => setMicrostoreSubTarget(null)}
+          entityLabel={`Sous-catégorie « ${microstoreSubTarget.name} »`}
+          kind="category"
+          currentValue={microstoreSubTarget.microstoreCategoryId ?? null}
+          onSave={async (next) => {
+            await updateSubCategoryMicrostoreMapping(microstoreSubTarget.id, next);
+          }}
+        />
+      )}
     </>
   );
 }

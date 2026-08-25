@@ -98,6 +98,7 @@ export default async function CategoriesPage() {
     efashionCategorieId: c.efashionCategorieId,
     faireTaxonomyId: c.faireTaxonomyId,
     orderchampCategoryPath: c.orderchampCategoryPath,
+    microstoreCategoryId: c.microstoreCategoryId,
     productCount: c._count.products,
     createdAt: c.createdAt,
     subCategories: c.subCategories.map((s) => ({
@@ -108,6 +109,7 @@ export default async function CategoriesPage() {
       orderchampLabel: s.orderchampCategoryPath
         ? getOrderchampCategoryLabel(s.orderchampCategoryPath, orderchampTaxonomy)
         : null,
+      microstoreCategoryId: (s as { microstoreCategoryId?: number | null }).microstoreCategoryId ?? null,
     })),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,

@@ -301,6 +301,47 @@ export async function updateCategoryFaireHsCode(
   revalidateTag("categories", "default");
 }
 
+/**
+ * Mappe une catégorie BJ vers un ID catégorie Microstore. Envoyé au push
+ * produit natif (`lib/microstore-goods-crud.ts`) pour renseigner l'attribut
+ * catégorie côté MC Gérant.
+ */
+export async function updateCategoryMicrostoreMapping(
+  id: string,
+  microstoreCategoryId: number | null,
+) {
+  await requireAdmin();
+  await prisma.category.update({
+    where: { id },
+    data: { microstoreCategoryId },
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+  return { success: true as const };
+}
+
+/**
+ * Mappe une sous-catégorie BJ vers un ID catégorie Microstore. Pré-requis pour
+ * qu'une sous-catégorie puisse être choisie comme étiquette Microstore d'un
+ * produit (sinon le badge « M » reste grisé côté ProductForm et le push est
+ * refusé au niveau `assertMicrostoreMappings`).
+ */
+export async function updateSubCategoryMicrostoreMapping(
+  id: string,
+  microstoreCategoryId: number | null,
+) {
+  await requireAdmin();
+  await prisma.subCategory.update({
+    where: { id },
+    data: { microstoreCategoryId } as never,
+  });
+  revalidatePath("/admin/categories");
+  revalidatePath("/admin/produits");
+  revalidateTag("categories", "default");
+  return { success: true as const };
+}
+
 // ─────────────────────────────────────────────
 // Sous-catégories
 // ─────────────────────────────────────────────
@@ -330,11 +371,19 @@ export async function deleteSubCategory(id: string) {
 export async function updateCategoryDirect(
   id: string,
   name: string,
-  translations: Record<string, string>
+  translations: Record<string, string>,
+  microstoreCategoryId?: number | null,
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
-  await prisma.category.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
+  const data: { name: string; slug: string; microstoreCategoryId?: number | null } = {
+    name: name.trim(),
+    slug: toSlug(name.trim()),
+  };
+  if (microstoreCategoryId !== undefined) {
+    data.microstoreCategoryId = microstoreCategoryId;
+  }
+  await prisma.category.update({ where: { id }, data });
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();

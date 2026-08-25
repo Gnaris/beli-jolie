@@ -47,6 +47,10 @@ export interface MarketplacePublishOutcome {
     | { status: "ok"; mode: "create" | "update" }
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };
+  microstore?:
+    | { status: "ok"; mode: "create" | "update" }
+    | { status: "disabled"; message: string }
+    | { status: "error"; message: string };
 }
 
 export interface MarketplacePublishOptions {
@@ -54,6 +58,7 @@ export interface MarketplacePublishOptions {
   ankorstore?: boolean;
   faire?: boolean;
   orderchamp?: boolean;
+  microstore?: boolean;
 }
 
 export async function publishProductToMarketplaces(
@@ -298,6 +303,54 @@ export async function publishProductToMarketplaces(
     }
   }
 
+  if (options.microstore) {
+    const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
+    const microstoreEnabled = await getCachedMicrostoreEnabled();
+    if (!microstoreEnabled) {
+      outcome.microstore = {
+        status: "disabled",
+        message: "Microstore désactivée dans Paramètres.",
+      };
+    } else {
+      try {
+        const alreadyPushed = !!(await prisma.product.findUnique({
+          where: { id: productId },
+          select: { microstoreLastPushedAt: true },
+        }))?.microstoreLastPushedAt;
+        const { microstorePushProduct } = await import("@/lib/microstore-products");
+        const { loadExportContext, loadExportProducts } = await import(
+          "@/lib/marketplace-excel/load-products"
+        );
+        const [ctx, exportProducts] = await Promise.all([
+          loadExportContext(),
+          loadExportProducts([productId]),
+        ]);
+        const exportProduct = exportProducts[0];
+        if (!exportProduct) {
+          outcome.microstore = { status: "error", message: "Produit introuvable pour l'export Microstore." };
+        } else {
+          const res = await microstorePushProduct(exportProduct, ctx);
+          if (res.success) {
+            outcome.microstore = { status: "ok", mode: alreadyPushed ? "update" : "create" };
+            await prisma.product.update({
+              where: { id: productId },
+              data: {
+                microstoreLastPushedAt: new Date(),
+                microstoreSyncRequired: false,
+              },
+            });
+          } else {
+            outcome.microstore = { status: "error", message: res.error ?? "Erreur inconnue" };
+          }
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("[Marketplace Publish] Microstore unexpected error", { productId, error: message });
+        outcome.microstore = { status: "error", message };
+      }
+    }
+  }
+
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
   await revalidateProductPublicPage(productId);
@@ -339,6 +392,7 @@ export async function publishProductsToMarketplaces(
         ankorstore: options.ankorstore ? { status: "error", message } : undefined,
         faire: options.faire ? { status: "error", message } : undefined,
         orderchamp: options.orderchamp ? { status: "error", message } : undefined,
+        microstore: options.microstore ? { status: "error", message } : undefined,
       });
     }
   }

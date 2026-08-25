@@ -402,7 +402,7 @@ function MarketplaceCard({
       style={disabledStyle}
     >
       {headerEl}
-      {actions && (
+      {actions && !disabledForProduct && (
         <div className={`flex items-center justify-center gap-1 pt-1 mt-0.5 border-t ${dividerClass}`}>
           {actions}
         </div>
@@ -419,7 +419,7 @@ function MarketplaceCard({
       ) : (
         cardEl
       )}
-      {state.syncRequired && !awaitingShooting && onCancelSyncRequired && (
+      {state.syncRequired && !awaitingShooting && !disabledForProduct && onCancelSyncRequired && (
         <button
           type="button"
           onClick={(e) => {

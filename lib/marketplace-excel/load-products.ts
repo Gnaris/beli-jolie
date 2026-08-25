@@ -234,6 +234,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
       reference: p.reference,
       name: p.name,
       description: p.description,
+      status: p.status as ExportProduct["status"],
       dimensionLength: p.dimensionLength,
       dimensionWidth: p.dimensionWidth,
       dimensionHeight: p.dimensionHeight,
@@ -262,6 +263,7 @@ export async function loadExportProducts(productIds: string[]): Promise<ExportPr
         const c = getCountryByIso(p.countryIsoCode);
         return c?.efashionProvenanceId ?? null;
       })(),
+      discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
       compositions: p.compositions.map((cc) => ({
         name: cc.composition.pfsCompositionRef || cc.composition.name,
         percentage: cc.percentage,

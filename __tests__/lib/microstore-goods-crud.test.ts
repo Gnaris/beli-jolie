@@ -73,6 +73,47 @@ describe("serializeSkuForApi", () => {
     expect(out.price).toBe("12.00");
     expect(out.price_1).toBe("12.00");
   });
+
+  it("sale_1..sale_4 = '1.0000' quand aucune remise", () => {
+    const out = serializeSkuForApi({
+      color_id: "1",
+      color_name: "Test",
+      stock: 1,
+      price: 10,
+      orderBy: 1,
+    }) as Record<string, unknown>;
+    expect(out.sale_1).toBe("1.0000");
+    expect(out.sale_2).toBe("1.0000");
+    expect(out.sale_3).toBe("1.0000");
+    expect(out.sale_4).toBe("1.0000");
+  });
+
+  it("sale_1..sale_4 = facteur remise (0.75 pour -25 %)", () => {
+    const out = serializeSkuForApi({
+      color_id: "1",
+      color_name: "Test",
+      stock: 1,
+      price: 10,
+      orderBy: 1,
+      saleFactor: 0.75,
+    }) as Record<string, unknown>;
+    expect(out.sale_1).toBe("0.7500");
+    expect(out.sale_4).toBe("0.7500");
+  });
+
+  it("clampe le facteur remise dans [0, 1] (protège contre valeurs invalides)", () => {
+    const overOne = serializeSkuForApi({
+      color_id: "1", color_name: "Test", stock: 1, price: 10, orderBy: 1,
+      saleFactor: 1.5,
+    }) as Record<string, unknown>;
+    expect(overOne.sale_1).toBe("1.0000");
+
+    const negative = serializeSkuForApi({
+      color_id: "1", color_name: "Test", stock: 1, price: 10, orderBy: 1,
+      saleFactor: -0.2,
+    }) as Record<string, unknown>;
+    expect(negative.sale_1).toBe("0.0000");
+  });
 });
 
 describe("buildGoodsFormBody", () => {
@@ -172,6 +213,28 @@ describe("buildGoodsFormBody", () => {
       payload: { ...basePayload, productCountry: "" },
     });
     expect(body.get("product_country")).toBe("CN");
+  });
+
+  it("sale_1..sale_4 (niveau produit) suivent le facteur remise du payload", () => {
+    const body = buildGoodsFormBody({
+      sessionKey: "5_test",
+      productId: null,
+      payload: { ...basePayload, saleFactor: 0.9 },
+    });
+    expect(body.get("sale_1")).toBe("0.9000");
+    expect(body.get("sale_2")).toBe("0.9000");
+    expect(body.get("sale_3")).toBe("0.9000");
+    expect(body.get("sale_4")).toBe("0.9000");
+  });
+
+  it("sale_1..sale_4 (niveau produit) = '1.0000' sans saleFactor (défaut = pas de remise)", () => {
+    const body = buildGoodsFormBody({
+      sessionKey: "5_test",
+      productId: null,
+      payload: basePayload,
+    });
+    expect(body.get("sale_1")).toBe("1.0000");
+    expect(body.get("sale_4")).toBe("1.0000");
   });
 
   it("num_per_pack vaut 1 par défaut si non fourni", () => {

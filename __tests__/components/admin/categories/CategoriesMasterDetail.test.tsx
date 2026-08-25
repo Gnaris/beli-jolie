@@ -43,9 +43,9 @@ vi.mock("@/app/actions/admin/categories", () => ({
   deleteSubCategory: vi.fn(),
   reorderCategories: vi.fn(),
   updateCategoryDirect: vi.fn(),
-  updateCategoryPfsTaxonomy: vi.fn(),
-  updateCategoryFaireTaxonomy: vi.fn(),
+  updateCategoryMicrostoreMapping: vi.fn(),
   updateSubCategoryDirect: vi.fn(),
+  updateSubCategoryMicrostoreMapping: vi.fn(),
 }));
 
 // Sous-composants remplacés par des stubs légers : on ne teste que la logique
@@ -64,6 +64,26 @@ vi.mock("@/components/admin/categories/CategoryDetail", () => ({
   ),
 }));
 vi.mock("@/components/admin/products/QuickCreateModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/admin/categories/OrderchampMappingDrawer", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/admin/shared/mapping-modals/PfsCategoryMappingModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/admin/shared/mapping-modals/EfashionMappingModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/admin/shared/mapping-modals/FaireCategoryMappingModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+vi.mock("@/components/admin/shared/mapping-modals/MicrostoreMappingModal", () => ({
   __esModule: true,
   default: () => null,
 }));
@@ -113,12 +133,15 @@ function makeCat(id: string, name: string, position: number): CategoryRow {
     pfsCategoryName: null,
     efashionCategorieId: null,
     faireTaxonomyId: null,
+    orderchampCategoryPath: null,
+    microstoreCategoryId: null,
     productCount: 0,
     createdAt: new Date(),
     subCategories: [],
     pfsLabel: null,
     efashionLabel: null,
     faireLabel: null,
+    orderchampLabel: null,
   };
 }
 
@@ -150,6 +173,8 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
         hasPfsConfig
         hasEfashionConfig
         hasFaireConfig
+        hasOrderchampConfig
+        orderchampTaxonomy={[]}
       />,
     );
 
@@ -166,6 +191,8 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
         hasPfsConfig
         hasEfashionConfig
         hasFaireConfig
+        hasOrderchampConfig
+        orderchampTaxonomy={[]}
       />,
     );
     rerender(
@@ -174,6 +201,8 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
         hasPfsConfig
         hasEfashionConfig
         hasFaireConfig
+        hasOrderchampConfig
+        orderchampTaxonomy={[]}
       />,
     );
 
@@ -191,6 +220,8 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
         hasPfsConfig
         hasEfashionConfig
         hasFaireConfig
+        hasOrderchampConfig
+        orderchampTaxonomy={[]}
       />,
     );
 
@@ -208,6 +239,8 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
         hasPfsConfig
         hasEfashionConfig
         hasFaireConfig
+        hasOrderchampConfig
+        orderchampTaxonomy={[]}
       />,
     );
 

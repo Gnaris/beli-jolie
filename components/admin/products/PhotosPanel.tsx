@@ -131,6 +131,7 @@ export default function PhotosPanel({
 }: Props) {
   const { confirm } = useConfirm();
   const [zoomed, setZoomed] = useState<{ src: string; downloadName: string } | null>(null);
+  const [actionSheet, setActionSheet] = useState<{ src: string; downloadName: string } | null>(null);
 
   useEffect(() => {
     if (!zoomed) return;
@@ -203,6 +204,7 @@ export default function PhotosPanel({
             productReference={productReference}
             brandedBadgeEnabled={brandedBadgeEnabled}
             onZoom={(src, downloadName) => setZoomed({ src, downloadName })}
+            onOpenActionSheet={(src, downloadName) => setActionSheet({ src, downloadName })}
             onConfirmDelete={async () => {
               return confirm({
                 type: "danger",
@@ -214,6 +216,18 @@ export default function PhotosPanel({
           />
         ))}
       </div>
+
+      {actionSheet && (
+        <ImageActionSheet
+          src={actionSheet.src}
+          downloadName={actionSheet.downloadName}
+          onZoom={() => {
+            setZoomed({ src: actionSheet.src, downloadName: actionSheet.downloadName });
+            setActionSheet(null);
+          }}
+          onClose={() => setActionSheet(null)}
+        />
+      )}
 
       {zoomed && (
         <div
@@ -267,6 +281,7 @@ interface PhotoRowProps {
   productReference?: string;
   brandedBadgeEnabled?: boolean;
   onZoom: (src: string, downloadName: string) => void;
+  onOpenActionSheet: (src: string, downloadName: string) => void;
 }
 
 function slugForFile(input: string): string {
@@ -539,6 +554,7 @@ function PhotoRow({
   productReference,
   brandedBadgeEnabled = false,
   onZoom,
+  onOpenActionSheet,
 }: PhotoRowProps) {
   const toast = useToast();
   const state = colorImages.find((c) => c.groupKey === groupKey);
@@ -775,7 +791,7 @@ function PhotoRow({
         // Overflow-visible via `pt-2 pr-2` : le cadenas dépasse en haut-droite
         // du phantom, il ne doit pas être clippé par le container parent.
         return (
-          <div className="grid grid-cols-5 gap-2 pt-2 pr-2">
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-2 pt-2 pr-2">
             {showBrandedPhantom && (
               <BrandedPhantomSlot
                 previewUrl={brandedPreviewUrl}
@@ -784,6 +800,7 @@ function PhotoRow({
                 zoomUrl={brandedLargeUrl}
                 downloadName={brandedDownloadName}
                 onZoom={onZoom}
+                onOpenActionSheet={onOpenActionSheet}
               />
             )}
             {Array.from({ length: realSlotCount }, (_, pos) => {
@@ -807,6 +824,7 @@ function PhotoRow({
                     onRemove={() => removeAt(pos)}
                     onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
                     onZoom={() => onZoom(src, downloadName)}
+                    onOpenActionSheet={() => onOpenActionSheet(src, downloadName)}
                   />
                 );
               }
@@ -841,6 +859,7 @@ function BrandedPhantomSlot({
   zoomUrl,
   downloadName,
   onZoom,
+  onOpenActionSheet,
 }: {
   previewUrl: string | null;
   fallbackBlob: string | undefined;
@@ -848,10 +867,14 @@ function BrandedPhantomSlot({
   zoomUrl: string | null;
   downloadName: string;
   onZoom: (src: string, downloadName: string) => void;
+  onOpenActionSheet: (src: string, downloadName: string) => void;
 }) {
   const clickable = !!zoomUrl;
   const handleZoom = () => {
     if (zoomUrl) onZoom(zoomUrl, downloadName);
+  };
+  const handleTileClick = () => {
+    if (zoomUrl) onOpenActionSheet(zoomUrl, downloadName);
   };
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   return (
@@ -859,13 +882,28 @@ function BrandedPhantomSlot({
     // faire clipper par le rounded-xl / overflow-hidden de la tuile interne.
     <div className="relative overflow-visible z-10">
       <div
-        className="group relative aspect-square rounded-lg border-2 border-slate-900 bg-slate-50 overflow-hidden shadow-sm"
+        onClick={clickable ? handleTileClick : undefined}
+        role={clickable ? "button" : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        onKeyDown={
+          clickable
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleTileClick();
+                }
+              }
+            : undefined
+        }
+        className={`group relative aspect-square rounded-lg border-2 border-slate-900 bg-slate-50 overflow-hidden shadow-sm ${
+          clickable ? "cursor-pointer" : ""
+        }`}
         title={
           reference
-            ? `Position verrouillée — badge « Référence ${reference} » ajouté automatiquement.`
+            ? `Référence ${reference} — appuyez pour agrandir ou télécharger.`
             : "Position verrouillée — le badge Référence sera ajouté au save."
         }
-        aria-label="Position verrouillée par le badge Référence"
+        aria-label="Photo marquée « Référence » — ouvrir les actions"
       >
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -889,16 +927,18 @@ function BrandedPhantomSlot({
           </div>
         )}
 
-        {/* Overlay au survol : zoom + download (même pattern que FilledSlot). */}
+        {/* Overlay au survol : zoom + download (même pattern que FilledSlot).
+            Caché sous md — en mobile, tap = ouverture de la feuille d'actions
+            (pas d'overlay fantôme qui ne peut pas se refermer au tap suivant). */}
         {clickable && (
           <div
-            className={`absolute inset-0 flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
+            className={`absolute inset-0 hidden md:flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
               downloadMenuOpen ? "opacity-100" : "opacity-0"
             }`}
           >
             <button
               type="button"
-              onClick={handleZoom}
+              onClick={(e) => { e.stopPropagation(); handleZoom(); }}
               onMouseDown={(e) => e.stopPropagation()}
               title="Agrandir la photo marquée"
               aria-label="Agrandir la photo marquée"
@@ -968,6 +1008,7 @@ function FilledSlot({
   onRemove,
   onDropReorder,
   onZoom,
+  onOpenActionSheet,
 }: {
   groupKey: string;
   position: number;
@@ -981,6 +1022,7 @@ function FilledSlot({
   onRemove: () => void;
   onDropReorder: (fromGroupKey: string, fromPos: number) => void;
   onZoom: () => void;
+  onOpenActionSheet: () => void;
 }) {
   const shownNumber = displayNumber ?? position + 1;
   const isPrimary = isPrimaryLabel ?? position === 0;
@@ -1035,8 +1077,18 @@ function FilledSlot({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      title="Glissez pour changer d'ordre"
-      className={`group relative aspect-square rounded-lg overflow-hidden border-2 bg-bg-tertiary cursor-grab active:cursor-grabbing transition-colors ${
+      onClick={onOpenActionSheet}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenActionSheet();
+        }
+      }}
+      title="Appuyez pour agrandir ou télécharger — glissez pour changer d'ordre"
+      aria-label={`Photo en position ${shownNumber} — ouvrir les actions`}
+      className={`group relative aspect-square rounded-lg overflow-hidden border-2 bg-bg-tertiary cursor-pointer active:cursor-grabbing transition-colors ${
         isDropTarget ? "border-bg-dark ring-2 ring-bg-dark/30" : "border-border-strong"
       }`}
     >
@@ -1050,15 +1102,16 @@ function FilledSlot({
 
       {/* Overlay d'actions au survol — pointer-events-none sur le fond pour ne
           pas capter le drag ; seuls les boutons captent les clics. Reste visible
-          tant que le menu de téléchargement est ouvert. */}
+          tant que le menu de téléchargement est ouvert. Caché sous md :
+          en mobile, tap = ouverture de la feuille d'actions dédiée. */}
       <div
-        className={`absolute inset-0 flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
+        className={`absolute inset-0 hidden md:flex items-center justify-center gap-2 bg-black/40 transition-opacity pointer-events-none group-hover:opacity-100 ${
           downloadMenuOpen ? "opacity-100" : "opacity-0"
         }`}
       >
         <button
           type="button"
-          onClick={onZoom}
+          onClick={(e) => { e.stopPropagation(); onZoom(); }}
           {...stopDrag}
           title="Agrandir"
           aria-label={`Agrandir l'image en position ${shownNumber}`}
@@ -1095,11 +1148,11 @@ function FilledSlot({
       </span>
       <button
         type="button"
-        onClick={onRemove}
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
         {...stopDrag}
         title="Supprimer cette image"
         aria-label={`Supprimer l'image en position ${position + 1}`}
-        className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-[11px] leading-none flex items-center justify-center hover:bg-black/75 transition-colors cursor-pointer"
+        className="absolute top-1 right-1 w-[22px] h-[22px] md:w-[18px] md:h-[18px] rounded-full bg-black/70 text-white text-[13px] md:text-[11px] leading-none flex items-center justify-center hover:bg-black/85 transition-colors cursor-pointer"
       >
         ×
       </button>
@@ -1188,5 +1241,198 @@ function EmptySlot({
         onChange={onChange}
       />
     </button>
+  );
+}
+
+/**
+ * Feuille d'actions qui s'ouvre au clic sur une photo. Sert principalement
+ * pour le mobile (où les overlays au survol n'existent pas) mais reste utile
+ * sur desktop : donne un accès unique à « Voir en grand » + télécharger
+ * (WebP / PNG / JPEG). Bottom-sheet en mobile, dialog centré en desktop.
+ */
+function ImageActionSheet({
+  src,
+  downloadName,
+  onZoom,
+  onClose,
+}: {
+  src: string;
+  downloadName: string;
+  onZoom: () => void;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<"share" | ImageDownloadFormat | null>(null);
+  const [canShareToPhotos, setCanShareToPhotos] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Le bouton « Enregistrer dans mes photos » n'apparaît QUE si le partage
+  // natif de fichiers est réellement supporté : Web Share API level 2,
+  // secure context (HTTPS ou localhost). Sans ce garde-fou, la fallback
+  // téléchargerait dans « Fichiers » côté iOS — trompeur vis-à-vis du libellé.
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    if (typeof navigator.share !== "function") return;
+    if (typeof navigator.canShare !== "function") return;
+    try {
+      const probe = new File([new Uint8Array([0])], "probe.png", { type: "image/png" });
+      if (navigator.canShare({ files: [probe] })) {
+        setCanShareToPhotos(true);
+      }
+    } catch {
+      /* pas de support fichier — on garde uniquement les formats */
+    }
+  }, []);
+
+  async function handleDownload(format: ImageDownloadFormat) {
+    if (busy) return;
+    setBusy(format);
+    try {
+      await downloadImageAsFormat(src, downloadName, format);
+      onClose();
+    } catch {
+      toast.error("Téléchargement impossible", "Impossible de convertir cette image dans ce format.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleSaveToLibrary() {
+    if (busy) return;
+    setBusy("share");
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`fetch_failed_${response.status}`);
+      const blob = await response.blob();
+      const type = blob.type || "image/webp";
+      const file = new File([blob], downloadName, { type });
+      if (typeof navigator.canShare !== "function" || !navigator.canShare({ files: [file] })) {
+        throw new Error("share_unsupported");
+      }
+      // Feuille système iOS/Android → « Enregistrer l'image » va dans
+      // Pellicule (iOS) / Galerie (Android).
+      await navigator.share({ files: [file] });
+      onClose();
+    } catch (err) {
+      // L'utilisatrice a tapé « Annuler » dans la feuille système → pas d'erreur.
+      if (err instanceof Error && err.name === "AbortError") return;
+      toast.error(
+        "Enregistrement impossible",
+        "Impossible d'ouvrir la feuille système. Utilisez plutôt WebP / PNG / JPEG.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Actions photo"
+    >
+      <div
+        className="w-full sm:max-w-sm bg-bg-primary rounded-t-2xl sm:rounded-2xl border border-border shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-border bg-bg-secondary/60 p-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt="Aperçu de la photo sélectionnée"
+            className="w-20 h-20 object-cover rounded-lg border border-border shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="text-sm font-heading font-bold text-text-primary">Cette photo</div>
+            <div className="mt-1 text-[11px] font-body text-text-muted">
+              Choisissez une action
+            </div>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <button
+            type="button"
+            onClick={onZoom}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-bg-dark px-4 py-3 text-sm font-semibold text-text-inverse font-body hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-4.35-4.35M10.5 7v7M7 10.5h7M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+            </svg>
+            Voir en grand
+          </button>
+
+          {canShareToPhotos && (
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={handleSaveToLibrary}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-bg-primary px-4 py-3 text-sm font-semibold text-text-primary font-body hover:bg-bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {busy === "share" ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" strokeWidth={4} opacity="0.25" />
+                  <path strokeWidth={4} d="M12 2a10 10 0 0110 10" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16l4-4a2 2 0 012.828 0l6.172 6.172M14 14l1.586-1.586a2 2 0 012.828 0L20 14M14 8h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              )}
+              Enregistrer dans mes photos
+            </button>
+          )}
+
+          <div className="space-y-2">
+            <div className="text-[10px] font-heading font-bold uppercase tracking-[0.18em] text-text-muted">
+              Télécharger dans mes fichiers
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(["webp", "png", "jpeg"] as ImageDownloadFormat[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => handleDownload(f)}
+                  className="flex flex-col items-center justify-center gap-1 rounded-xl border border-border bg-bg-primary px-3 py-3 text-xs font-semibold text-text-primary font-body hover:bg-bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {busy === f ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" strokeWidth={4} opacity="0.25" />
+                      <path strokeWidth={4} d="M12 2a10 10 0 0110 10" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                    </svg>
+                  )}
+                  <span>{f.toUpperCase()}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full rounded-xl border border-border bg-bg-primary px-4 py-2.5 text-sm font-medium text-text-secondary font-body hover:bg-bg-secondary transition-colors cursor-pointer"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

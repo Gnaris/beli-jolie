@@ -53,7 +53,7 @@ type PfsRefStatus = "idle" | "checking" | "ok" | "exists" | "not_configured" | "
 interface Category {
   id: string;
   name: string;
-  subCategories: { id: string; name: string }[];
+  subCategories: { id: string; name: string; microstoreCategoryId?: number | null }[];
 }
 
 export interface AvailableComposition {
@@ -2567,30 +2567,22 @@ export default function ProductForm({
                 marketplace: "orderchamp",
               });
             }
-            if (inputs.length > 0) enqueuePublish(inputs);
-
-            // Microstore : hors queue (sync direct sur l'API upsert). Fire
-            // and forget avec toast — l'API prend ~500 ms et la modale reste
-            // fermée pendant ce temps.
+            // Microstore : passe désormais par la file marketplace comme les
+            // autres (avant 2026-08-25 c'était un fire-and-forget + toast).
+            // Le nudge photos reste pour couvrir le fire-and-forget images.
             if (options.microstore) {
-              // Nudge le widget « Photos Microstore » : le push produit
-              // synchrone (~500 ms) enchaîne un fire-and-forget photos qui
-              // dure ~5 s. Sans nudge, le poll idle 60 s rate la fenêtre.
               nudgeWidget("microstore-upload");
-              const { pushProductToMicrostore } = await import(
-                "@/app/actions/admin/microstore-products"
-              );
-              void pushProductToMicrostore(savedProductId).then((res) => {
-                if (res.success) {
-                  toast.success("Fiche mise à jour sur Microstore");
-                } else {
-                  toast.error(
-                    "Envoi Microstore échoué",
-                    res.error ?? "Erreur inconnue.",
-                  );
-                }
+              inputs.push({
+                productId: savedProductId,
+                reference: payload.reference,
+                productName: payload.name,
+                firstImage: firstImagePath,
+                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+                mode: "publish",
+                marketplace: "microstore",
               });
             }
+            if (inputs.length > 0) enqueuePublish(inputs);
           }
         }
       }
@@ -2964,44 +2956,51 @@ export default function ProductForm({
                       {/* Sous-catégories attribuées au produit — chips cliquables
                           pour choisir l'étiquette Microstore, avec × pour retirer.
                           Cliquer une chip = définir comme étiquette Microstore
-                          (ou la retirer si elle l'était déjà). */}
+                          (ou la retirer si elle l'était déjà). Une sous-catégorie
+                          non mappée à Microstore reste attribuable au produit
+                          mais son badge M est grisé et le clic est bloqué. */}
                       {subCategoryIds.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-3 items-start">
                           {subCategories
                             .filter((sub) => subCategoryIds.includes(sub.id))
                             .map((sub) => {
                               const isMicrostoreChoice = microstoreSubCategoryId === sub.id;
+                              const msMapped = sub.microstoreCategoryId != null;
                               return (
                                 <div key={sub.id} className="relative inline-flex">
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setMicrostoreSubCategoryId(isMicrostoreChoice ? null : sub.id)
-                                    }
+                                    onClick={() => {
+                                      if (!msMapped) return;
+                                      setMicrostoreSubCategoryId(isMicrostoreChoice ? null : sub.id);
+                                    }}
                                     title={
-                                      isMicrostoreChoice
-                                        ? "Étiquette Microstore active — cliquer pour retomber sur la catégorie principale"
-                                        : "Cliquer pour utiliser cette sous-catégorie comme étiquette Microstore"
+                                      !msMapped
+                                        ? "Sous-catégorie sans correspondance Microstore — à mapper d'abord dans /admin/categories (badge M sur la chip de la sous-catégorie)"
+                                        : isMicrostoreChoice
+                                          ? "Étiquette Microstore active — cliquer pour retomber sur la catégorie principale"
+                                          : "Cliquer pour utiliser cette sous-catégorie comme étiquette Microstore"
                                     }
                                     aria-pressed={isMicrostoreChoice}
-                                    className={`inline-flex items-center gap-2 pl-3 pr-8 py-1.5 text-sm border rounded-lg transition-colors font-body ${
-                                      isMicrostoreChoice
-                                        ? "bg-bg-dark text-text-inverse border-[#1A1A1A] ring-2 ring-[#22d3ee] ring-offset-1"
-                                        : "bg-bg-dark text-text-inverse border-[#1A1A1A]"
-                                    }`}
+                                    aria-disabled={!msMapped}
+                                    className={`inline-flex items-center gap-2 pl-3 pr-8 py-1.5 text-sm border rounded-lg transition-colors font-body bg-bg-dark text-text-inverse border-[#1A1A1A] ${
+                                      isMicrostoreChoice ? "ring-2 ring-[#22d3ee] ring-offset-1" : ""
+                                    } ${!msMapped ? "cursor-not-allowed" : ""}`}
                                   >
                                     <span>{sub.name}</span>
-                                    {isMicrostoreChoice && (
-                                      <span
-                                        className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-extrabold leading-none flex-shrink-0"
-                                        style={{
-                                          background: "linear-gradient(135deg,#0891b2,#22d3ee)",
-                                        }}
-                                        aria-hidden
-                                      >
-                                        M
-                                      </span>
-                                    )}
+                                    <span
+                                      className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-extrabold leading-none flex-shrink-0 transition-opacity ${
+                                        msMapped ? "opacity-100" : "opacity-30"
+                                      }`}
+                                      style={{
+                                        background: msMapped
+                                          ? "linear-gradient(135deg,#0891b2,#22d3ee)"
+                                          : "linear-gradient(135deg,#94a3b8,#cbd5e1)",
+                                      }}
+                                      aria-hidden
+                                    >
+                                      M
+                                    </span>
                                   </button>
                                   <button
                                     type="button"
@@ -3026,7 +3025,7 @@ export default function ProductForm({
                   )}
                   {subCategoryIds.length > 0 && (
                     <p className="text-[11px] text-text-muted font-body mt-2 leading-snug">
-                      Cliquez sur une sous-catégorie attribuée pour la choisir comme étiquette envoyée dans la colonne « Catégorie » de Microstore. Le badge <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-extrabold align-middle" style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}>M</span> indique la sous-catégorie active. Sans choix, la catégorie principale est utilisée.
+                      Cliquez sur une sous-catégorie attribuée pour la choisir comme étiquette envoyée dans la colonne « Catégorie » de Microstore. Le badge <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-extrabold align-middle" style={{ background: "linear-gradient(135deg,#0891b2,#22d3ee)" }}>M</span> indique la sous-catégorie active. Un badge grisé signale une sous-catégorie sans correspondance Microstore : impossible à choisir tant qu&apos;elle n&apos;est pas mappée dans <span className="whitespace-nowrap">/admin/categories</span>. Sans choix, la catégorie principale est utilisée.
                     </p>
                   )}
                 </div>
@@ -3350,7 +3349,7 @@ export default function ProductForm({
                 placeholder="Aucune remise"
                 value={discountPercent}
                 onChange={(e) => setDiscountPercent(e.target.value)}
-                className="field-input w-32 text-right"
+                className="field-input w-32 text-left"
               />
               <span className="text-sm font-semibold text-text-secondary">%</span>
             </div>

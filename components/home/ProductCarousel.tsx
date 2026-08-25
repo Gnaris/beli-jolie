@@ -63,7 +63,6 @@ interface Props {
 
 export default function ProductCarousel({
   title,
-  subtitle,
   eyebrow,
   products,
   viewMoreHref,
@@ -93,45 +92,36 @@ export default function ProductCarousel({
   return (
     <section
       ref={sectionRef}
-      className={`scroll-fade-up py-20 lg:py-24 ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"} ${variant === "white" ? "border-y border-border" : ""}`}
+      className={`scroll-fade-up py-20 lg:py-24 ${variant === "gray" ? "bg-bg-secondary" : "bg-bg-primary"}`}
     >
-      <div className="container-site" style={{ maxWidth: "1440px" }}>
-        {/* Header éditorial */}
-        <div className="flex items-end justify-between mb-12 flex-wrap gap-4">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10">
+        {/* Header éditorial sobre */}
+        <div className="flex items-end justify-between mb-10 flex-wrap gap-4">
           <div>
             {eyebrow && (
-              <p className="text-[11px] uppercase tracking-[0.22em] text-text-muted font-medium mb-4">
+              <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-2">
                 {eyebrow}
               </p>
             )}
             <h2
-              className="font-heading font-bold text-text-primary leading-tight"
-              style={{ fontSize: "clamp(1.75rem, 3vw, 2.75rem)", letterSpacing: "-0.01em" }}
+              className="font-heading font-bold text-text-primary"
+              style={{ fontSize: "clamp(1.75rem, 3vw, 2.5rem)", letterSpacing: "-0.02em" }}
             >
               {title}
             </h2>
-            {subtitle && (
-              <p className="text-sm text-text-secondary font-body mt-2">{subtitle}</p>
-            )}
           </div>
           <Link
             href={viewMoreHref}
-            className="hidden md:inline-flex items-center gap-2 px-5 py-2.5 border border-border rounded-full text-sm font-heading font-medium text-text-primary hover:bg-bg-dark hover:text-text-inverse hover:border-bg-dark transition-colors"
+            className="hidden sm:inline-flex items-center gap-2 text-sm font-heading font-medium text-text-primary border-b border-text-primary pb-1 hover:gap-3 transition-all"
           >
             {viewMoreLabel} <span aria-hidden>→</span>
           </Link>
         </div>
 
-        {/* Scroll container avec flèches latérales */}
         <div className="relative">
-          {/* Flèche gauche */}
           <button
             onClick={() => scroll("left")}
-            className={`hidden sm:flex items-center justify-center rounded-full transition-colors absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 shadow-md ${
-              isPremium
-                ? "w-10 h-10 bg-accent text-white hover:bg-accent-dark"
-                : "w-9 h-9 border border-border bg-bg-primary hover:bg-bg-dark hover:border-bg-dark hover:text-text-inverse text-text-secondary"
-            }`}
+            className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-gold hover:text-bg-darker transition-colors absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 shadow-md"
             aria-label={tCommon("previous")}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,14 +129,9 @@ export default function ProductCarousel({
             </svg>
           </button>
 
-          {/* Flèche droite */}
           <button
             onClick={() => scroll("right")}
-            className={`hidden sm:flex items-center justify-center rounded-full transition-colors absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10 shadow-md ${
-              isPremium
-                ? "w-10 h-10 bg-accent text-white hover:bg-accent-dark"
-                : "w-9 h-9 border border-border bg-bg-primary hover:bg-bg-dark hover:border-bg-dark hover:text-text-inverse text-text-secondary"
-            }`}
+            className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-gold hover:text-bg-darker transition-colors absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10 shadow-md"
             aria-label={tCommon("next")}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,7 +139,6 @@ export default function ProductCarousel({
             </svg>
           </button>
 
-          {/* Cards produits (mêmes que /fr/produits) */}
           <div
             ref={scrollRef}
             className="flex items-stretch gap-5 overflow-x-auto pb-2 scroll-smooth no-scrollbar snap-x snap-mandatory"
@@ -175,6 +159,7 @@ export default function ProductCarousel({
                   hasAutoPromotion={p.hasAutoPromotion ?? false}
                   clientDiscount={clientDiscount}
                   isFavorite={favSet?.has(p.id) ?? false}
+                  hideStatusBadges
                 />
               </div>
             ))}

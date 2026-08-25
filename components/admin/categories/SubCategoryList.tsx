@@ -9,8 +9,6 @@ import {
   deleteCategory,
   deleteSubCategory,
   updateCategoryDirect,
-  updateCategoryPfsTaxonomy,
-  updateCategoryFaireTaxonomy,
   updateSubCategoryDirect,
 } from "@/app/actions/admin/categories";
 import CategoriesHeaderActions from "@/components/admin/categories/CategoriesHeaderActions";
@@ -54,15 +52,6 @@ export default function CategoriesManager({ categories }: { categories: Category
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [editSub, setEditSub] = useState<{ sub: SubCategoryItem; catId: string } | null>(null);
   const [search, setSearch] = useState("");
-  // Override local du mapping Faire par catégorie. Permet au badge dans le
-  // tableau d'afficher la nouvelle valeur dès l'auto-save côté modale, sans
-  // attendre la propagation server-side de `router.refresh()` (qui peut
-  // arriver après que l'utilisatrice a déjà fermé/rouvert). On stocke aussi
-  // le `label` (nom lisible) car la taxonomie Faire n'est pas en mémoire
-  // côté ce composant.
-  const [faireOverrides, setFaireOverrides] = useState<
-    Record<string, { id: string | null; label: string | null }>
-  >({});
   const router = useRouter();
   const { confirm } = useConfirm();
 
@@ -87,26 +76,9 @@ export default function CategoriesManager({ categories }: { categories: Category
     router.refresh();
   }
 
-  async function handleSaveCat(
-    name: string,
-    translations: Record<string, string>,
-    _hex?: string,
-    _patternImage?: string | null,
-    pfs?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
-    faire?: { taxonomyId?: string | null },
-  ) {
+  async function handleSaveCat(name: string, translations: Record<string, string>) {
     if (!editCat) return;
     await updateCategoryDirect(editCat.id, name, translations);
-    const newGender = pfs?.pfsGender ?? null;
-    const newFamily = pfs?.pfsFamilyName ?? null;
-    const newCategory = pfs?.pfsCategoryName ?? null;
-    if (newGender !== editCat.pfsGender || newFamily !== editCat.pfsFamilyName || newCategory !== editCat.pfsCategoryName) {
-      await updateCategoryPfsTaxonomy(editCat.id, newGender, newFamily, newCategory);
-    }
-    const newFaireTaxonomy = faire?.taxonomyId ?? null;
-    if (newFaireTaxonomy !== (editCat.faireTaxonomyId ?? null)) {
-      await updateCategoryFaireTaxonomy(editCat.id, newFaireTaxonomy);
-    }
     router.refresh();
   }
 
@@ -276,14 +248,11 @@ export default function CategoriesManager({ categories }: { categories: Category
                             title={cat.efashionCategorieId != null ? `id ${cat.efashionCategorieId}` : undefined}
                           />
                         </td>
-                        {/* Faire — taxonomy_type.id (édité depuis la modale catégorie) */}
+                        {/* Faire — édité depuis la fiche catégorie (/admin/categories) */}
                         <td className="px-4 py-3 hidden lg:table-cell" onClick={(e) => e.stopPropagation()}>
                           {(() => {
-                            const override = faireOverrides[cat.id];
-                            const faireId = override ? override.id : (cat.faireTaxonomyId ?? null);
-                            const faireLabel = override
-                              ? override.label
-                              : (cat.faireTaxonomyLabel ?? null);
+                            const faireId = cat.faireTaxonomyId ?? null;
+                            const faireLabel = cat.faireTaxonomyLabel ?? null;
                             return (
                               <MarketplaceMappingBadge
                                 value={faireLabel ?? faireId}
@@ -418,7 +387,8 @@ export default function CategoriesManager({ categories }: { categories: Category
         />
       )}
 
-      {/* Modale édition catégorie */}
+      {/* Modale renommage catégorie — pour éditer les mappings marketplaces,
+          passer par /admin/categories */}
       {editCat && (
         <CategoryEditorModal
           open={!!editCat}
@@ -427,23 +397,7 @@ export default function CategoriesManager({ categories }: { categories: Category
             id: editCat.id,
             name: editCat.name,
             translations: editCat.translations,
-            pfsGender: editCat.pfsGender,
-            pfsFamilyName: isSalesforceId(editCat.pfsFamilyName) ? null : editCat.pfsFamilyName,
-            pfsCategoryName: editCat.pfsCategoryName,
-            efashionCurrentId: editCat.efashionCategorieId ?? null,
-            faireCurrentTaxonomyId:
-              faireOverrides[editCat.id] !== undefined
-                ? faireOverrides[editCat.id].id
-                : (editCat.faireTaxonomyId ?? null),
-            onFaireTaxonomySaved: (next, nextLabel) => {
-              setFaireOverrides((prev) => ({
-                ...prev,
-                [editCat.id]: { id: next, label: nextLabel },
-              }));
-            },
-            onSave: async (name, translations, pfs, faire) => {
-              await handleSaveCat(name, translations, undefined, undefined, pfs, faire);
-            },
+            onSave: handleSaveCat,
           }}
         />
       )}

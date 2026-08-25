@@ -1156,6 +1156,10 @@ model SubCategory {
   // Résolution au publish : priorité aux sous-catégories mappées, sinon
   // fallback sur `Category.orderchampCategoryPath` (obligatoire pour publier).
   orderchampCategoryPath     String?
+  // Mapping Microstore : ID catégorie côté MC Gérant. Obligatoire pour qu'une
+  // sous-catégorie puisse être choisie comme étiquette Microstore d'un produit
+  // (sinon le badge "M" reste grisé côté ProductForm et le push est refusé).
+  microstoreCategoryId       Int?
   createdAt                  DateTime                 @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
@@ -1618,12 +1622,21 @@ enum MarketplaceJobTarget {
   EFASHION
   FAIRE
   ORDERCHAMP
+  MICROSTORE
 }
 
 enum MarketplaceJobMode {
   PUBLISH
   REFRESH
   RESYNC
+  /// Masque le produit côté marketplace (visible → invisible) sans supprimer la fiche.
+  /// Utilisé actuellement uniquement par Microstore (microstoreDisableGoods).
+  DISABLE
+  /// Réaffiche un produit précédemment masqué. Symétrique de DISABLE.
+  ENABLE
+  /// Supprime définitivement la fiche côté marketplace + oublie l'ID côté BJ.
+  /// Utilisé actuellement uniquement par Microstore (microstoreDeleteGoods).
+  DELETE
 }
 
 /// Intention métier d'un job. Sert au widget marketplaces à trier chaque job
@@ -1631,12 +1644,14 @@ enum MarketplaceJobMode {
 /// Posé à l'enqueue :
 ///  - CREATE     : première publication (aucun ID marketplace connu)
 ///  - UPDATE     : mise à jour d'une fiche déjà liée (PATCH incrémental)
+///  - SYNC       : resynchronisation forcée (mode RESYNC : badge orange, bouton ↻ resync)
 ///  - REFRESH    : renouvellement (archive + recréation, mode REFRESH standard)
 ///  - SCHEDULED  : rafraîchissement planifié (étalement via scheduledFor)
 ///  - LINK       : job né d'un flow de liaison manuelle (import/sync post-link)
 enum MarketplaceJobIntent {
   CREATE
   UPDATE
+  SYNC
   REFRESH
   SCHEDULED
   LINK
@@ -1667,6 +1682,7 @@ model MarketplaceRefreshJob {
   efashionOutcome   Json?
   faireOutcome      Json?
   orderchampOutcome Json?
+  microstoreOutcome Json?
   /// Intention métier (Création / Modification / Rafraîchissement / Étalement / Liaison).
   /// Résolue à l'enqueue (voir lib/marketplace-job-intent.ts). Sert au widget
   /// marketplaces à router chaque job vers l'onglet correspondant. Nullable

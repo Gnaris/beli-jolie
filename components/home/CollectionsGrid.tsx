@@ -19,11 +19,11 @@ interface Props {
 
 function CollectionCard({
   collection,
-  className,
+  large = false,
   sizes,
 }: {
   collection: CollectionItem;
-  className?: string;
+  large?: boolean;
   sizes: string;
 }) {
   const { tp } = useProductTranslation();
@@ -31,29 +31,35 @@ function CollectionCard({
   const productCount = collection._count?.products ?? 0;
 
   return (
-    <Link href={`/collections/${collection.id}`} className={`group block ${className ?? ""}`}>
-      <div className="relative w-full h-full rounded-2xl overflow-hidden bg-bg-secondary">
+    <Link href={`/collections/${collection.id}`} className="group block h-full">
+      <div className="relative w-full h-full rounded-3xl overflow-hidden bg-bg-darker">
         {collection.image ? (
           <Image
             src={collection.image}
             alt={collection.name}
             fill
             sizes={sizes}
-            className="object-cover transition-transform duration-500 group-hover:scale-105"
+            className="object-cover opacity-90 transition-transform duration-700 group-hover:scale-105"
             loading="lazy"
           />
         ) : (
-          <div className="absolute inset-0 bg-bg-tertiary" />
+          <div className="absolute inset-0 bg-gradient-to-br from-bg-dark to-bg-darker" />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-        <div className="absolute bottom-0 inset-x-0 p-5 flex items-end justify-between">
-          <div>
-            <h3 className="font-heading font-semibold text-white text-lg">{tp(collection.name)}</h3>
-            {productCount > 0 && (
-              <p className="font-body text-white/60 text-sm mt-0.5">{t("collectionsProducts", { count: productCount })}</p>
-            )}
-          </div>
-          <span className="text-white/0 group-hover:text-white/80 transition-colors duration-300 text-lg">→</span>
+        <div className="absolute inset-0 bg-gradient-to-t from-bg-darker/85 via-bg-darker/20 to-transparent" />
+        <div className={`absolute inset-0 flex flex-col justify-end text-white ${large ? "p-8" : "p-5"}`}>
+          {productCount > 0 && (
+            <p className={`uppercase tracking-[0.3em] text-white/60 mb-2 ${large ? "text-[11px]" : "text-[10px] mb-1"}`}>
+              {t("collectionsProducts", { count: productCount })}
+            </p>
+          )}
+          <h3 className={`font-heading font-bold ${large ? "text-3xl lg:text-4xl" : "text-xl"}`}>
+            {tp(collection.name)}
+          </h3>
+          {large && (
+            <span className="mt-4 inline-flex items-center gap-2 text-sm text-white group-hover:gap-3 transition-all">
+              Découvrir <span aria-hidden>→</span>
+            </span>
+          )}
         </div>
       </div>
     </Link>
@@ -66,37 +72,46 @@ export default function CollectionsGrid({ collections }: Props) {
 
   if (collections.length === 0) return null;
 
-  const [large, med1, med2, wide] = collections;
-
   return (
-    <section ref={sectionRef} className="scroll-fade-up bg-bg-secondary py-16 lg:py-20">
-      <div className="container-site" style={{ maxWidth: "1200px" }}>
-        <div className="flex items-center gap-4 justify-center mb-10">
-          <div className="h-px flex-1 max-w-[80px] bg-border" />
-          <h2 className="font-heading text-lg font-semibold text-text-primary tracking-wide uppercase">{t("collectionsTitle")}</h2>
-          <div className="h-px flex-1 max-w-[80px] bg-border" />
+    <section ref={sectionRef} className="scroll-fade-up bg-bg-primary py-20 lg:py-24">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10">
+        <div className="flex items-end justify-between mb-10 flex-wrap gap-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-2">À explorer</p>
+            <h2
+              className="font-heading font-bold text-text-primary"
+              style={{ fontSize: "clamp(1.75rem, 3vw, 2.5rem)", letterSpacing: "-0.02em" }}
+            >
+              {t("collectionsTitle")}
+            </h2>
+          </div>
         </div>
 
         {collections.length >= 4 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <div className="lg:col-span-3 lg:row-span-2 min-h-[280px] lg:min-h-[500px]">
-              <CollectionCard collection={large} className="h-full" sizes="(min-width: 1024px) 60vw, 100vw" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="col-span-2 row-span-2 aspect-square lg:aspect-auto">
+              <CollectionCard collection={collections[0]} large sizes="(min-width: 1024px) 50vw, 100vw" />
             </div>
-            <div className="lg:col-span-2 min-h-[200px] lg:min-h-0">
-              <CollectionCard collection={med1} className="h-full" sizes="(min-width: 1024px) 40vw, 100vw" />
+            <div className="aspect-square">
+              <CollectionCard collection={collections[1]} sizes="(min-width: 1024px) 25vw, 50vw" />
             </div>
-            <div className="lg:col-span-2 min-h-[200px] lg:min-h-0">
-              <CollectionCard collection={med2} className="h-full" sizes="(min-width: 1024px) 40vw, 100vw" />
+            <div className="aspect-square">
+              <CollectionCard collection={collections[2]} sizes="(min-width: 1024px) 25vw, 50vw" />
             </div>
-            <div className="lg:col-span-5 min-h-[180px] lg:min-h-[200px]">
-              <CollectionCard collection={wide} className="h-full" sizes="100vw" />
+            <div className="aspect-square">
+              <CollectionCard collection={collections[3]} sizes="(min-width: 1024px) 25vw, 50vw" />
             </div>
+            {collections[4] && (
+              <div className="aspect-square">
+                <CollectionCard collection={collections[4]} sizes="(min-width: 1024px) 25vw, 50vw" />
+              </div>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {collections.map((col) => (
-              <div key={col.id} className="min-h-[250px]">
-                <CollectionCard collection={col} className="h-full" sizes="(min-width: 640px) 50vw, 100vw" />
+              <div key={col.id} className="aspect-square">
+                <CollectionCard collection={col} sizes="(min-width: 640px) 33vw, 100vw" />
               </div>
             ))}
           </div>

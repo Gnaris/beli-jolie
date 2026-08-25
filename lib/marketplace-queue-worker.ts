@@ -76,6 +76,7 @@ export interface QueueJobPayload {
     efashion?: boolean;
     faire?: boolean;
     orderchamp?: boolean;
+    microstore?: boolean;
   };
   /**
    * Actions ciblées produites par le tooltip PFS Verify. Quand présent, le
@@ -433,6 +434,8 @@ async function processJobBody(job: any): Promise<void> {
       await runFaireJob(job, payload);
     } else if (job.marketplace === "ORDERCHAMP") {
       await runOrderchampJob(job, payload);
+    } else if (job.marketplace === "MICROSTORE") {
+      await runMicrostoreJob(job, payload);
     } else {
       await runAnkorstoreJob(job, payload);
     }
@@ -1276,6 +1279,270 @@ async function markOrderchampFailed(
     data: {
       status: "FAILED",
       orderchampOutcome: outcome as Prisma.InputJsonValue,
+      errorMessage: message,
+      completedAt: new Date(),
+    },
+  });
+}
+
+// ─── Microstore ─────────────────────────────────────────────────────────────
+
+async function runMicrostoreJob(job: JobRow, payload: QueueJobPayload): Promise<void> {
+  if (payload.options.microstore === false) {
+    await prisma.marketplaceRefreshJob.update({
+      where: { id: job.id },
+      data: { status: "SUCCEEDED", completedAt: new Date() },
+    });
+    return;
+  }
+
+  const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
+  const enabled = await getCachedMicrostoreEnabled();
+  if (!enabled) {
+    await markMicrostoreFailed(job.id, "error", "Microstore désactivée dans Paramètres.");
+    return;
+  }
+
+  await markStep(job.id, { kind: "VALIDATE", status: "done", message: "Données produit validées" });
+  await markStep(job.id, { kind: "AUTH", status: "done", message: "Session Microstore établie" });
+
+  // Dispatch selon le mode. Push (PUBLISH/REFRESH/RESYNC) = renvoi de la fiche
+  // complète. DISABLE/ENABLE = masquer/réafficher. DELETE = suppression dure.
+  const mode = job.mode as string;
+  if (mode === "DISABLE" || mode === "ENABLE") {
+    await runMicrostoreDisableJob(job, mode === "DISABLE");
+    return;
+  }
+  if (mode === "DELETE") {
+    await runMicrostoreDeleteJob(job);
+    return;
+  }
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: {
+        reference: true,
+        microstoreProductId: true,
+        microstoreLastPushedAt: true,
+      } as never,
+    });
+    const alreadyPushed = !!(product as { microstoreLastPushedAt?: Date } | null)?.microstoreLastPushedAt;
+    const stepKind = alreadyPushed ? "UPDATE_PRODUCT" : "CREATE_PRODUCT";
+
+    await markStep(job.id, { kind: stepKind, status: "in_progress" });
+
+    const { microstorePushProduct } = await import("@/lib/microstore-products");
+    const { loadExportContext, loadExportProducts } = await import(
+      "@/lib/marketplace-excel/load-products"
+    );
+    const [ctx, exportProducts] = await Promise.all([
+      loadExportContext(),
+      loadExportProducts([job.productId]),
+    ]);
+    const exportProduct = exportProducts[0];
+    if (!exportProduct) {
+      await markStep(job.id, { kind: stepKind, status: "error", message: "Produit introuvable pour l'export Microstore." });
+      await markMicrostoreFailed(job.id, "error", "Produit introuvable pour l'export Microstore.");
+      return;
+    }
+    const res = await microstorePushProduct(exportProduct, ctx);
+    if (res.success) {
+      await prisma.product.update({
+        where: { id: job.productId },
+        data: {
+          microstoreLastPushedAt: new Date(),
+          microstoreSyncRequired: false,
+        },
+      });
+      await markStep(job.id, {
+        kind: stepKind,
+        status: "done",
+        message: alreadyPushed ? "Fiche Microstore mise à jour" : "Produit créé sur Microstore",
+      });
+      await markMicrostoreSuccess(job.id);
+      await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
+
+      // Chaîne l'envoi photos via la Station de Transfert (fire-and-forget).
+      // Le worker tourne déjà sous `tenantALS.run(...)` en amont, donc pas
+      // besoin de re-binder l'ALS. La progression est suivie via le widget
+      // « Photos Microstore » (MicrostoreUploadJob), pas via ce job de queue.
+      // Ajouté le 2026-08-25 pour couvrir le chemin modale d'enregistrement
+      // qui, jusque-là, poussait le produit sans jamais envoyer les photos.
+      const productReference = (product as { reference?: string } | null)?.reference;
+      if (productReference) {
+        void (async () => {
+          try {
+            const { getStoredPictureStation } = await import(
+              "@/lib/microstore-picture-station"
+            );
+            const stored = await getStoredPictureStation();
+            if (!stored) return;
+            const { sendProductPhotosToMicrostoreCore } = await import(
+              "@/lib/microstore-photos-sync"
+            );
+            const psRes = await sendProductPhotosToMicrostoreCore(productReference);
+            if (!psRes.success) {
+              logger.warn("[Marketplace Queue] Microstore photos sync failed", {
+                productId: job.productId,
+                reference: productReference,
+                error: psRes.error,
+              });
+            }
+          } catch (err) {
+            logger.error("[Marketplace Queue] Microstore photos sync threw", {
+              error: err,
+              productId: job.productId,
+            });
+          }
+        })();
+      }
+    } else {
+      const errMsg = res.error ?? "Erreur inconnue";
+      await markStep(job.id, { kind: stepKind, status: "error", message: errMsg });
+      await markMicrostoreFailed(job.id, "error", errMsg);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] Microstore unexpected error", {
+      productId: job.productId,
+      jobId: job.id,
+      error: message,
+    });
+    await markStep(job.id, { kind: "CREATE_PRODUCT", status: "error", message });
+    await markMicrostoreFailed(job.id, "error", message);
+  }
+}
+
+/**
+ * Masquer / réafficher un produit Microstore via `microstoreDisableGoods`.
+ * Réplique la logique de `toggleMicrostoreProductDisabled` (server action)
+ * mais sans requireAdmin — le worker ne tourne pas dans un contexte HTTP.
+ */
+async function runMicrostoreDisableJob(job: JobRow, disable: boolean): Promise<void> {
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { microstoreProductId: true } as never,
+    });
+    const msId = (product as { microstoreProductId: number | null } | null)?.microstoreProductId;
+    if (msId == null) {
+      const msg = "Ce produit n'est pas publié sur Microstore.";
+      await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message: msg });
+      await markMicrostoreFailed(job.id, "not_found", msg);
+      return;
+    }
+
+    const stepMsg = disable ? "Masquage sur Microstore" : "Réaffichage sur Microstore";
+    await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "in_progress", message: stepMsg });
+
+    const { microstoreDisableGoods } = await import("@/lib/microstore-goods-crud");
+    await microstoreDisableGoods({ microstoreProductId: msId, disabled: disable });
+
+    await markStep(job.id, {
+      kind: "UPDATE_PRODUCT",
+      status: "done",
+      message: disable ? "Produit masqué sur Microstore" : "Produit réaffiché sur Microstore",
+    });
+    await markMicrostoreSuccess(job.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] Microstore disable failed", {
+      productId: job.productId,
+      jobId: job.id,
+      disable,
+      error: message,
+    });
+    await markStep(job.id, { kind: "UPDATE_PRODUCT", status: "error", message });
+    await markMicrostoreFailed(job.id, "error", message);
+  }
+}
+
+/**
+ * Suppression définitive d'un produit Microstore + reset des IDs de liaison BJ.
+ * Réplique `deleteProductFromMicrostore` sans le requireAdmin.
+ */
+async function runMicrostoreDeleteJob(job: JobRow): Promise<void> {
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: job.productId },
+      select: { microstoreProductId: true } as never,
+    });
+    const msId = (product as { microstoreProductId: number | null } | null)?.microstoreProductId;
+    if (msId == null) {
+      const msg = "Ce produit n'est pas publié sur Microstore.";
+      await markStep(job.id, { kind: "DELETE_VARIANTS", status: "error", message: msg });
+      await markMicrostoreFailed(job.id, "not_found", msg);
+      return;
+    }
+
+    await markStep(job.id, {
+      kind: "DELETE_VARIANTS",
+      status: "in_progress",
+      message: "Suppression sur Microstore",
+    });
+
+    const { microstoreDeleteGoods } = await import("@/lib/microstore-goods-crud");
+    await microstoreDeleteGoods(msId);
+
+    // Reset des IDs de liaison (produit + variantes couleur).
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id: job.productId },
+        data: {
+          microstoreProductId: null,
+          microstoreLastPushedAt: null,
+          microstoreSyncRequired: false,
+          microstoreLastSyncSnapshot: null,
+        } as never,
+      }),
+      prisma.productColor.updateMany({
+        where: { productId: job.productId },
+        data: { microstoreVariantId: null } as never,
+      }),
+    ]);
+
+    await markStep(job.id, {
+      kind: "DELETE_VARIANTS",
+      status: "done",
+      message: "Produit supprimé sur Microstore",
+    });
+    await markMicrostoreSuccess(job.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Marketplace Queue] Microstore delete failed", {
+      productId: job.productId,
+      jobId: job.id,
+      error: message,
+    });
+    await markStep(job.id, { kind: "DELETE_VARIANTS", status: "error", message });
+    await markMicrostoreFailed(job.id, "error", message);
+  }
+}
+
+async function markMicrostoreSuccess(jobId: string): Promise<void> {
+  const outcome: TargetOutcome = { ok: true };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "SUCCEEDED",
+      microstoreOutcome: outcome as Prisma.InputJsonValue,
+      completedAt: new Date(),
+    },
+  });
+}
+
+async function markMicrostoreFailed(
+  jobId: string,
+  kind: "not_found" | "error",
+  message: string,
+): Promise<void> {
+  const outcome: TargetOutcome = { ok: false, kind, message };
+  await prisma.marketplaceRefreshJob.update({
+    where: { id: jobId },
+    data: {
+      status: "FAILED",
+      microstoreOutcome: outcome as Prisma.InputJsonValue,
       errorMessage: message,
       completedAt: new Date(),
     },

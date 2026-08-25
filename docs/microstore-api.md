@@ -351,8 +351,8 @@ key=<sessionKey>              # préfixe 5_ (QR compagnon) OU 1_ (mobile) — le
 item_ref=A2630                # = Product.reference BJ
 name=Anneau Doré              # nom vitrine
 desc=Description longue…
-price=56.12                   # prix HT unitaire par défaut
-sale_1=1 sale_2=1 sale_3=1 sale_4=1  # constants
+price=56.12                   # prix HT unitaire par défaut (= prix barré si remise)
+sale_1=1 sale_2=1 sale_3=1 sale_4=1  # facteur remise sur 4 grilles tarifaires (1 = pas de remise, 0.75 = -25 %)
 num_per_pack=1                # colisage
 product_country=CN            # pays fabrication (ISO alpha-2)
 weight=25                     # POIDS EN GRAMMES (pas kg — l'API attend des g)
@@ -380,7 +380,9 @@ Body : `key + id + cover_color=0`.
 Réponse : `{err:0, info:{…}}`. Champs pertinents dans `info` :
 - `id, item_ref, name, desc, price, weight` — identité
 - `disable` ("0"|"1"), `bhb_updown` ("0"|"1") — flags statut
-- `sku[]` — chaque SKU a `id` (SKU Microstore id), `color_id`, `color_name`, `num_1` (stock warehouse 1), `price_1`..`price_8` (8 grilles tarifaires), `goods_sn`, `bhb_status`
+- `sku[]` — chaque SKU a `id` (SKU Microstore id), `color_id`, `color_name`, `num_1` (stock warehouse 1), `price_1`..`price_8` (8 grilles tarifaires), `goods_sn`, `bhb_status`, `sale_1..sale_4` (facteur remise par grille — 1 = pas de remise, 0.75 = -25 %)
+
+**Remise produit** : côté API, ce n'est pas un pourcentage envoyé à part mais un **facteur multiplicateur** entre 0 et 1 appliqué à chaque grille tarifaire. Il est envoyé à 2 niveaux : au niveau produit (`sale_1..sale_4` dans le body /goods/add) ET au niveau SKU (mêmes 4 champs dans chaque item du tableau `sku[]`). Beli & Jolie propage `Product.discountPercent` (0..100) → facteur `1 - discountPercent/100` — le prix `price` reste plein tarif (utilisé comme prix barré côté vitrine H5), Microstore calcule le prix soldé.
 
 Utilisé par le backfill (`scripts/backfill-microstore-goods-ids.ts`) pour matcher les SKUs BJ ↔ Microstore.
 
@@ -393,11 +395,15 @@ Payload identique à `/goods/add` **avec en plus** :
 
 ⚠ **Piège majeur** : si tu envoies un SKU existant SANS son `id`, Microstore refuse tout le call avec `err=9999`. Toujours inclure `id` sur les SKUs à préserver, et OMETTRE `id` sur les nouveaux (Microstore l'assigne).
 
-#### `POST /goods/disable` — Désactiver / réactiver
+#### Désactiver / réactiver — via `/goods/update` (⚠ pas `/goods/disable`)
 
-Body : `key + id + disable=1|0`. `disable=1` masque la fiche de la vitrine H5 ; `disable=0` la réaffiche.
+**⚠ Piège 2026-08-25** : l'endpoint séparé `POST /goods/disable` répond `Service App error(<id>)` — non fonctionnel avec le token compagnon `5_XXX`. Utiliser à la place le champ `disable` dans le body de `/goods/update` (fonctionne parfaitement).
 
-Réponse : `{err:0, msg:"Success"}`. La fiche reste en base, juste invisible côté acheteur.
+**Format du champ `disable`** : ce n'est pas un booléen `1/0` comme la doc mobile le laisse penser. Microstore stocke `disable = timestamp Unix (secondes)` de la désactivation. Passer `disable=1` sur `/goods/update` déclenche Microstore à écrire le timestamp courant (ex `1787678866`). Passer `disable=0` réactive (stocke `"0"`).
+
+Lecture côté `/goods/get` : `disable == "0"` → visible, `disable != "0"` → masqué.
+
+Réponse : `{err:0, ...}` comme un update classique.
 
 #### `POST /goods/del` — Suppression définitive
 

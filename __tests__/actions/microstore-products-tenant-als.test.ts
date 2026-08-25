@@ -1,14 +1,16 @@
 /**
- * Régression multi-tenant : les server actions `pushProductToMicrostore` et
- * `bulkPushProductsToMicrostore` chaînent l'envoi des photos vers Microstore
- * en fire-and-forget (IIFE lancée sans await). Sans wrapper `tenantALS.run(...)`
- * autour de cette IIFE, les jobs `MicrostoreUploadJob` créés par le pipeline
- * photos sont insérés SANS `tenantId` — le widget « Photos Microstore » scope
- * par tenant, donc reste vide malgré des uploads bien réels côté serveur.
+ * Régression multi-tenant + robustesse photos :
  *
- * Bug observé le 2026-07-31 : la cliente lance « Synchroniser vers Microstore »
- * sur plusieurs produits, l'export Excel part, les photos s'uploadent, mais
- * le widget cyan ne bouge jamais.
+ *  - `pushProductToMicrostore` (unitaire) appelle l'envoi photos SYNCHRONE via
+ *    le core (`sendProductPhotosToMicrostoreCore`). Historiquement en
+ *    fire-and-forget, passé synchrone le 2026-08-25 car les fire-and-forget
+ *    Server Actions Next 16 étaient coupés par le runtime (aucun log, widget
+ *    vide). L'appel synchrone garantit exécution + remontée d'erreur.
+ *
+ *  - `bulkPushProductsToMicrostore` (bulk) reste en fire-and-forget wrappé
+ *    `tenantALS.run(...)` pour ne pas bloquer le retour du bulk. Sans ce
+ *    wrapper, les `MicrostoreUploadJob` créés seraient sans `tenantId` et
+ *    invisibles dans le widget.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -56,15 +58,25 @@ vi.mock("@/lib/microstore-products", () => ({
 vi.mock("@/lib/microstore-client", () => ({
   MicrostoreSessionExpiredError: class extends Error {},
 }));
+// Le preflight (Gestion Produits + token QR + Station de transfert) est
+// contourné dans ce test : on vérifie ici le wrapper tenantALS, pas le garde.
+vi.mock("@/lib/microstore-preflight", () => ({
+  assertMicrostorePushAllowed: vi.fn().mockResolvedValue({ ok: true }),
+}));
+// checkProductComplete lit productColorImage.groupBy — hors scope de ce test,
+// on force l'éligibilité pour aller jusqu'à l'appel photos.
+vi.mock("@/lib/product-publishability-check", () => ({
+  checkProductComplete: vi.fn().mockResolvedValue({ eligible: true, reasons: [], message: "" }),
+}));
 // La Station de Transfert n'est pas configurée → la callback wrappée par
 // tenantALS.run s'arrête tôt, mais on n'a besoin que du fait que .run() a été
 // invoqué avec le bon tenantId — c'est le seul invariant qui répare le bug.
 vi.mock("@/lib/microstore-picture-station", () => ({
   getStoredPictureStation: vi.fn().mockResolvedValue(null),
 }));
-vi.mock("@/app/actions/admin/microstore-picture-station", () => ({
-  sendProductPhotosToMicrostore: vi.fn().mockResolvedValue({ success: true }),
-  bulkSendPhotosToMicrostore: vi.fn().mockResolvedValue({ success: true }),
+vi.mock("@/lib/microstore-photos-sync", () => ({
+  sendProductPhotosToMicrostoreCore: vi.fn().mockResolvedValue({ success: true }),
+  bulkSendPhotosToMicrostoreCore: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 import { prisma } from "@/lib/prisma";
@@ -83,8 +95,8 @@ beforeEach(() => {
   (prisma.product.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 });
 
-describe("pushProductToMicrostore — wrapper tenantALS autour du fire-and-forget photos", () => {
-  it("appelle tenantALS.run avec le tenantId courant avant de chaîner l'envoi photos", async () => {
+describe("pushProductToMicrostore — appel photos synchrone (pas de fire-and-forget)", () => {
+  it("appelle sendProductPhotosToMicrostoreCore de façon synchrone après le push produit", async () => {
     (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "p1",
       reference: "REF-1",
@@ -98,15 +110,60 @@ describe("pushProductToMicrostore — wrapper tenantALS autour du fire-and-forge
         variants: [{ saleType: "UNIT", colorNames: ["Or"] }],
       },
     ]);
+    const { sendProductPhotosToMicrostoreCore } = await import(
+      "@/lib/microstore-photos-sync"
+    );
+    const { getStoredPictureStation } = await import(
+      "@/lib/microstore-picture-station"
+    );
+    (getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
 
     const res = await pushProductToMicrostore("p1");
     expect(res.success).toBe(true);
 
-    // Attend la microtask du fire-and-forget (void tenantALS.run(...))
-    await new Promise((r) => setImmediate(r));
+    // Synchrone : l'appel a déjà eu lieu au moment où pushProductToMicrostore
+    // rend la main. Pas besoin d'attendre une microtask.
+    expect(sendProductPhotosToMicrostoreCore).toHaveBeenCalledWith("REF-1");
+  });
 
-    expect(runSpy).toHaveBeenCalledTimes(1);
-    expect(runSpy.mock.calls[0]?.[0]).toBe("tenant-beliandjolie-xyz");
+  it("renvoie succès + warning si le push photos échoue (fiche produit OK malgré tout)", async () => {
+    (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "p1",
+      reference: "REF-1",
+      microstoreEnabled: true,
+      countryIsoCode: "FR",
+    });
+    (loadExportProducts as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "p1",
+        reference: "REF-1",
+        variants: [{ saleType: "UNIT", colorNames: ["Or"] }],
+      },
+    ]);
+    const { sendProductPhotosToMicrostoreCore } = await import(
+      "@/lib/microstore-photos-sync"
+    );
+    // La Station de transfert doit être configurée pour que le core soit appelé.
+    const { getStoredPictureStation } = await import(
+      "@/lib/microstore-picture-station"
+    );
+    (getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+    (sendProductPhotosToMicrostoreCore as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      success: false,
+      error: "Aucune couleur Microstore équivalente.",
+    });
+
+    const res = await pushProductToMicrostore("p1");
+    expect(res.success).toBe(true);
+    expect(res.error).toMatch(/photos non uploadées.*couleur/i);
   });
 });
 

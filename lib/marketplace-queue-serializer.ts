@@ -10,8 +10,8 @@
 import type { Prisma } from "@prisma/client";
 
 export type ClientStatus = "queued" | "in_progress" | "awaiting_callback" | "done";
-export type ClientMode = "publish" | "refresh" | "resync";
-export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
+export type ClientMode = "publish" | "refresh" | "resync" | "disable" | "enable" | "delete";
+export type ClientMarketplace = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 /**
  * Actions ciblées produites par la vérification PFS et poussées dans un job
@@ -36,6 +36,7 @@ export interface ClientEnqueueInput {
     efashion?: boolean;
     faire?: boolean;
     orderchamp?: boolean;
+    microstore?: boolean;
   };
   mode?: ClientMode;
   marketplace?: ClientMarketplace;
@@ -52,7 +53,7 @@ export interface ClientEnqueueInput {
  * marketplaces (voir MarketplacesDrawer). Optionnel : les vieux jobs pré-2026-08
  * n'ont pas d'intent, le client tombe alors en fallback "update".
  */
-export type ClientJobIntent = "create" | "update" | "refresh" | "scheduled" | "link";
+export type ClientJobIntent = "create" | "update" | "sync" | "refresh" | "scheduled" | "link";
 
 export interface SerializedJob {
   id: string;
@@ -73,6 +74,7 @@ export interface SerializedJob {
   efashionOutcome?: unknown;
   faireOutcome?: unknown;
   orderchampOutcome?: unknown;
+  microstoreOutcome?: unknown;
   ankorsOperationId?: string;
   createdAt: string;
   /** ISO string. Absent = démarrage immédiat. Présent = heure prévue de départ. */
@@ -83,24 +85,31 @@ export interface SerializedJob {
 
 type JobRow = Prisma.MarketplaceRefreshJobGetPayload<Record<string, never>>;
 
-export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "ORDERCHAMP" {
+export function mapMarketplaceToDb(value: ClientMarketplace): "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "ORDERCHAMP" | "MICROSTORE" {
   if (value === "ankorstore") return "ANKORSTORE";
   if (value === "efashion") return "EFASHION";
   if (value === "faire") return "FAIRE";
   if (value === "orderchamp") return "ORDERCHAMP";
+  if (value === "microstore") return "MICROSTORE";
   return "PFS";
 }
 
-export function mapModeToDb(value: ClientMode): "PUBLISH" | "REFRESH" | "RESYNC" {
+export function mapModeToDb(
+  value: ClientMode,
+): "PUBLISH" | "REFRESH" | "RESYNC" | "DISABLE" | "ENABLE" | "DELETE" {
   if (value === "publish") return "PUBLISH";
   if (value === "resync") return "RESYNC";
+  if (value === "disable") return "DISABLE";
+  if (value === "enable") return "ENABLE";
+  if (value === "delete") return "DELETE";
   return "REFRESH";
 }
 
 export function mapIntentToDb(
   value: ClientJobIntent,
-): "CREATE" | "UPDATE" | "REFRESH" | "SCHEDULED" | "LINK" {
+): "CREATE" | "UPDATE" | "SYNC" | "REFRESH" | "SCHEDULED" | "LINK" {
   if (value === "create") return "CREATE";
+  if (value === "sync") return "SYNC";
   if (value === "refresh") return "REFRESH";
   if (value === "scheduled") return "SCHEDULED";
   if (value === "link") return "LINK";
@@ -111,6 +120,7 @@ function mapIntentToClient(value: JobRow["intent"] | null | undefined): ClientJo
   if (!value) return undefined;
   if (value === "CREATE") return "create";
   if (value === "UPDATE") return "update";
+  if (value === "SYNC") return "sync";
   if (value === "REFRESH") return "refresh";
   if (value === "SCHEDULED") return "scheduled";
   if (value === "LINK") return "link";
@@ -122,12 +132,16 @@ function mapMarketplaceToClient(value: JobRow["marketplace"]): ClientMarketplace
   if (value === "EFASHION") return "efashion";
   if (value === "FAIRE") return "faire";
   if (value === "ORDERCHAMP") return "orderchamp";
+  if (value === "MICROSTORE") return "microstore";
   return "pfs";
 }
 
 function mapModeToClient(value: JobRow["mode"]): ClientMode {
   if (value === "PUBLISH") return "publish";
   if (value === "RESYNC") return "resync";
+  if (value === "DISABLE") return "disable";
+  if (value === "ENABLE") return "enable";
+  if (value === "DELETE") return "delete";
   return "refresh";
 }
 
@@ -174,6 +188,7 @@ export function serializeJob(job: JobRow): SerializedJob {
     efashionOutcome: (job.efashionOutcome as unknown) ?? undefined,
     faireOutcome: (job.faireOutcome as unknown) ?? undefined,
     orderchampOutcome: (job.orderchampOutcome as unknown) ?? undefined,
+    microstoreOutcome: (job.microstoreOutcome as unknown) ?? undefined,
     ankorsOperationId: job.ankorsOperationId ?? undefined,
     createdAt: job.createdAt.toISOString(),
     scheduledFor: job.scheduledFor ? job.scheduledFor.toISOString() : undefined,
@@ -207,7 +222,12 @@ export function validateEnqueueInput(
     }
     const options = (it.options as Record<string, unknown>) ?? {};
     const mode =
-      it.mode === "publish" || it.mode === "refresh" || it.mode === "resync"
+      it.mode === "publish" ||
+      it.mode === "refresh" ||
+      it.mode === "resync" ||
+      it.mode === "disable" ||
+      it.mode === "enable" ||
+      it.mode === "delete"
         ? (it.mode as ClientMode)
         : undefined;
     const marketplace =
@@ -215,7 +235,8 @@ export function validateEnqueueInput(
       it.marketplace === "ankorstore" ||
       it.marketplace === "efashion" ||
       it.marketplace === "faire" ||
-      it.marketplace === "orderchamp"
+      it.marketplace === "orderchamp" ||
+      it.marketplace === "microstore"
         ? (it.marketplace as ClientMarketplace)
         : undefined;
     // verifyActions optionnel — valide chaque entrée (key string non vide + direction ∈ {push,pull})
@@ -243,6 +264,7 @@ export function validateEnqueueInput(
         efashion: options.efashion === true,
         faire: options.faire === true,
         orderchamp: options.orderchamp === true,
+        microstore: options.microstore === true,
       },
       mode,
       marketplace,

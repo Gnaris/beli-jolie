@@ -131,8 +131,8 @@ export default function SeasonsList({
         </div>
       </div>
 
-      {/* Quick filters */}
-      <div className="flex flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border">
+      {/* Quick filters — scroll horizontal sur mobile */}
+      <div className="flex md:flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border overflow-x-auto md:overflow-visible no-scrollbar">
         {FILTERS.map((f) => {
           const active = activeFilters.has(f.key);
           const count = countMissing(seasons, f.key);
@@ -141,7 +141,7 @@ export default function SeasonsList({
               key={f.key}
               type="button"
               onClick={() => toggleFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
+              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
                 active
                   ? "bg-ink text-text-inverse border-ink"
                   : "bg-bg-primary text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
@@ -197,13 +197,15 @@ export default function SeasonsList({
                   onDrop={drag?.onDrop}
                   className={`relative flex w-full items-center gap-1 px-1 mb-0.5 ${isDragging ? "opacity-40" : ""} ${indicator}`}
                 >
-                  {!dragDisabled && <DragHandle />}
+                  {!dragDisabled && (
+                    <span className="hidden md:inline-flex"><DragHandle /></span>
+                  )}
                   <button
                     type="button"
                     data-season-id={s.id}
                     data-active={isActive}
                     onClick={() => onSelect(s.id)}
-                    className={`relative flex flex-1 items-center gap-3 px-3.5 py-2.5 rounded-xl cursor-pointer transition-all text-left ${
+                    className={`relative flex flex-1 items-center gap-3 px-3.5 py-3 md:py-2.5 rounded-xl cursor-pointer transition-all text-left ${
                       isActive
                         ? "bg-gradient-to-b from-[#27272A] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
                         : "hover:bg-bg-tertiary text-text-primary"
@@ -228,7 +230,7 @@ export default function SeasonsList({
                     >
                       {seasonEmoji(s.name)}
                     </span>
-                    <span className={`flex-1 text-[13.5px] truncate ${isActive ? "font-semibold" : "font-medium"}`}>
+                    <span className={`flex-1 text-[14px] md:text-[13.5px] truncate ${isActive ? "font-semibold" : "font-medium"}`}>
                       {s.name}
                     </span>
                     {missingTr && (
@@ -241,6 +243,7 @@ export default function SeasonsList({
                     <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${isActive ? "bg-white/15" : "bg-bg-tertiary"}`}>
                       {s.productCount}
                     </span>
+                    <span aria-hidden className={`md:hidden text-[16px] leading-none ${isActive ? "text-white/60" : "text-text-muted"}`}>›</span>
                   </button>
                 </div>
               );

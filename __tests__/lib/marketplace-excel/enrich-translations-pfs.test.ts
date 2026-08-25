@@ -15,6 +15,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "REF",
     name: "Collier FR",
     description: "Description FR",
+    status: "ONLINE",
     pfsGenderCode: "WOMAN",
     pfsFamilyName: "Bijoux_Fantaisie",
     pfsCategoryName: "Colliers",

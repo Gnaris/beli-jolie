@@ -56,6 +56,7 @@ export const MARKETPLACE_ORDER: MarketplaceTarget[] = [
   "efashion",
   "faire",
   "orderchamp",
+  "microstore",
 ];
 
 const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
@@ -64,6 +65,7 @@ const OUTCOME_KEY: Record<MarketplaceTarget, keyof MarketplaceRefreshItem> = {
   efashion: "efashionOutcome",
   faire: "faireOutcome",
   orderchamp: "orderchampOutcome",
+  microstore: "microstoreOutcome",
 };
 
 function outcomeFor(
@@ -148,11 +150,12 @@ export function columnKeyFromItem(item: MarketplaceRefreshItem): ColumnKey {
 // fallback sur `mode` + heuristique client pour les anciens jobs sans intent.
 // ────────────────────────────────────────────────────────────────
 
-export type ViewKey = "creation" | "update" | "link" | "refresh" | "scheduled";
+export type ViewKey = "creation" | "update" | "sync" | "link" | "refresh" | "scheduled";
 
 export const VIEW_ORDER: ViewKey[] = [
   "creation",
   "update",
+  "sync",
   "link",
   "refresh",
   "scheduled",
@@ -168,6 +171,11 @@ export const VIEW_LABEL: Record<ViewKey, { title: string; subtitle: string; shor
     title: "Modification",
     subtitle: "Modifs poussées sur fiches existantes",
     short: "modification",
+  },
+  sync: {
+    title: "Synchronisation",
+    subtitle: "Resynchronisation forcée (badge orange ou ↻)",
+    short: "synchronisation",
   },
   link: {
     title: "Liaison",
@@ -195,12 +203,19 @@ export function viewKeyFromItem(item: MarketplaceRefreshItem, now: number = Date
   const scheduled = itemIsScheduledFuture(item, now);
   if (item.intent === "create") return "creation";
   if (item.intent === "update") return "update";
+  if (item.intent === "sync") return "sync";
   if (item.intent === "link") return "link";
   if (item.intent === "scheduled") return "scheduled";
   if (item.intent === "refresh") return scheduled ? "scheduled" : "refresh";
   // Fallback pour les anciens jobs sans intent.
   if (item.mode === "refresh") return scheduled ? "scheduled" : "refresh";
-  if (item.mode === "resync") return "update";
+  // Resync forcé (bouton ↻) et badge orange « Synchro nécessaire » : vue dédiée
+  // Synchronisation. Séparée de Modification pour distinguer un push suite à un
+  // save fiche produit d'une resynchro forcée à la main.
+  if (item.mode === "resync") return "sync";
+  // Modes actions Microstore : masquer / réafficher / supprimer = modification
+  // ciblée d'une fiche déjà en ligne → vue Modification.
+  if (item.mode === "disable" || item.mode === "enable" || item.mode === "delete") return "update";
   // mode === "publish" sans intent : on n'a pas l'info d'ID marketplace côté
   // client sans re-fetch — on suppose "update" (cas majoritaire), au pire
   // l'admin voit la carte dans la mauvaise vue jusqu'à la prochaine session.
@@ -366,6 +381,7 @@ function buildGroups(
       efashion: cellForMarketplace(productItems, "efashion"),
       faire: cellForMarketplace(productItems, "faire"),
       orderchamp: cellForMarketplace(productItems, "orderchamp"),
+      microstore: cellForMarketplace(productItems, "microstore"),
     };
 
     // Plus proche scheduledFor futur parmi les items encore queued : sert à
@@ -434,12 +450,22 @@ function pickDominant(items: MarketplaceRefreshItem[]): {
 // pour permettre un « Arrêter » ciblé sur un seul type d'action.
 // ────────────────────────────────────────────────────────────────
 
-export const MODE_ORDER: QueueItemMode[] = ["publish", "refresh", "resync"];
+export const MODE_ORDER: QueueItemMode[] = [
+  "publish",
+  "refresh",
+  "resync",
+  "disable",
+  "enable",
+  "delete",
+];
 
 export const MODE_LABEL: Record<QueueItemMode, { title: string; short: string }> = {
   publish: { title: "Modifications", short: "modification" },
   refresh: { title: "Rafraîchissements", short: "rafraîchissement" },
   resync: { title: "Synchronisations", short: "synchronisation" },
+  disable: { title: "Masquages", short: "masquage" },
+  enable: { title: "Réaffichages", short: "réaffichage" },
+  delete: { title: "Suppressions", short: "suppression" },
 };
 
 export interface ModeBucket {
@@ -484,6 +510,7 @@ export const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
   efashion: "eFashion",
   faire: "Faire",
   orderchamp: "Orderchamp",
+  microstore: "Microstore",
 };
 
 // ────────────────────────────────────────────────────────────────
@@ -494,7 +521,15 @@ export const MARKETPLACE_LABEL: Record<MarketplaceTarget, string> = {
 // contexte MarketplaceLinkContext. On modélise ça avec une clef commune.
 // ────────────────────────────────────────────────────────────────
 
-export type ColumnKey = "publication" | "publish" | "refresh" | "resync" | "link";
+export type ColumnKey =
+  | "publication"
+  | "publish"
+  | "refresh"
+  | "resync"
+  | "link"
+  | "disable"
+  | "enable"
+  | "delete";
 
 export const COLUMN_ORDER: ColumnKey[] = ["publication", "publish", "refresh", "resync", "link"];
 
@@ -523,6 +558,21 @@ export const COLUMN_LABEL: Record<ColumnKey, { title: string; subtitle: string; 
     title: "Liaisons",
     subtitle: "Modale manuelle · variantes",
     short: "liaison",
+  },
+  disable: {
+    title: "Masquages",
+    subtitle: "Fiche masquée sur la vitrine",
+    short: "masquage",
+  },
+  enable: {
+    title: "Réaffichages",
+    subtitle: "Fiche redevient visible",
+    short: "réaffichage",
+  },
+  delete: {
+    title: "Suppressions",
+    subtitle: "Fiche supprimée définitivement",
+    short: "suppression",
   },
 };
 
@@ -636,6 +686,7 @@ export const MARKETPLACE_FULL_NAME: Record<MarketplaceTarget, string> = {
   efashion: "eFashion",
   faire: "Faire",
   orderchamp: "Orderchamp",
+  microstore: "Microstore",
 };
 
 export function cellTooltipTitle(
@@ -653,6 +704,12 @@ export function cellTooltipTitle(
       ? "Publication échouée"
       : mode === "resync"
       ? "Resynchronisation échouée"
+      : mode === "disable"
+      ? "Masquage échoué"
+      : mode === "enable"
+      ? "Réaffichage échoué"
+      : mode === "delete"
+      ? "Suppression échouée"
       : "Refresh échoué";
   return `${MARKETPLACE_FULL_NAME[target]} — ${suffix}`;
 }

@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   MICROSTORE_API_HEADERS,
   bucketProductByColor,
+  buildMicrostoreDimensionsSuffix,
   productToMicrostoreApiRows,
   microstoreImportProducts,
+  shouldDisableOnMicrostore,
 } from "@/lib/microstore-products";
 import { MicrostoreSessionExpiredError } from "@/lib/microstore-client";
 import type {
@@ -77,6 +79,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "W140",
     name: "Bracelet jonc thaïlandaise en laiton",
     description: "Bracelet jonc thaïlandaise en laiton",
+    status: "ONLINE",
     pfsGenderCode: "WOMAN",
     pfsFamilyName: "Bijoux_Fantaisie",
     pfsCategoryName: "Bracelets",
@@ -223,6 +226,78 @@ describe("productToMicrostoreApiRows", () => {
     const currentYear = new Date().getFullYear();
     const rows = productToMicrostoreApiRows(makeProduct(), makeCtx());
     expect(rows[0]![6]).toBe(currentYear);
+  });
+
+  it("ajoute les dimensions à la fin du desc quand le produit en a", () => {
+    const rows = productToMicrostoreApiRows(
+      makeProduct({
+        dimensionLength: 60,
+        dimensionDiameter: 12,
+      }),
+      makeCtx(),
+      2026,
+    );
+    expect(rows[0]![16]).toBe(
+      "Bracelet jonc thaïlandaise en laiton\n\nDimensions : Longueur : 60mm / Diamètre : 12mm",
+    );
+  });
+});
+
+describe("shouldDisableOnMicrostore", () => {
+  it("masque la fiche vitrine H5 quand le produit BJ est OFFLINE", () => {
+    expect(shouldDisableOnMicrostore("OFFLINE")).toBe(true);
+  });
+
+  it("masque la fiche vitrine H5 quand le produit BJ est ARCHIVED", () => {
+    expect(shouldDisableOnMicrostore("ARCHIVED")).toBe(true);
+  });
+
+  it("laisse la fiche visible quand le produit BJ est ONLINE", () => {
+    expect(shouldDisableOnMicrostore("ONLINE")).toBe(false);
+  });
+
+  it("laisse la fiche visible pendant l'état transitoire SYNCING", () => {
+    expect(shouldDisableOnMicrostore("SYNCING")).toBe(false);
+  });
+});
+
+describe("buildMicrostoreDimensionsSuffix", () => {
+  it("renvoie une chaîne vide quand aucune dimension n'est renseignée", () => {
+    expect(
+      buildMicrostoreDimensionsSuffix({
+        dimensionLength: null,
+        dimensionWidth: null,
+        dimensionHeight: null,
+        dimensionDiameter: null,
+        dimensionCircumference: null,
+      }),
+    ).toBe("");
+  });
+
+  it("liste toutes les dimensions renseignées dans l'ordre L / l / H / Ø / C", () => {
+    expect(
+      buildMicrostoreDimensionsSuffix({
+        dimensionLength: 60,
+        dimensionWidth: 20,
+        dimensionHeight: 5,
+        dimensionDiameter: 12,
+        dimensionCircumference: 180,
+      }),
+    ).toBe(
+      "\n\nDimensions : Longueur : 60mm / Largeur : 20mm / Hauteur : 5mm / Diamètre : 12mm / Circonférence : 180mm",
+    );
+  });
+
+  it("saute les dimensions non renseignées et garde uniquement celles fournies", () => {
+    expect(
+      buildMicrostoreDimensionsSuffix({
+        dimensionLength: null,
+        dimensionWidth: null,
+        dimensionHeight: 8,
+        dimensionDiameter: null,
+        dimensionCircumference: null,
+      }),
+    ).toBe("\n\nDimensions : Hauteur : 8mm");
   });
 });
 

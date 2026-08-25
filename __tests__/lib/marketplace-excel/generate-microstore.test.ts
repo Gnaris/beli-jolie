@@ -45,6 +45,7 @@ function makeProduct(over: Partial<ExportProduct> = {}): ExportProduct {
     reference: "AAA-100",
     name: "Bracelet acier",
     description: "Bracelet en acier inoxydable, fermoir mousqueton.",
+    status: "ONLINE",
     pfsGenderCode: "WOMAN",
     pfsFamilyName: "Bijoux_Fantaisie",
     pfsCategoryName: "Bracelets",

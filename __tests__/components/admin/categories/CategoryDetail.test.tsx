@@ -53,7 +53,9 @@ describe("CategoryDetail", () => {
     render(
       <CategoryDetail category={cat} showBackButton={false} onBack={noop} onEdit={onEdit} onDelete={noop} onSubAdd={noop} onSubEdit={noop} onSubDelete={noop} onEditMapping={noop} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Modifier$/ }));
+    // 2 boutons "Modifier" rendus (mobile + desktop) — variante CSS uniquement,
+    // le premier suffit à valider le câblage.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Modifier$/ })[0]);
     expect(onEdit).toHaveBeenCalled();
   });
   it("click sur « Supprimer » appelle onDelete", () => {
@@ -61,7 +63,7 @@ describe("CategoryDetail", () => {
     render(
       <CategoryDetail category={cat} showBackButton={false} onBack={noop} onEdit={noop} onDelete={onDelete} onSubAdd={noop} onSubEdit={noop} onSubDelete={noop} onEditMapping={noop} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /^Supprimer$/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Supprimer$/ })[0]);
     expect(onDelete).toHaveBeenCalled();
   });
 });

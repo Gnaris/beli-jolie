@@ -9,6 +9,10 @@ import { getCachedPfsColors } from "@/lib/cached-data";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import {
+  buildMappingImpactSummary,
+  type MappingChangeSummary,
+} from "@/lib/mapping-impact";
 
 export interface AffectedProduct {
   productId: string;
@@ -129,6 +133,7 @@ export async function updateColorDirect(
   translations: Record<string, string>,
   patternImage?: string | null,
   pfsColorRef?: string | null,
+  microstoreColorId?: number | null,
 ): Promise<ColorUpdateResult> {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
@@ -147,7 +152,13 @@ export async function updateColorDirect(
   const nameChanged = before.name !== newName;
   const pfsColorRefChanged = before.pfsColorRef !== newPfsRef;
 
-  const data: { name: string; hex: string | null; patternImage?: string | null; pfsColorRef?: string | null } = {
+  const data: {
+    name: string;
+    hex: string | null;
+    patternImage?: string | null;
+    pfsColorRef?: string | null;
+    microstoreColorId?: number | null;
+  } = {
     name: newName,
     hex: patternImage ? null : hex,
   };
@@ -156,6 +167,9 @@ export async function updateColorDirect(
   }
   if (pfsColorRef !== undefined) {
     data.pfsColorRef = newPfsRef;
+  }
+  if (microstoreColorId !== undefined) {
+    data.microstoreColorId = microstoreColorId;
   }
 
   await prisma.color.update({ where: { id }, data });
@@ -241,6 +255,66 @@ export async function deleteColor(id: string) {
   await purgePatternFile(previous?.patternImage ?? null);
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
+}
+
+/**
+ * Update the PFS ref for a color. Multiple colors can share the same PFS ref
+ * (ex : deux nuances BJ → une même couleur PFS). Retourne un `impact`
+ * non-null si la ref a réellement changé ET si des produits publiés sur PFS
+ * utilisent cette couleur.
+ */
+export async function updateColorPfsRef(
+  id: string,
+  pfsColorRef: string | null,
+): Promise<{ success: true; impact: MappingChangeSummary | null }> {
+  await requireAdmin();
+
+  const normalized = pfsColorRef?.trim() || null;
+
+  const before = await prisma.color.findUnique({
+    where: { id },
+    select: { name: true, pfsColorRef: true },
+  });
+  if (!before) throw new Error("Couleur introuvable.");
+
+  await prisma.color.update({ where: { id }, data: { pfsColorRef: normalized } });
+
+  revalidatePath("/admin/produits");
+  revalidatePath("/admin/couleurs");
+  revalidateTag("colors", "default");
+
+  if (before.pfsColorRef === normalized) return { success: true, impact: null };
+
+  const impact = await buildMappingImpactSummary({
+    attribute: "color",
+    marketplace: "pfs",
+    localId: id,
+    localName: before.name,
+    oldValueLabel: before.pfsColorRef,
+    newValueLabel: normalized,
+    rollbackFields: { pfsColorRef: before.pfsColorRef },
+  });
+  return { success: true, impact };
+}
+
+/**
+ * Mappe une couleur BJ vers un ID couleur Microstore. Envoyé au push produit
+ * natif (`lib/microstore-goods-crud.ts`) pour renseigner l'attribut couleur
+ * côté MC Gérant.
+ */
+export async function updateColorMicrostoreMapping(
+  id: string,
+  microstoreColorId: number | null,
+) {
+  await requireAdmin();
+  await prisma.color.update({
+    where: { id },
+    data: { microstoreColorId },
+  });
+  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
+  revalidateTag("colors", "default");
+  return { success: true as const };
 }
 
 /** Reorder colors by providing an ordered array of ids */

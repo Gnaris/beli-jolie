@@ -19,6 +19,9 @@ const MODE_MAP: Record<string, MarketplaceJobMode> = {
   publish: "PUBLISH",
   refresh: "REFRESH",
   resync: "RESYNC",
+  disable: "DISABLE",
+  enable: "ENABLE",
+  delete: "DELETE",
 };
 
 export async function POST(request: Request) {

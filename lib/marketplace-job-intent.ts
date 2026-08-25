@@ -3,21 +3,23 @@
  *
  * Résolution de l'intention métier d'un job marketplace au moment de l'enqueue.
  * Le widget marketplaces utilise cette intention pour router chaque job dans
- * l'onglet correspondant (Création / Modification / Rafraîchissement /
- * Étalement / Liaison).
+ * l'onglet correspondant (Création / Modification / Synchronisation /
+ * Rafraîchissement / Étalement / Liaison).
  *
  * Règles :
  *  - LINK      : posé explicitement par les flows de liaison manuelle
  *  - SCHEDULED : quand scheduledFor est renseigné avec un intervalMs > 0
  *  - REFRESH   : mode === "refresh" (immédiat, sans étalement)
  *  - CREATE    : mode === "publish" ET produit sans ID marketplace
- *  - UPDATE    : dans tous les autres cas (mode "publish" avec ID connu, "resync",
- *                actions verify-apply, etc.)
+ *  - SYNC      : mode === "resync" (badge orange « synchro nécessaire » ou
+ *                bouton ↻ resync forcé — renvoi complet sur la même fiche)
+ *  - UPDATE    : dans tous les autres cas (mode "publish" avec ID connu,
+ *                actions verify-apply, disable/enable/delete Microstore, etc.)
  */
 import { prisma } from "@/lib/prisma";
 import type { ClientMarketplace, ClientMode } from "@/lib/marketplace-queue-serializer";
 
-export type MarketplaceJobIntentValue = "CREATE" | "UPDATE" | "REFRESH" | "SCHEDULED" | "LINK";
+export type MarketplaceJobIntentValue = "CREATE" | "UPDATE" | "SYNC" | "REFRESH" | "SCHEDULED" | "LINK";
 
 export interface ResolveIntentInput {
   productId: string;
@@ -35,6 +37,7 @@ const ID_FIELD_BY_MARKETPLACE: Record<ClientMarketplace, string> = {
   efashion: "efashionReferenceBase",
   faire: "faireProductId",
   orderchamp: "orderchampProductId",
+  microstore: "microstoreProductId",
 };
 
 /**
@@ -52,22 +55,28 @@ async function hasMarketplaceId(productId: string, marketplace: ClientMarketplac
       efashionReferenceBase: true,
       faireProductId: true,
       orderchampProductId: true,
+      microstoreProductId: true,
     },
   });
   if (!product) return false;
   const value = (product as Record<string, unknown>)[field];
-  return typeof value === "string" && value.length > 0;
+  // microstoreProductId est un Int? — les autres sont des String?. On accepte
+  // les deux : présence = déjà lié.
+  if (typeof value === "string") return value.length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  return false;
 }
 
 export async function resolveJobIntent(input: ResolveIntentInput): Promise<MarketplaceJobIntentValue> {
   if (input.explicitIntent) return input.explicitIntent;
   if (input.scheduled) return "SCHEDULED";
   if (input.mode === "refresh") return "REFRESH";
+  if (input.mode === "resync") return "SYNC";
   if (input.mode === "publish") {
     const linked = await hasMarketplaceId(input.productId, input.marketplace);
     return linked ? "UPDATE" : "CREATE";
   }
-  // resync + tous cas restants (verify-apply, etc.)
+  // disable/enable/delete Microstore + tous cas restants (verify-apply, etc.)
   return "UPDATE";
 }
 
@@ -88,6 +97,7 @@ export async function resolveJobIntentsBulk(
       if (i.explicitIntent) return i.explicitIntent;
       if (i.scheduled) return "SCHEDULED" as const;
       if (i.mode === "refresh") return "REFRESH" as const;
+      if (i.mode === "resync") return "SYNC" as const;
       return "UPDATE" as const;
     });
   }
@@ -101,6 +111,8 @@ export async function resolveJobIntentsBulk(
       ankorsProductId: true,
       efashionReferenceBase: true,
       faireProductId: true,
+      orderchampProductId: true,
+      microstoreProductId: true,
     },
   });
   const byId = new Map(products.map((p) => [p.id, p]));
@@ -109,11 +121,14 @@ export async function resolveJobIntentsBulk(
     if (input.explicitIntent) return input.explicitIntent;
     if (input.scheduled) return "SCHEDULED" as const;
     if (input.mode === "refresh") return "REFRESH" as const;
+    if (input.mode === "resync") return "SYNC" as const;
     if (input.mode === "publish") {
       const product = byId.get(input.productId);
       const field = ID_FIELD_BY_MARKETPLACE[input.marketplace];
       const value = product ? (product as Record<string, unknown>)[field] : undefined;
-      const linked = typeof value === "string" && value.length > 0;
+      const linked =
+        (typeof value === "string" && value.length > 0) ||
+        (typeof value === "number" && Number.isFinite(value));
       return linked ? ("UPDATE" as const) : ("CREATE" as const);
     }
     return "UPDATE" as const;

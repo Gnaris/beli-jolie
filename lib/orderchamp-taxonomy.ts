@@ -18,6 +18,7 @@
 
 import { orderchampGraphQL, OrderchampGraphQLError } from "@/lib/orderchamp-client";
 import { getOrderchampApiKey } from "@/lib/orderchamp-auth";
+import { getCachedOrderchampEnabled } from "@/lib/cached-data";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { translatePhrases } from "@/lib/pfs-translate";
@@ -74,9 +75,12 @@ interface RawLeaf {
 }
 
 async function fetchOrderchampTaxonomyRaw(): Promise<RawLeaf[]> {
-  // Court-circuit propre : les tenants sans intégration Orderchamp n'ont pas
-  // de clé — on retourne un tableau vide sans faire de requête réseau ni
-  // logger d'erreur (le page produit affiche « catégories OC non chargées »).
+  // Court-circuit propre : Orderchamp est totalement facultatif. On retourne
+  // silencieusement un tableau vide (pas de log d'erreur) si :
+  //   - Aucune clé API stockée (tenant qui n'utilise pas Orderchamp)
+  //   - Orderchamp explicitement désactivé dans Paramètres → Marketplaces
+  const enabled = await getCachedOrderchampEnabled().catch(() => false);
+  if (!enabled) return [];
   const apiKey = await getOrderchampApiKey().catch(() => null);
   if (!apiKey) return [];
 
@@ -96,12 +100,20 @@ async function fetchOrderchampTaxonomyRaw(): Promise<RawLeaf[]> {
         a.displayPath.join(" ").localeCompare(b.displayPath.join(" "), "en"),
       );
   } catch (err) {
+    // Clé expirée/révoquée : Orderchamp reste facultatif, on ne spamme pas
+    // les logs (l'admin verra le badge « à reconnecter » dans Paramètres).
+    if (err instanceof OrderchampGraphQLError && (err.status === 401 || err.status === 403)) {
+      logger.info("[Orderchamp Taxonomy] clé API invalide/expirée — taxonomie ignorée", {
+        status: err.status,
+      });
+      return [];
+    }
     if (err instanceof OrderchampGraphQLError) {
-      logger.error("[Orderchamp Taxonomy] introspection GraphQL a échoué", {
+      logger.warn("[Orderchamp Taxonomy] introspection GraphQL a échoué", {
         errors: err.errors,
       });
     } else {
-      logger.error("[Orderchamp Taxonomy] fetch a échoué", {
+      logger.warn("[Orderchamp Taxonomy] fetch a échoué", {
         message: err instanceof Error ? err.message : String(err),
       });
     }

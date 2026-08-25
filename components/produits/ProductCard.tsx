@@ -61,6 +61,8 @@ interface ProductCardProps {
   clientDiscount?: ClientDiscountInfo | null;
   filteredColorIds?: string[];
   onFavoriteChange?: (isFavorite: boolean) => void;
+  /** Masque les badges "Nouveau" et "Promo" (utilisé sur les carrousels de la home). */
+  hideStatusBadges?: boolean;
 }
 
 // Prix par unité : pour UNIT c'est unitPrice direct, pour PACK on divise par packQuantity
@@ -75,6 +77,7 @@ function variantPricePerUnit(v: VariantData): number {
 export default function ProductCard({
   id, name, reference, category, subCategory, colors, tags = [], isFavorite = false,
   isBestSeller = false, isNew = false, discountPercent, hasAutoPromotion = false, clientDiscount, filteredColorIds = [], onFavoriteChange,
+  hideStatusBadges = false,
 }: ProductCardProps) {
   const { data: session } = useSession();
   const { tp, tc } = useProductTranslation();
@@ -181,8 +184,8 @@ export default function ProductCard({
             {(() => {
               const badges: { label: string; bg: string }[] = [];
               if (allOutOfStock) badges.push({ label: t("outOfStock"), bg: "bg-text-secondary" });
-              if (isBestSeller) badges.push({ label: t("badgeBestSeller"), bg: "bg-warning" });
-              if (isNew) badges.push({ label: t("badgeNew"), bg: "bg-info" });
+              if (isBestSeller && !hideStatusBadges) badges.push({ label: t("badgeBestSeller"), bg: "bg-warning" });
+              if (isNew && !hideStatusBadges) badges.push({ label: t("badgeNew"), bg: "bg-info" });
               return badges.slice(0, 2).map((b) => (
                 <span key={b.label} className={`${b.bg} text-text-inverse text-[11px] font-bold font-heading px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm`}>
                   {b.label}
@@ -191,16 +194,11 @@ export default function ProductCard({
             })()}
           </div>
 
-          {/* Coin haut-droit : badge Promo + favori + coloris count */}
+          {/* Coin haut-droit : badge Promo + favori */}
           <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5">
-            {(hasAutoPromotion || anyVariantHasDiscount) && (
+            {(hasAutoPromotion || anyVariantHasDiscount) && !hideStatusBadges && (
               <span className="bg-error text-text-inverse text-[11px] font-bold font-heading px-3 py-1 rounded-full shadow-sm uppercase tracking-wide backdrop-blur-sm">
                 {t("badgePromo")}
-              </span>
-            )}
-            {visibleColors.length > 1 && (
-              <span className="bg-bg-primary text-text-muted text-[9px] font-body px-1.5 py-0.5 rounded-full border border-border">
-                {t("colorCount", { count: visibleColors.length })}
               </span>
             )}
             <FavoriteToggle productId={id} isFavorite={isFavorite} onChange={onFavoriteChange} />

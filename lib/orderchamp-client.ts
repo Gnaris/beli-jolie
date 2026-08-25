@@ -101,6 +101,12 @@ export async function orderchampGraphQL<T = unknown>(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const res = await fetch(ORDERCHAMP_BASE_URL, init);
+      // 401/403 = clé invalide/révoquée : re-tenter ne va pas la débloquer.
+      // On sort du retry immédiatement et on laisse parseGraphQLResponse throw
+      // un OrderchampGraphQLError propre que le caller peut détecter.
+      if (res.status === 401 || res.status === 403) {
+        return await parseGraphQLResponse<T>(res, opName);
+      }
       if (res.status !== 429 && res.status < 500) {
         return await parseGraphQLResponse<T>(res, opName);
       }

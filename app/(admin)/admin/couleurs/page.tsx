@@ -50,6 +50,7 @@ export default async function CouleursPage() {
     pfsSharedCount: c.pfsColorRef ? Math.max(0, (pfsRefCount.get(c.pfsColorRef) ?? 1) - 1) : 0,
     efashionColorId: c.efashionColorId,
     efashionLabel: resolveColorLabel(efashionLabels, c.efashionColorId) ?? null,
+    microstoreColorId: c.microstoreColorId,
     productCount: c._count.productColors,
     position: c.position,
     createdAt: c.createdAt,

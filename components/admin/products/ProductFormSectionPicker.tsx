@@ -25,7 +25,8 @@ export default function ProductFormSectionPicker({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="md:hidden sticky top-0 z-20 w-full flex items-center gap-3 px-4 py-3 bg-bg-primary border border-border rounded-xl shadow-card text-left"
+        style={{ position: "sticky", top: "3.5rem" }}
+        className="md:hidden z-20 w-full flex items-center gap-3 px-4 py-3 bg-bg-primary border border-border rounded-xl shadow-card text-left"
       >
         <span className="w-8 h-8 rounded-lg bg-bg-tertiary inline-flex items-center justify-center text-[16px]" aria-hidden>
           {current.icon}

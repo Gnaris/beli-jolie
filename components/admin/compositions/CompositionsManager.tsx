@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteComposition, updateCompositionDirect, updateCompositionPfsRef } from "@/app/actions/admin/compositions";
+import { deleteComposition, updateCompositionDirect } from "@/app/actions/admin/compositions";
 import CompositionEditorModal from "./CompositionEditorModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -59,19 +59,9 @@ export default function CompositionsManager({
       .finally(() => setDeletingId(null));
   }
 
-  async function handleSave(
-    name: string,
-    translations: Record<string, string>,
-    _hex?: string,
-    _patternImage?: string | null,
-    pfs?: { ref?: string },
-  ) {
+  async function handleSave(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
-    const newRef = pfs?.ref || null;
-    if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
-      await updateCompositionPfsRef(editTarget.id, newRef);
-    }
     router.refresh();
   }
 
@@ -204,8 +194,6 @@ export default function CompositionsManager({
             id: editTarget.id,
             name: editTarget.name,
             translations: editTarget.translations,
-            pfsRef: editTarget.pfsCompositionRef,
-            efashionCurrentId: editTarget.efashionId ?? null,
             onSave: handleSave,
           }}
         />

@@ -3,7 +3,7 @@
  *
  * L'appli mobile MC Gérant expose 2 endpoints génériques :
  *
- *   • POST /user/set_attr  — pour category, brand, year, season, composition.
+ *   • POST /user/set_attr  — pour category, brand, year, season.
  *     Format bulk : `data=[{op:"add|edit|del", ...}]`. **`cat_order` est
  *     obligatoire** : c'est la liste complète des IDs dans l'ordre d'affichage
  *     souhaité. Pour un `add`, on inclut aussi le nouveau `order_alias` (ex "new51")
@@ -29,13 +29,17 @@ const MC_API_BASE = "https://api2.dokkr.net/index.php";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
-/** Types d'attributs Microstore gérés par /user/set_attr. */
+/** Types d'attributs Microstore gérés par /user/set_attr.
+ *
+ * Note : la composition n'existe PAS comme type séparé côté Microstore — elle
+ * est stockée en texte libre dans `remark_material` sur le produit lors du
+ * push, donc aucun mapping à gérer côté UI/BDD.
+ */
 export type MicrostoreAttrType =
   | "category"
   | "brand"
   | "year"
-  | "season"
-  | "composition";
+  | "season";
 
 export interface MicrostoreAttrItem {
   id: string;
@@ -90,8 +94,10 @@ async function callMicrostorePost<T>(
 
 /**
  * Récupère la liste ordonnée des attributs d'un type donné (nécessaire pour
- * construire `cat_order` avant un add/del/edit). Passe par le data_center qui
- * retourne l'objet `list` dans le bon ordre.
+ * construire `cat_order` avant un add/del/edit ET pour le mapping manuel UI).
+ *
+ * Endpoint : `POST /user/get_attr` avec `type=["<type>"]` (JSON array).
+ * Réponse : `{ list: { <type>: [{ id, name, ... }, ...] } }`.
  */
 export async function microstoreListAttribute(
   type: MicrostoreAttrType,
@@ -101,20 +107,22 @@ export async function microstoreListAttribute(
 
   const body = new URLSearchParams({
     key,
-    data_code: `get_attribute_config`,
-    set_from: "all",
-    lang: "en",
+    type: JSON.stringify([type]),
     app_pid: "91",
     app_version: "2.76.21",
     api_version: "1.0",
-    version: "0",
+    lang: "en",
   });
   const res = await callMicrostorePost<{
-    list?: Record<string, Array<MicrostoreAttrItem>>;
-    ret?: Record<string, Array<MicrostoreAttrItem>>;
-  }>("/data_center/get_data", body);
-  const bucket = res.list?.[type] || res.ret?.[type] || [];
-  return bucket.map((x) => ({ id: String(x.id), name: String(x.name) }));
+    list?: Record<string, Array<{ id: string | number; name: string }>>;
+  }>("/user/get_attr", body);
+  const bucket = res.list?.[type] ?? [];
+  return bucket
+    // Filtre les entrées système que la cliente ne veut pas mapper : "-11"
+    // (Expenses) et "0" (Uncategorized) apparaissent dans la liste catégorie
+    // mais n'ont pas de sens comme cible de mapping produit.
+    .filter((x) => String(x.id) !== "-11" && String(x.id) !== "0")
+    .map((x) => ({ id: String(x.id), name: String(x.name) }));
 }
 
 // ─── /user/set_attr ──────────────────────────────────────────────────────
@@ -185,7 +193,7 @@ export async function microstoreSetAttribute(opts: {
 }
 
 /**
- * Crée un nouvel attribut (catégorie, marque, année, saison, composition).
+ * Crée un nouvel attribut (catégorie, marque, année, saison).
  * Fetch d'abord la liste courante pour construire un `cat_order` valide.
  * Retourne l'id définitif attribué par Microstore.
  */

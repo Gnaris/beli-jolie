@@ -96,6 +96,17 @@ const MARKETPLACE_META: Record<
     solidText: "text-orange-700",
     solidBorder: "border-orange-200",
   },
+  microstore: {
+    label: "Microstore",
+    short: "MC",
+    dotBg: "bg-cyan-500",
+    pillBg: "bg-white/15",
+    pillText: "text-white",
+    pillDot: "bg-cyan-300",
+    solidBg: "bg-cyan-50",
+    solidText: "text-cyan-700",
+    solidBorder: "border-cyan-200",
+  },
 };
 
 function getActionVerb(mode: MarketplaceRefreshItem["mode"]): string {
@@ -629,7 +640,7 @@ export function MarketplaceRefreshWidget() {
   // ─── Mode déplié ────────────────────────────────────────────────────
   const heroItems = heroGroup ? heroGroup.items : [];
   const heroSortedItems = [...heroItems].sort((a, b) => {
-    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4 };
+    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4, microstore: 5 };
     return order[a.marketplace] - order[b.marketplace];
   });
   const heroMode = heroItems[0]?.mode ?? "refresh";
@@ -986,7 +997,7 @@ function TimelineRow({
   const localOutcome = getLocalOutcomeForGroup(group);
 
   const orderedItems = [...group.items].sort((a, b) => {
-    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4 };
+    const order: Record<MarketplaceTarget, number> = { pfs: 0, ankorstore: 1, efashion: 2, faire: 3, orderchamp: 4, microstore: 5 };
     return order[a.marketplace] - order[b.marketplace];
   });
 

@@ -75,8 +75,8 @@ export default function CategoriesList({
           />
         </div>
       </div>
-      {/* Quick filters */}
-      <div className="flex flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border">
+      {/* Quick filters — scroll horizontal sur mobile (au lieu de wrap sur 3 lignes) */}
+      <div className="flex md:flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border overflow-x-auto md:overflow-visible no-scrollbar">
         {FILTERS.map((f) => {
           const active = activeFilters.has(f.key);
           const count = countMissing(categories, f.key);
@@ -85,7 +85,7 @@ export default function CategoriesList({
               key={f.key}
               type="button"
               onClick={() => toggleFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
+              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
                 active
                   ? "bg-ink text-text-inverse border-ink"
                   : "bg-bg-primary text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
@@ -128,20 +128,22 @@ export default function CategoriesList({
               onDrop={drag?.onDrop}
               className={`relative flex w-full items-center gap-1 px-1 mb-0.5 ${isDragging ? "opacity-40" : ""} ${indicator}`}
             >
-              {!dragDisabled && <DragHandle />}
+              {!dragDisabled && (
+                <span className="hidden md:inline-flex"><DragHandle /></span>
+              )}
               <button
                 type="button"
                 data-cat-id={c.id}
                 data-active={isActive}
                 onClick={() => onSelect(c.id)}
-                className={`relative flex flex-1 items-center justify-between px-3.5 py-2.5 rounded-xl cursor-pointer transition-all text-left ${
+                className={`relative flex flex-1 items-center justify-between px-3.5 py-3 md:py-2.5 rounded-xl cursor-pointer transition-all text-left ${
                   isActive
                     ? "bg-gradient-to-b from-[#27272A] to-[#18181B] text-text-inverse shadow-[var(--shadow-pop)]"
                     : "hover:bg-bg-tertiary text-text-primary"
                 }`}
               >
                 {isActive && <span aria-hidden className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-ink rounded-r" />}
-                <span className={`text-[13.5px] ${isActive ? "font-semibold" : "font-medium"}`}>{c.name}</span>
+                <span className={`text-[14px] md:text-[13.5px] ${isActive ? "font-semibold" : "font-medium"}`}>{c.name}</span>
                 <span className="flex items-center gap-1.5">
                   {missingTr && (
                     <span aria-hidden className="w-[7px] h-[7px] rounded-full bg-amber-300 shadow-[0_0_0_2.5px_rgba(255,251,235,1)]" title="Sans traduction" />
@@ -149,6 +151,8 @@ export default function CategoriesList({
                   <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold ${isActive ? "bg-white/15" : "bg-bg-tertiary"}`}>
                     {c.productCount}
                   </span>
+                  {/* Chevron mobile pour signaler qu'on ouvre une fiche */}
+                  <span aria-hidden className={`md:hidden text-[16px] leading-none ${isActive ? "text-white/60" : "text-text-muted"}`}>›</span>
                 </span>
               </button>
             </div>

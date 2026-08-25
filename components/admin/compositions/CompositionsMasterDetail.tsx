@@ -13,7 +13,8 @@ import {
   updateCompositionPfsRef,
   reorderCompositions,
 } from "@/app/actions/admin/compositions";
-import { useMappingImpact } from "@/components/admin/mapping/MappingImpactContext";
+import PfsRefMappingModal from "@/components/admin/shared/mapping-modals/PfsRefMappingModal";
+import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
 
 export type CompositionRow = {
   id: string;
@@ -43,7 +44,6 @@ export default function CompositionsMasterDetail({
   const searchParams = useSearchParams();
   const { confirm } = useConfirm();
   const toast = useToast();
-  const { showMappingImpact } = useMappingImpact();
   const [, startTransition] = useTransition();
 
   // Copie locale pour permettre l'optimistic update lors du drag & drop.
@@ -55,6 +55,7 @@ export default function CompositionsMasterDetail({
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<CompositionRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [mappingModal, setMappingModal] = useState<"pfs" | "efashion" | null>(null);
 
   // Sync URL → state, uniquement si l'ID de l'URL existe encore dans items.
   // Sans ce garde, supprimer la composition affichée fait ping-pong avec
@@ -138,21 +139,9 @@ export default function CompositionsMasterDetail({
     });
   }
 
-  async function handleSaveComposition(
-    name: string,
-    translations: Record<string, string>,
-    _hex?: string,
-    _patternImage?: string | null,
-    extra?: { ref?: string },
-  ) {
+  async function handleSaveComposition(name: string, translations: Record<string, string>) {
     if (!editTarget) return;
     await updateCompositionDirect(editTarget.id, name, translations);
-    const newRef = extra?.ref || null;
-    if (newRef !== (editTarget.pfsCompositionRef ?? null)) {
-      const res = await updateCompositionPfsRef(editTarget.id, newRef);
-      // Impact non-null → modale « X produits impactés sur PFS ».
-      if (res.impact) showMappingImpact(res.impact);
-    }
     router.refresh();
   }
 
@@ -194,7 +183,7 @@ export default function CompositionsMasterDetail({
               onBack={handleBack}
               onEdit={() => selectedComp && setEditTarget(selectedComp)}
               onDelete={() => selectedComp && handleDelete(selectedComp)}
-              onEditMapping={() => selectedComp && setEditTarget(selectedComp)}
+              onEditMapping={(mp) => selectedComp && setMappingModal(mp)}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -224,11 +213,33 @@ export default function CompositionsMasterDetail({
             id: editTarget.id,
             name: editTarget.name,
             translations: editTarget.translations,
-            pfsRef: editTarget.pfsCompositionRef,
-            efashionCurrentId: editTarget.efashionId ?? null,
             onSave: handleSaveComposition,
           }}
         />
+      )}
+
+      {/* Mini-modals mapping marketplace (1 par carte) */}
+      {selectedComp && (
+        <>
+          <PfsRefMappingModal
+            open={mappingModal === "pfs"}
+            onClose={() => setMappingModal(null)}
+            entityType="composition"
+            entityName={selectedComp.name}
+            entityLabel={`Composition « ${selectedComp.name} »`}
+            currentRef={selectedComp.pfsCompositionRef}
+            onSave={(next) => updateCompositionPfsRef(selectedComp.id, next)}
+          />
+          <EfashionMappingModal
+            open={mappingModal === "efashion"}
+            onClose={() => setMappingModal(null)}
+            entityId={selectedComp.id}
+            entityName={selectedComp.name}
+            entityLabel={`Composition « ${selectedComp.name} »`}
+            kind="composition"
+            currentValue={selectedComp.efashionId}
+          />
+        </>
       )}
 
       {/* Trigger invisible pour le bouton « Nouvelle composition » du header de page */}

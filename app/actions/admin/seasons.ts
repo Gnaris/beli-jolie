@@ -54,11 +54,18 @@ export async function updateSeason(id: string, formData: FormData) {
 export async function updateSeasonDirect(
   id: string,
   name: string,
-  translations: Record<string, string>
+  translations: Record<string, string>,
+  microstoreSeasonId?: number | null,
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
-  await prisma.season.update({ where: { id }, data: { name: name.trim() } });
+  const data: { name: string; microstoreSeasonId?: number | null } = {
+    name: name.trim(),
+  };
+  if (microstoreSeasonId !== undefined) {
+    data.microstoreSeasonId = microstoreSeasonId;
+  }
+  await prisma.season.update({ where: { id }, data });
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
@@ -116,6 +123,26 @@ export async function updateSeasonPfsRef(
     rollbackFields: { pfsRef: before.pfsRef },
   });
   return { success: true, impact };
+}
+
+/**
+ * Mappe une saison BJ vers un ID saison Microstore. Envoyé au push produit
+ * natif (`lib/microstore-goods-crud.ts`) pour renseigner l'attribut saison
+ * côté MC Gérant.
+ */
+export async function updateSeasonMicrostoreMapping(
+  id: string,
+  microstoreSeasonId: number | null,
+) {
+  await requireAdmin();
+  await prisma.season.update({
+    where: { id },
+    data: { microstoreSeasonId },
+  });
+  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
+  revalidateTag("seasons", "default");
+  return { success: true as const };
 }
 
 export async function deleteSeason(id: string) {

@@ -33,6 +33,7 @@ export default async function SaisonsPage() {
     pfsRef: s.pfsRef,
     efashionCollectionId: s.efashionCollectionId,
     efashionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId) ?? null,
+    microstoreSeasonId: s.microstoreSeasonId,
     productCount: s._count.products,
     position: s.position,
     createdAt: s.createdAt,

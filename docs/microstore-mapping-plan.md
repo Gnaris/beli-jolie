@@ -12,7 +12,7 @@ Beli & Jolie utilise Microstore (Dokkr) comme marketplace supplémentaire. Histo
 
 ### Backend / lib
 - `lib/microstore-goods-crud.ts` — 400 lignes, CRUD produit natif (add/get/update/disable/del + deleteVariants avec del_id auto)
-- `lib/microstore-attributes.ts` — 340 lignes, CRUD génériques cat/brand/year/season/composition + couleur + alias multilangue
+- `lib/microstore-attributes.ts` — 340 lignes, CRUD génériques cat/brand/year/season + couleur + alias multilangue (pas de composition : envoyée en texte libre dans `remark_material`)
 - `lib/microstore-products.ts` — **refactor complet**, plus de CSV, utilise goods-crud, auto-create attributs/couleurs manquants au push, persiste `microstoreProductId` + `microstoreVariantId` après chaque push
 
 ### Server actions
@@ -29,8 +29,8 @@ Beli & Jolie utilise Microstore (Dokkr) comme marketplace supplémentaire. Histo
 - `ProductColor.microstoreVariantId Int?` + `@@index`
 - `Color.microstoreColorId Int?` — pour mapping manuel (à brancher)
 - `Category.microstoreCategoryId Int?` — idem
-- `Composition.microstoreCompositionId Int?` — idem
 - `Season.microstoreSeasonId Int?` — idem
+- `Composition.microstoreCompositionId Int?` — **colonne conservée mais inutilisée** : la composition est envoyée en texte libre dans `remark_material` sur le produit, pas comme attribut. Pas de mapping UI.
 
 ### Doc + tests + script
 - `docs/microstore-api.md` — 3 nouvelles sections détaillées (§ 4.3-4.5), section 10 mise à jour, doc index enrichie
@@ -43,9 +43,9 @@ Beli & Jolie utilise Microstore (Dokkr) comme marketplace supplémentaire. Histo
 
 ### Objectif de la session : mapping manuel + liaison produit Microstore
 
-La cliente a demandé explicitement le **mapping MANUEL** (elle refuse le mapping automatique par nom uniquement) : dans chaque formulaire d'attribut BJ (couleur, catégorie, composition, saison), elle veut un `<CustomSelect>` « Correspondance Microstore » où elle choisit l'ID Microstore équivalent. De même, elle veut pouvoir **lier manuellement** un produit BJ à un produit Microstore existant en cherchant par référence.
+La cliente a demandé explicitement le **mapping MANUEL** (elle refuse le mapping automatique par nom uniquement) : dans chaque formulaire d'attribut BJ (couleur, catégorie, saison), elle veut un `<CustomSelect>` « Correspondance Microstore » où elle choisit l'ID Microstore équivalent. Les compositions BJ sont hors périmètre : elles ne sont pas un attribut natif Microstore, elles partent en texte libre dans `remark_material` sur le produit. De même, elle veut pouvoir **lier manuellement** un produit BJ à un produit Microstore existant en cherchant par référence.
 
-### Tâche 1 — Brancher `<MicrostoreAttributeSelect>` dans les 4 formulaires BJ (~1h30)
+### Tâche 1 — Brancher `<MicrostoreAttributeSelect>` dans les 3 formulaires BJ (~1h)
 
 Le composant réutilisable existe déjà. Il reste à :
 
@@ -60,10 +60,7 @@ Le composant réutilisable existe déjà. Il reste à :
 **B. `CategoryEditorModal.tsx`** (via `components/admin/categories/CategoriesMasterDetail.tsx`)
 - Même pattern avec `kind="category"` et `microstoreCategoryId`
 
-**C. `CompositionEditorModal.tsx`** (via `components/admin/compositions/CompositionsMasterDetail.tsx`)
-- Même pattern avec `kind="composition"` et `microstoreCompositionId`
-
-**D. `SeasonEditorModal.tsx`** (via `components/admin/seasons/SeasonsMasterDetail.tsx`)
+**C. `SeasonEditorModal.tsx`** (via `components/admin/seasons/SeasonsMasterDetail.tsx`)
 - Même pattern avec `kind="season"` et `microstoreSeasonId`
 
 **Pattern à répliquer partout** :

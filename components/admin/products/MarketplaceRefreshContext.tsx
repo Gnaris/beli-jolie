@@ -19,10 +19,14 @@ export type QueueItemStatus = "queued" | "in_progress" | "awaiting_callback" | "
  * "refresh" = renouveler un produit déjà publié (recrée côté marketplace).
  * "publish" = première mise en ligne ou update incrémental.
  * "resync"  = renvoyer toutes les données sur le même id marketplace.
+ * "disable" = masquer le produit (visible → invisible) sans supprimer la fiche.
+ * "enable"  = réafficher un produit précédemment masqué.
+ * "delete"  = suppression définitive de la fiche côté marketplace.
+ * Actuellement les 3 derniers ne sont produits que par Microstore.
  */
-export type QueueItemMode = "refresh" | "publish" | "resync";
+export type QueueItemMode = "refresh" | "publish" | "resync" | "disable" | "enable" | "delete";
 
-export type MarketplaceTarget = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
+export type MarketplaceTarget = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
 export type TargetOutcome =
   | { ok: true; archived?: boolean; opId?: string; warning?: string }
@@ -63,6 +67,7 @@ export interface MarketplaceRefreshItem {
   efashionOutcome?: TargetOutcome;
   faireOutcome?: TargetOutcome;
   orderchampOutcome?: TargetOutcome;
+  microstoreOutcome?: TargetOutcome;
   ankorsOperationId?: string;
   /** ISO date. Présent quand le job attend une heure de départ future (étalement). */
   scheduledFor?: string;
@@ -77,7 +82,7 @@ export interface MarketplaceRefreshItem {
    * ancien reste supporté pour compat retro tant que l'ancien code appelant
    * pose l'intent côté enqueue().
    */
-  intent?: "create" | "update" | "refresh" | "scheduled" | "link";
+  intent?: "create" | "update" | "sync" | "refresh" | "scheduled" | "link";
   /**
    * Progression étape par étape poussée par le worker au fur et à mesure
    * (validation → auth → création produit → variantes → images → publish →

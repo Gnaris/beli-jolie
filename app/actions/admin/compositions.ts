@@ -50,7 +50,7 @@ export async function updateComposition(id: string, formData: FormData) {
 export async function updateCompositionDirect(
   id: string,
   name: string,
-  translations: Record<string, string>
+  translations: Record<string, string>,
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");

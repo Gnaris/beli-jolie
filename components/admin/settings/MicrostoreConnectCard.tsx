@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 // useRef reste nécessaire pour l'abort controller du polling QR
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
@@ -27,9 +27,16 @@ function daysUntil(iso: string): number {
   return Math.max(0, Math.floor((d - Date.now()) / (1000 * 60 * 60 * 24)));
 }
 
-// Bookmarklet legacy — remplacé par le flow QR compagnon depuis 2026-08-25.
-// Conservé exporté pour compat avec d'éventuels callers externes ; ne plus utiliser.
-/** @deprecated utiliser le flow QR compagnon via /api/admin/microstore/qr */
+/**
+ * Génère un bookmarklet à glisser dans les favoris du navigateur. Cliqué
+ * depuis un onglet `web.mc.app` connecté, il lit le token stocké dans le
+ * `localStorage` de Microstore et redirige vers BJ avec le token en fragment
+ * d'URL. L'auto-import déclenché par `MicrostoreConnectCard` prend le relais.
+ *
+ * Cas d'usage principal (voie 2 dans l'onglet de connexion) : éviter de perdre
+ * la session `web.mc.app` en cours en scannant un nouveau QR (les deux
+ * utilisent le même slot compagnon côté Microstore).
+ */
 export function buildMicrostoreBookmarklet(originForRedirect: string): string {
   const target = `${originForRedirect}/admin/parametres?tab=marketplaces`;
   const script =
@@ -280,13 +287,259 @@ export default function MicrostoreConnectCard({
     );
   }
 
-  // Non connecté — flow QR compagnon (comme WhatsApp Web)
-  return <MicrostoreQrConnect onConnected={(iso) => {
-    setConnected(true);
-    setEnabled(true);
-    setExpiresAtIso(iso);
-    router.refresh();
-  }} />;
+  // Non connecté — deux voies au choix (onglets)
+  return (
+    <MicrostoreConnectTabs
+      onConnected={(iso) => {
+        setConnected(true);
+        setEnabled(true);
+        setExpiresAtIso(iso);
+        router.refresh();
+      }}
+    />
+  );
+}
+
+// ─── Onglets « Non connecté » ────────────────────────────────────────────
+
+/**
+ * Deux voies pour connecter Microstore :
+ *   - Voie 1 (défaut) : Scanner un QR. Simple mais **kicke la session
+ *     web.mc.app** en cours (Microstore n'a qu'un seul slot compagnon).
+ *   - Voie 2 : Bookmarklet. Idéal si la cliente a déjà `web.mc.app` ouvert et
+ *     ne veut PAS être déconnectée. Le bookmarklet lit son token depuis
+ *     `localStorage` de `web.mc.app` et le renvoie à BJ. Les deux sessions
+ *     partagent alors le même token → coexistence propre.
+ */
+function MicrostoreConnectTabs({
+  onConnected,
+}: {
+  onConnected: (expiresAtIso: string | null) => void;
+}) {
+  const [tab, setTab] = useState<"qr" | "web">("qr");
+  return (
+    <div className="space-y-4">
+      <div className="inline-flex bg-bg-tertiary rounded-xl p-1 shadow-[var(--shadow-inset)] w-full">
+        <button
+          type="button"
+          onClick={() => setTab("qr")}
+          className={`flex-1 px-4 py-2 text-xs font-body font-bold rounded-lg transition-colors ${
+            tab === "qr"
+              ? "bg-bg-primary text-text-primary shadow-[var(--shadow-sm)]"
+              : "text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          📱 Scanner un QR
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("web")}
+          className={`flex-1 px-4 py-2 text-xs font-body font-bold rounded-lg transition-colors ${
+            tab === "web"
+              ? "bg-bg-primary text-text-primary shadow-[var(--shadow-sm)]"
+              : "text-text-secondary hover:text-text-primary"
+          }`}
+        >
+          🖥 J&apos;ai déjà web.mc.app ouvert
+        </button>
+      </div>
+
+      {tab === "qr" ? (
+        <MicrostoreQrConnect onConnected={onConnected} />
+      ) : (
+        <MicrostoreWebImport />
+      )}
+    </div>
+  );
+}
+
+// ─── Voie 2 : import depuis web.mc.app (bookmarklet + console + paste) ──
+
+/**
+ * Snippet à copier dans la console de web.mc.app. Copie directement dans le
+ * presse-papiers de la cliente les deux tokens séparés par `|`, puis affiche
+ * un message pour lui dire de coller dans BJ. Contourne CSP (une console
+ * DevTools n'est pas soumise à la CSP de la page).
+ */
+const CONSOLE_SNIPPET = `(async()=>{const t=localStorage.getItem("admin_token");const m=localStorage.getItem("admin_mask_token")||"";if(!t){console.log("%cPas de session Microstore ici — connecte-toi d'abord à web.mc.app.","color:#dc2626;font-weight:bold");return;}await navigator.clipboard.writeText(t+"|"+m);console.log("%cCopié ! Retourne dans BJ et colle dans le champ « Coller le token ».","color:#059669;font-weight:bold");})();`;
+
+function MicrostoreWebImport() {
+  const toast = useToast();
+  const [origin, setOrigin] = useState("");
+  const [pasteValue, setPasteValue] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [snippetCopied, setSnippetCopied] = useState(false);
+  const bookmarkletRef = useRef<HTMLAnchorElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+  }, []);
+
+  const bookmarkletHref = origin ? buildMicrostoreBookmarklet(origin) : "";
+
+  // React 19 refuse de rendre un href="javascript:…" (bloqué par la
+  // sanitisation d'URL). On le pose sur le nœud DOM après mount — setAttribute
+  // n'est pas sanitisé, donc le drag-to-favorites fonctionne à nouveau.
+  useLayoutEffect(() => {
+    const node = bookmarkletRef.current;
+    if (!node || !bookmarkletHref) return;
+    node.setAttribute("href", bookmarkletHref);
+  }, [bookmarkletHref]);
+
+  async function handleCopySnippet() {
+    try {
+      await navigator.clipboard.writeText(CONSOLE_SNIPPET);
+      setSnippetCopied(true);
+      toast.success("Script copié", "Colle-le dans la console de web.mc.app.");
+      setTimeout(() => setSnippetCopied(false), 3000);
+    } catch {
+      toast.error("Impossible de copier", "Copie manuellement le texte du script.");
+    }
+  }
+
+  async function handleImport() {
+    const raw = pasteValue.trim();
+    if (!raw) {
+      toast.error("Vide", "Colle le contenu copié depuis web.mc.app.");
+      return;
+    }
+    // Format « token|maskToken » (snippet) OU juste « token » (paste manuel simple).
+    const [token, maskToken = ""] = raw.split("|");
+    if (!token.trim()) {
+      toast.error("Token vide", "Le token Microstore semble vide.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await fetch("/api/admin/microstore/import-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: token.trim(),
+          maskToken: maskToken.trim(),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { status: "success"; expiresAt: string | null }
+        | { error: string }
+        | null;
+      if (res.ok && data && "status" in data && data.status === "success") {
+        toast.success(
+          "Session Microstore importée",
+          "web.mc.app reste connectée en parallèle.",
+        );
+        window.location.reload();
+      } else {
+        const err = data && "error" in data ? data.error : "Erreur inconnue.";
+        toast.error("Import refusé", err);
+      }
+    } catch {
+      toast.error("Erreur réseau", "Impossible de contacter le serveur.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-cyan-500/40 bg-bg-secondary p-5 space-y-5">
+      <div>
+        <div className="font-heading text-base font-bold text-text-primary mb-1">
+          Récupère la session sans te déconnecter de web.mc.app
+        </div>
+        <p className="text-xs text-text-secondary leading-relaxed">
+          Si tu es <b>déjà connectée à web.mc.app</b> dans un autre onglet, tu peux
+          copier ta session ici sans passer par le QR (qui déconnecterait
+          web.mc.app).
+        </p>
+      </div>
+
+      {/* Voie A : bookmarklet à glisser dans les favoris */}
+      <div className="rounded-lg bg-bg-primary border border-border p-4 space-y-3">
+        <div className="text-xs font-body font-bold text-text-primary">
+          Option A · Bouton à glisser dans tes favoris
+        </div>
+        <ol className="text-xs text-text-secondary space-y-1 list-decimal pl-4">
+          <li>Affiche la barre des favoris (Ctrl + Maj + B).</li>
+          <li>Glisse le bouton ci-dessous dans ta barre de favoris.</li>
+          <li>
+            Va sur <code className="px-1 rounded bg-bg-tertiary text-text-primary">web.mc.app</code>,
+            connecte-toi si besoin, puis clique sur ton nouveau favori.
+          </li>
+        </ol>
+        <div className="flex justify-center py-2">
+          <a
+            ref={bookmarkletRef}
+            onClick={(e) => e.preventDefault()}
+            draggable
+            className="inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-cyan-600 text-white text-sm font-heading font-bold shadow-md cursor-grab active:cursor-grabbing select-none hover:bg-cyan-700 transition-colors"
+          >
+            🔗 Importer Microstore vers BJ
+          </a>
+        </div>
+        <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-800 dark:text-amber-300">
+          <b>Ça ne se passe rien quand tu cliques&nbsp;?</b> C&apos;est la sécurité
+          de Microstore qui bloque les favoris JavaScript sur leur site.
+          Utilise l&apos;<b>Option B</b> ci-dessous, elle marche à tous les coups.
+        </div>
+      </div>
+
+      {/* Voie B : snippet console + collage */}
+      <div className="rounded-lg bg-bg-primary border border-border p-4 space-y-3">
+        <div className="text-xs font-body font-bold text-text-primary">
+          Option B · Coller un script dans la console (marche partout)
+        </div>
+        <ol className="text-xs text-text-secondary space-y-1.5 list-decimal pl-4">
+          <li>
+            Va sur <code className="px-1 rounded bg-bg-tertiary text-text-primary">web.mc.app</code>{" "}
+            (connectée). Ouvre la console&nbsp;: touche <b>F12</b> → onglet
+            <b> Console</b>.
+          </li>
+          <li>
+            Copie le script ci-dessous avec le bouton, puis colle-le dans la
+            console (clic-droit → Coller, ou <b>Ctrl+V</b>). Appuie sur Entrée.
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={handleCopySnippet}
+                className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-dark text-text-inverse text-xs font-heading font-bold hover:bg-black transition-colors"
+              >
+                {snippetCopied ? "✓ Copié !" : "📋 Copier le script"}
+              </button>
+              <details className="flex-1">
+                <summary className="text-[11px] text-text-muted cursor-pointer hover:text-text-secondary py-2">
+                  voir le script
+                </summary>
+                <pre className="mt-1 p-2 rounded-md bg-bg-tertiary text-[10px] font-mono text-text-primary overflow-x-auto whitespace-pre-wrap break-all">
+                  {CONSOLE_SNIPPET}
+                </pre>
+              </details>
+            </div>
+          </li>
+          <li>
+            Le script copie ta session dans le presse-papiers. Reviens ici et
+            colle dans le champ&nbsp;:
+          </li>
+        </ol>
+        <div>
+          <input
+            type="text"
+            value={pasteValue}
+            onChange={(e) => setPasteValue(e.target.value)}
+            placeholder="Colle ici (Ctrl+V)"
+            className="field-input w-full text-xs font-mono"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={importing || !pasteValue.trim()}
+          className="w-full h-10 rounded-xl bg-cyan-600 text-white text-sm font-heading font-bold hover:bg-cyan-700 transition-colors disabled:opacity-60"
+        >
+          {importing ? "Import en cours…" : "Importer la session"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Composant QR compagnon ──────────────────────────────────────────────
@@ -385,7 +638,7 @@ function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: stri
   }, [status, code, onConnected, toast]);
 
   return (
-    <div className="rounded-xl border-2 border-cyan-200 bg-cyan-50/40 p-5">
+    <div className="rounded-xl border-2 border-cyan-500/40 bg-bg-secondary p-5">
       <div className="text-center">
         <div className="inline-flex items-center gap-2 mb-3">
           <span className="w-10 h-10 rounded-full bg-cyan-500 text-white flex items-center justify-center">
@@ -396,17 +649,17 @@ function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: stri
               <path d="M14 14h3v3M14 21h7M17 17v4" />
             </svg>
           </span>
-          <div className="font-heading text-base font-bold text-cyan-900">
+          <div className="font-heading text-base font-bold text-text-primary">
             Connecter Microstore par QR code
           </div>
         </div>
 
         {status === "idle" && (
           <>
-            <p className="text-xs text-cyan-800 mb-4 max-w-md mx-auto">
+            <p className="text-xs text-text-secondary mb-4 max-w-md mx-auto">
               Tu vas scanner un QR code avec ton appli mobile MC Gérant (exactement comme WhatsApp Web).
               <br />
-              <b>Ton appli mobile reste connectée</b> en parallèle — aucun risque d'être déconnectée.
+              <b>Ton appli mobile reste connectée</b> en parallèle — aucun risque d&apos;être déconnectée.
             </p>
             <button
               type="button"
@@ -419,19 +672,19 @@ function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: stri
         )}
 
         {status === "generating" && (
-          <div className="py-8 text-cyan-700 text-sm">Génération du QR…</div>
+          <div className="py-8 text-text-secondary text-sm">Génération du QR…</div>
         )}
 
         {status === "waiting" && qrDataUrl && (
           <div className="space-y-3">
-            <div className="inline-block bg-white p-3 rounded-2xl border border-cyan-200 shadow-md">
+            <div className="inline-block bg-white p-3 rounded-2xl border border-border shadow-md">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qrDataUrl} alt="QR code Microstore" width={280} height={280} className="block" />
             </div>
-            <div className="text-xs text-cyan-800 max-w-md mx-auto space-y-1">
-              <p className="font-bold">📱 Scanne ce QR avec ton appli MC Gérant</p>
-              <p>Ouvre l'appli → menu Scanner (icône ⁝) → dirige la caméra sur le QR.</p>
-              <p className="text-cyan-600 italic">En attente du scan…</p>
+            <div className="text-xs text-text-secondary max-w-md mx-auto space-y-1">
+              <p className="font-bold text-text-primary">📱 Scanne ce QR avec ton appli MC Gérant</p>
+              <p>Ouvre l&apos;appli → menu Scanner (icône ⁝) → dirige la caméra sur le QR.</p>
+              <p className="text-text-muted italic">En attente du scan…</p>
             </div>
             <button
               type="button"
@@ -441,7 +694,7 @@ function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: stri
                 setQrDataUrl(null);
                 setCode(null);
               }}
-              className="text-xs text-cyan-700 hover:underline"
+              className="text-xs text-text-secondary hover:text-text-primary hover:underline"
             >
               Annuler
             </button>
@@ -450,7 +703,7 @@ function MicrostoreQrConnect({ onConnected }: { onConnected: (expiresAtIso: stri
 
         {status === "error" && (
           <div className="space-y-3">
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-800">
+            <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-800 dark:text-red-300">
               {errorMsg}
             </div>
             <button

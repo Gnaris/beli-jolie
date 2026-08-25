@@ -3123,7 +3123,12 @@ export async function fetchProductFormAttributes() {
   const [categories, colors, compositions, tags, seasons, sizes, annexes, hsCodes] = await Promise.all([
     prisma.category.findMany({
       orderBy: { name: "asc" },
-      include: { subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true, slug: true } } },
+      include: {
+        subCategories: {
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, slug: true, microstoreCategoryId: true } as never,
+        },
+      },
     }),
     prisma.color.findMany({
       orderBy: { name: "asc" },

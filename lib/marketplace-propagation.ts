@@ -20,6 +20,7 @@ export interface MarketplaceCandidates {
   efashion: MarketplaceCandidate[];
   faire: MarketplaceCandidate[];
   orderchamp: MarketplaceCandidate[];
+  microstore: MarketplaceCandidate[];
 }
 
 export interface MarketplacePropagateOptions {
@@ -28,6 +29,7 @@ export interface MarketplacePropagateOptions {
   efashion?: boolean;
   faire?: boolean;
   orderchamp?: boolean;
+  microstore?: boolean;
 }
 
 export interface MarketplaceEnqueueInput {
@@ -42,9 +44,10 @@ export interface MarketplaceEnqueueInput {
     efashion?: boolean;
     faire?: boolean;
     orderchamp?: boolean;
+    microstore?: boolean;
   };
   mode: "publish" | "refresh" | "resync";
-  marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
+  marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 }
 
 /**
@@ -58,6 +61,7 @@ export function allCandidateIds(c: MarketplaceCandidates): string[] {
       ...c.efashion.map((p) => p.id),
       ...c.faire.map((p) => p.id),
       ...c.orderchamp.map((p) => p.id),
+      ...c.microstore.map((p) => p.id),
     ]),
   );
 }
@@ -67,7 +71,13 @@ export function allCandidateIds(c: MarketplaceCandidates): string[] {
  */
 export function hasAnyCandidate(c: MarketplaceCandidates): boolean {
   return (
-    c.pfs.length + c.ankorstore.length + c.efashion.length + c.faire.length + c.orderchamp.length > 0
+    c.pfs.length +
+      c.ankorstore.length +
+      c.efashion.length +
+      c.faire.length +
+      c.orderchamp.length +
+      c.microstore.length >
+    0
   );
 }
 
@@ -156,6 +166,27 @@ export function buildMarketplaceInputs(
         },
         mode,
         marketplace: "orderchamp",
+      });
+    }
+  }
+  if (options.microstore) {
+    for (const p of candidates.microstore) {
+      inputs.push({
+        productId: p.id,
+        reference: p.reference,
+        productName: p.name,
+        firstImage: p.firstImage,
+        options: {
+          local: false,
+          pfs: false,
+          ankorstore: false,
+          efashion: false,
+          faire: false,
+          orderchamp: false,
+          microstore: true,
+        },
+        mode,
+        marketplace: "microstore",
       });
     }
   }

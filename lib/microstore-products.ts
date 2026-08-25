@@ -28,6 +28,7 @@
 import { logger } from "@/lib/logger";
 import { getMicrostoreSessionKey } from "@/lib/microstore-auth";
 import { MicrostoreSessionExpiredError } from "@/lib/microstore-client";
+import { assertMicrostorePushAllowed } from "@/lib/microstore-preflight";
 import {
   microstoreCreateGoods,
   microstoreGetGoods,
@@ -53,6 +54,7 @@ import {
   variantUnitPriceWithMarkup,
 } from "@/lib/marketplace-excel/format-helpers";
 import { prisma } from "@/lib/prisma";
+import { resolveMicrostoreCategoryChoice } from "@/lib/microstore-subcategory";
 
 // ─── Types partagés ──────────────────────────────────────────────────────
 
@@ -67,6 +69,18 @@ export interface MicrostoreImportResult {
   rowsSent: number;
   error?: string;
   errCode?: number;
+}
+
+/**
+ * Détermine si le produit BJ doit être masqué (`disable=1`) côté vitrine H5
+ * Microstore. Règle : OFFLINE ou ARCHIVED côté BJ → masqué. ONLINE ou SYNCING
+ * (transitoire) → visible. Le push appelle `/goods/disable` en conséquence
+ * après chaque create/update pour maintenir les 2 vitrines cohérentes.
+ */
+export function shouldDisableOnMicrostore(
+  status: ExportProduct["status"],
+): boolean {
+  return status === "OFFLINE" || status === "ARCHIVED";
 }
 
 /**
@@ -93,6 +107,31 @@ function normalize(s: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "");
+}
+
+/**
+ * Construit le suffixe "Dimensions : …" ajouté à la fin de la description
+ * envoyée à Microstore (`desc`). Même format que PFS/eFashion — cf.
+ * `lib/pfs-publish.ts::buildDimensionsSuffix` — pour que les 2 marketplaces
+ * affichent les cotes dans le même style. Renvoie "" si le produit n'a
+ * aucune dimension.
+ */
+export function buildMicrostoreDimensionsSuffix(product: {
+  dimensionLength: number | null;
+  dimensionWidth: number | null;
+  dimensionHeight: number | null;
+  dimensionDiameter: number | null;
+  dimensionCircumference: number | null;
+}): string {
+  const parts: string[] = [];
+  if (product.dimensionLength != null) parts.push(`Longueur : ${product.dimensionLength}mm`);
+  if (product.dimensionWidth != null) parts.push(`Largeur : ${product.dimensionWidth}mm`);
+  if (product.dimensionHeight != null) parts.push(`Hauteur : ${product.dimensionHeight}mm`);
+  if (product.dimensionDiameter != null) parts.push(`Diamètre : ${product.dimensionDiameter}mm`);
+  if (product.dimensionCircumference != null)
+    parts.push(`Circonférence : ${product.dimensionCircumference}mm`);
+  if (parts.length === 0) return "";
+  return `\n\nDimensions : ${parts.join(" / ")}`;
 }
 
 // ─── Cache par batch pour ne pas re-lister les attributs Microstore ─────
@@ -125,16 +164,26 @@ async function loadAttributeCache(): Promise<AttrCache> {
 }
 
 /**
- * Trouve l'ID d'un attribut Microstore par nom (normalisé). Si absent, l'auto-crée
- * côté Microstore et enrichit le cache pour les appels suivants du batch.
+ * Trouve l'ID d'un attribut Microstore par nom (normalisé). Priorité :
+ *   1. `preferredId` fourni (mapping manuel BDD saisi par la cliente) — court-circuite
+ *      matching par nom et auto-création. On enrichit quand même le cache pour éviter
+ *      un re-fetch dans le batch.
+ *   2. Matching par nom normalisé (case-insensitive, sans accents).
+ *   3. Auto-création côté Microstore + enrichissement du cache.
  */
 async function ensureAttributeId(
   cache: AttrCache,
   type: MicrostoreAttrType,
   name: string,
+  preferredId?: number | null,
 ): Promise<string> {
   const map = pickAttrMap(cache, type);
   const key = normalize(name);
+  if (preferredId != null) {
+    const id = String(preferredId);
+    map.set(key, id);
+    return id;
+  }
   const existing = map.get(key);
   if (existing) return existing;
   const created = await microstoreCreateAttribute({ type, name });
@@ -152,19 +201,191 @@ function pickAttrMap(cache: AttrCache, type: MicrostoreAttrType): Map<string, st
       return cache.yearsByName;
     case "season":
       return cache.seasonsByName;
-    case "composition":
-      // Compositions non gérées via set_attr côté push (transportées via remark_material).
-      return cache.categoriesByName; // fallback inutilisé
   }
 }
 
-async function ensureColorId(cache: AttrCache, name: string): Promise<string> {
+/**
+ * Trouve l'ID d'une couleur Microstore. Même stratégie que `ensureAttributeId` :
+ * mapping BDD prioritaire → nom → auto-création.
+ */
+async function ensureColorId(
+  cache: AttrCache,
+  name: string,
+  preferredId?: number | null,
+): Promise<string> {
   const key = normalize(name);
+  if (preferredId != null) {
+    const id = String(preferredId);
+    cache.colorsByName.set(key, id);
+    return id;
+  }
   const existing = cache.colorsByName.get(key);
   if (existing) return existing;
   const created = await microstoreCreateColor({ name });
   cache.colorsByName.set(key, created.id);
   return created.id;
+}
+
+// ─── Mappings manuels BDD (Category/Season/Color → id Microstore) ───────
+
+interface MicrostoreMappings {
+  categoryId: number | null;
+  seasonId: number | null;
+  colorIdByName: Map<string, number>;
+}
+
+/**
+ * Erreur levée quand un produit BJ n'a pas tous les mappings Microstore
+ * requis. Le message liste précisément ce qui manque + où le corriger côté
+ * back-office BJ.
+ *
+ * Reglementaire : aucune tolérance, aucun match par nom, aucune auto-création
+ * silencieuse côté Microstore — la cliente veut la certitude que ce qui est
+ * poussé correspond exactement à ce qu'elle a choisi.
+ */
+export class MicrostoreMappingMissingError extends Error {
+  public readonly missing: string[];
+  constructor(missing: string[]) {
+    super(
+      `Mapping Microstore incomplet — corrige d'abord :\n  · ${missing.join("\n  · ")}`,
+    );
+    this.name = "MicrostoreMappingMissingError";
+    this.missing = missing;
+  }
+}
+
+interface ProductMappingSnapshot {
+  categoryName: string;
+  categoryMicrostoreId: number | null;
+  /** Sous-catégorie choisie comme étiquette Microstore, si l'utilisatrice en a
+   *  désigné une. `null` = catégorie principale (défaut). Le push utilise cette
+   *  sous-catégorie à la place de la catégorie principale, à condition qu'elle
+   *  soit elle-même mappée à un ID Microstore. */
+  subCategoryName: string | null;
+  subCategoryMicrostoreId: number | null;
+  seasonName: string | null;
+  seasonMicrostoreId: number | null;
+  colors: Array<{ name: string; microstoreColorId: number | null }>;
+}
+
+/**
+ * Charge les mappings BDD Microstore + noms d'entités pour un produit donné.
+ * Une seule requête Prisma (attribut par attribut : category, season, colors UNIT).
+ */
+async function loadProductMappingSnapshot(
+  bjProductId: string,
+): Promise<ProductMappingSnapshot | null> {
+  const p = await prisma.product.findUnique({
+    where: { id: bjProductId },
+    select: {
+      category: { select: { name: true, microstoreCategoryId: true } },
+      // Sous-catégorie choisie comme étiquette Microstore (peut être null).
+      // On lit son propre microstoreCategoryId : c'est ce qui sera envoyé à
+      // Microstore à la place de celui de la catégorie principale.
+      microstoreSubCategory: {
+        select: { name: true, microstoreCategoryId: true } as never,
+      },
+      season: { select: { name: true, microstoreSeasonId: true } },
+      colors: {
+        where: { saleType: "UNIT" },
+        select: { color: { select: { name: true, microstoreColorId: true } } },
+      },
+    },
+  });
+  if (!p) return null;
+  const sub = (p as unknown as {
+    microstoreSubCategory: { name: string; microstoreCategoryId: number | null } | null;
+  }).microstoreSubCategory;
+  return {
+    categoryName: p.category?.name ?? "(sans catégorie)",
+    categoryMicrostoreId: p.category?.microstoreCategoryId ?? null,
+    subCategoryName: sub?.name ?? null,
+    subCategoryMicrostoreId: sub?.microstoreCategoryId ?? null,
+    seasonName: p.season?.name ?? null,
+    seasonMicrostoreId: p.season?.microstoreSeasonId ?? null,
+    colors: (p.colors ?? [])
+      .filter((c) => c.color)
+      .map((c) => ({
+        name: c.color!.name,
+        microstoreColorId: c.color!.microstoreColorId ?? null,
+      })),
+  };
+}
+
+/**
+ * Vérifie que tous les attributs Microstore requis sont mappés en BDD BJ.
+ * Refuse le push (throw `MicrostoreMappingMissingError`) si un seul manque.
+ *
+ * Attributs contrôlés :
+ *   - Catégorie (obligatoire) — mais seule la source réellement envoyée est
+ *     contrôlée : si la cliente a choisi une sous-catégorie comme étiquette
+ *     Microstore, c'est le mapping de la sous-catégorie qui est requis
+ *     (l'ID Microstore de la catégorie principale n'est pas envoyé).
+ *   - Saison du produit (obligatoire si le produit a une saison rattachée)
+ *   - Chaque couleur UNIT du produit (obligatoire pour chaque couleur active)
+ *
+ * Non contrôlés (auto-création tolérée côté Microstore, car un seul par tenant/
+ * année et sans risque de doublon) :
+ *   - Marque (= shopName de la boutique)
+ *   - Année (= année courante)
+ */
+async function assertMicrostoreMappings(
+  bjProductId: string,
+): Promise<ProductMappingSnapshot> {
+  const snap = await loadProductMappingSnapshot(bjProductId);
+  if (!snap) throw new Error("Produit BJ introuvable pour vérif mapping Microstore.");
+
+  const missing: string[] = [];
+  // Décision catégorie principale vs sous-catégorie choisie centralisée dans
+  // `resolveMicrostoreCategoryChoice` (helper pur, testé indépendamment).
+  const choice = resolveMicrostoreCategoryChoice({
+    categoryName: snap.categoryName,
+    categoryMicrostoreId: snap.categoryMicrostoreId,
+    subCategoryName: snap.subCategoryName,
+    subCategoryMicrostoreId: snap.subCategoryMicrostoreId,
+  });
+  if (!choice.ok) missing.push(choice.missing);
+  if (snap.seasonName && snap.seasonMicrostoreId == null) {
+    missing.push(
+      `Saison « ${snap.seasonName} » → à mapper dans /admin/saisons (carte Microstore)`,
+    );
+  }
+  for (const c of snap.colors) {
+    if (c.microstoreColorId == null) {
+      missing.push(
+        `Couleur « ${c.name} » → à mapper dans /admin/couleurs (carte Microstore)`,
+      );
+    }
+  }
+  if (missing.length > 0) throw new MicrostoreMappingMissingError(missing);
+  return snap;
+}
+
+/**
+ * Charge les mappings Microstore d'un produit sous la forme attendue par les
+ * helpers `ensureAttributeId` / `ensureColorId` (map colorName normalisé → id).
+ * Suppose que `assertMicrostoreMappings` a déjà passé, donc tous les IDs sont
+ * non-null.
+ */
+function toMicrostoreMappings(snap: ProductMappingSnapshot): MicrostoreMappings {
+  const colorIdByName = new Map<string, number>();
+  for (const c of snap.colors) {
+    if (c.microstoreColorId != null) colorIdByName.set(normalize(c.name), c.microstoreColorId);
+  }
+  // Étiquette Microstore : sous-catégorie si l'utilisatrice en a choisi une,
+  // sinon catégorie principale. `assertMicrostoreMappings` a déjà validé que
+  // la source retenue est mappée — ici on se contente de la relire.
+  const choice = resolveMicrostoreCategoryChoice({
+    categoryName: snap.categoryName,
+    categoryMicrostoreId: snap.categoryMicrostoreId,
+    subCategoryName: snap.subCategoryName,
+    subCategoryMicrostoreId: snap.subCategoryMicrostoreId,
+  });
+  return {
+    categoryId: choice.ok ? choice.categoryId : null,
+    seasonId: snap.seasonMicrostoreId,
+    colorIdByName,
+  };
 }
 
 // ─── Push d'un seul produit ──────────────────────────────────────────────
@@ -187,39 +408,76 @@ export async function microstorePushOneNative(
 
   const markup = ctx.markups.microstore;
 
-  // Résout les IDs des attributs Microstore (auto-create si absent)
+  // Pré-check strict : refuse le push si un mapping requis manque (catégorie,
+  // saison, ou une couleur). Aucune tolérance : la cliente veut la garantie
+  // que ce qui est poussé correspond exactement à ses correspondances BDD,
+  // aucun match par nom, aucune création silencieuse côté Microstore.
+  const snapshot = await assertMicrostoreMappings(product.id);
+  const mappings = toMicrostoreMappings(snapshot);
+
+  // Résout les IDs des attributs Microstore.
+  //   - Category / Season : mapping BDD strict, garanti par assertMicrostoreMappings.
+  //   - Brand / Year : dérivés (shopName + année courante), auto-création tolérée
+  //     car un seul par tenant/année, aucun risque de doublon.
+  //   - Color : mapping BDD strict, garanti par assertMicrostoreMappings.
   const categoryName = product.microstoreCategoryOverride || product.categoryName;
   const [catId, brandId, yearId, seasonId] = await Promise.all([
-    ensureAttributeId(cache, "category", categoryName),
+    ensureAttributeId(cache, "category", categoryName, mappings.categoryId),
     ensureAttributeId(cache, "brand", ctx.shopName),
     ensureAttributeId(cache, "year", String(year)),
-    ensureAttributeId(cache, "season", product.seasonName || "Toutes saisons"),
+    mappings.seasonId != null
+      ? ensureAttributeId(cache, "season", product.seasonName || "", mappings.seasonId)
+      : ensureAttributeId(cache, "season", product.seasonName || "Toutes saisons"),
   ]);
 
-  // Build SKU inputs (BJ side)
+  // Microstore refuse les prix différents entre variantes d'un même produit
+  // (`err=9999 debug_msg="price_1 diff"` sur /goods/add). Règle métier BJ :
+  // on prend le prix de la PREMIÈRE variante UNIT (les PACK sont déjà exclus
+  // par bucketProductByColor). Simple et prévisible pour la cliente.
+  const unifiedPrice = variantUnitPriceWithMarkup(buckets[0].variant, markup);
+
+  // Remise BJ (Product.discountPercent, 0..100) → facteur Microstore (0..1).
+  // Microstore laisse `price` inchangé (prix barré affiché plein tarif) et
+  // applique `sale_1..sale_4` pour calculer le prix soldé côté vitrine H5.
+  // Comportement identique à celui de MC Gérant quand la cliente y saisit une
+  // remise manuellement.
+  const saleFactor =
+    product.discountPercent != null
+      ? Math.max(0, 1 - product.discountPercent / 100)
+      : 1;
+
+  // Build SKU inputs (BJ side) — la couleur DOIT être mappée en BDD.
   const bjSkus: MicrostoreSkuInput[] = [];
   for (let i = 0; i < buckets.length; i++) {
     const b = buckets[i];
-    const colorId = await ensureColorId(cache, b.colorName);
-    const price = variantUnitPriceWithMarkup(b.variant, markup);
+    const preferredColorId = mappings.colorIdByName.get(normalize(b.colorName));
+    if (preferredColorId == null) {
+      // Sécurité : assertMicrostoreMappings a déjà couvert ce cas mais garde
+      // ce garde-fou au cas où le snapshot et les buckets divergent.
+      throw new MicrostoreMappingMissingError([
+        `Couleur « ${b.colorName} » → à mapper dans /admin/couleurs (carte Microstore)`,
+      ]);
+    }
+    const colorId = await ensureColorId(cache, b.colorName, preferredColorId);
     bjSkus.push({
       color_id: colorId,
       color_name: b.colorName,
       color_alias: "",
       stock: b.variant.stock,
-      price,
+      price: unifiedPrice,
       orderBy: i + 1,
+      saleFactor,
     });
   }
 
   const remarkMaterial = formatCompositionMicrostore(product);
   const weightGrams = Math.round(Number(buckets[0].variant.weight) * 1000);
-  const defaultPrice = variantUnitPriceWithMarkup(buckets[0].variant, markup);
+  const defaultPrice = unifiedPrice;
 
   const basePayload: MicrostoreGoodsPayload = {
     itemRef: product.reference,
     name: pickTranslation(product, "fr", "name"),
-    desc: pickTranslation(product, "fr", "description"),
+    desc: pickTranslation(product, "fr", "description") + buildMicrostoreDimensionsSuffix(product),
     price: defaultPrice,
     weightGrams,
     productCountry: product.manufacturingCountryIso || "CN",
@@ -230,6 +488,11 @@ export async function microstorePushOneNative(
     yearId,
     seasonId,
     numPerPack: 1,
+    saleFactor,
+    // Visibilité vitrine H5 : OFFLINE/ARCHIVED → masqué. Le flag est passé
+    // directement dans /goods/add et /goods/update pour éviter /goods/disable
+    // (endpoint séparé qui rejette "Service App error" sur certains tokens).
+    disabled: shouldDisableOnMicrostore(product.status),
     skus: bjSkus,
   };
 
@@ -355,6 +618,19 @@ export async function microstoreImportProducts(
   const validProducts = products.filter((p) => bucketProductByColor(p).length > 0);
   if (validProducts.length === 0) {
     return { success: true, productsSent: 0, rowsSent: 0 };
+  }
+
+  // Pré-check strict : refuse tant que Gestion Produits + token QR + Station de
+  // transfert ne sont pas tous les 3 valides. Centralisé pour couvrir push
+  // fiche + bulk + queue worker + stock silencieux d'un seul appel.
+  const preflight = await assertMicrostorePushAllowed();
+  if (!preflight.ok) {
+    return {
+      success: false,
+      productsSent: 0,
+      rowsSent: 0,
+      error: preflight.error,
+    };
   }
 
   const sessionKey = await getMicrostoreSessionKey();
@@ -523,7 +799,7 @@ export function productToMicrostoreApiRows(
 ): MicrostoreApiRow[] {
   const markup = ctx.markups.microstore;
   const composition = formatCompositionMicrostore(p);
-  const remarque = pickTranslation(p, "fr", "description");
+  const remarque = pickTranslation(p, "fr", "description") + buildMicrostoreDimensionsSuffix(p);
   const categoryLabel = p.microstoreCategoryOverride || p.categoryName || "";
   const nameFr = pickTranslation(p, "fr", "name");
   const pays = p.manufacturingCountryName || "";

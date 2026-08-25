@@ -69,15 +69,16 @@ export function ProductImportantToggle({ productId, initialImportant, variant = 
       onClick={handleClick}
       disabled={pending}
       title={title}
+      aria-label={title}
       aria-pressed={important}
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border font-body text-[12px] font-semibold transition-all whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-wait ${
+      className={`inline-flex items-center justify-center gap-1.5 w-full md:w-auto px-2 md:px-3 py-2 md:py-1.5 rounded-md border font-body text-[12px] font-semibold transition-all whitespace-nowrap shadow-sm disabled:opacity-50 disabled:cursor-wait ${
         important
           ? "bg-amber-100 border-amber-300 text-amber-900"
-          : "bg-bg-secondary border-border-dark text-text-primary hover:bg-bg-tertiary"
+          : "bg-bg-primary border-border text-text-secondary hover:bg-bg-secondary hover:border-border-dark hover:text-text-primary"
       }`}
     >
-      <StarIcon filled={important} className="w-3.5 h-3.5" />
-      Important
+      <StarIcon filled={important} className="w-4 h-4 md:w-3.5 md:h-3.5" />
+      <span className="hidden md:inline">Important</span>
     </button>
   );
 }

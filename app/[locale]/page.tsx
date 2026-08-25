@@ -12,8 +12,8 @@ import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import HeroBanner from "@/components/home/HeroBanner";
-import TrustMarquee from "@/components/home/TrustMarquee";
 import FeaturedProduct from "@/components/home/FeaturedProduct";
+import StatsBand from "@/components/home/StatsBand";
 import TrustBand from "@/components/home/TrustBand";
 import CategoryGrid from "@/components/home/CategoryGrid";
 import CtaBanner from "@/components/home/CtaBanner";
@@ -367,13 +367,10 @@ export default async function HomePage() {
       <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10 -mt-16">
-          {/* 1. Hero éditorial pleine hauteur */}
+          {/* 1. Hero compact noir + accent jaune */}
           <HeroBanner bannerImage={bannerImage} shopName={shopName} productCount={productCount} />
 
-          {/* 2. Marquee défilante réassurance */}
-          <TrustMarquee />
-
-          {/* 3. Featured — split éditorial « Manifeste » */}
+          {/* 2. Featured — split éditorial « Manifeste » */}
           {carouselList.length > 0 && carouselList[0].products.length >= 3 && (
             <FeaturedProduct
               products={carouselList[0].products.slice(0, 3)}
@@ -399,7 +396,10 @@ export default async function HomePage() {
             />
           ))}
 
-          {/* 5. Collections mosaïque */}
+          {/* 5. Bande chiffres clés noir */}
+          <StatsBand productCount={productCount} />
+
+          {/* 6. Collections mosaïque */}
           <CollectionsGrid collections={collections} />
 
           {/* 6. Catégories rondes éditoriales */}
