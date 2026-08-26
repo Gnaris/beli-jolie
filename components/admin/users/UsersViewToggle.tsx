@@ -18,18 +18,18 @@ interface Props {
 
 export default function UsersViewToggle({ view, infosHref, mailsHref }: Props) {
   return (
-    <div className="inline-flex items-center rounded-xl border border-border bg-bg-primary p-1 shadow-sm">
+    <div className="flex w-full sm:inline-flex sm:w-auto items-center rounded-xl border border-border bg-bg-primary p-1 shadow-sm">
       <Link
         href={infosHref}
         prefetch={false}
         aria-current={view === "infos" ? "page" : undefined}
-        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-body font-semibold rounded-lg transition-all ${
+        className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 text-[13px] sm:text-xs font-body font-semibold rounded-lg transition-all ${
           view === "infos"
             ? "bg-gradient-to-br from-text-primary to-text-secondary text-white shadow-sm"
             : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
         }`}
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10" />
           <line x1="12" y1="16" x2="12" y2="12" />
           <line x1="12" y1="8" x2="12.01" y2="8" />
@@ -40,13 +40,13 @@ export default function UsersViewToggle({ view, infosHref, mailsHref }: Props) {
         href={mailsHref}
         prefetch={false}
         aria-current={view === "mails" ? "page" : undefined}
-        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-body font-semibold rounded-lg transition-all ${
+        className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 text-[13px] sm:text-xs font-body font-semibold rounded-lg transition-all ${
           view === "mails"
             ? "bg-gradient-to-br from-text-primary to-text-secondary text-white shadow-sm"
             : "text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
         }`}
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
           <polyline points="22,6 12,13 2,6" />
         </svg>

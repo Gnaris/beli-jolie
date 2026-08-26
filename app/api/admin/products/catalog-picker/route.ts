@@ -2,11 +2,15 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 /**
  * GET /api/admin/products/catalog-picker
- * Listing paginé de produits ONLINE pour le sélecteur de catalogue.
- * Params: page, q (recherche), categoryId, sort (recent|name|price)
+ * Listing paginé de produits ONLINE pour le sélecteur de catalogue/collection.
+ * Params :
+ *   page, q (recherche nom/ref), categoryId, subCategoryId
+ *   colorIds (csv), compositionIds (csv)
+ *   sort : recent | oldest | recentUpdated | oldestUpdated | name | price
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -18,11 +22,16 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, parseInt(params.get("page") ?? "1", 10));
   const q = params.get("q")?.trim() ?? "";
   const categoryId = params.get("categoryId") ?? "";
+  const subCategoryId = params.get("subCategoryId") ?? "";
+  const colorIdsRaw = params.get("colorIds") ?? "";
+  const compositionIdsRaw = params.get("compositionIds") ?? "";
   const sort = params.get("sort") ?? "recent";
   const pageSize = 24;
 
-  // Build where clause
-  const where: Record<string, unknown> = { status: "ONLINE" as const };
+  const colorIds = colorIdsRaw ? colorIdsRaw.split(",").filter(Boolean) : [];
+  const compositionIds = compositionIdsRaw ? compositionIdsRaw.split(",").filter(Boolean) : [];
+
+  const where: Prisma.ProductWhereInput = { status: "ONLINE" };
 
   if (q.length > 0) {
     where.OR = [
@@ -31,18 +40,29 @@ export async function GET(request: NextRequest) {
     ];
   }
 
-  if (categoryId) {
-    where.categoryId = categoryId;
+  if (categoryId) where.categoryId = categoryId;
+  if (subCategoryId) where.subCategories = { some: { id: subCategoryId } };
+  if (colorIds.length > 0) where.colors = { some: { colorId: { in: colorIds } } };
+  if (compositionIds.length > 0) {
+    where.compositions = { some: { compositionId: { in: compositionIds } } };
   }
 
-  // Build orderBy
-  let orderBy: Record<string, string>;
+  let orderBy: Prisma.ProductOrderByWithRelationInput;
   switch (sort) {
+    case "oldest":
+      orderBy = { createdAt: "asc" };
+      break;
+    case "recentUpdated":
+      orderBy = { updatedAt: "desc" };
+      break;
+    case "oldestUpdated":
+      orderBy = { updatedAt: "asc" };
+      break;
     case "name":
       orderBy = { name: "asc" };
       break;
     case "price":
-      orderBy = { name: "asc" }; // fallback, real price sort below
+      orderBy = { name: "asc" };
       break;
     case "recent":
     default:
@@ -81,7 +101,6 @@ export async function GET(request: NextRequest) {
     prisma.product.count({ where }),
   ]);
 
-  // Serialize Decimal → number
   const serialized = products.map((p) => ({
     ...p,
     createdAt: p.createdAt.toISOString(),

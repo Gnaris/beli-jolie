@@ -16,7 +16,6 @@ import {
   getProductMarketplaceEnabled,
   marketplaceDisabledMessage,
 } from "@/lib/marketplace-enabled";
-import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
 import { checkProductComplete } from "@/lib/product-publishability-check";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
@@ -172,25 +171,6 @@ export async function refreshProductOnMarketplaces(
       revalidateTag("products", "default");
       return outcome;
     }
-  }
-
-  const maintenance = await getMarketplaceMaintenance();
-
-  if (options.pfs && maintenance.pfs) {
-    outcome.pfs = { status: "error", message: marketplaceMaintenanceMessage("pfs") };
-    options = { ...options, pfs: false };
-  }
-  if (options.ankorstore && maintenance.ankorstore) {
-    outcome.ankorstore = { status: "error", message: marketplaceMaintenanceMessage("ankorstore") };
-    options = { ...options, ankorstore: false };
-  }
-  if (options.faire && maintenance.faire) {
-    outcome.faire = { status: "error", message: marketplaceMaintenanceMessage("faire") };
-    options = { ...options, faire: false };
-  }
-  if (options.orderchamp && maintenance.orderchamp) {
-    outcome.orderchamp = { status: "error", message: marketplaceMaintenanceMessage("orderchamp") };
-    options = { ...options, orderchamp: false };
   }
 
   if (options.pfs) {

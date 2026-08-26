@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "@/components/ui/SmartImage";
-import Link from "next/link";
 import {
   updateCollection,
   addProductToCollection,
@@ -13,7 +12,8 @@ import {
 } from "@/app/actions/admin/collections";
 import TranslateButton from "@/components/admin/TranslateButton";
 import { VALID_LOCALES, LOCALE_FULL_NAMES, NON_DEFAULT_LOCALES } from "@/i18n/locales";
-import ProductPickerModal, { type PickerProduct } from "@/components/admin/catalogues/ProductPickerModal";
+import ProductPickerModal, { type PickerProduct, type PickerFilterOptions } from "@/components/admin/catalogues/ProductPickerModal";
+import { useToast } from "@/components/ui/Toast";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +68,7 @@ interface UniqueColor {
 interface Props {
   collection: CollectionData;
   categories: CategoryOption[];
+  filterOptions?: PickerFilterOptions;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -93,9 +94,8 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function CollectionEditor({ collection, categories }: Props) {
+export default function CollectionEditor({ collection, categories, filterOptions }: Props) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Form state ──────────────────────────────────────────────────────────
@@ -112,8 +112,9 @@ export default function CollectionEditor({ collection, categories }: Props) {
   const [selectedProducts, setSelectedProducts] = useState<CollectionProductRow[]>(collection.products);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [productPage, setProductPage] = useState(1);
-  const PRODUCTS_PER_PAGE = 20;
+  // Bloc produits scrollable — ~10 cartes visibles par défaut sur desktop
+  // (5 lignes × 2 colonnes). Au-delà, la scrollbar interne prend le relais.
+  const PRODUCTS_LIST_MAX_HEIGHT = "max-h-[520px]";
 
   // ── Drag state ──────────────────────────────────────────────────────────
   const dragIndex = useRef<number | null>(null);
@@ -176,53 +177,84 @@ export default function CollectionEditor({ collection, categories }: Props) {
     }
   }
 
+  // ── Fire-and-forget avec rollback ───────────────────────────────────────
+  // Optimistic UI : chaque action met à jour l'état local instantanément
+  // puis lance la requête en fond. Rollback + toast d'erreur si ça échoue.
+
+  const toast = useToast();
+  const [pendingCount, runBackgroundTask] = useTransitionCount();
+
+  function runInBackground(
+    action: () => Promise<unknown>,
+    onError: () => void,
+    errorMessage: string,
+  ) {
+    runBackgroundTask(async () => {
+      try {
+        await action();
+      } catch {
+        onError();
+        toast.error("Enregistrement échoué", errorMessage);
+      }
+    });
+  }
+
   // ── Product picker handlers ─────────────────────────────────────────────
 
   const handlePickerAdd = (pickerProduct: PickerProduct) => {
     if (selectedIds.has(pickerProduct.id)) return;
-    startTransition(async () => {
-      await addProductToCollection(collection.id, pickerProduct.id);
-      const snap: ProductSnap = {
-        id: pickerProduct.id,
-        name: pickerProduct.name,
-        reference: pickerProduct.reference,
-        colorImages: pickerProduct.colorImages,
-        colors: pickerProduct.colors,
-      };
-      setSelectedProducts((prev) => [
-        ...prev,
-        { productId: snap.id, position: prev.length, colorId: null, product: snap },
-      ]);
-    });
-  };
-
-  const handlePickerRemove = (productId: string) => {
-    startTransition(async () => {
-      await removeProductFromCollection(collection.id, productId);
-      setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
-      if (expandedProduct === productId) setExpandedProduct(null);
-    });
+    const snap: ProductSnap = {
+      id: pickerProduct.id,
+      name: pickerProduct.name,
+      reference: pickerProduct.reference,
+      colorImages: pickerProduct.colorImages,
+      colors: pickerProduct.colors,
+    };
+    const previous = selectedProducts;
+    setSelectedProducts((prev) => [
+      ...prev,
+      { productId: snap.id, position: prev.length, colorId: null, product: snap },
+    ]);
+    runInBackground(
+      () => addProductToCollection(collection.id, pickerProduct.id),
+      () => setSelectedProducts(previous),
+      "Impossible d'ajouter le produit.",
+    );
   };
 
   const handleRemove = (productId: string) => {
-    startTransition(async () => {
-      await removeProductFromCollection(collection.id, productId);
-      setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
-      if (expandedProduct === productId) setExpandedProduct(null);
-    });
+    const previous = selectedProducts;
+    const wasExpanded = expandedProduct === productId;
+    setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+    if (wasExpanded) setExpandedProduct(null);
+    runInBackground(
+      () => removeProductFromCollection(collection.id, productId),
+      () => {
+        setSelectedProducts(previous);
+        if (wasExpanded) setExpandedProduct(productId);
+      },
+      "Impossible de retirer le produit.",
+    );
+  };
+
+  const handlePickerRemove = (productId: string) => {
+    handleRemove(productId);
   };
 
   // ── Color change ────────────────────────────────────────────────────────
 
   const handleColorChange = (productId: string, colorId: string | null) => {
-    startTransition(async () => {
-      await updateCollectionProductColor(collection.id, productId, colorId);
-      setSelectedProducts((prev) =>
-        prev.map((p) =>
-          p.productId === productId ? { ...p, colorId } : p
-        )
-      );
-    });
+    const previous = selectedProducts;
+    setSelectedProducts((prev) =>
+      prev.map((p) =>
+        p.productId === productId ? { ...p, colorId } : p
+      )
+    );
+    runInBackground(
+      () => updateCollectionProductColor(collection.id, productId, colorId),
+      () => setSelectedProducts(previous),
+      "Impossible de changer la couleur.",
+    );
   };
 
   // ── Drag & drop ─────────────────────────────────────────────────────────
@@ -243,12 +275,45 @@ export default function CollectionEditor({ collection, categories }: Props) {
 
   function onDragEnd() {
     dragIndex.current = null;
-    startTransition(async () => {
-      await reorderCollectionProducts(
-        collection.id,
-        selectedProducts.map((it, i) => ({ productId: it.productId, position: i }))
-      );
-    });
+    const snapshot = [...selectedProducts];
+    const previous = [...collection.products];
+    runInBackground(
+      () =>
+        reorderCollectionProducts(
+          collection.id,
+          snapshot.map((it, i) => ({ productId: it.productId, position: i }))
+        ),
+      () => setSelectedProducts(previous),
+      "Impossible de réordonner les produits.",
+    );
+  }
+
+  // ── Saisie manuelle de position (swap) ─────────────────────────────────
+  // La cliente tape un numéro dans la case en haut à droite d'une carte. Si
+  // ce numéro est déjà attribué à une autre carte, on ÉCHANGE les deux
+  // (pas de décalage/insertion — l'autre garde son voisinage).
+
+  function swapPosition(productId: string, rawValue: string) {
+    const pos = parseInt(rawValue, 10);
+    if (isNaN(pos) || pos < 1) return;
+    const targetIdx = Math.min(pos - 1, selectedProducts.length - 1);
+    const srcIdx = selectedProducts.findIndex((p) => p.productId === productId);
+    if (srcIdx === -1 || srcIdx === targetIdx) return;
+
+    const previous = selectedProducts;
+    const next = [...selectedProducts];
+    [next[srcIdx], next[targetIdx]] = [next[targetIdx], next[srcIdx]];
+    setSelectedProducts(next);
+
+    runInBackground(
+      () =>
+        reorderCollectionProducts(
+          collection.id,
+          next.map((it, i) => ({ productId: it.productId, position: i }))
+        ),
+      () => setSelectedProducts(previous),
+      "Impossible d'échanger les positions.",
+    );
   }
 
   // ── Render ──────────────────────────────────────────────────────────────
@@ -345,25 +410,32 @@ export default function CollectionEditor({ collection, categories }: Props) {
           <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
 
             {/* Header + add button */}
-            <div className="p-5 pb-0">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <h2 className="font-heading font-semibold text-text-primary text-sm">
+            <div className="p-4 sm:p-5 pb-0">
+              <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h2 className="font-heading font-semibold text-text-primary text-sm truncate">
                     Produits de la collection
                   </h2>
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-medium">
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-medium shrink-0">
                     {selectedProducts.length}
                   </span>
+                  {pendingCount > 0 && (
+                    <span className="text-xs text-text-muted font-body flex items-center gap-1.5 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
+                      Synchronisation…
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-bg-dark text-text-inverse text-sm font-medium font-body hover:opacity-90 transition-all"
+                  className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 h-9 rounded-xl bg-bg-dark text-text-inverse text-xs sm:text-sm font-medium font-body hover:opacity-90 transition-all shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
-                  Ajouter des produits
+                  <span className="sm:hidden">Ajouter</span>
+                  <span className="hidden sm:inline">Ajouter des produits</span>
                 </button>
               </div>
             </div>
@@ -386,12 +458,9 @@ export default function CollectionEditor({ collection, categories }: Props) {
                   </p>
                 </div>
               ) : (
-                <>
+                <div className={`overflow-y-auto pr-1 -mr-1 ${PRODUCTS_LIST_MAX_HEIGHT}`}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {selectedProducts
-                      .slice((productPage - 1) * PRODUCTS_PER_PAGE, productPage * PRODUCTS_PER_PAGE)
-                      .map((row, sliceIdx) => {
-                      const globalIdx = (productPage - 1) * PRODUCTS_PER_PAGE + sliceIdx;
+                    {selectedProducts.map((row, globalIdx) => {
                       const uniqueColors = deduplicateColors(row.product.colors, row.product.colorImages);
                       const hasMultipleColors = uniqueColors.length > 1;
                       const activeColor = row.colorId
@@ -463,10 +532,24 @@ export default function CollectionEditor({ collection, categories }: Props) {
 
                             {/* Actions */}
                             <div className="flex flex-col gap-1 shrink-0">
-                              {/* Position badge */}
-                              <span className="w-7 h-7 flex items-center justify-center rounded-lg bg-bg-secondary text-xs text-text-muted font-medium font-body">
-                                {globalIdx + 1}
-                              </span>
+                              {/* Position editable — tapez un nombre + Entrée/Tab pour échanger */}
+                              <input
+                                type="number"
+                                min={1}
+                                max={selectedProducts.length}
+                                defaultValue={globalIdx + 1}
+                                key={`pos-${row.productId}-${globalIdx}`}
+                                onBlur={(e) => swapPosition(row.productId, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                title="Position — tapez un numéro pour échanger avec l'autre produit"
+                                className="w-7 h-7 text-center rounded-lg bg-bg-secondary text-xs text-text-primary font-medium font-body focus:outline-none focus:ring-1 focus:ring-bg-dark [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              />
 
                               {/* Customize (if multiple colors) */}
                               {hasMultipleColors && (
@@ -490,8 +573,7 @@ export default function CollectionEditor({ collection, categories }: Props) {
                               {/* Remove */}
                               <button
                                 onClick={() => handleRemove(row.productId)}
-                                disabled={isPending}
-                                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors"
                                 title="Retirer de la collection"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -502,50 +584,49 @@ export default function CollectionEditor({ collection, categories }: Props) {
                             </div>
                           </div>
 
-                          {/* Color customization panel */}
+                          {/* Panneau couleur — pas de bouton Auto : la couleur
+                              principale est marquée « (Couleur principale) » et
+                              sélectionnée par défaut. Cliquer dessus stocke null
+                              (= suit la principale même si elle change plus tard). */}
                           {isExpanded && hasMultipleColors && (
                             <div className="px-3 pb-3">
                               <div className="p-3 rounded-lg bg-bg-primary border border-border">
                                 <p className="text-[11px] text-text-muted font-body font-medium mb-2 uppercase tracking-wide">
-                                  Couleur affichee
+                                  Couleur affichée
                                 </p>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleColorChange(row.productId, null)}
-                                    disabled={isPending}
-                                    title="Couleur par defaut"
-                                    className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
-                                      row.colorId === null
-                                        ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
-                                        : "border-border bg-bg-primary text-text-muted hover:border-[#9CA3AF]"
-                                    }`}
-                                  >
-                                    Auto
-                                  </button>
-                                  {uniqueColors.map((cv) => (
-                                    <button
-                                      key={cv.colorId}
-                                      type="button"
-                                      onClick={() => handleColorChange(row.productId, cv.colorId)}
-                                      disabled={isPending}
-                                      title={cv.name}
-                                      className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
-                                        row.colorId === cv.colorId
-                                          ? "border-[#1A1A1A] bg-[#F9FAFB]"
-                                          : "border-border hover:border-[#9CA3AF]"
-                                      }`}
-                                    >
-                                      <span
-                                        className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
-                                        style={{
-                                          backgroundColor: cv.hex ?? "#E5E5E5",
-                                          boxShadow: cv.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
-                                        }}
-                                      />
-                                      {cv.name}
-                                    </button>
-                                  ))}
+                                  {uniqueColors.map((cv) => {
+                                    const isSelected =
+                                      row.colorId === cv.colorId ||
+                                      (row.colorId === null && cv.isPrimary);
+                                    return (
+                                      <button
+                                        key={cv.colorId}
+                                        type="button"
+                                        onClick={() =>
+                                          handleColorChange(row.productId, cv.isPrimary ? null : cv.colorId)
+                                        }
+                                        title={cv.name}
+                                        className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
+                                          isSelected
+                                            ? "border-[#1A1A1A] bg-[#F9FAFB]"
+                                            : "border-border hover:border-[#9CA3AF]"
+                                        }`}
+                                      >
+                                        <span
+                                          className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
+                                          style={{
+                                            backgroundColor: cv.hex ?? "#E5E5E5",
+                                            boxShadow: cv.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
+                                          }}
+                                        />
+                                        {cv.name}
+                                        {cv.isPrimary && (
+                                          <span className="text-[10px] text-text-muted font-body">(Couleur principale)</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             </div>
@@ -554,52 +635,7 @@ export default function CollectionEditor({ collection, categories }: Props) {
                       );
                     })}
                   </div>
-
-                  {/* Pagination */}
-                  {selectedProducts.length > PRODUCTS_PER_PAGE && (
-                    <div className="flex items-center justify-between pt-4 mt-1 border-t border-border">
-                      <p className="text-xs text-text-muted font-body">
-                        {(productPage - 1) * PRODUCTS_PER_PAGE + 1}–{Math.min(productPage * PRODUCTS_PER_PAGE, selectedProducts.length)} sur {selectedProducts.length}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setProductPage((p) => Math.max(1, p - 1))}
-                          disabled={productPage === 1}
-                          className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
-                          </svg>
-                        </button>
-                        {Array.from({ length: Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE) }, (_, i) => i + 1).map((p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setProductPage(p)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium font-body transition-colors ${
-                              p === productPage
-                                ? "bg-bg-dark text-text-inverse"
-                                : "border border-border hover:bg-bg-secondary text-text-muted"
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setProductPage((p) => Math.min(Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE), p + 1))}
-                          disabled={productPage >= Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE)}
-                          className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -720,7 +756,19 @@ export default function CollectionEditor({ collection, categories }: Props) {
         onAdd={handlePickerAdd}
         onRemove={handlePickerRemove}
         categories={categories}
+        filterOptions={filterOptions}
       />
     </div>
   );
+}
+
+// ── Compteur de tâches en fond (optimistic UI) ─────────────────────────────
+
+function useTransitionCount(): [number, (fn: () => Promise<void>) => void] {
+  const [count, setCount] = useState(0);
+  const run = (fn: () => Promise<void>) => {
+    setCount((c) => c + 1);
+    fn().finally(() => setCount((c) => c - 1));
+  };
+  return [count, run];
 }

@@ -24,6 +24,7 @@ import { useRightRail } from "@/components/admin/widgets-rail";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { clearMicrostoreSyncRequired } from "@/app/actions/admin/microstore-products";
 import { unlinkMicrostoreProduct } from "@/app/actions/admin/microstore-linking";
+import { setProductMarketplaceEnabled } from "@/app/actions/admin/product-marketplace-enabled";
 
 const LinkMicrostoreProductModal = dynamic(() => import("./LinkMicrostoreProductModal"));
 
@@ -55,6 +56,16 @@ const Icon = {
     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+    </svg>
+  ),
+  LockOpen: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M3.75 10.5h16.5a1.5 1.5 0 011.5 1.5v8.25a1.5 1.5 0 01-1.5 1.5H3.75a1.5 1.5 0 01-1.5-1.5V12a1.5 1.5 0 011.5-1.5z" />
+    </svg>
+  ),
+  Lock: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-1.5 0h12a1.5 1.5 0 011.5 1.5v8.25a1.5 1.5 0 01-1.5 1.5h-12a1.5 1.5 0 01-1.5-1.5V12a1.5 1.5 0 011.5-1.5z" />
     </svg>
   ),
 };
@@ -96,6 +107,7 @@ export function MicrostoreStatusCard({
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [unlinkBusy, setUnlinkBusy] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
   // Dernière action lancée (push). Sert uniquement à mettre le bon spinner sur
   // le bon bouton pendant que le job tourne dans la file.
   const [busyAction, setBusyAction] = useState<"push" | null>(null);
@@ -111,13 +123,23 @@ export function MicrostoreStatusCard({
   // en rouge + libellé « expiré » (à distinguer visuellement de « désactivé »).
   const expired = hasMicrostoreConfig && microstoreSessionExpired;
   const disabled = expired || !microstoreEnabled || !microstoreEnabledForProduct || !hasMicrostoreConfig;
+  // Bloqué UNIQUEMENT à cause du toggle produit — dans ce cas on garde le
+  // cadenas fermé visible pour permettre à la cliente de débloquer d'un clic.
+  const blockedForProductOnly =
+    !microstoreEnabledForProduct
+    && hasMicrostoreConfig
+    && microstoreEnabled
+    && !expired;
+  // Cadenas visible dès que Microstore est utilisable côté plateforme
+  // (peu importe le drapeau produit).
+  const canShowBlockToggle = hasMicrostoreConfig && microstoreEnabled && !expired;
   const disabledReason = expired
     ? "Session Microstore expirée — renouvelez-la dans Paramètres › Marketplaces › Microstore avant d'envoyer."
     : !hasMicrostoreConfig
       ? "Microstore n'est pas configuré. Ajoutez la connexion dans Paramètres › Marketplaces › Microstore."
       : !microstoreEnabled
         ? "Microstore désactivé dans Paramètres."
-        : "Microstore désactivé pour ce produit.";
+        : "Microstore bloquée pour ce produit — cliquez sur le cadenas pour débloquer.";
 
   const cardClasses = expired
     ? "bg-[#FEF2F2] border-[#FECACA]"
@@ -244,6 +266,48 @@ export function MicrostoreStatusCard({
     }
   }
 
+  async function handleToggleBlock() {
+    if (blockBusy) return;
+    if (microstoreEnabledForProduct) {
+      const ok = await confirm({
+        type: "warning",
+        title: "Bloquer Microstore pour ce produit ?",
+        message:
+          "Tant que Microstore sera bloquée pour ce produit, plus aucune action " +
+          "(publication, mise à jour, synchronisation stock ou prix) ne partira vers Microstore — " +
+          "même si vous la cochez dans la modale de save ou lancez un rafraîchissement en lot. " +
+          "La fiche existante sur Microstore reste inchangée. Vous pourrez débloquer à tout moment.",
+        confirmLabel: "Bloquer",
+      });
+      if (!ok) return;
+    }
+    setBlockBusy(true);
+    try {
+      const res = await setProductMarketplaceEnabled(
+        productId,
+        "microstore",
+        !microstoreEnabledForProduct,
+      );
+      if (res.success) {
+        toast.success(
+          microstoreEnabledForProduct
+            ? "Microstore bloquée pour ce produit"
+            : "Microstore débloquée pour ce produit",
+        );
+        router.refresh();
+      } else {
+        toast.error("Modification refusée", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error(
+        "Modification refusée",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
   async function handleCancelSyncRequired() {
     const ok = await confirm({
       type: "warning",
@@ -292,78 +356,117 @@ export function MicrostoreStatusCard({
     </div>
   );
 
+  // Cadenas fermé (bloqué → clic pour débloquer) : tone warning pour attirer
+  // l'œil. Cadenas ouvert (non bloqué → clic pour bloquer) : tone neutre.
+  const blockBtnEl = canShowBlockToggle ? (
+    <button
+      type="button"
+      onClick={handleToggleBlock}
+      disabled={blockBusy}
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
+        microstoreEnabledForProduct
+          ? "text-text-secondary border-border hover:bg-bg-secondary"
+          : "text-[#92400E] border-[#FDE68A] hover:bg-[#FFFBEB]"
+      } ${blockBusy ? "opacity-50 cursor-wait" : ""}`}
+      title={
+        microstoreEnabledForProduct
+          ? "Bloquer Microstore pour ce produit (plus aucun envoi automatique tant que c'est bloqué)"
+          : "Débloquer Microstore pour ce produit (les envois automatiques reprendront)"
+      }
+      aria-label={
+        microstoreEnabledForProduct
+          ? "Bloquer Microstore pour ce produit"
+          : "Débloquer Microstore pour ce produit"
+      }
+    >
+      {blockBusy ? Icon.Spinner : microstoreEnabledForProduct ? Icon.LockOpen : Icon.Lock}
+    </button>
+  ) : null;
+
+  // Barre d'actions :
+  //  - marketplace HS (expired / kill switch / non configurée) → rien
+  //  - marketplace bloquée par la cliente pour ce produit → juste le cadenas
+  //    fermé pour permettre de débloquer d'un clic
+  //  - sinon → actions habituelles + cadenas ouvert en dernière position
+  const showActionsBar = !disabled || blockedForProductOnly;
+
   const cardEl = (
     <div
       className={`inline-flex flex-col items-stretch rounded-2xl border pt-1 pb-1.5 px-2.5 w-44 transition-colors ${cardClasses}`}
       style={disabledStyle}
     >
       {headerEl}
-      {!disabled && (
+      {showActionsBar && (
       <div className={`flex items-center justify-center gap-1 pt-1 mt-0.5 border-t ${dividerClass}`}>
-        {/* Bouton Synchroniser / Publier — inchangé. */}
-        <button
-          type="button"
-          onClick={handlePush}
-          disabled={disabled || busy}
-          className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
-            online
-              ? "text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]"
-              : "text-[#0e7490] border-[#a5f3fc] hover:bg-[#ecfeff]"
-          } ${disabled || (busy && busyAction === "push") ? "opacity-50 cursor-wait" : ""}`}
-          title={
-            busy && busyAction === "push"
-              ? "Envoi Microstore en cours…"
-              : online
-                ? "Synchroniser vers Microstore"
-                : "Envoyer vers Microstore (première publication)"
-          }
-          aria-label="Synchroniser vers Microstore"
-        >
-          {busy && busyAction === "push" ? Icon.Spinner : Icon.Refresh}
-        </button>
+        {!blockedForProductOnly && (
+          <>
+            {/* Bouton Synchroniser / Publier — inchangé. */}
+            <button
+              type="button"
+              onClick={handlePush}
+              disabled={disabled || busy}
+              className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
+                online
+                  ? "text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]"
+                  : "text-[#0e7490] border-[#a5f3fc] hover:bg-[#ecfeff]"
+              } ${disabled || (busy && busyAction === "push") ? "opacity-50 cursor-wait" : ""}`}
+              title={
+                busy && busyAction === "push"
+                  ? "Envoi Microstore en cours…"
+                  : online
+                    ? "Synchroniser vers Microstore"
+                    : "Envoyer vers Microstore (première publication)"
+              }
+              aria-label="Synchroniser vers Microstore"
+            >
+              {busy && busyAction === "push" ? Icon.Spinner : Icon.Refresh}
+            </button>
 
-        {/* Bouton Lier / Délier — ouvre la modale de liaison manuelle. Toujours
-            visible tant que Microstore est configuré : permet de rattacher un
-            produit BJ à une fiche Microstore existante (avant premier push) ou
-            de délier un produit déjà lié. */}
-        {hasMicrostoreConfig && (
-          <button
-            type="button"
-            onClick={() => setLinkModalOpen(true)}
-            disabled={busy}
-            className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
-              microstoreProductId != null
-                ? "text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]"
-                : "text-[#0e7490] border-[#a5f3fc] hover:bg-[#ecfeff]"
-            } ${busy ? "opacity-50 cursor-wait" : ""}`}
-            title={
-              microstoreProductId != null
-                ? `Lié à Microstore #${microstoreProductId} — cliquez pour délier ou re-rattacher`
-                : "Lier à une fiche Microstore existante (sans re-publier)"
-            }
-            aria-label="Liaison Microstore"
-          >
-            {Icon.Link}
-          </button>
-        )}
+            {/* Bouton Lier / Délier — ouvre la modale de liaison manuelle. Toujours
+                visible tant que Microstore est configuré : permet de rattacher un
+                produit BJ à une fiche Microstore existante (avant premier push) ou
+                de délier un produit déjà lié. */}
+            {hasMicrostoreConfig && (
+              <button
+                type="button"
+                onClick={() => setLinkModalOpen(true)}
+                disabled={busy}
+                className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white ${
+                  microstoreProductId != null
+                    ? "text-[#15803D] border-[#BBF7D0] hover:bg-[#F0FDF4]"
+                    : "text-[#0e7490] border-[#a5f3fc] hover:bg-[#ecfeff]"
+                } ${busy ? "opacity-50 cursor-wait" : ""}`}
+                title={
+                  microstoreProductId != null
+                    ? `Lié à Microstore #${microstoreProductId} — cliquez pour délier ou re-rattacher`
+                    : "Lier à une fiche Microstore existante (sans re-publier)"
+                }
+                aria-label="Liaison Microstore"
+              >
+                {Icon.Link}
+              </button>
+            )}
 
-        {/* Bouton Délier — visible uniquement si publié sur Microstore
-            (microstoreProductId connu). Efface la liaison côté site sans
-            toucher à la fiche Microstore, comme les autres marketplaces. */}
-        {microstoreProductId != null && (
-          <button
-            type="button"
-            onClick={handleUnlink}
-            disabled={disabled || busy || unlinkBusy}
-            className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white text-[#B91C1C] border-[#FECACA] hover:bg-[#FEF2F2] ${
-              disabled || unlinkBusy ? "opacity-50 cursor-wait" : ""
-            }`}
-            title="Délier ce produit de sa fiche Microstore (efface la liaison côté site sans toucher à Microstore)"
-            aria-label="Délier ce produit de Microstore"
-          >
-            {unlinkBusy ? Icon.Spinner : Icon.Unlink}
-          </button>
+            {/* Bouton Délier — visible uniquement si publié sur Microstore
+                (microstoreProductId connu). Efface la liaison côté site sans
+                toucher à la fiche Microstore, comme les autres marketplaces. */}
+            {microstoreProductId != null && (
+              <button
+                type="button"
+                onClick={handleUnlink}
+                disabled={disabled || busy || unlinkBusy}
+                className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors bg-white text-[#B91C1C] border-[#FECACA] hover:bg-[#FEF2F2] ${
+                  disabled || unlinkBusy ? "opacity-50 cursor-wait" : ""
+                }`}
+                title="Délier ce produit de sa fiche Microstore (efface la liaison côté site sans toucher à Microstore)"
+                aria-label="Délier ce produit de Microstore"
+              >
+                {unlinkBusy ? Icon.Spinner : Icon.Unlink}
+              </button>
+            )}
+          </>
         )}
+        {blockBtnEl}
       </div>
       )}
     </div>

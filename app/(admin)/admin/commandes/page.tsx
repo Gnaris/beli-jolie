@@ -5,8 +5,8 @@ import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
-import ExportOrdersButton from "@/components/admin/orders/ExportOrdersButton";
 import OrdersTabsNav from "@/components/admin/orders/OrdersTabsNav";
+import OrderStatusFilterMobile from "@/components/admin/orders/OrderStatusFilterMobile";
 import MarketplacesOrdersView from "@/components/admin/orders/marketplace/MarketplacesOrdersView";
 import { getMarketplaceSyncMeta } from "@/app/actions/admin/marketplace-orders";
 
@@ -156,38 +156,16 @@ export default async function AdminCommandesPage({
     <div className="space-y-6">
       <OrdersTabsNav boutiqueCount={totalBoutique} marketplacesCount={totalMarketplaces} />
       {/* ── HERO ── */}
-      <section
-        className="relative rounded-3xl border border-border p-6 md:p-8 overflow-hidden"
-        style={{
-          background: `
-            radial-gradient(60% 80% at 12% 10%, rgba(24,24,27,0.06), transparent 60%),
-            radial-gradient(50% 70% at 92% 20%, rgba(63,63,70,0.05), transparent 60%),
-            radial-gradient(70% 90% at 60% 100%, rgba(24,24,27,0.04), transparent 60%),
-            linear-gradient(180deg, #F5F3EE 0%, var(--color-bg-primary) 60%, var(--color-bg-primary) 100%)
-          `,
-        }}
-      >
-        <div
-          className="absolute -top-16 -right-10 w-56 h-56 rounded-full pointer-events-none"
-          style={{ background: "rgba(24,24,27,0.08)", filter: "blur(48px)" }}
-        />
-        <div
-          className="absolute -bottom-20 -left-10 w-56 h-56 rounded-full pointer-events-none"
-          style={{ background: "rgba(63,63,70,0.06)", filter: "blur(48px)" }}
-        />
-
+      <section className="relative rounded-3xl border border-border p-6 md:p-8 overflow-hidden bg-slate-100">
         <div className="relative flex items-start justify-between gap-6 flex-wrap">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-medium text-text-muted mb-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-3">
               <span>Admin</span>
               <span className="opacity-40">/</span>
-              <span className="text-text-secondary">Commandes</span>
+              <span className="text-slate-700">Commandes</span>
             </div>
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/70 backdrop-blur border border-border text-[11px] font-bold uppercase tracking-[0.18em] text-text-primary">
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-text-primary"
-                style={{ boxShadow: "0 0 0 3px rgba(24,24,27,0.14)" }}
-              />
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-900">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-900" />
               Ventes · Commandes
             </span>
             <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mt-3">
@@ -196,9 +174,6 @@ export default async function AdminCommandesPage({
             <p className="text-[15px] text-text-secondary mt-1.5 max-w-xl">
               Suivez les commandes reçues, préparez les expéditions et exportez pour la comptabilité.
             </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <ExportOrdersButton status={status} q={q} />
           </div>
         </div>
       </section>
@@ -277,18 +252,40 @@ export default async function AdminCommandesPage({
             )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <FilterChip href="/admin/commandes" label="Toutes" active={!status} count={totalAllStatuses} />
-            {Object.entries(STATUS_LABELS).map(([key, cfg]) => (
-              <FilterChip
-                key={key}
-                href={`/admin/commandes?status=${key}`}
-                label={cfg.label}
-                active={status === key}
-                count={countMap[key] ?? 0}
-                dotClass={cfg.dot}
+            {/* Mobile / tablette : sélecteur + modale */}
+            <div className="w-full lg:hidden">
+              <OrderStatusFilterMobile
+                currentStatus={status}
+                currentQ={q}
+                options={[
+                  { key: null, label: "Toutes", count: totalAllStatuses },
+                  ...Object.entries(STATUS_LABELS).map(([key, cfg]) => ({
+                    key,
+                    label: cfg.label,
+                    count: countMap[key] ?? 0,
+                    dotClass: cfg.dot,
+                  })),
+                ]}
               />
-            ))}
-            <form className="ml-auto relative w-full sm:w-72">
+            </div>
+
+            {/* Desktop : chips */}
+            <div className="hidden lg:flex items-center gap-2 flex-wrap">
+              <FilterChip href="/admin/commandes" label="Toutes" active={!status} count={totalAllStatuses} />
+              {Object.entries(STATUS_LABELS).map(([key, cfg]) => (
+                <FilterChip
+                  key={key}
+                  href={`/admin/commandes?status=${key}`}
+                  label={cfg.label}
+                  active={status === key}
+                  count={countMap[key] ?? 0}
+                  dotClass={cfg.dot}
+                />
+              ))}
+            </div>
+
+            {/* Recherche : commune mobile + desktop */}
+            <form className="w-full lg:ml-auto lg:w-72 relative">
               <svg
                 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -315,13 +312,13 @@ export default async function AdminCommandesPage({
           <FilteredEmptyState q={q} status={status ? STATUS_LABELS[status]?.label : undefined} />
         )
       ) : (
-        <section className="relative rounded-2xl bg-bg-primary border border-border overflow-hidden">
+        <section className="relative lg:rounded-2xl lg:bg-bg-primary lg:border lg:border-border lg:overflow-hidden">
           <div
-            className="absolute inset-x-0 top-0 h-[3px]"
+            className="hidden lg:block absolute inset-x-0 top-0 h-[3px]"
             style={{ background: "linear-gradient(90deg, #52525B, #18181B)" }}
           />
 
-          <div className="px-5 md:px-6 pt-6 pb-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="pb-3 lg:px-6 lg:pt-6 lg:pb-4 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
               <SectionEyebrow>Liste des commandes</SectionEyebrow>
               <span className="text-sm text-text-muted">
@@ -331,13 +328,7 @@ export default async function AdminCommandesPage({
           </div>
 
           {/* Entête colonnes desktop */}
-          <div
-            className="hidden lg:grid px-6 py-3 bg-bg-secondary border-y border-border"
-            style={{
-              gridTemplateColumns: "minmax(180px,1.8fr) minmax(200px,2fr) 130px 130px minmax(160px,1.5fr) 80px",
-              gap: "0.75rem",
-            }}
-          >
+          <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(160px,1.5fr)_80px] gap-3 px-6 py-3 bg-bg-secondary border-y border-border">
             <ColHeader>N° Commande</ColHeader>
             <ColHeader>Client</ColHeader>
             <ColHeader className="text-right">Montant TTC</ColHeader>
@@ -346,73 +337,116 @@ export default async function AdminCommandesPage({
             <ColHeader className="text-right">Voir</ColHeader>
           </div>
 
-          <div className="divide-y divide-border">
+          <div className="space-y-3 lg:space-y-0 lg:divide-y lg:divide-border">
             {orders.map((order) => {
               const st = STATUS_LABELS[order.status] ?? STATUS_LABELS.PENDING;
               const isCancelled = order.status === "CANCELLED";
+              const formattedDate = new Date(order.createdAt).toLocaleDateString("fr-FR", {
+                day: "2-digit", month: "short", year: "numeric",
+              });
+              const formattedAmount = `${Number(order.totalTTC).toFixed(2).replace(".", ",")} €`;
+              const itemsLabel = `${order._count.items} article${order._count.items > 1 ? "s" : ""}`;
+
               return (
                 <Link
                   key={order.id}
                   href={`/admin/commandes/${order.id}`}
-                  className={`grid grid-cols-1 lg:grid px-4 md:px-6 py-4 items-center hover:bg-bg-secondary transition-colors ${
-                    isCancelled ? "opacity-70" : ""
-                  }`}
-                  style={{
-                    gridTemplateColumns: "minmax(180px,1.8fr) minmax(200px,2fr) 130px 130px minmax(160px,1.5fr) 80px",
-                    gap: "0.75rem",
-                  }}
+                  className={`block bg-bg-primary border border-border rounded-xl shadow-sm hover:border-border-dark hover:shadow-md transition-all lg:border-0 lg:rounded-none lg:shadow-none lg:hover:bg-bg-secondary lg:hover:shadow-none ${isCancelled ? "opacity-70" : ""}`}
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className={`font-mono font-bold text-sm text-text-primary ${isCancelled ? "line-through decoration-zinc-400" : ""}`}>
-                        {order.orderNumber}
-                      </span>
-                      <span className={`lg:hidden ${st.badge} text-[10px]`}>{st.label}</span>
+                  {/* ── Mobile / tablette (<lg) ── */}
+                  <div className="lg:hidden px-4 md:px-6 py-4">
+                    {/* Ligne 1 : N° commande + montant */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className={`font-mono font-bold text-sm text-text-primary truncate ${isCancelled ? "line-through decoration-zinc-400" : ""}`}>
+                          {order.orderNumber}
+                        </p>
+                        <p className="text-[11.5px] text-text-muted mt-0.5">
+                          {formattedDate} · {itemsLabel}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-base font-bold tabular-nums ${isCancelled ? "text-text-muted" : "text-text-primary"}`}>
+                          {formattedAmount}
+                        </p>
+                        <span className={`${st.badge} text-[10px] mt-1 inline-flex`}>{st.label}</span>
+                      </div>
                     </div>
-                    <p className="text-[11.5px] text-text-muted mt-0.5">
-                      {new Date(order.createdAt).toLocaleDateString("fr-FR", {
-                        day: "2-digit", month: "short", year: "numeric",
-                      })}
-                      {" · "}{order._count.items} article{order._count.items > 1 ? "s" : ""}
-                    </p>
-                  </div>
 
-                  <div className="min-w-0 mt-2 lg:mt-0">
-                    <p className="text-[13.5px] font-semibold text-text-primary truncate">
-                      {order.clientCompany}
-                    </p>
-                    <p className="text-[11.5px] text-text-muted truncate">
-                      {order.clientEmail}
-                    </p>
-                  </div>
-
-                  <div className="mt-2 lg:mt-0 lg:text-right">
-                    <span className={`text-sm font-bold tabular-nums ${isCancelled ? "text-text-muted" : "text-text-primary"}`}>
-                      {Number(order.totalTTC).toFixed(2).replace(".", ",")}&nbsp;€
-                    </span>
-                  </div>
-
-                  <div className="mt-2 lg:mt-0 hidden lg:block">
-                    <span className={st.badge}>{st.label}</span>
-                  </div>
-
-                  <div className="min-w-0 mt-2 lg:mt-0">
-                    <p className="text-xs text-text-secondary truncate">
-                      {order.carrierName || "—"}
-                    </p>
-                    {order.eeTrackingId && (
-                      <p className="text-[11px] font-mono text-text-muted mt-0.5 truncate">
-                        {order.eeTrackingId}
+                    {/* Ligne 2 : client */}
+                    <div className="mt-3 min-w-0">
+                      <p className="text-[13.5px] font-semibold text-text-primary truncate">
+                        {order.clientCompany}
                       </p>
+                      <p className="text-[11.5px] text-text-muted truncate">
+                        {order.clientEmail}
+                      </p>
+                    </div>
+
+                    {/* Ligne 3 : transporteur (si présent) */}
+                    {(order.carrierName || order.eeTrackingId) && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-border flex items-center gap-2 text-xs text-text-secondary min-w-0">
+                        <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zm10 0a2 2 0 11-4 0 2 2 0 014 0zM13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 011-1h2.05a2.5 2.5 0 014.9 0H19a1 1 0 011 1m-7 0h2m5 0h2m-7-5V9a1 1 0 011-1h3.05a2 2 0 011.542.724l1.9 2.276A2 2 0 0121 12.276V15a1 1 0 01-1 1h-1" />
+                        </svg>
+                        <span className="truncate">{order.carrierName || "Transporteur —"}</span>
+                        {order.eeTrackingId && (
+                          <span className="font-mono text-[11px] text-text-muted truncate ml-auto">
+                            {order.eeTrackingId}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  <div className="hidden lg:flex justify-end">
-                    <span className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted group-hover:text-text-primary transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </span>
+                  {/* ── Desktop (≥lg) ── */}
+                  <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(160px,1.5fr)_80px] gap-3 px-6 py-4 items-center">
+                    <div className="min-w-0">
+                      <p className={`font-mono font-bold text-sm text-text-primary ${isCancelled ? "line-through decoration-zinc-400" : ""}`}>
+                        {order.orderNumber}
+                      </p>
+                      <p className="text-[11.5px] text-text-muted mt-0.5">
+                        {formattedDate} · {itemsLabel}
+                      </p>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-[13.5px] font-semibold text-text-primary truncate">
+                        {order.clientCompany}
+                      </p>
+                      <p className="text-[11.5px] text-text-muted truncate">
+                        {order.clientEmail}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <span className={`text-sm font-bold tabular-nums ${isCancelled ? "text-text-muted" : "text-text-primary"}`}>
+                        {formattedAmount}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className={st.badge}>{st.label}</span>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs text-text-secondary truncate">
+                        {order.carrierName || "—"}
+                      </p>
+                      {order.eeTrackingId && (
+                        <p className="text-[11px] font-mono text-text-muted mt-0.5 truncate">
+                          {order.eeTrackingId}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <span className="w-8 h-8 rounded-lg flex items-center justify-center text-text-muted group-hover:text-text-primary transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </span>
+                    </div>
                   </div>
                 </Link>
               );
@@ -421,7 +455,7 @@ export default async function AdminCommandesPage({
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-3 flex-wrap">
+            <div className="pt-4 mt-3 lg:mt-0 lg:px-6 lg:py-4 border-t border-border flex items-center justify-between gap-3 flex-wrap">
               <p className="text-xs text-text-muted">
                 <span className="font-semibold text-text-secondary">
                   {(currentPage - 1) * PER_PAGE + 1}–{Math.min(currentPage * PER_PAGE, total)}
@@ -479,32 +513,19 @@ function KpiTile({
   hint?: string;
 }) {
   return (
-    <div
-      className="relative rounded-2xl border border-border p-5 overflow-hidden"
-      style={{
-        background: "linear-gradient(140deg, #F5F3EE 0%, var(--color-bg-primary) 55%, var(--color-bg-primary) 100%)",
-      }}
-    >
-      <div
-        className="absolute inset-x-0 top-0 h-[3px]"
-        style={{ background: "linear-gradient(90deg, #52525B, #18181B)" }}
-      />
-      <div
-        className="absolute -top-8 -right-8 w-24 h-24 rounded-full pointer-events-none"
-        style={{ background: "rgba(24,24,27,0.06)", filter: "blur(48px)" }}
-      />
+    <div className="relative rounded-2xl border border-border p-5 overflow-hidden bg-slate-100">
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-zinc-100 ring-1 ring-zinc-200 flex items-center justify-center text-zinc-800">
+        <div className="w-9 h-9 rounded-xl bg-white ring-1 ring-slate-200 flex items-center justify-center text-slate-800">
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             {icon}
           </svg>
         </div>
-        <span className="text-[11px] font-bold tracking-[0.14em] uppercase text-zinc-700">
+        <span className="text-[11px] font-bold tracking-[0.14em] uppercase text-slate-700">
           {label}
         </span>
       </div>
       <div className="mt-4 flex items-baseline gap-2">
-        <span className="text-3xl font-bold text-zinc-900 tabular-nums">{value}</span>
+        <span className="text-3xl font-bold text-slate-900 tabular-nums">{value}</span>
         {suffix && <span className="text-xs text-text-muted">{suffix}</span>}
       </div>
       {hint && <p className="text-[11.5px] text-text-muted mt-1">{hint}</p>}

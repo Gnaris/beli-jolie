@@ -24,6 +24,7 @@ interface Props {
   hasEfashionConfig: boolean;
   hasFaireConfig: boolean;
   hasOrderchampConfig: boolean;
+  hasMicrostoreConfig: boolean;
 }
 
 type ThemeKey = "catalogue" | "price" | "status" | "marketplaces" | "sort" | "more";
@@ -194,7 +195,7 @@ function DatesFilterContent({
 
 export default function ThemedProductFilters({
   totalCount, activeCount, categories, tags, compositions, hsCodes,
-  hasPfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig,
+  hasPfsConfig, hasAnkorstoreConfig, hasEfashionConfig, hasFaireConfig, hasOrderchampConfig, hasMicrostoreConfig,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -472,6 +473,7 @@ export default function ThemedProductFilters({
           {hasAnkorstoreConfig && <LinkRadio urlKey="ankorsLink" label="Lien ANKOR" />}
           {hasFaireConfig && <LinkRadio urlKey="faireLink" label="Lien Faire" />}
           {hasOrderchampConfig && <LinkRadio urlKey="orderchampLink" label="Lien Orderchamp" />}
+          {hasMicrostoreConfig && <LinkRadio urlKey="microstoreLink" label="Lien Microstore" />}
           {/* Vérification PFS — alimenté par la pastille dans la colonne
               Produit (lib/pfs-verify.ts). Ne concerne que les produits liés. */}
           {hasPfsConfig && (
@@ -499,6 +501,7 @@ export default function ThemedProductFilters({
             {hasAnkorstoreConfig && <ExportSelect urlKey="ankorstoreExportedAt" label="Dernier export ANKOR" />}
             {hasFaireConfig && <ExportSelect urlKey="faireExportedAt" label="Dernier export Faire" />}
             {hasOrderchampConfig && <ExportSelect urlKey="orderchampExportedAt" label="Dernier export Orderchamp" />}
+            {hasMicrostoreConfig && <ExportSelect urlKey="microstoreExportedAt" label="Dernier export Microstore" />}
           </div>
         </div>
       );
@@ -552,8 +555,8 @@ export default function ThemedProductFilters({
       if (has("refresh")) n++;
       if (has("translationStatus")) n++;
     } else if (theme === "marketplaces") {
-      ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "pfsVerify",
-       "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt"].forEach((k) => has(k) && n++);
+      ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "microstoreLink", "pfsVerify",
+       "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt"].forEach((k) => has(k) && n++);
     } else if (theme === "sort") {
       // Actif seulement si `sort` porte une valeur reconnue.
       const raw = searchParams.get("sort") ?? "";
@@ -579,8 +582,8 @@ export default function ThemedProductFilters({
     catalogue:    ["cat", "subCat", "tag", "composition", "hsCodeId"],
     price:        ["minPrice", "maxPrice", "stockBelow"],
     status:       ["important", "bestSeller", "syncRequired", "missingImages", "locked", "refresh", "translationStatus"],
-    marketplaces: ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "pfsVerify",
-                   "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt"],
+    marketplaces: ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "microstoreLink", "pfsVerify",
+                   "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt"],
     sort:         ["sort"],
     more:         ["dateFrom", "dateTo", "updatedFrom", "updatedTo"],
   };

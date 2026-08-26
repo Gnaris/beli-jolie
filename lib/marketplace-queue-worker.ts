@@ -507,26 +507,6 @@ export async function runPfsJob(job: JobRow, payload: QueueJobPayload): Promise<
     return;
   }
 
-  // Maintenance plateforme (contrôle Beli & Jolie, affecte tous les tenants).
-  // Prioritaire sur le kill switch tenant : si la plateforme est en maintenance,
-  // aucune boutique ne peut envoyer, même si son propre interrupteur est ON.
-  const { isMarketplaceInMaintenance, marketplaceMaintenanceMessage } = await import("@/lib/platform-config");
-  if (await isMarketplaceInMaintenance("pfs")) {
-    const message = marketplaceMaintenanceMessage("pfs");
-    await prisma.marketplaceRefreshJob.update({
-      where: { id: job.id },
-      data: {
-        status: "FAILED",
-        errorMessage: message,
-        localOutcome: (localOutcome as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-        pfsOutcome: { ok: false, kind: "error", message } as unknown as Prisma.InputJsonValue,
-        completedAt: new Date(),
-      },
-    });
-    emitProductUpdated(job.productId);
-    return;
-  }
-
   // Kill switch PFS : si la marketplace est désactivée dans Paramètres, on
   // classe le job en FAILED (le local bump ci-dessus reste appliqué). Symétrique
   // à Ankorstore/eFashion/Faire.
@@ -757,13 +737,6 @@ async function runAnkorstoreJob(job: JobRow, payload: QueueJobPayload): Promise<
     return;
   }
 
-  const { isMarketplaceInMaintenance: isAnkorMaintenance, marketplaceMaintenanceMessage: ankorMaintenanceMsg } =
-    await import("@/lib/platform-config");
-  if (await isAnkorMaintenance("ankorstore")) {
-    await markAnkorstoreFailed(job.id, "error", ankorMaintenanceMsg("ankorstore"));
-    return;
-  }
-
   const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
   const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
   if (!ankorstoreEnabled) {
@@ -870,13 +843,6 @@ async function runEfashionJob(job: JobRow, payload: QueueJobPayload): Promise<vo
       where: { id: job.id },
       data: { status: "SUCCEEDED", completedAt: new Date() },
     });
-    return;
-  }
-
-  const { isMarketplaceInMaintenance: isEfMaintenance, marketplaceMaintenanceMessage: efMaintenanceMsg } =
-    await import("@/lib/platform-config");
-  if (await isEfMaintenance("efashion")) {
-    await markEfashionFailed(job.id, "error", efMaintenanceMsg("efashion"));
     return;
   }
 
@@ -1023,13 +989,6 @@ async function runFaireJob(job: JobRow, payload: QueueJobPayload): Promise<void>
       where: { id: job.id },
       data: { status: "SUCCEEDED", completedAt: new Date() },
     });
-    return;
-  }
-
-  const { isMarketplaceInMaintenance: isFaireMaintenance, marketplaceMaintenanceMessage: faireMaintenanceMsg } =
-    await import("@/lib/platform-config");
-  if (await isFaireMaintenance("faire")) {
-    await markFaireFailed(job.id, "error", faireMaintenanceMsg("faire"));
     return;
   }
 
@@ -1190,13 +1149,6 @@ async function runOrderchampJob(job: JobRow, payload: QueueJobPayload): Promise<
       where: { id: job.id },
       data: { status: "SUCCEEDED", completedAt: new Date() },
     });
-    return;
-  }
-
-  const { isMarketplaceInMaintenance, marketplaceMaintenanceMessage } =
-    await import("@/lib/platform-config");
-  if (await isMarketplaceInMaintenance("orderchamp")) {
-    await markOrderchampFailed(job.id, "error", marketplaceMaintenanceMessage("orderchamp"));
     return;
   }
 

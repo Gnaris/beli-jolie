@@ -30,7 +30,6 @@ import {
 } from "@/lib/cached-data";
 import { getPfsColorOptions } from "@/lib/pfs-annexes";
 import { getEfashionAnnexes } from "@/lib/efashion-annexes";
-import { getMarketplaceMaintenance } from "@/lib/platform-config";
 import { getMicrostoreSessionExpirations } from "@/lib/microstore-session-status";
 import { getMicrostoreAlertLevel } from "@/lib/microstore-session-alert-logic";
 import { extractLiveMarketplaceColorLabels } from "@/lib/marketplace-live-color-labels";
@@ -65,7 +64,6 @@ export default async function ModifierProduitPage({
     orderchampEnabled,
     hasMicrostoreConfig,
     microstoreEnabled,
-    maintenance,
     brandedBadgeRow,
   ] = await Promise.all([
     prisma.product.findUnique({
@@ -159,7 +157,6 @@ export default async function ModifierProduitPage({
     getCachedOrderchampEnabled(),
     getCachedHasMicrostoreConfig(),
     getCachedMicrostoreEnabled(),
-    getMarketplaceMaintenance(),
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
   ]);
 
@@ -621,11 +618,6 @@ export default async function ModifierProduitPage({
               microstoreEnabledForProduct={product.microstoreEnabled}
               microstoreSessionExpired={microstoreSessionExpired}
               microstoreProductId={(product as { microstoreProductId?: number | null }).microstoreProductId ?? null}
-              pfsMaintenance={maintenance.pfs}
-              ankorstoreMaintenance={maintenance.ankorstore}
-              efashionMaintenance={maintenance.efashion}
-              faireMaintenance={maintenance.faire}
-              orderchampMaintenance={maintenance.orderchamp}
             />
           </div>
         </>

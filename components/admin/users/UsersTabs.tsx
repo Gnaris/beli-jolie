@@ -13,7 +13,7 @@ export default function UsersTabs({ currentTab, registeredCount, cardsCount }: U
   ];
 
   return (
-    <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
+    <div className="flex items-center justify-center sm:justify-start gap-1 border-b border-border overflow-x-auto">
       {tabs.map((t) => {
         const active = t.key === currentTab;
         return (

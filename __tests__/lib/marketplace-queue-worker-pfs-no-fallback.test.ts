@@ -55,12 +55,6 @@ vi.mock("@/lib/cached-data", () => ({
   getCachedPfsEnabled: getCachedPfsEnabledSpy,
 }));
 
-vi.mock("@/lib/platform-config", () => ({
-  isMarketplaceInMaintenance: vi.fn().mockResolvedValue(false),
-  getMarketplaceMaintenance: vi.fn().mockResolvedValue({}),
-  marketplaceMaintenanceMessage: (mp: string) => `${mp} en maintenance`,
-}));
-
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

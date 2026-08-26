@@ -190,7 +190,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
     "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus", "pfsVerify",
-    "pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink",
+    "pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "microstoreLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt",
   ];
   let n = 0;
@@ -232,6 +232,7 @@ interface PageProps {
     efashionLink?: string;
     faireLink?: string;
     orderchampLink?: string;
+    microstoreLink?: string;
     syncRequired?: string;
     hsCodeId?: string;
     locked?: string;
@@ -338,6 +339,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionLink = "",
     faireLink = "",
     orderchampLink = "",
+    microstoreLink = "",
     syncRequired = "",
     hsCodeId = "",
     locked = "",
@@ -395,6 +397,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     efashionLink,
     faireLink,
     orderchampLink,
+    microstoreLink,
     syncRequired,
     hsCodeId,
     locked,
@@ -686,6 +689,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
               hasEfashionConfig={hasEfashionConfig}
               hasFaireConfig={hasFaireConfig}
               hasOrderchampConfig={hasOrderchampConfig}
+              hasMicrostoreConfig={hasMicrostoreConfig}
             />
           </Suspense>
         </div>

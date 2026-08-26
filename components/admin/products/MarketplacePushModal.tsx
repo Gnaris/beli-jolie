@@ -15,7 +15,6 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 
 export type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 export type PushMode =
@@ -148,9 +147,6 @@ export function MarketplacePushModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  const maintenance = useMarketplaceMaintenance();
-  const marketplaceInMaintenance = maintenance[marketplace];
 
   if (!open || !mounted) return null;
 
@@ -314,18 +310,6 @@ export function MarketplacePushModal({
             </div>
           )}
 
-          {/* Bandeau maintenance plateforme — au-dessus du corps */}
-          {marketplaceInMaintenance && (
-            <div className="mt-5 rounded-xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 flex items-start gap-2.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse mt-1.5" />
-              <div className="text-xs text-[#B91C1C] leading-relaxed">
-                <span className="font-bold uppercase tracking-wide">En maintenance sur la plateforme.</span>{" "}
-                {meta.label} est actuellement bloquée pour toutes les boutiques — publier / synchroniser est
-                impossible tant que la maintenance n&apos;est pas levée depuis « Contrôle plateforme ».
-              </div>
-            </div>
-          )}
-
           {/* Zone "publish-or-link" — 2 gros boutons empilés dans le corps */}
           {mode === "publish-or-link" && (
             <div className="mt-5 space-y-2">
@@ -333,8 +317,7 @@ export function MarketplacePushModal({
                 <button
                   type="button"
                   onClick={onConfirm}
-                  disabled={busy || marketplaceInMaintenance}
-                  title={marketplaceInMaintenance ? `${meta.label} en maintenance sur la plateforme` : undefined}
+                  disabled={busy}
                   className="w-full flex items-start gap-3 p-4 rounded-2xl border border-border hover:border-border-dark bg-bg-primary transition-colors disabled:opacity-60 text-left"
                 >
                   <svg
@@ -453,8 +436,7 @@ export function MarketplacePushModal({
               <button
                 type="button"
                 onClick={onConfirm}
-                disabled={busy || marketplaceInMaintenance}
-                title={marketplaceInMaintenance ? `${meta.label} en maintenance sur la plateforme` : undefined}
+                disabled={busy}
                 className="inline-flex items-center gap-2 pl-4 pr-5 py-2.5 text-sm font-semibold text-text-inverse bg-bg-dark hover:bg-black rounded-xl transition-colors font-body disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {mode === "resync" ? (

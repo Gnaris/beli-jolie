@@ -20,16 +20,6 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/pfs-update", () => ({
   pfsUpdateProductInPlace: pfsUpdateInPlaceSpy,
 }));
-vi.mock("@/lib/platform-config", () => ({
-  isMarketplaceInMaintenance: vi.fn().mockResolvedValue(false),
-  getMarketplaceMaintenance: vi.fn().mockResolvedValue({
-    pfs: false,
-    ankorstore: false,
-    efashion: false,
-    faire: false,
-  }),
-  marketplaceMaintenanceMessage: (mp: string) => `${mp} en maintenance`,
-}));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

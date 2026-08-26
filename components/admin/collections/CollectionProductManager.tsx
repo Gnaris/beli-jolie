@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useTransition } from "react";
 import Image from "@/components/ui/SmartImage";
+import { useToast } from "@/components/ui/Toast";
 import {
   addProductToCollection,
   removeProductFromCollection,
@@ -46,33 +47,45 @@ export default function CollectionProductManager({
   initialItems,
   availableProducts,
 }: Props) {
-  const [items, setItems]           = useState<CollectionItem[]>(
+  const [items, setItems] = useState<CollectionItem[]>(
     [...initialItems].sort((a, b) => a.position - b.position)
   );
-  const [search, setSearch]         = useState("");
-  const [saving, setSaving]         = useState(false);
-  const [message, setMessage]       = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [pendingCount, runBackgroundTask] = useTransitionCount();
+  const toast = useToast();
 
-  // Drag & drop state
   const dragIndex = useRef<number | null>(null);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  function flash(msg: string) {
-    setMessage(msg);
-    setTimeout(() => setMessage(null), 3000);
+  function runInBackground(
+    action: () => Promise<unknown>,
+    onError: () => void,
+    errorMessage: string
+  ) {
+    runBackgroundTask(async () => {
+      try {
+        await action();
+      } catch {
+        onError();
+        toast.error("Enregistrement échoué", errorMessage);
+      }
+    });
   }
 
-  async function saveOrder(newItems: CollectionItem[]) {
-    setSaving(true);
-    await reorderCollectionProducts(
-      collectionId,
-      newItems.map((it, i) => ({ productId: it.productId, position: i }))
+  // ── Réordonnancement ─────────────────────────────────────────────────────
+
+  function saveOrder(newItems: CollectionItem[], previous: CollectionItem[]) {
+    runInBackground(
+      () =>
+        reorderCollectionProducts(
+          collectionId,
+          newItems.map((it, i) => ({ productId: it.productId, position: i }))
+        ),
+      () => setItems(previous),
+      "Impossible de réordonner les produits."
     );
-    setSaving(false);
   }
 
-  // ── Drag & drop handlers ─────────────────────────────────────────────────
+  // ── Drag & drop ──────────────────────────────────────────────────────────
 
   function onDragStart(index: number) {
     dragIndex.current = index;
@@ -90,16 +103,18 @@ export default function CollectionProductManager({
   }
 
   function onDragEnd() {
+    const previous = [...initialItems].sort((a, b) => a.position - b.position);
     dragIndex.current = null;
-    saveOrder(items);
+    saveOrder(items, previous);
   }
 
-  // ── Position input change ────────────────────────────────────────────────
+  // ── Changement de position via input ─────────────────────────────────────
 
   function onPositionChange(productId: string, raw: string) {
     const pos = parseInt(raw, 10);
     if (isNaN(pos) || pos < 1) return;
 
+    const previous = items;
     const newItems = [...items];
     const idx      = newItems.findIndex((it) => it.productId === productId);
     if (idx === -1) return;
@@ -108,39 +123,45 @@ export default function CollectionProductManager({
     const insert  = Math.min(Math.max(0, pos - 1), newItems.length);
     newItems.splice(insert, 0, moved);
     setItems(newItems);
-    saveOrder(newItems);
+    saveOrder(newItems, previous);
   }
 
-  // ── Color change ─────────────────────────────────────────────────────────
+  // ── Changement de couleur ────────────────────────────────────────────────
 
-  async function onColorChange(productId: string, colorId: string) {
+  function onColorChange(productId: string, colorId: string) {
+    const previous = items;
     setItems((prev) =>
       prev.map((it) =>
         it.productId === productId ? { ...it, colorId: colorId || null } : it
       )
     );
-    await updateCollectionProductColor(collectionId, productId, colorId || null);
+    runInBackground(
+      () => updateCollectionProductColor(collectionId, productId, colorId || null),
+      () => setItems(previous),
+      "Impossible de changer la couleur."
+    );
   }
 
-  // ── Remove product ───────────────────────────────────────────────────────
+  // ── Retirer ──────────────────────────────────────────────────────────────
 
-  async function onRemove(productId: string) {
-    setSaving(true);
-    await removeProductFromCollection(collectionId, productId);
+  function onRemove(productId: string) {
+    const previous = items;
     setItems((prev) => prev.filter((it) => it.productId !== productId));
-    setSaving(false);
-    flash("Produit retire.");
+    runInBackground(
+      () => removeProductFromCollection(collectionId, productId),
+      () => setItems(previous),
+      "Impossible de retirer le produit."
+    );
   }
 
-  // ── Add product ──────────────────────────────────────────────────────────
+  // ── Ajouter ──────────────────────────────────────────────────────────────
 
-  async function onAdd(product: AvailableProduct) {
+  function onAdd(product: AvailableProduct) {
     if (items.some((it) => it.productId === product.id)) {
-      flash("Ce produit est deja dans la collection.");
+      toast.info("Déjà dans la collection");
       return;
     }
-    setSaving(true);
-    await addProductToCollection(collectionId, product.id);
+    const previous = items;
     setItems((prev) => [
       ...prev,
       {
@@ -150,12 +171,15 @@ export default function CollectionProductManager({
         product:   { id: product.id, name: product.name, reference: product.reference, colors: product.colors },
       },
     ]);
-    setSaving(false);
     setSearch("");
-    flash("Produit ajoute.");
+    runInBackground(
+      () => addProductToCollection(collectionId, product.id),
+      () => setItems(previous),
+      "Impossible d'ajouter le produit."
+    );
   }
 
-  // ── Filtered available products ──────────────────────────────────────────
+  // ── Recherche filtrée ────────────────────────────────────────────────────
 
   const alreadyIn = new Set(items.map((it) => it.productId));
   const filtered  = search.length >= 2
@@ -167,18 +191,9 @@ export default function CollectionProductManager({
       ).slice(0, 8)
     : [];
 
-  // ── Render ───────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
-      {/* Status bar */}
-      {message && (
-        <div className="bg-bg-secondary border border-border text-text-secondary text-sm px-4 py-2 rounded-xl">
-          {message}
-        </div>
-      )}
-
-      {/* Search & add */}
+      {/* Recherche et ajout */}
       <div>
         <label className="block text-sm font-medium text-text-primary mb-1.5 font-body">
           Ajouter un produit
@@ -223,15 +238,16 @@ export default function CollectionProductManager({
         </p>
       </div>
 
-      {/* Products list */}
+      {/* Liste produits */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-medium text-text-primary font-body">
             Produits dans la collection ({items.length})
           </p>
-          {saving && (
-            <span className="text-xs text-text-muted font-body">
-              Enregistrement...
+          {pendingCount > 0 && (
+            <span className="text-xs text-text-muted font-body flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
+              Synchronisation…
             </span>
           )}
         </div>
@@ -256,14 +272,12 @@ export default function CollectionProductManager({
                   onDragEnd={onDragEnd}
                   className="flex items-center gap-3 bg-bg-primary border border-border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing select-none"
                 >
-                  {/* Drag handle */}
                   <div className="text-text-muted shrink-0" aria-hidden>
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm8-12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm0 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0z" />
                     </svg>
                   </div>
 
-                  {/* Image */}
                   <div className="w-12 h-12 rounded bg-bg-tertiary shrink-0 overflow-hidden">
                     {displayImage ? (
                       <Image src={displayImage} alt={item.product.name} className="w-full h-full object-cover" width={48} height={48} unoptimized />
@@ -277,7 +291,6 @@ export default function CollectionProductManager({
                     )}
                   </div>
 
-                  {/* Infos */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary truncate font-body">
                       {item.product.name}
@@ -285,7 +298,6 @@ export default function CollectionProductManager({
                     <p className="text-xs text-text-muted font-mono">{item.product.reference}</p>
                   </div>
 
-                  {/* Color selector */}
                   {colors.length > 1 && (
                     <div className="flex items-center gap-1.5 shrink-0">
                       {colors.map((c) => (
@@ -305,7 +317,6 @@ export default function CollectionProductManager({
                     </div>
                   )}
 
-                  {/* Position input */}
                   <input
                     type="number"
                     min={1}
@@ -320,7 +331,6 @@ export default function CollectionProductManager({
                     title="Position"
                   />
 
-                  {/* Remove */}
                   <button
                     type="button"
                     onClick={() => onRemove(item.productId)}
@@ -340,4 +350,17 @@ export default function CollectionProductManager({
       </div>
     </div>
   );
+}
+
+// ── Compteur de tâches en fond ─────────────────────────────────────────────
+// useTransition ne donne qu'un booléen isPending. On tient un compteur pour
+// afficher « Synchronisation… » dès qu'au moins une requête est en vol.
+
+function useTransitionCount(): [number, (fn: () => Promise<void>) => void] {
+  const [count, setCount] = useState(0);
+  const run = (fn: () => Promise<void>) => {
+    setCount((c) => c + 1);
+    fn().finally(() => setCount((c) => c - 1));
+  };
+  return [count, run];
 }

@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MarketplaceRefreshOptions } from "@/app/actions/admin/marketplace-refresh";
-import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 
 // ─────────────────────────────────────────────
 // Types
@@ -291,7 +290,6 @@ function MarketplaceCard({
   disabledCount,
   totalSelected,
   isRefreshFlow,
-  inMaintenance = false,
   actionLabel,
   actionMode,
 }: {
@@ -305,20 +303,16 @@ function MarketplaceCard({
    *  ticket de shooting). false sur Propager modifs / Propager statut /
    *  Synchroniser (la fiche existante est réutilisée, pas de shooting). */
   isRefreshFlow?: boolean;
-  /** Maintenance plateforme active — coupe l'interaction et affiche un badge dédié. */
-  inMaintenance?: boolean;
   /** Verbe pour le compteur « X à {actionLabel} ». Défaut « rafraîchir ». */
   actionLabel: string;
   /** Mode d'action — sélectionne la description à afficher. */
   actionMode: ActionMode;
 }) {
-  // Maintenance prend priorité sur "désactivé pour toute la sélection".
   const allDisabled =
-    inMaintenance ||
-    (typeof enabledCount === "number" &&
-      typeof totalSelected === "number" &&
-      enabledCount === 0 &&
-      totalSelected > 0);
+    typeof enabledCount === "number" &&
+    typeof totalSelected === "number" &&
+    enabledCount === 0 &&
+    totalSelected > 0;
   const showCounts =
     typeof enabledCount === "number" &&
     typeof disabledCount === "number" &&
@@ -357,16 +351,9 @@ function MarketplaceCard({
                 {meta.label}
               </span>
               {allDisabled && (
-                inMaintenance ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse" />
-                    En maintenance
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[color:var(--color-warning-bg)] text-[color:var(--color-warning)] border border-[#FDE68A]">
-                    Désactivée sur toute la sélection
-                  </span>
-                )
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[color:var(--color-warning-bg)] text-[color:var(--color-warning)] border border-[#FDE68A]">
+                  Désactivée sur toute la sélection
+                </span>
               )}
             </div>
             {!allDisabled && (
@@ -494,19 +481,16 @@ function Modal({ input, onResult }: ModalProps) {
   const mouseDownOnBackdrop = useRef(false);
   const showBoutique = input.showBoutique ?? true;
   const defaultAllChecked = input.defaultAllChecked ?? false;
-  const maintenance = useMarketplaceMaintenance();
   const [state, setState] = useState<Record<MarketplaceKey, boolean>>({
     // La case "Boutique / Remettre en Nouveauté" ne fait sens que sur le
     // parcours "Rafraîchir" — pas sur les propagations de modifs, statut, ni
     // synchronisation. Donc pas de pré-cochage local, même en defaultAllChecked.
     local: false,
-    // Ne pas pré-cocher les marketplaces en maintenance : le job serait refusé.
-    pfs: defaultAllChecked && input.showPfs && !maintenance.pfs,
-    ankorstore: defaultAllChecked && input.showAnkorstore && !maintenance.ankorstore,
-    efashion: defaultAllChecked && input.showEfashion && !maintenance.efashion,
-    faire: defaultAllChecked && input.showFaire && !maintenance.faire,
-    orderchamp: defaultAllChecked && !!input.showOrderchamp && !maintenance.orderchamp,
-    // Microstore n'a pas de maintenance plateforme (pas d'API async, pas de callbacks).
+    pfs: defaultAllChecked && input.showPfs,
+    ankorstore: defaultAllChecked && input.showAnkorstore,
+    efashion: defaultAllChecked && input.showEfashion,
+    faire: defaultAllChecked && input.showFaire,
+    orderchamp: defaultAllChecked && !!input.showOrderchamp,
     microstore: defaultAllChecked && input.showMicrostore,
   });
   // Cadence — visible seulement pour count > 1. Défaut : Immédiat.
@@ -783,7 +767,6 @@ function Modal({ input, onResult }: ModalProps) {
                     disabledCount={counts ? counts[k].disabled : undefined}
                     totalSelected={totalIds}
                     isRefreshFlow={showBoutique}
-                    inMaintenance={k === "microstore" ? false : maintenance[k]}
                     actionLabel={actionLabel}
                     actionMode={actionMode}
                   />

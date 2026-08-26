@@ -13,7 +13,6 @@ import {
   getProductMarketplaceEnabled,
   marketplaceDisabledMessage,
 } from "@/lib/marketplace-enabled";
-import { getMarketplaceMaintenance, marketplaceMaintenanceMessage } from "@/lib/platform-config";
 import { checkProductComplete } from "@/lib/product-publishability-check";
 import { revalidateProductPublicPage } from "@/lib/product-url-server";
 
@@ -123,12 +122,7 @@ export async function publishProductToMarketplaces(
     return outcome;
   }
 
-  const maintenance = await getMarketplaceMaintenance();
-
   if (options.pfs) {
-    if (maintenance.pfs) {
-      outcome.pfs = { status: "error", message: marketplaceMaintenanceMessage("pfs") };
-    } else {
     const { getCachedPfsEnabled } = await import("@/lib/cached-data");
     const pfsEnabled = await getCachedPfsEnabled();
     if (!pfsEnabled) {
@@ -174,13 +168,9 @@ export async function publishProductToMarketplaces(
         outcome.pfs = { status: "error", message };
       }
     }
-    }
   }
 
   if (options.ankorstore) {
-    if (maintenance.ankorstore) {
-      outcome.ankorstore = { status: "error", message: marketplaceMaintenanceMessage("ankorstore") };
-    } else {
     const { getCachedAnkorstoreEnabled } = await import("@/lib/cached-data");
     const ankorstoreEnabled = await getCachedAnkorstoreEnabled();
     if (!ankorstoreEnabled) {
@@ -207,13 +197,9 @@ export async function publishProductToMarketplaces(
         outcome.ankorstore = { status: "error", message };
       }
     }
-    }
   }
 
   if (options.faire) {
-    if (maintenance.faire) {
-      outcome.faire = { status: "error", message: marketplaceMaintenanceMessage("faire") };
-    } else {
     const { getCachedFaireEnabled } = await import("@/lib/cached-data");
     const faireEnabled = await getCachedFaireEnabled();
     if (!faireEnabled) {
@@ -259,13 +245,9 @@ export async function publishProductToMarketplaces(
         outcome.faire = { status: "error", message };
       }
     }
-    }
   }
 
   if (options.orderchamp) {
-    if (maintenance.orderchamp) {
-      outcome.orderchamp = { status: "error", message: marketplaceMaintenanceMessage("orderchamp") };
-    } else {
     const { getCachedOrderchampEnabled } = await import("@/lib/cached-data");
     const orderchampEnabled = await getCachedOrderchampEnabled();
     if (!orderchampEnabled) {
@@ -299,7 +281,6 @@ export async function publishProductToMarketplaces(
         logger.error("[Marketplace Publish] Orderchamp unexpected error", { productId, error: message });
         outcome.orderchamp = { status: "error", message };
       }
-    }
     }
   }
 

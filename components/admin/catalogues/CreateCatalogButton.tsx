@@ -32,12 +32,13 @@ export default function CreateCatalogButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="btn-primary inline-flex items-center gap-2"
+        className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 h-9 sm:h-10 rounded-xl bg-bg-dark text-text-inverse text-xs sm:text-sm font-medium font-body hover:opacity-90 transition-all shrink-0"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        Nouveau catalogue
+        <span className="sm:hidden">Nouveau</span>
+        <span className="hidden sm:inline">Nouveau catalogue</span>
       </button>
 
       {open && (

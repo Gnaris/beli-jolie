@@ -63,15 +63,6 @@ vi.mock("@/lib/marketplace-enabled", () => ({
   }),
   marketplaceDisabledMessage: (mp: string) => `${mp} désactivé`,
 }));
-vi.mock("@/lib/platform-config", () => ({
-  getMarketplaceMaintenance: vi.fn().mockResolvedValue({
-    pfs: false,
-    ankorstore: false,
-    faire: false,
-    efashion: false,
-  }),
-  marketplaceMaintenanceMessage: (mp: string) => `${mp} en maintenance`,
-}));
 
 vi.mock("@/lib/product-publishability-check", () => ({
   checkProductComplete: checkProductCompleteSpy,

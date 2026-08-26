@@ -60,16 +60,6 @@ vi.mock("@/lib/marketplace-enabled", () => ({
   marketplaceDisabledMessage: (mp: string) => `${mp} désactivé`,
 }));
 
-vi.mock("@/lib/platform-config", () => ({
-  getMarketplaceMaintenance: vi.fn().mockResolvedValue({
-    pfs: false,
-    ankorstore: false,
-    efashion: false,
-    faire: false,
-  }),
-  marketplaceMaintenanceMessage: (mp: string) => `${mp} en maintenance`,
-}));
-
 vi.mock("@/lib/product-publishability-check", () => ({
   // Les tests existants valident le dispatch après validation. La garde de
   // complétude est testée séparément dans marketplace-publish-completeness.test.ts.

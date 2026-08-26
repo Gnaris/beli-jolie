@@ -158,6 +158,8 @@ export default function CompactFiltersHeader({
     if (efashionLink) out.push({ key: "ef-link", label: `EF · ${efashionLink === "linked" ? "lié" : "non lié"}`, remove: ["efashionLink"] });
     const faireLink = p.get("faireLink") ?? "";
     if (faireLink) out.push({ key: "fai-link", label: `Faire · ${faireLink === "linked" ? "lié" : "non lié"}`, remove: ["faireLink"] });
+    const microstoreLink = p.get("microstoreLink") ?? "";
+    if (microstoreLink) out.push({ key: "mc-link", label: `Microstore · ${microstoreLink === "linked" ? "lié" : "non lié"}`, remove: ["microstoreLink"] });
 
     const exportLabel: Record<string, string> = {
       never: "jamais",
@@ -174,6 +176,8 @@ export default function CompactFiltersHeader({
     if (ankExp) out.push({ key: "ank-exp", label: `ANKOR exporté · ${exportLabel[ankExp] ?? ankExp}`, remove: ["ankorstoreExportedAt"] });
     const faiExp = p.get("faireExportedAt") ?? "";
     if (faiExp) out.push({ key: "fai-exp", label: `Faire exporté · ${exportLabel[faiExp] ?? faiExp}`, remove: ["faireExportedAt"] });
+    const mcExp = p.get("microstoreExportedAt") ?? "";
+    if (mcExp) out.push({ key: "mc-exp", label: `Microstore exporté · ${exportLabel[mcExp] ?? mcExp}`, remove: ["microstoreExportedAt"] });
 
     return out;
   }, [searchParams, catLabels, tagLabels, compositionLabels, hsLabels]);
