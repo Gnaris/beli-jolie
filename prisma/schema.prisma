@@ -2665,20 +2665,6 @@ model CatalogProduct {
 }
 
 // ─────────────────────────────────────────────
-// Configuration plateforme (clé/valeur, HORS tenant)
-// ─────────────────────────────────────────────
-// Utilisée pour les interrupteurs de plateforme contrôlés depuis
-// la boutique « maîtresse » (Beli & Jolie) et qui s'appliquent à
-// TOUS les tenants (ex: maintenance marketplace globale).
-// Pas de tenantId volontairement — l'extension Prisma passthrough
-// cette table (non listée dans TENANT_SCOPED_MODELS).
-model PlatformConfig {
-  key       String   @id
-  value     String   @db.Text
-  updatedAt DateTime @updatedAt
-}
-
-// ─────────────────────────────────────────────
 // Configuration du site (clé/valeur)
 // ─────────────────────────────────────────────
 

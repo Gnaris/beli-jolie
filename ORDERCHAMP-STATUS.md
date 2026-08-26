@@ -26,7 +26,6 @@
 - `lib/marketplace-queue-serializer.ts` — mapping `orderchamp` ↔ `ORDERCHAMP`
 - `lib/marketplace-job-intent.ts` — `ID_FIELD_BY_MARKETPLACE.orderchamp`
 - `lib/cached-data.ts` — `getCachedOrderchampApiKey/HasConfig/Enabled`
-- `lib/platform-config.ts` — maintenance orderchamp
 - `app/actions/admin/site-config.ts` — `updateOrderchampCredentials` + `validateOrderchampCredentials` + markup wholesale/retail + `PRODUCTS_MGMT_KEY.orderchamp`
 
 ### Phase 2 — Auth + client GraphQL

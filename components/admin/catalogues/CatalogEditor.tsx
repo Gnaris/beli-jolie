@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "@/components/ui/SmartImage";
 import {
@@ -10,7 +10,8 @@ import {
   updateCatalogProductDisplay,
 } from "@/app/actions/admin/catalogs";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
-import ProductPickerModal, { type PickerProduct } from "./ProductPickerModal";
+import { useToast } from "@/components/ui/Toast";
+import ProductPickerModal, { type PickerProduct, type PickerFilterOptions } from "./ProductPickerModal";
 
 // ─── Types bruts Prisma (tels que retournés par la page) ──────────────────────
 
@@ -58,6 +59,7 @@ interface CategoryOption {
 interface Props {
   catalog: CatalogData;
   categories: CategoryOption[];
+  filterOptions?: PickerFilterOptions;
 }
 
 // ─── Type couleur dédupliquée ─────────────────────────────────────────────────
@@ -94,10 +96,11 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 
-export default function CatalogEditor({ catalog, categories }: Props) {
+export default function CatalogEditor({ catalog, categories, filterOptions }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const toast = useToast();
   // ── État local ──────────────────────────────────────────────────────────────
   const [title, setTitle] = useState(catalog.title);
   const [status, setStatus] = useState<"INACTIVE" | "ACTIVE">(catalog.status);
@@ -105,14 +108,32 @@ export default function CatalogEditor({ catalog, categories }: Props) {
   const [saved, setSaved] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
-  const [productPage, setProductPage] = useState(1);
-  const PRODUCTS_PER_PAGE = 20;
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingCount, runBackgroundTask] = useTransitionCount();
+
+  // Bloc produits scrollable — ~10 cartes visibles par défaut sur desktop
+  const PRODUCTS_LIST_MAX_HEIGHT = "max-h-[520px]";
 
   // IDs déjà dans le catalogue
   const selectedIds = useMemo(() => new Set(selectedProducts.map((p) => p.productId)), [selectedProducts]);
 
-  // ─── Sauvegarder les réglages ──────────────────────────────────────────────
+  // ── Fire-and-forget avec rollback ─────────────────────────────────────────
+  function runInBackground(
+    action: () => Promise<unknown>,
+    onError: () => void,
+    errorMessage: string,
+  ) {
+    runBackgroundTask(async () => {
+      try {
+        await action();
+      } catch {
+        onError();
+        toast.error("Enregistrement échoué", errorMessage);
+      }
+    });
+  }
+
+  // ─── Sauvegarder les réglages (titre/statut) ─────────────────────────────
   const handleSave = () => {
     showLoading();
     startTransition(async () => {
@@ -132,80 +153,79 @@ export default function CatalogEditor({ catalog, categories }: Props) {
   // ─── Ajouter un produit (depuis le picker) ─────────────────────────────────
   const handlePickerAdd = (pickerProduct: PickerProduct) => {
     if (selectedIds.has(pickerProduct.id)) return;
-    startTransition(async () => {
-      await addProductToCatalog(catalog.id, pickerProduct.id);
-      // Convert PickerProduct → ProductSnap for local state
-      const snap: ProductSnap = {
-        id: pickerProduct.id,
-        name: pickerProduct.name,
-        reference: pickerProduct.reference,
-        colorImages: pickerProduct.colorImages,
-        colors: pickerProduct.colors,
-      };
-      setSelectedProducts((prev) => [
-        ...prev,
-        { productId: snap.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product: snap },
-      ]);
-    });
+    const snap: ProductSnap = {
+      id: pickerProduct.id,
+      name: pickerProduct.name,
+      reference: pickerProduct.reference,
+      colorImages: pickerProduct.colorImages,
+      colors: pickerProduct.colors,
+    };
+    const previous = selectedProducts;
+    setSelectedProducts((prev) => [
+      ...prev,
+      { productId: snap.id, position: prev.length, selectedColorId: null, selectedImagePath: null, product: snap },
+    ]);
+    runInBackground(
+      () => addProductToCatalog(catalog.id, pickerProduct.id),
+      () => setSelectedProducts(previous),
+      "Impossible d'ajouter le produit.",
+    );
   };
 
   // ─── Retirer un produit ───────────────────────────────────────────────────
   const handleRemove = (productId: string) => {
-    showLoading();
-    startTransition(async () => {
-      try {
-        await removeProductFromCatalog(catalog.id, productId);
-        setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
-        if (expandedProduct === productId) setExpandedProduct(null);
-      } finally {
-        hideLoading();
-      }
-    });
+    const previous = selectedProducts;
+    const wasExpanded = expandedProduct === productId;
+    setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
+    if (wasExpanded) setExpandedProduct(null);
+    runInBackground(
+      () => removeProductFromCatalog(catalog.id, productId),
+      () => {
+        setSelectedProducts(previous);
+        if (wasExpanded) setExpandedProduct(productId);
+      },
+      "Impossible de retirer le produit.",
+    );
   };
 
-  // ─── Retirer un produit (depuis le picker, sans loading overlay) ──────────
+  // ─── Retirer un produit (depuis le picker) ────────────────────────────────
   const handlePickerRemove = (productId: string) => {
-    startTransition(async () => {
-      await removeProductFromCatalog(catalog.id, productId);
-      setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
-      if (expandedProduct === productId) setExpandedProduct(null);
-    });
+    handleRemove(productId);
   };
 
-  // ─── Changer la couleur d'un produit (reset image) ────────────────────────
-  const handleColorChange = (productId: string, colorId: string | null) => {
-    showLoading();
-    startTransition(async () => {
-      try {
-        await updateCatalogProductDisplay(catalog.id, productId, colorId, null);
-        setSelectedProducts((prev) =>
-          prev.map((p) =>
-            p.productId === productId
-              ? { ...p, selectedColorId: colorId, selectedImagePath: null }
-              : p
-          )
-        );
-      } finally {
-        hideLoading();
-      }
-    });
+  // ─── Changer la couleur d'un produit ─────────────────────────────────────
+  // Cliquer sur la couleur principale envoie `null` (= revient au comportement
+  // "suit la couleur principale" implicite, sans bouton Auto explicite).
+  const handleColorChange = (productId: string, colorId: string, isPrimaryClick: boolean) => {
+    const stored = isPrimaryClick ? null : colorId;
+    const previous = selectedProducts;
+    setSelectedProducts((prev) =>
+      prev.map((p) =>
+        p.productId === productId
+          ? { ...p, selectedColorId: stored, selectedImagePath: null }
+          : p,
+      ),
+    );
+    runInBackground(
+      () => updateCatalogProductDisplay(catalog.id, productId, stored, null),
+      () => setSelectedProducts(previous),
+      "Impossible de changer la couleur.",
+    );
   };
 
   // ─── Changer l'image spécifique d'un produit ──────────────────────────────
   const handleImageChange = (productId: string, imagePath: string | null, currentColorId: string | null) => {
-    showLoading();
-    startTransition(async () => {
-      try {
-        await updateCatalogProductDisplay(catalog.id, productId, currentColorId, imagePath);
-        setSelectedProducts((prev) =>
-          prev.map((p) =>
-            p.productId === productId ? { ...p, selectedImagePath: imagePath } : p
-          )
-        );
-      } finally {
-        hideLoading();
-      }
-    });
+    const previous = selectedProducts;
+    setSelectedProducts((prev) =>
+      prev.map((p) =>
+        p.productId === productId ? { ...p, selectedImagePath: imagePath } : p,
+      ),
+    );
+    runInBackground(
+      () => updateCatalogProductDisplay(catalog.id, productId, currentColorId, imagePath),
+      () => setSelectedProducts(previous),
+      "Impossible de changer l'image.",
+    );
   };
 
   // ─── Copier le lien ───────────────────────────────────────────────────────
@@ -324,7 +344,7 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
-                  Enregistre
+                  Enregistré
                 </>
               ) : isPending ? (
                 <>
@@ -348,35 +368,41 @@ export default function CatalogEditor({ catalog, categories }: Props) {
       <div>
         <div className="space-y-5">
 
-          {/* Bloc produits avec recherche intégrée */}
           <div className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
 
             {/* Header du bloc + bouton ajouter */}
-            <div className="p-5 pb-0">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <h2 className="font-heading font-semibold text-text-primary text-sm">
+            <div className="p-4 sm:p-5 pb-0">
+              <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h2 className="font-heading font-semibold text-text-primary text-sm truncate">
                     Produits du catalogue
                   </h2>
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-medium">
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-medium shrink-0">
                     {selectedProducts.length}
                   </span>
+                  {pendingCount > 0 && (
+                    <span className="text-xs text-text-muted font-body flex items-center gap-1.5 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
+                      Synchronisation…
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-bg-dark text-text-inverse text-sm font-medium font-body hover:opacity-90 transition-all"
+                  className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 h-9 rounded-xl bg-bg-dark text-text-inverse text-xs sm:text-sm font-medium font-body hover:opacity-90 transition-all shrink-0"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
-                  Ajouter des produits
+                  <span className="sm:hidden">Ajouter</span>
+                  <span className="hidden sm:inline">Ajouter des produits</span>
                 </button>
               </div>
             </div>
 
             {/* Liste des produits sélectionnés */}
-            <div className="px-5 pb-5">
+            <div className="px-4 sm:px-5 pb-5">
               {selectedProducts.length === 0 ? (
                 <div className="py-12 flex flex-col items-center text-center">
                   <div className="w-16 h-16 rounded-2xl bg-bg-secondary flex items-center justify-center mb-4">
@@ -393,16 +419,15 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                   </p>
                 </div>
               ) : (
-                <>
+                <div className={`overflow-y-auto pr-1 -mr-1 ${PRODUCTS_LIST_MAX_HEIGHT}`}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {selectedProducts
-                    .slice((productPage - 1) * PRODUCTS_PER_PAGE, productPage * PRODUCTS_PER_PAGE)
-                    .map((row) => {
+                  {selectedProducts.map((row) => {
                     const uniqueColors = deduplicateColors(row.product.colors, row.product.colorImages);
                     const hasMultipleColors = uniqueColors.length > 1;
+                    const primaryColor = uniqueColors.find((c) => c.isPrimary) ?? uniqueColors[0];
                     const activeColor = row.selectedColorId
                       ? uniqueColors.find((c) => c.colorId === row.selectedColorId)
-                      : (uniqueColors.find((c) => c.isPrimary) ?? uniqueColors[0]);
+                      : primaryColor;
                     const activeImages = activeColor?.images ?? row.product.colorImages;
                     const hasMultipleImages = activeImages.length > 1;
                     const displayImage = row.selectedImagePath ?? activeImages[0]?.path ?? null;
@@ -420,7 +445,6 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                       >
                         {/* Carte produit */}
                         <div className="p-3 flex items-start gap-3">
-                          {/* Image plus grande */}
                           <div className="w-16 h-16 rounded-lg bg-bg-secondary overflow-hidden shrink-0">
                             {displayImage ? (
                               <Image src={displayImage} alt={row.product.name} className="w-full h-full object-cover" width={64} height={64} unoptimized />
@@ -434,7 +458,6 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                             )}
                           </div>
 
-                          {/* Infos */}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-heading font-medium text-text-primary truncate">
                               {row.product.name}
@@ -454,14 +477,12 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                                   />
                                 )}
                                 <span className="text-xs text-[#6B7280] font-body">{activeColor.name}</span>
-                                <span className="text-xs text-text-muted font-body ml-auto">{Number(activeColor.unitPrice).toFixed(2)} \u20AC</span>
+                                <span className="text-xs text-text-muted font-body ml-auto">{Number(activeColor.unitPrice).toFixed(2)} €</span>
                               </div>
                             )}
                           </div>
 
-                          {/* Actions */}
                           <div className="flex flex-col gap-1 shrink-0">
-                            {/* Personnaliser (si options) */}
                             {hasOptions && (
                               <button
                                 type="button"
@@ -479,11 +500,9 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                                 </svg>
                               </button>
                             )}
-                            {/* Retirer */}
                             <button
                               onClick={() => handleRemove(row.productId)}
-                              disabled={isPending}
-                              className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors disabled:opacity-50"
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-[#EF4444] hover:bg-[#FEF2F2] transition-colors"
                               title="Retirer du catalogue"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -494,52 +513,49 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                           </div>
                         </div>
 
-                        {/* Panel de personnalisation (couleur + image) */}
+                        {/* Panneau personnalisation (couleur + image) */}
                         {isExpanded && (
                           <div className="px-3 pb-3 space-y-3">
-                            {/* Sélecteur couleur */}
+                            {/* Sélecteur couleur — pas de bouton Auto : la couleur
+                                principale est marquée « (Couleur principale) » et
+                                sélectionnée par défaut. Re-cliquer dessus revient
+                                au comportement suivi-de-principale. */}
                             {hasMultipleColors && (
                               <div className="p-3 rounded-lg bg-bg-primary border border-border">
                                 <p className="text-[11px] text-text-muted font-body font-medium mb-2 uppercase tracking-wide">
-                                  Couleur affichee
+                                  Couleur affichée
                                 </p>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleColorChange(row.productId, null)}
-                                    disabled={isPending}
-                                    title="Couleur par defaut"
-                                    className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
-                                      row.selectedColorId === null
-                                        ? "border-[#1A1A1A] bg-bg-dark text-text-inverse"
-                                        : "border-border bg-bg-primary text-text-muted hover:border-[#9CA3AF]"
-                                    }`}
-                                  >
-                                    Auto
-                                  </button>
-                                  {uniqueColors.map((cv) => (
-                                    <button
-                                      key={cv.colorId}
-                                      type="button"
-                                      onClick={() => handleColorChange(row.productId, cv.colorId)}
-                                      disabled={isPending}
-                                      title={cv.name}
-                                      className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
-                                        row.selectedColorId === cv.colorId
-                                          ? "border-[#1A1A1A] bg-[#F9FAFB]"
-                                          : "border-border hover:border-[#9CA3AF]"
-                                      }`}
-                                    >
-                                      <span
-                                        className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
-                                        style={{
-                                          backgroundColor: cv.hex ?? "#E5E5E5",
-                                          boxShadow: cv.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
-                                        }}
-                                      />
-                                      {cv.name}
-                                    </button>
-                                  ))}
+                                  {uniqueColors.map((cv) => {
+                                    const isSelected =
+                                      row.selectedColorId === cv.colorId ||
+                                      (row.selectedColorId === null && cv.isPrimary);
+                                    return (
+                                      <button
+                                        key={cv.colorId}
+                                        type="button"
+                                        onClick={() => handleColorChange(row.productId, cv.colorId, cv.isPrimary)}
+                                        title={cv.name}
+                                        className={`h-7 px-2.5 rounded-lg border text-xs font-body flex items-center gap-1.5 transition-all ${
+                                          isSelected
+                                            ? "border-[#1A1A1A] bg-[#F9FAFB]"
+                                            : "border-border hover:border-[#9CA3AF]"
+                                        }`}
+                                      >
+                                        <span
+                                          className="w-3.5 h-3.5 rounded-full border border-border shrink-0"
+                                          style={{
+                                            backgroundColor: cv.hex ?? "#E5E5E5",
+                                            boxShadow: cv.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
+                                          }}
+                                        />
+                                        {cv.name}
+                                        {cv.isPrimary && (
+                                          <span className="text-[10px] text-text-muted font-body">(Couleur principale)</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -548,7 +564,7 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                             {hasMultipleImages && (
                               <div className="p-3 rounded-lg bg-bg-primary border border-border">
                                 <p className="text-[11px] text-text-muted font-body font-medium mb-2 uppercase tracking-wide">
-                                  Image affichee
+                                  Image affichée
                                 </p>
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {activeImages.map((img, idx) => {
@@ -566,7 +582,6 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                                             row.selectedColorId
                                           )
                                         }
-                                        disabled={isPending}
                                         title={`Image ${idx + 1}`}
                                         className={`w-14 h-14 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 ${
                                           isSelected
@@ -594,52 +609,7 @@ export default function CatalogEditor({ catalog, categories }: Props) {
                     );
                   })}
                 </div>
-
-                {/* Pagination */}
-                {selectedProducts.length > PRODUCTS_PER_PAGE && (
-                  <div className="flex items-center justify-between pt-4 mt-1 border-t border-border">
-                    <p className="text-xs text-text-muted font-body">
-                      {(productPage - 1) * PRODUCTS_PER_PAGE + 1}–{Math.min(productPage * PRODUCTS_PER_PAGE, selectedProducts.length)} sur {selectedProducts.length}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setProductPage((p) => Math.max(1, p - 1))}
-                        disabled={productPage === 1}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                      </button>
-                      {Array.from({ length: Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE) }, (_, i) => i + 1).map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setProductPage(p)}
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium font-body transition-colors ${
-                            p === productPage
-                              ? "bg-bg-dark text-text-inverse"
-                              : "border border-border hover:bg-bg-secondary text-text-muted"
-                          }`}
-                        >
-                          {p}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setProductPage((p) => Math.min(Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE), p + 1))}
-                        disabled={productPage >= Math.ceil(selectedProducts.length / PRODUCTS_PER_PAGE)}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                )}
-                </>
+                </div>
               )}
             </div>
           </div>
@@ -655,7 +625,19 @@ export default function CatalogEditor({ catalog, categories }: Props) {
         onAdd={handlePickerAdd}
         onRemove={handlePickerRemove}
         categories={categories}
+        filterOptions={filterOptions}
       />
     </div>
   );
+}
+
+// ── Compteur de tâches en fond (optimistic UI) ─────────────────────────────
+
+function useTransitionCount(): [number, (fn: () => Promise<void>) => void] {
+  const [count, setCount] = useState(0);
+  const run = (fn: () => Promise<void>) => {
+    setCount((c) => c + 1);
+    fn().finally(() => setCount((c) => c - 1));
+  };
+  return [count, run];
 }

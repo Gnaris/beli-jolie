@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getCachedCategories } from "@/lib/cached-data";
+import {
+  getCachedCategories,
+  getCachedColors,
+  getCachedCompositions,
+} from "@/lib/cached-data";
 import CatalogEditor from "@/components/admin/catalogues/CatalogEditor";
 
 export const metadata: Metadata = { title: "Modifier le catalogue — Admin" };
@@ -13,7 +17,7 @@ interface Props {
 export default async function AdminCatalogEditPage({ params }: Props) {
   const { id } = await params;
 
-  const [catalog, categories] = await Promise.all([
+  const [catalog, categories, colors, compositions] = await Promise.all([
     prisma.catalog.findUnique({
       where: { id },
       include: {
@@ -36,6 +40,8 @@ export default async function AdminCatalogEditPage({ params }: Props) {
       },
     }),
     getCachedCategories(),
+    getCachedColors(),
+    getCachedCompositions(),
   ]);
 
   if (!catalog) notFound();
@@ -58,6 +64,21 @@ export default async function AdminCatalogEditPage({ params }: Props) {
   );
 
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
+  const subCategoryOptions = categories.flatMap((c) =>
+    c.subCategories.map((sc) => ({ id: sc.id, name: sc.name, categoryId: c.id })),
+  );
+  const colorOptions = colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex }));
+  const compositionOptions = compositions.map((c) => ({ id: c.id, name: c.name }));
 
-  return <CatalogEditor catalog={serialized} categories={categoryOptions} />;
+  return (
+    <CatalogEditor
+      catalog={serialized}
+      categories={categoryOptions}
+      filterOptions={{
+        subCategories: subCategoryOptions,
+        colors: colorOptions,
+        compositions: compositionOptions,
+      }}
+    />
+  );
 }

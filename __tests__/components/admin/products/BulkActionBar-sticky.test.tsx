@@ -7,10 +7,6 @@ vi.mock("@/components/admin/products/MarketplaceRefreshContext", () => ({
   isItemActive: () => false,
 }));
 
-vi.mock("@/components/admin/products/MarketplaceMaintenanceContext", () => ({
-  useMarketplaceMaintenance: () => ({ pfs: false, ankorstore: false, efashion: false, faire: false }),
-}));
-
 vi.mock("@/components/admin/products/MarketplaceExportButton", () => ({
   default: () => null,
 }));

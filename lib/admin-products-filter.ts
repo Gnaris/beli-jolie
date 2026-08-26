@@ -124,6 +124,18 @@ export interface AdminProductsFilterParams {
    */
   orderchampLink?: string;
   /**
+   * Filtre sur le lien Microstore — Microstore reçoit une fiche + une variante
+   * par couleur (API `/goods/add` + `/goods/update`). Contrairement aux 5 autres
+   * marketplaces, l'identité côté site est portée par `microstoreLastPushedAt`
+   * (posé à chaque push) plutôt que par `microstoreProductId` seul, car ce
+   * dernier n'est renseigné qu'à partir du 1ᵉʳ succès de l'API native (les
+   * fiches poussées en CSV historique ne l'ont pas). Le badge vert de la table
+   * admin utilise la même règle : `microstoreLastPushedAt != null`.
+   *   - "linked"   = `microstoreLastPushedAt` renseigné
+   *   - "unlinked" = `microstoreLastPushedAt` vide
+   */
+  microstoreLink?: string;
+  /**
    * Filtre « Synchronisation marketplace nécessaire » : ne retient que les
    * produits avec au moins un drapeau `*SyncRequired = true` (PFS, Ankorstore
    * ou eFashion). Sert à retrouver d'un coup les fiches qui attendent un
@@ -447,6 +459,12 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
         ],
       },
     ];
+  }
+
+  if (params.microstoreLink === "linked") {
+    where.microstoreLastPushedAt = { not: null };
+  } else if (params.microstoreLink === "unlinked") {
+    where.microstoreLastPushedAt = null;
   }
 
   if (params.syncRequired === "1") {

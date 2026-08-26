@@ -6,7 +6,6 @@ import {
   previewBulkPublishDrafts,
   type BulkPublishDraftPreviewItem,
 } from "@/app/actions/admin/products";
-import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 
 export interface BulkPublishDraftsConfirm {
   eligibleIds: string[];
@@ -115,7 +114,6 @@ function MarketplaceCard({
   onToggle,
   eligibleCount,
   totalEligible,
-  inMaintenance = false,
   showShootingWarning = false,
   extraHint,
 }: {
@@ -124,11 +122,10 @@ function MarketplaceCard({
   onToggle: (v: boolean) => void;
   eligibleCount: number;
   totalEligible: number;
-  inMaintenance?: boolean;
   showShootingWarning?: boolean;
   extraHint?: string;
 }) {
-  const allDisabled = inMaintenance || eligibleCount === 0;
+  const allDisabled = eligibleCount === 0;
 
   return (
     <div
@@ -161,13 +158,7 @@ function MarketplaceCard({
               >
                 {LABEL[mkKey]}
               </span>
-              {inMaintenance && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse" />
-                  En maintenance
-                </span>
-              )}
-              {!inMaintenance && eligibleCount === 0 && totalEligible > 0 && (
+              {eligibleCount === 0 && totalEligible > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[color:var(--color-warning-bg)] text-[color:var(--color-warning)] border border-[#FDE68A]">
                   Rien à publier
                 </span>
@@ -247,7 +238,6 @@ export default function BulkPublishDraftsModal({
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<BulkPublishDraftPreviewItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const maintenance = useMarketplaceMaintenance();
   const [publishPfs, setPublishPfs] = useState(false);
   const [publishAnkorstore, setPublishAnkorstore] = useState(false);
   const [publishEfashion, setPublishEfashion] = useState(false);
@@ -289,13 +279,13 @@ export default function BulkPublishDraftsModal({
     setError(null);
     setItems([]);
     setClosing(false);
-    // Pré-coche toutes les marketplaces configurées et non en maintenance —
-    // aligné sur la modale « Propager » (defaultAllChecked).
-    setPublishPfs(hasPfsConfigRef.current && !maintenance.pfs);
-    setPublishAnkorstore(showAnkorstoreRef.current && !maintenance.ankorstore);
-    setPublishEfashion(showEfashionRef.current && !maintenance.efashion);
-    setPublishFaire(showFaireRef.current && !maintenance.faire);
-    setPublishOrderchamp(showOrderchampRef.current && !maintenance.orderchamp);
+    // Pré-coche toutes les marketplaces configurées — aligné sur la modale
+    // « Propager » (defaultAllChecked).
+    setPublishPfs(hasPfsConfigRef.current);
+    setPublishAnkorstore(showAnkorstoreRef.current);
+    setPublishEfashion(showEfashionRef.current);
+    setPublishFaire(showFaireRef.current);
+    setPublishOrderchamp(showOrderchampRef.current);
     setPublishMicrostore(showMicrostoreRef.current);
     (async () => {
       try {
@@ -376,11 +366,11 @@ export default function BulkPublishDraftsModal({
     (noMarketplaceAvailable || !noMarketplaceChecked);
 
   const selectedMarketplaceCount =
-    Number(publishPfs && hasPfsConfig && !maintenance.pfs) +
-    Number(publishAnkorstore && showAnkorstore && !maintenance.ankorstore) +
-    Number(publishEfashion && showEfashion && !maintenance.efashion && efashionEligibleCount > 0) +
-    Number(publishFaire && showFaire && !maintenance.faire) +
-    Number(publishOrderchamp && showOrderchamp && !maintenance.orderchamp) +
+    Number(publishPfs && hasPfsConfig) +
+    Number(publishAnkorstore && showAnkorstore) +
+    Number(publishEfashion && showEfashion && efashionEligibleCount > 0) +
+    Number(publishFaire && showFaire) +
+    Number(publishOrderchamp && showOrderchamp) +
     Number(publishMicrostore && showMicrostore && microstoreEligibleCount > 0);
 
   // orderchampEligibleCount uniquement pour hint UI — pas de gate d'éligibilité
@@ -392,11 +382,11 @@ export default function BulkPublishDraftsModal({
     setTimeout(() => {
       onConfirm({
         eligibleIds: eligible.map((p) => p.id),
-        publishPfs: publishPfs && hasPfsConfig && !maintenance.pfs,
-        publishAnkorstore: publishAnkorstore && showAnkorstore && !maintenance.ankorstore,
-        publishEfashion: publishEfashion && showEfashion && !maintenance.efashion,
-        publishFaire: publishFaire && showFaire && !maintenance.faire,
-        publishOrderchamp: publishOrderchamp && showOrderchamp && !maintenance.orderchamp,
+        publishPfs: publishPfs && hasPfsConfig,
+        publishAnkorstore: publishAnkorstore && showAnkorstore,
+        publishEfashion: publishEfashion && showEfashion,
+        publishFaire: publishFaire && showFaire,
+        publishOrderchamp: publishOrderchamp && showOrderchamp,
         publishMicrostore: publishMicrostore && showMicrostore,
         efashionEligibleIds,
         microstoreEligibleIds,
@@ -531,31 +521,28 @@ export default function BulkPublishDraftsModal({
                     {hasPfsConfig && (
                       <MarketplaceCard
                         mkKey="pfs"
-                        checked={publishPfs && !maintenance.pfs}
+                        checked={publishPfs}
                         onToggle={(v) => setPublishPfs(v)}
                         eligibleCount={pfsEligibleCount}
                         totalEligible={eligibleCount}
-                        inMaintenance={maintenance.pfs}
                       />
                     )}
                     {showAnkorstore && (
                       <MarketplaceCard
                         mkKey="ankorstore"
-                        checked={publishAnkorstore && !maintenance.ankorstore}
+                        checked={publishAnkorstore}
                         onToggle={(v) => setPublishAnkorstore(v)}
                         eligibleCount={ankorsEligibleCount}
                         totalEligible={eligibleCount}
-                        inMaintenance={maintenance.ankorstore}
                       />
                     )}
                     {showEfashion && (
                       <MarketplaceCard
                         mkKey="efashion"
-                        checked={publishEfashion && !maintenance.efashion && efashionEligibleCount > 0}
+                        checked={publishEfashion && efashionEligibleCount > 0}
                         onToggle={(v) => setPublishEfashion(v)}
                         eligibleCount={efashionEligibleCount}
                         totalEligible={eligibleCount}
-                        inMaintenance={maintenance.efashion}
                         showShootingWarning={efashionEligibleCount > 0}
                         extraHint={
                           efashionEligibleCount === 0
@@ -567,21 +554,19 @@ export default function BulkPublishDraftsModal({
                     {showFaire && (
                       <MarketplaceCard
                         mkKey="faire"
-                        checked={publishFaire && !maintenance.faire}
+                        checked={publishFaire}
                         onToggle={(v) => setPublishFaire(v)}
                         eligibleCount={faireEligibleCount}
                         totalEligible={eligibleCount}
-                        inMaintenance={maintenance.faire}
                       />
                     )}
                     {showOrderchamp && (
                       <MarketplaceCard
                         mkKey="orderchamp"
-                        checked={publishOrderchamp && !maintenance.orderchamp}
+                        checked={publishOrderchamp}
                         onToggle={(v) => setPublishOrderchamp(v)}
                         eligibleCount={eligibleCount}
                         totalEligible={eligibleCount}
-                        inMaintenance={maintenance.orderchamp}
                       />
                     )}
                     {showMicrostore && (

@@ -15,7 +15,6 @@ import {
 } from "@/lib/cached-data";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { isMarketplaceInMaintenance } from "@/lib/platform-config";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -40,17 +39,6 @@ export async function deleteProductsOnPfs(
   items: { pfsProductId: string; reference: string }[],
 ): Promise<PfsDeleteOutcome[]> {
   await requireAdmin();
-  // Maintenance plateforme : on n'envoie AUCUN delete à PFS pour éviter
-  // la propagation pendant la coupure. Ces produits redeviendront actifs
-  // dès la levée de la maintenance — la cliente peut relancer le delete si besoin.
-  if (await isMarketplaceInMaintenance("pfs")) {
-    return items.map((item) => ({
-      pfsProductId: item.pfsProductId,
-      reference: item.reference,
-      status: "error" as const,
-      message: "Paris Fashion Shop en maintenance — suppression non envoyée.",
-    }));
-  }
   const results: PfsDeleteOutcome[] = [];
   for (const item of items) {
     try {
@@ -102,15 +90,6 @@ export async function deleteProductsOnAnkorstore(
   items: { ankorsProductId: string; reference: string }[],
 ): Promise<AnkorstoreDeleteOutcome[]> {
   await requireAdmin();
-
-  if (await isMarketplaceInMaintenance("ankorstore")) {
-    return items.map((item) => ({
-      ankorsProductId: item.ankorsProductId,
-      reference: item.reference,
-      status: "error" as const,
-      message: "Ankorstore en maintenance — suppression non envoyée.",
-    }));
-  }
 
   // Kill switch : si Ankorstore est désactivé dans Paramètres > Marketplaces,
   // on n'envoie RIEN. Sinon, mettre Ankorstore en pause ne suffit pas à
@@ -211,15 +190,6 @@ export async function deleteProductsOnEfashion(
 ): Promise<EfashionDeleteOutcome[]> {
   await requireAdmin();
 
-  if (await isMarketplaceInMaintenance("efashion")) {
-    return items.map((item) => ({
-      efashionProductId: item.efashionProductId,
-      reference: item.reference,
-      status: "error" as const,
-      message: "eFashion Paris en maintenance — suppression non envoyée.",
-    }));
-  }
-
   // Kill switch : si eFashion est désactivé dans Paramètres > Marketplaces,
   // on n'envoie RIEN (cohérent avec Ankorstore).
   const efashionEnabled = await getCachedEfashionEnabled();
@@ -285,15 +255,6 @@ export async function deleteProductsOnFaire(
   items: Array<{ faireProductId: string; reference: string }>,
 ): Promise<FaireDeleteOutcome[]> {
   await requireAdmin();
-
-  if (await isMarketplaceInMaintenance("faire")) {
-    return items.map((item) => ({
-      faireProductId: item.faireProductId,
-      reference: item.reference,
-      status: "error" as const,
-      message: "Faire en maintenance — suppression non envoyée.",
-    }));
-  }
 
   const faireEnabled = await getCachedFaireEnabled();
   if (!faireEnabled) {
@@ -376,15 +337,6 @@ export async function deleteProductsOnOrderchamp(
   items: Array<{ orderchampProductId: string; reference: string }>,
 ): Promise<OrderchampDeleteOutcome[]> {
   await requireAdmin();
-
-  if (await isMarketplaceInMaintenance("orderchamp")) {
-    return items.map((item) => ({
-      orderchampProductId: item.orderchampProductId,
-      reference: item.reference,
-      status: "error" as const,
-      message: "Orderchamp en maintenance — suppression non envoyée.",
-    }));
-  }
 
   const orderchampEnabled = await getCachedOrderchampEnabled();
   if (!orderchampEnabled) {

@@ -37,11 +37,11 @@ export default function PerPageSelect({
   }
 
   return (
-    <div className="inline-flex items-center gap-2 h-10 px-1">
+    <div className="flex flex-col sm:inline-flex sm:flex-row sm:items-center gap-1.5 sm:gap-2 sm:h-10 sm:px-1 w-full sm:w-auto">
       <span className="text-[11px] font-body font-bold uppercase tracking-[0.12em] text-text-muted">
         Par page
       </span>
-      <div className="min-w-[140px]">
+      <div className="w-full sm:min-w-[140px] sm:w-auto">
         <CustomSelect
           value={String(value)}
           onChange={handleChange}

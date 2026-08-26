@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useTransition } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import Image from "@/components/ui/SmartImage";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 
@@ -33,7 +34,30 @@ interface CategoryOption {
   name: string;
 }
 
-export type { PickerProduct };
+interface SubCategoryOption {
+  id: string;
+  name: string;
+  categoryId: string;
+}
+
+interface ColorOption {
+  id: string;
+  name: string;
+  hex: string | null;
+}
+
+interface CompositionOption {
+  id: string;
+  name: string;
+}
+
+interface PickerFilterOptions {
+  subCategories: SubCategoryOption[];
+  colors: ColorOption[];
+  compositions: CompositionOption[];
+}
+
+export type { PickerProduct, PickerFilterOptions };
 
 interface Props {
   open: boolean;
@@ -42,10 +66,18 @@ interface Props {
   onAdd: (product: PickerProduct) => void;
   onRemove: (productId: string) => void;
   categories: CategoryOption[];
+  filterOptions?: PickerFilterOptions;
 }
 
-type SortOption = "recent" | "name" | "price";
+type SortOption =
+  | "recent"
+  | "oldest"
+  | "recentUpdated"
+  | "oldestUpdated"
+  | "name"
+  | "price";
 type ViewMode = "grid" | "list";
+type MembershipFilter = "all" | "notAdded" | "added";
 
 // ─── Composant ───────────────────────────────────────────────────────────────
 
@@ -56,6 +88,7 @@ export default function ProductPickerModal({
   onAdd,
   onRemove,
   categories,
+  filterOptions,
 }: Props) {
   const [products, setProducts] = useState<PickerProduct[]>([]);
   const [total, setTotal] = useState(0);
@@ -63,21 +96,24 @@ export default function ProductPickerModal({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [isPending, startTransition] = useTransition();
 
   // Filters
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [sort, setSort] = useState<SortOption>("recent");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [membership, setMembership] = useState<MembershipFilter>("all");
+
+  // Filtres avancés
+  const [subCategoryId, setSubCategoryId] = useState("");
+  const [colorIds, setColorIds] = useState<string[]>([]);
+  const [compositionIds, setCompositionIds] = useState<string[]>([]);
 
   // Refs
   const sentinelRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Track which products are being toggled (for optimistic UI)
-  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
 
   // ─── Fetch ─────────────────────────────────────────────────────────────────
 
@@ -93,6 +129,9 @@ export default function ProductPickerModal({
         });
         if (search.trim()) params.set("q", search.trim());
         if (categoryId) params.set("categoryId", categoryId);
+        if (subCategoryId) params.set("subCategoryId", subCategoryId);
+        if (colorIds.length > 0) params.set("colorIds", colorIds.join(","));
+        if (compositionIds.length > 0) params.set("compositionIds", compositionIds.join(","));
 
         const res = await fetch(`/api/admin/products/catalog-picker?${params}`);
         const data = await res.json();
@@ -116,7 +155,7 @@ export default function ProductPickerModal({
         setLoadingMore(false);
       }
     },
-    [search, categoryId, sort]
+    [search, categoryId, subCategoryId, colorIds, compositionIds, sort]
   );
 
   // Initial load + filter changes
@@ -130,7 +169,16 @@ export default function ProductPickerModal({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [open, search, categoryId, sort, fetchProducts]);
+  }, [
+    open,
+    search,
+    categoryId,
+    subCategoryId,
+    colorIds,
+    compositionIds,
+    sort,
+    fetchProducts,
+  ]);
 
   // Infinite scroll observer
   useEffect(() => {
@@ -152,33 +200,27 @@ export default function ProductPickerModal({
     if (!open) {
       setSearch("");
       setCategoryId("");
+      setSubCategoryId("");
+      setColorIds([]);
+      setCompositionIds([]);
       setSort("recent");
+      setMembership("all");
       setProducts([]);
       setPage(1);
     }
   }, [open]);
 
   // ─── Toggle product ───────────────────────────────────────────────────────
+  // Le parent gère l'optimistic UI et le rollback ; ici on appelle directement
+  // pour éviter toute frame supplémentaire (pas de useTransition, pas de
+  // spinner intermédiaire).
 
   const handleToggle = (product: PickerProduct) => {
-    if (togglingIds.has(product.id)) return;
-    setTogglingIds((prev) => new Set(prev).add(product.id));
-
-    startTransition(async () => {
-      try {
-        if (catalogProductIds.has(product.id)) {
-          onRemove(product.id);
-        } else {
-          onAdd(product);
-        }
-      } finally {
-        setTogglingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(product.id);
-          return next;
-        });
-      }
-    });
+    if (catalogProductIds.has(product.id)) {
+      onRemove(product.id);
+    } else {
+      onAdd(product);
+    }
   };
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -190,6 +232,15 @@ export default function ProductPickerModal({
 
   if (!open) return null;
 
+  // ─── Filtre client-side « Affichage » ─────────────────────────────────────
+  // Sépare la liste API en ajoutés / non ajoutés selon `catalogProductIds`.
+  const visibleProducts =
+    membership === "all"
+      ? products
+      : membership === "added"
+        ? products.filter((p) => catalogProductIds.has(p.id))
+        : products.filter((p) => !catalogProductIds.has(p.id));
+
   // ─── Build select options ──────────────────────────────────────────────────
 
   const categoryOptions: SelectOption[] = [
@@ -198,9 +249,21 @@ export default function ProductPickerModal({
   ];
 
   const sortOptions: SelectOption[] = [
-    { value: "recent", label: "Plus récents", icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
+    { value: "recent", label: "Créés récemment", icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
+    { value: "oldest", label: "Créés les plus anciens", icon: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
+    { value: "recentUpdated", label: "Modifiés récemment", icon: "M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" },
+    { value: "oldestUpdated", label: "Modifiés les plus anciens", icon: "M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" },
     { value: "name", label: "Nom A-Z", icon: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" },
     { value: "price", label: "Prix", icon: "M14.25 7.756a4.5 4.5 0 100 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
+  ];
+
+  // ── Options des filtres ───────────────────────────────────────────────────
+  const subCategoriesForCategory = filterOptions?.subCategories.filter(
+    (sc) => !categoryId || sc.categoryId === categoryId,
+  ) ?? [];
+  const subCategoryOptions: SelectOption[] = [
+    { value: "", label: "Toutes les sous-catégories" },
+    ...subCategoriesForCategory.map((sc) => ({ value: sc.id, label: sc.name })),
   ];
 
   return (
@@ -213,23 +276,50 @@ export default function ProductPickerModal({
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 border-b border-border bg-bg-primary px-5 sm:px-6 py-4 rounded-t-2xl">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="font-heading font-semibold text-text-primary text-lg">
+        <div className="flex items-center justify-between mb-4 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="font-heading font-semibold text-text-primary text-lg shrink-0">
               Ajouter des produits
             </h2>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-bg-secondary text-text-muted font-body">
+            <span className="text-xs px-2.5 py-1 rounded-full bg-bg-secondary text-text-muted font-body shrink-0">
               {total} produit{total !== 1 ? "s" : ""}
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Segmented « Affichage » */}
+            <div className="flex gap-1 p-1 bg-bg-secondary rounded-xl text-xs font-body">
+              {(
+                [
+                  { key: "all", label: "Tous" },
+                  { key: "notAdded", label: "Non ajoutés" },
+                  { key: "added", label: "Ajoutés" },
+                ] as { key: MembershipFilter; label: string }[]
+              ).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setMembership(opt.key)}
+                  className={`px-2.5 h-7 rounded-lg transition-all whitespace-nowrap ${
+                    membership === opt.key
+                      ? "bg-bg-primary shadow-sm text-text-primary font-medium"
+                      : "text-text-muted hover:text-text-primary"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* ── Filters row ─────────────────────────────────────────────── */}
@@ -272,6 +362,49 @@ export default function ProductPickerModal({
             className="w-auto min-w-[160px]"
           />
 
+          {/* Sous-catégorie */}
+          {filterOptions && filterOptions.subCategories.length > 0 && (
+            <CustomSelect
+              value={subCategoryId}
+              onChange={setSubCategoryId}
+              options={subCategoryOptions}
+              placeholder="Sous-catégorie"
+              className="w-auto min-w-[180px]"
+              searchable
+            />
+          )}
+
+          {/* Couleurs (multi) */}
+          {filterOptions && filterOptions.colors.length > 0 && (
+            <MultiSelectDropdown
+              label="Couleurs"
+              placeholder="Couleurs"
+              options={filterOptions.colors.map((c) => ({
+                value: c.id,
+                label: c.name,
+                hex: c.hex,
+              }))}
+              selectedValues={colorIds}
+              onChange={setColorIds}
+              searchable
+            />
+          )}
+
+          {/* Compositions (multi) */}
+          {filterOptions && filterOptions.compositions.length > 0 && (
+            <MultiSelectDropdown
+              label="Compositions"
+              placeholder="Compositions"
+              options={filterOptions.compositions.map((c) => ({
+                value: c.id,
+                label: c.name,
+              }))}
+              selectedValues={compositionIds}
+              onChange={setCompositionIds}
+              searchable
+            />
+          )}
+
           {/* View mode toggle */}
           <div className="flex gap-1 p-1 bg-bg-secondary rounded-xl">
             <button
@@ -306,6 +439,7 @@ export default function ProductPickerModal({
             </button>
           </div>
         </div>
+
       </div>
 
       {/* ── Product list ──────────────────────────────────────────────── */}
@@ -317,20 +451,25 @@ export default function ProductPickerModal({
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           </div>
-        ) : products.length === 0 ? (
+        ) : visibleProducts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <svg className="w-12 h-12 text-text-muted mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
-            <p className="text-sm text-text-muted font-body">Aucun produit trouve.</p>
+            <p className="text-sm text-text-muted font-body">
+              {membership === "added"
+                ? "Aucun produit ajouté dans cette page."
+                : membership === "notAdded"
+                  ? "Tous les produits de cette page sont déjà ajoutés."
+                  : "Aucun produit trouvé."}
+            </p>
           </div>
         ) : viewMode === "grid" ? (
           /* ── Grid view ────────────────────────────────────────────── */
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const isAdded = catalogProductIds.has(product.id);
-              const isToggling = togglingIds.has(product.id);
               const image = product.colorImages[0]?.path;
               const price = getPrice(product.colors);
 
@@ -367,19 +506,12 @@ export default function ProductPickerModal({
                     {/* Status indicator */}
                     <div
                       className={`absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full shadow-md transition-all ${
-                        isToggling
-                          ? "bg-white text-text-muted"
-                          : isAdded
-                            ? "bg-[#22C55E] text-white"
-                            : "bg-white text-text-muted opacity-0 group-hover:opacity-100"
+                        isAdded
+                          ? "bg-[#22C55E] text-white"
+                          : "bg-white text-text-muted opacity-0 group-hover:opacity-100"
                       }`}
                     >
-                      {isToggling ? (
-                        <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                      ) : isAdded ? (
+                      {isAdded ? (
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
@@ -430,9 +562,8 @@ export default function ProductPickerModal({
               <div />
             </div>
 
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const isAdded = catalogProductIds.has(product.id);
-              const isToggling = togglingIds.has(product.id);
               const image = product.colorImages[0]?.path;
               const price = getPrice(product.colors);
 
@@ -493,12 +624,7 @@ export default function ProductPickerModal({
                         : "border border-border text-text-muted"
                     }`}
                   >
-                    {isToggling ? (
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : isAdded ? (
+                    {isAdded ? (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4.5 12.75l6 6 9-13.5" />
                       </svg>
@@ -542,5 +668,237 @@ export default function ProductPickerModal({
 
       </div>{/* end modal panel */}
     </div>
+  );
+}
+
+// ─── MultiSelectDropdown ──────────────────────────────────────────────────
+// Sélecteur multi-valeur avec cases à cocher. Ouvre un modal centré (comme
+// CustomSelect avec `title`) : plein écran mobile, modal centré + voile noir
+// sur desktop. Portalé pour passer au-dessus du picker parent.
+
+interface MultiSelectOption {
+  value: string;
+  label: string;
+  hex?: string | null;
+}
+
+interface MultiSelectDropdownProps {
+  label: string;
+  placeholder: string;
+  options: MultiSelectOption[];
+  selectedValues: string[];
+  onChange: (values: string[]) => void;
+  searchable?: boolean;
+}
+
+function MultiSelectDropdown({
+  label,
+  placeholder,
+  options,
+  selectedValues,
+  onChange,
+  searchable = false,
+}: MultiSelectDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Verrouille le scroll de la page derrière le modal
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // ESC ferme
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // Reset search quand on ferme
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  const filtered = searchable && search.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(search.trim().toLowerCase()))
+    : options;
+
+  const count = selectedValues.length;
+
+  function toggle(value: string) {
+    onChange(
+      selectedValues.includes(value)
+        ? selectedValues.filter((v) => v !== value)
+        : [...selectedValues, value],
+    );
+  }
+
+  const modal = open && mounted && createPortal(
+    <div
+      className="fixed inset-0 z-[10500] flex md:items-center md:justify-center md:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+    >
+      {/* Voile noir — desktop uniquement */}
+      <button
+        type="button"
+        aria-label="Fermer"
+        tabIndex={-1}
+        onClick={() => setOpen(false)}
+        className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
+      />
+      {/* Modal card */}
+      <div className="relative w-full h-full flex flex-col bg-bg-primary md:w-[min(92vw,460px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-[0_24px_60px_rgba(0,0,0,0.25)] md:overflow-hidden">
+        {/* Header */}
+        <div className="shrink-0 border-b border-border bg-bg-primary px-4 pb-3 md:px-5 md:pt-5 pt-[max(env(safe-area-inset-top),16px)]">
+          <div className="flex items-center gap-3">
+            {/* Mobile back arrow */}
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Retour"
+              className="md:hidden w-11 h-11 rounded-full bg-bg-secondary hover:bg-bg-tertiary text-text-primary flex items-center justify-center shrink-0"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-heading font-semibold text-text-primary text-base md:text-lg truncate">
+                {label}
+              </h3>
+              <p className="text-xs text-text-muted font-body">
+                {count === 0
+                  ? "Cochez une ou plusieurs valeurs"
+                  : `${count} sélectionné${count > 1 ? "s" : ""}`}
+              </p>
+            </div>
+            {/* Desktop close */}
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Fermer"
+              className="hidden md:flex w-9 h-9 rounded-xl border border-border hover:bg-bg-secondary text-text-muted hover:text-text-primary items-center justify-center"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {searchable && (
+            <div className="mt-3">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Rechercher…"
+                className="field-input text-sm"
+                autoFocus
+              />
+            </div>
+          )}
+        </div>
+
+        {/* List */}
+        <ul className="flex-1 overflow-y-auto py-1">
+          {filtered.length === 0 ? (
+            <li className="px-4 py-6 text-sm text-text-muted font-body text-center">
+              Aucun résultat
+            </li>
+          ) : (
+            filtered.map((opt) => {
+              const active = selectedValues.includes(opt.value);
+              return (
+                <li key={opt.value}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(opt.value)}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-bg-secondary transition-colors"
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+                        active ? "bg-bg-dark border-bg-dark" : "border-border"
+                      }`}
+                    >
+                      {active && (
+                        <svg className="w-3.5 h-3.5 text-text-inverse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      )}
+                    </span>
+                    {opt.hex !== undefined && (
+                      <span
+                        className="w-4 h-4 rounded-full border border-border/50 shrink-0"
+                        style={{
+                          backgroundColor: opt.hex ?? "#9CA3AF",
+                          boxShadow: opt.hex?.toLowerCase() === "#ffffff" ? "inset 0 0 0 1px #E5E5E5" : undefined,
+                        }}
+                      />
+                    )}
+                    <span className="flex-1 truncate text-sm text-text-primary font-body">{opt.label}</span>
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+
+        {/* Footer */}
+        <div className="shrink-0 border-t border-border bg-bg-primary px-4 py-3 md:px-5 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            disabled={count === 0}
+            className="text-sm font-body text-text-muted hover:text-text-primary underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+          >
+            Vider
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-bg-dark text-text-inverse text-sm font-medium font-body hover:opacity-90 transition-all"
+          >
+            Valider
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`inline-flex items-center gap-2 h-9 px-3 rounded-xl border text-sm font-body transition-all whitespace-nowrap ${
+          count > 0
+            ? "border-bg-dark bg-bg-dark text-text-inverse"
+            : "border-border bg-bg-primary text-text-primary hover:bg-bg-secondary"
+        }`}
+      >
+        <span>{count === 0 ? placeholder : label}</span>
+        {count > 0 && (
+          <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-medium bg-text-inverse text-bg-dark">
+            {count}
+          </span>
+        )}
+        <svg className="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      {modal}
+    </>
   );
 }

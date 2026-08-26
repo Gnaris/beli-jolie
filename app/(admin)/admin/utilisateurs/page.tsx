@@ -259,12 +259,7 @@ export default async function UtilisateursPage({
       <AutoRefresh intervalMs={10_000} />
 
       {/* HERO */}
-      <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-bg-primary to-bg-primary" />
-        <div className="absolute -top-20 -right-16 w-64 h-64 rounded-full blur-3xl bg-amber-200/25 pointer-events-none" />
-        <div className="absolute -bottom-24 left-1/4 w-72 h-72 rounded-full blur-3xl bg-slate-200/50 pointer-events-none" />
-        <div className="absolute -top-10 left-10 w-40 h-40 rounded-full blur-3xl bg-sky-200/25 pointer-events-none" />
-
+      <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm bg-slate-100">
         <div className="relative p-6 sm:p-8">
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
             <div>
@@ -295,7 +290,7 @@ export default async function UtilisateursPage({
               label="En ligne maintenant"
               value={onlineCount}
               sub="Actifs dans la dernière minute"
-              accent="emerald"
+              accent="neutral"
               pulse
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
@@ -307,7 +302,7 @@ export default async function UtilisateursPage({
               label="À valider"
               value={pendingCount}
               sub="Nouvelles inscriptions"
-              accent="amber"
+              accent="neutral"
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
@@ -318,7 +313,7 @@ export default async function UtilisateursPage({
               label="Mes fiches"
               value={cardsTotalCount}
               sub="Répertoire personnel admin"
-              accent="violet"
+              accent="neutral"
               icon={
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
@@ -824,12 +819,12 @@ function RegisteredPane({
     <>
       {/* Toggle vue + accès modèles + barre de recherche */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
           <UsersViewToggle view={view} infosHref={infosHref} mailsHref={mailsHref} />
           {view === "mails" && (
             <Link
               href="/admin/utilisateurs/newsletters"
-              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-body font-semibold text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100 transition-colors"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 h-10 sm:h-8 rounded-lg text-xs font-body font-semibold text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100 transition-colors"
             >
               📢 Gérer mes modèles de newsletter
             </Link>
@@ -882,7 +877,7 @@ function RegisteredPane({
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-2 w-full xl:w-auto">
           <UsersSortControl sort={sort} dir={dir} />
           <PerPageSelect value={perPage} />
         </div>

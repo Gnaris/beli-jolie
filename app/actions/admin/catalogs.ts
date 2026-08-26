@@ -17,8 +17,11 @@ async function requireAdmin() {
 // ─────────────────────────────────────────────
 export async function createCatalog(title: string) {
   await requireAdmin();
+  // Défaut ACTIVE : la cliente veut que le lien public marche tout de suite
+  // sans passer par un toggle. Le default Prisma reste INACTIVE pour ne pas
+  // toucher aux catalogues existants.
   const catalog = await prisma.catalog.create({
-    data: { title },
+    data: { title, status: "ACTIVE" },
   });
   revalidatePath("/admin/catalogues");
   return catalog;

@@ -7,7 +7,6 @@ import {
   isItemActive,
   useMarketplaceRefreshQueue,
 } from "./MarketplaceRefreshContext";
-import { useMarketplaceMaintenance } from "./MarketplaceMaintenanceContext";
 
 // Sous-ensemble des champs d'AdminProduct nécessaires à la barre — évite
 // d'importer tout le type et de forcer les refactos si l'entité principale
@@ -1147,7 +1146,6 @@ function MarketplacePanel({
   onSync: (k: MarketplaceKey, products: BulkBarProduct[]) => void;
   onClose: () => void;
 }) {
-  const maintenance = useMarketplaceMaintenance();
   const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire", "orderchamp", "microstore"];
 
   const totalActions = order.reduce((acc, k) => {
@@ -1206,48 +1204,33 @@ function MarketplacePanel({
           // On affiche un seul bouton « Synchroniser » sur toute la largeur.
           const isMicrostore = k === "microstore";
           const actionCount = isMicrostore ? (canSync ? 1 : 0) : ((publish.length > 0 ? 1 : 0) + (canSync ? 1 : 0));
-          const inMaintenance = maintenance[k];
           return (
             <div
               key={k}
-              className={`px-5 py-4 border-b border-border-light last:border-b-0 ${
-                inMaintenance ? "bg-[#FEF2F2]/40" : ""
-              }`}
+              className="px-5 py-4 border-b border-border-light last:border-b-0"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
                   <div
                     className={`w-7 h-7 rounded-lg bg-gradient-to-br ${meta.gradient} flex items-center justify-center text-white text-[11px] font-bold`}
-                    style={inMaintenance ? { filter: "grayscale(1) brightness(0.85)" } : undefined}
                   >
                     {meta.initial}
                   </div>
                   <div>
-                    <div className={`font-heading font-bold text-[14px] ${inMaintenance ? "text-text-muted line-through" : "text-text-primary"}`}>{meta.label}</div>
+                    <div className="font-heading font-bold text-[14px] text-text-primary">{meta.label}</div>
                     <div className="text-[10px] text-text-muted">{meta.subtitle}</div>
                   </div>
                 </div>
-                {inMaintenance ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-[#FEF2F2] text-[#B91C1C] border border-[#FECACA]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] animate-pulse" />
-                    En maintenance
-                  </span>
-                ) : (
-                  <span className={`text-[11px] font-semibold ${meta.accentText}`}>
-                    {actionCount} action{actionCount > 1 ? "s" : ""}
-                  </span>
-                )}
+                <span className={`text-[11px] font-semibold ${meta.accentText}`}>
+                  {actionCount} action{actionCount > 1 ? "s" : ""}
+                </span>
               </div>
               <div className={`grid gap-2 ${isMicrostore ? "grid-cols-1" : "grid-cols-2"}`}>
                 {isMicrostore ? null : publish.length > 0 ? (
                   <button
                     type="button"
-                    onClick={() => !inMaintenance && onPublish(k, publish)}
-                    disabled={inMaintenance}
-                    title={inMaintenance ? `${meta.label} en maintenance sur la plateforme` : undefined}
-                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
-                      inMaintenance ? "opacity-50 cursor-not-allowed" : meta.publishHover
-                    }`}
+                    onClick={() => onPublish(k, publish)}
+                    className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${meta.publishHover}`}
                   >
                     <div className={`w-8 h-8 rounded-lg ${meta.accentBg} flex items-center justify-center flex-shrink-0`}>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -1267,21 +1250,16 @@ function MarketplacePanel({
                 {canSync && (
                   <button
                     type="button"
-                    onClick={() => !inMaintenance && onSync(k, syncTargets)}
-                    disabled={inMaintenance}
+                    onClick={() => onSync(k, syncTargets)}
                     className={`flex items-center gap-3 p-3 rounded-xl border border-border transition-all text-left ${
-                      inMaintenance
-                        ? "opacity-50 cursor-not-allowed"
-                        : hasFlagged
-                          ? "hover:border-amber-300 hover:bg-amber-50/50"
-                          : "hover:border-slate-300 hover:bg-slate-50/70"
+                      hasFlagged
+                        ? "hover:border-amber-300 hover:bg-amber-50/50"
+                        : "hover:border-slate-300 hover:bg-slate-50/70"
                     }`}
                     title={
-                      inMaintenance
-                        ? `${meta.label} en maintenance sur la plateforme`
-                        : hasFlagged
-                          ? `Envoyer les changements en attente sur ${meta.label}`
-                          : `Forcer la resynchro de tous les produits déjà sur ${meta.label}`
+                      hasFlagged
+                        ? `Envoyer les changements en attente sur ${meta.label}`
+                        : `Forcer la resynchro de tous les produits déjà sur ${meta.label}`
                     }
                   >
                     <div

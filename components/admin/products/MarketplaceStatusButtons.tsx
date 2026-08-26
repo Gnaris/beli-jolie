@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { useMarketplaceRefreshQueue } from "./MarketplaceRefreshContext";
 import { useMarketplaceLinkJobs } from "./MarketplaceLinkContext";
 import { useEfashionShootingBatch } from "./EfashionShootingBatchContext";
-import { useMarketplaceMaintenance } from "./MarketplaceMaintenanceContext";
 import {
   computeMarketplaceBadgeState,
   findLatestOpForProduct,
@@ -31,6 +30,7 @@ import { removePfsMatch } from "@/app/actions/admin/pfs";
 import { removeFaireMatch } from "@/app/actions/admin/faire";
 import { removeOrderchampMatch } from "@/app/actions/admin/orderchamp";
 import { clearSyncRequiredFlag } from "@/app/actions/admin/marketplace-sync-flags";
+import { setProductMarketplaceEnabled } from "@/app/actions/admin/product-marketplace-enabled";
 
 interface MarketplaceStatusButtonsProps {
   productId: string;
@@ -76,12 +76,6 @@ interface MarketplaceStatusButtonsProps {
   microstoreEnabledForProduct?: boolean;
   /** ID Microstore du produit (Product.microstoreProductId). null tant que pas publié. */
   microstoreProductId?: number | null;
-  /** Maintenance plateforme (contrôle Beliandjolie, affecte toutes les boutiques). Défaut false. */
-  pfsMaintenance?: boolean;
-  ankorstoreMaintenance?: boolean;
-  efashionMaintenance?: boolean;
-  faireMaintenance?: boolean;
-  orderchampMaintenance?: boolean;
 }
 
 type MarketplaceKey = "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp";
@@ -132,6 +126,18 @@ const Icon = {
   Spinner: (
     <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+    </svg>
+  ),
+  // Cadenas ouvert = marketplace autorisée pour ce produit (clic = bloquer).
+  LockOpen: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M3.75 10.5h16.5a1.5 1.5 0 011.5 1.5v8.25a1.5 1.5 0 01-1.5 1.5H3.75a1.5 1.5 0 01-1.5-1.5V12a1.5 1.5 0 011.5-1.5z" />
+    </svg>
+  ),
+  // Cadenas fermé = marketplace bloquée pour ce produit (clic = débloquer).
+  Lock: (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-1.5 0h12a1.5 1.5 0 011.5 1.5v8.25a1.5 1.5 0 01-1.5 1.5h-12a1.5 1.5 0 01-1.5-1.5V12a1.5 1.5 0 011.5-1.5z" />
     </svg>
   ),
 };
@@ -290,6 +296,7 @@ function MarketplaceCard({
   awaitingShooting = false,
   awaitingShootingLabel,
   actions,
+  blockToggle,
 }: {
   state: MarketplaceBadgeState;
   marketplace: MarketplaceKey;
@@ -300,10 +307,21 @@ function MarketplaceCard({
   title: string;
   loadingLabel: string;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "global" | "maintenance" | "not_configured";
+  disabledReason?: "product" | "global" | "not_configured";
   awaitingShooting?: boolean;
   awaitingShootingLabel?: string;
   actions?: React.ReactNode;
+  /**
+   * Bouton « bloquer / débloquer ce marketplace pour ce produit » — reste
+   * visible même quand la carte est grisée par un blocage cliente (afin de
+   * pouvoir débloquer en 1 clic depuis le badge). Masqué si la marketplace
+   * est HS pour une autre raison (kill switch, non configurée).
+   */
+  blockToggle?: {
+    blocked: boolean;
+    onToggle: () => void;
+    busy: boolean;
+  };
 }) {
   const mp = MARKETPLACE_META[marketplace];
   const { cardClasses, textClasses, dividerClass } = getCardStateClasses({
@@ -388,13 +406,42 @@ function MarketplaceCard({
   );
 
   const disabledTooltip =
-    disabledReason === "maintenance"
-      ? `${label} · en maintenance sur la plateforme`
-      : disabledReason === "not_configured"
+    disabledReason === "not_configured"
       ? `${label} · non configurée dans Paramètres`
       : disabledReason === "global"
       ? `${label} · marketplace désactivée dans Paramètres`
       : `${label} · marketplace désactivée pour ce produit`;
+
+  // Ligne d'actions visible :
+  //  - marketplace HS (kill switch / non configurée) → jamais
+  //  - marketplace bloquée par la cliente pour ce produit → juste le cadenas
+  //    fermé pour permettre de débloquer d'un clic (les autres actions cachées
+  //    car elles sont inutiles tant que c'est bloqué)
+  //  - sinon → actions habituelles + cadenas ouvert en dernière position
+  const blockedForProductOnly =
+    disabledForProduct && disabledReason === "product";
+  const showActionsBar =
+    (!disabledForProduct && (actions || blockToggle)) ||
+    (blockedForProductOnly && !!blockToggle);
+
+  const blockBtnEl = blockToggle ? (
+    <IconBtn
+      tone={blockToggle.blocked ? "warning" : "neutral"}
+      icon={blockToggle.blocked ? Icon.Lock : Icon.LockOpen}
+      onClick={blockToggle.onToggle}
+      busy={blockToggle.busy}
+      title={
+        blockToggle.blocked
+          ? `Débloquer ${label} pour ce produit (les envois automatiques reprendront)`
+          : `Bloquer ${label} pour ce produit (plus aucun envoi automatique tant que c'est bloqué)`
+      }
+      ariaLabel={
+        blockToggle.blocked
+          ? `Débloquer ${label} pour ce produit`
+          : `Bloquer ${label} pour ce produit`
+      }
+    />
+  ) : null;
 
   const cardEl = (
     <div
@@ -402,9 +449,10 @@ function MarketplaceCard({
       style={disabledStyle}
     >
       {headerEl}
-      {actions && !disabledForProduct && (
+      {showActionsBar && (
         <div className={`flex items-center justify-center gap-1 pt-1 mt-0.5 border-t ${dividerClass}`}>
-          {actions}
+          {!blockedForProductOnly && actions}
+          {blockBtnEl}
         </div>
       )}
     </div>
@@ -479,21 +527,8 @@ export function MarketplaceStatusButtons({
   orderchampEnabledForProduct = true,
   microstoreEnabledForProduct = true,
   microstoreProductId = null,
-  pfsMaintenance: pfsMaintenanceProp,
-  ankorstoreMaintenance: ankorstoreMaintenanceProp,
-  efashionMaintenance: efashionMaintenanceProp,
-  faireMaintenance: faireMaintenanceProp,
-  orderchampMaintenance: orderchampMaintenanceProp,
 }: MarketplaceStatusButtonsProps) {
   const router = useRouter();
-  // Contexte plateforme (monté au layout admin) — la prop reste prioritaire si
-  // fournie explicitement (utile en tests unitaires).
-  const maintenanceCtx = useMarketplaceMaintenance();
-  const pfsMaintenance = pfsMaintenanceProp ?? maintenanceCtx.pfs;
-  const ankorstoreMaintenance = ankorstoreMaintenanceProp ?? maintenanceCtx.ankorstore;
-  const efashionMaintenance = efashionMaintenanceProp ?? maintenanceCtx.efashion;
-  const faireMaintenance = faireMaintenanceProp ?? maintenanceCtx.faire;
-  const orderchampMaintenance = orderchampMaintenanceProp ?? maintenanceCtx.orderchamp;
   const { enqueue, items, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
   const {
@@ -574,6 +609,8 @@ export function MarketplaceStatusButtons({
   const [confirmOrderchampOpen, setConfirmOrderchampOpen] = useState(false);
   const [resyncOrderchampOpen, setResyncOrderchampOpen] = useState(false);
   const [unlinkOrderchampBusy, setUnlinkOrderchampBusy] = useState(false);
+  // Un seul « busy » à la fois : la clé du marketplace en cours de bloc/déblo.
+  const [blockBusyKey, setBlockBusyKey] = useState<MarketplaceKey | null>(null);
 
   const pfsOp = useMemo(() => findLatestOpForProduct(items, productId, "pfs"), [items, productId]);
   const ankorstoreOp = useMemo(
@@ -731,6 +768,57 @@ export function MarketplaceStatusButtons({
       }
       router.refresh();
     });
+  };
+
+  /**
+   * Bloque/débloque un marketplace pour ce produit. Demande une confirmation
+   * uniquement au blocage (le déblocage est immédiat, sans friction). N'appelle
+   * jamais l'unlink : la fiche marketplace existante reste telle quelle côté
+   * plateforme — c'est un simple « bouton pause » sur les envois automatiques.
+   */
+  const handleToggleBlock = async (
+    marketplace: MarketplaceKey,
+    marketplaceLabel: string,
+    currentlyEnabled: boolean,
+  ) => {
+    if (currentlyEnabled) {
+      const ok = await confirm({
+        type: "warning",
+        title: `Bloquer ${marketplaceLabel} pour ce produit ?`,
+        message:
+          `Tant que ${marketplaceLabel} sera bloquée pour ce produit, plus aucune action ` +
+          `(publication, mise à jour, synchronisation stock ou prix) ne partira vers ${marketplaceLabel} — ` +
+          `même si vous la cochez dans la modale de save ou lancez un rafraîchissement en lot. ` +
+          `La fiche existante sur ${marketplaceLabel} reste inchangée. Vous pourrez débloquer à tout moment.`,
+        confirmLabel: "Bloquer",
+      });
+      if (!ok) return;
+    }
+    setBlockBusyKey(marketplace);
+    try {
+      const res = await setProductMarketplaceEnabled(
+        productId,
+        marketplace,
+        !currentlyEnabled,
+      );
+      if (res.success) {
+        toast.success(
+          currentlyEnabled
+            ? `${marketplaceLabel} bloquée pour ce produit`
+            : `${marketplaceLabel} débloquée pour ce produit`,
+        );
+        router.refresh();
+      } else {
+        toast.error("Modification refusée", res.error ?? "Erreur inconnue.");
+      }
+    } catch (err) {
+      toast.error(
+        "Modification refusée",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBlockBusyKey(null);
+    }
   };
 
   // PFS
@@ -1026,24 +1114,23 @@ export function MarketplaceStatusButtons({
   // Cliente veut TOUJOURS voir les 6 badges marketplaces sur la fiche produit,
   // même désactivés / non configurés. Les cartes affichent « désactivé » en
   // sous-libellé, les IconBtn deviennent disabled.
-  // Maintenance = priorité max (contrôle Beli & Jolie, affecte toutes les boutiques).
   // Non configuré = même effet qu'un kill switch global.
-  const pfsDisabledOverall = !hasPfsConfig || pfsMaintenance || !pfsEnabledForProduct || !pfsEnabled;
-  const ankorsDisabledOverall = !hasAnkorstoreConfig || ankorstoreMaintenance || !ankorsEnabledForProduct || !ankorstoreEnabled;
-  const efashionDisabledOverall = !hasEfashionConfig || efashionMaintenance || !efashionEnabledForProduct || !efashionEnabled;
-  const faireDisabledOverall = !hasFaireConfig || faireMaintenance || !faireEnabledForProduct || !faireEnabled;
-  const orderchampDisabledOverall = !hasOrderchampConfig || orderchampMaintenance || !orderchampEnabledForProduct || !orderchampEnabled;
-  type DisabledReason = "product" | "global" | "maintenance" | "not_configured";
+  const pfsDisabledOverall = !hasPfsConfig || !pfsEnabledForProduct || !pfsEnabled;
+  const ankorsDisabledOverall = !hasAnkorstoreConfig || !ankorsEnabledForProduct || !ankorstoreEnabled;
+  const efashionDisabledOverall = !hasEfashionConfig || !efashionEnabledForProduct || !efashionEnabled;
+  const faireDisabledOverall = !hasFaireConfig || !faireEnabledForProduct || !faireEnabled;
+  const orderchampDisabledOverall = !hasOrderchampConfig || !orderchampEnabledForProduct || !orderchampEnabled;
+  type DisabledReason = "product" | "global" | "not_configured";
   const pfsDisabledReason: DisabledReason =
-    !hasPfsConfig ? "not_configured" : pfsMaintenance ? "maintenance" : !pfsEnabled ? "global" : "product";
+    !hasPfsConfig ? "not_configured" : !pfsEnabled ? "global" : "product";
   const ankorsDisabledReason: DisabledReason =
-    !hasAnkorstoreConfig ? "not_configured" : ankorstoreMaintenance ? "maintenance" : !ankorstoreEnabled ? "global" : "product";
+    !hasAnkorstoreConfig ? "not_configured" : !ankorstoreEnabled ? "global" : "product";
   const efashionDisabledReason: DisabledReason =
-    !hasEfashionConfig ? "not_configured" : efashionMaintenance ? "maintenance" : !efashionEnabled ? "global" : "product";
+    !hasEfashionConfig ? "not_configured" : !efashionEnabled ? "global" : "product";
   const faireDisabledReason: DisabledReason =
-    !hasFaireConfig ? "not_configured" : faireMaintenance ? "maintenance" : !faireEnabled ? "global" : "product";
+    !hasFaireConfig ? "not_configured" : !faireEnabled ? "global" : "product";
   const orderchampDisabledReason: DisabledReason =
-    !hasOrderchampConfig ? "not_configured" : orderchampMaintenance ? "maintenance" : !orderchampEnabled ? "global" : "product";
+    !hasOrderchampConfig ? "not_configured" : !orderchampEnabled ? "global" : "product";
 
   return (
     <>
@@ -1079,6 +1166,16 @@ export function MarketplaceStatusButtons({
                     : "Non disponible — cliquez pour publier sur Paris Fashion Shop"
             }
             loadingLabel="Publication PFS en cours…"
+            blockToggle={
+              hasPfsConfig && pfsEnabled
+                ? {
+                    blocked: !pfsEnabledForProduct,
+                    onToggle: () =>
+                      handleToggleBlock("pfs", "Paris Fashion Shop", pfsEnabledForProduct),
+                    busy: blockBusyKey === "pfs",
+                  }
+                : undefined
+            }
             actions={
               <>
                 {pfsProductId && (
@@ -1175,6 +1272,16 @@ export function MarketplaceStatusButtons({
                     : "Non disponible — cliquez pour publier sur Ankorstore"
             }
             loadingLabel="Publication Ankorstore en cours…"
+            blockToggle={
+              hasAnkorstoreConfig && ankorstoreEnabled
+                ? {
+                    blocked: !ankorsEnabledForProduct,
+                    onToggle: () =>
+                      handleToggleBlock("ankorstore", "Ankorstore", ankorsEnabledForProduct),
+                    busy: blockBusyKey === "ankorstore",
+                  }
+                : undefined
+            }
             actions={
               <>
                 {ankorsProductId && (
@@ -1263,6 +1370,16 @@ export function MarketplaceStatusButtons({
                       : "Non disponible — cliquez pour publier sur eFashion Paris"
             }
             loadingLabel="Sync eFashion…"
+            blockToggle={
+              hasEfashionConfig && efashionEnabled
+                ? {
+                    blocked: !efashionEnabledForProduct,
+                    onToggle: () =>
+                      handleToggleBlock("efashion", "eFashion Paris", efashionEnabledForProduct),
+                    busy: blockBusyKey === "efashion",
+                  }
+                : undefined
+            }
             actions={
               <>
                 {efashionLinked && (
@@ -1342,6 +1459,16 @@ export function MarketplaceStatusButtons({
                     : "Non disponible — cliquez pour publier sur Faire"
             }
             loadingLabel="Publication Faire en cours…"
+            blockToggle={
+              hasFaireConfig && faireEnabled
+                ? {
+                    blocked: !faireEnabledForProduct,
+                    onToggle: () =>
+                      handleToggleBlock("faire", "Faire", faireEnabledForProduct),
+                    busy: blockBusyKey === "faire",
+                  }
+                : undefined
+            }
             actions={
               <>
                 {faireProductId && (
@@ -1425,6 +1552,16 @@ export function MarketplaceStatusButtons({
                     : "Non disponible — cliquez pour publier sur Orderchamp"
             }
             loadingLabel="Publication Orderchamp en cours…"
+            blockToggle={
+              hasOrderchampConfig && orderchampEnabled
+                ? {
+                    blocked: !orderchampEnabledForProduct,
+                    onToggle: () =>
+                      handleToggleBlock("orderchamp", "Orderchamp", orderchampEnabledForProduct),
+                    busy: blockBusyKey === "orderchamp",
+                  }
+                : undefined
+            }
             actions={
               <>
                 {orderchampProductId && (

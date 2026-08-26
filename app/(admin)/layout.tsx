@@ -22,16 +22,9 @@ import { IneligibleRefreshProvider } from "@/components/admin/products/Ineligibl
 import { RefreshMarketplacePromptProvider } from "@/components/admin/products/RefreshMarketplaceDialog";
 import { PfsAuditActiveProvider } from "@/components/admin/products/PfsAuditActiveContext";
 import { AdminWidgetsRail } from "@/components/admin/widgets-rail";
-import { MarketplaceMaintenanceProvider } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { getCachedSiteConfig, getCachedPfsCredentials } from "@/lib/cached-data";
-import { getCurrentTenant } from "@/lib/tenant";
-import { getMarketplaceMaintenance } from "@/lib/platform-config";
 import { getMicrostoreSessionExpirations } from "@/lib/microstore-session-status";
 import MicrostoreSessionAlerts from "@/components/admin/MicrostoreSessionAlerts";
-
-/** Slugs du tenant "maître" — voit l'entrée "Contrôle plateforme" dans la sidebar.
- *  Prod = "beliandjolie", dev-local = "beli-jolie". */
-const PLATFORM_ADMIN_TENANT_SLUGS = new Set(["beliandjolie", "beli-jolie"]);
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -66,8 +59,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     warnings,
     pfsCreds,
     autoTranslateConfig,
-    currentTenant,
-    maintenance,
     microstoreExpirations,
     cookieStore,
   ] = await Promise.all([
@@ -75,16 +66,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     getCachedAdminWarnings(),
     getCachedPfsCredentials(),
     getCachedSiteConfig("auto_translate_enabled"),
-    getCurrentTenant(),
-    getMarketplaceMaintenance(),
     getMicrostoreSessionExpirations(),
     cookies(),
   ]);
 
   const adminTheme = parseAdminTheme(cookieStore.get(ADMIN_THEME_COOKIE)?.value ?? null);
   const themeClass = adminThemeBodyClass(adminTheme);
-
-  const isPlatformAdmin = !!currentTenant && PLATFORM_ADMIN_TENANT_SLUGS.has(currentTenant.slug);
 
   const {
     untranslatedCount,
@@ -118,7 +105,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
-    <MarketplaceMaintenanceProvider value={{ ...maintenance, microstore: false }}>
     <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
     <MappingImpactProvider>
@@ -143,7 +129,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         pendingOrdersCount={pendingOrdersCount}
         pendingUsersCount={pendingUsersCount}
         openClaimsCount={openClaimsCount}
-        isPlatformAdmin={isPlatformAdmin}
       >
         <AdminMobileNav
           userName={session.user.name ?? "Admin"}
@@ -159,7 +144,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             "/admin/reclamations": openClaimsCount,
           }}
           shopName={shopName}
-          isPlatformAdmin={isPlatformAdmin}
         />
 
         <main className="flex-1 p-4 md:p-6 lg:p-8 lg:bg-white lg:min-h-screen">
@@ -178,7 +162,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </MappingImpactProvider>
     </MarketplaceRefreshProvider>
     </MarketplaceLinkProvider>
-    </MarketplaceMaintenanceProvider>
     </DeeplConfigProvider>
   );
 }

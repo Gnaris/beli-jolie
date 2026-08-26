@@ -436,6 +436,25 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ orderchampLink: "nope" }).orderchampProductId).toBeUndefined();
   });
 
+  // Microstore : le lien est porté par `microstoreLastPushedAt` et non par
+  // `microstoreProductId` seul — les fiches poussées en CSV historique n'ont
+  // pas d'ID mais ont bien un timestamp de push. Miroir du badge vert de la
+  // table admin qui utilise la même règle.
+  it("filtre par lien Microstore : microstoreLink=linked → microstoreLastPushedAt non null", () => {
+    const where = buildAdminProductsWhere({ microstoreLink: "linked" });
+    expect(where.microstoreLastPushedAt).toEqual({ not: null });
+  });
+
+  it("filtre par lien Microstore : microstoreLink=unlinked → microstoreLastPushedAt null", () => {
+    const where = buildAdminProductsWhere({ microstoreLink: "unlinked" });
+    expect(where.microstoreLastPushedAt).toBeNull();
+  });
+
+  it("ignore microstoreLink quand la valeur est vide ou inconnue", () => {
+    expect(buildAdminProductsWhere({ microstoreLink: "" }).microstoreLastPushedAt).toBeUndefined();
+    expect(buildAdminProductsWhere({ microstoreLink: "nope" }).microstoreLastPushedAt).toBeUndefined();
+  });
+
   it("syncRequired='1' ajoute un OR sur les quatre drapeaux *SyncRequired ET impose que la marketplace correspondante soit liée (évite les drapeaux orphelins qui ne peuvent pas afficher de badge orange)", () => {
     const where = buildAdminProductsWhere({ syncRequired: "1" });
     expect(where.AND).toEqual([

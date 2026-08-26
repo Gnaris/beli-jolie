@@ -43,7 +43,6 @@ import { useEfashionShootingBatch } from "@/components/admin/products/EfashionSh
 import { useRightRail } from "@/components/admin/widgets-rail/RightRailContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
-import { useMarketplaceMaintenance } from "@/components/admin/products/MarketplaceMaintenanceContext";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
 import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
@@ -309,15 +308,13 @@ function DisabledMarketplaceBadge({
   reason = "product",
 }: {
   label: string;
-  /** "maintenance" = coupure plateforme, "global" = kill switch Paramètres OFF, "product" = case décochée par la cliente. */
-  reason?: "product" | "maintenance" | "global";
+  /** "global" = kill switch Paramètres OFF, "product" = case décochée par la cliente. */
+  reason?: "product" | "global";
 }) {
   const tooltip =
-    reason === "maintenance"
-      ? `${label} · en maintenance sur la plateforme`
-      : reason === "global"
-        ? `${label} · marketplace désactivée dans Paramètres`
-        : `${label} · désactivée pour ce produit`;
+    reason === "global"
+      ? `${label} · marketplace désactivée dans Paramètres`
+      : `${label} · désactivée pour ce produit`;
   return (
     <Tooltip content={tooltip}>
       <span
@@ -378,7 +375,7 @@ function MarketplaceBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "maintenance";
+  disabledReason?: "product";
 }) {
   if (disabledForProduct) return <DisabledMarketplaceBadge label="PFS" reason={disabledReason} />;
   if (publishing) {
@@ -487,7 +484,7 @@ function AnkorstoreBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "maintenance";
+  disabledReason?: "product";
 }) {
   if (disabledForProduct) return <DisabledMarketplaceBadge label="ANKOR" reason={disabledReason} />;
   if (publishing) {
@@ -598,7 +595,7 @@ function EfashionBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "maintenance";
+  disabledReason?: "product";
   shootingPending?: "PUBLISH" | "REFRESH" | null;
   onShootingClick?: () => void;
 }) {
@@ -735,7 +732,7 @@ function FaireBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "maintenance";
+  disabledReason?: "product";
 }) {
   if (disabledForProduct) return <DisabledMarketplaceBadge label="Faire" reason={disabledReason} />;
   if (publishing) {
@@ -844,7 +841,7 @@ function OrderchampBadge({
   onSyncClick?: () => void;
   onCancelSyncRequired?: () => void;
   disabledForProduct?: boolean;
-  disabledReason?: "product" | "maintenance";
+  disabledReason?: "product";
 }) {
   if (disabledForProduct) return <DisabledMarketplaceBadge label="OC" reason={disabledReason} />;
   if (publishing) {
@@ -939,6 +936,7 @@ function OrderchampBadge({
 function MicrostoreBadge({
   configured,
   published,
+  publishing = false,
   syncRequired = false,
   onSyncClick,
   onActionClick,
@@ -953,6 +951,9 @@ function MicrostoreBadge({
    *  populate ce champ + `microstoreProductId` au push — la couleur du badge
    *  reflète maintenant le vrai statut du produit, pas juste la config globale. */
   published: boolean;
+  /** Un job Microstore (publish/resync/refresh) tourne dans la file pour ce
+   *  produit — badge en mode « En cours » bleu (aligné PFS/Ankor/eFa/Faire/OC). */
+  publishing?: boolean;
   syncRequired?: boolean;
   /** Publié + à jour → clic déclenche une resynchronisation. */
   onSyncClick?: () => void;
@@ -974,6 +975,26 @@ function MicrostoreBadge({
   }
   if (disabledGlobally) return <DisabledMarketplaceBadge label="MC" reason="global" />;
   if (disabledForProduct) return <DisabledMarketplaceBadge label="MC" reason="product" />;
+  if (publishing) {
+    return (
+      <span
+        className="inline-flex flex-row items-center justify-center gap-1 w-[62px] h-[36px] rounded-md text-[10px] font-semibold mp-loading-badge bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE] leading-tight"
+        title="Envoi Microstore en cours…"
+      >
+        <svg
+          className="w-3 h-3 animate-spin shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          strokeWidth={2.5}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+        </svg>
+        <span>MC</span>
+      </span>
+    );
+  }
   if (published && syncRequired) {
     return (
       <span className="relative inline-flex">
@@ -2452,7 +2473,6 @@ function ActionsDropdown({
   // `expanded` sert seulement de flag informatif : le vrai toggle passe par
   // onExpandToggle (bouton « Modifier les variantes » ci-dessous).
   void expanded;
-  const maintenance = useMarketplaceMaintenance();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
@@ -2604,80 +2624,55 @@ function ActionsDropdown({
         <button
           type="button"
           onClick={onPublishPfs}
-          disabled={pfsPublishing || maintenance.pfs}
-          title={maintenance.pfs ? "Paris Fashion Shop en maintenance sur la plateforme" : undefined}
-          className={`${itemClass} ${pfsPublishing || maintenance.pfs ? "opacity-50 cursor-not-allowed" : ""}`}
+          disabled={pfsPublishing}
+          className={`${itemClass} ${pfsPublishing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {pfsPublishing
-            ? "Publication PFS en cours…"
-            : maintenance.pfs
-              ? "Publier sur Paris Fashion Shop — en maintenance"
-              : "Publier sur Paris Fashion Shop"}
+          {pfsPublishing ? "Publication PFS en cours…" : "Publier sur Paris Fashion Shop"}
         </button>
       )}
       {eligibility.canPublishEfashion && (
         <button
           type="button"
           onClick={onPublishEfashion}
-          disabled={efashionPublishing || maintenance.efashion}
-          title={maintenance.efashion ? "eFashion Paris en maintenance sur la plateforme" : undefined}
-          className={`${itemClass} ${efashionPublishing || maintenance.efashion ? "opacity-50 cursor-not-allowed" : ""}`}
+          disabled={efashionPublishing}
+          className={`${itemClass} ${efashionPublishing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {efashionPublishing
-            ? "Publication eFashion en cours…"
-            : maintenance.efashion
-              ? "Publier sur eFashion — en maintenance"
-              : "Publier sur eFashion"}
+          {efashionPublishing ? "Publication eFashion en cours…" : "Publier sur eFashion"}
         </button>
       )}
       {eligibility.canPublishAnkorstore && (
         <button
           type="button"
           onClick={onPublishAnkorstore}
-          disabled={ankorstorePublishing || maintenance.ankorstore}
-          title={maintenance.ankorstore ? "Ankorstore en maintenance sur la plateforme" : undefined}
-          className={`${itemClass} ${ankorstorePublishing || maintenance.ankorstore ? "opacity-50 cursor-not-allowed" : ""}`}
+          disabled={ankorstorePublishing}
+          className={`${itemClass} ${ankorstorePublishing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {ankorstorePublishing
-            ? "Publication Ankorstore en cours…"
-            : maintenance.ankorstore
-              ? "Publier sur Ankorstore — en maintenance"
-              : "Publier sur Ankorstore"}
+          {ankorstorePublishing ? "Publication Ankorstore en cours…" : "Publier sur Ankorstore"}
         </button>
       )}
       {eligibility.canPublishFaire && (
         <button
           type="button"
           onClick={onPublishFaire}
-          disabled={fairePublishing || maintenance.faire}
-          title={maintenance.faire ? "Faire en maintenance sur la plateforme" : undefined}
-          className={`${itemClass} ${fairePublishing || maintenance.faire ? "opacity-50 cursor-not-allowed" : ""}`}
+          disabled={fairePublishing}
+          className={`${itemClass} ${fairePublishing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {fairePublishing
-            ? "Publication Faire en cours…"
-            : maintenance.faire
-              ? "Publier sur Faire — en maintenance"
-              : "Publier sur Faire"}
+          {fairePublishing ? "Publication Faire en cours…" : "Publier sur Faire"}
         </button>
       )}
       {eligibility.canPublishOrderchamp && (
         <button
           type="button"
           onClick={onPublishOrderchamp}
-          disabled={orderchampPublishing || maintenance.orderchamp}
-          title={maintenance.orderchamp ? "Orderchamp en maintenance sur la plateforme" : undefined}
-          className={`${itemClass} ${orderchampPublishing || maintenance.orderchamp ? "opacity-50 cursor-not-allowed" : ""}`}
+          disabled={orderchampPublishing}
+          className={`${itemClass} ${orderchampPublishing ? "opacity-50 cursor-not-allowed" : ""}`}
         >
           <span className={iconWrap}>+</span>
-          {orderchampPublishing
-            ? "Publication Orderchamp en cours…"
-            : maintenance.orderchamp
-              ? "Publier sur Orderchamp — en maintenance"
-              : "Publier sur Orderchamp"}
+          {orderchampPublishing ? "Publication Orderchamp en cours…" : "Publier sur Orderchamp"}
         </button>
       )}
 
@@ -2933,22 +2928,20 @@ function ProductRow({
   //  - showXxx : rendre le badge (même barré si le kill switch global est OFF)
   //  - xxxOperational : autoriser une action (publier, resync). Un kill switch
   //    OFF côté Paramètres coupe l'action mais laisse le badge visible barré.
-  const maintenance = useMarketplaceMaintenance();
   const showAnkorstore = hasAnkorstoreConfig;
   const showEfashion = hasEfashionConfig;
   const showFaire = hasFaireConfig;
   const showOrderchamp = hasOrderchampConfig;
-  // Maintenance plateforme = coupe l'opérationnalité, même si le kill switch tenant est ON.
-  const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled && !maintenance.ankorstore;
-  const efashionOperational = hasEfashionConfig && efashionEnabled && !maintenance.efashion;
-  const faireOperational = hasFaireConfig && faireEnabled && !maintenance.faire;
-  const orderchampOperational = hasOrderchampConfig && orderchampEnabled && !maintenance.orderchamp;
-  const pfsOperational = hasPfsConfig && pfsGloballyEnabled && !maintenance.pfs;
-  const pfsDisabledOverall = maintenance.pfs || !product.pfsEnabled || !pfsGloballyEnabled;
-  const ankorsDisabledOverall = maintenance.ankorstore || !product.ankorsEnabled || !ankorstoreEnabled;
-  const efashionDisabledOverall = maintenance.efashion || !product.efashionEnabled || !efashionEnabled;
-  const faireDisabledOverall = maintenance.faire || !product.faireEnabled || !faireEnabled;
-  const orderchampDisabledOverall = maintenance.orderchamp || !product.orderchampEnabled || !orderchampEnabled;
+  const ankorstoreOperational = hasAnkorstoreConfig && ankorstoreEnabled;
+  const efashionOperational = hasEfashionConfig && efashionEnabled;
+  const faireOperational = hasFaireConfig && faireEnabled;
+  const orderchampOperational = hasOrderchampConfig && orderchampEnabled;
+  const pfsOperational = hasPfsConfig && pfsGloballyEnabled;
+  const pfsDisabledOverall = !product.pfsEnabled || !pfsGloballyEnabled;
+  const ankorsDisabledOverall = !product.ankorsEnabled || !ankorstoreEnabled;
+  const efashionDisabledOverall = !product.efashionEnabled || !efashionEnabled;
+  const faireDisabledOverall = !product.faireEnabled || !faireEnabled;
+  const orderchampDisabledOverall = !product.orderchampEnabled || !orderchampEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
     showPfs: pfsOperational,
@@ -3089,6 +3082,23 @@ function ProductRow({
   );
   const [pendingOrderchampEnqueue, setPendingOrderchampEnqueue] = useState(false);
   const isOrderchampPublishing = orderchampBadgeState.loading || pendingOrderchampEnqueue;
+
+  // Microstore : même schéma que les 5 autres marketplaces depuis 2026-08-26.
+  // `microstoreLastPushedAt` sert d'équivalent à `pfsProductId` pour signaler
+  // « déjà lié ». Le badge devient bleu « En cours » dès qu'un push/sync/refresh
+  // Microstore est en file ou en train de tourner pour ce produit.
+  const microstoreOp = findLatestOpForProduct(queueItems, product.id, "microstore");
+  const microstoreBadgeState = computeMarketplaceBadgeState(
+    product.microstoreLastPushedAt ? "linked" : null,
+    microstoreOp,
+    "microstore",
+    effectiveMicrostoreSyncRequired,
+    undefined,
+    getRecentClientSuccessAt(product.id, "microstore"),
+    false,
+  );
+  const [pendingMicrostoreEnqueue, setPendingMicrostoreEnqueue] = useState(false);
+  const isMicrostorePublishing = microstoreBadgeState.loading || pendingMicrostoreEnqueue;
 
   // État de confirmation « Publier sur X ? » — piloté par une seule modale
   // partagée (MarketplacePublishConfirmModal). null = fermée.
@@ -3254,6 +3264,11 @@ function ProductRow({
       setPendingOrderchampEnqueue(false);
     }
   }, [pendingOrderchampEnqueue, orderchampBadgeState.loading]);
+  useEffect(() => {
+    if (pendingMicrostoreEnqueue && microstoreBadgeState.loading) {
+      setPendingMicrostoreEnqueue(false);
+    }
+  }, [pendingMicrostoreEnqueue, microstoreBadgeState.loading]);
 
   // Modale variantes ouverte (bureau ou mobile) : lock body scroll + fermeture ESC.
   useEffect(() => {
@@ -3339,13 +3354,15 @@ function ProductRow({
     }]);
   }, [enqueue, product, isOrderchampPublishing, confirmMarketplaceSync]);
 
-  const [microstoreBusy, setMicrostoreBusy] = useState(false);
   // Push Microstore — passe par la même queue asynchrone que les autres
   // marketplaces (PFS/Ankor/eFa/Faire/OC). Résultat + éventuelle erreur
-  // affichés dans le widget flottant en bas à droite (aucun toast).
+  // affichés dans le widget flottant en bas à droite (aucun toast). Le verrou
+  // `pendingMicrostoreEnqueue` fait passer le badge en bleu immédiatement,
+  // puis `microstoreBadgeState.loading` prend le relais quand la file remonte
+  // l'op en queued/in_progress.
   const doPushMicrostore = useCallback(() => {
-    if (microstoreBusy) return;
-    setMicrostoreBusy(true);
+    if (isMicrostorePublishing) return;
+    setPendingMicrostoreEnqueue(true);
     nudgeRailWidget("microstore-upload");
     enqueue([
       {
@@ -3366,16 +3383,13 @@ function ProductRow({
         marketplace: "microstore",
       },
     ]);
-    // On libère microstoreBusy tout de suite : le suivi de l'état passe par
-    // le widget (le contexte marketplace-refresh a son propre "busy per item").
-    setMicrostoreBusy(false);
-  }, [microstoreBusy, product, enqueue, nudgeRailWidget]);
+  }, [isMicrostorePublishing, product, enqueue, nudgeRailWidget]);
 
   const handleSyncMicrostore = useCallback(async () => {
-    if (microstoreBusy) return;
+    if (isMicrostorePublishing) return;
     if (!(await confirmMarketplaceSync("Microstore"))) return;
     doPushMicrostore();
-  }, [microstoreBusy, confirmMarketplaceSync, doPushMicrostore]);
+  }, [isMicrostorePublishing, confirmMarketplaceSync, doPushMicrostore]);
 
   const handleCancelMicrostoreSync = useCallback(async () => {
     const ok = await confirm({
@@ -3758,10 +3772,10 @@ function ProductRow({
                   <MpDot
                     label="MC"
                     active={!!product.microstoreLastPushedAt}
-                    syncRequired={product.microstoreSyncRequired}
+                    syncRequired={product.microstoreSyncRequired && !pendingMicrostoreEnqueue}
                     disabled={!product.microstoreEnabled}
-                    busy={microstoreBusy}
-                    onClick={product.microstoreEnabled ? () => void handleSyncMicrostore() : undefined}
+                    busy={isMicrostorePublishing}
+                    onClick={product.microstoreEnabled && !isMicrostorePublishing ? () => void handleSyncMicrostore() : undefined}
                   />
                 )}
               </div>
@@ -3804,7 +3818,6 @@ function ProductRow({
                 onSyncClick={handleSyncPfs}
                 onCancelSyncRequired={() => handleCancelSyncRequired("pfs", "Paris Fashion Shop")}
                 disabledForProduct={pfsDisabledOverall}
-                disabledReason={maintenance.pfs ? "maintenance" : "product"}
               />
               {showEfashion ? (
                 <EfashionBadge
@@ -3820,7 +3833,6 @@ function ProductRow({
                   onSyncClick={handleSyncEfashion}
                   onCancelSyncRequired={() => handleCancelSyncRequired("efashion", "eFashion Paris")}
                   disabledForProduct={efashionDisabledOverall}
-                  disabledReason={maintenance.efashion ? "maintenance" : "product"}
                   shootingPending={efashionShootingPending}
                   onShootingClick={() => openRailWidget("shooting")}
                 />
@@ -3842,7 +3854,6 @@ function ProductRow({
                 onSyncClick={handleSyncAnkorstore}
                 onCancelSyncRequired={() => handleCancelSyncRequired("ankorstore", "Ankorstore")}
                 disabledForProduct={ankorsDisabledOverall}
-                disabledReason={maintenance.ankorstore ? "maintenance" : "product"}
               />
               {showFaire ? (
                 <FaireBadge
@@ -3858,7 +3869,6 @@ function ProductRow({
                   onSyncClick={handleSyncFaire}
                   onCancelSyncRequired={() => handleCancelSyncRequired("faire", "Faire")}
                   disabledForProduct={faireDisabledOverall}
-                  disabledReason={maintenance.faire ? "maintenance" : "product"}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -3879,7 +3889,6 @@ function ProductRow({
                   onSyncClick={handleSyncOrderchamp}
                   onCancelSyncRequired={() => handleCancelSyncRequired("orderchamp", "Orderchamp")}
                   disabledForProduct={orderchampDisabledOverall}
-                  disabledReason={maintenance.orderchamp ? "maintenance" : "product"}
                 />
               ) : (
                 <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
@@ -3889,10 +3898,11 @@ function ProductRow({
               <MicrostoreBadge
                 configured={hasMicrostoreConfig}
                 published={!!product.microstoreLastPushedAt}
-                syncRequired={effectiveMicrostoreSyncRequired}
-                onSyncClick={microstoreBusy || !microstoreEnabled ? undefined : handleSyncMicrostore}
+                publishing={isMicrostorePublishing}
+                syncRequired={effectiveMicrostoreSyncRequired && !pendingMicrostoreEnqueue}
+                onSyncClick={isMicrostorePublishing || !microstoreEnabled ? undefined : handleSyncMicrostore}
                 onActionClick={
-                  hasMicrostoreConfig && microstoreEnabled && product.microstoreEnabled && !microstoreBusy
+                  hasMicrostoreConfig && microstoreEnabled && product.microstoreEnabled && !isMicrostorePublishing
                     ? () => setActionModalMicrostore(true)
                     : undefined
                 }
