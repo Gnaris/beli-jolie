@@ -572,15 +572,33 @@ function uniqueMap<T>(arr: T[], keyFn: (x: T) => string): T[] {
   return Array.from(seen.values());
 }
 
-/** Filtre les produits PFS pour ne garder que ceux pas encore dans notre DB */
-async function filterImportable(products: PfsProduct[]): Promise<PfsProduct[]> {
+/** Filtre les produits PFS pour ne garder que ceux pas encore dans notre DB.
+ *  On teste à la fois la référence ET le `pfsProductId` : PFS permet de
+ *  renommer une ref sans changer son ID interne, donc un produit peut vivre
+ *  chez nous sous ref « TEDDYOFFICIER » et repasser côté PFS en ref « 818 »
+ *  — même identifiant PFS des deux côtés → l'INSERT casse la contrainte
+ *  unique `(tenantId, pfsProductId)` si on ne filtre que par ref. */
+export async function filterImportable(products: PfsProduct[]): Promise<PfsProduct[]> {
   const refs = products.map((p) => p.reference.trim().toUpperCase());
+  const pfsIds = products.map((p) => p.id);
   const existing = await prisma.product.findMany({
-    where: { reference: { in: refs } },
-    select: { reference: true },
+    where: {
+      OR: [
+        { reference: { in: refs } },
+        { pfsProductId: { in: pfsIds } },
+      ],
+    },
+    select: { reference: true, pfsProductId: true },
   });
-  const existingSet = new Set(existing.map((e) => e.reference));
-  return products.filter((p) => !existingSet.has(p.reference.trim().toUpperCase()));
+  const existingRefs = new Set(existing.map((e) => e.reference));
+  const existingPfsIds = new Set(
+    existing.map((e) => e.pfsProductId).filter((id): id is string => !!id),
+  );
+  return products.filter(
+    (p) =>
+      !existingRefs.has(p.reference.trim().toUpperCase()) &&
+      !existingPfsIds.has(p.id),
+  );
 }
 
 
