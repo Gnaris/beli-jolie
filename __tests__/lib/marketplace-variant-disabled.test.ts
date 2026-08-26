@@ -3,7 +3,9 @@
  * historiquement, ignoraient ce flag :
  *   - PFS       → `is_active: false` (vrai flag natif partenaire)
  *   - Ankorstore → `stockQuantity: 0` (pas de vrai "désactiver" côté API)
- *   - Faire      → `available_quantity: 0` + `active: false`
+ *   - Faire      → PATCH `lifecycle_state: UNPUBLISHED` sur la variante
+ *     (stock envoyé reste réel — patch 2026-08-26 ; tests dédiés dans
+ *     `faire-variant-lifecycle.test.ts`).
  *
  * Le stock BDD reste intact ; réactiver la variante repousse le vrai stock
  * (couvert par les cas "réactivation" ci-dessous).
@@ -14,7 +16,6 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { getEffectiveStockForAnkorstore } from "@/lib/ankorstore-publish";
 import { pfsComputeVariantIsActive as pfsIsActive } from "@/lib/pfs-publish";
 import { buildFaireProductPayload, type FairePublishContext } from "@/lib/faire-publish";
 import type { MarkupConfig } from "@/lib/marketplace-pricing";
@@ -26,26 +27,6 @@ describe("PFS — pfsComputeVariantIsActive", () => {
 
   it("variante disabled=false → is_active=true (stock ignoré)", () => {
     expect(pfsIsActive({ disabled: false })).toBe(true);
-  });
-});
-
-describe("Ankorstore — getEffectiveStockForAnkorstore", () => {
-  it("variante avec stock > 0 mais disabled=true → 0", () => {
-    expect(getEffectiveStockForAnkorstore({ stock: 42, disabled: true }, "ONLINE")).toBe(0);
-  });
-
-  it("variante active sur produit ONLINE → vrai stock", () => {
-    expect(getEffectiveStockForAnkorstore({ stock: 42, disabled: false }, "ONLINE")).toBe(42);
-  });
-
-  it("produit ARCHIVED ou OFFLINE → 0 même si variante active (comportement conservé)", () => {
-    expect(getEffectiveStockForAnkorstore({ stock: 42, disabled: false }, "ARCHIVED")).toBe(0);
-    expect(getEffectiveStockForAnkorstore({ stock: 42, disabled: false }, "OFFLINE")).toBe(0);
-  });
-
-  it("réactivation : disabled repasse à false → vrai stock repart chez AS", () => {
-    const stock = getEffectiveStockForAnkorstore({ stock: 42, disabled: false }, "ONLINE");
-    expect(stock).toBe(42);
   });
 });
 
@@ -104,7 +85,7 @@ function makeFaireProduct(colors: Array<{ id: string; stock: number; disabled: b
 }
 
 describe("Faire — buildFaireProductPayload + variante disabled", () => {
-  it("variante disabled=true avec stock 10 → available_quantity=0 et active=false", () => {
+  it("variante disabled=true : stock envoyé reste réel (masquage via lifecycle_state)", () => {
     const { variants } = buildFaireProductPayload(
       makeFaireProduct([
         { id: "v-or", stock: 10, disabled: true, colorId: "c-or", colorName: "Or" },
@@ -117,11 +98,12 @@ describe("Faire — buildFaireProductPayload + variante disabled", () => {
     );
     const or = variants.find((v) => v.bjVariantId === "v-or");
     const ar = variants.find((v) => v.bjVariantId === "v-ar");
-    expect(or?.payload.available_quantity).toBe(0);
-    expect(or?.payload.active).toBe(false);
-    // Variante active à côté : inchangée.
+    // Stock réel préservé côté payload — le masquage est piloté par un
+    // PATCH séparé `lifecycle_state: UNPUBLISHED` (voir faire-variant-lifecycle).
+    expect(or?.payload.available_quantity).toBe(10);
+    expect(or?.disabled).toBe(true);
     expect(ar?.payload.available_quantity).toBe(3);
-    expect(ar?.payload.active).toBe(true);
+    expect(ar?.disabled).toBe(false);
   });
 
   it("réactivation : disabled repasse à false → available_quantity et active repartent", () => {

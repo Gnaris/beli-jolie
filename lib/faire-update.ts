@@ -47,6 +47,11 @@ import {
   faireUpdatePrices,
   type FairePriceUpdate,
 } from "@/lib/faire-prices";
+import {
+  faireSyncVariantLifecycles,
+  lifecycleFromDisabled,
+  type FaireVariantLifecycleUpdate,
+} from "@/lib/faire-variant-lifecycle";
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 import { getCachedFaireMadeInExcluded } from "@/lib/cached-data";
@@ -1442,6 +1447,36 @@ export async function faireUpdateProduct(
       // hors contexte Next
     }
     return { success: true, diff, noop: false };
+  }
+
+  // Sync `lifecycle_state` par variante — masque/publie côté Faire selon
+  // `ProductColor.disabled`, sans toucher au stock. On calcule le diff par
+  // rapport au snapshot précédent pour n'envoyer un PATCH que quand nécessaire
+  // (Faire limite les appels — 429 fréquent en bulk).
+  const lifecycleUpdates: FaireVariantLifecycleUpdate[] = [];
+  for (const [sku, next] of Object.entries(nextSnapshot.variants)) {
+    if (!next.faireVariantId) continue;
+    const prev = realPrevSnapshot?.variants[sku];
+    const prevDisabled = prev?.disabled;
+    const nextDisabled = next.disabled ?? false;
+    // Envoie si : premier sync (pas de prev), snapshot pré-2026-08-26
+    // (prevDisabled === undefined), ou changement d'état.
+    if (prevDisabled === nextDisabled) continue;
+    lifecycleUpdates.push({
+      faireProductId: meta.faireProductId,
+      faireVariantId: next.faireVariantId,
+      target: lifecycleFromDisabled(nextDisabled),
+    });
+  }
+  if (lifecycleUpdates.length > 0) {
+    const lifecycleRes = await faireSyncVariantLifecycles(lifecycleUpdates);
+    if (!lifecycleRes.success) {
+      logger.warn("[Faire Update] lifecycle variants partiel", {
+        productId,
+        failed: lifecycleRes.failedCount,
+        updated: lifecycleRes.updatedCount,
+      });
+    }
   }
 
   await saveSnapshot(productId, nextSnapshot);

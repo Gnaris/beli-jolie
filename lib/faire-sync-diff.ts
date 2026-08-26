@@ -79,6 +79,13 @@ export interface FaireVariantSnapshot {
    * un fetch Faire en fallback.
    */
   faireVariantId?: string | null;
+  /**
+   * `ProductColor.disabled` au moment du snapshot — pilote le `lifecycle_state`
+   * de la variante côté Faire (voir `faire-variant-lifecycle.ts`). Optional
+   * pour rétro-compat avec les snapshots antérieurs à 2026-08-26 : `undefined`
+   * = valeur inconnue, on doit alors resynchroniser au premier update.
+   */
+  disabled?: boolean;
 }
 
 export interface FaireSyncSnapshot {

@@ -47,6 +47,11 @@ import { buildFaireImageUrl } from "@/lib/marketplace-image";
 import { buildBrandedMarketplaceUrl } from "@/lib/branded-image-display";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 import { getCachedFaireMadeInExcluded } from "@/lib/cached-data";
+import {
+  faireSyncVariantLifecycles,
+  lifecycleFromDisabled,
+  type FaireVariantLifecycleUpdate,
+} from "@/lib/faire-variant-lifecycle";
 
 // ─────────────────────────────────────────────
 // Types
@@ -259,10 +264,9 @@ function packColorLabel(v: FullVariant): string {
 
 function effectiveStock(v: FullVariant, productStatus: string): number {
   if (productStatus === "ARCHIVED") return 0;
-  // Variante désactivée localement : Faire n'a pas de vrai flag « désactiver »
-  // par variante — la seule façon propre de la rendre inachetable côté portail
-  // est de pousser stock = 0. Le vrai stock reste en BDD (réactivable).
-  if (v.disabled) return 0;
+  // Depuis 2026-08-26 : la désactivation d'une variante ne touche PAS son
+  // stock côté Faire. Le masquage est piloté par un PATCH séparé
+  // `lifecycle_state: UNPUBLISHED` sur la variante (cf. `faire-update.ts`).
   return v.stock ?? 0;
 }
 
@@ -287,6 +291,13 @@ export interface FaireVariantPayload {
   /** Cents EUR — gardés à part pour les snapshots/diff, PAS envoyés à Faire. */
   wholesalePriceCents: number;
   retailPriceCents: number;
+  /**
+   * `ProductColor.disabled` au moment de la construction du payload — sert au
+   * snapshot pour piloter le `lifecycle_state` variante côté Faire. PAS envoyé
+   * dans le PATCH principal (Faire ignore ce flag), utilisé uniquement par
+   * `faireSyncVariantLifecycles` dans un PATCH séparé.
+   */
+  disabled: boolean;
   payload: {
     /**
      * ID Faire `po_xxx` de la variante existante. Présent UNIQUEMENT pour
@@ -581,6 +592,7 @@ export function buildFaireProductPayload(
       sku,
       wholesalePriceCents: prices.wholesaleCents,
       retailPriceCents: prices.retailCents,
+      disabled: v.disabled,
       payload: {
         // `id` Faire si on connaît déjà la variante. Permet à PATCH
         // /products/{id} de matcher proprement les variantes existantes au
@@ -611,11 +623,12 @@ export function buildFaireProductPayload(
         sku,
         name: variantName,
         available_quantity: stock,
-        // Une variante désactivée doit être `active: false` côté Faire pour ne
-        // plus s'afficher, en plus du stock 0. Sans ça, elle reste visible
-        // « épuisée » sur le portail alors que la cliente l'a explicitement
-        // masquée.
-        active: !v.disabled && (stock > 0 || product.status !== "ARCHIVED"),
+        // ⚠️ `active` n'existe pas dans le schéma ExternalProductVariantV2 —
+        // Faire l'ignore silencieusement. Le masquage d'une variante passe par
+        // un PATCH `lifecycle_state: UNPUBLISHED` séparé (voir faire-update).
+        // Champ gardé pour compat (au cas où Faire le réactive un jour) mais
+        // ne PAS s'en servir comme mécanisme de désactivation.
+        active: !v.disabled && product.status !== "ARCHIVED",
         options: optionsPayload,
         ...(images ? { images } : {}),
         ...(measurements ? { measurements } : {}),
@@ -796,6 +809,7 @@ export function buildFaireSnapshot(
       // le flow update mute le snapshot avec le nouvel ID après réponse
       // Faire, avant saveSnapshot.
       faireVariantId: p.id ?? null,
+      disabled: v.disabled,
     };
   }
   return {
@@ -1168,6 +1182,34 @@ export async function fairePublishProduct(
       logger.warn("[Faire Publish] PATCH inventory partiel/raté", {
         productId,
         inv,
+      });
+    }
+  }
+
+  // Si une variante est publiée avec `disabled=true` dès le départ, bascule
+  // son lifecycle_state à UNPUBLISHED côté Faire (le POST /products crée
+  // toujours en PUBLISHED, donc pas d'action à faire pour les variantes
+  // actives).
+  const lifecycleUpdates: FaireVariantLifecycleUpdate[] = variantMap
+    .filter((vm) => vm.faireVariantId)
+    .map((vm) => ({
+      bj: variants.find((v) => v.bjVariantId === vm.bjVariantId),
+      vm,
+    }))
+    .filter((x): x is { bj: FaireVariantPayload; vm: (typeof variantMap)[number] } =>
+      x.bj != null && x.bj.disabled === true,
+    )
+    .map(({ bj, vm }) => ({
+      faireProductId: faireProductId!,
+      faireVariantId: vm.faireVariantId!,
+      target: lifecycleFromDisabled(bj.disabled) as "UNPUBLISHED",
+    }));
+  if (lifecycleUpdates.length > 0) {
+    const life = await faireSyncVariantLifecycles(lifecycleUpdates);
+    if (!life.success) {
+      logger.warn("[Faire Publish] lifecycle variants partiel/raté", {
+        productId,
+        life,
       });
     }
   }
