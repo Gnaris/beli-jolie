@@ -135,6 +135,7 @@ function makeCat(id: string, name: string, position: number): CategoryRow {
     faireTaxonomyId: null,
     orderchampCategoryPath: null,
     microstoreCategoryId: null,
+    microstoreLabel: null,
     productCount: 0,
     createdAt: new Date(),
     subCategories: [],
@@ -165,9 +166,9 @@ afterEach(() => {
 
 /* ── Tests ─────────────────────────────────────────────────────────────── */
 
-describe("CategoriesMasterDetail — sélection différée après création", () => {
-  it("ne déclenche PAS router.replace en boucle quand onCreated cible un ID absent d'items", () => {
-    const { rerender } = render(
+describe("CategoriesMasterDetail — ajout optimiste après création", () => {
+  it("ajoute la catégorie localement sans router.refresh ni router.replace", () => {
+    render(
       <CategoriesMasterDetail
         categories={initialCats}
         hasPfsConfig
@@ -183,38 +184,13 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
     // Simule le retour de createCategoryQuick avec un ID nouveau
     fireEvent.click(screen.getByTestId("fire-created"));
 
-    // Les items n'ont pas encore été rafraîchis — on force un rerender avec
-    // la MÊME liste pour reproduire le scénario "router.refresh() en vol".
-    rerender(
-      <CategoriesMasterDetail
-        categories={initialCats}
-        hasPfsConfig
-        hasEfashionConfig
-        hasFaireConfig
-        hasOrderchampConfig
-        orderchampTaxonomy={[]}
-      />,
-    );
-    rerender(
-      <CategoriesMasterDetail
-        categories={initialCats}
-        hasPfsConfig
-        hasEfashionConfig
-        hasFaireConfig
-        hasOrderchampConfig
-        orderchampTaxonomy={[]}
-      />,
-    );
-
-    // Bug avant fix : effect de repli appelait router.replace() en boucle
-    // parce qu'il croyait le selectedId orphelin.
+    // Ni router.refresh(), ni router.replace() : la mise à jour est purement locale.
+    expect(routerRefreshMock).not.toHaveBeenCalled();
     expect(routerReplaceMock).not.toHaveBeenCalled();
-    // router.refresh() est bien appelé une fois par onCreated
-    expect(routerRefreshMock).toHaveBeenCalledTimes(1);
   });
 
-  it("applique la sélection quand items rattrape la nouvelle catégorie", () => {
-    const { rerender } = render(
+  it("sélectionne immédiatement la nouvelle catégorie et synchronise l'URL", () => {
+    render(
       <CategoriesMasterDetail
         categories={initialCats}
         hasPfsConfig
@@ -228,27 +204,12 @@ describe("CategoriesMasterDetail — sélection différée après création", ()
     fireEvent.click(document.querySelector("[data-trigger-create-category]") as HTMLElement);
     fireEvent.click(screen.getByTestId("fire-created"));
 
-    // Le server refresh est arrivé : items contient maintenant new-cat-id.
-    const refreshed: CategoryRow[] = [
-      ...initialCats,
-      makeCat("new-cat-id", "Nouvelle", 3),
-    ];
-    rerender(
-      <CategoriesMasterDetail
-        categories={refreshed}
-        hasPfsConfig
-        hasEfashionConfig
-        hasFaireConfig
-        hasOrderchampConfig
-        orderchampTaxonomy={[]}
-      />,
-    );
-
-    // La nouvelle cat doit être sélectionnée automatiquement
+    // La nouvelle cat, ajoutée optimistement, est déjà dans le détail.
     const detail = screen.getByTestId("category-detail");
     expect(detail.getAttribute("data-cat-id")).toBe("new-cat-id");
+    expect(detail.textContent).toBe("Nouvelle");
 
-    // Et l'URL doit être synchronisée via history.replaceState (pas router.replace)
+    // URL synchronisée via history.replaceState (pas router.replace).
     expect(routerReplaceMock).not.toHaveBeenCalled();
     const lastCall = replaceStateSpy.mock.calls.at(-1);
     expect(lastCall?.[2]).toContain("cat=new-cat-id");

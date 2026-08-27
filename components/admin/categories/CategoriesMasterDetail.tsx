@@ -332,8 +332,43 @@ export default function CategoriesMasterDetail({
         onClose={() => setCreateOpen(false)}
         onCreated={(created) => {
           setCreateOpen(false);
-          if (created?.id) setPendingSelectId(created.id);
-          router.refresh();
+          if (!created?.id) return;
+          // Ajout optimiste local — pas de router.refresh() qui déclenche
+          // un aller-retour serveur visible. La nouvelle catégorie s'ajoute
+          // instantanément en tête de liste et se sélectionne toute seule.
+          setItems((prev) => {
+            if (prev.some((c) => c.id === created.id)) return prev;
+            const optimistic: CategoryRow = {
+              id: created.id,
+              name: created.name,
+              position: prev.length,
+              translations: { fr: created.name },
+              pfsCategoryId: null,
+              pfsGender: null,
+              pfsFamilyName: null,
+              pfsCategoryName: null,
+              efashionCategorieId: null,
+              faireTaxonomyId: null,
+              orderchampCategoryPath: null,
+              microstoreCategoryId: null,
+              microstoreLabel: null,
+              productCount: 0,
+              createdAt: new Date(),
+              subCategories: (created.subCategories ?? []).map((s) => ({
+                id: s.id,
+                name: s.name,
+                translations: { fr: s.name },
+                microstoreCategoryId: null,
+                microstoreLabel: null,
+              })),
+              pfsLabel: null,
+              efashionLabel: null,
+              faireLabel: null,
+              orderchampLabel: null,
+            };
+            return [...prev, optimistic];
+          });
+          setPendingSelectId(created.id);
         }}
       />
 
@@ -357,7 +392,34 @@ export default function CategoriesMasterDetail({
           type="subcategory"
           open={!!subModalCatId}
           onClose={() => setSubModalCatId(null)}
-          onCreated={() => { setSubModalCatId(null); router.refresh(); }}
+          onCreated={(sub) => {
+            const parentId = subModalCatId;
+            setSubModalCatId(null);
+            if (!sub?.id || !parentId) return;
+            // Ajout optimiste local de la sous-catégorie dans sa catégorie parente,
+            // sans passer par le serveur : la chip apparaît instantanément.
+            setItems((prev) =>
+              prev.map((c) =>
+                c.id === parentId
+                  ? {
+                      ...c,
+                      subCategories: c.subCategories.some((s) => s.id === sub.id)
+                        ? c.subCategories
+                        : [
+                            ...c.subCategories,
+                            {
+                              id: sub.id,
+                              name: sub.name,
+                              translations: { fr: sub.name },
+                              microstoreCategoryId: null,
+                              microstoreLabel: null,
+                            },
+                          ],
+                    }
+                  : c,
+              ),
+            );
+          }}
           categoryId={subModalCatId}
         />
       )}
@@ -368,7 +430,26 @@ export default function CategoriesMasterDetail({
           type="subcategory"
           open={!!editSub}
           onClose={() => setEditSub(null)}
-          onCreated={() => { setEditSub(null); router.refresh(); }}
+          onCreated={(sub) => {
+            const { catId, sub: previous } = editSub;
+            setEditSub(null);
+            if (!sub?.id) return;
+            // Renomme la sous-catégorie localement — pas besoin de refetch.
+            setItems((prev) =>
+              prev.map((c) =>
+                c.id === catId
+                  ? {
+                      ...c,
+                      subCategories: c.subCategories.map((s) =>
+                        s.id === previous.id
+                          ? { ...s, name: sub.name, translations: { ...s.translations, fr: sub.name } }
+                          : s,
+                      ),
+                    }
+                  : c,
+              ),
+            );
+          }}
           categoryId={editSub.catId}
           editMode={{
             id: editSub.sub.id,

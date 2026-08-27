@@ -200,8 +200,28 @@ export default function SeasonsMasterDetail({
         onClose={() => setCreateOpen(false)}
         onCreated={(created) => {
           setCreateOpen(false);
-          if (created?.id) handleSelect(created.id);
-          router.refresh();
+          if (!created?.id) return;
+          // Ajout optimiste local — pas de router.refresh() qui déclenche
+          // un aller-retour serveur visible. La nouvelle saison apparaît
+          // immédiatement et se sélectionne toute seule.
+          setItems((prev) => {
+            if (prev.some((s) => s.id === created.id)) return prev;
+            const optimistic: SeasonRow = {
+              id: created.id,
+              name: created.name,
+              translations: { fr: created.name },
+              pfsRef: null,
+              efashionCollectionId: null,
+              efashionLabel: null,
+              microstoreSeasonId: null,
+              microstoreLabel: null,
+              productCount: 0,
+              position: prev.length,
+              createdAt: new Date(),
+            };
+            return [...prev, optimistic];
+          });
+          handleSelect(created.id);
         }}
       />
 

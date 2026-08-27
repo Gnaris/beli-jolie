@@ -221,8 +221,32 @@ export default function ColorsMasterDetail({
         onClose={() => setCreateOpen(false)}
         onCreated={(created) => {
           setCreateOpen(false);
-          if (created?.id) handleSelect(created.id);
-          router.refresh();
+          if (!created?.id) return;
+          // Ajout optimiste local — pas de router.refresh() qui déclenche
+          // un aller-retour serveur visible. La nouvelle couleur apparaît
+          // instantanément en tête de liste, prête à être éditée.
+          setItems((prev) => {
+            if (prev.some((c) => c.id === created.id)) return prev;
+            const optimistic: ColorRow = {
+              id: created.id,
+              name: created.name,
+              hex: created.hex ?? null,
+              patternImage: created.patternImage ?? null,
+              translations: { fr: created.name },
+              pfsColorRef: null,
+              pfsLabel: null,
+              pfsSharedCount: 0,
+              efashionColorId: null,
+              efashionLabel: null,
+              microstoreColorId: null,
+              microstoreLabel: null,
+              productCount: 0,
+              position: prev.length,
+              createdAt: new Date(),
+            };
+            return [...prev, optimistic];
+          });
+          handleSelect(created.id);
         }}
       />
 
