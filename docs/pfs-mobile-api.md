@@ -264,7 +264,7 @@ Extrait des champs pertinents (le payload complet fait ~100 champs Salesforce en
 | Chargement dict compositions | `GET /catalog/attributes/compositions` (toutes en 1 appel) | `POST /attributes/composition` (filtre obligatoire par `Category`) |
 | Dictionnaire matières | Champ `reference` (code stable) | Champ `Code` (même valeur) + `Uid` (identifiant Salesforce) |
 | Cert pinning | ? | Absent (mitmable sans Frida) |
-| Bug connu | Renvoie `[]` pour compo saisie via mobile | Source de vérité |
+| Bug connu | Renvoie `[]` OU une compo stale pour compo saisie via mobile | Source de vérité |
 
 ## Notre implémentation
 
@@ -272,10 +272,11 @@ Extrait des champs pertinents (le payload complet fait ~100 champs Salesforce en
 - Auth Bearer + cache token par tenant (Map) — TTL 6 h.
 - Dictionnaire compo caché par tenant × catégorie — TTL 1 h.
 - Helper haut niveau : `pfsAdminFetchMaterialComposition(pfsProductId)` → renvoie un array au format compatible `checkRef.material_composition` (drop-in replacement).
+- **Mobile prioritaire (2026-08-27)** : on lit systématiquement l'API admin d'abord ; le wholesaler ne sert que de fallback si mobile est vide ou HS. Avant cette date on faisait l'inverse (mobile en fallback quand wholesaler vide), ce qui laissait un angle mort quand wholesaler renvoyait une compo stale ≠ mobile (cas produit issyma 375).
 - Consommateurs :
-  - `lib/pfs-import.ts` — fallback dans `approveAndImportPfsProduct` quand `detail.material_composition` est vide.
-  - `lib/pfs-verify.ts` — enrichissement de `checkRef.product.material_composition` avant comparaison.
-  - `lib/pfs-verify-apply.ts` — même enrichissement + `resolvePfsCompositionsToLocal` pour matérialiser les ProductComposition en base sur pull auto.
+  - `lib/pfs-import.ts` — `approveAndImportPfsProduct` remplace `detail.material_composition` par la compo mobile si elle est non vide.
+  - `lib/pfs-verify.ts` — remplace `checkRef.product.material_composition` par la compo mobile avant comparaison.
+  - `lib/pfs-verify-apply.ts` — même substitution via helper `preferMobileComposition` (exporté pour test) + `resolvePfsCompositionsToLocal` pour matérialiser les ProductComposition en base sur pull auto.
 
 ## Reproduire une capture (pour audit / debug futur)
 

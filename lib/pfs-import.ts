@@ -1322,25 +1322,26 @@ export async function approveAndImportPfsProduct(
   // cliente et stocké dans Composition.name. Historiquement les deux étaient
   // confondus (label FR utilisé comme ref), ce qui cassait la vérification
   // PFS et empêchait la correction « Envoyer PFS » d'aboutir.
-  // Fallback API admin : le wholesaler renvoie parfois compo vide alors que
-  // le vendeur l'a saisie via l'appli mobile PFS (bug de synchro côté eux).
-  // On relit alors depuis admin.parisfashionshops.com.
+  // Compo : API admin (mobile) prioritaire. Le wholesaler renvoie parfois
+  // une compo stale ou vide alors que la cliente l'a saisie via l'appli
+  // mobile PFS (bug de synchro côté eux). On lit toujours mobile d'abord ;
+  // wholesaler ne sert que de fallback si mobile est vide/HS.
   let rawMaterialComposition = detail?.material_composition ?? [];
-  if (rawMaterialComposition.length === 0 && product.id) {
-    const fallback = await pfsAdminFetchMaterialComposition(product.id).catch((err) => {
-      logger.warn("[PFS Import] Fallback composition (API admin) échoué", {
+  if (product.id) {
+    const mobileCompo = await pfsAdminFetchMaterialComposition(product.id).catch((err) => {
+      logger.warn("[PFS Import] Lecture composition (API admin) échouée — fallback wholesaler", {
         pfsProductId: product.id,
         reference: product.reference,
         error: err instanceof Error ? err.message : String(err),
       });
       return [] as Awaited<ReturnType<typeof pfsAdminFetchMaterialComposition>>;
     });
-    if (fallback.length > 0) {
-      rawMaterialComposition = fallback;
-      logger.info("[PFS Import] Composition récupérée via API admin (fallback)", {
+    if (mobileCompo.length > 0) {
+      rawMaterialComposition = mobileCompo;
+      logger.info("[PFS Import] Composition lue via API admin (source prioritaire)", {
         pfsProductId: product.id,
         reference: product.reference,
-        count: fallback.length,
+        count: mobileCompo.length,
       });
     }
   }

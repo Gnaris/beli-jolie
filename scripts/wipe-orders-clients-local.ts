@@ -77,10 +77,6 @@ async function main() {
   console.log("  ✓ marketplaces orders vidés");
 
   // 2) Réclamations
-  await prisma.claimReship.deleteMany({});
-  await prisma.claimReturn.deleteMany({});
-  await prisma.claimImage.deleteMany({});
-  await prisma.claimItem.deleteMany({});
   await prisma.claim.deleteMany({});
   console.log("  ✓ réclamations vidées");
 

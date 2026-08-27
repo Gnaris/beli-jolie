@@ -1425,25 +1425,25 @@ export async function verifyPfsProduct(
     return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
   }
 
-  // Fallback API admin (mobile PFS) : le wholesaler renvoie parfois compo
-  // vide alors que le vendeur l'a saisie via l'appli mobile (bug de synchro
-  // côté PFS). On enrichit checkRef.product.material_composition en place
-  // pour que comparePfsProduct voie la vraie compo.
-  if ((checkRef.product.material_composition ?? []).length === 0 && checkRef.product.id) {
-    const fallback = await pfsAdminFetchMaterialComposition(checkRef.product.id).catch((err) => {
-      logger.warn("[PFS Verify] Fallback composition (API admin) échoué", {
+  // Compo : API admin (mobile PFS) prioritaire — la cliente saisit via
+  // l'appli mobile et le wholesaler renvoie parfois une compo stale (bug de
+  // synchro côté PFS). On lit toujours mobile d'abord ; wholesaler ne sert
+  // que de fallback si mobile est vide ou HS.
+  if (checkRef.product.id) {
+    const mobileCompo = await pfsAdminFetchMaterialComposition(checkRef.product.id).catch((err) => {
+      logger.warn("[PFS Verify] Lecture composition (API admin) échouée — fallback wholesaler", {
         pfsProductId: checkRef.product!.id,
         reference: product.reference,
         error: err instanceof Error ? err.message : String(err),
       });
       return [] as Awaited<ReturnType<typeof pfsAdminFetchMaterialComposition>>;
     });
-    if (fallback.length > 0) {
-      checkRef.product.material_composition = fallback;
-      logger.info("[PFS Verify] Composition enrichie via API admin", {
+    if (mobileCompo.length > 0) {
+      checkRef.product.material_composition = mobileCompo;
+      logger.info("[PFS Verify] Composition lue via API admin (source prioritaire)", {
         pfsProductId: checkRef.product.id,
         reference: product.reference,
-        count: fallback.length,
+        count: mobileCompo.length,
       });
     }
   }

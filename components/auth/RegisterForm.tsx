@@ -1,25 +1,43 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { registerSchema } from "@/lib/validations/auth";
 import StaffAvailability from "@/components/auth/StaffAvailability";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
-import { COUNTRIES, isEuNonFrance } from "@/lib/vat";
+import { useToast } from "@/components/ui/Toast";
+import { COUNTRIES, getCompanyZone, DOM_TOM_COUNTRIES } from "@/lib/vat";
 
 type FieldErrors = Partial<Record<string, string>>;
 
 const STEP_FIELDS: Record<number, readonly string[]> = {
-  1: ["firstName", "lastName", "email", "phone"],
-  2: ["company", "siret", "vatNumber"],
-  3: ["addressStreet", "addressComplement", "addressZip", "addressCity", "addressCountry"],
-  4: ["registrationMessage"],
-  5: ["password", "confirmPassword", "acceptsTerms"],
+  1: [
+    "firstName", "lastName", "email", "phone",
+    "addressStreet", "addressComplement", "addressZip", "addressCity", "addressCountry",
+  ],
+  2: ["company", "siret", "vatNumber", "businessRegistrationNumber", "registrationMessage"],
+  3: ["password", "confirmPassword", "acceptsTerms"],
 };
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 3;
+
+/** Clé localStorage pour le brouillon d'inscription. */
+const REGISTER_DRAFT_KEY = "bj_register_draft_v1";
+/** TTL du brouillon (7 jours). Au-delà, on repart de zéro. */
+const REGISTER_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Retourne la classe CSS flag-icons correspondant au code pays.
+ * Les DOM-TOM affichent le drapeau français (cohérent avec le libellé
+ * « France (…) ») plutôt qu'un drapeau régional peu reconnaissable.
+ */
+function flagClassForCountry(code: string): string {
+  const upper = code.toUpperCase();
+  if (upper === "FR" || DOM_TOM_COUNTRIES.has(upper)) return "fi fi-fr";
+  return `fi fi-${upper.toLowerCase()}`;
+}
 
 export default function RegisterForm({
   productCount,
@@ -31,6 +49,7 @@ export default function RegisterForm({
   schedule?: BusinessHoursSchedule;
 }) {
   const t = useTranslations("auth.register");
+  const toast = useToast();
 
   const [fields, setFields] = useState({
     firstName: "",
@@ -40,6 +59,7 @@ export default function RegisterForm({
     phone: "",
     siret: "",
     vatNumber: "",
+    businessRegistrationNumber: "",
     addressStreet: "",
     addressComplement: "",
     addressZip: "",
@@ -53,17 +73,25 @@ export default function RegisterForm({
   });
 
   const countryOptions = useMemo<SelectOption[]>(() => {
-    const eu = COUNTRIES.filter((c) => c.region === "EU");
-    const dom = COUNTRIES.filter((c) => c.region === "DOM_TOM");
-    const world = COUNTRIES.filter((c) => c.region === "WORLD");
-    return [
-      ...eu.map((c) => ({ value: c.code, label: `🇪🇺  ${c.name}` })),
-      ...dom.map((c) => ({ value: c.code, label: `🏝  ${c.name}` })),
-      ...world.map((c) => ({ value: c.code, label: c.name })),
-    ];
+    // Ordre du tableau COUNTRIES : France (Métropole + DOM-TOM) → UE → Monde.
+    // Chaque option porte un vrai drapeau SVG via flag-icons.
+    return COUNTRIES.map((c) => ({
+      value: c.code,
+      label: c.name,
+      iconNode: (
+        <span
+          className={`${flagClassForCountry(c.code)} inline-block rounded-sm shadow-[0_0_0_1px_rgba(15,23,42,0.08)]`}
+          style={{ width: "1.5rem", height: "1.125rem", backgroundSize: "cover" }}
+          aria-hidden="true"
+        />
+      ),
+    }));
   }, []);
 
-  const showEuVatNotice = isEuNonFrance(fields.addressCountry);
+  const companyZone = getCompanyZone(fields.addressCountry);
+  const isZoneFr = companyZone === "FR";
+  const isZoneEu = companyZone === "EU";
+  const isZoneWorld = companyZone === "WORLD";
 
   const [kbisFile, setKbisFile]           = useState<File | null>(null);
   const [kbisError, setKbisError]         = useState("");
@@ -76,8 +104,69 @@ export default function RegisterForm({
   const [showPassword, setShowPassword]   = useState(false);
   const [step, setStep]                   = useState(1);
   const [maxVisited, setMaxVisited]       = useState(1);
+  // Flag pour bloquer la sauvegarde localStorage avant restauration —
+  // sinon le premier render écrase le brouillon avec des valeurs vides.
+  const [draftRestored, setDraftRestored] = useState(false);
   const fileInputRef                          = useRef<HTMLInputElement>(null);
   const docInputRef                           = useRef<HTMLInputElement>(null);
+
+  // ── Persistance localStorage — restaure le brouillon d'inscription ─
+  // On sauvegarde tout le formulaire (SAUF mot de passe/confirmation qui
+  // n'ont rien à faire dans localStorage) et l'étape en cours. Ainsi, si
+  // la cliente ferme l'onglet, change de langue ou rafraîchit la page,
+  // elle retrouve tous ses champs remplis au retour. TTL 7 jours.
+  //
+  // Les fichiers (Kbis, justificatif) NE PEUVENT PAS être persistés en
+  // localStorage — l'utilisateur devra les re-sélectionner si le
+  // navigateur est fermé (contrainte navigateur, pas un choix).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(REGISTER_DRAFT_KEY);
+      if (!raw) { setDraftRestored(true); return; }
+      const saved = JSON.parse(raw) as {
+        timestamp?: number;
+        fields?: Partial<typeof fields>;
+        step?: number;
+        maxVisited?: number;
+      } | null;
+      if (saved?.timestamp && Date.now() - saved.timestamp > REGISTER_DRAFT_TTL_MS) {
+        window.localStorage.removeItem(REGISTER_DRAFT_KEY);
+        setDraftRestored(true);
+        return;
+      }
+      if (saved?.fields) {
+        setFields((prev) => ({ ...prev, ...saved.fields, password: "", confirmPassword: "" }));
+      }
+      if (typeof saved?.step === "number" && saved.step >= 1 && saved.step <= TOTAL_STEPS) {
+        setStep(saved.step);
+      }
+      if (typeof saved?.maxVisited === "number") {
+        setMaxVisited(Math.max(1, Math.min(saved.maxVisited, TOTAL_STEPS)));
+      }
+    } catch { /* ignore quota / JSON parse errors */ }
+    setDraftRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (!draftRestored) return;
+    const timer = setTimeout(() => {
+      try {
+        // On exclut mot de passe et confirmation (données sensibles) et
+        // acceptsTerms (case CGU — doit être ré-cochée par sécurité).
+        const {
+          password: _p, confirmPassword: _cp, acceptsTerms: _at, ...safeFields
+        } = fields;
+        void _p; void _cp; void _at;
+        window.localStorage.setItem(REGISTER_DRAFT_KEY, JSON.stringify({
+          timestamp: Date.now(),
+          fields: safeFields,
+          step,
+          maxVisited,
+        }));
+      } catch { /* quota exceeded */ }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [fields, step, maxVisited, draftRestored]);
 
   function setField<K extends keyof typeof fields>(key: K, value: (typeof fields)[K]) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -111,13 +200,14 @@ export default function RegisterForm({
     const file = e.target.files?.[0] ?? null;
     if (!file) return;
 
+    // .doc (application/msword, format OLE2) refusé pour cause de macros ;
+    // n'accepte que .docx (OOXML) pour Word. Voir lib/upload-security.ts.
     const allowedTypes = [
       "application/pdf",
       "image/jpeg", "image/png", "image/webp",
-      "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
-    const allowedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".doc", ".docx"];
+    const allowedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".docx"];
     const ext = "." + (file.name.split(".").pop()?.toLowerCase() ?? "");
 
     if (!allowedTypes.includes(file.type) || !allowedExtensions.includes(ext)) {
@@ -125,7 +215,7 @@ export default function RegisterForm({
       setDocFile(null);
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 5 * 1024 * 1024) {
       setDocError(t("docTooBig"));
       setDocFile(null);
       return;
@@ -135,25 +225,51 @@ export default function RegisterForm({
 
   function validateStep(current: number): boolean {
     const result = registerSchema.safeParse(fields);
-    if (result.success) return true;
     const stepKeys = new Set(STEP_FIELDS[current]);
     const errors: FieldErrors = {};
     let hasStepError = false;
-    result.error.issues.forEach((err) => {
-      const key = String(err.path[0]);
-      if (stepKeys.has(key) && !errors[key]) {
-        errors[key] = err.message;
-        hasStepError = true;
-      }
-    });
+
+    if (!result.success) {
+      result.error.issues.forEach((err) => {
+        const key = String(err.path[0]);
+        if (stepKeys.has(key) && !errors[key]) {
+          errors[key] = err.message;
+          hasStepError = true;
+        }
+      });
+    }
+
+    // Étape 2 : justificatif obligatoire seulement hors UE (justificatif
+    // d'entreprise). Le Kbis reste facultatif pour la France (l'admin peut
+    // le demander par mail si le dossier manque de pièces).
+    if (current === 2 && isZoneWorld && !docFile) {
+      setDocError(t("businessProofRequired"));
+      hasStepError = true;
+    }
+
     if (hasStepError) {
-      setFieldErrors((prev) => ({ ...prev, ...errors }));
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...errors }));
+      }
+      // Alerte visible en haut du formulaire pour signaler pourquoi le
+      // bouton « Continuer » n'a pas marché.
+      setGlobalError(t("wizardStepIncomplete"));
+      // Toast — sur mobile, la cliente est souvent au niveau du bouton
+      // « Continuer » (en bas de page) et ne voit pas le globalError du
+      // haut du formulaire. Le toast est un signal fort visible même sans
+      // scroller.
       const firstErrorKey = Object.keys(errors)[0];
+      const uploadMissing = current === 2 && isZoneWorld && !docFile;
+      const firstErrorMessage = firstErrorKey ? errors[firstErrorKey]
+        : uploadMissing ? t("businessProofRequired") : undefined;
+      toast.error(t("wizardStepIncomplete"), firstErrorMessage);
       if (firstErrorKey) {
         setTimeout(() => {
           const el = document.getElementById(firstErrorKey);
+          // Pas de .focus() : sur mobile ça ouvre le clavier virtuel qui
+          // masque les messages d'erreur juste posés. On scroll juste
+          // le champ visible pour que la cliente voie l'erreur en dessous.
           el?.scrollIntoView({ behavior: "smooth", block: "center" });
-          el?.focus();
         }, 50);
       }
       return false;
@@ -200,7 +316,8 @@ export default function RegisterForm({
         if (firstErrorKey) {
           const el = document.getElementById(firstErrorKey);
           el?.scrollIntoView({ behavior: "smooth", block: "center" });
-          el?.focus();
+          // Pas de .focus() : sur mobile ça ouvre le clavier qui masque
+          // le message d'erreur juste posé.
         }
       }, 100);
       return;
@@ -220,6 +337,8 @@ export default function RegisterForm({
         setGlobalError(json.error ?? t("kbisRequired"));
         return;
       }
+      // Inscription réussie : on efface le brouillon local.
+      try { window.localStorage.removeItem(REGISTER_DRAFT_KEY); } catch { /* ignore */ }
       setSuccessMessage(json.message);
     } catch {
       setGlobalError(t("kbisRequired"));
@@ -263,8 +382,6 @@ export default function RegisterForm({
     { n: 1, label: t("wizardStep1Label"), desc: t("wizardStep1Desc") },
     { n: 2, label: t("wizardStep2Label"), desc: t("wizardStep2Desc") },
     { n: 3, label: t("wizardStep3Label"), desc: t("wizardStep3Desc") },
-    { n: 4, label: t("wizardStep4Label"), desc: t("wizardStep4Desc") },
-    { n: 5, label: t("wizardStep5Label"), desc: t("wizardStep5Desc") },
   ];
   const currentStepMeta = steps[step - 1];
 
@@ -406,7 +523,7 @@ export default function RegisterForm({
 
           <form onSubmit={handleSubmit} noValidate encType="multipart/form-data">
 
-            {/* ── Étape 1 : Contact ── */}
+            {/* ── Étape 1 : Contact & adresse ── */}
             {step === 1 && (
               <StepCard eyebrow={`01 · ${t("section1Title")}`} title={t("wizardStep1Label")} description={t("section1Desc")}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -419,7 +536,7 @@ export default function RegisterForm({
                     placeholder={t("lastNamePlaceholder")} autoComplete="family-name" optional
                     onChange={(v) => handleChange("lastName", v)} />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField id="email" label={t("email")} type="email"
                     value={fields.email} error={fieldErrors.email}
                     placeholder={t("emailPlaceholder")} autoComplete="email"
@@ -429,110 +546,185 @@ export default function RegisterForm({
                     placeholder={t("phonePlaceholder")} autoComplete="tel"
                     onChange={(v) => handleChange("phone", v)} />
                 </div>
+
+                {/* Sous-section adresse postale */}
+                <div className="pt-2">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                      {t("addressSubsection")}
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                  <FormField id="addressStreet" label={t("addressLabel")} type="text"
+                    value={fields.addressStreet} error={fieldErrors.addressStreet}
+                    placeholder={t("addressStreetPlaceholder")} autoComplete="street-address"
+                    onChange={(v) => handleChange("addressStreet", v)} />
+                  <div className="mt-4">
+                    <FormField id="addressComplement" label={t("addressComplement")} type="text"
+                      value={fields.addressComplement} error={fieldErrors.addressComplement}
+                      placeholder={t("addressComplementPlaceholder")} autoComplete="address-line2" optional
+                      onChange={(v) => handleChange("addressComplement", v)} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                    <FormField id="addressZip" label={t("addressZip")} type="text"
+                      value={fields.addressZip} error={fieldErrors.addressZip}
+                      placeholder={t("addressZipPlaceholder")} autoComplete="postal-code"
+                      onChange={(v) => handleChange("addressZip", v)} />
+                    <div className="sm:col-span-2">
+                      <FormField id="addressCity" label={t("addressCity")} type="text"
+                        value={fields.addressCity} error={fieldErrors.addressCity}
+                        placeholder={t("addressCityPlaceholder")} autoComplete="address-level2"
+                        onChange={(v) => handleChange("addressCity", v)} />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <FieldLabel id="addressCountry">{t("addressCountry")}</FieldLabel>
+                    <CustomSelect
+                      id="addressCountry"
+                      value={fields.addressCountry}
+                      onChange={(v) => handleChange("addressCountry", v)}
+                      options={countryOptions}
+                      searchable
+                      placeholder={t("selectCountry")}
+                      aria-label={t("countryAriaLabel")}
+                    />
+                    {fieldErrors.addressCountry && (
+                      <p className="text-xs text-error mt-1 font-body">{fieldErrors.addressCountry}</p>
+                    )}
+                  </div>
+                </div>
               </StepCard>
             )}
 
-            {/* ── Étape 2 : Société ── */}
+            {/* ── Étape 2 : Société & justificatif ── */}
             {step === 2 && (
               <StepCard eyebrow={`02 · ${t("section2Title")}`} title={t("wizardStep2Label")} description={t("section2Desc")}>
                 <FormField id="company" label={t("company")} type="text"
                   value={fields.company} error={fieldErrors.company}
                   placeholder={t("companyPlaceholder")} autoComplete="organization"
                   onChange={(v) => handleChange("company", v)} />
-                <div>
-                  <FormField id="siret" label={t("siret")} type="text"
-                    value={fields.siret} error={fieldErrors.siret}
-                    placeholder={t("siretPlaceholder")} maxLength={14} mono optional
-                    onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
-                  <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
-                </div>
-                <div>
-                  <FieldLabel id="vatNumber" optional>{t("vatNumber")}</FieldLabel>
-                  <input
-                    id="vatNumber" type="text" value={fields.vatNumber}
-                    onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
-                    placeholder={t("vatPlaceholder")} maxLength={20}
-                    className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
-                  />
-                  <p className="text-xs text-text-muted mt-1.5 font-body">{t("vatNumberHint")}</p>
-                  {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
 
-                  {showEuVatNotice && (
-                    <div className="mt-4 flex items-start gap-3 bg-[#FFFBEB] border border-[#FCD34D] rounded-xl p-4">
-                      <div className="w-8 h-8 bg-[#FCD34D]/40 rounded-lg flex items-center justify-center shrink-0">
-                        <svg className="w-4 h-4 text-[#B45309]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v3.75m0 3.75h.008v.008H12v-.008zm9-3.75a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div className="text-sm font-body text-[#7C2D12] leading-relaxed">
-                        <p className="font-semibold mb-1.5">{t("euVatTitle")}</p>
-                        <p className="text-xs leading-relaxed">
-                          {t("euVatDescPart1")} <strong>{t("euVatDescStrong1")}</strong>
-                          {t("euVatDescPart2")} <strong>{t("euVatDescStrong2")}</strong> {t("euVatDescPart3")}
-                        </p>
+                {/* Champs légaux conditionnels selon la zone du pays */}
+                {isZoneFr && (
+                  <>
+                    <div>
+                      <FormField id="siret" label={t("siret")} type="text"
+                        value={fields.siret} error={fieldErrors.siret}
+                        placeholder={t("siretPlaceholder")} maxLength={14} mono
+                        onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
+                      <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
+                    </div>
+                    <div>
+                      <FieldLabel id="vatNumber" optional>{t("vatNumber")}</FieldLabel>
+                      <input
+                        id="vatNumber" type="text" value={fields.vatNumber}
+                        onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
+                        placeholder={t("vatPlaceholder")} maxLength={20}
+                        className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
+                      />
+                      {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
+                    </div>
+                  </>
+                )}
+
+                {isZoneEu && (
+                  <>
+                    <div>
+                      <FieldLabel id="businessRegistrationNumber" optional>{t("businessRegistrationNumber")}</FieldLabel>
+                      <input
+                        id="businessRegistrationNumber" type="text"
+                        value={fields.businessRegistrationNumber}
+                        onChange={(e) => handleChange("businessRegistrationNumber", e.target.value)}
+                        placeholder={t("businessRegistrationNumberPlaceholder")}
+                        maxLength={32}
+                        className={`field-input font-mono tracking-wide ${fieldErrors.businessRegistrationNumber ? "border-error" : ""}`}
+                      />
+                      <p className="text-xs text-text-muted mt-1.5 font-body">{t("businessRegistrationNumberHint")}</p>
+                      {fieldErrors.businessRegistrationNumber && (
+                        <p className="text-xs text-error mt-1">{fieldErrors.businessRegistrationNumber}</p>
+                      )}
+                    </div>
+                    <div>
+                      <FieldLabel id="vatNumber">{t("vatNumber")}</FieldLabel>
+                      <input
+                        id="vatNumber" type="text" value={fields.vatNumber}
+                        onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
+                        placeholder={t("vatPlaceholder")} maxLength={20}
+                        className={`field-input font-mono tracking-wide ${fieldErrors.vatNumber ? "border-error" : ""}`}
+                      />
+                      <p className="text-xs text-text-muted mt-1.5 font-body">{t("vatNumberHint")}</p>
+                      {fieldErrors.vatNumber && <p className="text-xs text-error mt-1">{fieldErrors.vatNumber}</p>}
+                      <div className="mt-4 flex items-start gap-3 bg-[#FFFBEB] border border-[#FCD34D] rounded-xl p-4">
+                        <div className="w-8 h-8 bg-[#FCD34D]/40 rounded-lg flex items-center justify-center shrink-0">
+                          <svg className="w-4 h-4 text-[#B45309]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v3.75m0 3.75h.008v.008H12v-.008zm9-3.75a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <div className="text-sm font-body text-[#7C2D12] leading-relaxed">
+                          <p className="font-semibold mb-1.5">{t("euVatTitle")}</p>
+                          <p className="text-xs leading-relaxed">
+                            {t("euVatDescPart1")} <strong>{t("euVatDescStrong1")}</strong>
+                            {t("euVatDescPart2")} <strong>{t("euVatDescStrong2")}</strong> {t("euVatDescPart3")}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              </StepCard>
-            )}
+                  </>
+                )}
 
-            {/* ── Étape 3 : Adresse ── */}
-            {step === 3 && (
-              <StepCard eyebrow={`03 · ${t("section3Title")}`} title={t("wizardStep3Label")} description={t("section3Desc")}>
-                <FormField id="addressStreet" label={t("addressLabel")} type="text"
-                  value={fields.addressStreet} error={fieldErrors.addressStreet}
-                  placeholder={t("addressStreetPlaceholder")} autoComplete="street-address"
-                  onChange={(v) => handleChange("addressStreet", v)} />
-                <FormField id="addressComplement" label={t("addressComplement")} type="text"
-                  value={fields.addressComplement} error={fieldErrors.addressComplement}
-                  placeholder={t("addressComplementPlaceholder")} autoComplete="address-line2" optional
-                  onChange={(v) => handleChange("addressComplement", v)} />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <FormField id="addressZip" label={t("addressZip")} type="text"
-                    value={fields.addressZip} error={fieldErrors.addressZip}
-                    placeholder={t("addressZipPlaceholder")} autoComplete="postal-code"
-                    onChange={(v) => handleChange("addressZip", v)} />
-                  <div className="sm:col-span-2">
-                    <FormField id="addressCity" label={t("addressCity")} type="text"
-                      value={fields.addressCity} error={fieldErrors.addressCity}
-                      placeholder={t("addressCityPlaceholder")} autoComplete="address-level2"
-                      onChange={(v) => handleChange("addressCity", v)} />
+                {isZoneWorld && (
+                  <div>
+                    <FieldLabel id="businessRegistrationNumber" optional>{t("businessRegistrationNumber")}</FieldLabel>
+                    <input
+                      id="businessRegistrationNumber" type="text"
+                      value={fields.businessRegistrationNumber}
+                      onChange={(e) => handleChange("businessRegistrationNumber", e.target.value)}
+                      placeholder={t("businessRegistrationNumberPlaceholder")}
+                      maxLength={32}
+                      className={`field-input font-mono tracking-wide ${fieldErrors.businessRegistrationNumber ? "border-error" : ""}`}
+                    />
+                    <p className="text-xs text-text-muted mt-1.5 font-body">{t("businessRegistrationNumberHint")}</p>
+                    {fieldErrors.businessRegistrationNumber && (
+                      <p className="text-xs text-error mt-1">{fieldErrors.businessRegistrationNumber}</p>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <FieldLabel id="addressCountry">{t("addressCountry")}</FieldLabel>
-                  <CustomSelect
-                    id="addressCountry"
-                    value={fields.addressCountry}
-                    onChange={(v) => handleChange("addressCountry", v)}
-                    options={countryOptions}
-                    searchable
-                    placeholder={t("selectCountry")}
-                    aria-label={t("countryAriaLabel")}
-                  />
-                  {fieldErrors.addressCountry && (
-                    <p className="text-xs text-error mt-1 font-body">{fieldErrors.addressCountry}</p>
-                  )}
-                </div>
-              </StepCard>
-            )}
+                )}
 
-            {/* ── Étape 4 : Justificatifs ── */}
-            {step === 4 && (
-              <StepCard eyebrow={`04 · ${t("section4Title")}`} title={t("wizardStep4Label")} description={t("section4Desc")}>
-                <UploadField
-                  id="kbis" label={t("kbis")} description={t("kbisFormats")}
-                  file={kbisFile} error={kbisError} inputRef={fileInputRef}
-                  accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleKbisChange}
-                  onClear={() => { setKbisFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
-                />
-                <UploadField
-                  id="document" label={t("documentLabel")} description={t("documentDesc")}
-                  file={docFile} error={docError} inputRef={docInputRef}
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" onChange={handleDocChange}
-                  onClear={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
-                />
+                {/* Justificatif — obligatoire pour FR (Kbis) et WORLD (justif d'entreprise) */}
+                {(isZoneFr || isZoneWorld) && (
+                  <div className="pt-2">
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                        {t("proofSubsection")}
+                      </span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                    {isZoneFr ? (
+                      <UploadField
+                        id="kbis"
+                        label={t("kbis")}
+                        description={t("kbisFormats")}
+                        file={kbisFile} error={kbisError} inputRef={fileInputRef}
+                        accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleKbisChange}
+                        onClear={() => { setKbisFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                      />
+                    ) : (
+                      <UploadField
+                        id="document"
+                        label={t("businessProofLabel")}
+                        description={t("businessProofDesc")}
+                        required
+                        file={docFile} error={docError} inputRef={docInputRef}
+                        accept=".pdf,.jpg,.jpeg,.png,.webp,.docx" onChange={handleDocChange}
+                        onClear={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Message facultatif */}
                 <div>
                   <FieldLabel id="registrationMessage" optional>{t("message")}</FieldLabel>
                   <textarea
@@ -557,10 +749,10 @@ export default function RegisterForm({
               </StepCard>
             )}
 
-            {/* ── Étape 5 : Sécurité + Récap + Consentements ── */}
-            {step === 5 && (
+            {/* ── Étape 3 : Sécurité + Récap + Consentements ── */}
+            {step === 3 && (
               <div className="space-y-5">
-                <StepCard eyebrow={`05 · ${t("section5Title")}`} title={t("wizardStep5Label")} description={t("section5Desc")}>
+                <StepCard eyebrow={`03 · ${t("section3Title")}`} title={t("wizardStep3Label")} description={t("section3Desc")}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <FieldLabel id="password">{t("password")}</FieldLabel>
@@ -614,6 +806,7 @@ export default function RegisterForm({
                         fields.company,
                         fields.siret ? `SIRET ${fields.siret}` : null,
                         fields.vatNumber ? `TVA ${fields.vatNumber}` : null,
+                        fields.businessRegistrationNumber ? `N° ${fields.businessRegistrationNumber}` : null,
                       ].filter(Boolean).join(" · ") || "—"}
                     </SummaryRow>
                     <SummaryRow label={t("wizardSummaryAddress")}>
@@ -871,7 +1064,7 @@ function FormField({
 }
 
 function UploadField({
-  id, label, description, file, error, inputRef, accept, onChange, onClear,
+  id, label, description, file, error, inputRef, accept, onChange, onClear, required,
 }: {
   id: string;
   label: string;
@@ -882,11 +1075,12 @@ function UploadField({
   accept: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
+  required?: boolean;
 }) {
   const tReg = useTranslations("auth.register");
   return (
     <div>
-      <FieldLabel id={id} optional>{label}</FieldLabel>
+      <FieldLabel id={id} optional={!required}>{label}</FieldLabel>
       <div
         className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer ${
           error

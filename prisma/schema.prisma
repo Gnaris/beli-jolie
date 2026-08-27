@@ -45,8 +45,9 @@ model User {
   company                       String
   phone                         String
   siret                         String?
+  businessRegistrationNumber    String? // N° d'enregistrement d'entreprise (clients hors France : Companies House, EIN, etc.)
   kbisPath                      String?
-  documentPath                  String? // Document libre envoyé lors de l'inscription
+  documentPath                  String? // Document libre envoyé lors de l'inscription (justificatif d'entreprise hors UE)
   registrationMessage           String? // Message libre lors de l'inscription
   // Adresse de la société (saisie à l'inscription)
   addressStreet                 String? // ex: "12 rue des Lilas"

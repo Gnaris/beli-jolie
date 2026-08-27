@@ -104,9 +104,15 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
     setOpen(false);
     if (code === effectiveLocale) return;
     startTransition(() => {
-      // Full navigation forces the root layout (qui charge les messages next-intl)
-      // à se re-rendre avec la nouvelle locale. Sans ça, les composants client
-      // (PublicSidebar, footer…) restent sur l'ancienne locale jusqu'au prochain refresh.
+      // Full navigation obligatoire : le NextIntlClientProvider est monté
+      // dans app/layout.tsx (root) que Next.js ne re-render jamais entre
+      // navigations côté client. Sans reload, les composants continueraient
+      // à afficher les messages de l'ancienne locale. Une navigation soft
+      // via router.replace de next-intl double-préfixe aussi l'URL
+      // (bug /fr/en/… → 404) et laisse le contenu dans l'ancienne langue.
+      //
+      // Le formulaire d'inscription survit à ce reload grâce à
+      // localStorage (voir composants/auth/RegisterForm.tsx).
       const target = `/${code}${pathname || "/"}`;
       const cleanTarget = target.replace(/\/+/g, "/");
       window.location.href = cleanTarget + window.location.search + window.location.hash;

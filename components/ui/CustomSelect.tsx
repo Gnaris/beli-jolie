@@ -12,6 +12,7 @@ export interface SelectOption {
   label: string;
   icon?: string;        // SVG path for optional icon
   iconUrl?: string;     // Image URL (e.g. country flag). Takes precedence over icon.
+  iconNode?: React.ReactNode; // Arbitrary React node (e.g. <span className="fi fi-fr">). Takes precedence over iconUrl and icon.
   disabled?: boolean;
   className?: string;   // Extra class on label (e.g. line-through)
 }
@@ -333,7 +334,9 @@ export default function CustomSelect({
                   }`}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {opt.iconUrl ? (
+                    {opt.iconNode ? (
+                      <span className="shrink-0 flex items-center">{opt.iconNode}</span>
+                    ) : opt.iconUrl ? (
                       <img
                         src={opt.iconUrl}
                         alt=""
@@ -401,7 +404,9 @@ export default function CustomSelect({
         onClick={() => !disabled && setOpen(!open)}
         className={`${triggerClasses} ${className}`}
       >
-        {selected?.iconUrl ? (
+        {selected?.iconNode ? (
+          <span className="shrink-0 flex items-center">{selected.iconNode}</span>
+        ) : selected?.iconUrl ? (
           <img
             src={selected.iconUrl}
             alt=""

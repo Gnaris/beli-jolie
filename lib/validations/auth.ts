@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getCompanyZone } from "@/lib/vat";
 
 /**
  * Schémas de validation Zod — Authentification
@@ -60,6 +61,17 @@ export const registerSchema = z.object({
     )
     .optional()
     .or(z.literal("")),
+  // N° d'enregistrement d'entreprise pour les clients hors UE
+  // (Companies House UK, EIN US, CR CH, etc.). Format libre 4-32 chars
+  // alphanumérique + tirets, pour couvrir tous les registres du monde.
+  businessRegistrationNumber: z
+    .string()
+    .regex(
+      /^[A-Za-z0-9][A-Za-z0-9\-./ ]{2,30}[A-Za-z0-9]$/,
+      "Numéro d'entreprise invalide (4 à 32 caractères).",
+    )
+    .optional()
+    .or(z.literal("")),
   addressStreet: z
     .string()
     .min(1, "L'adresse est requise.")
@@ -102,6 +114,29 @@ export const registerSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Les mots de passe ne correspondent pas.",
   path: ["confirmPassword"],
+}).superRefine((data, ctx) => {
+  // Règles conditionnelles selon le pays de la société.
+  // FR + DOM-TOM : SIRET obligatoire (14 chiffres, régime commun).
+  // UE hors FR   : TVA intracom obligatoire (sinon on ne peut pas
+  //                auto-liquider et le client se voit facturer 20 % à tort).
+  // Reste monde  : rien de plus côté Zod (justificatif d'entreprise
+  //                obligatoire mais vérifié côté route.ts, car FormData).
+  const zone = getCompanyZone(data.addressCountry);
+  if (zone === "FR" && !data.siret) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["siret"],
+      message: "Le SIRET est requis pour une société française (14 chiffres).",
+    });
+  }
+  if (zone === "EU" && !data.vatNumber) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["vatNumber"],
+      message:
+        "Le numéro de TVA intracommunautaire est requis pour un client européen.",
+    });
+  }
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

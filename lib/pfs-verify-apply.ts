@@ -155,7 +155,7 @@ export async function applyPfsVerifyPullsOnly(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
-  await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
+  await preferMobileComposition(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
@@ -256,7 +256,7 @@ export async function applyPfsVerifyActions(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
-  await enrichCheckRefCompositionIfEmpty(checkRef.product, local.reference);
+  await preferMobileComposition(checkRef.product, local.reference);
   const variantsResp = await pfsGetVariants(checkRef.product.id);
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
@@ -521,33 +521,35 @@ function normalizeColorRef(ref: string): string {
     .toUpperCase();
 }
 
-// ─── Enrichissement compo depuis API admin PFS ─────────────────────────────
+// ─── Lecture compo — API admin (mobile) prioritaire ────────────────────────
 
 /**
- * Si l'API wholesaler PFS renvoie une composition vide (bug PFS pour les
- * produits créés via l'appli mobile), on va la relire côté API admin
- * (mobile). Mutation en place de `checkRefProduct.material_composition`.
- * Best-effort : silencieux en cas d'échec (compo restera vide, comportement
- * pré-existant).
+ * Lit la composition depuis l'API admin PFS (mobile) et la substitue à celle
+ * du wholesaler dans `checkRefProduct.material_composition` (mutation en
+ * place). Mobile est la source de vérité : la cliente saisit compo via
+ * l'appli mobile PFS et le wholesaler renvoie parfois une valeur stale (bug
+ * de synchro côté PFS). Le wholesaler ne sert que de fallback si mobile est
+ * vide ou HS.
+ * Best-effort : silencieux en cas d'échec (compo wholesaler conservée telle
+ * quelle).
  */
-async function enrichCheckRefCompositionIfEmpty(
+export async function preferMobileComposition(
   checkRefProduct: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>,
   reference: string,
 ): Promise<void> {
-  if ((checkRefProduct.material_composition ?? []).length > 0) return;
   if (!checkRefProduct.id) return;
   try {
-    const fallback = await pfsAdminFetchMaterialComposition(checkRefProduct.id);
-    if (fallback.length > 0) {
-      checkRefProduct.material_composition = fallback;
-      logger.info("[PFS Verify Apply] Composition enrichie via API admin", {
+    const mobileCompo = await pfsAdminFetchMaterialComposition(checkRefProduct.id);
+    if (mobileCompo.length > 0) {
+      checkRefProduct.material_composition = mobileCompo;
+      logger.info("[PFS Verify Apply] Composition lue via API admin (source prioritaire)", {
         pfsProductId: checkRefProduct.id,
         reference,
-        count: fallback.length,
+        count: mobileCompo.length,
       });
     }
   } catch (err) {
-    logger.warn("[PFS Verify Apply] Fallback composition (API admin) échoué", {
+    logger.warn("[PFS Verify Apply] Lecture composition (API admin) échouée — fallback wholesaler", {
       pfsProductId: checkRefProduct.id,
       reference,
       error: err instanceof Error ? err.message : String(err),

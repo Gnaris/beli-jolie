@@ -80,19 +80,61 @@ export function resolveVatRate({ countryCode, isPickup, vatExempt }: VatRateInpu
 /** Région d'un pays pour regroupement dans les listes déroulantes. */
 export type CountryRegion = "EU" | "DOM_TOM" | "WORLD";
 
+/**
+ * Zone administrative pour le formulaire d'inscription B2B :
+ * - "FR"     : France métropolitaine + DOM-TOM (règles SIRET/Kbis)
+ * - "EU"     : Union européenne hors France (TVA intracom obligatoire)
+ * - "WORLD"  : reste du monde (justificatif d'entreprise obligatoire)
+ */
+export type CompanyZone = "FR" | "EU" | "WORLD";
+
+/**
+ * Retourne la zone administrative d'un pays. France métropole + DOM-TOM
+ * partagent la même zone "FR" car ils ont le même régime SIRET/Kbis, même
+ * si la TVA les traite différemment.
+ */
+export function getCompanyZone(countryCode: string | null | undefined): CompanyZone {
+  if (!countryCode) return "WORLD";
+  const code = countryCode.toUpperCase();
+  if (code === "FR" || DOM_TOM_COUNTRIES.has(code)) return "FR";
+  if (EU_COUNTRIES.has(code)) return "EU";
+  return "WORLD";
+}
+
 export interface Country {
   code: string;
+  /** Libellé français affiché dans le sélecteur. */
   name: string;
+  /** Région historique (utilisée pour la TVA — ne pas confondre avec CompanyZone). */
   region: CountryRegion;
 }
 
 /**
  * Liste des pays disponibles dans le formulaire d'inscription.
- * Tri : pays UE (France en tête) → DOM-TOM → reste du monde (alphabétique).
+ * Ordre voulu par la cliente (2026-08-27) : France (Métropole) puis
+ * chaque DOM-TOM libellé "France (…)" dans l'ordre alphabétique, ensuite
+ * l'UE (hors France) alpha, puis le reste du monde alpha.
+ * Les libellés "France (…)" permettent à l'utilisateur de choisir sa
+ * collectivité sans confusion avec la métropole.
  */
 export const COUNTRIES: readonly Country[] = [
-  // UE — France en tête
-  { code: "FR", name: "France", region: "EU" },
+  // France (Métropole + DOM-TOM) — France en tête, DOM-TOM alpha
+  { code: "FR", name: "France (Métropole)", region: "EU" },
+  { code: "GP", name: "France (Guadeloupe)", region: "DOM_TOM" },
+  { code: "GF", name: "France (Guyane)", region: "DOM_TOM" },
+  { code: "RE", name: "France (La Réunion)", region: "DOM_TOM" },
+  { code: "MQ", name: "France (Martinique)", region: "DOM_TOM" },
+  { code: "YT", name: "France (Mayotte)", region: "DOM_TOM" },
+  { code: "NC", name: "France (Nouvelle-Calédonie)", region: "DOM_TOM" },
+  { code: "PF", name: "France (Polynésie française)", region: "DOM_TOM" },
+  { code: "BL", name: "France (Saint-Barthélemy)", region: "DOM_TOM" },
+  { code: "MF", name: "France (Saint-Martin)", region: "DOM_TOM" },
+  { code: "PM", name: "France (Saint-Pierre-et-Miquelon)", region: "DOM_TOM" },
+  { code: "TF", name: "France (Terres australes)", region: "DOM_TOM" },
+  { code: "WF", name: "France (Wallis-et-Futuna)", region: "DOM_TOM" },
+
+  // UE hors France — alpha
+  { code: "DE", name: "Allemagne", region: "EU" },
   { code: "AT", name: "Autriche", region: "EU" },
   { code: "BE", name: "Belgique", region: "EU" },
   { code: "BG", name: "Bulgarie", region: "EU" },
@@ -111,7 +153,6 @@ export const COUNTRIES: readonly Country[] = [
   { code: "LU", name: "Luxembourg", region: "EU" },
   { code: "MT", name: "Malte", region: "EU" },
   { code: "NL", name: "Pays-Bas", region: "EU" },
-  { code: "DE", name: "Allemagne", region: "EU" },
   { code: "PL", name: "Pologne", region: "EU" },
   { code: "PT", name: "Portugal", region: "EU" },
   { code: "CZ", name: "République tchèque", region: "EU" },
@@ -119,19 +160,6 @@ export const COUNTRIES: readonly Country[] = [
   { code: "SK", name: "Slovaquie", region: "EU" },
   { code: "SI", name: "Slovénie", region: "EU" },
   { code: "SE", name: "Suède", region: "EU" },
-
-  // DOM-TOM
-  { code: "GP", name: "Guadeloupe", region: "DOM_TOM" },
-  { code: "GF", name: "Guyane française", region: "DOM_TOM" },
-  { code: "MQ", name: "Martinique", region: "DOM_TOM" },
-  { code: "YT", name: "Mayotte", region: "DOM_TOM" },
-  { code: "RE", name: "La Réunion", region: "DOM_TOM" },
-  { code: "PM", name: "Saint-Pierre-et-Miquelon", region: "DOM_TOM" },
-  { code: "BL", name: "Saint-Barthélemy", region: "DOM_TOM" },
-  { code: "MF", name: "Saint-Martin", region: "DOM_TOM" },
-  { code: "WF", name: "Wallis-et-Futuna", region: "DOM_TOM" },
-  { code: "PF", name: "Polynésie française", region: "DOM_TOM" },
-  { code: "NC", name: "Nouvelle-Calédonie", region: "DOM_TOM" },
 
   // Reste du monde (sélection commerce courante)
   { code: "AD", name: "Andorre", region: "WORLD" },

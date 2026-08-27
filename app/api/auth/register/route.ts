@@ -10,6 +10,17 @@ import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/secur
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { checkVies } from "@/lib/vies";
+import { getCompanyZone } from "@/lib/vat";
+import {
+  sanitizeImage,
+  assertPdfSafe,
+  isImageMime,
+  isPdfMime,
+  isDocxMime,
+  IMAGE_MIME_WHITELIST,
+  DOCUMENT_MIME_WHITELIST,
+  DOCUMENT_EXTENSION_WHITELIST,
+} from "@/lib/upload-security";
 
 /**
  * POST /api/auth/register
@@ -46,6 +57,8 @@ export async function POST(request: NextRequest) {
       phone:               formData.get("phone") as string,
       siret:               formData.get("siret") as string,
       vatNumber:           (formData.get("vatNumber") as string | null) || undefined,
+      businessRegistrationNumber:
+        (formData.get("businessRegistrationNumber") as string | null) || undefined,
       addressStreet:       formData.get("addressStreet") as string,
       addressComplement:   (formData.get("addressComplement") as string | null) || undefined,
       addressZip:          formData.get("addressZip") as string,
@@ -112,136 +125,118 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: spamError }, { status: 429 });
     }
 
-    // ── Validation magic bytes ──────────────────────────────────────
-    // Vérifie les premiers octets du fichier pour empêcher l'upload
-    // de fichiers exécutables déguisés avec une fausse extension.
-    const MAGIC_BYTES: Record<string, number[][]> = {
-      "application/pdf":  [[0x25, 0x50, 0x44, 0x46]], // %PDF
-      "image/jpeg":       [[0xFF, 0xD8, 0xFF]],
-      "image/png":        [[0x89, 0x50, 0x4E, 0x47]],
-      "image/webp":       [[0x52, 0x49, 0x46, 0x46]], // RIFF
-      "application/msword": [[0xD0, 0xCF, 0x11, 0xE0]], // OLE2
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [[0x50, 0x4B, 0x03, 0x04]], // PK (zip)
-    };
+    // ── Sécurité fichiers upload ────────────────────────────────────
+    // Images  : re-encodage complet via Sharp (purge EXIF + payloads).
+    // PDF     : magic bytes + refus des actions auto (/JavaScript, /Launch…).
+    // DOCX    : magic bytes ZIP + refus .doc (format binaire à macros).
+    //
+    // Voir lib/upload-security.ts pour le détail des règles.
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-    function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
-      const signatures = MAGIC_BYTES[mimeType];
-      if (!signatures) return false;
-      return signatures.some((sig) =>
-        sig.every((byte, i) => buffer.length > i && buffer[i] === byte)
-      );
+    async function processUpload(
+      file: File,
+      allowedMimes: readonly string[],
+      allowedExtensions: readonly string[],
+      errorPrefix: string,
+    ): Promise<{ buffer: Buffer; mime: string; extension: string }> {
+      if (file.size > MAX_FILE_SIZE) {
+        throw new Error(`${errorPrefix} ne doit pas dépasser 5 Mo.`);
+      }
+      if (!allowedMimes.includes(file.type)) {
+        throw new Error(`Format non autorisé pour ${errorPrefix}.`);
+      }
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!allowedExtensions.includes(ext)) {
+        throw new Error(`Extension non autorisée pour ${errorPrefix}.`);
+      }
+      const rawBuffer = Buffer.from(await file.arrayBuffer());
+
+      if (isImageMime(file.type)) {
+        // Sharp re-encode : purge de tout payload malveillant + validation
+        // que le contenu est bien une vraie image (pas un polyglot).
+        const sanitized = await sanitizeImage(rawBuffer, file.type);
+        return { buffer: sanitized.buffer, mime: sanitized.mime, extension: sanitized.extension };
+      }
+      if (isPdfMime(file.type)) {
+        assertPdfSafe(rawBuffer);
+        return { buffer: rawBuffer, mime: "application/pdf", extension: "pdf" };
+      }
+      if (isDocxMime(file.type)) {
+        // DOCX = ZIP OOXML, header `PK\x03\x04`.
+        if (rawBuffer.length < 4 || rawBuffer[0] !== 0x50 || rawBuffer[1] !== 0x4B
+          || rawBuffer[2] !== 0x03 || rawBuffer[3] !== 0x04) {
+          throw new Error(`${errorPrefix} : le contenu ne correspond pas à un fichier .docx.`);
+        }
+        return { buffer: rawBuffer, mime: file.type, extension: "docx" };
+      }
+      throw new Error(`Format non traité pour ${errorPrefix}.`);
     }
 
-    // Extensions autorisées (kbis + document)
-    const SAFE_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "webp", "doc", "docx"];
+    // Fallback sur l'email quand le SIRET est absent (client hors France).
+    const safeSiret = normalizedSiret
+      ? slugify(normalizedSiret.replace(/\D/g, ""))
+      : slugify(data.email.toLowerCase().trim());
+    const timestamp = Date.now();
 
-    function sanitizeExtension(filename: string): string | null {
-      const ext = filename.split(".").pop()?.toLowerCase();
-      if (!ext || !SAFE_EXTENSIONS.includes(ext)) return null;
-      return ext;
-    }
+    // Zone administrative pour décider quel justificatif est obligatoire.
+    const zone = getCompanyZone(data.addressCountry);
 
-    // ── Gestion du fichier Kbis (optionnel) ──────────────────────────
+    // ── Gestion du fichier Kbis (obligatoire zone FR + DOM-TOM) ──────
     const kbisFile = formData.get("kbis") as File | null;
     let kbisPath: string | null = null;
 
     if (kbisFile && kbisFile.size > 0) {
-      const allowedTypes = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-      if (!allowedTypes.includes(kbisFile.type)) {
+      try {
+        const { buffer, mime, extension } = await processUpload(
+          kbisFile,
+          IMAGE_MIME_WHITELIST.concat("application/pdf" as never) as readonly string[],
+          ["pdf", "jpg", "jpeg", "png", "webp"],
+          "le Kbis",
+        );
+        const dir = kbisDir(safeSiret, tenantSlug);
+        const key = `${dir}/kbis-${timestamp}.${extension}`;
+        await uploadFile(key, buffer, mime);
+        kbisPath = key;
+      } catch (err) {
         return NextResponse.json(
-          { error: "Le Kbis doit être au format PDF, JPG ou PNG." },
+          { error: err instanceof Error ? err.message : "Fichier Kbis invalide." },
           { status: 400 }
         );
       }
-
-      const MAX_SIZE = 5 * 1024 * 1024;
-      if (kbisFile.size > MAX_SIZE) {
-        return NextResponse.json(
-          { error: "Le fichier Kbis ne doit pas dépasser 5 Mo." },
-          { status: 400 }
-        );
-      }
-
-      const ext = sanitizeExtension(kbisFile.name);
-      if (!ext) {
-        return NextResponse.json(
-          { error: "Extension de fichier non autorisée pour le Kbis." },
-          { status: 400 }
-        );
-      }
-
-      const kbisBuffer = Buffer.from(await kbisFile.arrayBuffer());
-      if (!validateMagicBytes(kbisBuffer, kbisFile.type)) {
-        return NextResponse.json(
-          { error: "Le contenu du fichier Kbis ne correspond pas à son type déclaré." },
-          { status: 400 }
-        );
-      }
-
-      // Fallback sur l'email quand le SIRET est absent (client hors France)
-      const safeSiret = normalizedSiret
-        ? slugify(normalizedSiret.replace(/\D/g, ""))
-        : slugify(data.email.toLowerCase().trim());
-      const dir = kbisDir(safeSiret, tenantSlug);
-      const timestamp = Date.now();
-      const filename = `kbis-${timestamp}.${ext}`;
-      const key = `${dir}/${filename}`;
-
-      await uploadFile(key, kbisBuffer, kbisFile.type);
-      kbisPath = key;
     }
 
-    // ── Gestion du document complémentaire (optionnel) ───────────────
+    // ── Gestion du justificatif d'entreprise ─────────────────────────
     const docFile = formData.get("document") as File | null;
     let documentPath: string | null = null;
 
     if (docFile && docFile.size > 0) {
-      const allowedDocTypes = [
-        "application/pdf", "image/jpeg", "image/png", "image/webp",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ];
-      if (!allowedDocTypes.includes(docFile.type)) {
+      try {
+        const { buffer, mime, extension } = await processUpload(
+          docFile,
+          DOCUMENT_MIME_WHITELIST as readonly string[],
+          DOCUMENT_EXTENSION_WHITELIST as readonly string[],
+          "le justificatif",
+        );
+        const docDir = clientDocumentsDir(safeSiret, tenantSlug);
+        const docKey = `${docDir}/document-${timestamp}.${extension}`;
+        await uploadFile(docKey, buffer, mime);
+        documentPath = docKey;
+      } catch (err) {
         return NextResponse.json(
-          { error: "Format de document non autorisé. Accepté : PDF, JPG, PNG, DOC, DOCX." },
+          { error: err instanceof Error ? err.message : "Fichier justificatif invalide." },
           { status: 400 }
         );
       }
+    }
 
-      const MAX_DOC_SIZE = 10 * 1024 * 1024;
-      if (docFile.size > MAX_DOC_SIZE) {
-        return NextResponse.json(
-          { error: "Le document ne doit pas dépasser 10 Mo." },
-          { status: 400 }
-        );
-      }
-
-      const docExt = sanitizeExtension(docFile.name);
-      if (!docExt) {
-        return NextResponse.json(
-          { error: "Extension de fichier non autorisée." },
-          { status: 400 }
-        );
-      }
-
-      const docBuffer = Buffer.from(await docFile.arrayBuffer());
-      if (!validateMagicBytes(docBuffer, docFile.type)) {
-        return NextResponse.json(
-          { error: "Le contenu du document ne correspond pas à son type déclaré." },
-          { status: 400 }
-        );
-      }
-
-      const safeSiret = normalizedSiret
-        ? slugify(normalizedSiret.replace(/\D/g, ""))
-        : slugify(data.email.toLowerCase().trim());
-      const docDir = clientDocumentsDir(safeSiret, tenantSlug);
-      const timestamp = Date.now();
-      const docFilename = `document-${timestamp}.${docExt}`;
-      const docKey = `${docDir}/${docFilename}`;
-
-      await uploadFile(docKey, docBuffer, docFile.type);
-      documentPath = docKey;
+    // ── Vérification du justificatif obligatoire hors UE ─────────────
+    // Le Kbis reste facultatif pour la France : l'admin peut réclamer
+    // la pièce par email si le dossier arrive incomplet.
+    if (zone === "WORLD" && !documentPath) {
+      return NextResponse.json(
+        { error: "Un justificatif d'entreprise est obligatoire pour les sociétés hors Union européenne." },
+        { status: 400 }
+      );
     }
 
     // ── Création de l'utilisateur ──────────────────────────────────────
@@ -251,25 +246,26 @@ export async function POST(request: NextRequest) {
 
     const newUser = await prisma.user.create({
       data: {
-        email:               data.email.toLowerCase().trim(),
-        password:            hashedPassword,
-        firstName:           data.firstName?.trim() || "",
-        lastName:            data.lastName?.trim() || "",
-        company:             data.company.trim(),
-        phone:               data.phone.trim(),
-        siret:               normalizedSiret,
-        vatNumber:           data.vatNumber?.trim() || null,
-        addressStreet:       data.addressStreet.trim(),
-        addressComplement:   data.addressComplement?.trim() || null,
-        addressZip:          data.addressZip.trim(),
-        addressCity:         data.addressCity.trim(),
-        addressCountry:      data.addressCountry.toUpperCase(),
+        email:                      data.email.toLowerCase().trim(),
+        password:                   hashedPassword,
+        firstName:                  data.firstName?.trim() || "",
+        lastName:                   data.lastName?.trim() || "",
+        company:                    data.company.trim(),
+        phone:                      data.phone.trim(),
+        siret:                      normalizedSiret,
+        businessRegistrationNumber: data.businessRegistrationNumber?.trim() || null,
+        vatNumber:                  data.vatNumber?.trim() || null,
+        addressStreet:              data.addressStreet.trim(),
+        addressComplement:          data.addressComplement?.trim() || null,
+        addressZip:                 data.addressZip.trim(),
+        addressCity:                data.addressCity.trim(),
+        addressCountry:             data.addressCountry.toUpperCase(),
         kbisPath,
         documentPath,
-        registrationMessage: data.registrationMessage?.trim() || null,
-        acceptsNewsletter:   data.acceptsNewsletter ?? false,
-        role:                "CLIENT",
-        status:              "PENDING",
+        registrationMessage:        data.registrationMessage?.trim() || null,
+        acceptsNewsletter:          data.acceptsNewsletter ?? false,
+        role:                       "CLIENT",
+        status:                     "PENDING",
       },
     });
 

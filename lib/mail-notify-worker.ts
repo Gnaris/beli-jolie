@@ -299,6 +299,14 @@ let started = false;
 export function startMailNotifyWorker(): void {
   if (started) return;
   started = true;
+  // En dev local, la BDD contient souvent une copie de la config prod (identifiants
+  // IMAP boîte pro). Sans cette garde, le worker se connecte à la vraie boîte,
+  // voit tous les mails d'UID > mail_notify_last_forwarded_uid comme « nouveaux »
+  // et rejoue le forward vers l'adresse perso — la cliente reçoit des doublons.
+  if (process.env.NODE_ENV !== "production") {
+    logger.info("[MailNotify] Worker désactivé (NODE_ENV != production)");
+    return;
+  }
   logger.info("[MailNotify] Worker démarré (tick 60s)");
   setTimeout(() => {
     void tick();
