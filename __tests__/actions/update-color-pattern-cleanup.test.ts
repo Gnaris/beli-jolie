@@ -87,6 +87,12 @@ describe("updateColorDirect — pattern file cleanup", () => {
   });
 
   it("ne touche pas au disque si patternImage n'est pas dans la mise à jour", async () => {
+    // La server action lit toujours l'ancien enregistrement (pour comparer le
+    // nom et déclencher la propagation Microstore), mais elle ne doit pas
+    // toucher au disque tant que `patternImage` n'est pas explicitement fourni.
+    mockPrisma.color.findUnique.mockResolvedValueOnce({
+      patternImage: "/uploads/motifs-couleurs/leopard-old.png",
+    });
     await updateColorDirect(
       "color-1",
       "Léopard",
@@ -95,7 +101,6 @@ describe("updateColorDirect — pattern file cleanup", () => {
       undefined, // patternImage not provided
     );
 
-    expect(mockPrisma.color.findUnique).not.toHaveBeenCalled();
     expect(mockStorage.deleteFile).not.toHaveBeenCalled();
   });
 

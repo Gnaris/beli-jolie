@@ -855,11 +855,7 @@ async function CouleursContent() {
         actions={<EntityCreateButton type="color" label="+ Créer une couleur" />}
       />
 
-      <ColorsManager
-        initialColors={colorItems}
-        pfsEnabled={pfsEnabled}
-        ankorstoreEnabled={ankorstoreEnabled}
-      />
+      <ColorsManager initialColors={colorItems} />
     </div>
   );
 }

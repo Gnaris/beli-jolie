@@ -14,48 +14,6 @@ import {
   type MappingChangeSummary,
 } from "@/lib/mapping-impact";
 
-export interface AffectedProduct {
-  productId: string;
-  reference: string;
-  productName: string;
-  firstImage: string | null;
-}
-
-export interface ColorUpdateResult {
-  nameChanged: boolean;
-  pfsColorRefChanged: boolean;
-  affectedProducts: AffectedProduct[];
-}
-
-/**
- * Charge les méta-données nécessaires au widget de re-sync (réf, nom, première
- * image de la variante principale) pour une liste de produitIds.
- */
-async function loadAffectedProductMeta(productIds: string[]): Promise<AffectedProduct[]> {
-  if (productIds.length === 0) return [];
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds } },
-    select: {
-      id: true,
-      reference: true,
-      name: true,
-      colors: {
-        where: { isPrimary: true },
-        select: {
-          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-        },
-        take: 1,
-      },
-    },
-  });
-  return products.map((p) => ({
-    productId: p.id,
-    reference: p.reference,
-    productName: p.name,
-    firstImage: p.colors[0]?.images[0]?.path ?? null,
-  }));
-}
-
 /**
  * A motif file is owned by exactly one Color. Before mutating
  * `Color.patternImage`, callers should purge the previous file via this
@@ -102,6 +60,7 @@ export async function createColor(formData: FormData) {
   );
   await autoCreateColorOnMicrostore({ colorId: color.id, name });
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/couleurs");
   revalidateTag("colors", "default");
   revalidatePath("/admin/produits/nouveau");
 }
@@ -149,11 +108,10 @@ export async function updateColorDirect(
   patternImage?: string | null,
   pfsColorRef?: string | null,
   microstoreColorId?: number | null,
-): Promise<ColorUpdateResult> {
+): Promise<void> {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
 
-  // Snapshot AVANT pour comparer ce qui a réellement changé (sert au routage marketplace).
   const before = await prisma.color.findUnique({
     where: { id },
     select: { name: true, pfsColorRef: true, patternImage: true, microstoreColorId: true },
@@ -165,7 +123,6 @@ export async function updateColorDirect(
   const newPfsRef =
     pfsColorRef === undefined ? before.pfsColorRef : pfsColorRef?.trim() || null;
   const nameChanged = before.name !== newName;
-  const pfsColorRefChanged = before.pfsColorRef !== newPfsRef;
 
   const data: {
     name: string;
@@ -216,37 +173,8 @@ export async function updateColorDirect(
   }
 
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/couleurs");
   revalidateTag("colors", "default");
-
-  // Pas de scan produit si ni le nom ni la ref PFS n'ont changé : aucune marketplace impactée.
-  if (!nameChanged && !pfsColorRefChanged) {
-    return { nameChanged: false, pfsColorRefChanged: false, affectedProducts: [] };
-  }
-
-  const productIds = await collectProductIdsByColor(id);
-  const affectedProducts = await loadAffectedProductMeta(productIds);
-  return { nameChanged, pfsColorRefChanged, affectedProducts };
-}
-
-async function collectProductIdsByColor(colorId: string): Promise<string[]> {
-  const set = new Set<string>();
-  const v = await prisma.productColor.findMany({
-    where: { colorId },
-    select: { productId: true },
-    distinct: ["productId"],
-  });
-  for (const r of v) set.add(r.productId);
-  const pl = await prisma.packColorLine.findMany({
-    where: { colorId },
-    select: { productColor: { select: { productId: true } } },
-  });
-  for (const r of pl) set.add(r.productColor.productId);
-  const pri = await prisma.product.findMany({
-    where: { primaryColorId: colorId },
-    select: { id: true },
-  });
-  for (const r of pri) set.add(r.id);
-  return [...set];
 }
 
 /**

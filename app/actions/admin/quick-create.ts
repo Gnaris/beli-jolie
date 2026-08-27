@@ -98,6 +98,7 @@ export async function createCategoryQuick(
     }
     await autoTranslate("autoTranslateCategory", existing.id, name, userProvidedLocales(translations));
     revalidatePath("/admin/produits");
+    revalidatePath("/admin/categories");
     revalidateTag("categories", "default");
     const subs = await prisma.subCategory.findMany({
       where: { categoryId: existing.id },
@@ -131,6 +132,7 @@ export async function createCategoryQuick(
   }
   await autoTranslate("autoTranslateCategory", created.id, name, userProvidedLocales(translations));
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
   return { id: created.id, name: created.name, subCategories: [] };
 }
@@ -158,6 +160,7 @@ export async function createSubCategoryQuick(
   }
   await autoTranslate("autoTranslateSubCategory", upserted.id, name, userProvidedLocales(translations));
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
   return { id: upserted.id, name: upserted.name };
 }
@@ -246,6 +249,10 @@ export async function createColorQuick(
   }
 
   revalidateTag("colors", "default");
+  // Force la page /admin/couleurs à re-fetcher : sans ça, `router.refresh()`
+  // côté client ne suffit pas à afficher la nouvelle couleur immédiatement.
+  revalidatePath("/admin/couleurs");
+  revalidatePath("/admin/produits");
   return { ok: true, id: created.id, name: created.name, hex: created.hex, patternImage: created.patternImage };
 }
 
@@ -330,6 +337,8 @@ export async function createSeasonQuick(
   }
   await autoTranslate("autoTranslateSeason", upserted.id, name, userProvidedLocales(translations));
   revalidateTag("seasons", "default");
+  revalidatePath("/admin/saisons");
+  revalidatePath("/admin/produits");
   return { id: upserted.id, name: upserted.name };
 }
 

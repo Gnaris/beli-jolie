@@ -4,8 +4,6 @@ import PageHeader from "@/components/admin/shared/PageHeader";
 import ColorsHeaderActions from "@/components/admin/couleurs/ColorsHeaderActions";
 import ColorsMasterDetail, { type ColorRow } from "@/components/admin/couleurs/ColorsMasterDetail";
 import {
-  getCachedPfsEnabled,
-  getCachedAnkorstoreEnabled,
   getCachedHasPfsConfig,
   getCachedHasEfashionConfig,
   getCachedPfsColors,
@@ -22,8 +20,6 @@ export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 export default async function CouleursPage() {
   const [
     colors,
-    pfsEnabled,
-    ankorstoreEnabled,
     efashionLabels,
     microstoreLabels,
     pfsLiveColors,
@@ -37,8 +33,6 @@ export default async function CouleursPage() {
         translations: true,
       },
     }),
-    getCachedPfsEnabled(),
-    getCachedAnkorstoreEnabled(),
     getEfashionLabelMaps(),
     getMicrostoreLabelMaps(),
     // Résout ref PFS → libellé français (getCachedPfsColors renvoie déjà
@@ -105,8 +99,6 @@ export default async function CouleursPage() {
         colors={rows}
         hasPfsConfig={hasPfsConfig}
         hasEfashionConfig={hasEfashionConfig}
-        pfsEnabled={pfsEnabled}
-        ankorstoreEnabled={ankorstoreEnabled}
       />
     </div>
   );

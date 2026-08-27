@@ -51,6 +51,7 @@ export async function createCategory(formData: FormData) {
   // server action (le voile de chargement resterait affiché sinon).
   void autoTranslateCategory(category.id, name);
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
   revalidateTag("sizes", "default");
 }
@@ -369,6 +370,7 @@ export async function createSubCategory(formData: FormData) {
   // Fire-and-forget : idem, la traduction PFS ne doit pas bloquer le retour.
   void autoTranslateSubCategory(subCategory.id, name);
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/categories");
   revalidateTag("categories", "default");
 }
 

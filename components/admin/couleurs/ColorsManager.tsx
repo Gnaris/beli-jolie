@@ -6,8 +6,6 @@ import { deleteColor, updateColorDirect } from "@/app/actions/admin/colors";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import ColorResyncModal from "./ColorResyncModal";
-import type { AffectedProduct } from "@/app/actions/admin/colors";
 import MarketplaceMappingBadge from "@/components/admin/MarketplaceMappingBadge";
 
 interface ColorItem {
@@ -26,12 +24,8 @@ interface ColorItem {
 
 export default function ColorsManager({
   initialColors,
-  pfsEnabled,
-  ankorstoreEnabled,
 }: {
   initialColors: ColorItem[];
-  pfsEnabled: boolean;
-  ankorstoreEnabled: boolean;
 }) {
   const router = useRouter();
   const { confirm } = useConfirm();
@@ -39,11 +33,6 @@ export default function ColorsManager({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [editResync, setEditResync] = useState<{
-    products: AffectedProduct[];
-    pfsChecked: boolean;
-    ankorsChecked: boolean;
-  } | null>(null);
 
   const filtered = search.trim()
     ? initialColors.filter((c) => c.name.toLowerCase().includes(search.trim().toLowerCase()))
@@ -82,7 +71,7 @@ export default function ColorsManager({
     extra?: { ref?: string; pfsGender?: string | null; pfsFamilyName?: string | null; pfsCategoryName?: string | null },
   ) {
     if (!editTarget) return;
-    const res = await updateColorDirect(
+    await updateColorDirect(
       editTarget.id,
       name,
       hex ?? null,
@@ -91,19 +80,6 @@ export default function ColorsManager({
       extra?.ref || null,
     );
     router.refresh();
-
-    // Nom changé → Ankorstore concerné. Ref PFS changée → PFS concerné. Les deux
-    // → on propose les deux. Aucune modale si rien d'impactant n'a changé ou si
-    // aucun produit n'utilise la couleur.
-    const proposeAnkorstore = res.nameChanged && ankorstoreEnabled;
-    const proposePfs = res.pfsColorRefChanged && pfsEnabled;
-    if ((proposeAnkorstore || proposePfs) && res.affectedProducts.length > 0) {
-      setEditResync({
-        products: res.affectedProducts,
-        pfsChecked: proposePfs,
-        ankorsChecked: proposeAnkorstore,
-      });
-    }
   }
 
   return (
@@ -267,19 +243,6 @@ export default function ColorsManager({
         />
       )}
 
-      {editResync && (
-        <ColorResyncModal
-          open={!!editResync}
-          onClose={() => setEditResync(null)}
-          products={editResync.products}
-          title="Couleur modifiée"
-          subtitle={`${editResync.products.length} produit${editResync.products.length > 1 ? "s" : ""} utilise${editResync.products.length > 1 ? "nt" : ""} cette couleur. Re-pousser sur les marketplaces ?`}
-          pfsAvailable={pfsEnabled}
-          ankorstoreAvailable={ankorstoreEnabled}
-          pfsDefaultChecked={editResync.pfsChecked}
-          ankorstoreDefaultChecked={editResync.ankorsChecked}
-        />
-      )}
     </>
   );
 }

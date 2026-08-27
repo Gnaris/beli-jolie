@@ -25,6 +25,7 @@ export async function createSeason(formData: FormData) {
   const season = await prisma.season.create({ data: { name, pfsRef } });
   autoTranslateSeason(season.id, name);
   revalidatePath("/admin/produits");
+  revalidatePath("/admin/saisons");
   revalidateTag("seasons", "default");
 }
 

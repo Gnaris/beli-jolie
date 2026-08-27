@@ -5,7 +5,6 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import ColorsList from "./ColorsList";
 import ColorDetail, { type ColorDetailData } from "./ColorDetail";
 import ColorEditorModal from "./ColorEditorModal";
-import ColorResyncModal from "./ColorResyncModal";
 import PfsRefMappingModal from "@/components/admin/shared/mapping-modals/PfsRefMappingModal";
 import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
 import MicrostoreMappingModal from "@/components/admin/shared/mapping-modals/MicrostoreMappingModal";
@@ -17,7 +16,6 @@ import {
   updateColorPfsRef,
   updateColorMicrostoreMapping,
   reorderColors,
-  type AffectedProduct,
 } from "@/app/actions/admin/colors";
 
 export type ColorRow = {
@@ -44,16 +42,12 @@ type Props = {
   colors: ColorRow[];
   hasPfsConfig: boolean;
   hasEfashionConfig: boolean;
-  pfsEnabled: boolean;
-  ankorstoreEnabled: boolean;
 };
 
 export default function ColorsMasterDetail({
   colors,
   hasPfsConfig,
   hasEfashionConfig,
-  pfsEnabled,
-  ankorstoreEnabled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -71,11 +65,6 @@ export default function ColorsMasterDetail({
   const [selectedId, setSelectedId] = useState<string | null>(urlSelectedId ?? initialDesktopId);
   const [editTarget, setEditTarget] = useState<ColorRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [editResync, setEditResync] = useState<{
-    products: AffectedProduct[];
-    pfsChecked: boolean;
-    ankorsChecked: boolean;
-  } | null>(null);
   // Mini-modals de mapping marketplace (1 par carte)
   const [mappingModal, setMappingModal] = useState<"pfs" | "efashion" | "microstore" | null>(null);
 
@@ -164,7 +153,7 @@ export default function ColorsMasterDetail({
     patternImage: string | null,
   ) {
     if (!editTarget) return;
-    const res = await updateColorDirect(
+    await updateColorDirect(
       editTarget.id,
       name,
       hex,
@@ -172,16 +161,6 @@ export default function ColorsMasterDetail({
       patternImage,
     );
     router.refresh();
-
-    // Nom changé → Ankorstore concerné (le renommage impacte les slugs).
-    const proposeAnkorstore = res.nameChanged && ankorstoreEnabled;
-    if (proposeAnkorstore && res.affectedProducts.length > 0) {
-      setEditResync({
-        products: res.affectedProducts,
-        pfsChecked: false,
-        ankorsChecked: true,
-      });
-    }
   }
 
   const selectedColor = items.find((c) => c.id === selectedId) ?? null;
@@ -293,21 +272,6 @@ export default function ColorsMasterDetail({
             onSave={(next) => updateColorMicrostoreMapping(selectedColor.id, next)}
           />
         </>
-      )}
-
-      {/* Modale re-sync marketplaces */}
-      {editResync && (
-        <ColorResyncModal
-          open={!!editResync}
-          onClose={() => setEditResync(null)}
-          products={editResync.products}
-          title="Couleur modifiée"
-          subtitle={`${editResync.products.length} produit${editResync.products.length > 1 ? "s" : ""} utilise${editResync.products.length > 1 ? "nt" : ""} cette couleur. Re-pousser sur les marketplaces ?`}
-          pfsAvailable={pfsEnabled}
-          ankorstoreAvailable={ankorstoreEnabled}
-          pfsDefaultChecked={editResync.pfsChecked}
-          ankorstoreDefaultChecked={editResync.ankorsChecked}
-        />
       )}
 
       {/* Trigger invisible pour le bouton « Nouvelle couleur » du header de page */}
