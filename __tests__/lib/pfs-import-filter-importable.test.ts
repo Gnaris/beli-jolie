@@ -80,4 +80,13 @@ describe("filterImportable", () => {
       select: { reference: true, pfsProductId: true },
     });
   });
+
+  it("compare les refs en majuscules même si la BDD stocke une casse différente", async () => {
+    // Filet supplémentaire : si la collation MySQL rendait la row visible mais
+    // que la BDD renvoyait une casse mixte (« 15192leo »), l'ancienne version
+    // manquait la comparaison en mémoire et laissait le produit dans le picker.
+    findManyMock.mockResolvedValue([{ reference: "15192leo", pfsProductId: null }]);
+    const kept = await filterImportable([mkPfsProduct("pro_new", "15192LEO")]);
+    expect(kept).toHaveLength(0);
+  });
 });

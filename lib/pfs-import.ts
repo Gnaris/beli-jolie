@@ -590,7 +590,10 @@ export async function filterImportable(products: PfsProduct[]): Promise<PfsProdu
     },
     select: { reference: true, pfsProductId: true },
   });
-  const existingRefs = new Set(existing.map((e) => e.reference));
+  // Normalise en MAJUSCULES des deux côtés : les refs sont stockées en
+  // majuscules à l'import (cf. `approveAndImportPfsProduct`), mais on ne veut
+  // pas dépendre de la collation MySQL pour la comparaison en mémoire.
+  const existingRefs = new Set(existing.map((e) => e.reference.trim().toUpperCase()));
   const existingPfsIds = new Set(
     existing.map((e) => e.pfsProductId).filter((id): id is string => !!id),
   );
@@ -1277,8 +1280,22 @@ export async function approveAndImportPfsProduct(
   if (!product) throw new Error(`Produit PFS introuvable : ${pfsId}`);
 
   const reference = product.reference.trim().toUpperCase();
-  const existing = await prisma.product.findFirst({ where: { reference } });
-  if (existing) throw new Error(`Produit déjà importé : ${reference}`);
+  // Double filet : on refuse si la référence OU l'identifiant PFS est déjà
+  // pris dans la boutique. Sans le check `pfsProductId`, un produit renommé
+  // côté PFS (ref change, id interne reste) casse la contrainte unique
+  // `(tenantId, pfsProductId)` au moment du create.
+  const existing = await prisma.product.findFirst({
+    where: {
+      OR: [{ reference }, { pfsProductId: product.id }],
+    },
+    select: { reference: true, pfsProductId: true },
+  });
+  if (existing) {
+    const reason = existing.pfsProductId === product.id && existing.reference !== reference
+      ? `Produit déjà importé sous la référence "${existing.reference}" (renommé côté PFS)`
+      : `Produit déjà importé : ${reference}`;
+    throw new Error(reason);
+  }
 
   // ── Phase parallèle 1 : appels PFS qui ne dépendent que du `product`
   const [refData, variantResponseResult, families] = await Promise.all([

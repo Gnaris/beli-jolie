@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   mockProductFindUnique,
+  mockProductFindFirst,
   mockProductCreate,
   mockProductUpdate,
   mockProductColorCreate,
@@ -35,6 +36,7 @@ const {
   pfsGetFamiliesSpy,
 } = vi.hoisted(() => ({
   mockProductFindUnique: vi.fn(),
+  mockProductFindFirst: vi.fn(),
   mockProductCreate: vi.fn(),
   mockProductUpdate: vi.fn(),
   mockProductColorCreate: vi.fn(),
@@ -56,8 +58,26 @@ const {
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    $transaction: async (fn: (tx: unknown) => unknown) =>
+      typeof fn === "function"
+        ? await fn({
+            product: {
+              create: mockProductCreate,
+              update: mockProductUpdate,
+              findUnique: mockProductFindUnique,
+              findFirst: mockProductFindFirst,
+            },
+            productColor: { create: mockProductColorCreate },
+            productColorImage: { createMany: vi.fn() },
+            variantSize: { createMany: mockVariantSizeCreateMany },
+            packColorLine: { create: vi.fn() },
+            productTranslation: { upsert: vi.fn() },
+          })
+        : undefined,
+    productTranslation: { upsert: vi.fn() },
     product: {
       findUnique: mockProductFindUnique,
+      findFirst: mockProductFindFirst,
       create: mockProductCreate,
       update: mockProductUpdate,
     },
@@ -108,7 +128,15 @@ vi.mock("@/lib/auto-translate", () => ({
 
 vi.mock("@/lib/image-processor", () => ({ processProductImage: vi.fn() }));
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn() }));
-vi.mock("@/lib/storage", () => ({ keyFromDbPath: vi.fn(), deleteFiles: vi.fn() }));
+vi.mock("@/lib/storage", () => ({
+  keyFromDbPath: vi.fn(),
+  deleteFiles: vi.fn(),
+  deleteDirectory: vi.fn(),
+  productImageDir: (ref: string, tenant?: string) =>
+    tenant ? `uploads/${tenant}/produits/${ref.toLowerCase()}` : `uploads/produits/${ref.toLowerCase()}`,
+  productImageBaseName: (ref: string, color: string | null, i: number) =>
+    color ? `${ref}-${color}-${i}`.toLowerCase() : `${ref}-${i}`.toLowerCase(),
+}));
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
 vi.mock("@/lib/sku", () => ({ generateSku: vi.fn(() => "SKU-TEST") }));
 vi.mock("@/lib/logger", () => ({
@@ -205,6 +233,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
     pfsGetFamiliesSpy.mockResolvedValue([]);
 
     mockProductFindUnique.mockResolvedValue(null);
+    mockProductFindFirst.mockResolvedValue(null);
     mockCategoryFindFirst.mockResolvedValue({ id: "cat-local-1", name: "Bagues" });
     mockSizeFindFirst.mockResolvedValue({ id: "size-tu" });
     mockSeasonFindFirst.mockResolvedValue(null);
@@ -219,7 +248,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
   it("propage size_details_tu PFS dans Product.sizeDetailsTu", async () => {
     mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: "#595F34" });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     expect(mockProductCreate).toHaveBeenCalledTimes(1);
     const createArgs = mockProductCreate.mock.calls[0][0];
@@ -230,7 +259,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
   it("pose Product.primaryColorId sur la couleur déduite du default_color PFS", async () => {
     mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: "#595F34" });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     const createArgs = mockProductCreate.mock.calls[0][0];
     // PFS renvoie default_color="KAKI" → Product.primaryColorId = colorId local de Kaki
@@ -241,7 +270,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
     // La couleur "Kaki" existe en BDD mais sans hex → PFS fournit #595F34.
     mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: null });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     expect(mockColorUpdate).toHaveBeenCalledWith({
       where: { id: "col-kaki-local" },
@@ -252,7 +281,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
   it("ne touche pas au hex d'une couleur locale qui en a déjà un (admin l'a saisi)", async () => {
     mockColorFindFirst.mockResolvedValue({ id: "col-kaki-local", hex: "#aabbcc" });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     expect(mockColorUpdate).not.toHaveBeenCalled();
   });
@@ -267,7 +296,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
       meta: { current_page: 1, last_page: 1, from: 1, per_page: 100, total: 1 },
     });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     const createArgs = mockProductCreate.mock.calls[0][0];
     expect(createArgs.data.sizeDetailsTu).toBe("0");
@@ -295,7 +324,7 @@ describe("approveAndImportPfsProduct — corrections FZEAFSDF", () => {
       meta: { current_page: 1, last_page: 1, from: 1, per_page: 100, total: 1 },
     });
 
-    await approveAndImportPfsProduct("pfs-fzeafsdf");
+    await approveAndImportPfsProduct("pfs-fzeafsdf", "beliandjolie");
 
     const createArgs = mockProductCreate.mock.calls[0][0];
     expect(createArgs.data.sizeDetailsTu).toBeNull();
