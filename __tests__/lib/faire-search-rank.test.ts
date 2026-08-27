@@ -90,6 +90,20 @@ describe("scoreFaireCandidate", () => {
     expect(scoreFaireCandidate(make(["AB"]), "A2630B")).toBe(10);
   });
 
+  it("SKU court chiffré `A24` ne matche PAS query `A2479` (bug 2026-08-27)", () => {
+    // Cas signalé par la cliente : elle tape `A2479` et le picker Faire lui
+    // remontait `A24` en tête à cause du q.startsWith(token) trop souple.
+    // La frontière de classe (chiffre `4` suivi du chiffre `7`) coupe le
+    // faux positif : ce n'est PAS un suffixe couleur, c'est la suite d'un
+    // nombre différent → tombe à 10.
+    expect(scoreFaireCandidate(make(["A24"]), "A2479")).toBe(10);
+  });
+
+  it("SKU court chiffré ne matche pas non plus au milieu (score 60 refusé)", () => {
+    // Query `XA247Y` contient `A24` mais avec chiffre-suivi-de-chiffre → refusé.
+    expect(scoreFaireCandidate(make(["A24"]), "XA247Y")).toBe(10);
+  });
+
   it("SKU multi-segment (BJ long) matche la référence tapée avec suffixe", () => {
     // Le SKU côté Faire est `A2630_argent_UNIT_ab12`. La cliente tape le
     // suffixe qu'elle voit chez Faire `A2630D` → doit trouver la racine
@@ -151,6 +165,22 @@ describe("skuMatchesQuery", () => {
 
   it("SKU sans rapport ne matche pas", () => {
     expect(skuMatchesQuery("TURQ_UNIT", "A2630")).toBe(false);
+  });
+
+  it("SKU court chiffré `A24` NE matche PAS query `A2479` (bug 2026-08-27)", () => {
+    // Sans frontière de classe (chiffre `4` suivi du chiffre `7`), on refuse
+    // le match : sinon le scan Faire ramène tous les produits `A24` quand la
+    // cliente cherche `A2479`.
+    expect(skuMatchesQuery("A24", "A2479")).toBe(false);
+  });
+
+  it("SKU `A24` matche `A24D` (frontière chiffre→lettre = suffixe couleur)", () => {
+    // Cas légitime : `D` après `A24` marque un suffixe de finition.
+    expect(skuMatchesQuery("A24", "A24D")).toBe(true);
+  });
+
+  it("SKU `A24` matche `A24_or` (séparateur = frontière)", () => {
+    expect(skuMatchesQuery("A24", "A24_or")).toBe(true);
   });
 
   it("query vide ou SKU vide → false", () => {
