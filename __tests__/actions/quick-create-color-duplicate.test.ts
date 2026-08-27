@@ -23,6 +23,17 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
+// Isole les branches Microstore + auto-translate : cette suite ne teste que
+// la logique BJ pure (dédoublonnage nom, retour d'erreur lisible).
+vi.mock("@/lib/microstore-attribute-propagation", () => ({
+  autoCreateColorOnMicrostore: vi
+    .fn()
+    .mockResolvedValue({ status: "skipped_not_configured" }),
+}));
+vi.mock("@/lib/auto-translate", () => ({
+  autoTranslateColor: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { createColorQuick } from "@/app/actions/admin/quick-create";
 
 /**
@@ -47,7 +58,16 @@ describe("createColorQuick — refuse les doublons de nom", () => {
       select: { name: true },
     });
     expect(mockColorCreate).toHaveBeenCalledTimes(1);
-    expect(res).toEqual({ ok: true, id: "col-1", name: "Rouge", hex: "#ff0000", patternImage: null });
+    // `microstore` reflète le status de l'auto-lien Microstore (ici skip car
+    // le helper est mocké → « pas configuré »). Le reste du payload est stable.
+    expect(res).toEqual({
+      ok: true,
+      id: "col-1",
+      name: "Rouge",
+      hex: "#ff0000",
+      patternImage: null,
+      microstore: { status: "skipped_not_configured" },
+    });
   });
 
   it("renvoie un message lisible si une couleur du même nom existe déjà", async () => {

@@ -24,6 +24,7 @@ import {
   microstoreCreateColor,
   microstoreEditAttribute,
   microstoreEditColor,
+  microstoreListColors,
 } from "@/lib/microstore-attributes";
 
 async function resolveTenantId(): Promise<string> {
@@ -67,19 +68,74 @@ async function isMicrostoreReadyForAttributeSync(): Promise<boolean> {
 // ─── COULEUR ─────────────────────────────────────────────────────────────
 
 /**
+ * Résultat de la tentative d'auto-création côté Microstore. La forme est
+ * exploitée côté UI pour afficher un toast informatif (créée / reliée à
+ * l'existante / silencieusement skippée / erreur).
+ */
+export type MicrostoreColorLinkResult =
+  /** Nouvelle couleur créée sur Microstore + lien BJ posé. */
+  | { status: "created"; microstoreColorId: number }
+  /**
+   * La couleur existait déjà côté Microstore (match par nom insensible à la
+   * casse) : on s'est contenté de poser le lien vers l'existante.
+   */
+  | { status: "linked_existing"; microstoreColorId: number; existingName: string }
+  /** Microstore hors-ligne, kill switch OFF, ou session expirée. */
+  | { status: "skipped_not_configured" }
+  /** Autre erreur : logs côté serveur, rien de bloquant côté BJ. */
+  | { status: "error"; error: string };
+
+/**
+ * Compare deux noms de couleur pour la déduplication Microstore : trim,
+ * casse-insensible, espaces internes normalisés. Volontairement souple pour
+ * matcher « Bleu marine » ↔ « bleu  marine ».
+ */
+function normalizeColorName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
  * Crée la couleur côté Microstore et pose `Color.microstoreColorId` sur la
- * Color BJ. Silencieux si Microstore n'est pas prêt (la Color BJ existe déjà,
- * on ne fait que rater le lien — l'admin pourra mapper manuellement plus tard).
+ * Color BJ. Si la couleur existe déjà dans la bibliothèque Microstore (match
+ * par nom), lie simplement à l'existante au lieu d'échouer.
  *
- * @returns L'ID Microstore posé, ou null si skip / erreur.
+ * Silencieux si Microstore n'est pas prêt — l'admin pourra mapper manuellement
+ * plus tard depuis la fiche couleur. Ne throw jamais : la sauvegarde locale
+ * de la Color BJ ne doit JAMAIS être bloquée par un souci Microstore.
  */
 export async function autoCreateColorOnMicrostore(opts: {
   colorId: string;
   name: string;
-}): Promise<number | null> {
+}): Promise<MicrostoreColorLinkResult> {
   try {
-    if (!(await isMicrostoreReadyForAttributeSync())) return null;
+    if (!(await isMicrostoreReadyForAttributeSync())) {
+      return { status: "skipped_not_configured" };
+    }
 
+    // 1. Cherche d'abord un match par nom dans la bibliothèque existante —
+    //    évite « Microstore /user/set_color a refusé : color already exists »
+    //    en la reliant directement.
+    const existingList = await microstoreListColors();
+    const target = normalizeColorName(opts.name);
+    const match = existingList.find(
+      (c) => normalizeColorName(c.name) === target,
+    );
+    if (match) {
+      const numericId = Number(match.id);
+      if (Number.isFinite(numericId)) {
+        await prisma.color.update({
+          where: { id: opts.colorId },
+          data: { microstoreColorId: numericId },
+        });
+        return {
+          status: "linked_existing",
+          microstoreColorId: numericId,
+          existingName: match.name,
+        };
+      }
+    }
+
+    // 2. Pas d'existante → création normale.
     const created = await microstoreCreateColor({ name: opts.name });
     const numericId = Number(created.id);
     if (!Number.isFinite(numericId)) {
@@ -87,20 +143,21 @@ export async function autoCreateColorOnMicrostore(opts: {
         colorId: opts.colorId,
         microstoreId: created.id,
       });
-      return null;
+      return { status: "error", error: "Réponse Microstore invalide." };
     }
     await prisma.color.update({
       where: { id: opts.colorId },
       data: { microstoreColorId: numericId },
     });
-    return numericId;
+    return { status: "created", microstoreColorId: numericId };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.warn("[microstore] auto-create color failed", {
       colorId: opts.colorId,
       name: opts.name,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
-    return null;
+    return { status: "error", error: message };
   }
 }
 

@@ -165,8 +165,26 @@ export async function createSubCategoryQuick(
   return { id: upserted.id, name: upserted.name };
 }
 
+/**
+ * Résumé de la tentative de lien Microstore renvoyé au client, pour
+ * qu'il puisse afficher un toast adapté (créée, reliée à existante, ignorée).
+ * Reste optionnel : ancien code qui ignore le champ continue de tourner.
+ */
+export interface MicrostoreLinkSummary {
+  status: "created" | "linked_existing" | "skipped_not_configured" | "error";
+  existingName?: string;
+  error?: string;
+}
+
 export type CreateColorQuickResult =
-  | { ok: true; id: string; name: string; hex: string | null; patternImage: string | null }
+  | {
+      ok: true;
+      id: string;
+      name: string;
+      hex: string | null;
+      patternImage: string | null;
+      microstore?: MicrostoreLinkSummary;
+    }
   | { ok: false; error: string };
 
 export async function createColorQuick(
@@ -203,11 +221,19 @@ export async function createColorQuick(
   // Si l'admin n'a PAS fourni de mapping Microstore explicite, on tente une
   // auto-création + auto-lien côté Microstore. Silencieux si Microstore
   // hors-ligne — la couleur BJ existe déjà, on ne rate que le lien.
+  // Le résumé remonté au client permet un toast informatif si la couleur
+  // existait déjà côté Microstore (« reliée à l'existante »).
+  let microstoreSummary: MicrostoreLinkSummary | undefined;
   if (microstoreColorId == null) {
     const { autoCreateColorOnMicrostore } = await import(
       "@/lib/microstore-attribute-propagation"
     );
-    await autoCreateColorOnMicrostore({ colorId: created.id, name });
+    const res = await autoCreateColorOnMicrostore({ colorId: created.id, name });
+    microstoreSummary = {
+      status: res.status,
+      ...(res.status === "linked_existing" ? { existingName: res.existingName } : {}),
+      ...(res.status === "error" ? { error: res.error } : {}),
+    };
   }
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
@@ -253,7 +279,14 @@ export async function createColorQuick(
   // côté client ne suffit pas à afficher la nouvelle couleur immédiatement.
   revalidatePath("/admin/couleurs");
   revalidatePath("/admin/produits");
-  return { ok: true, id: created.id, name: created.name, hex: created.hex, patternImage: created.patternImage };
+  return {
+    ok: true,
+    id: created.id,
+    name: created.name,
+    hex: created.hex,
+    patternImage: created.patternImage,
+    ...(microstoreSummary ? { microstore: microstoreSummary } : {}),
+  };
 }
 
 export async function createCompositionQuick(

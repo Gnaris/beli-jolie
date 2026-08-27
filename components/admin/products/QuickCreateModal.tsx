@@ -520,6 +520,20 @@ export default function QuickCreateModal({
           setLoading(false);
           return;
         }
+        // Toast informatif si la couleur existait déjà côté Microstore : on
+        // l'a reliée automatiquement à l'existante au lieu de la créer.
+        const ms = colorRes.microstore;
+        if (ms?.status === "linked_existing") {
+          toast.info(
+            "Microstore",
+            `« ${ms.existingName ?? colorRes.name} » existait déjà sur Microstore — reliée automatiquement.`,
+          );
+        } else if (ms?.status === "error") {
+          toast.warning(
+            "Microstore",
+            "Impossible de créer la couleur automatiquement sur Microstore. À mapper manuellement depuis la fiche couleur.",
+          );
+        }
         result = { id: colorRes.id, name: colorRes.name, hex: colorRes.hex, patternImage: colorRes.patternImage };
       }
       onCreated(result);

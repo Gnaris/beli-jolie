@@ -18,6 +18,7 @@ const getSessionKeyMock = vi.fn();
 const createColorMock = vi.fn();
 const editColorMock = vi.fn();
 const editAttrMock = vi.fn();
+const listColorsMock = vi.fn();
 
 const findUniqueColorMock = vi.fn();
 const updateColorMock = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@/lib/microstore-attributes", () => ({
   microstoreCreateColor: createColorMock,
   microstoreEditColor: editColorMock,
   microstoreEditAttribute: editAttrMock,
+  microstoreListColors: listColorsMock,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -67,15 +69,17 @@ beforeEach(() => {
   createColorMock.mockReset();
   editColorMock.mockReset();
   editAttrMock.mockReset();
+  listColorsMock.mockReset();
   findUniqueColorMock.mockReset();
   updateColorMock.mockReset();
   findUniqueCategoryMock.mockReset();
   findUniqueSubCategoryMock.mockReset();
   findUniqueSeasonMock.mockReset();
 
-  // Défaut : Microstore prêt.
+  // Défaut : Microstore prêt, bibliothèque vide.
   findFirstConfigMock.mockResolvedValue(null); // kill switch défaut ON
   getSessionKeyMock.mockResolvedValue("5_XXX");
+  listColorsMock.mockResolvedValue([]);
 });
 
 describe("autoCreateColorOnMicrostore", () => {
@@ -87,8 +91,31 @@ describe("autoCreateColorOnMicrostore", () => {
       name: "Bleu marine",
     });
 
-    expect(result).toBe(42);
+    expect(result).toEqual({ status: "created", microstoreColorId: 42 });
     expect(createColorMock).toHaveBeenCalledWith({ name: "Bleu marine" });
+    expect(updateColorMock).toHaveBeenCalledWith({
+      where: { id: "clr-bj-1" },
+      data: { microstoreColorId: 42 },
+    });
+  });
+
+  it("lie à l'existante si Microstore a déjà une couleur du même nom (case-insensible)", async () => {
+    listColorsMock.mockResolvedValue([
+      { id: "7", name: "Doré" },
+      { id: "42", name: "Bleu Marine" }, // casse différente
+    ]);
+
+    const result = await autoCreateColorOnMicrostore({
+      colorId: "clr-bj-1",
+      name: "bleu marine",
+    });
+
+    expect(result).toEqual({
+      status: "linked_existing",
+      microstoreColorId: 42,
+      existingName: "Bleu Marine",
+    });
+    expect(createColorMock).not.toHaveBeenCalled();
     expect(updateColorMock).toHaveBeenCalledWith({
       where: { id: "clr-bj-1" },
       data: { microstoreColorId: 42 },
@@ -103,8 +130,9 @@ describe("autoCreateColorOnMicrostore", () => {
       name: "Bleu marine",
     });
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: "skipped_not_configured" });
     expect(createColorMock).not.toHaveBeenCalled();
+    expect(listColorsMock).not.toHaveBeenCalled();
     expect(updateColorMock).not.toHaveBeenCalled();
   });
 
@@ -116,11 +144,11 @@ describe("autoCreateColorOnMicrostore", () => {
       name: "Rouge",
     });
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: "skipped_not_configured" });
     expect(createColorMock).not.toHaveBeenCalled();
   });
 
-  it("swallow toute erreur Microstore et retourne null (jamais de throw)", async () => {
+  it("swallow toute erreur Microstore et retourne status=error (jamais de throw)", async () => {
     createColorMock.mockRejectedValue(new Error("Microstore HTTP 500"));
 
     const result = await autoCreateColorOnMicrostore({
@@ -128,11 +156,14 @@ describe("autoCreateColorOnMicrostore", () => {
       name: "Rouge",
     });
 
-    expect(result).toBeNull();
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error).toMatch(/HTTP 500/);
+    }
     expect(updateColorMock).not.toHaveBeenCalled();
   });
 
-  it("ignore un id Microstore non numérique et ne pose pas de lien BJ", async () => {
+  it("ignore un id Microstore non numérique et retourne error sans poser de lien BJ", async () => {
     createColorMock.mockResolvedValue({ id: "not-a-number", name: "Rouge" });
 
     const result = await autoCreateColorOnMicrostore({
@@ -140,7 +171,7 @@ describe("autoCreateColorOnMicrostore", () => {
       name: "Rouge",
     });
 
-    expect(result).toBeNull();
+    expect(result.status).toBe("error");
     expect(updateColorMock).not.toHaveBeenCalled();
   });
 });

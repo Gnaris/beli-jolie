@@ -178,6 +178,26 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
         setLoading(false);
         return;
       }
+
+      // Toast informatif si la couleur existait déjà côté Microstore : on l'a
+      // reliée automatiquement à l'existante plutôt que d'en créer une nouvelle.
+      // Sinon toast neutre de succès. Toute erreur Microstore silencieuse est
+      // aussi remontée pour que l'admin sache qu'il faudra mapper à la main.
+      const ms = res.microstore;
+      if (ms?.status === "linked_existing") {
+        toast.info(
+          "Microstore",
+          `« ${ms.existingName ?? res.name} » existait déjà sur Microstore — reliée automatiquement.`,
+        );
+      } else if (ms?.status === "error") {
+        toast.warning(
+          "Microstore",
+          `Impossible de créer la couleur automatiquement sur Microstore. À mapper manuellement depuis la fiche couleur.`,
+        );
+      } else {
+        toast.success("Couleur créée", `« ${res.name} » a bien été ajoutée.`);
+      }
+
       onCreated?.({ id: res.id, name: res.name, hex: res.hex, patternImage: res.patternImage });
       onClose();
     } catch (e) {
