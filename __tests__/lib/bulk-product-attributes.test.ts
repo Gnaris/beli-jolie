@@ -40,7 +40,7 @@ vi.mock("@/lib/logger", () => ({
 // Prisma : on contrôle finement ce que chaque modèle renvoie.
 const prismaMock: any = {
   category: { findUnique: vi.fn() },
-  subCategory: { findMany: vi.fn() },
+  subCategory: { findMany: vi.fn(), findUnique: vi.fn() },
   hsCode: { findUnique: vi.fn() },
   manufacturingCountry: { findUnique: vi.fn() },
   season: { findUnique: vi.fn() },
@@ -196,5 +196,119 @@ describe("bulkUpdateProductAttributes — validation amont", () => {
         subCategoryIds: ["sub1"],
       }),
     ).rejects.toThrow(/n'appartient pas/);
+  });
+
+  // ─────────────────────────────────────────────
+  // Étiquette Microstore (2026-08-27)
+  // ─────────────────────────────────────────────
+
+  it("rejette microstoreSubCategoryId sans subCategoryIds fourni", async () => {
+    await expect(
+      bulkUpdateProductAttributes(["p1"], { microstoreSubCategoryId: "sub-any" }),
+    ).rejects.toThrow(/liste des sous-catégories/);
+  });
+
+  it("rejette microstoreSubCategoryId absent de subCategoryIds", async () => {
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catA" },
+    ]);
+    await expect(
+      bulkUpdateProductAttributes(["p1"], {
+        subCategoryIds: ["subA"],
+        microstoreSubCategoryId: "subB",
+      }),
+    ).rejects.toThrow(/attribuée au produit/);
+  });
+
+  it("rejette une sous-catégorie sans mapping Microstore", async () => {
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catA" },
+    ]);
+    prismaMock.subCategory.findUnique.mockResolvedValueOnce({
+      id: "subA",
+      name: "Sautoir",
+      microstoreCategoryId: null,
+    });
+    await expect(
+      bulkUpdateProductAttributes(["p1"], {
+        subCategoryIds: ["subA"],
+        microstoreSubCategoryId: "subA",
+      }),
+    ).rejects.toThrow(/pas mappée à Microstore/);
+  });
+
+  it("accepte null (retour catégorie principale) et l'écrit explicitement", async () => {
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catA" },
+    ]);
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", categoryId: "catA" },
+    ]);
+    const r = await bulkUpdateProductAttributes(["p1"], {
+      subCategoryIds: ["subA"],
+      microstoreSubCategoryId: null,
+    });
+    expect(r.updated).toBe(1);
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    expect(callArgs.data.microstoreSubCategoryId).toBeNull();
+  });
+
+  it("écrit l'id fourni quand la sous-cat est valide et mappée", async () => {
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catA" },
+    ]);
+    prismaMock.subCategory.findUnique.mockResolvedValueOnce({
+      id: "subA",
+      name: "Sautoir",
+      microstoreCategoryId: 42,
+    });
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", categoryId: "catA" },
+    ]);
+    const r = await bulkUpdateProductAttributes(["p1"], {
+      subCategoryIds: ["subA"],
+      microstoreSubCategoryId: "subA",
+    });
+    expect(r.updated).toBe(1);
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    expect(callArgs.data.microstoreSubCategoryId).toBe("subA");
+  });
+
+  it("reset auto préservé quand microstoreSubCategoryId absent du payload et subCategoryIds fourni", async () => {
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catA" },
+    ]);
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", categoryId: "catA" },
+    ]);
+    await bulkUpdateProductAttributes(["p1"], { subCategoryIds: ["subA"] });
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    // Comportement historique : reset à null car la sous-cat choisie
+    // précédemment pourrait avoir été décochée.
+    expect(callArgs.data.microstoreSubCategoryId).toBeNull();
+  });
+
+  it("choix explicite écrase le reset auto (sous-cat conservée)", async () => {
+    prismaMock.category.findUnique.mockResolvedValueOnce({ id: "catB" });
+    prismaMock.subCategory.findMany.mockResolvedValueOnce([
+      { id: "subA", categoryId: "catB" },
+    ]);
+    prismaMock.subCategory.findUnique.mockResolvedValueOnce({
+      id: "subA",
+      name: "Sautoir",
+      microstoreCategoryId: 42,
+    });
+    prismaMock.product.findMany.mockResolvedValueOnce([
+      { id: "p1", reference: "REF1", categoryId: "catA" }, // catégorie qui change
+    ]);
+    await bulkUpdateProductAttributes(["p1"], {
+      categoryId: "catB",
+      subCategoryIds: ["subA"],
+      microstoreSubCategoryId: "subA",
+    });
+    const callArgs = prismaMock.product.update.mock.calls[0][0];
+    // La valeur explicite écrase le reset auto qu'aurait déclenché
+    // le changement de catégorie.
+    expect(callArgs.data.microstoreSubCategoryId).toBe("subA");
   });
 });

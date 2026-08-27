@@ -2268,6 +2268,14 @@ export interface BulkProductAttributesInput {
   categoryId?: string;
   /** Liste de sous-catégories à appliquer (remplace l'existant). [] = vide la liste. */
   subCategoryIds?: string[];
+  /**
+   * Étiquette Microstore : `null` = catégorie principale (défaut), sinon
+   * id d'une sous-catégorie qui DOIT être présente dans `subCategoryIds`
+   * ET avoir un `microstoreCategoryId` non-null. Absent (`undefined`) =
+   * on ne touche pas, sauf reset automatique si la catégorie ou les
+   * sous-cats changent (comportement historique).
+   */
+  microstoreSubCategoryId?: string | null;
   /** null = retire le code SH du produit. */
   hsCodeId?: string | null;
   /** null = retire le pays de fabrication. Code ISO alpha-2 (ex: "CN"). */
@@ -2297,6 +2305,7 @@ export async function bulkUpdateProductAttributes(
   const hasAny =
     input.categoryId !== undefined ||
     input.subCategoryIds !== undefined ||
+    input.microstoreSubCategoryId !== undefined ||
     input.hsCodeId !== undefined ||
     input.countryIsoCode !== undefined ||
     input.seasonId !== undefined ||
@@ -2321,6 +2330,31 @@ export async function bulkUpdateProductAttributes(
     if (input.categoryId) {
       const wrong = subs.find((s) => s.categoryId !== input.categoryId);
       if (wrong) throw new Error("Une sous-catégorie sélectionnée n'appartient pas à la catégorie choisie.");
+    }
+  }
+  // Étiquette Microstore : la sous-cat choisie doit exister, être mappée à un
+  // ID Microstore, et faire partie des `subCategoryIds` transmis (sinon on
+  // stockerait un id orphelin — refusé par `normalizeMicrostoreSubCategoryId`).
+  if (input.microstoreSubCategoryId) {
+    if (input.subCategoryIds === undefined) {
+      throw new Error("Étiquette Microstore : la liste des sous-catégories doit être fournie.");
+    }
+    if (!input.subCategoryIds.includes(input.microstoreSubCategoryId)) {
+      throw new Error(
+        "La sous-catégorie choisie pour Microstore doit être attribuée au produit.",
+      );
+    }
+    const msSub = await prisma.subCategory.findUnique({
+      where: { id: input.microstoreSubCategoryId },
+      select: { id: true, name: true, microstoreCategoryId: true },
+    });
+    if (!msSub) {
+      throw new Error("La sous-catégorie choisie pour Microstore n'existe plus. Rechargez la page.");
+    }
+    if (msSub.microstoreCategoryId == null) {
+      throw new Error(
+        `La sous-catégorie « ${msSub.name} » n'est pas mappée à Microstore — mappez-la d'abord dans /admin/categories.`,
+      );
     }
   }
   if (input.hsCodeId) {
@@ -2395,11 +2429,15 @@ export async function bulkUpdateProductAttributes(
           input.categoryId !== p.categoryId &&
           input.subCategoryIds === undefined;
 
-        // Si la catégorie change OU les sous-cats sont remplacées, la sous-cat
-        // Microstore peut pointer vers une sous-cat qui n'est plus attribuée :
-        // on réinitialise à null (= catégorie principale par défaut).
+        // Étiquette Microstore :
+        //   - `input.microstoreSubCategoryId !== undefined` → valeur explicite
+        //     (validée plus haut) : `null` = catégorie principale, id = sous-cat.
+        //   - sinon reset auto si catégorie change ou sous-cats remplacées
+        //     (id potentiellement orphelin).
+        const explicitMicrostoreChoice = input.microstoreSubCategoryId !== undefined;
         const needsResetMicrostoreSub =
-          needsResetSubCats || input.subCategoryIds !== undefined;
+          !explicitMicrostoreChoice &&
+          (needsResetSubCats || input.subCategoryIds !== undefined);
 
         // Marketplaces liées → flag « Synchro nécessaire » systématique. Ainsi,
         // si la cliente annule la modale de propagation qui suit ou décoche
@@ -2412,6 +2450,7 @@ export async function bulkUpdateProductAttributes(
           input.important !== undefined &&
           input.categoryId === undefined &&
           input.subCategoryIds === undefined &&
+          input.microstoreSubCategoryId === undefined &&
           input.hsCodeId === undefined &&
           input.countryIsoCode === undefined &&
           input.seasonId === undefined &&
@@ -2438,6 +2477,9 @@ export async function bulkUpdateProductAttributes(
             }),
             ...(needsResetSubCats && {
               subCategories: { set: [] },
+            }),
+            ...(explicitMicrostoreChoice && {
+              microstoreSubCategoryId: input.microstoreSubCategoryId ?? null,
             }),
             ...(needsResetMicrostoreSub && {
               microstoreSubCategoryId: null,

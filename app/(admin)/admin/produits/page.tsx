@@ -720,7 +720,12 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
           categories: categories.map((c) => ({
             id: c.id,
             name: c.name,
-            subCategories: c.subCategories.map((s) => ({ id: s.id, name: s.name })),
+            microstoreCategoryId: c.microstoreCategoryId ?? null,
+            subCategories: c.subCategories.map((s) => ({
+              id: s.id,
+              name: s.name,
+              microstoreCategoryId: s.microstoreCategoryId ?? null,
+            })),
           })),
           hsCodes: hsCodes.map((h) => ({ id: h.id, code: h.code, label: h.label })),
           compositions: compositions.map((c) => ({ id: c.id, name: c.name })),

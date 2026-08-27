@@ -1008,7 +1008,11 @@ export const getCachedAllCategoriesWithSubs = tenantScopedCacheWithTid(
       select: {
         id: true,
         name: true,
-        subCategories: { orderBy: { name: "asc" }, select: { id: true, name: true } },
+        microstoreCategoryId: true,
+        subCategories: {
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, microstoreCategoryId: true },
+        },
       },
     }),
   ["all-categories-with-subs"],

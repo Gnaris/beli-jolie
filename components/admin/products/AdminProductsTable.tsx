@@ -6563,6 +6563,7 @@ export default function AdminProductsTable({
         open={bulkEditOpen}
         selectedCount={selectedIds.size}
         options={bulkEditOptions}
+        showMicrostoreChoice={hasMicrostoreConfig}
         onCancel={() => setBulkEditOpen(false)}
         onApply={handleBulkAttributes}
         isPending={isPending}

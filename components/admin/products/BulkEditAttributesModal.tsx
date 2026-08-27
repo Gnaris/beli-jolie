@@ -11,7 +11,18 @@ import CustomSelect from "@/components/ui/CustomSelect";
 export interface BulkEditCategoryOption {
   id: string;
   name: string;
-  subCategories: { id: string; name: string }[];
+  /**
+   * ID de la catégorie côté Microstore (mapping). `null` = catégorie non
+   * mappée : impossible de la choisir comme étiquette Microstore (message
+   * dans la modale).
+   */
+  microstoreCategoryId: number | null;
+  subCategories: {
+    id: string;
+    name: string;
+    /** ID Microstore de la sous-catégorie (idem catégorie, null = non mappée). */
+    microstoreCategoryId: number | null;
+  }[];
 }
 
 export interface BulkEditOptions {
@@ -25,6 +36,12 @@ export interface BulkEditOptions {
 export interface BulkEditPayload {
   categoryId?: string;
   subCategoryIds?: string[];
+  /**
+   * Étiquette Microstore : `null` = catégorie principale (défaut), sinon id
+   * de la sous-catégorie à envoyer. Absent (`undefined`) = ne pas toucher.
+   * Doit toujours pointer vers une sous-cat présente dans `subCategoryIds`.
+   */
+  microstoreSubCategoryId?: string | null;
   hsCodeId?: string | null;
   countryIsoCode?: string | null;
   seasonId?: string | null;
@@ -36,6 +53,11 @@ interface Props {
   open: boolean;
   selectedCount: number;
   options: BulkEditOptions;
+  /**
+   * Affiche le bloc « Envoyer à Microstore comme » sous les chips de
+   * sous-catégories. Piloté par `hasMicrostoreConfig` côté parent.
+   */
+  showMicrostoreChoice?: boolean;
   onCancel: () => void;
   onApply: (payload: BulkEditPayload) => Promise<void> | void;
   isPending?: boolean;
@@ -177,6 +199,7 @@ export default function BulkEditAttributesModal({
   open,
   selectedCount,
   options,
+  showMicrostoreChoice = false,
   onCancel,
   onApply,
   isPending = false,
@@ -192,6 +215,13 @@ export default function BulkEditAttributesModal({
   // Valeurs
   const [categoryId, setCategoryId] = useState("");
   const [subCategoryIds, setSubCategoryIds] = useState<string[]>([]);
+  /**
+   * Étiquette Microstore : `null` = catégorie principale (défaut), sinon
+   * id d'une sous-cat parmi `subCategoryIds`. Reset à `null` quand :
+   *   - la catégorie change (sous-cat de l'ancienne cat n'a plus de sens) ;
+   *   - la sous-cat choisie est décochée (id orphelin refusé côté serveur).
+   */
+  const [microstoreSubCategoryId, setMicrostoreSubCategoryId] = useState<string | null>(null);
   const [hsCodeId, setHsCodeId] = useState<string>("");
   const [compoLines, setCompoLines] = useState<CompoLine[]>([{ compositionId: "", percentage: "" }]);
   const [countryId, setCountryId] = useState<string>("");
@@ -199,12 +229,13 @@ export default function BulkEditAttributesModal({
   const [bestSeller, setBestSeller] = useState<"true" | "false">("true");
   const [error, setError] = useState<string | null>(null);
 
-  // Sous-catégories disponibles pour la catégorie choisie
-  const availableSubCats = useMemo(() => {
-    if (!categoryId) return [];
-    const cat = options.categories.find((c) => c.id === categoryId);
-    return cat?.subCategories ?? [];
-  }, [categoryId, options.categories]);
+  // Catégorie / sous-catégories disponibles pour la catégorie choisie
+  const selectedCategory = useMemo(
+    () => (categoryId ? options.categories.find((c) => c.id === categoryId) ?? null : null),
+    [categoryId, options.categories],
+  );
+  const availableSubCats = selectedCategory?.subCategories ?? [];
+  const attributedSubCats = availableSubCats.filter((s) => subCategoryIds.includes(s.id));
 
   const reset = () => {
     setEditCat(false);
@@ -215,6 +246,7 @@ export default function BulkEditAttributesModal({
     setEditBest(false);
     setCategoryId("");
     setSubCategoryIds([]);
+    setMicrostoreSubCategoryId(null);
     setHsCodeId("");
     setCompoLines([{ compositionId: "", percentage: "" }]);
     setCountryId("");
@@ -246,6 +278,16 @@ export default function BulkEditAttributesModal({
       }
       payload.categoryId = categoryId;
       payload.subCategoryIds = subCategoryIds; // tableau vide = vider
+      if (showMicrostoreChoice) {
+        // Défensif : si la sous-cat choisie n'est plus cochée (état
+        // impossible en UI, mais tests / mutations state), on retombe
+        // sur la catégorie principale.
+        const finalMsId =
+          microstoreSubCategoryId && subCategoryIds.includes(microstoreSubCategoryId)
+            ? microstoreSubCategoryId
+            : null;
+        payload.microstoreSubCategoryId = finalMsId;
+      }
     }
 
     if (editHs) {
@@ -346,6 +388,7 @@ export default function BulkEditAttributesModal({
               if (!v) {
                 setCategoryId("");
                 setSubCategoryIds([]);
+                setMicrostoreSubCategoryId(null);
               }
             }}
           >
@@ -355,6 +398,7 @@ export default function BulkEditAttributesModal({
                 onChange={(v) => {
                   setCategoryId(v);
                   setSubCategoryIds([]); // reset les sous-cats quand on change de cat
+                  setMicrostoreSubCategoryId(null); // idem étiquette Microstore
                 }}
                 options={options.categories.map((c) => ({ value: c.id, label: c.name }))}
                 placeholder="Choisir une catégorie…"
@@ -370,9 +414,19 @@ export default function BulkEditAttributesModal({
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() =>
-                            setSubCategoryIds(checked ? subCategoryIds.filter((id) => id !== s.id) : [...subCategoryIds, s.id])
-                          }
+                          onClick={() => {
+                            if (checked) {
+                              setSubCategoryIds(subCategoryIds.filter((id) => id !== s.id));
+                              // Si on décoche la sous-cat qui était choisie
+                              // comme étiquette Microstore, on retombe sur la
+                              // catégorie principale (id orphelin refusé serveur).
+                              if (microstoreSubCategoryId === s.id) {
+                                setMicrostoreSubCategoryId(null);
+                              }
+                            } else {
+                              setSubCategoryIds([...subCategoryIds, s.id]);
+                            }
+                          }}
                           className={`px-2.5 py-1 text-xs rounded-md border transition-colors font-body ${
                             checked
                               ? "bg-bg-dark text-text-inverse border-bg-dark"
@@ -380,6 +434,97 @@ export default function BulkEditAttributesModal({
                           }`}
                         >
                           {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Choix de l'étiquette envoyée à Microstore.
+                  Visible seulement si Microstore est configuré ET si la
+                  catégorie choisie a des sous-catégories (sinon il n'y a
+                  rien à choisir : c'est forcément la catégorie principale). */}
+              {showMicrostoreChoice && selectedCategory && availableSubCats.length > 0 && (
+                <div className="mt-3 rounded-lg border border-border bg-[#F8FAFC] px-3 py-2.5">
+                  <div className="text-[11px] font-body text-text-muted mb-1.5">
+                    Envoyer à Microstore comme…
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    {/* Chip « Catégorie principale » — badge M cyan actif si
+                        aucun choix de sous-cat. Cliquer y retombe. */}
+                    <button
+                      type="button"
+                      onClick={() => setMicrostoreSubCategoryId(null)}
+                      aria-pressed={microstoreSubCategoryId === null}
+                      title={
+                        selectedCategory.microstoreCategoryId == null
+                          ? "Catégorie non mappée à Microstore — mappe-la dans /admin/categories pour permettre le push"
+                          : microstoreSubCategoryId === null
+                            ? "Étiquette Microstore : catégorie principale"
+                            : "Utiliser la catégorie principale comme étiquette Microstore"
+                      }
+                      className={`inline-flex items-center gap-2 pl-3 pr-3 py-1.5 text-xs border rounded-lg transition-colors font-body bg-bg-dark text-text-inverse border-[#1A1A1A] ${
+                        microstoreSubCategoryId === null ? "ring-2 ring-[#22d3ee] ring-offset-1" : ""
+                      }`}
+                    >
+                      <span>{selectedCategory.name}</span>
+                      <span
+                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-extrabold leading-none flex-shrink-0 transition-opacity ${
+                          selectedCategory.microstoreCategoryId != null ? "opacity-100" : "opacity-30"
+                        }`}
+                        style={{
+                          background:
+                            selectedCategory.microstoreCategoryId != null
+                              ? "linear-gradient(135deg,#0891b2,#22d3ee)"
+                              : "linear-gradient(135deg,#94a3b8,#cbd5e1)",
+                        }}
+                        aria-hidden
+                      >
+                        M
+                      </span>
+                    </button>
+
+                    {/* Une chip par sous-catégorie cochée : cliquable si
+                        elle a un mapping Microstore, grisée sinon. */}
+                    {attributedSubCats.map((sub) => {
+                      const isChoice = microstoreSubCategoryId === sub.id;
+                      const msMapped = sub.microstoreCategoryId != null;
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => {
+                            if (!msMapped) return;
+                            setMicrostoreSubCategoryId(isChoice ? null : sub.id);
+                          }}
+                          aria-pressed={isChoice}
+                          aria-disabled={!msMapped}
+                          title={
+                            !msMapped
+                              ? "Sous-catégorie non mappée à Microstore — à mapper d'abord dans /admin/categories"
+                              : isChoice
+                                ? "Étiquette Microstore active — cliquer pour retomber sur la catégorie principale"
+                                : "Utiliser cette sous-catégorie comme étiquette Microstore"
+                          }
+                          className={`inline-flex items-center gap-2 pl-3 pr-3 py-1.5 text-xs border rounded-lg transition-colors font-body bg-bg-dark text-text-inverse border-[#1A1A1A] ${
+                            isChoice ? "ring-2 ring-[#22d3ee] ring-offset-1" : ""
+                          } ${!msMapped ? "cursor-not-allowed" : ""}`}
+                        >
+                          <span>{sub.name}</span>
+                          <span
+                            className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-extrabold leading-none flex-shrink-0 transition-opacity ${
+                              msMapped ? "opacity-100" : "opacity-30"
+                            }`}
+                            style={{
+                              background: msMapped
+                                ? "linear-gradient(135deg,#0891b2,#22d3ee)"
+                                : "linear-gradient(135deg,#94a3b8,#cbd5e1)",
+                            }}
+                            aria-hidden
+                          >
+                            M
+                          </span>
                         </button>
                       );
                     })}
