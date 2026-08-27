@@ -26,6 +26,8 @@ export type SeasonRow = {
   efashionCollectionId: number | null;
   efashionLabel: string | null;
   microstoreSeasonId: number | null;
+  /** Nom Microstore résolu (ex "Été 2026") ou marqueur orphelin. */
+  microstoreLabel: string | null;
   productCount: number;
   position: number;
   createdAt: Date;
@@ -158,10 +160,7 @@ export default function SeasonsMasterDetail({
         efashionLabel:
           selectedSeason.efashionLabel ??
           (selectedSeason.efashionCollectionId != null ? `id ${selectedSeason.efashionCollectionId}` : null),
-        microstoreLabel:
-          selectedSeason.microstoreSeasonId != null
-            ? `Microstore #${selectedSeason.microstoreSeasonId}`
-            : null,
+        microstoreLabel: selectedSeason.microstoreLabel,
       }
     : null;
 

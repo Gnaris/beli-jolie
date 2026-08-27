@@ -7,6 +7,7 @@ type Sub = {
   orderchampCategoryPath?: string | null;
   orderchampLabel?: string | null;
   microstoreCategoryId?: number | null;
+  microstoreLabel?: string | null;
 };
 
 type Props = {
@@ -63,7 +64,7 @@ export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrde
                 onClick={() => onMicrostore(s)}
                 title={
                   msMapped
-                    ? `Microstore : ID ${s.microstoreCategoryId}`
+                    ? `Microstore : ${s.microstoreLabel ?? `#${s.microstoreCategoryId}`}`
                     : "Microstore : à mapper pour pouvoir choisir cette sous-catégorie comme étiquette Microstore d'un produit"
                 }
                 aria-label={msMapped ? "Modifier le mapping Microstore" : "Ajouter un mapping Microstore"}

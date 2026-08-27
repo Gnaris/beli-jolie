@@ -197,6 +197,15 @@ export async function createColorQuick(
       microstoreColorId: microstoreColorId ?? null,
     },
   });
+  // Si l'admin n'a PAS fourni de mapping Microstore explicite, on tente une
+  // auto-création + auto-lien côté Microstore. Silencieux si Microstore
+  // hors-ligne — la couleur BJ existe déjà, on ne rate que le lien.
+  if (microstoreColorId == null) {
+    const { autoCreateColorOnMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await autoCreateColorOnMicrostore({ colorId: created.id, name });
+  }
   for (const [locale, value] of Object.entries(translations)) {
     if (locale === "fr" || !value.trim()) continue;
     await prisma.colorTranslation.upsert({

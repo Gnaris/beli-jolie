@@ -17,6 +17,10 @@ import {
   getCachedOrderchampTaxonomy,
   getOrderchampCategoryLabel,
 } from "@/lib/orderchamp-taxonomy";
+import {
+  getMicrostoreLabelMaps,
+  resolveMicrostoreLabelOrOrphan,
+} from "@/lib/microstore-labels";
 
 export const metadata: Metadata = {
   title: "Catégories",
@@ -51,6 +55,7 @@ export default async function CategoriesPage() {
     hasOrderchampConfig,
     faireTypes,
     orderchampTaxonomy,
+    microstoreLabels,
   ] = await Promise.all([
     prisma.category.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
@@ -76,6 +81,8 @@ export default async function CategoriesPage() {
     // feuilles standard OC + résoudre le libellé humain d'un mapping stocké.
     // Retourne [] si OC pas configuré (le sélecteur affiche alors un message).
     getCachedOrderchampTaxonomy().catch(() => []),
+    // Libellés Microstore résolus (nom lisible plutôt que « #42 » brut).
+    getMicrostoreLabelMaps(),
   ]);
 
   function buildFaireLabel(taxonomyId: string | null): string | null {
@@ -99,18 +106,29 @@ export default async function CategoriesPage() {
     faireTaxonomyId: c.faireTaxonomyId,
     orderchampCategoryPath: c.orderchampCategoryPath,
     microstoreCategoryId: c.microstoreCategoryId,
+    microstoreLabel: resolveMicrostoreLabelOrOrphan(
+      microstoreLabels.categories,
+      c.microstoreCategoryId,
+    ),
     productCount: c._count.products,
     createdAt: c.createdAt,
-    subCategories: c.subCategories.map((s) => ({
-      id: s.id,
-      name: s.name,
-      translations: buildTranslationsMap(s.name, s.translations),
-      orderchampCategoryPath: s.orderchampCategoryPath,
-      orderchampLabel: s.orderchampCategoryPath
-        ? getOrderchampCategoryLabel(s.orderchampCategoryPath, orderchampTaxonomy)
-        : null,
-      microstoreCategoryId: (s as { microstoreCategoryId?: number | null }).microstoreCategoryId ?? null,
-    })),
+    subCategories: c.subCategories.map((s) => {
+      const subMsId = (s as { microstoreCategoryId?: number | null }).microstoreCategoryId ?? null;
+      return {
+        id: s.id,
+        name: s.name,
+        translations: buildTranslationsMap(s.name, s.translations),
+        orderchampCategoryPath: s.orderchampCategoryPath,
+        orderchampLabel: s.orderchampCategoryPath
+          ? getOrderchampCategoryLabel(s.orderchampCategoryPath, orderchampTaxonomy)
+          : null,
+        microstoreCategoryId: subMsId,
+        microstoreLabel: resolveMicrostoreLabelOrOrphan(
+          microstoreLabels.categories,
+          subMsId,
+        ),
+      };
+    }),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),
     efashionLabel: resolveCategoryLabel(efashionLabels, c.efashionCategorieId) ?? null,
     faireLabel: buildFaireLabel(c.faireTaxonomyId),

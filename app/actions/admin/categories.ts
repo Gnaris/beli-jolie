@@ -387,14 +387,25 @@ export async function updateCategoryDirect(
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  const newName = name.trim();
   const data: { name: string; slug: string; microstoreCategoryId?: number | null } = {
-    name: name.trim(),
-    slug: toSlug(name.trim()),
+    name: newName,
+    slug: toSlug(newName),
   };
   if (microstoreCategoryId !== undefined) {
     data.microstoreCategoryId = microstoreCategoryId;
   }
   await prisma.category.update({ where: { id }, data });
+  if (before && before.name !== newName) {
+    const { propagateCategoryRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateCategoryRenameToMicrostore({ categoryId: id, newName });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
@@ -420,7 +431,18 @@ export async function updateSubCategoryDirect(
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
-  await prisma.subCategory.update({ where: { id }, data: { name: name.trim(), slug: toSlug(name.trim()) } });
+  const before = await prisma.subCategory.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  const newName = name.trim();
+  await prisma.subCategory.update({ where: { id }, data: { name: newName, slug: toSlug(newName) } });
+  if (before && before.name !== newName) {
+    const { propagateSubCategoryRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateSubCategoryRenameToMicrostore({ subCategoryId: id, newName });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();
@@ -444,7 +466,17 @@ export async function updateCategory(id: string, formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
 
+  const before = await prisma.category.findUnique({
+    where: { id },
+    select: { name: true },
+  });
   await prisma.category.update({ where: { id }, data: { name, slug: toSlug(name) } });
+  if (before && before.name !== name) {
+    const { propagateCategoryRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateCategoryRenameToMicrostore({ categoryId: id, newName: name });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
@@ -468,7 +500,17 @@ export async function updateSubCategory(id: string, formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
 
+  const before = await prisma.subCategory.findUnique({
+    where: { id },
+    select: { name: true },
+  });
   await prisma.subCategory.update({ where: { id }, data: { name, slug: toSlug(name) } });
+  if (before && before.name !== name) {
+    const { propagateSubCategoryRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateSubCategoryRenameToMicrostore({ subCategoryId: id, newName: name });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();

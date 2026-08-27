@@ -33,6 +33,8 @@ type Sub = {
   orderchampCategoryPath?: string | null;
   orderchampLabel?: string | null;
   microstoreCategoryId?: number | null;
+  /** Nom Microstore résolu (ex "Bracelet") ou marqueur orphelin. */
+  microstoreLabel?: string | null;
 };
 
 export type CategoryRow = {
@@ -55,6 +57,8 @@ export type CategoryRow = {
   efashionLabel: string | null;
   faireLabel: string | null;
   orderchampLabel: string | null;
+  /** Nom Microstore résolu (ex "Bracelet") ou marqueur orphelin. */
+  microstoreLabel: string | null;
 };
 
 type Props = {
@@ -239,10 +243,7 @@ export default function CategoriesMasterDetail({
         efashionLabel: selectedCat.efashionLabel,
         faireLabel: selectedCat.faireLabel,
         orderchampLabel: selectedCat.orderchampLabel,
-        microstoreLabel:
-          selectedCat.microstoreCategoryId != null
-            ? `Microstore #${selectedCat.microstoreCategoryId}`
-            : null,
+        microstoreLabel: selectedCat.microstoreLabel,
       }
     : null;
 

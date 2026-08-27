@@ -27,10 +27,14 @@ export type ColorRow = {
   patternImage: string | null;
   translations: Record<string, string>;
   pfsColorRef: string | null;
+  /** Libellé PFS français résolu (ex "Doré"), ou ref brute en fallback. */
+  pfsLabel: string | null;
   pfsSharedCount: number;
   efashionColorId: number | null;
   efashionLabel: string | null;
   microstoreColorId: number | null;
+  /** Nom Microstore résolu (ex "Doré"), ou marqueur orphelin, ou null. */
+  microstoreLabel: string | null;
   productCount: number;
   position: number;
   createdAt: Date;
@@ -190,15 +194,12 @@ export default function ColorsMasterDetail({
         translations: selectedColor.translations,
         productCount: selectedColor.productCount,
         createdAt: selectedColor.createdAt,
-        pfsLabel: selectedColor.pfsColorRef,
+        pfsLabel: selectedColor.pfsLabel,
         pfsSharedCount: selectedColor.pfsSharedCount,
         efashionLabel:
           selectedColor.efashionLabel ??
           (selectedColor.efashionColorId != null ? `id ${selectedColor.efashionColorId}` : null),
-        microstoreLabel:
-          selectedColor.microstoreColorId != null
-            ? `Microstore #${selectedColor.microstoreColorId}`
-            : null,
+        microstoreLabel: selectedColor.microstoreLabel,
       }
     : null;
 

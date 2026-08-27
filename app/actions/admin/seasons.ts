@@ -32,7 +32,17 @@ export async function updateSeason(id: string, formData: FormData) {
   await requireAdmin();
   const name = (formData.get("name") as string)?.trim();
   if (!name) throw new Error("Le nom est requis.");
+  const before = await prisma.season.findUnique({
+    where: { id },
+    select: { name: true },
+  });
   await prisma.season.update({ where: { id }, data: { name } });
+  if (before && before.name !== name) {
+    const { propagateSeasonRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateSeasonRenameToMicrostore({ seasonId: id, newName: name });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
@@ -59,13 +69,24 @@ export async function updateSeasonDirect(
 ) {
   await requireAdmin();
   if (!name.trim()) throw new Error("Le nom est requis.");
+  const before = await prisma.season.findUnique({
+    where: { id },
+    select: { name: true },
+  });
+  const newName = name.trim();
   const data: { name: string; microstoreSeasonId?: number | null } = {
-    name: name.trim(),
+    name: newName,
   };
   if (microstoreSeasonId !== undefined) {
     data.microstoreSeasonId = microstoreSeasonId;
   }
   await prisma.season.update({ where: { id }, data });
+  if (before && before.name !== newName) {
+    const { propagateSeasonRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateSeasonRenameToMicrostore({ seasonId: id, newName });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = translations[locale]?.trim();

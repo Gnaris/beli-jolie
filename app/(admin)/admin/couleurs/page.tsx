@@ -8,14 +8,28 @@ import {
   getCachedAnkorstoreEnabled,
   getCachedHasPfsConfig,
   getCachedHasEfashionConfig,
+  getCachedPfsColors,
 } from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveColorLabel } from "@/lib/efashion-labels";
+import {
+  getMicrostoreLabelMaps,
+  resolveMicrostoreLabelOrOrphan,
+} from "@/lib/microstore-labels";
 import { buildTranslationsMap } from "@/lib/translations";
 
 export const metadata: Metadata = { title: "Bibliothèque de couleurs" };
 
 export default async function CouleursPage() {
-  const [colors, pfsEnabled, ankorstoreEnabled, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
+  const [
+    colors,
+    pfsEnabled,
+    ankorstoreEnabled,
+    efashionLabels,
+    microstoreLabels,
+    pfsLiveColors,
+    hasPfsConfig,
+    hasEfashionConfig,
+  ] = await Promise.all([
     prisma.color.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
@@ -26,9 +40,16 @@ export default async function CouleursPage() {
     getCachedPfsEnabled(),
     getCachedAnkorstoreEnabled(),
     getEfashionLabelMaps(),
+    getMicrostoreLabelMaps(),
+    // Résout ref PFS → libellé français (getCachedPfsColors renvoie déjà
+    // `labels.fr` en priorité). Fallback [] silencieux si PFS hors-ligne.
+    getCachedPfsColors().catch(() => []),
     getCachedHasPfsConfig(),
     getCachedHasEfashionConfig(),
   ]);
+
+  const pfsColorLabelByRef = new Map<string, string>();
+  for (const c of pfsLiveColors) pfsColorLabelByRef.set(c.reference, c.label);
 
   // Compte de partage par pfsColorRef : combien d'autres couleurs pointent
   // sur le même mapping PFS. Sert à un badge info dans la carte marketplace
@@ -47,10 +68,19 @@ export default async function CouleursPage() {
     patternImage: c.patternImage,
     translations: buildTranslationsMap(c.name, c.translations),
     pfsColorRef: c.pfsColorRef,
+    // Libellé PFS français si le référentiel live est joignable, sinon
+    // fallback sur la ref brute (comportement historique).
+    pfsLabel: c.pfsColorRef
+      ? pfsColorLabelByRef.get(c.pfsColorRef) ?? c.pfsColorRef
+      : null,
     pfsSharedCount: c.pfsColorRef ? Math.max(0, (pfsRefCount.get(c.pfsColorRef) ?? 1) - 1) : 0,
     efashionColorId: c.efashionColorId,
     efashionLabel: resolveColorLabel(efashionLabels, c.efashionColorId) ?? null,
     microstoreColorId: c.microstoreColorId,
+    microstoreLabel: resolveMicrostoreLabelOrOrphan(
+      microstoreLabels.colors,
+      c.microstoreColorId,
+    ),
     productCount: c._count.productColors,
     position: c.position,
     createdAt: c.createdAt,

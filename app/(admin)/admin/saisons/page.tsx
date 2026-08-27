@@ -8,12 +8,16 @@ import {
   getCachedHasEfashionConfig,
 } from "@/lib/cached-data";
 import { getEfashionLabelMaps, resolveCollectionLabel } from "@/lib/efashion-labels";
+import {
+  getMicrostoreLabelMaps,
+  resolveMicrostoreLabelOrOrphan,
+} from "@/lib/microstore-labels";
 import { buildTranslationsMap } from "@/lib/translations";
 
 export const metadata: Metadata = { title: "Saisons" };
 
 export default async function SaisonsPage() {
-  const [seasons, efashionLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
+  const [seasons, efashionLabels, microstoreLabels, hasPfsConfig, hasEfashionConfig] = await Promise.all([
     prisma.season.findMany({
       orderBy: [{ position: "asc" }, { name: "asc" }],
       include: {
@@ -22,6 +26,7 @@ export default async function SaisonsPage() {
       },
     }),
     getEfashionLabelMaps(),
+    getMicrostoreLabelMaps(),
     getCachedHasPfsConfig(),
     getCachedHasEfashionConfig(),
   ]);
@@ -34,6 +39,10 @@ export default async function SaisonsPage() {
     efashionCollectionId: s.efashionCollectionId,
     efashionLabel: resolveCollectionLabel(efashionLabels, s.efashionCollectionId) ?? null,
     microstoreSeasonId: s.microstoreSeasonId,
+    microstoreLabel: resolveMicrostoreLabelOrOrphan(
+      microstoreLabels.seasons,
+      s.microstoreSeasonId,
+    ),
     productCount: s._count.products,
     position: s.position,
     createdAt: s.createdAt,

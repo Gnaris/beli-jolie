@@ -96,6 +96,11 @@ export async function createColor(formData: FormData) {
 
   const color = await prisma.color.create({ data: { name, hex } });
   autoTranslateColor(color.id, name);
+  // Auto-crée + auto-lie côté Microstore. Silencieux si Microstore hors-ligne.
+  const { autoCreateColorOnMicrostore } = await import(
+    "@/lib/microstore-attribute-propagation"
+  );
+  await autoCreateColorOnMicrostore({ colorId: color.id, name });
   revalidatePath("/admin/produits");
   revalidateTag("colors", "default");
   revalidatePath("/admin/produits/nouveau");
@@ -107,7 +112,17 @@ export async function updateColor(id: string, formData: FormData) {
   const hex = (formData.get("hex") as string)?.trim() || null;
   if (!name) throw new Error("Le nom est requis.");
 
+  const before = await prisma.color.findUnique({
+    where: { id },
+    select: { name: true },
+  });
   await prisma.color.update({ where: { id }, data: { name, hex } });
+  if (before && before.name !== name) {
+    const { propagateColorRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateColorRenameToMicrostore({ colorId: id, newName: name });
+  }
 
   for (const locale of NON_DEFAULT_LOCALES) {
     const val = (formData.get(`name_${locale}`) as string)?.trim();
@@ -141,7 +156,7 @@ export async function updateColorDirect(
   // Snapshot AVANT pour comparer ce qui a réellement changé (sert au routage marketplace).
   const before = await prisma.color.findUnique({
     where: { id },
-    select: { name: true, pfsColorRef: true, patternImage: true },
+    select: { name: true, pfsColorRef: true, patternImage: true, microstoreColorId: true },
   });
   if (!before) throw new Error("Couleur introuvable.");
 
@@ -173,6 +188,14 @@ export async function updateColorDirect(
   }
 
   await prisma.color.update({ where: { id }, data });
+
+  // Propage le renommage vers Microstore si la couleur est déjà liée.
+  if (nameChanged) {
+    const { propagateColorRenameToMicrostore } = await import(
+      "@/lib/microstore-attribute-propagation"
+    );
+    await propagateColorRenameToMicrostore({ colorId: id, newName });
+  }
 
   // Old motif is orphan as soon as the new path is stored: purge it.
   if (patternImage !== undefined && before.patternImage && before.patternImage !== patternImage) {
