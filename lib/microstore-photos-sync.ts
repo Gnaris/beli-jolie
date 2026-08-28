@@ -35,6 +35,65 @@ import {
   markMicrostoreUploadJobStatus,
 } from "@/lib/microstore-upload-jobs";
 import { assertMicrostorePushAllowed } from "@/lib/microstore-preflight";
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+
+/**
+ * File d'attente par tenant sur les envois photos Microstore.
+ *
+ * Pourquoi : Microstore répond HTTP 500 (« erreur système inconnu ») quand on
+ * enchaîne 3-5 PATCH `/api/goods/{id}` en parallèle sur la même session
+ * pictureStation. Cas concret 2026-08-28 : la cliente enregistre plusieurs
+ * produits d'affilée, chaque save déclenche un fire-and-forget photos qui
+ * collisionne avec le précédent → HTTP 500.
+ *
+ * Le mutex sérialise strictement 1 envoi photos à la fois PAR TENANT.
+ * Les envois multi-tenant restent parallèles (jamais 2 pushs en concurrence
+ * sur la même session Microstore d'un tenant).
+ *
+ * En mémoire process — suffisant tant qu'on tourne sur un seul Next.js.
+ * Si un jour on scale horizontalement, il faudra passer sur un lock Redis
+ * ou un BullMQ dédié.
+ */
+const microstorePhotoLockByTenant = new Map<string, Promise<unknown>>();
+
+export async function withMicrostorePhotoLock<T>(
+  fallbackTenantId: string | null,
+  label: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const tid = getCurrentTenantIdSync() ?? fallbackTenantId ?? "__global__";
+  const previous = microstorePhotoLockByTenant.get(tid) ?? Promise.resolve();
+  let release!: (value: unknown) => void;
+  const next = new Promise((resolve) => {
+    release = resolve;
+  });
+  microstorePhotoLockByTenant.set(tid, next);
+  try {
+    await previous;
+  } catch {
+    // On avale l'erreur du précédent — chaque appel gère ses propres erreurs.
+  }
+  const waitedMs = Date.now();
+  try {
+    const result = await fn();
+    return result;
+  } finally {
+    const durationMs = Date.now() - waitedMs;
+    // Petite trace de diagnostic : si les envois s'accumulent, le durationMs
+    // permet de repérer que la file bourre.
+    if (durationMs > 15_000) {
+      logger.warn(`[Microstore photos lock] ${label} a bloqué ${durationMs} ms`, {
+        tenantId: tid,
+      });
+    }
+    release(undefined);
+    // Nettoie la map si personne d'autre n'a pris le lock derrière — évite
+    // une fuite mémoire silencieuse sur les tenants inactifs.
+    if (microstorePhotoLockByTenant.get(tid) === next) {
+      microstorePhotoLockByTenant.delete(tid);
+    }
+  }
+}
 
 export interface SendProductPhotosResult {
   success: boolean;
@@ -104,9 +163,27 @@ async function prepareMicrostoreJpeg(
 /**
  * Envoi photos d'un seul produit — cœur métier sans requireAdmin.
  * Voir la server action `sendProductPhotosToMicrostore` pour l'API publique.
+ *
+ * Sérialisé par tenant via `withMicrostorePhotoLock` — un seul envoi photos
+ * Microstore actif à la fois par tenant, pour éviter les HTTP 500
+ * collisions.
+ *
+ * Skip automatique si le produit a `microstorePhotosDirty === false` (photos
+ * inchangées depuis le dernier envoi). Passer `{ force: true }` pour outrepasser
+ * ce garde-fou (ex : bouton « Renvoyer les photos » manuel).
  */
 export async function sendProductPhotosToMicrostoreCore(
   reference: string,
+  opts: { force?: boolean } = {},
+): Promise<SendProductPhotosResult> {
+  return withMicrostorePhotoLock(null, `sendProductPhotos(${reference})`, () =>
+    sendProductPhotosToMicrostoreCoreUnlocked(reference, opts),
+  );
+}
+
+async function sendProductPhotosToMicrostoreCoreUnlocked(
+  reference: string,
+  opts: { force?: boolean } = {},
 ): Promise<SendProductPhotosResult> {
   const trimmedRef = (reference || "").trim();
   if (!trimmedRef) {
@@ -131,6 +208,7 @@ export async function sendProductPhotosToMicrostoreCore(
         name: true,
         primaryColorId: true,
         microstoreProductId: true,
+        microstorePhotosDirty: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
@@ -144,7 +222,7 @@ export async function sendProductPhotosToMicrostoreCore(
           orderBy: { order: "asc" },
           select: { path: true, order: true, colorId: true },
         },
-      },
+      } as never,
     }),
     prisma.siteConfig.findFirst({
       where: { key: "branded_reference_badge_enabled" },
@@ -153,6 +231,29 @@ export async function sendProductPhotosToMicrostoreCore(
   ]);
   if (!product) {
     return { success: false, error: `Aucun produit BJ avec la référence « ${trimmedRef} ».` };
+  }
+
+  // Garde-fou « photos inchangées » : on saute l'envoi photos si aucun
+  // fichier n'a bougé depuis le dernier push réussi. Économise ~5-10 s
+  // d'API OSS + 1 PATCH Microstore par save fiche qui ne concerne que le
+  // texte/prix. Contournement : `{ force: true }` (bouton « Renvoyer les
+  // photos » côté UI).
+  const photosDirty = (product as unknown as { microstorePhotosDirty?: boolean })
+    .microstorePhotosDirty;
+  if (!opts.force && photosDirty === false) {
+    logger.info("[Microstore/PS] photos inchangées — envoi sauté", {
+      reference: trimmedRef,
+    });
+    return {
+      success: true,
+      reference: product.reference,
+      microstoreGoodsId:
+        (product as unknown as { microstoreProductId?: number }).microstoreProductId ??
+        undefined,
+      microstoreGoodsName: product.name ?? "",
+      companyName: "",
+      colors: [],
+    };
   }
 
   const jobId = await createMicrostoreUploadJob({
@@ -410,7 +511,11 @@ export async function sendProductPhotosToMicrostoreCore(
     data: {
       microstoreSyncRequired: false,
       microstoreLastPushedAt: new Date(),
-    },
+      // Photos poussées avec succès : on nettoie le flag « dirty » pour que
+      // le prochain enregistrement fiche seule ne redéclenche pas un envoi
+      // photos inutile.
+      microstorePhotosDirty: false,
+    } as never,
   });
   await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
 
@@ -427,9 +532,29 @@ export async function sendProductPhotosToMicrostoreCore(
 /**
  * Envoi photos en mode bulk — cœur métier sans requireAdmin.
  * Voir la server action `bulkSendPhotosToMicrostore` pour l'API publique.
+ *
+ * Sérialisé par tenant via `withMicrostorePhotoLock` — un bulk peut être
+ * volumineux (N photos × M produits), on ne veut surtout pas qu'un envoi
+ * unitaire lancé en parallèle vienne collisionner sur la même session.
+ *
+ * Filtre auto les produits `microstorePhotosDirty === false` (rien à
+ * renvoyer). Passer `{ force: true }` pour tout renvoyer même les produits
+ * dont les photos n'ont pas bougé.
  */
 export async function bulkSendPhotosToMicrostoreCore(
   productIds: string[],
+  opts: { force?: boolean } = {},
+): Promise<BulkSendPhotosResult> {
+  return withMicrostorePhotoLock(
+    null,
+    `bulkSendPhotos(${productIds.length} produits)`,
+    () => bulkSendPhotosToMicrostoreCoreUnlocked(productIds, opts),
+  );
+}
+
+async function bulkSendPhotosToMicrostoreCoreUnlocked(
+  productIds: string[],
+  opts: { force?: boolean } = {},
 ): Promise<BulkSendPhotosResult> {
   if (productIds.length === 0) {
     return {
@@ -475,7 +600,7 @@ export async function bulkSendPhotosToMicrostoreCore(
   }
 
   const { prisma } = await import("@/lib/prisma");
-  const [products, brandedBadgeRow] = await Promise.all([
+  const [productsRaw, brandedBadgeRow] = await Promise.all([
     prisma.product.findMany({
       where: { id: { in: productIds } },
       select: {
@@ -483,6 +608,7 @@ export async function bulkSendPhotosToMicrostoreCore(
         reference: true,
         name: true,
         primaryColorId: true,
+        microstorePhotosDirty: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
@@ -494,7 +620,7 @@ export async function bulkSendPhotosToMicrostoreCore(
           orderBy: { order: "asc" },
           select: { path: true, order: true, colorId: true },
         },
-      },
+      } as never,
     }),
     prisma.siteConfig.findFirst({
       where: { key: "branded_reference_badge_enabled" },
@@ -502,6 +628,41 @@ export async function bulkSendPhotosToMicrostoreCore(
     }),
   ]);
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
+  // Filtre les produits dont les photos n'ont pas bougé depuis le dernier
+  // push réussi — évite des appels OSS + pictureStations inutiles quand un
+  // save fiche ne touche ni les images, ni la primary color.
+  type ProductWithDirty = (typeof productsRaw)[number] & { microstorePhotosDirty?: boolean };
+  const products: typeof productsRaw = [];
+  const skippedForCleanPhotos: string[] = [];
+  for (const p of productsRaw as ProductWithDirty[]) {
+    if (!opts.force && p.microstorePhotosDirty === false) {
+      skippedForCleanPhotos.push(p.reference);
+    } else {
+      products.push(p);
+    }
+  }
+  if (skippedForCleanPhotos.length > 0) {
+    logger.info(
+      `[Microstore/PS] bulk : ${skippedForCleanPhotos.length} produit(s) sautés (photos inchangées)`,
+      { references: skippedForCleanPhotos.slice(0, 10) },
+    );
+  }
+
+  // Cas particulier : tous les produits ont été filtrés (photos inchangées).
+  // On sort en succès sans appeler Microstore ni créer de job UI.
+  if (products.length === 0) {
+    return {
+      success: true,
+      attempted: productIds.length,
+      photosUploaded: 0,
+      successCount: 0,
+      failedCount: 0,
+      skippedProducts: skippedForCleanPhotos,
+      coversPatched: 0,
+      coversFailed: 0,
+    };
+  }
 
   const jobIdByProductId = new Map<string, string | null>();
   for (const p of products) {
@@ -736,7 +897,8 @@ export async function bulkSendPhotosToMicrostoreCore(
       data: {
         microstoreSyncRequired: false,
         microstoreLastPushedAt: new Date(),
-      },
+        microstorePhotosDirty: false,
+      } as never,
     });
   }
 

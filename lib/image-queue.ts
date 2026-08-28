@@ -282,7 +282,12 @@ async function maybeMarkProductSyncRequired(productId: string): Promise<void> {
   if (product.efashionReferenceBase) data.efashionSyncRequired = true;
   if (product.faireProductId) data.faireSyncRequired = true;
   if (product.orderchampProductId) data.orderchampSyncRequired = true;
-  if (product.microstoreProductId != null) data.microstoreSyncRequired = true;
+  if (product.microstoreProductId != null) {
+    data.microstoreSyncRequired = true;
+    // Une image a bougé → prochain push Microstore doit renvoyer les photos.
+    // Sans ce flag, le garde-fou côté sendProductPhotos* sauterait l'envoi.
+    (data as unknown as { microstorePhotosDirty?: boolean }).microstorePhotosDirty = true;
+  }
 
   if (Object.keys(data).length === 0) return;
   await prisma.product.update({ where: { id: productId }, data });

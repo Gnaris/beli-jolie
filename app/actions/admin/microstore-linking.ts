@@ -203,10 +203,13 @@ export async function linkMicrostoreProductManually(
     // On NE pose PAS microstoreLastPushedAt ici : ça sera fait par le push qui
     // suit (markPushed). Comme ça, si le push échoue, la cliente voit que le
     // produit est lié mais pas encore synchro — pas un faux « à jour ».
+    // On pose `microstorePhotosDirty = true` pour que le premier push
+    // photos post-liaison passe (photos jamais envoyées à cette fiche
+    // Microstore-là, même si le produit BJ a déjà servi une autre liaison).
     await prisma.$transaction([
       prisma.product.update({
         where: { id: bjProductId },
-        data: { microstoreProductId },
+        data: { microstoreProductId, microstorePhotosDirty: true } as never,
       }),
       ...updates.map((u) =>
         prisma.productColor.update({

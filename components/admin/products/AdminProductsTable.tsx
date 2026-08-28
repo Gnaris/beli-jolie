@@ -5069,20 +5069,23 @@ export default function AdminProductsTable({
           });
         }
       }
-      // Microstore : passe désormais par la même file que les autres.
+      // Microstore : action groupée = 1 seul push photos à la fin
+      // (demande cliente 2026-08-28). On appelle directement
+      // `bulkPushProductsToMicrostore` — boucle sur les fiches + UN seul
+      // POST bulk pictureStations. Plus jamais de HTTP 500 par collision
+      // entre plusieurs pushs Microstore parallèles.
       if (options.microstore && microstoreProducts.length > 0) {
         nudgeRailWidget("microstore-upload");
-        for (const p of microstoreProducts) {
-          inputs.push({
-            productId: p.id,
-            reference: p.reference,
-            productName: p.name,
-            firstImage: p.firstImage,
-            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
-            mode: "publish",
-            marketplace: "microstore",
-          });
-        }
+        const toPushIds = microstoreProducts.map((p) => p.id);
+        void (async () => {
+          const { bulkPushProductsToMicrostore } = await import(
+            "@/app/actions/admin/microstore-products"
+          );
+          const res = await bulkPushProductsToMicrostore(toPushIds);
+          if (!res.success && res.error) {
+            toast.error("Envoi Microstore partiellement échoué", res.error);
+          }
+        })();
       }
       if (inputs.length > 0) enqueuePfs(inputs);
     } catch (e) {
@@ -5226,9 +5229,12 @@ export default function AdminProductsTable({
         }
       }
 
-      // 4) Microstore : passe désormais par la file marketplace comme les
-      //    autres. On enqueue un job publish par produit effectivement mis
-      //    en ligne ET avec toggle Microstore activé.
+      // 4) Microstore : action groupée = 1 seul push photos à la fin
+      //    (demande cliente 2026-08-28). On appelle directement
+      //    `bulkPushProductsToMicrostore` qui boucle sur les fiches puis fait
+      //    UN seul POST bulk pictureStations. Sans ça, la file marketplace
+      //    enqueuait N jobs individuels qui envoyaient chacun leurs photos
+      //    en fire-and-forget → Microstore répondait HTTP 500 sur collision.
       if (
         decision.publishMicrostore &&
         hasMicrostoreConfig &&
@@ -5237,21 +5243,15 @@ export default function AdminProductsTable({
         const toPushIds = decision.microstoreEligibleIds.filter((id) => onlineIds.has(id));
         if (toPushIds.length > 0) {
           nudgeRailWidget("microstore-upload");
-          const microstoreInputs: Parameters<typeof enqueuePfs>[0] = [];
-          for (const id of toPushIds) {
-            const p = eligibleProducts.find((ep) => ep.id === id);
-            if (!p) continue;
-            microstoreInputs.push({
-              productId: p.id,
-              reference: p.reference,
-              productName: p.name,
-              firstImage: p.firstImage,
-              options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
-              mode: "publish" as const,
-              marketplace: "microstore" as const,
-            });
-          }
-          if (microstoreInputs.length > 0) enqueuePfs(microstoreInputs);
+          void (async () => {
+            const { bulkPushProductsToMicrostore } = await import(
+              "@/app/actions/admin/microstore-products"
+            );
+            const res = await bulkPushProductsToMicrostore(toPushIds);
+            if (!res.success && res.error) {
+              toast.error("Envoi Microstore partiellement échoué", res.error);
+            }
+          })();
         }
       }
 

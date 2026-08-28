@@ -1663,7 +1663,18 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       if (oldProduct.efashionReferenceBase) flagsData.efashionSyncRequired = true;
       if (oldProduct.faireProductId) flagsData.faireSyncRequired = true;
       if (oldProduct.orderchampProductId) flagsData.orderchampSyncRequired = true;
-      if (oldProduct.microstoreProductId != null) flagsData.microstoreSyncRequired = true;
+      if (oldProduct.microstoreProductId != null) {
+        flagsData.microstoreSyncRequired = true;
+        // On ne pose `microstorePhotosDirty` que si la modif touche vraiment
+        // aux images (mapping (colorId, order, path) ou changement de couleur
+        // principale). Sinon les push Microstore fiche seule resteront rapides.
+        if (
+          imageMappingChanged ||
+          oldProduct.primaryColorId !== resolvedPrimaryAfter
+        ) {
+          (flagsData as unknown as { microstorePhotosDirty?: boolean }).microstorePhotosDirty = true;
+        }
+      }
       if (Object.keys(flagsData).length > 0) {
         await prisma.product.update({ where: { id }, data: flagsData });
       }

@@ -1531,6 +1531,12 @@ model Product {
   microstoreProductId        Int?
   microstoreLastSyncSnapshot Json?
   microstoreLastPushedAt     DateTime?
+  /// True si les photos du produit ont bougé depuis le dernier envoi photos
+  /// Microstore réussi. Set true par : worker images (image-queue), updateProduct
+  /// quand colorImages change, linkMicrostoreProductManually, demande explicite
+  /// de resync. Reset false uniquement après push photos réussi. Défaut true
+  /// pour forcer un premier alignement sur l'existant après déploiement.
+  microstorePhotosDirty      Boolean @default(true)
 
   // Drapeaux "Synchronisation nécessaire" — passés à true quand un changement
   // local n'a pas été propagé au marketplace correspondant (save sans cocher

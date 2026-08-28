@@ -149,3 +149,150 @@ describe("bulkSendPhotosToMicrostoreCore — pré-requis absents", () => {
     expect(res.failedCount).toBe(2);
   });
 });
+
+describe("sendProductPhotosToMicrostoreCore — garde-fou microstorePhotosDirty", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("saute l'envoi si photosDirty=false et pas de force, sans appeler Microstore", async () => {
+    const preflight = await import("@/lib/microstore-preflight");
+    (preflight.assertMicrostorePushAllowed as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+    const ps = await import("@/lib/microstore-picture-station");
+    (ps.getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "p1",
+      reference: "A1234",
+      name: "Test",
+      primaryColorId: null,
+      microstoreProductId: 10259,
+      microstorePhotosDirty: false,
+      colors: [],
+      colorImages: [],
+    });
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { sendProductPhotosToMicrostoreCore } = await loadCore();
+    const res = await sendProductPhotosToMicrostoreCore("A1234");
+    expect(res.success).toBe(true);
+    // Aucun contact Microstore ne doit avoir été tenté.
+    expect(ps.getMicrostorePictureStationCompany).not.toHaveBeenCalled();
+    expect(ps.uploadImageToMicrostoreOss).not.toHaveBeenCalled();
+    expect(ps.patchMicrostoreGoodsImages).not.toHaveBeenCalled();
+    const uploadJobs = await import("@/lib/microstore-upload-jobs");
+    // Pas de MicrostoreUploadJob créé — sinon le widget se remplirait de
+    // "0 photo envoyée" à chaque save fiche seule.
+    expect(uploadJobs.createMicrostoreUploadJob).not.toHaveBeenCalled();
+  });
+
+  it("PROCÈDE quand force=true même si photosDirty=false", async () => {
+    const preflight = await import("@/lib/microstore-preflight");
+    (preflight.assertMicrostorePushAllowed as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+    const ps = await import("@/lib/microstore-picture-station");
+    (ps.getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+    (ps.getMicrostorePictureStationCompany as ReturnType<typeof vi.fn>).mockResolvedValue({
+      companyId: 3976,
+      companyName: "BJ",
+    });
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "p1",
+      reference: "A1234",
+      name: "Test",
+      primaryColorId: null,
+      microstoreProductId: 10259,
+      microstorePhotosDirty: false, // pourtant force=true dessous
+      colors: [],
+      colorImages: [],
+    });
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { sendProductPhotosToMicrostoreCore } = await loadCore();
+    await sendProductPhotosToMicrostoreCore("A1234", { force: true });
+    // Le core est allé au moins jusqu'à récupérer la company (preuve qu'il
+    // n'a pas short-circuité sur le flag dirty).
+    expect(ps.getMicrostorePictureStationCompany).toHaveBeenCalled();
+  });
+
+  it("PROCÈDE quand photosDirty=true (nouveau produit, photos non poussées)", async () => {
+    const preflight = await import("@/lib/microstore-preflight");
+    (preflight.assertMicrostorePushAllowed as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
+    const ps = await import("@/lib/microstore-picture-station");
+    (ps.getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+    (ps.getMicrostorePictureStationCompany as ReturnType<typeof vi.fn>).mockResolvedValue({
+      companyId: 3976,
+      companyName: "BJ",
+    });
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "p1",
+      reference: "A1234",
+      name: "Test",
+      primaryColorId: null,
+      microstoreProductId: 10259,
+      microstorePhotosDirty: true,
+      colors: [],
+      colorImages: [],
+    });
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { sendProductPhotosToMicrostoreCore } = await loadCore();
+    await sendProductPhotosToMicrostoreCore("A1234");
+    expect(ps.getMicrostorePictureStationCompany).toHaveBeenCalled();
+  });
+});
+
+describe("withMicrostorePhotoLock — sérialisation par tenant", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("empêche 2 envois du même tenant de tourner en parallèle", async () => {
+    const { withMicrostorePhotoLock } = await loadCore();
+
+    const events: string[] = [];
+    async function task(label: string, holdMs: number): Promise<void> {
+      await withMicrostorePhotoLock("tenant-A", label, async () => {
+        events.push(`start:${label}`);
+        await new Promise((r) => setTimeout(r, holdMs));
+        events.push(`end:${label}`);
+      });
+    }
+
+    // Lance 2 tâches concurrentes ; la seconde doit attendre la 1re.
+    await Promise.all([task("A", 60), task("B", 30)]);
+
+    // Ordre garanti : la 1re commence et finit AVANT que la 2e commence.
+    expect(events).toEqual(["start:A", "end:A", "start:B", "end:B"]);
+  });
+
+  it("laisse 2 envois de tenants différents tourner en parallèle", async () => {
+    const { withMicrostorePhotoLock } = await loadCore();
+
+    const events: string[] = [];
+    async function task(tenantId: string, label: string, holdMs: number): Promise<void> {
+      await withMicrostorePhotoLock(tenantId, label, async () => {
+        events.push(`start:${label}`);
+        await new Promise((r) => setTimeout(r, holdMs));
+        events.push(`end:${label}`);
+      });
+    }
+
+    await Promise.all([task("t1", "T1", 50), task("t2", "T2", 20)]);
+
+    // T2 finit avant T1 (parallèle possible entre tenants distincts).
+    expect(events[0]).toBe("start:T1");
+    expect(events[1]).toBe("start:T2");
+    expect(events[2]).toBe("end:T2");
+    expect(events[3]).toBe("end:T1");
+  });
+});

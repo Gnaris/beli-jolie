@@ -18,7 +18,10 @@ interface AskInput {
   showEfashion: boolean;
   showFaire: boolean;
   showOrderchamp?: boolean;
-  showMicrostore: boolean;
+  /** Défaut false. La modale « Rafraîchir » n'expose pas Microstore
+   *  (retiré 2026-08-28) — seul le flux « Publier sur les marketplaces ? »
+   *  après enregistrement le passe à true. */
+  showMicrostore?: boolean;
   /** Optionnel : IDs des produits sélectionnés. Sert à afficher combien de
    *  produits ont chaque marketplace activée / désactivée. */
   productIds?: string[];
@@ -227,7 +230,7 @@ const MARKETPLACES: Record<Exclude<MarketplaceKey, "local">, MarketplaceMeta> = 
       update:
         "Envoie les nouvelles valeurs à la fiche Microstore existante.",
       archive:
-        "Microstore ne supporte pas l'archivage via API : à faire manuellement.",
+        "Masque la fiche Microstore côté point de vente (garde l'ID, réversible en remettant en ligne).",
     },
   },
 };
@@ -491,7 +494,7 @@ function Modal({ input, onResult }: ModalProps) {
     efashion: defaultAllChecked && input.showEfashion,
     faire: defaultAllChecked && input.showFaire,
     orderchamp: defaultAllChecked && !!input.showOrderchamp,
-    microstore: defaultAllChecked && input.showMicrostore,
+    microstore: defaultAllChecked && !!input.showMicrostore,
   });
   // Cadence — visible seulement pour count > 1. Défaut : Immédiat.
   const [cadenceMode, setCadenceMode] = useState<"immediate" | "spread">("immediate");

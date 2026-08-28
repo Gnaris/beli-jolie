@@ -194,7 +194,9 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
         showEfashion,
         showFaire,
         showOrderchamp,
-        showMicrostore: false, // TODO bulk Microstore : requiert liste microstoreProducts côté caller
+        // Microstore volontairement absent du bouton Rafraîchir (demande
+        // cliente 2026-08-28) : chaque save Microstore est déjà un push
+        // complet, un « refresh » séparé n'a aucun sens fonctionnel.
         productIds,
       });
       if (!options) return null;

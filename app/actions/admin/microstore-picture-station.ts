@@ -118,21 +118,25 @@ export async function getMicrostorePictureStationState(): Promise<{
  * Envoie les photos d'un produit BJ (recherché par sa référence) vers son
  * homologue Microstore. Cœur métier dans `lib/microstore-photos-sync.ts` —
  * cette action publique fait uniquement le contrôle admin.
+ *
+ * `force: true` outrepasse le garde-fou « photos inchangées » — utilisé
+ * quand la cliente clique explicitement sur « Renvoyer les photos ».
  */
 export async function sendProductPhotosToMicrostore(
   reference: string,
 ): Promise<SendProductPhotosResult> {
   await requireAdmin();
-  return sendProductPhotosToMicrostoreCore(reference);
+  return sendProductPhotosToMicrostoreCore(reference, { force: true });
 }
 
 /**
  * Envoi de photos en **mode masse** vers Microstore. Cœur métier dans
- * `lib/microstore-photos-sync.ts`.
+ * `lib/microstore-photos-sync.ts`. Force = true car la cliente qui déclenche
+ * un bulk photos explicite veut TOUT renvoyer, pas juste les dirty.
  */
 export async function bulkSendPhotosToMicrostore(
   productIds: string[],
 ): Promise<BulkSendPhotosResult> {
   await requireAdmin();
-  return bulkSendPhotosToMicrostoreCore(productIds);
+  return bulkSendPhotosToMicrostoreCore(productIds, { force: true });
 }

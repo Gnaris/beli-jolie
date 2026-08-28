@@ -52,10 +52,6 @@ export interface MarketplaceRefreshOutcome {
     | { status: "not_found"; message: string }
     | { status: "disabled"; message: string }
     | { status: "error"; message: string };
-  microstore?:
-    | { status: "ok" }
-    | { status: "disabled"; message: string }
-    | { status: "error"; message: string };
 }
 
 export interface MarketplaceRefreshOptions {
@@ -65,7 +61,7 @@ export interface MarketplaceRefreshOptions {
   efashion?: boolean; // Re-push to eFashion Paris (Lot 3 = update / Lot 5 = refresh complet)
   faire?: boolean; // Re-push to Faire (3.B)
   orderchamp?: boolean; // Refresh Orderchamp (productRepublish — garde le même ID)
-  microstore?: boolean; // Push produit à Microstore (upsert, hors queue asynchrone)
+  microstore?: boolean; // Legacy — laissé pour compat propagation modal, non traité ici.
   /**
    * Étalement du lot : délai en millisecondes entre le départ de chaque
    * produit. 0 ou absent = tous les produits partent en même temps
@@ -149,7 +145,7 @@ export async function refreshProductOnMarketplaces(
   // Garde-fou complétude — s'applique aux 3 marketplaces (PFS, Ankor, Faire).
   // Le refresh « boutique seule » (options.local) reste autorisé : il ne
   // touche pas aux marketplaces, il bump juste lastRefreshedAt.
-  const anyMarketplace = options.pfs || options.ankorstore || options.faire || options.orderchamp || options.microstore;
+  const anyMarketplace = options.pfs || options.ankorstore || options.faire || options.orderchamp;
   if (anyMarketplace) {
     const completeness = await checkProductComplete(productId);
     if (!completeness.eligible) {
@@ -159,7 +155,6 @@ export async function refreshProductOnMarketplaces(
       }
       if (options.faire) outcome.faire = { status: "error", message: completeness.message };
       if (options.orderchamp) outcome.orderchamp = { status: "error", message: completeness.message };
-      if (options.microstore) outcome.microstore = { status: "error", message: completeness.message };
       logger.warn("[Marketplace Refresh] Blocked — product incomplete", {
         productId,
         reasons: completeness.reasons,
@@ -278,50 +273,10 @@ export async function refreshProductOnMarketplaces(
     }
   }
 
-  if (options.microstore) {
-    const { getCachedMicrostoreEnabled } = await import("@/lib/cached-data");
-    const microstoreEnabled = await getCachedMicrostoreEnabled();
-    if (!microstoreEnabled) {
-      outcome.microstore = {
-        status: "disabled",
-        message: "Microstore désactivée dans Paramètres.",
-      };
-    } else {
-      try {
-        const { microstorePushProduct } = await import("@/lib/microstore-products");
-        const { loadExportContext, loadExportProducts } = await import(
-          "@/lib/marketplace-excel/load-products"
-        );
-        const [ctx, exportProducts] = await Promise.all([
-          loadExportContext(),
-          loadExportProducts([productId]),
-        ]);
-        const exportProduct = exportProducts[0];
-        if (!exportProduct) {
-          outcome.microstore = { status: "error", message: "Produit introuvable pour l'export Microstore." };
-        } else {
-          const res = await microstorePushProduct(exportProduct, ctx);
-          if (res.success) {
-            outcome.microstore = { status: "ok" };
-            // Marque le produit comme poussé (badge vert)
-            await prisma.product.update({
-              where: { id: productId },
-              data: {
-                microstoreLastPushedAt: new Date(),
-                microstoreSyncRequired: false,
-              },
-            });
-          } else {
-            outcome.microstore = { status: "error", message: res.error ?? "Erreur inconnue" };
-          }
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error("[Marketplace Refresh] Microstore unexpected error", { productId, error: message });
-        outcome.microstore = { status: "error", message };
-      }
-    }
-  }
+  // Microstore : retiré du bouton Rafraîchir en 2026-08-28 (demande cliente —
+  // le refresh Microstore n'a aucun sens fonctionnel, chaque save/push est
+  // déjà une resync complète). Toute mise à jour Microstore passe par la
+  // popup « Publier sur les marketplaces ? » après enregistrement de la fiche.
 
   revalidatePath("/admin/produits");
   revalidatePath(`/admin/produits/${productId}/modifier`);
@@ -432,7 +387,6 @@ export async function refreshProductsOnMarketplaces(
         ankorstore: options.ankorstore ? { status: "error", message } : undefined,
         faire: options.faire ? { status: "error", message } : undefined,
         orderchamp: options.orderchamp ? { status: "error", message } : undefined,
-        microstore: options.microstore ? { status: "error", message } : undefined,
       });
     }
   }
