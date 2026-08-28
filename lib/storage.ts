@@ -328,6 +328,17 @@ export function collectionImageDir(slug: string, tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
+/**
+ * Directory key for a category's round illustration (home + /categories).
+ * `categoryImageDir("clx…")` → `"uploads/categories/clx…"`.
+ * Une catégorie n'a qu'une image, `id` sert de sous-dossier stable (pas le
+ * slug, qui bouge lors des renommages).
+ */
+export function categoryImageDir(id: string, tenantSlug?: string): string {
+  const base = `uploads/categories/${slugify(id)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
+}
+
 /** Directory key for the homepage banner. */
 export function bannerDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/banniere", tenantSlug) : "uploads/banniere";

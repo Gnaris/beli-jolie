@@ -1111,6 +1111,10 @@ model Category {
   // Mapping Microstore : ID catégorie côté MC Gérant. Rempli manuellement via
   // CustomSelect dans CategoryEditorModal. Priorité sur matching par nom au push.
   microstoreCategoryId       Int?
+  // Image ronde affichée sur la home + page /categories publique. Path public
+  // servi par nginx (ex : `/uploads/{tenant}/categories/{id}/*.webp`). Null
+  // → monogramme (première lettre majuscule) affiché en fallback.
+  image                      String?
   position                   Int                   @default(0)
   subCategories              SubCategory[]
   products                   Product[]

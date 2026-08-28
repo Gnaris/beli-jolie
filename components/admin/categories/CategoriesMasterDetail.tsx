@@ -40,6 +40,7 @@ type Sub = {
 export type CategoryRow = {
   id: string;
   name: string;
+  image: string | null;
   position: number;
   translations: Record<string, string>;
   pfsCategoryId: string | null;
@@ -235,6 +236,7 @@ export default function CategoriesMasterDetail({
     ? {
         id: selectedCat.id,
         name: selectedCat.name,
+        image: selectedCat.image,
         translations: selectedCat.translations,
         productCount: selectedCat.productCount,
         createdAt: selectedCat.createdAt,
@@ -317,6 +319,16 @@ export default function CategoriesMasterDetail({
                 }
                 setMappingModal(mp);
               }}
+              onImageChange={(nextImage) => {
+                if (!selectedCat) return;
+                // Reflet local instantané : évite un router.refresh() qui
+                // ferait re-fetch toutes les catégories + labels marketplaces.
+                setItems((prev) =>
+                  prev.map((c) =>
+                    c.id === selectedCat.id ? { ...c, image: nextImage } : c,
+                  ),
+                );
+              }}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -341,6 +353,7 @@ export default function CategoriesMasterDetail({
             const optimistic: CategoryRow = {
               id: created.id,
               name: created.name,
+              image: null,
               position: prev.length,
               translations: { fr: created.name },
               pfsCategoryId: null,

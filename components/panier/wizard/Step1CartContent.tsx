@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
@@ -55,6 +56,26 @@ export default function Step1CartContent({
   }, [validationErrors]);
   const hasErrors = validationErrors.length > 0;
 
+  // Lightbox pour zoomer sur une image (produit ou variante). Portalé sur <body>
+  // via createPortal pour sortir des contextes d'empilement des cartes.
+  const [zoomedSrc, setZoomedSrc] = useState<string | null>(null);
+  const [zoomedAlt, setZoomedAlt] = useState<string>("");
+
+  const openZoom = (src: string, alt: string) => {
+    setZoomedSrc(src);
+    setZoomedAlt(alt);
+  };
+  const closeZoom = () => setZoomedSrc(null);
+
+  useEffect(() => {
+    if (!zoomedSrc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeZoom();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomedSrc]);
+
   return (
     <div className="space-y-5">
       {/* Bandeau d'erreurs global si le passage au paiement a été refusé */}
@@ -84,9 +105,38 @@ export default function Step1CartContent({
             errorsByVariantId={errorsByVariantId}
             promoInfoByItemId={promoInfoByItemId}
             clientDiscount={clientDiscount}
+            onZoomImage={openZoom}
           />
         ))}
       </div>
+
+      {/* Lightbox — zoom plein écran, click backdrop ou Échap ferme */}
+      {zoomedSrc && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 sm:bg-black/80 flex items-center justify-center p-0 sm:p-4 touch-manipulation"
+          onClick={closeZoom}
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoomedAlt || t("thColor")}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={zoomedSrc}
+            alt={zoomedAlt}
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[100dvh] max-w-[100vw] sm:max-h-[90vh] sm:max-w-[90vw] object-contain sm:shadow-2xl sm:rounded-xl touch-pinch-zoom"
+          />
+          <button
+            type="button"
+            onClick={closeZoom}
+            className="absolute top-4 right-4 w-11 h-11 sm:w-9 sm:h-9 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-xl backdrop-blur-sm transition-transform hover:scale-110"
+            aria-label="Fermer"
+          >
+            ×
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -101,6 +151,7 @@ function ProductCard({
   errorsByVariantId,
   promoInfoByItemId,
   clientDiscount,
+  onZoomImage,
 }: {
   meta: WizardProductsMeta[string];
   cart: WizardCart;
@@ -108,6 +159,7 @@ function ProductCard({
   errorsByVariantId: Map<string, CartValidationError>;
   promoInfoByItemId: Record<string, WizardPromoInfo>;
   clientDiscount: { type: "PERCENT" | "AMOUNT"; value: number } | null;
+  onZoomImage: (src: string, alt: string) => void;
 }) {
   const t = useTranslations("cart");
   const { tp, tc: translateCat } = useProductTranslation();
@@ -139,37 +191,47 @@ function ProductCard({
 
   return (
     <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-      {/* Header produit */}
-      <div className="flex gap-4 p-4 md:p-5 bg-slate-50 border-b border-slate-100">
-        <ProductThumb path={meta.mainImagePath} alt={tp(meta.productName)} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <Link
-                href={`/produits/${buildProductHandle(meta.productName, meta.productReference)}`}
-                className="font-heading font-semibold text-slate-900 text-sm md:text-base truncate hover:underline"
-              >
-                {tp(meta.productName)}
-              </Link>
-              <div className="text-xs text-slate-500 mt-0.5 truncate">
-                {meta.productReference} · {translateCat(meta.categoryName)}
-                {hasDiscount && (
-                  <>
-                    {" · "}
-                    <span className="text-emerald-700 font-semibold">
-                      −{meta.discountPercent}%
-                    </span>
-                  </>
-                )}
-              </div>
+      {/* Header produit — thumb + nom sur ligne 1, sous-total en ligne 2 (mobile) pour ne pas serrer le bord droit */}
+      <div className="p-4 md:p-5 bg-slate-50 border-b border-slate-100">
+        <div className="flex gap-3 md:gap-4 min-w-0">
+          <ProductThumb
+            path={meta.mainImagePath}
+            alt={tp(meta.productName)}
+            onZoom={meta.mainImagePath ? () => onZoomImage(meta.mainImagePath!, tp(meta.productName)) : undefined}
+          />
+          <div className="flex-1 min-w-0">
+            <Link
+              href={`/produits/${buildProductHandle(meta.productName, meta.productReference)}`}
+              className="block font-heading font-semibold text-slate-900 text-sm md:text-base truncate hover:underline"
+            >
+              {tp(meta.productName)}
+            </Link>
+            <div className="text-xs text-slate-500 mt-0.5 truncate">
+              {meta.productReference} · {translateCat(meta.categoryName)}
+              {hasDiscount && (
+                <>
+                  {" · "}
+                  <span className="text-emerald-700 font-semibold">
+                    −{meta.discountPercent}%
+                  </span>
+                </>
+              )}
             </div>
-            <div className="text-right shrink-0">
-              <div className="text-xs text-slate-500">{t("productSubtotal")}</div>
-              <div className="font-semibold text-slate-900 tabular-nums text-sm">
+            {/* Sous-total inline sur ≥ md, en ligne dédiée en mobile */}
+            <div className="hidden md:flex items-center justify-end mt-2 gap-2">
+              <span className="text-xs text-slate-500">{t("productSubtotal")}</span>
+              <span className="font-semibold text-slate-900 tabular-nums text-sm whitespace-nowrap">
                 {productSubtotal.toFixed(2)} €
-              </div>
+              </span>
             </div>
           </div>
+        </div>
+        {/* Sous-total mobile — bande dédiée, plus lisible et centrée */}
+        <div className="md:hidden mt-3 flex items-center justify-between text-xs">
+          <span className="uppercase tracking-wide text-slate-400 font-semibold">{t("productSubtotal")}</span>
+          <span className="font-semibold text-slate-900 tabular-nums text-sm whitespace-nowrap">
+            {productSubtotal.toFixed(2)} €
+          </span>
         </div>
       </div>
 
@@ -196,6 +258,7 @@ function ProductCard({
               onMutated={onMutated}
               layout="desktop"
               validationError={errorsByVariantId.get(v.variantId) ?? null}
+              onZoomImage={onZoomImage}
             />
           ))}
         </div>
@@ -215,6 +278,7 @@ function ProductCard({
             onMutated={onMutated}
             layout="mobile"
             validationError={errorsByVariantId.get(v.variantId) ?? null}
+            onZoomImage={onZoomImage}
           />
         ))}
       </div>
@@ -235,6 +299,7 @@ function VariantRow({
   onMutated,
   layout,
   validationError = null,
+  onZoomImage,
 }: {
   variant: WizardProductsMeta[string]["variants"][number];
   discountPercent: number | null;
@@ -245,6 +310,7 @@ function VariantRow({
   onMutated: () => void;
   layout: "desktop" | "mobile";
   validationError?: CartValidationError | null;
+  onZoomImage: (src: string, alt: string) => void;
 }) {
   const t = useTranslations("cart");
   const { tp } = useProductTranslation();
@@ -446,6 +512,10 @@ function VariantRow({
     </div>
   );
 
+  // Source à zoomer : priorité image variante > pattern couleur.
+  const zoomSrc = variant.firstImagePath || variant.colorPatternImage || null;
+  const openZoom = zoomSrc ? () => onZoomImage(zoomSrc, tp(variant.colorName)) : undefined;
+
   if (layout === "desktop") {
     return (
       <div
@@ -457,6 +527,7 @@ function VariantRow({
               hex={variant.colorHex}
               pattern={variant.colorPatternImage}
               image={variant.firstImagePath}
+              onZoom={openZoom}
             />
             <div className="min-w-0">
               <div className="font-medium text-sm text-slate-900 truncate">
@@ -486,67 +557,100 @@ function VariantRow({
     );
   }
 
+  // ── LAYOUT MOBILE ── Carte structurée en 3 blocs bien séparés :
+  //   1. En-tête : image zoomable (56×56) + nom couleur + badge PACK
+  //   2. Fiche infos : liste <dl> alignée label ↔ valeur (Prix · Stock · Sous-total)
+  //   3. Actions : quantité centrée + corbeille à droite
   return (
-    <div className={`p-4 ${rowBg} ${borderLeft}`}>
-      <div className="flex items-start gap-3">
+    <div className={`px-4 py-4 ${rowBg} ${borderLeft} overflow-hidden`}>
+      {/* En-tête — image cliquable (loupe) + nom couleur */}
+      <div className="flex items-center gap-3 min-w-0">
         <ColorSwatch
           hex={variant.colorHex}
           pattern={variant.colorPatternImage}
           image={variant.firstImagePath}
+          onZoom={openZoom}
+          size="lg"
         />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm text-slate-900 truncate">
             {tp(variant.colorName)}
-            {variant.saleType === "PACK" && variant.packQuantity ? (
-              <span className="ml-2 text-xs font-semibold text-slate-500">
-                PACK ×{variant.packQuantity}
-              </span>
-            ) : null}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs flex-wrap">
+          {variant.saleType === "PACK" && variant.packQuantity ? (
+            <div className="mt-0.5 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
+              PACK ×{variant.packQuantity}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Fiche infos — liste alignée */}
+      <dl className="mt-3 space-y-1.5 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-slate-500">{t("thPrice")}</dt>
+          <dd className="tabular-nums text-right whitespace-nowrap">
             {hasReduction ? (
-              <span className="flex items-baseline gap-1">
-                <span className="text-slate-400 line-through">{variant.unitPrice.toFixed(2)} €</span>
+              <>
+                <span className="text-slate-400 line-through mr-1">{variant.unitPrice.toFixed(2)} €</span>
                 <span className="text-error font-medium">{unitPrice.toFixed(2)} €</span>
-              </span>
+              </>
             ) : (
               <span className="text-slate-900 font-medium">{unitPrice.toFixed(2)} €</span>
             )}
-            {perUnitFinal != null && perUnitRaw != null && (
-              hasReduction ? (
-                <span className="text-text-muted">
-                  (<span className="line-through text-slate-400">{perUnitRaw.toFixed(2)} €</span>
-                  {" "}<span className="text-error">{perUnitFinal.toFixed(2)} €</span> / u.)
-                </span>
+          </dd>
+        </div>
+        {perUnitFinal != null && perUnitRaw != null && (
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-slate-500">Prix / u.</dt>
+            <dd className="tabular-nums text-right whitespace-nowrap">
+              {hasReduction ? (
+                <>
+                  <span className="text-slate-400 line-through mr-1">{perUnitRaw.toFixed(2)} €</span>
+                  <span className="text-error font-medium">{perUnitFinal.toFixed(2)} €</span>
+                </>
               ) : (
-                <span className="text-text-muted">({perUnitFinal.toFixed(2)} € / u.)</span>
-              )
-            )}
-            <span className={`font-medium ${stockColor}`}>· {stockLabel}</span>
+                <span className="text-text-muted">{perUnitFinal.toFixed(2)} €</span>
+              )}
+            </dd>
           </div>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-slate-500">{t("thStock")}</dt>
+          <dd className={`font-medium text-right whitespace-nowrap ${stockColor}`}>{stockLabel}</dd>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-xs text-slate-500">{t("thSubtotal")}</div>
-          <div className="font-semibold text-sm tabular-nums text-slate-900">
-            {isCommanded ? `${lineTotal.toFixed(2)} €` : "—"}
-          </div>
+        <div className="flex items-center justify-between gap-3 pt-2 mt-1 border-t border-slate-100">
+          <dt className="font-medium text-slate-700">{t("thSubtotal")}</dt>
+          <dd className="tabular-nums text-right whitespace-nowrap font-semibold text-sm text-slate-900">
+            {isCommanded ? `${lineTotal.toFixed(2)} €` : <span className="text-slate-300">—</span>}
+          </dd>
         </div>
-      </div>
+      </dl>
+
       {showError && (
         <div className="mt-2 text-xs text-red-700 font-medium">{validationError.message}</div>
       )}
-      <div className="mt-3 flex items-center justify-between">
-        {removeButton}
-        {qtyBlock}
+
+      {/* Actions — qty centrée + supprimer aligné droite */}
+      <div className="mt-4 flex items-center gap-3">
+        <div className="flex-1 flex justify-center">{qtyBlock}</div>
+        <div className="shrink-0">{removeButton}</div>
       </div>
     </div>
   );
 }
 
 /* ──────────────────────────────────────────────
-   Vignette produit (image ou placeholder)
+   Vignette produit (image ou placeholder) — cliquable si onZoom fourni
    ────────────────────────────────────────────── */
-function ProductThumb({ path, alt }: { path: string | null; alt: string }) {
+function ProductThumb({
+  path,
+  alt,
+  onZoom,
+}: {
+  path: string | null;
+  alt: string;
+  onZoom?: () => void;
+}) {
   if (!path) {
     return (
       <div className="w-16 h-20 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300 shrink-0">
@@ -560,46 +664,88 @@ function ProductThumb({ path, alt }: { path: string | null; alt: string }) {
       </div>
     );
   }
+  if (onZoom) {
+    return (
+      <button
+        type="button"
+        onClick={onZoom}
+        aria-label={`Agrandir ${alt}`}
+        className="relative w-16 h-20 shrink-0 cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 rounded-xl"
+      >
+        <span className="block w-full h-full rounded-xl overflow-hidden bg-slate-100 border border-slate-200">
+          <Image src={path} alt={alt} width={128} height={160} className="w-full h-full object-cover" />
+        </span>
+        {/* Loupe hors du rectangle clippé — bien visible sur le bord. */}
+        <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 text-white ring-2 ring-white flex items-center justify-center pointer-events-none shadow-sm">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM10.5 7.5v6m-3-3h6" />
+          </svg>
+        </span>
+      </button>
+    );
+  }
   return (
-    <div className="w-16 h-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+    <div className="relative w-16 h-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
       <Image src={path} alt={alt} width={128} height={160} className="w-full h-full object-cover" />
     </div>
   );
 }
 
 /* ──────────────────────────────────────────────
-   Pastille couleur (patternImage prioritaire sur hex)
+   Pastille couleur (patternImage prioritaire sur hex) — cliquable si onZoom
+   fourni ET si le swatch a une image/pattern à agrandir. Taille "lg" = 56px
+   (mobile card header) pour être facile à taper.
    ────────────────────────────────────────────── */
 function ColorSwatch({
   hex,
   pattern,
   image,
+  onZoom,
+  size = "sm",
 }: {
   hex: string | null;
   pattern: string | null;
   image: string | null;
+  onZoom?: () => void;
+  size?: "sm" | "lg";
 }) {
+  const dim = size === "lg" ? "w-14 h-14" : "w-8 h-8";
+  const zoomable = !!onZoom && !!(image || pattern);
+
   // Priorité : image de la variante > patternImage > hex.
-  if (image) {
+  const inner = image ? (
+    <Image src={image} alt="" width={112} height={112} className="w-full h-full object-cover" />
+  ) : pattern ? (
+    <span className="block w-full h-full bg-cover bg-center" style={{ backgroundImage: `url(${pattern})` }} />
+  ) : (
+    <span className="block w-full h-full" style={{ backgroundColor: hex ?? "#f1f5f9" }} />
+  );
+
+  if (zoomable) {
     return (
-      <span className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 shrink-0 bg-slate-100">
-        <Image src={image} alt="" width={32} height={32} className="w-full h-full object-cover" />
-      </span>
-    );
-  }
-  if (pattern) {
-    return (
-      <span
-        className="w-8 h-8 rounded-full border border-slate-200 shrink-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${pattern})` }}
-      />
+      <button
+        type="button"
+        onClick={onZoom}
+        aria-label="Agrandir l'image"
+        className={`relative shrink-0 rounded-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${dim}`}
+      >
+        {/* Cercle image : découpé, bordure. `overflow-hidden` ici seulement. */}
+        <span className={`block w-full h-full rounded-full overflow-hidden border border-slate-200 bg-slate-100`}>
+          {inner}
+        </span>
+        {/* Loupe hors du cercle → non clippée, posée sur le bord (ring blanc pour ressortir). */}
+        <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-slate-900 text-white ring-2 ring-white flex items-center justify-center pointer-events-none shadow-sm">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM10.5 7.5v6m-3-3h6" />
+          </svg>
+        </span>
+      </button>
     );
   }
   return (
-    <span
-      className="w-8 h-8 rounded-full border border-slate-200 shrink-0"
-      style={{ backgroundColor: hex ?? "#f1f5f9" }}
-    />
+    <span className={`${dim} rounded-full overflow-hidden border border-slate-200 shrink-0 bg-slate-100 block`}>
+      {inner}
+    </span>
   );
 }
 

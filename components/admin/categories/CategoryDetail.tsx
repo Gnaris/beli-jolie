@@ -3,6 +3,7 @@
 import CategoryTranslationsLocked from "./CategoryTranslationsLocked";
 import SubCategoryChips from "./SubCategoryChips";
 import MarketplaceMappingCards from "./MarketplaceMappingCards";
+import CategoryImageUploader from "./CategoryImageUploader";
 import { formatDate } from "@/lib/format-date";
 
 type Sub = {
@@ -16,6 +17,7 @@ type Sub = {
 export type CategoryDetailData = {
   id: string;
   name: string;
+  image: string | null;
   translations: Record<string, string>;
   productCount: number;
   createdAt: Date;
@@ -39,6 +41,7 @@ type Props = {
   onSubOrderchamp: (sub: Sub) => void;
   onSubMicrostore: (sub: Sub) => void;
   onEditMapping: (mp: "pfs" | "efashion" | "faire" | "orderchamp" | "microstore") => void;
+  onImageChange: (nextImage: string | null) => void;
 };
 
 export default function CategoryDetail({
@@ -53,6 +56,7 @@ export default function CategoryDetail({
   onSubOrderchamp,
   onSubMicrostore,
   onEditMapping,
+  onImageChange,
 }: Props) {
   return (
     <div className="flex flex-col gap-3 md:gap-4 p-3 md:p-7 bg-bg-primary overflow-y-auto md:h-full">
@@ -132,6 +136,19 @@ export default function CategoryDetail({
           </button>
         </div>
       </div>
+
+      {/* Image ronde (home + /categories) */}
+      <section className="bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)]">
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary mb-3.5">
+          Image de catégorie
+        </h3>
+        <CategoryImageUploader
+          categoryId={category.id}
+          categoryName={category.name}
+          initialImage={category.image}
+          onChange={onImageChange}
+        />
+      </section>
 
       {/* Translations */}
       <section className="bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)]">

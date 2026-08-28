@@ -165,6 +165,23 @@ export async function deleteCategory(id: string) {
 }
 
 /**
+ * Met à jour l'image illustrative d'une catégorie. Passer `null` pour retirer
+ * l'image (retour au monogramme fallback). Invalide la home + /categories +
+ * l'écran admin.
+ */
+export async function updateCategoryImage(id: string, image: string | null) {
+  await requireAdmin();
+  await prisma.category.update({
+    where: { id },
+    data: { image: image?.trim() || null },
+  });
+  revalidatePath("/");
+  revalidatePath("/categories");
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+}
+
+/**
  * Saisie manuelle de l'ID taxonomie Faire (taxonomy_type.id, ex:
  * "tx_jewelry_bracelets") pour une catégorie BJ. La taxonomie Faire est
  * figée et non exposée via API publique — l'admin va chercher l'ID dans

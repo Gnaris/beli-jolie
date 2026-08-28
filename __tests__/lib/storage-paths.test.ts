@@ -18,6 +18,7 @@ import {
   productImageDir,
   productImageBaseName,
   collectionImageDir,
+  categoryImageDir,
   kbisDir,
   clientDocumentsDir,
   invoiceDir,
@@ -122,6 +123,13 @@ describe("lib/storage — path helpers", () => {
 
   it("collectionImageDir uses slug (accents strippés)", () => {
     expect(collectionImageDir("Été 2026")).toBe("uploads/collections/ete-2026");
+  });
+
+  it("categoryImageDir uses id (multi-tenant scoping)", () => {
+    expect(categoryImageDir("clx123abc")).toBe("uploads/categories/clx123abc");
+    expect(categoryImageDir("clx123abc", "beliandjolie")).toBe(
+      "uploads/beliandjolie/categories/clx123abc",
+    );
   });
 
   it("kbisDir / clientDocumentsDir live under private/", () => {

@@ -223,7 +223,7 @@ export default function AddToCartModal({
 
   const modal = (
     <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-stretch sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -231,7 +231,7 @@ export default function AddToCartModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-bg-primary w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-bg-primary w-full h-full sm:h-auto sm:max-w-3xl sm:rounded-2xl shadow-2xl sm:max-h-[90vh] flex flex-col overflow-hidden"
       >
         {/* Header : titre + fermer */}
         <div className="p-4 sm:p-5 border-b border-border-light flex items-start gap-3 sm:gap-4 shrink-0 bg-gradient-to-r from-bg-secondary to-bg-primary">
@@ -360,8 +360,12 @@ export default function AddToCartModal({
                           const lineTotal = floor2(qty * (isPack ? packPrice : unitPriceFinal));
                           const active = qty > 0;
                           const hasDiscount = !!discountPercent && discountPercent > 0;
+                          // Pour un PACK mono-taille, on garde le nom de la taille
+                          // mais on omet le « ×qty » (déjà dans le badge « Paquet de X »).
                           const sizesLabel = v.sizes.length > 0
-                            ? v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
+                            ? isPack && v.sizes.length === 1
+                              ? v.sizes[0].name
+                              : v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
                             : null;
                           return (
                             <div

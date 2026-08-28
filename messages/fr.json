@@ -329,13 +329,8 @@
     "title": "Catégories",
     "subtitle": "Explorez nos {count} catégories de produits.",
     "empty": "Aucune catégorie disponible pour l'instant.",
-    "products": "{count} produit",
-    "products_plural": "{count} produits",
-    "categoryName": "Catégorie",
-    "subCategoriesCount": "Sous-catégories",
-    "productsLabel": "Produits",
-    "viewProducts": "Voir les produits",
-    "allProducts": "Tous les produits"
+    "productsCount": "{count} produits",
+    "showMoreSubs": "Afficher {count} sous-catégories de plus"
   },
   "collectionDetail": {
     "breadcrumb": "Collections",

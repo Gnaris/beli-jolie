@@ -5,7 +5,7 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import CategoriesAccordion from "@/components/produits/CategoriesAccordion";
+import CategoriesGrid from "@/components/produits/CategoriesGrid";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -27,25 +27,29 @@ export default async function CategoriesPage() {
     getCachedShopName(),
   ]);
   const allCategories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: {
-      subCategories: { orderBy: { name: "asc" } },
+    orderBy: [{ position: "asc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      subCategories: {
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      },
       _count: { select: { products: { where: { status: "ONLINE" } } } },
     },
   });
 
   // Only keep categories that have at least 1 ONLINE product
-  const categories = allCategories.filter(c => c._count.products > 0);
-
-  const serialized = categories.map((cat) => ({
-    id: cat.id,
-    name: cat.name,
-    productCount: cat._count.products,
-    subCategories: cat.subCategories.map((sub) => ({
-      id: sub.id,
-      name: sub.name,
-    })),
-  }));
+  const categories = allCategories
+    .filter((c) => c._count.products > 0)
+    .map((c) => ({
+      id: c.id,
+      name: c.name,
+      image: c.image,
+      productCount: c._count.products,
+      subCategories: c.subCategories,
+    }));
 
   return (
     <div className="min-h-screen relative">
@@ -64,13 +68,13 @@ export default async function CategoriesPage() {
           </div>
         </div>
 
-        <main className="container-site py-8 relative overflow-hidden">
+        <main className="container-site py-12 lg:py-16 relative overflow-hidden">
           {categories.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-body">
               {t("empty")}
             </div>
           ) : (
-            <CategoriesAccordion categories={serialized} />
+            <CategoriesGrid categories={categories} />
           )}
         </main>
 
