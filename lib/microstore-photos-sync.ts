@@ -208,7 +208,6 @@ async function sendProductPhotosToMicrostoreCoreUnlocked(
         name: true,
         primaryColorId: true,
         microstoreProductId: true,
-        microstorePhotosDirty: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
@@ -222,7 +221,7 @@ async function sendProductPhotosToMicrostoreCoreUnlocked(
           orderBy: { order: "asc" },
           select: { path: true, order: true, colorId: true },
         },
-      } as never,
+      },
     }),
     prisma.siteConfig.findFirst({
       where: { key: "branded_reference_badge_enabled" },
@@ -237,9 +236,15 @@ async function sendProductPhotosToMicrostoreCoreUnlocked(
   // fichier n'a bougé depuis le dernier push réussi. Économise ~5-10 s
   // d'API OSS + 1 PATCH Microstore par save fiche qui ne concerne que le
   // texte/prix. Contournement : `{ force: true }` (bouton « Renvoyer les
-  // photos » côté UI).
-  const photosDirty = (product as unknown as { microstorePhotosDirty?: boolean })
-    .microstorePhotosDirty;
+  // photos » côté UI). Le champ est lu à part car il n'est pas encore dans
+  // les types Prisma générés (cast sur le select principal ferait perdre
+  // les autres types).
+  const dirtyRow = await prisma.product.findUnique({
+    where: { id: product.id },
+    select: { microstorePhotosDirty: true } as never,
+  });
+  const photosDirty = (dirtyRow as unknown as { microstorePhotosDirty?: boolean } | null)
+    ?.microstorePhotosDirty;
   if (!opts.force && photosDirty === false) {
     logger.info("[Microstore/PS] photos inchangées — envoi sauté", {
       reference: trimmedRef,
@@ -247,9 +252,7 @@ async function sendProductPhotosToMicrostoreCoreUnlocked(
     return {
       success: true,
       reference: product.reference,
-      microstoreGoodsId:
-        (product as unknown as { microstoreProductId?: number }).microstoreProductId ??
-        undefined,
+      microstoreGoodsId: product.microstoreProductId ?? undefined,
       microstoreGoodsName: product.name ?? "",
       companyName: "",
       colors: [],
@@ -600,7 +603,7 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
   }
 
   const { prisma } = await import("@/lib/prisma");
-  const [productsRaw, brandedBadgeRow] = await Promise.all([
+  const [productsRaw, brandedBadgeRow, dirtyRows] = await Promise.all([
     prisma.product.findMany({
       where: { id: { in: productIds } },
       select: {
@@ -608,7 +611,6 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
         reference: true,
         name: true,
         primaryColorId: true,
-        microstorePhotosDirty: true,
         colors: {
           where: { saleType: "UNIT" },
           select: {
@@ -620,23 +622,35 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
           orderBy: { order: "asc" },
           select: { path: true, order: true, colorId: true },
         },
-      } as never,
+      },
     }),
     prisma.siteConfig.findFirst({
       where: { key: "branded_reference_badge_enabled" },
       select: { value: true },
     }),
+    // Requête séparée pour lire microstorePhotosDirty — cast nécessaire
+    // tant que le champ n'est pas dans les types Prisma générés.
+    prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, microstorePhotosDirty: true } as never,
+    }),
   ]);
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
+  // Index le flag dirty par productId pour le filtre ci-dessous.
+  const dirtyByProductId = new Map<string, boolean>();
+  for (const row of dirtyRows as unknown as Array<{ id: string; microstorePhotosDirty?: boolean }>) {
+    dirtyByProductId.set(row.id, row.microstorePhotosDirty !== false);
+  }
 
   // Filtre les produits dont les photos n'ont pas bougé depuis le dernier
   // push réussi — évite des appels OSS + pictureStations inutiles quand un
   // save fiche ne touche ni les images, ni la primary color.
-  type ProductWithDirty = (typeof productsRaw)[number] & { microstorePhotosDirty?: boolean };
   const products: typeof productsRaw = [];
   const skippedForCleanPhotos: string[] = [];
-  for (const p of productsRaw as ProductWithDirty[]) {
-    if (!opts.force && p.microstorePhotosDirty === false) {
+  for (const p of productsRaw) {
+    const isDirty = dirtyByProductId.get(p.id) ?? true;
+    if (!opts.force && !isDirty) {
       skippedForCleanPhotos.push(p.reference);
     } else {
       products.push(p);

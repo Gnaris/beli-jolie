@@ -34,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     product: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
@@ -169,9 +170,11 @@ describe("sendProductPhotosToMicrostoreCore — garde-fou microstorePhotosDirty"
       name: "Test",
       primaryColorId: null,
       microstoreProductId: 10259,
-      microstorePhotosDirty: false,
       colors: [],
       colorImages: [],
+    });
+    (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      microstorePhotosDirty: false,
     });
     (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
@@ -208,9 +211,11 @@ describe("sendProductPhotosToMicrostoreCore — garde-fou microstorePhotosDirty"
       name: "Test",
       primaryColorId: null,
       microstoreProductId: 10259,
-      microstorePhotosDirty: false, // pourtant force=true dessous
       colors: [],
       colorImages: [],
+    });
+    (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      microstorePhotosDirty: false, // pourtant force=true dessous
     });
     (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
@@ -241,9 +246,11 @@ describe("sendProductPhotosToMicrostoreCore — garde-fou microstorePhotosDirty"
       name: "Test",
       primaryColorId: null,
       microstoreProductId: 10259,
-      microstorePhotosDirty: true,
       colors: [],
       colorImages: [],
+    });
+    (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      microstorePhotosDirty: true,
     });
     (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
