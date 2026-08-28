@@ -298,19 +298,32 @@ export default async function DashboardPage() {
             <LogoutButton />
           </div>
 
-          {/* Bandeau statut si pas APPROVED */}
-          {user.status !== "APPROVED" && (
-            <div className={`${user.status === "PENDING" ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-red-50 border-red-200 text-red-800"} border rounded-2xl p-5 flex items-start gap-3`}>
-              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${user.status === "PENDING" ? "bg-warning" : "bg-red-500"}`} />
+          {/* Bandeau bleu — compte en cours de vérification. Rassure la
+              cliente sans bloquer sa navigation (le blocker plein écran a
+              été retiré). */}
+          {user.status === "PENDING" && (
+            <div className="bg-sky-50 border border-sky-200 rounded-2xl p-5 flex items-start gap-3">
+              <span className="w-9 h-9 rounded-full bg-white border border-sky-200 flex items-center justify-center shrink-0 mt-0.5">
+                <svg className="w-5 h-5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-body font-semibold text-sky-900">
+                  {t("pendingBannerTitle")}
+                </p>
+                <p className="text-sm font-body text-sky-800/80 mt-0.5">
+                  {t("pendingBannerDesc")}
+                </p>
+              </div>
+            </div>
+          )}
+          {user.status === "REJECTED" && (
+            <div className="bg-red-50 border-red-200 text-red-800 border rounded-2xl p-5 flex items-start gap-3">
+              <span className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-red-500" />
               <div>
-                <p className="text-sm font-body font-semibold">
-                  {user.status === "PENDING" ? t("pendingValidation") : t("rejected")}
-                </p>
-                <p className="text-sm font-body opacity-80 mt-0.5">
-                  {user.status === "PENDING"
-                    ? t("pendingValidationDesc")
-                    : t("rejectedDesc")}
-                </p>
+                <p className="text-sm font-body font-semibold">{t("rejected")}</p>
+                <p className="text-sm font-body opacity-80 mt-0.5">{t("rejectedDesc")}</p>
               </div>
             </div>
           )}

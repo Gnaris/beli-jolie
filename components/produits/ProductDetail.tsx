@@ -82,6 +82,12 @@ interface ProductDetailProps {
   isAuthenticated?: boolean;
   /** Si false : tarifs et boutons d'achat masqués (visiteur non APPROVED). */
   showPrices?: boolean;
+  /**
+   * Client connecté dont le compte a été révoqué (REJECTED après avoir été
+   * APPROVED). Utilise le même flux visuel que « en attente de validation »
+   * mais avec un message rouge « compte désactivé » au lieu du bleu d'attente.
+   */
+  isRevoked?: boolean;
 }
 
 function computePrice(v: VariantData, discountPercent?: number | null): number {
@@ -91,8 +97,9 @@ function computePrice(v: VariantData, discountPercent?: number | null): number {
   return Math.max(0, total * (1 - discountPercent / 100));
 }
 
-function RelatedCard({ product, showPrice }: { product: RelatedProduct; showPrice: boolean }) {
+function RelatedCard({ product, showPrice, isAuthenticated, isRevoked }: { product: RelatedProduct; showPrice: boolean; isAuthenticated: boolean; isRevoked: boolean }) {
   const { tp } = useProductTranslation();
+  const t = useTranslations("product");
   return (
     <Link
       href={`/produits/${buildProductHandle(product.name, product.reference)}`}
@@ -126,9 +133,13 @@ function RelatedCard({ product, showPrice }: { product: RelatedProduct; showPric
           <p className="text-sm font-heading font-semibold text-text-primary mt-1">
             {product.minPrice.toFixed(2)} €
           </p>
+        ) : isRevoked ? (
+          <p className="text-xs font-body text-red-600 mt-1">
+            {t("revokedCardHint")}
+          </p>
         ) : (
           <p className="text-xs font-body text-text-secondary mt-1">
-            Connectez-vous pour voir le prix
+            {isAuthenticated ? t("pendingCardHint") : t("loginToSeePrices")}
           </p>
         )}
       </div>
@@ -148,7 +159,7 @@ function applyClientDiscount(price: number, _discount: ClientDiscountInfo | null
 
 export default function ProductDetail({
   productId, name, reference, description, category, subCategories, tags, variants,
-  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, sizeDetailsTu, discountPercent, clientDiscount, isAuthenticated, showPrices = true,
+  colorImages, compositions, dimensions, similarProducts, bundleChildren, bundleParents, sizeDetailsTu, discountPercent, clientDiscount, isAuthenticated, showPrices = true, isRevoked = false,
 }: ProductDetailProps) {
   const router = useRouter();
   const t = useTranslations("product");
@@ -407,6 +418,56 @@ export default function ProductDetail({
                 <span className="text-[10px] text-text-muted font-normal ml-1">{t("htUnit")}</span>
               </p>
             </div>
+          ) : isAuthenticated && isRevoked ? (
+            // Compte révoqué : même construction que « en attente » mais
+            // rouge et sans CTA agressif — l'accès à la commande est fermé.
+            <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white border border-red-200 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <circle cx="12" cy="12" r="9" />
+                  <path strokeLinecap="round" d="M8 12h8" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="font-heading text-base font-semibold text-red-900 leading-tight">
+                  {t("revokedSeePricesTitle")}
+                </p>
+                <p className="text-xs text-red-800/80 font-body mt-0.5">
+                  {t("revokedSeePricesDesc")}
+                </p>
+              </div>
+              <Link
+                href="/espace-pro"
+                className="ml-auto shrink-0 text-xs font-body font-semibold bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                {t("goToMyAccount")}
+              </Link>
+            </div>
+          ) : isAuthenticated ? (
+            // Cliente connectée mais compte non encore validé : pas de
+            // « Connectez-vous », on la renvoie vers son espace pour suivre
+            // l'état de sa vérification.
+            <div className="bg-sky-50 border border-sky-200 rounded-2xl px-5 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white border border-sky-200 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="font-heading text-base font-semibold text-sky-900 leading-tight">
+                  {t("pendingSeePricesTitle")}
+                </p>
+                <p className="text-xs text-sky-800/80 font-body mt-0.5">
+                  {t("pendingSeePricesDesc")}
+                </p>
+              </div>
+              <Link
+                href="/espace-pro"
+                className="ml-auto shrink-0 text-xs font-body font-semibold bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors"
+              >
+                {t("goToMyAccount")}
+              </Link>
+            </div>
           ) : (
             <div className="bg-bg-secondary border border-border rounded-2xl px-5 py-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-bg-primary border border-border flex items-center justify-center shrink-0">
@@ -551,30 +612,80 @@ export default function ProductDetail({
       {/* -- Options de commande (2 colonnes : Unités gauche | Paquets droite) -- */}
       {!showPrices && (selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
         <section className="mt-10 border-t border-border pt-8">
-          <div className="bg-bg-primary border border-border rounded-2xl px-6 py-8 text-center max-w-xl mx-auto shadow-card">
-            <div className="w-12 h-12 mx-auto rounded-full bg-bg-secondary flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
-              </svg>
+          {isAuthenticated && isRevoked ? (
+            // Compte révoqué : bloc rouge « commande indisponible ».
+            <div className="bg-red-50 border border-red-200 rounded-2xl px-6 py-8 text-center max-w-xl mx-auto shadow-card">
+              <div className="w-12 h-12 mx-auto rounded-full bg-white border border-red-200 flex items-center justify-center mb-4">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <circle cx="12" cy="12" r="9" />
+                  <path strokeLinecap="round" d="M8 12h8" />
+                </svg>
+              </div>
+              <h2 className="font-heading text-lg font-semibold text-red-900 mb-2">
+                {t("revokedOrderTitle")}
+              </h2>
+              <p className="text-sm text-red-800/80 font-body mb-5 max-w-md mx-auto">
+                {t("revokedOrderDesc")}
+              </p>
+              <div className="flex justify-center">
+                <Link
+                  href="/espace-pro"
+                  className="inline-flex items-center justify-center text-sm font-body font-semibold bg-red-600 text-white px-5 py-2.5 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  {t("goToMyAccount")}
+                </Link>
+              </div>
             </div>
-            <h2 className="font-heading text-lg font-semibold text-text-primary mb-2">
-              {t("proPricesReserved")}
-            </h2>
-            <p className="text-sm text-text-muted font-body mb-5 max-w-md mx-auto">
-              {t("proPricesReservedDesc")}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/inscription" className="btn-primary justify-center px-5">
-                {t("createAccountToOrder")}
-              </Link>
-              <Link
-                href="/connexion"
-                className="inline-flex items-center justify-center text-sm font-body font-semibold text-text-secondary hover:text-text-primary px-5 py-2.5 rounded-lg border border-border hover:border-text-muted transition-colors"
-              >
-                {t("alreadyHaveAccount")}
-              </Link>
+          ) : isAuthenticated ? (
+            // Compte connecté non validé : ne surtout pas dire « Créez un
+            // compte », elle en a déjà un — on la rassure sur la vérification.
+            <div className="bg-sky-50 border border-sky-200 rounded-2xl px-6 py-8 text-center max-w-xl mx-auto shadow-card">
+              <div className="w-12 h-12 mx-auto rounded-full bg-white border border-sky-200 flex items-center justify-center mb-4">
+                <svg className="w-6 h-6 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h2 className="font-heading text-lg font-semibold text-sky-900 mb-2">
+                {t("pendingOrderTitle")}
+              </h2>
+              <p className="text-sm text-sky-800/80 font-body mb-5 max-w-md mx-auto">
+                {t("pendingOrderDesc")}
+              </p>
+              <div className="flex justify-center">
+                <Link
+                  href="/espace-pro"
+                  className="inline-flex items-center justify-center text-sm font-body font-semibold bg-sky-600 text-white px-5 py-2.5 rounded-lg hover:bg-sky-700 transition-colors"
+                >
+                  {t("goToMyAccount")}
+                </Link>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-bg-primary border border-border rounded-2xl px-6 py-8 text-center max-w-xl mx-auto shadow-card">
+              <div className="w-12 h-12 mx-auto rounded-full bg-bg-secondary flex items-center justify-center mb-4">
+                <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                </svg>
+              </div>
+              <h2 className="font-heading text-lg font-semibold text-text-primary mb-2">
+                {t("proPricesReserved")}
+              </h2>
+              <p className="text-sm text-text-muted font-body mb-5 max-w-md mx-auto">
+                {t("proPricesReservedDesc")}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Link href="/inscription" className="btn-primary justify-center px-5">
+                  {t("createAccountToOrder")}
+                </Link>
+                <Link
+                  href="/connexion"
+                  className="inline-flex items-center justify-center text-sm font-body font-semibold text-text-secondary hover:text-text-primary px-5 py-2.5 rounded-lg border border-border hover:border-text-muted transition-colors"
+                >
+                  {t("alreadyHaveAccount")}
+                </Link>
+              </div>
+            </div>
+          )}
         </section>
       )}
       {showPrices && (selectedUnitVariants.length > 0 || selectedPackVariants.length > 0) && (
@@ -748,7 +859,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {bundleChildren.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} showPrice={showPrices} />
+                <RelatedCard product={p} showPrice={showPrices} isAuthenticated={!!isAuthenticated} isRevoked={isRevoked} />
               </div>
             ))}
           </div>
@@ -764,7 +875,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {bundleParents.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} showPrice={showPrices} />
+                <RelatedCard product={p} showPrice={showPrices} isAuthenticated={!!isAuthenticated} isRevoked={isRevoked} />
               </div>
             ))}
           </div>
@@ -780,7 +891,7 @@ export default function ProductDetail({
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {similarProducts.map((p, i) => (
               <div key={p.id} className="animate-zoom-fade" style={{ animationDelay: `${i * 0.08}s` }}>
-                <RelatedCard product={p} showPrice={showPrices} />
+                <RelatedCard product={p} showPrice={showPrices} isAuthenticated={!!isAuthenticated} isRevoked={isRevoked} />
               </div>
             ))}
           </div>

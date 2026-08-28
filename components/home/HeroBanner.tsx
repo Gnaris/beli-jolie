@@ -27,9 +27,9 @@ export default function HeroBanner({ bannerImage, shopName, productCount }: Hero
             fill
             priority
             sizes="100vw"
-            className="object-cover opacity-30"
+            className="object-cover opacity-80"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-bg-darker via-bg-darker/85 to-bg-darker/40" />
+          <div className="absolute inset-0 bg-gradient-to-r from-bg-darker/75 via-bg-darker/35 to-transparent" />
         </>
       )}
 

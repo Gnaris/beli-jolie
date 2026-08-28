@@ -43,6 +43,7 @@ import {
 } from "@/lib/product-marketplace-snapshot";
 import { computeProductMarketplaceAvailability } from "@/lib/product-marketplace-availability";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
+import { shouldProposeMicrostoreOnFormSave } from "@/lib/microstore-propagation-eligibility";
 
 const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
@@ -2466,12 +2467,15 @@ export default function ProductForm({
         // Orderchamp : uniquement si déjà lié (`showOrderchamp` intègre déjà
         // `alreadyOnOrderchamp`). La 1ʳᵉ publication passe par le badge OC.
         const showOrderchampCase = !hideForMicrostoreOnly && showOrderchamp;
-        // Microstore : uniquement si déjà lié (`showMicrostore` intègre déjà
-        // `alreadyOnMicrostore`). La 1ʳᵉ publication passe par le badge « M »
-        // de la fiche. En brouillon (produit OFFLINE), on ne propose pas non
-        // plus le push — un produit encore hors ligne n'a rien à faire sur le
-        // point de vente.
-        const showMicrostoreCase = !hideForOrderchampOnly && showMicrostore && finalStatus !== "OFFLINE";
+        // Microstore : uniquement si déjà lié. Depuis 2026-08-25 /goods/update
+        // accepte `disable=1|0` : passer en OFFLINE/ARCHIVED sur une fiche déjà
+        // liée doit propager `disable=1` pour masquer côté H5.
+        const showMicrostoreCase = shouldProposeMicrostoreOnFormSave({
+          hasMicrostoreConfig,
+          microstoreEnabledForProduct: initialData?.microstoreEnabledForProduct ?? true,
+          alreadyLinkedToMicrostore: alreadyOnMicrostore,
+          onlyOrderchampFieldChanged: hideForOrderchampOnly,
+        });
 
         if (
           showPfsCase ||

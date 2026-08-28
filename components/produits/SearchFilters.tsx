@@ -52,10 +52,10 @@ function CustomSelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-[44px] rounded-lg border text-sm font-body transition-all ${
+        className={`w-full flex items-center justify-between gap-2 py-2.5 min-h-[44px] border-b text-sm font-body transition-all ${
           value
-            ? "border-text-primary bg-bg-tertiary text-text-primary"
-            : "border-border bg-bg-primary text-text-secondary hover:border-border-dark"
+            ? "border-black text-text-primary"
+            : "border-neutral-300 text-text-secondary hover:border-black"
         }`}
       >
         <span className="truncate">{selected ? selected.label : placeholder}</span>
@@ -94,7 +94,7 @@ function CustomSelect({
 // -- Section label -----------------------------------------------------------
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-widest font-body mb-2">
+    <p className="text-[11px] font-medium text-text-primary uppercase tracking-[0.28em] font-body mb-4">
       {children}
     </p>
   );
@@ -108,10 +108,10 @@ function ToggleChip({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-full text-xs font-body font-medium transition-all ${
+      className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[11px] tracking-[0.05em] font-body font-normal transition-all duration-200 whitespace-nowrap ${
         active
-          ? "bg-bg-dark text-text-inverse shadow-sm"
-          : "bg-bg-primary border border-border text-text-secondary hover:border-border-dark hover:text-text-primary"
+          ? "bg-black text-white border border-black"
+          : "bg-white border border-neutral-300 text-text-secondary hover:border-black hover:text-text-primary"
       }`}
     >
       {children}
@@ -329,9 +329,9 @@ export default function SearchFilters({
   const compositionOptions = compositions.map((c) => ({ id: c.id, label: c.name }));
 
   const filterContent = (
-    <div className="space-y-5">
+    <div className="[&>section]:pb-6 [&>section]:mb-6 [&>section]:border-b [&>section]:border-neutral-100 [&>section:last-of-type]:border-b-0 [&>section:last-of-type]:mb-4">
       {/* Recherche */}
-      <div>
+      <section>
         <SectionLabel>{t("filterSearch")}</SectionLabel>
         <div className="relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -342,7 +342,7 @@ export default function SearchFilters({
             defaultValue={q}
             onChange={(e) => update("q", e.target.value)}
             placeholder={t("filterSearchPlaceholder")}
-            className="w-full pl-9 pr-3 py-2.5 border border-border bg-bg-primary rounded-lg text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark focus:shadow-[0_0_0_3px_rgba(26,26,26,0.06)] transition-all"
+            className="w-full pl-9 pr-3 py-2.5 border-b border-neutral-300 bg-transparent text-sm font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-black transition-all"
           />
         </div>
         <label className="flex items-center gap-2 mt-2 cursor-pointer">
@@ -356,10 +356,10 @@ export default function SearchFilters({
             Référence exacte
           </span>
         </label>
-      </div>
+      </section>
 
       {/* Categorie */}
-      <div>
+      <section>
         <SectionLabel>{t("filterCategory")}</SectionLabel>
         <CustomSelect
           value={cat}
@@ -373,11 +373,11 @@ export default function SearchFilters({
             startTransition(() => router.push(`${basePath}?${params.toString()}`));
           }}
         />
-      </div>
+      </section>
 
       {/* Sous-categorie */}
       {subcatOptions.length > 0 && (
-        <div>
+        <section>
           <SectionLabel>{t("filterSubcategory")}</SectionLabel>
           <CustomSelect
             value={subcat}
@@ -385,12 +385,12 @@ export default function SearchFilters({
             options={subcatOptions}
             onChange={(v) => update("subcat", v)}
           />
-        </div>
+        </section>
       )}
 
       {/* Collection */}
       {collectionOptions.length > 0 && (
-        <div>
+        <section>
           <SectionLabel>{t("filterCollection")}</SectionLabel>
           <CustomSelect
             value={collection}
@@ -398,32 +398,34 @@ export default function SearchFilters({
             options={collectionOptions}
             onChange={(v) => update("collection", v)}
           />
-        </div>
+        </section>
       )}
 
       {/* Couleurs — searchable multi-select */}
       {colors.length > 0 && (
-        <ColorMultiSelect
-          colors={colors}
-          selectedIds={selectedColorIds}
-          onToggle={(id) => {
-            const next = selectedColorIds.includes(id)
-              ? selectedColorIds.filter((x) => x !== id)
-              : [...selectedColorIds, id];
-            update("color", next.join(","));
-          }}
-          onRemove={(id) => {
-            const next = selectedColorIds.filter((x) => x !== id);
-            update("color", next.join(","));
-          }}
-          onClear={() => update("color", "")}
-          label={t("filterColor")}
-        />
+        <section>
+          <ColorMultiSelect
+            colors={colors}
+            selectedIds={selectedColorIds}
+            onToggle={(id) => {
+              const next = selectedColorIds.includes(id)
+                ? selectedColorIds.filter((x) => x !== id)
+                : [...selectedColorIds, id];
+              update("color", next.join(","));
+            }}
+            onRemove={(id) => {
+              const next = selectedColorIds.filter((x) => x !== id);
+              update("color", next.join(","));
+            }}
+            onClear={() => update("color", "")}
+            label={t("filterColor")}
+          />
+        </section>
       )}
 
       {/* Mots cles */}
       {tagOptions.length > 0 && (
-        <div>
+        <section>
           <SectionLabel>{t("filterTag")}</SectionLabel>
           <CustomSelect
             value={tagId}
@@ -431,12 +433,12 @@ export default function SearchFilters({
             options={tagOptions}
             onChange={(v) => update("tag", v)}
           />
-        </div>
+        </section>
       )}
 
       {/* Composition (matière) */}
       {compositionOptions.length > 0 && (
-        <div>
+        <section>
           <SectionLabel>{t("filterComposition")}</SectionLabel>
           <CustomSelect
             value={compositionId}
@@ -444,31 +446,31 @@ export default function SearchFilters({
             options={compositionOptions}
             onChange={(v) => update("composition", v)}
           />
-        </div>
+        </section>
       )}
 
       {/* Prix */}
-      <div>
+      <section>
         <SectionLabel>{t("filterPrice")}</SectionLabel>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <input
             type="number" min="0" step="0.01" placeholder={t("filterMin")}
             value={minPrice}
             onChange={(e) => update("minPrice", e.target.value)}
-            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-body text-text-primary focus:outline-none focus:border-border-dark transition-all"
+            className="w-full border-b border-neutral-300 bg-transparent py-2 text-sm font-body text-text-primary focus:outline-none focus:border-black transition-all"
           />
-          <span className="text-text-muted text-sm shrink-0">—</span>
+          <span className="text-neutral-400 text-sm shrink-0">—</span>
           <input
             type="number" min="0" step="0.01" placeholder={t("filterMax")}
             value={maxPrice}
             onChange={(e) => update("maxPrice", e.target.value)}
-            className="w-full border border-border bg-bg-primary rounded-lg px-3 py-2 text-sm font-body text-text-primary focus:outline-none focus:border-border-dark transition-all"
+            className="w-full border-b border-neutral-300 bg-transparent py-2 text-sm font-body text-text-primary focus:outline-none focus:border-black transition-all"
           />
         </div>
-      </div>
+      </section>
 
       {/* Mise en avant */}
-      <div>
+      <section>
         <SectionLabel>{t("filterFeatured")}</SectionLabel>
         <div className="flex flex-wrap gap-2">
           <ToggleChip active={bestseller} onClick={() => toggleBool("bestseller", bestseller)}>
@@ -491,18 +493,15 @@ export default function SearchFilters({
             </>
           )}
         </div>
-      </div>
+      </section>
 
       {/* Reset */}
       {hasAny && (
         <button
           type="button"
           onClick={resetAll}
-          className="w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] border border-border-dark rounded-lg text-sm text-text-secondary hover:bg-bg-secondary font-body transition-all"
+          className="w-full flex items-center justify-center gap-2 py-3 border border-black text-[11px] tracking-[0.24em] uppercase font-medium text-text-primary hover:bg-black hover:text-white transition-all duration-300"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-          </svg>
           {t("resetFilters")}
         </button>
       )}
@@ -512,28 +511,28 @@ export default function SearchFilters({
   // -- Mode mobile : bouton + panneau collapsible --
   if (mobileMode) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
-            className={`flex items-center gap-2 px-4 py-2 min-h-[44px] rounded-lg border text-sm font-body font-medium transition-all ${
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-[11px] tracking-[0.05em] font-body transition-all ${
               hasAny
-                ? "border-text-primary text-text-primary bg-bg-tertiary"
-                : "border-border text-text-secondary bg-bg-primary hover:border-border-dark"
+                ? "bg-black text-white border border-black"
+                : "bg-white border border-neutral-300 text-text-secondary hover:border-black hover:text-text-primary"
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M3 6h18M6 12h12M10 18h4" />
             </svg>
-            {t("filtersLabel")}{hasAny ? " •" : ""}
+            {t("filtersLabel")}
           </button>
-          <span className="text-sm text-text-muted font-body">
+          <span className="text-[11px] tracking-[0.18em] uppercase text-neutral-500 font-body">
             {totalCount !== 1 ? t("productCount_plural", { count: totalCount }) : t("productCount", { count: totalCount })}
           </span>
         </div>
         {mobileOpen && (
-          <div className="card p-4 animate-[customSelectDown_0.2s_ease-out]">
+          <div className="border-t border-neutral-200 pt-5 animate-[customSelectDown_0.2s_ease-out]">
             {filterContent}
           </div>
         )}
@@ -543,15 +542,12 @@ export default function SearchFilters({
 
   // -- Mode sidebar desktop --
   return (
-    <div className="sticky top-[116px] h-[calc(100vh-116px)] overflow-y-auto border-r border-border bg-bg-primary px-4 py-5">
+    <div className="sticky top-[84px] max-h-[calc(100vh-100px)] overflow-y-auto scrollbar-light pr-3">
       {/* Header sidebar */}
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="font-heading text-sm font-semibold text-text-primary">
+      <div className="mb-6">
+        <p className="text-[11px] font-medium text-text-primary uppercase tracking-[0.28em] font-body">
           {t("filtersLabel")}
-        </h2>
-        <span className="text-xs text-text-muted font-body bg-bg-tertiary px-2.5 py-1 rounded-full">
-          {totalCount}
-        </span>
+        </p>
       </div>
       {filterContent}
     </div>

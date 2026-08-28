@@ -26,7 +26,13 @@
     "contact": "Contact Us",
     "language": "Language",
     "adminPreview": "Admin preview mode",
-    "adminPreviewDesc": "You are browsing as a customer."
+    "adminPreviewDesc": "You are browsing as a customer.",
+    "verifiedBadge": "Verified",
+    "unverifiedBadge": "Unverified",
+    "revokedBadge": "Revoked",
+    "verifiedTooltip": "Your pro account is verified.",
+    "unverifiedTooltip": "Your account is being reviewed by our team.",
+    "revokedTooltip": "Your account has been deactivated. Contact us for any question."
   },
   "auth": {
     "login": {
@@ -340,6 +346,9 @@
   "products": {
     "title": "Our Catalog",
     "subtitle": "Professional catalog — wholesale rates",
+    "heroEyebrow": "Catalog",
+    "productsCounterSingular": "product",
+    "productsCounterPlural": "products",
     "searchPlaceholder": "Search...",
     "allCategories": "All categories",
     "allCollections": "All collections",
@@ -389,6 +398,7 @@
     "backToProducts": "Back to products"
   },
   "product": {
+    "viewProduct": "View product",
     "ref": "Ref.",
     "reference": "Reference",
     "color": "Color",
@@ -459,6 +469,18 @@
     "proPricesReserved": "Pricing reserved for professionals",
     "proPricesReservedDesc": "Create your account to discover our wholesale prices and place orders in a few clicks.",
     "alreadyHaveAccount": "I already have an account",
+    "pendingSeePricesTitle": "Account under review",
+    "pendingSeePricesDesc": "You'll see prices as soon as our team validates your registration (within 48 business hours).",
+    "pendingOrderTitle": "Almost ready to order",
+    "pendingOrderDesc": "You'll be able to place orders as soon as our team approves your account.",
+    "pendingCardHint": "Prices visible after verification",
+    "pendingCardCta": "Verification in progress",
+    "revokedSeePricesTitle": "Account deactivated",
+    "revokedSeePricesDesc": "Your account has been deactivated: prices are no longer displayed and ordering is unavailable. Contact us with any question.",
+    "revokedOrderTitle": "Ordering unavailable",
+    "revokedOrderDesc": "Your account has been deactivated. To resume ordering, please contact our team.",
+    "revokedCardHint": "Account deactivated — prices unavailable",
+    "goToMyAccount": "View my account",
     "signIn": "Sign in",
     "fromPrice": "from {price} €",
     "totalHT": "Total excl. tax",
@@ -966,7 +988,14 @@
     "creditTotal": "Total credit note",
     "modificationReason_OUT_OF_STOCK": "Out of stock",
     "modificationReason_CLIENT_REQUEST": "At the client's request",
-    "total": "Total"
+    "total": "Total",
+    "coordinatesEyebrow": "Contact",
+    "orderInfoTitle": "Order information",
+    "billing": "Billing",
+    "delivery": "Delivery",
+    "goodsWithPrices": "PDF with prices",
+    "goodsWithoutPrices": "PDF without prices",
+    "paymentPaid": "captured"
   },
   "account": {
     "title": "My Pro Space",
@@ -974,8 +1003,10 @@
     "memberSince": "Member since {date}",
     "pendingValidation": "Pending validation",
     "pendingValidationDesc": "Your application is being reviewed. You'll receive a confirmation within 48 business hours.",
-    "rejected": "Request denied",
-    "rejectedDesc": "Your request was not accepted. Contact us for more information.",
+    "pendingBannerTitle": "Account verification in progress",
+    "pendingBannerDesc": "Our team is reviewing your application. You'll see prices and be able to place orders as soon as it's approved (within 48 business hours).",
+    "rejected": "Account deactivated",
+    "rejectedDesc": "Your account has been deactivated. You can still browse the shop but prices and ordering are unavailable. Contact us for any question.",
     "statsOrders": "Orders",
     "statsItems": "Items ordered",
     "statsSpent": "Total spent",

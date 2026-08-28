@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const mockPrisma = vi.hoisted(() => ({
   user: {
-    findUnique: vi.fn(),
+    findFirst: vi.fn(),
     update: vi.fn(),
   },
 }));
@@ -67,7 +67,7 @@ describe("auth authorize — PENDING login", () => {
   });
 
   it("PENDING peut se connecter", async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ ...baseUser, status: "PENDING" });
+    mockPrisma.user.findFirst.mockResolvedValue({ ...baseUser, status: "PENDING" });
     const authorize = getAuthorize();
 
     const result = (await authorize(
@@ -82,7 +82,7 @@ describe("auth authorize — PENDING login", () => {
   });
 
   it("APPROVED peut se connecter", async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ ...baseUser, status: "APPROVED" });
+    mockPrisma.user.findFirst.mockResolvedValue({ ...baseUser, status: "APPROVED" });
     const authorize = getAuthorize();
 
     const result = (await authorize(
@@ -93,18 +93,21 @@ describe("auth authorize — PENDING login", () => {
     expect(result?.status).toBe("APPROVED");
   });
 
-  it("REJECTED ne peut pas se connecter", async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ ...baseUser, status: "REJECTED" });
+  it("REJECTED peut se connecter (compte désactivé = accès en lecture, pas de blocage login)", async () => {
+    mockPrisma.user.findFirst.mockResolvedValue({ ...baseUser, status: "REJECTED" });
     const authorize = getAuthorize();
 
-    await expect(
-      authorize({ email: "user@test.com", password: "pw" }, { headers: {} })
-    ).rejects.toThrow(/Identifiants incorrects/);
-    expect(mockSecurity.recordLoginFailure).toHaveBeenCalledOnce();
+    const result = (await authorize(
+      { email: "user@test.com", password: "pw" },
+      { headers: {} }
+    )) as { status: string } | null;
+
+    expect(result?.status).toBe("REJECTED");
+    expect(mockSecurity.recordLoginSuccess).toHaveBeenCalledOnce();
   });
 
   it("mot de passe invalide → refusé même pour PENDING", async () => {
-    mockPrisma.user.findUnique.mockResolvedValue({ ...baseUser, status: "PENDING" });
+    mockPrisma.user.findFirst.mockResolvedValue({ ...baseUser, status: "PENDING" });
     mockBcrypt.compare.mockResolvedValue(false);
     const authorize = getAuthorize();
 

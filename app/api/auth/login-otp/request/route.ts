@@ -49,16 +49,16 @@ export async function POST(req: Request) {
     );
   }
 
-  // Réponse générique — on envoie le code uniquement si l'utilisateur est un
-  // client non rejeté. Le front affichera un message "si vous ne recevez rien,
-  // aucun compte n'est associé à cet email".
+  // Réponse générique — on envoie le code à tout compte CLIENT existant, quel
+  // que soit son statut (PENDING/APPROVED/REJECTED). Un compte révoqué garde
+  // le droit de se connecter pour consulter la boutique ; la restriction porte
+  // uniquement sur les prix et la commande (cf. `canSeePrices()`).
   const user = await prisma.user.findFirst({
     where: { email },
-    select: { role: true, status: true },
+    select: { role: true },
   });
 
-  const eligible =
-    !!user && user.role === "CLIENT" && user.status !== "REJECTED";
+  const eligible = !!user && user.role === "CLIENT";
 
   if (eligible) {
     try {

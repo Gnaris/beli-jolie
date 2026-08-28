@@ -470,6 +470,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               clientDiscount={clientDiscount}
               isAuthenticated={!!session?.user?.id}
               showPrices={canSeePrices(session)}
+              isRevoked={session?.user?.status === "REJECTED"}
             />
           </div>
         </main>

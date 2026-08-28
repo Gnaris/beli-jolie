@@ -72,12 +72,11 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Vérification du statut du compte
-        // PENDING peut se connecter pour voir l'état et modifier ses infos
-        // (l'accès aux routes d'achat est bloqué par le middleware).
-        if (user.status === "REJECTED") {
-          await recordLoginFailure(email, ip);
-          throw new Error(INVALID_CREDENTIALS);
-        }
+        // PENDING et REJECTED peuvent se connecter : la première voit la boutique
+        // sans prix (en attente de validation), la seconde a été révoquée mais
+        // garde accès en lecture (badge « Révoqué » dans le header). L'accès
+        // aux fonctions d'achat (prix, commande, messages) est filtré côté
+        // action serveur via `canSeePrices()` / `requireAuth(APPROVED)`.
 
         // Vérification du mot de passe
         const passwordMatch = await bcrypt.compare(
@@ -171,8 +170,10 @@ export const authOptions: NextAuthOptions = {
           throw new Error(INVALID);
         }
 
-        // Connexion OTP réservée aux clients non rejetés
-        if (user.role !== "CLIENT" || user.status === "REJECTED") {
+        // Connexion OTP réservée aux clients (PENDING/APPROVED/REJECTED tous
+        // autorisés : la révocation ne bloque pas la connexion, elle retire
+        // seulement l'accès aux prix et à la commande — cf. `canSeePrices()`).
+        if (user.role !== "CLIENT") {
           await recordLoginFailure(email, ip);
           throw new Error(INVALID);
         }

@@ -163,7 +163,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 auto-rows-fr gap-3 sm:gap-5 lg:gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 auto-rows-fr gap-x-6 gap-y-14 lg:gap-y-16">
         {products.map((product) => {
           return (
           <div key={product.id} className="stagger-card h-full">
@@ -194,20 +194,30 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
       </div>
 
       {ui.showLoadMoreButton && (
-        <div className="flex flex-col items-center gap-2 py-8">
+        <div className="flex flex-col items-center pt-20 pb-4">
+          <div className="w-64 h-px bg-neutral-200 mb-8 relative">
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-[11px] uppercase tracking-[0.28em] text-neutral-500 font-body">
+              {t("loadMoreCount", { shown: products.length, total: totalCount })}
+            </span>
+          </div>
           <button
             type="button"
             onClick={loadMore}
             disabled={loading}
-            className="inline-flex items-center justify-center gap-2 min-w-[220px] px-6 py-3 rounded-xl border border-border bg-bg-primary text-sm font-medium text-text-primary font-body shadow-sm hover:bg-bg-secondary hover:shadow-md transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+            className="group inline-flex items-center gap-3 px-10 py-4 border border-black text-black text-[11px] tracking-[0.28em] uppercase font-medium hover:bg-black hover:text-white transition-all duration-500 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>
-                <span className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
+                <span className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin" />
                 {t("loading")}
               </>
             ) : (
-              t("loadMoreCount", { shown: products.length, total: totalCount })
+              <>
+                {t("loadMore")}
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="group-hover:translate-y-0.5 transition-transform">
+                  <path d="M12 5v14M5 12l7 7 7-7" />
+                </svg>
+              </>
             )}
           </button>
         </div>

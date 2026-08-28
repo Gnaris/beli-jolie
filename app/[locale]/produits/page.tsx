@@ -325,46 +325,40 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   products = await enrichProductsWithBestPromoPercent(products);
 
   return (
-    <div className="min-h-screen bg-bg-secondary relative">
+    <div className="min-h-screen bg-white relative">
       <PublicSidebar shopName={shopName} />
       <main className="relative z-10">
-      {/* En-tete page */}
-      <div className="bg-bg-primary border-b border-border relative overflow-hidden">
-        <div className="container-site py-6 relative">
-          <h1 className="font-heading text-xl font-semibold text-text-primary">
-            {t("title")}
-          </h1>
-          <p className="text-sm text-text-muted font-body mt-0.5">
-            {t("subtitle")}
-          </p>
-          {produitsSeoText && (
-            <div className="mt-4 max-w-3xl text-sm font-body text-text-secondary leading-relaxed whitespace-pre-line">
-              {produitsSeoText}
+
+      {/* Hero éditorial */}
+      <section className="bg-gradient-to-b from-[#fafaf7] to-white">
+        <div className="max-w-[1500px] mx-auto px-6 lg:px-10 pt-14 pb-12 lg:pt-24 lg:pb-20">
+          <div className="animate-fadeIn">
+            <div className="flex items-center gap-4 mb-6 lg:mb-8">
+              <span className="inline-block w-10 h-px bg-black" />
+              <span className="text-[11px] font-medium uppercase tracking-[0.32em] text-neutral-500 font-body">
+                {t("heroEyebrow")}
+              </span>
             </div>
-          )}
+            <h1 className="font-heading font-light text-4xl md:text-6xl lg:text-[84px] leading-[0.95] tracking-tight text-black max-w-4xl">
+              {t("title")}
+            </h1>
+            <p className="mt-6 lg:mt-8 text-neutral-600 max-w-lg leading-relaxed text-[15px] font-body">
+              {t("subtitle")}
+            </p>
+            {produitsSeoText && (
+              <div className="mt-6 max-w-2xl text-[14px] font-body text-neutral-500 leading-relaxed whitespace-pre-line">
+                {produitsSeoText}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="relative flex">
-        {/* Sidebar filtres — desktop (sticky, s'arrête au footer) */}
-        <aside className="hidden lg:block w-64 shrink-0">
-          <Suspense>
-            <SearchFilters
-              categories={categories}
-              collections={collections}
-              colors={colors}
-              tags={tags}
-              compositions={compositions}
-              totalCount={totalCount}
-              showOosToggle={showOosToggle}
-            />
-          </Suspense>
-        </aside>
-
-        {/* Contenu principal */}
-        <div className="flex-1 min-w-0 p-4 sm:p-6 lg:py-6 lg:px-8 space-y-5">
-          {/* Barre mobile : filtres + compteur */}
-          <div className="lg:hidden">
+      {/* Contenu principal */}
+      <section className="max-w-[1500px] mx-auto px-6 lg:px-10 pt-6 lg:pt-10 pb-24">
+        <div className="lg:flex lg:gap-12">
+          {/* Sidebar filtres desktop */}
+          <aside className="hidden lg:block w-60 shrink-0">
             <Suspense>
               <SearchFilters
                 categories={categories}
@@ -374,23 +368,49 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
                 compositions={compositions}
                 totalCount={totalCount}
                 showOosToggle={showOosToggle}
-                mobileMode
+              />
+            </Suspense>
+          </aside>
+
+          {/* Grille */}
+          <div className="flex-1 min-w-0">
+            {/* Barre mobile filtres */}
+            <div className="lg:hidden mb-6">
+              <Suspense>
+                <SearchFilters
+                  categories={categories}
+                  collections={collections}
+                  colors={colors}
+                  tags={tags}
+                  compositions={compositions}
+                  totalCount={totalCount}
+                  showOosToggle={showOosToggle}
+                  mobileMode
+                />
+              </Suspense>
+            </div>
+
+            {/* Compteur discret desktop */}
+            <div className="hidden lg:flex items-baseline justify-between mb-10">
+              <div className="text-[13px] text-neutral-500 font-body">
+                <span className="text-black font-medium">{totalCount}</span> {totalCount > 1 ? t("productsCounterPlural") : t("productsCounterSingular")}
+              </div>
+            </div>
+
+            {/* Grille + infinite scroll */}
+            <Suspense>
+              <ProductsInfiniteScroll
+                initialProducts={products}
+                initialHasMore={initialHasMore}
+                totalCount={totalCount}
+                clientDiscount={clientDiscount}
+                initialFavoriteIds={favoriteIdsArr}
               />
             </Suspense>
           </div>
-
-          {/* Grille + infinite scroll */}
-          <Suspense>
-            <ProductsInfiniteScroll
-              initialProducts={products}
-              initialHasMore={initialHasMore}
-              totalCount={totalCount}
-              clientDiscount={clientDiscount}
-              initialFavoriteIds={favoriteIdsArr}
-            />
-          </Suspense>
         </div>
-      </div>
+      </section>
+
       </main>
       <Footer shopName={shopName} />
     </div>

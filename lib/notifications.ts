@@ -752,6 +752,75 @@ export async function notifyClientAccountRejected(params: {
   }
 }
 
+/**
+ * Envoyé au client quand l'admin révoque l'accès d'un compte déjà validé
+ * (APPROVED → REJECTED). Distinct de `notifyClientAccountRejected` qui, lui,
+ * s'adresse à une première demande d'inscription refusée : ici le client
+ * connaissait déjà la boutique, donc le ton et le contenu diffèrent
+ * (« compte désactivé » plutôt que « inscription refusée »).
+ * Fire-and-forget.
+ */
+export async function notifyClientAccountRevoked(params: {
+  email: string;
+  firstName: string;
+  reason?: string | null;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const companyInfo = await getCachedCompanyInfo();
+    const contactEmail = companyInfo?.email?.trim() || null;
+
+    const reasonBlock = params.reason
+      ? `<div style="background:#FEF3F2;border:1px solid #FECACA;border-radius:8px;padding:14px 18px;margin:16px 0;">
+          <strong style="color:#991B1B;">Motif :</strong>
+          <p style="margin:6px 0 0;color:#1A1A1A;white-space:pre-wrap;">${escapeHtml(params.reason)}</p>
+        </div>`
+      : "";
+
+    const contactBlock = contactEmail
+      ? `<p style="margin-top:16px;font-size:13px;color:#6B6B6B;text-align:center;">
+          Pour toute question ou pour demander la réactivation de votre compte,
+          contactez-nous à
+          <a href="mailto:${contactEmail}" style="color:#1A1A1A;">${escapeHtml(contactEmail)}</a>.
+        </p>`
+      : "";
+
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: `Votre compte a été désactivé — ${shopName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <h2 style="margin:0;font-size:20px;">Votre compte a été désactivé</h2>
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">
+              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
+            </p>
+            <p style="font-size:15px;line-height:1.6;">
+              Nous vous informons que votre compte professionnel sur
+              ${escapeHtml(shopName)} a été désactivé.
+              Vous ne pouvez plus vous connecter ni passer commande jusqu'à
+              nouvel ordre.
+            </p>
+            ${reasonBlock}
+            ${contactBlock}
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[account-revoked] Email envoyé", { to: params.email });
+  } catch (err) {
+    logger.error("[account-revoked] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ─────────────────────────────────────────────
 // Notification client — modification d'articles de commande (P2-08)
 // ─────────────────────────────────────────────

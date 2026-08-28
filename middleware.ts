@@ -340,7 +340,6 @@ export async function middleware(request: NextRequest) {
   // permettrait à un compte supprimé de continuer à naviguer.
   const isAuthenticated = !!token && !token.deleted;
   const isAdmin = isAuthenticated && token?.role === "ADMIN";
-  const isPending = isAuthenticated && token?.status === "PENDING";
   const previewMode = request.cookies.get("bj_admin_preview")?.value === "1";
 
   // Path "sans locale" pour matcher la logique métier (vide = "/")
@@ -381,28 +380,8 @@ export async function middleware(request: NextRequest) {
   // ── Routes auth publiques uniquement si NON connecté ──────────────────────
   if (rest.startsWith("/connexion") || rest.startsWith("/inscription")) {
     if (isAuthenticated) {
-      const target = isAdmin ? "/admin" : isPending ? "/espace-pro" : "/";
-      const url = isAdmin ? new URL("/admin", request.url) : localeUrl(locale, target, request);
+      const url = isAdmin ? new URL("/admin", request.url) : localeUrl(locale, "/", request);
       return NextResponse.redirect(url);
-    }
-    return passThrough();
-  }
-
-  // ── PENDING : limité à l'espace perso ─────────────────────────────────────
-  if (isAuthenticated && isPending && !isAdmin) {
-    const pendingAllowed =
-      rest.startsWith("/espace-pro") ||
-      pathname.startsWith("/api/auth") ||
-      pathname.startsWith("/api/site-status") ||
-      pathname === "/maintenance" ||
-      rest.startsWith("/mentions-legales") ||
-      rest.startsWith("/cgv") ||
-      rest.startsWith("/cgu") ||
-      rest.startsWith("/confidentialite") ||
-      rest.startsWith("/cookies") ||
-      pathname.startsWith("/api/legal");
-    if (!pendingAllowed) {
-      return NextResponse.redirect(localeUrl(locale, "/espace-pro", request));
     }
     return passThrough();
   }

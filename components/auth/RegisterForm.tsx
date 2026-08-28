@@ -3,6 +3,7 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
+import { signIn } from "next-auth/react";
 import { registerSchema } from "@/lib/validations/auth";
 import StaffAvailability from "@/components/auth/StaffAvailability";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
@@ -339,6 +340,20 @@ export default function RegisterForm({
       }
       // Inscription réussie : on efface le brouillon local.
       try { window.localStorage.removeItem(REGISTER_DRAFT_KEY); } catch { /* ignore */ }
+
+      // Auto-login : le compte est PENDING mais on connecte la cliente
+      // immédiatement pour qu'elle puisse naviguer (prix restent masqués
+      // tant que l'admin n'a pas validé). Sur échec de signIn, on retombe
+      // sur l'écran de succès pour ne pas la laisser sans feedback.
+      const signInRes = await signIn("credentials", {
+        email: fields.email.toLowerCase().trim(),
+        password: fields.password,
+        redirect: false,
+      });
+      if (signInRes?.ok) {
+        window.location.href = "/";
+        return;
+      }
       setSuccessMessage(json.message);
     } catch {
       setGlobalError(t("kbisRequired"));

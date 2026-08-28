@@ -45,6 +45,7 @@ import { useFilterPending } from "@/components/admin/products/FilterPendingConte
 import { findLatestOpForProduct, computeMarketplaceBadgeState } from "@/components/admin/products/marketplaceBadgeState";
 import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketplace-targets";
 import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
+import { groupPendingStatuses, countPendingStatusChanges } from "@/lib/pending-status-grouping";
 import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
 import {
   MISSING_FIELD_LABELS,
@@ -2112,6 +2113,7 @@ export const VariantCardMobile = React.memo(function VariantCardMobile({
 // ─── Status badge with inline dropdown ──────────────────────────────────────
 function StatusBadge({
   status,
+  pendingStatus,
   onChange,
   canPutOnline,
   canPutOffline,
@@ -2119,6 +2121,7 @@ function StatusBadge({
   putOnlineReason,
 }: {
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
+  pendingStatus?: "ONLINE" | "OFFLINE" | "ARCHIVED";
   onChange: (next: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
   canPutOnline: boolean;
   canPutOffline: boolean;
@@ -2179,6 +2182,11 @@ function StatusBadge({
   } as const;
 
   const isSyncing = status === "SYNCING";
+  // Affichage : si une modif est en attente, on montre le statut cible
+  // (couleur + libellé) mais on ajoute un halo ambre pulsant pour signaler
+  // qu'elle n'est pas encore enregistrée.
+  const displayed = pendingStatus ?? status;
+  const isPending = pendingStatus != null && pendingStatus !== status;
 
   return (
     <>
@@ -2188,15 +2196,34 @@ function StatusBadge({
         disabled={isSyncing}
         onClick={(e) => { e.stopPropagation(); if (!isSyncing) setOpen((v) => !v); }}
         className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors ${
-          badgeCls[status]
-        } ${isSyncing ? "cursor-default" : "cursor-pointer"}`}
-        title={isSyncing ? "Statut système : importation en cours" : "Cliquer pour changer le statut"}
+          badgeCls[displayed]
+        } ${isSyncing ? "cursor-default" : "cursor-pointer"} ${
+          isPending ? "ring-2 ring-amber-400/60 ring-offset-1 ring-offset-transparent" : ""
+        }`}
+        title={
+          isSyncing
+            ? "Statut système : importation en cours"
+            : isPending
+              ? "Modification en attente — cliquer pour changer d'avis, puis Appliquer en bas d'écran"
+              : "Cliquer pour changer le statut"
+        }
       >
         <span
           className="w-1.5 h-1.5 rounded-full"
-          style={{ background: dotColors[status], animation: status === "SYNCING" ? "pulse 1.5s ease-in-out infinite" : undefined }}
+          style={{
+            background: dotColors[displayed],
+            animation:
+              displayed === "SYNCING"
+                ? "pulse 1.5s ease-in-out infinite"
+                : isPending
+                  ? "variant-dirty-pulse 1.8s ease-in-out infinite"
+                  : undefined,
+          }}
         />
-        {labels[status]}
+        {labels[displayed]}
+        {isPending && (
+          <span className="text-[9px] font-bold text-amber-600 uppercase tracking-wider">à appliquer</span>
+        )}
         {!isSyncing && (
           <svg className={`w-2.5 h-2.5 opacity-60 transition-transform ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -2213,23 +2240,23 @@ function StatusBadge({
           <StatusOption
             label="En ligne"
             dotColor="#22C55E"
-            selected={status === "ONLINE"}
-            disabled={!canPutOnline}
+            selected={displayed === "ONLINE"}
+            disabled={!(canPutOnline || (isPending && status === "ONLINE"))}
             disabledReason={putOnlineReason}
             onClick={() => { onChange("ONLINE"); setOpen(false); }}
           />
           <StatusOption
             label="Hors ligne"
             dotColor="#9CA3AF"
-            selected={status === "OFFLINE"}
-            disabled={!canPutOffline}
+            selected={displayed === "OFFLINE"}
+            disabled={!(canPutOffline || (isPending && status === "OFFLINE"))}
             onClick={() => { onChange("OFFLINE"); setOpen(false); }}
           />
           <StatusOption
             label="Archivé"
             dotColor="#F59E0B"
-            selected={status === "ARCHIVED"}
-            disabled={!canArchive}
+            selected={displayed === "ARCHIVED"}
+            disabled={!(canArchive || (isPending && status === "ARCHIVED"))}
             onClick={() => { onChange("ARCHIVED"); setOpen(false); }}
           />
         </div>,
@@ -2864,6 +2891,7 @@ function ProductRow({
   onCommitCell,
   isDeleting = false,
   onRowStatus,
+  pendingStatus,
   onRowDelete,
   onRowSync,
 }: {
@@ -2889,6 +2917,7 @@ function ProductRow({
   onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
   isDeleting?: boolean;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  pendingStatus?: "ONLINE" | "OFFLINE" | "ARCHIVED";
   onRowDelete: (productId: string) => void;
   onRowSync: (productId: string) => void;
 }) {
@@ -3929,6 +3958,7 @@ function ProductRow({
               ) : (
                 <StatusBadge
                   status={product.status as "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING"}
+                  pendingStatus={pendingStatus}
                   canPutOnline={eligibility.canPutOnline}
                   canPutOffline={eligibility.canPutOffline}
                   canArchive={eligibility.canArchive}
@@ -4661,7 +4691,7 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, pendingStatuses, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -4687,6 +4717,7 @@ function TableWithTopScroll({
   onCommitCell: (variantId: string, field: VariantField, newValue: VariantEditValue, originalValue: VariantEditValue) => void;
   deletingIds: Set<string>;
   onRowStatus: (productId: string, status: "ONLINE" | "OFFLINE" | "ARCHIVED") => void;
+  pendingStatuses: Record<string, "ONLINE" | "OFFLINE" | "ARCHIVED">;
   onRowDelete: (productId: string) => void;
   onRowSync: (productId: string) => void;
 }) {
@@ -4743,6 +4774,7 @@ function TableWithTopScroll({
                 onCommitCell={onCommitCell}
                 isDeleting={deletingIds.has(product.id)}
                 onRowStatus={onRowStatus}
+                pendingStatus={pendingStatuses[product.id]}
                 onRowDelete={onRowDelete}
                 onRowSync={onRowSync}
               />
@@ -4784,6 +4816,13 @@ export default function AdminProductsTable({
   // produits successivement dans la modale variantes.
   const [dirtyEdits, setDirtyEdits] = useState<VariantDirtyEdits>({});
   const [applyingVariantEdits, setApplyingVariantEdits] = useState(false);
+  // ─── Changements de statut en attente (badge unitaire) ────────────────
+  // Le badge dans le tableau n'applique plus immédiatement : il pose une
+  // entrée ici. Le bandeau flottant du bas déclenche l'application groupée
+  // (une seule confirmation OTP pour tous les archivages, une seule modale
+  // marketplace regroupant tous les produits).
+  const [pendingStatuses, setPendingStatuses] = useState<Record<string, "ONLINE" | "OFFLINE" | "ARCHIVED">>({});
+  const [applyingPendingStatuses, setApplyingPendingStatuses] = useState(false);
   const [isPending, startTransition] = useTransition();
   const { isFiltering } = useFilterPending();
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -4870,6 +4909,52 @@ export default function AdminProductsTable({
     const p = allProducts.find((prod) => prod.colors.some((c) => c.id === variantId));
     if (p) affectedProductIds.add(p.id);
   }
+
+  // ─── File d'attente des changements de statut (badge unitaire) ─────────
+  // Cliquer sur le badge d'une ligne pose une modif ici au lieu de l'appliquer
+  // tout de suite. Si la cliente reclique sur le statut initial, la modif est
+  // retirée (revert).
+  const handleQueueStatus = useCallback(
+    (productId: string, nextStatus: "ONLINE" | "OFFLINE" | "ARCHIVED") => {
+      const product = allProducts.find((p) => p.id === productId);
+      if (!product) return;
+      setPendingStatuses((prev) => {
+        const next = { ...prev };
+        if (product.status === nextStatus) {
+          delete next[productId];
+        } else {
+          next[productId] = nextStatus;
+        }
+        return next;
+      });
+    },
+    [allProducts],
+  );
+  const handleCancelPendingStatuses = useCallback(() => {
+    setPendingStatuses({});
+  }, []);
+  const pendingStatusEntries = Object.entries(pendingStatuses) as Array<
+    [string, "ONLINE" | "OFFLINE" | "ARCHIVED"]
+  >;
+  // Purge automatique : si un produit vient d'être mis à jour ailleurs et se
+  // retrouve déjà au statut cible, on retire l'entrée pour ne pas afficher
+  // « à appliquer » à côté d'un statut qui n'a plus rien à changer.
+  useEffect(() => {
+    if (pendingStatusEntries.length === 0) return;
+    const stale: string[] = [];
+    for (const [id, target] of pendingStatusEntries) {
+      const p = allProducts.find((x) => x.id === id);
+      if (!p || p.status === target) stale.push(id);
+    }
+    if (stale.length === 0) return;
+    setPendingStatuses((prev) => {
+      const next = { ...prev };
+      for (const id of stale) delete next[id];
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allProducts, pendingStatusEntries.length]);
+  const pendingStatusCount = pendingStatusEntries.length;
 
   // Enregistre toutes les modifs (variante par variante), puis propose la
   // propagation aux marketplaces via une seule pop-up qui liste les produits
@@ -5112,6 +5197,185 @@ export default function AdminProductsTable({
     router,
     toast,
     confirm,
+  ]);
+
+  // Applique tous les changements de statut posés via badge unitaire.
+  // Regroupe par statut cible → une seule confirmation, un seul OTP pour tous
+  // les archivages, une seule modale marketplace pour tous les produits.
+  const handleApplyAllPendingStatuses = useCallback(async () => {
+    if (pendingStatusCount === 0 || applyingPendingStatuses) return;
+    const snapshot = { ...pendingStatuses };
+    const groups = groupPendingStatuses(allProducts, snapshot);
+    const totalToApply = countPendingStatusChanges(groups);
+    if (totalToApply === 0) {
+      setPendingStatuses({});
+      return;
+    }
+
+    const parts: string[] = [];
+    if (groups.ONLINE.length > 0) parts.push(`${groups.ONLINE.length} en ligne`);
+    if (groups.OFFLINE.length > 0) parts.push(`${groups.OFFLINE.length} hors ligne`);
+    if (groups.ARCHIVED.length > 0) parts.push(`${groups.ARCHIVED.length} archivé${groups.ARCHIVED.length > 1 ? "s" : ""}`);
+    const confirmed = await confirm({
+      type: groups.ARCHIVED.length > 0 ? "warning" : "info",
+      title: `Appliquer ${totalToApply} changement${totalToApply > 1 ? "s" : ""} de statut ?`,
+      message: `Détail : ${parts.join(" · ")}.`,
+      confirmLabel: "Appliquer",
+      cancelLabel: "Annuler",
+    });
+    if (!confirmed) return;
+
+    // OTP unique pour tous les archivages en une seule fois.
+    let otpForServer: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null = null;
+    if (groups.ARCHIVED.length > 0) {
+      const otpLabels = groups.ARCHIVED
+        .map((id) => {
+          const p = allProducts.find((x) => x.id === id);
+          return p ? { reference: p.reference, name: p.name } : null;
+        })
+        .filter((x): x is { reference: string; name: string } => x !== null);
+      const otpRes = await otpConfirm({
+        action: "archive",
+        title: `Archiver ${groups.ARCHIVED.length} produit${groups.ARCHIVED.length > 1 ? "s" : ""}`,
+        message: "Un code de sécurité vient d'être envoyé sur votre boîte mail pro pour confirmer l'archivage.",
+        productIds: groups.ARCHIVED,
+        productLabels: otpLabels,
+        confirmLabel: "Archiver",
+      });
+      if (!otpRes.confirmed) return;
+      otpForServer = otpRes.otp;
+    }
+
+    setBulkMessage(null);
+    setApplyingPendingStatuses(true);
+    setBulkActionLabel(`Application de ${totalToApply} changement${totalToApply > 1 ? "s" : ""} de statut…`);
+    const successIds: string[] = [];
+    const errors: Array<{ reference: string; reason: string }> = [];
+    try {
+      for (const status of ["ONLINE", "OFFLINE", "ARCHIVED"] as const) {
+        const ids = groups[status];
+        if (ids.length === 0) continue;
+        const otpArg = status === "ARCHIVED" ? otpForServer : null;
+        const result = await bulkUpdateProductStatus(ids, status, otpArg);
+        successIds.push(...result.success);
+        errors.push(...result.errors);
+      }
+
+      const msgs: string[] = [];
+      if (successIds.length > 0) {
+        msgs.push(`${successIds.length} statut${successIds.length > 1 ? "s" : ""} mis à jour`);
+      }
+      if (errors.length > 0) {
+        const refs = errors.map((e) => `${e.reference} (${e.reason})`).join(", ");
+        msgs.push(`Erreurs : ${refs}`);
+      }
+      setBulkMessage({
+        type: errors.length > 0 ? "error" : "success",
+        text: msgs.join(" — "),
+      });
+      setPendingStatuses({});
+      router.refresh();
+    } catch (e) {
+      setBulkMessage({ type: "error", text: e instanceof Error ? e.message : "Erreur" });
+    } finally {
+      setBulkActionLabel(null);
+      setApplyingPendingStatuses(false);
+    }
+
+    // Une seule modale marketplace pour tous les produits qui ont bougé,
+    // regroupant PFS / Ankor / eFashion / Faire / Orderchamp / Microstore.
+    if (successIds.length > 0) {
+      const pfsCandidates = hasPfsConfig
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.pfsProductId)
+        : [];
+      const showAnkorstoreLocal = hasAnkorstoreConfig && ankorstoreEnabled;
+      const ankorsCandidates = showAnkorstoreLocal
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.ankorsProductId)
+        : [];
+      const showEfashionLocal = hasEfashionConfig && efashionEnabled;
+      const efashionCandidates = showEfashionLocal
+        ? allProducts.filter(
+            (p) =>
+              successIds.includes(p.id) &&
+              (p.colors ?? []).some((c) => c.efashionProductId != null),
+          )
+        : [];
+      const showFaireLocal = hasFaireConfig && faireEnabled;
+      const faireCandidates = showFaireLocal
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.faireProductId)
+        : [];
+      const showOrderchampLocal = hasOrderchampConfig && orderchampEnabled;
+      const orderchampCandidates = showOrderchampLocal
+        ? allProducts.filter((p) => successIds.includes(p.id) && p.orderchampProductId)
+        : [];
+      const microstoreCandidates = hasMicrostoreConfig
+        ? allProducts.filter(
+            (p) =>
+              successIds.includes(p.id)
+              && p.microstoreLastPushedAt != null
+              && isMicrostorePropagationEligible(p),
+          )
+        : [];
+
+      const candidates: MarketplaceCandidates = {
+        pfs: pfsCandidates,
+        ankorstore: ankorsCandidates,
+        efashion: efashionCandidates,
+        faire: faireCandidates,
+        orderchamp: orderchampCandidates,
+        microstore: microstoreCandidates,
+      };
+      if (hasAnyCandidate(candidates)) {
+        const firstName = allProducts.find((p) => p.id === successIds[0])?.name;
+        const options = await askMarketplaceOptions({
+          count: successIds.length,
+          firstProductName: firstName,
+          productIds: allCandidateIds(candidates),
+          showPfs: pfsCandidates.length > 0,
+          showAnkorstore: ankorsCandidates.length > 0,
+          showEfashion: efashionCandidates.length > 0,
+          showFaire: faireCandidates.length > 0,
+          showOrderchamp: orderchampCandidates.length > 0,
+          showMicrostore: microstoreCandidates.length > 0,
+          showBoutique: false,
+          defaultAllChecked: true,
+          title:
+            successIds.length === 1
+              ? "Propager le nouveau statut ?"
+              : `Propager le nouveau statut à ${successIds.length} produits ?`,
+          subtitle:
+            "Le statut sera appliqué sur les marketplaces cochées pour les produits déjà publiés.",
+          eyebrow: "Propagation statut",
+          confirmLabel: "Mettre à jour",
+        });
+        if (options) {
+          if (options.microstore) nudgeRailWidget("microstore-upload");
+          const inputs = buildMarketplaceInputs(candidates, options);
+          if (inputs.length > 0) enqueuePfs(inputs);
+        }
+      }
+    }
+  }, [
+    pendingStatusCount,
+    applyingPendingStatuses,
+    pendingStatuses,
+    allProducts,
+    confirm,
+    otpConfirm,
+    router,
+    hasPfsConfig,
+    hasAnkorstoreConfig,
+    ankorstoreEnabled,
+    hasEfashionConfig,
+    efashionEnabled,
+    hasFaireConfig,
+    faireEnabled,
+    hasOrderchampConfig,
+    orderchampEnabled,
+    hasMicrostoreConfig,
+    askMarketplaceOptions,
+    enqueuePfs,
+    nudgeRailWidget,
   ]);
 
   // Sélection filtrée sur les vrais brouillons (OFFLINE + fiche incomplète).
@@ -6498,7 +6762,7 @@ export default function AdminProductsTable({
 
       {/* Tableau avec double scrollbar (haut + bas) */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={(id, status) => handleBulkStatus(status, [id])} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={handleQueueStatus} pendingStatuses={pendingStatuses} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>
@@ -6553,6 +6817,61 @@ export default function AdminProductsTable({
                 </svg>
               )}
               {applyingVariantEdits ? "Enregistrement…" : "Appliquer les modifications"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bandeau flottant — changements de statut en attente (badge unitaire).
+          Même pattern visuel que le bandeau variantes, empilé au-dessus si
+          les deux sont actifs en même temps (offset bottom géré via style). */}
+      {pendingStatusCount > 0 && (
+        <div
+          className="variant-apply-bar-floating"
+          style={totalDirtyVariants > 0 ? { bottom: 104 } : undefined}
+        >
+          <div className="variant-apply-bar">
+            <div className="flex items-center gap-3 flex-1 min-w-0 relative z-10">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 ring-1 ring-amber-400/40 flex items-center justify-center flex-shrink-0">
+                <span
+                  className="w-2.5 h-2.5 rounded-full bg-amber-400"
+                  style={{ animation: "variant-dirty-pulse 1.8s ease-in-out infinite" }}
+                />
+              </div>
+              <div className="leading-tight min-w-0">
+                <div className="font-heading font-bold text-[15px] text-white truncate">
+                  {pendingStatusCount} changement{pendingStatusCount > 1 ? "s" : ""} de statut en attente
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  Ces changements ne sont pas encore enregistrés
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelPendingStatuses}
+              disabled={applyingPendingStatuses}
+              className="variant-apply-btn-ghost relative z-10"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyAllPendingStatuses}
+              disabled={applyingPendingStatuses}
+              className="variant-apply-btn-primary relative z-10"
+            >
+              {applyingPendingStatuses ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+              {applyingPendingStatuses ? "Enregistrement…" : "Appliquer les modifications"}
             </button>
           </div>
         </div>

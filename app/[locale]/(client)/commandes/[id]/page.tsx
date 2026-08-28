@@ -5,12 +5,13 @@ import { Link, redirect } from "@/i18n/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
-import OrderColumnsView from "@/components/client/orders/OrderColumnsView";
-import CancelOrderButton from "@/components/client/CancelOrderButton";
-import ReorderButton from "@/components/client/orders/ReorderButton";
-import { STATUS_CONFIG, getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 import { getTranslations } from "next-intl/server";
 import { floorMoney } from "@/lib/order-totals";
+import { getOrderStatusVisual } from "@/lib/order-status-visual";
+import OrderContent from "@/components/admin/orders/OrderContent";
+import CancelOrderButton from "@/components/client/CancelOrderButton";
+import ReorderButton from "@/components/client/orders/ReorderButton";
+import { getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -22,24 +23,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     title: tMeta("orderDetailTitle", { shopName }),
     robots: { index: false, follow: false },
   };
-}
-
-// Mapping regex → logo SVG local (aligné avec CheckoutClient)
-const CARRIER_LOGOS: Array<{ pattern: RegExp; path: string; bg?: string }> = [
-  { pattern: /chronopost/i,     path: "/uploads/carriers/chronopost.svg" },
-  { pattern: /colissimo/i,      path: "/uploads/carriers/colissimo.svg" },
-  { pattern: /dhl/i,            path: "/uploads/carriers/dhl.svg", bg: "#FFCC00" },
-  { pattern: /dpd/i,            path: "/uploads/carriers/dpd.svg" },
-  { pattern: /\bgls\b/i,        path: "/uploads/carriers/gls.svg" },
-  { pattern: /mondial.?relay/i, path: "/uploads/carriers/mondial-relay.svg" },
-];
-
-function getCarrierLogo(name: string | null | undefined): { path: string; bg?: string } | null {
-  if (!name) return null;
-  for (const entry of CARRIER_LOGOS) {
-    if (entry.pattern.test(name)) return { path: entry.path, bg: entry.bg };
-  }
-  return null;
 }
 
 export default async function CommandeDetailPage({
@@ -63,476 +46,281 @@ export default async function CommandeDetailPage({
 
   if (!order) notFound();
 
-  const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.PENDING;
-  const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName, order.eeTrackingId) : null;
-  const date = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
+  // Pastilles couleur pour la colonne « Couleur » du tableau
+  const distinctColorNames = Array.from(
+    new Set(order.items.map((i) => i.colorName).filter((n): n is string => !!n)),
+  );
+  const colorRows = distinctColorNames.length
+    ? await prisma.color.findMany({
+        where: { name: { in: distinctColorNames } },
+        select: { name: true, hex: true, patternImage: true },
+      })
+    : [];
+  const colorMap: Record<string, { hex: string | null; patternImage: string | null }> = {};
+  for (const c of colorRows) {
+    if (!colorMap[c.name]) colorMap[c.name] = { hex: c.hex, patternImage: c.patternImage };
+  }
+
+  const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
+  const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName ?? "", order.eeTrackingId) : null;
+  const statusVisual = getOrderStatusVisual(order.status);
+
+  // Formule additive strictement identique au checkout, pour éviter les écarts d'1 cent.
+  const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
+  const carrier = Number(order.carrierPrice);
+  const paidTotalTTC = floorMoney(paidHT + carrier + (paidHT + carrier) * order.tvaRate);
+
+  const dateFmt = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
+    weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
-  const dateShort = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
-    day: "numeric",
-    month: "short",
-  });
-  const timeShort = new Date(order.createdAt).toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-  // Étapes de suivi
-  const steps: { status: string; label: string; done: boolean; active: boolean }[] = [
-    { status: "PENDING",   label: t("statusReceived"),     done: true, active: order.status === "PENDING" },
-    { status: "VALIDATED", label: t("statuses.VALIDATED"), done: order.status === "VALIDATED" || order.status === "SHIPPED", active: order.status === "VALIDATED" },
-    { status: "SHIPPED",   label: t("statuses.SHIPPED"),   done: order.status === "SHIPPED", active: order.status === "SHIPPED" },
-  ];
-  const isCancelled = order.status === "CANCELLED";
-  const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
-  const carrierLogo = getCarrierLogo(order.carrierName);
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-6 lg:p-8 w-full space-y-6">
-      {/* ───────── Fil d'Ariane ───────── */}
-      <div className="flex items-center gap-2 text-sm font-body text-text-muted">
-        <Link href="/commandes" className="hover:text-text-primary transition-colors">
-          {t("title")}
-        </Link>
-        <span>/</span>
-        <span className="text-text-primary font-medium">{order.orderNumber}</span>
-      </div>
+    <div className="max-w-[1600px] mx-auto p-4 md:p-6 lg:p-8 w-full space-y-8">
+      {/* Retour */}
+      <Link
+        href="/commandes"
+        className="text-xs text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 transition-colors w-fit"
+      >
+        ← {t("backToOrders")}
+      </Link>
 
-      {/* ───────── En-tête ───────── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="font-heading text-xl font-semibold text-text-primary">{order.orderNumber}</h1>
-            <span className={`${cfg.badgeClass} text-xs`}>{t(`statuses.${order.status}`)}</span>
-          </div>
-          <p className="text-sm text-text-secondary font-body mt-1">
-            {date} · {totalArticles} article{totalArticles > 1 ? "s" : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {order.status === "PENDING" && (
-            <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
-          )}
-          <ReorderButton orderId={order.id} />
-          {order.status !== "CANCELLED" && (
-            <Link
-              href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-body font-medium text-text-secondary border border-border rounded-lg hover:bg-bg-secondary transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-              </svg>
-              {t("createClaim")}
-            </Link>
-          )}
-        </div>
-      </div>
+      {/* HERO aurora sky (identique admin, dimensions élargies) */}
+      <section className="relative overflow-hidden rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-white px-8 sm:px-12 py-10">
+        <div className="pointer-events-none absolute -top-16 -right-16 w-64 h-64 rounded-full bg-sky-200/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-10 w-80 h-80 rounded-full bg-indigo-200/20 blur-3xl" />
 
-      {/* ───────── Timeline suivi (ardoise, aligné OrdersTableClient) ───────── */}
-      {!isCancelled && (
-        <section className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5 md:p-6">
-          <div className="text-[11px] uppercase tracking-widest text-text-muted mb-5 text-center font-semibold">
-            {t("orderProgress")}
-          </div>
-          <div className="grid grid-cols-3 gap-4 relative">
-            {/* Ligne de fond */}
-            <div className="absolute top-4 left-[16.66%] right-[16.66%] h-0.5 bg-border" aria-hidden="true" />
-            {/* Ligne remplie selon avancement */}
-            <div
-              className="absolute top-4 left-[16.66%] h-0.5 bg-text-secondary transition-all duration-500"
-              style={{ width: `${Math.max(0, (steps.filter((s) => s.done).length - 1) / (steps.length - 1) * 66.66)}%` }}
-              aria-hidden="true"
-            />
-
-            {steps.map((step, i) => {
-              const state = step.active ? "active" : step.done ? "done" : "todo";
-              const dotClass =
-                state === "active"
-                  ? "bg-bg-dark text-white shadow-[0_4px_12px_rgba(24,24,27,0.25)]"
-                  : state === "done"
-                    ? "bg-text-secondary text-white"
-                    : "bg-bg-tertiary text-text-muted border border-dashed border-border-dark";
-              return (
-                <div key={step.status} className="text-center relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-heading text-xs font-bold mx-auto mb-3 ${dotClass}`}>
-                    {step.done && !step.active ? (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      i + 1
-                    )}
-                  </div>
-                  <div className={`text-sm font-heading font-semibold ${state === "active" ? "text-text-primary" : state === "done" ? "text-text-secondary" : "text-text-muted"}`}>
-                    {step.label}
-                  </div>
-                  {step.active && (
-                    <div className="text-[10px] text-text-muted mt-0.5">
-                      {step.status === "PENDING" ? `${dateShort} · ${timeShort}` : ""}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Numéro de suivi transporteur (si expédiée) */}
-          {order.eeTrackingId && (
-            <div className="mt-6 pt-5 border-t border-border flex flex-wrap items-center gap-3 justify-between">
-              <div className="flex items-center gap-3">
-                <CarrierLogoBox name={order.carrierName} />
-                <div>
-                  <p className="text-xs font-body text-text-muted uppercase tracking-widest font-semibold">
-                    {t("trackingNumber")}
-                  </p>
-                  <p className="font-mono text-sm font-medium text-text-primary mt-0.5">{order.eeTrackingId}</p>
-                </div>
-              </div>
-              {trackingUrl && (
-                <a
-                  href={trackingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-xs font-body font-medium rounded-lg transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                  </svg>
-                  {t("trackOn", { carrier: order.carrierName })}
-                </a>
+        <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700 inline-flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${statusVisual.dot}`} />
+              {t("orderNumber")}
+            </p>
+            <h1 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-bold text-slate-900 mt-2">
+              {order.orderNumber}
+            </h1>
+            <p className="text-base text-slate-600 mt-2 font-body">
+              {t("placedOn", { date: dateFmt })} · {totalArticles} {totalArticles > 1 ? t("items_plural") : t("items")}
+            </p>
+            <div className="flex flex-wrap gap-2.5 mt-4">
+              <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${statusVisual.pill}`}>
+                <span className={`w-2 h-2 rounded-full ${statusVisual.dot}`} />
+                {t(`statuses.${order.status}`)}
+              </span>
+              {order.carrierName && (
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
+                  🚚 {order.carrierName}
+                </span>
               )}
             </div>
-          )}
-        </section>
-      )}
-
-      {/* ───────── 3 cards infos : Livraison + Paiement + Facture ───────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Livraison */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0zM13 16V5a1 1 0 00-1-1H4a1 1 0 00-1 1v11a1 1 0 001 1h1m8 0h6m-6-8h4l3 5v3a1 1 0 01-1 1h-2" />
-            </svg>
-            <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">
-              {t("deliveryLabel")}
-            </span>
-          </div>
-          {order.carrierName && (
-            <div className="flex items-center gap-2 mb-2">
-              <CarrierLogoBox name={order.carrierName} size="sm" />
-              <span className="text-sm font-heading font-semibold text-text-primary truncate">{order.carrierName}</span>
-            </div>
-          )}
-          <p className="text-sm text-text-primary font-body font-medium mt-2">
-            {order.shipCompany || `${order.shipFirstName} ${order.shipLastName}`}
-          </p>
-          <p className="text-xs text-text-secondary font-body leading-relaxed">
-            {order.shipAddress1}
-            {order.shipAddress2 ? `, ${order.shipAddress2}` : ""}
-            <br />
-            {order.shipZipCode} {order.shipCity}, {order.shipCountry}
-          </p>
-          {order.eeTrackingId ? (
-            <div className="text-[11px] text-text-muted pt-3 mt-3 border-t border-border font-mono">
-              {order.eeTrackingId}
-            </div>
-          ) : (
-            <div className="text-[11px] text-text-muted pt-3 mt-3 border-t border-border">
-              {t("trackingSoon")}
-            </div>
-          )}
-        </div>
-
-        {/* Paiement */}
-        <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
-            </svg>
-            <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">
-              {t("paymentLabel")}
-            </span>
-          </div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-6 rounded bg-bg-dark flex items-center justify-center text-white text-[9px] font-heading font-bold italic" aria-hidden="true">
-              CB
-            </div>
-            <span className="text-sm font-heading font-semibold text-text-primary">{t("paidByCard")}</span>
-          </div>
-          <p className="text-xs text-text-secondary font-body">{t("securedByStripe")}</p>
-          <div className="pt-3 mt-3 border-t border-border flex items-baseline justify-between">
-            <span className="text-xs text-text-muted">{t("amountPaid")}</span>
-            <span className="font-heading text-lg font-bold text-text-primary tabular-nums">
-              {(() => {
-                const paid = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT);
-                const paidTTC = floorMoney((paid + Number(order.carrierPrice)) * (1 + order.tvaRate));
-                return `${paidTTC.toFixed(2)} €`;
-              })()}
-            </span>
-          </div>
-        </div>
-
-        {/* Facture — état + téléchargement */}
-        <div className={`bg-bg-primary border rounded-2xl shadow-sm p-5 ${order.invoicePath ? "border-border" : "border-l-4 border-l-text-primary border-y-border border-r-border"}`}>
-          <div className="flex items-center gap-2 mb-3">
-            <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">
-              {t("invoice")}
-            </span>
-          </div>
-          {order.invoicePath ? (
-            <>
-              <p className="text-sm text-text-primary font-body font-semibold mb-1">{t("invoiceReady")}</p>
-              <p className="text-xs text-text-secondary font-body mb-3">{t("invoiceReadyDesc")}</p>
-              <a
-                href={`/api/client/commandes/${order.id}/invoice`}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-xs font-body font-medium rounded-lg transition-colors"
-              >
-                <DocIcon /> {t("downloadInvoice")}
-              </a>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-text-primary font-body font-semibold mb-1">{t("invoiceSoon")}</p>
-              <p className="text-xs text-text-secondary font-body leading-relaxed">{t("invoiceSoonDesc")}</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ───────── Documents (tuiles) ───────── */}
-      <section className="bg-bg-primary border border-border rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-text-muted font-semibold">
-            {t("documentsLabel")}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border">
-          {/* Bon de commande */}
-          <div className="p-5 space-y-2.5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-bg-tertiary border border-border flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-heading font-semibold text-text-primary">{t("orderForm")}</p>
-                <p className="text-xs text-text-muted mt-0.5">{t("orderFormDesc")}</p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 pt-1">
-              <a
-                href={`/api/client/commandes/${order.id}/pdf`}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors"
-              >
-                <DocIcon /> {t("downloadOrderWithPrices")}
-              </a>
-              <a
-                href={`/api/client/commandes/${order.id}/pdf?noPrices=1`}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-border text-text-primary text-sm font-body font-medium rounded-lg hover:bg-bg-secondary transition-colors"
-              >
-                <DocIcon /> {t("downloadOrderNoPrices")}
-              </a>
-            </div>
           </div>
 
-          {/* Facture */}
-          <div className="p-5 space-y-2.5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-bg-tertiary border border-border flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-heading font-semibold text-text-primary">{t("invoice")}</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  {order.invoicePath ? t("invoiceAvailable") : t("invoiceUnavailable")}
-                </p>
-              </div>
-            </div>
-            {order.invoicePath && (
-              <a
-                href={`/api/client/commandes/${order.id}/invoice`}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors"
-              >
-                <DocIcon /> {t("downloadInvoice")}
-              </a>
+          {/* Actions client (à droite du hero, comme OrderStatusActions admin) */}
+          <div className="flex flex-wrap gap-2">
+            {order.status === "PENDING" && (
+              <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} size="md" />
             )}
-          </div>
-
-          {/* Avoir */}
-          <div className="p-5 space-y-2.5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-bg-tertiary border border-border flex items-center justify-center shrink-0">
-                <svg className="w-4 h-4 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 8h6m-6 4h6m-6 4h6m-9 5h12a2 2 0 002-2V5a2 2 0 00-2-2H6a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-heading font-semibold text-text-primary">{t("creditNote")}</p>
-                <p className="text-xs text-text-muted mt-0.5">
-                  {order.creditNotePath ? t("creditNoteAvailable") : t("noCreditNote")}
-                </p>
-              </div>
-            </div>
-            {order.creditNotePath && (
-              <a
-                href={`/api/client/commandes/${order.id}/credit-note`}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-bg-dark hover:bg-primary-hover text-text-inverse text-sm font-body font-medium rounded-lg transition-colors"
+            <ReorderButton orderId={order.id} size="md" />
+            {order.status !== "CANCELLED" && (
+              <Link
+                href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-white transition-colors"
               >
-                <DocIcon /> {t("downloadCreditNote")}
-              </a>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                {t("createClaim")}
+              </Link>
             )}
           </div>
         </div>
       </section>
 
-      {/* ───────── Adresses (livraison + facturation) ───────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ClientAddressCard
-          title={t("deliveryAddress")}
-          company={order.shipCompany ?? undefined}
-          firstName={order.shipFirstName}
-          lastName={order.shipLastName}
-          address1={order.shipAddress1}
-          address2={order.shipAddress2 ?? undefined}
-          zipCode={order.shipZipCode}
-          city={order.shipCity}
-          country={order.shipCountry}
-          email={order.clientEmail}
-          phone={order.clientPhone}
-          vatNumber={order.clientVatNumber ?? undefined}
-          vatLabel={t("vatNumberLabel")}
-        />
-        <ClientAddressCard
-          title={t("billingInfo")}
-          company={order.clientCompany}
-          firstName={order.shipFirstName}
-          lastName={order.shipLastName}
-          address1={order.shipAddress1}
-          address2={order.shipAddress2 ?? undefined}
-          zipCode={order.shipZipCode}
-          city={order.shipCity}
-          country={order.shipCountry}
-          email={order.clientEmail}
-          phone={order.clientPhone}
-          siret={order.clientSiret ?? undefined}
-          siretLabel={t("siretLabel")}
-          vatNumber={order.clientVatNumber ?? undefined}
-          vatLabel={t("vatNumberLabel")}
-        />
-      </div>
+      {/* Informations de la commande (identique admin, agrandi) */}
+      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div className="px-7 sm:px-8 py-6 border-b border-slate-100 flex items-center gap-4">
+          <div className="w-1.5 h-10 bg-slate-900 rounded-full" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              {t("coordinatesEyebrow")}
+            </p>
+            <h2 className="font-heading text-xl sm:text-2xl font-semibold text-slate-900 mt-1">{t("orderInfoTitle")}</h2>
+          </div>
+        </div>
 
-      {/* ───────── Vue 3 colonnes + Résumé de la commande + Résumé financier ───────── */}
-      {(() => {
-        const currentSubtotalHT = Number(order.subtotalHT);
-        const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentSubtotalHT;
-        const carrierPriceNum = Number(order.carrierPrice);
-        const tvaRateNum = order.tvaRate;
-        const tvaProducts = floorMoney(currentSubtotalHT * tvaRateNum);
-        const tvaShipping = floorMoney(carrierPriceNum * tvaRateNum);
-        const paidTTC = floorMoney((paidHT + carrierPriceNum) * (1 + tvaRateNum));
-        const finalTTC = floorMoney((currentSubtotalHT + carrierPriceNum) * (1 + tvaRateNum));
-        return (
-          <OrderColumnsView
-            orderNumber={order.orderNumber}
-            paidTTC={paidTTC}
-            finalTTC={finalTTC}
-            subtotalHT={currentSubtotalHT}
-            tvaProducts={tvaProducts}
-            carrierPrice={carrierPriceNum}
-            tvaShipping={tvaShipping}
-            carrierName={order.carrierName}
-            tvaRate={tvaRateNum}
-            clientNotifiedAt={order.clientNotifiedAt ? order.clientNotifiedAt.toISOString() : null}
-            hasCreditNote={!!order.creditNotePath}
-            creditNoteHref={`/api/client/commandes/${order.id}/credit-note`}
-            items={order.items.map((item) => ({
-              id: item.id,
-              productName: item.productName,
-              productRef: item.productRef,
-              colorName: item.colorName,
-              imagePath: item.imagePath,
-              saleType: item.saleType,
-              packQty: item.packQty,
-              size: item.size,
-              sizesJson: item.sizesJson,
-              unitPrice: Number(item.unitPrice),
-              quantity: item.quantity,
-              lineTotal: Number(item.lineTotal),
-              isCompensation: item.isCompensation,
-            }))}
-            modifications={order.itemModifications.map((mod) => {
-              const item = order.items.find((i) => i.id === mod.orderItemId);
-              return {
-                orderItemId: mod.orderItemId,
-                originalQuantity: mod.originalQuantity,
-                newQuantity: mod.newQuantity,
-                originalUnitPrice: mod.originalUnitPrice ? Number(mod.originalUnitPrice) : null,
-                newUnitPrice: mod.newUnitPrice ? Number(mod.newUnitPrice) : null,
-                reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST" | "COMMERCIAL_GESTURE",
-                priceDifference: Number(mod.priceDifference),
-                createdAt: mod.createdAt.toISOString(),
-                productName: item?.productName ?? "",
-                productRef: item?.productRef ?? "",
-                colorName: item?.colorName ?? "",
-                imagePath: item?.imagePath ?? null,
-                unitPrice: Number(item?.unitPrice ?? 0),
-              };
-            })}
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+          <InfoColumn
+            title={t("billing")}
+            company={order.clientCompany}
+            firstName={order.shipFirstName}
+            lastName={order.shipLastName}
+            address1={order.shipAddress1}
+            address2={order.shipAddress2 ?? undefined}
+            zipCode={order.shipZipCode}
+            city={order.shipCity}
+            country={order.shipCountry}
+            email={order.clientEmail}
+            phone={order.clientPhone}
+            siret={order.clientSiret ?? undefined}
+            vatNumber={order.clientVatNumber ?? undefined}
+            siretLabel={t("siretLabel")}
+            vatLabel={t("vatNumberLabel")}
           />
-        );
-      })()}
+          <InfoColumn
+            title={t("delivery")}
+            company={order.shipCompany ?? undefined}
+            firstName={order.shipFirstName}
+            lastName={order.shipLastName}
+            address1={order.shipAddress1}
+            address2={order.shipAddress2 ?? undefined}
+            zipCode={order.shipZipCode}
+            city={order.shipCity}
+            country={order.shipCountry}
+            email={order.clientEmail}
+            phone={order.clientPhone}
+          />
+        </div>
+      </section>
 
-      {/* ───────── Actions bas de page ───────── */}
-      <div className="flex items-center justify-between gap-3 pt-2 flex-wrap">
-        <Link
-          href="/commandes"
-          className="inline-flex items-center gap-1.5 text-sm font-body text-text-secondary hover:text-text-primary transition-colors"
+      {/* Barre actions client (identique layout admin OrderQuickActions, mais téléchargement seulement) */}
+      <div className="flex flex-wrap gap-2">
+        <a
+          href={`/api/client/commandes/${order.id}/pdf`}
+          target="_blank"
+          className="inline-flex items-center gap-2 bg-slate-900 text-white text-base font-medium px-5 py-3 rounded-xl hover:bg-slate-800"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-          </svg>
-          {t("backToOrders")}
-        </Link>
+          <DocIcon /> {t("goodsWithPrices")}
+        </a>
+        <a
+          href={`/api/client/commandes/${order.id}/pdf?noPrices=1`}
+          target="_blank"
+          className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-800 text-base font-medium px-5 py-3 rounded-xl hover:bg-slate-50"
+        >
+          <DocIcon /> {t("goodsWithoutPrices")}
+        </a>
+
+        {order.invoicePath ? (
+          <a
+            href={`/api/client/commandes/${order.id}/invoice`}
+            target="_blank"
+            className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-base font-medium px-5 py-3 rounded-xl hover:bg-emerald-100"
+          >
+            <CheckIcon /> {t("invoice")}
+          </a>
+        ) : (
+          <span
+            className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 text-slate-400 text-base font-medium px-5 py-3 rounded-xl cursor-not-allowed"
+            title={t("invoiceUnavailable")}
+          >
+            <DocIcon /> {t("invoice")}
+          </span>
+        )}
+
+        {order.creditNotePath ? (
+          <a
+            href={`/api/client/commandes/${order.id}/credit-note`}
+            target="_blank"
+            className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 text-base font-medium px-5 py-3 rounded-xl hover:bg-emerald-100"
+          >
+            <CheckIcon /> {t("creditNote")}
+          </a>
+        ) : (
+          <span
+            className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 text-slate-400 text-base font-medium px-5 py-3 rounded-xl cursor-not-allowed"
+            title={t("noCreditNote")}
+          >
+            <DocIcon /> {t("creditNote")}
+          </span>
+        )}
+
+        {trackingUrl && order.eeTrackingId && (
+          <a
+            href={trackingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-white border border-slate-200 text-slate-800 text-base font-medium px-5 py-3 rounded-xl hover:bg-slate-50"
+          >
+            <PackageIcon /> {t("trackParcel")}
+            <span className="text-[11px] font-mono text-slate-500 ml-1">{order.eeTrackingId}</span>
+          </a>
+        )}
       </div>
+
+      {/* Contenu de la commande + Résumé (composant admin en mode lecture seule) */}
+      <OrderContent
+        orderId={order.id}
+        readOnly={true}
+        items={order.items.map((item) => ({
+          id: item.id,
+          productName: item.productName,
+          productRef: item.productRef,
+          colorName: item.colorName,
+          imagePath: item.imagePath,
+          saleType: item.saleType,
+          packQty: item.packQty,
+          size: item.size,
+          sizesJson: item.sizesJson,
+          unitPrice: Number(item.unitPrice),
+          quantity: item.quantity,
+          lineTotal: Number(item.lineTotal),
+          isCompensation: item.isCompensation,
+          lineDiscountType: (item.lineDiscountType as "percent" | "fixed" | null) ?? null,
+          lineDiscountValue: item.lineDiscountValue ? Number(item.lineDiscountValue) : null,
+          lineDiscountAmt: item.lineDiscountAmt ? Number(item.lineDiscountAmt) : null,
+        }))}
+        modifications={order.itemModifications.map((mod) => ({
+          orderItemId: mod.orderItemId,
+          originalQuantity: mod.originalQuantity,
+          newQuantity: mod.newQuantity,
+          originalUnitPrice: mod.originalUnitPrice ? Number(mod.originalUnitPrice) : null,
+          newUnitPrice: mod.newUnitPrice ? Number(mod.newUnitPrice) : null,
+          reason: mod.reason as "OUT_OF_STOCK" | "CLIENT_REQUEST" | "COMMERCIAL_GESTURE",
+          priceDifference: Number(mod.priceDifference),
+          createdAt: mod.createdAt.toISOString(),
+        }))}
+        colorMap={colorMap}
+        totals={{
+          currentSubtotalHT: Number(order.subtotalHT),
+          paidSubtotalHT: order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT),
+          clientDiscountAmt: Number(order.clientDiscountAmt),
+          promoDiscount: Number(order.promoDiscount),
+          promoCode: order.promoCode,
+          subtotalBrutHT: order.subtotalBrutHT
+            ? Number(order.subtotalBrutHT)
+            : Number(order.subtotalHT) + Number(order.clientDiscountAmt) + Number(order.promoDiscount),
+          promoAutoDiscount: Number(order.promoAutoDiscount),
+          appliedPromotions: Array.isArray(order.appliedPromotions)
+            ? (order.appliedPromotions as Array<{
+                id: string;
+                name: string;
+                kind: "AUTO" | "CODE";
+                scope: string;
+                discountKind: string;
+                discountValue: number;
+                amountSaved: number;
+              }>)
+            : [],
+          carrierName: order.carrierName ?? "",
+          carrierPrice: Number(order.carrierPrice),
+          carrierBasePrice: order.carrierBasePrice ? Number(order.carrierBasePrice) : Number(order.carrierPrice),
+          carrierPromoDiscount: Number(order.carrierPromoDiscount),
+          carrierClientDiscount: Number(order.carrierClientDiscount),
+          tvaRate: order.tvaRate,
+          currentTotalTTC: Number(order.totalTTC),
+          paidTotalTTC,
+          paymentStatus: order.paymentStatus,
+        }}
+      />
     </div>
   );
 }
 
-/* ─────────── Composants internes ─────────── */
+/* ─────────────────────── Composants internes ─────────────────────── */
 
-function CarrierLogoBox({ name, size = "md" }: { name: string | null | undefined; size?: "md" | "sm" }) {
-  const logo = getCarrierLogo(name);
-  const dims = size === "sm" ? "w-12 h-8" : "w-14 h-9";
-  if (!logo) {
-    return (
-      <div className={`${dims} rounded-lg bg-bg-tertiary border border-border flex items-center justify-center text-base shrink-0`} aria-hidden="true">
-        📦
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`${dims} rounded-lg border border-border p-1 shrink-0 flex items-center justify-center overflow-hidden`}
-      style={{ background: logo.bg ?? "white" }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={logo.path} alt={name ?? ""} className="max-w-full max-h-full object-contain" />
-    </div>
-  );
-}
-
-function ClientAddressCard({
+function InfoColumn({
   title,
   company,
   firstName,
@@ -545,8 +333,8 @@ function ClientAddressCard({
   email,
   phone,
   siret,
-  siretLabel,
   vatNumber,
+  siretLabel,
   vatLabel,
 }: {
   title: string;
@@ -561,50 +349,54 @@ function ClientAddressCard({
   email: string;
   phone: string;
   siret?: string;
-  siretLabel?: string;
   vatNumber?: string;
+  siretLabel?: string;
   vatLabel?: string;
 }) {
   return (
-    <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-5">
-      <h2 className="text-[10px] uppercase tracking-widest text-text-muted font-heading font-semibold mb-3">{title}</h2>
+    <div className="p-7 sm:p-8 space-y-5">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{title}</p>
 
-      <div className="text-sm font-body space-y-0.5 text-text-primary leading-relaxed">
-        {company && <p className="font-semibold">{company}</p>}
-        <p>{firstName} {lastName}</p>
+      <div className="space-y-1 text-base text-slate-900 leading-relaxed">
+        {company && <p className="font-semibold text-lg">{company}</p>}
+        <p>
+          {firstName} {lastName}
+        </p>
         <p>{address1}</p>
         {address2 && <p>{address2}</p>}
-        <p>{zipCode} {city}</p>
+        <p>
+          {zipCode} {city}
+        </p>
         <p>{country}</p>
       </div>
 
-      <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-sm font-body">
-        <p className="flex items-center gap-2 text-text-secondary">
-          <MailIcon />
-          <a href={`mailto:${email}`} className="text-text-primary hover:underline truncate">
+      <div className="pt-4 border-t border-slate-100 space-y-2 text-sm text-slate-500">
+        <p className="flex items-center gap-2.5">
+          <span aria-hidden className="text-base">✉️</span>
+          <a href={`mailto:${email}`} className="text-slate-700 hover:underline truncate">
             {email}
           </a>
         </p>
-        <p className="flex items-center gap-2 text-text-secondary">
-          <PhoneIcon />
-          <a href={`tel:${phone}`} className="text-text-primary hover:underline">
+        <p className="flex items-center gap-2.5">
+          <span aria-hidden className="text-base">📞</span>
+          <a href={`tel:${phone}`} className="text-slate-700 hover:underline">
             {phone}
           </a>
         </p>
       </div>
 
       {(siret || vatNumber) && (
-        <div className="mt-3 pt-3 border-t border-border space-y-1.5 text-xs">
+        <div className="pt-4 border-t border-slate-100 space-y-2 text-sm">
           {siret && (
             <div className="flex justify-between gap-2">
-              <span className="text-text-muted font-semibold uppercase tracking-wider">{siretLabel ?? "SIRET"}</span>
-              <span className="text-text-primary font-mono">{siret}</span>
+              <span className="text-slate-500 font-semibold uppercase tracking-wider text-xs">{siretLabel ?? "SIRET"}</span>
+              <span className="text-slate-900 font-mono">{siret}</span>
             </div>
           )}
           {vatNumber && (
             <div className="flex justify-between gap-2">
-              <span className="text-text-muted font-semibold uppercase tracking-wider">{vatLabel ?? "TVA"}</span>
-              <span className="text-text-primary font-mono">{vatNumber}</span>
+              <span className="text-slate-500 font-semibold uppercase tracking-wider text-xs">{vatLabel ?? "TVA"}</span>
+              <span className="text-slate-900 font-mono">{vatNumber}</span>
             </div>
           )}
         </div>
@@ -615,27 +407,24 @@ function ClientAddressCard({
 
 function DocIcon() {
   return (
-    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.7}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
     </svg>
   );
 }
 
-function MailIcon() {
+function CheckIcon() {
   return (
-    <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
   );
 }
 
-function PhoneIcon() {
+function PackageIcon() {
   return (
-    <svg className="w-3.5 h-3.5 text-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-        d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.7}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25l-9-4.5-9 4.5m18 0l-9 4.5m9-4.5v9l-9 4.5M3 8.25l9 4.5m-9-4.5v9l9 4.5m0-13.5v13.5" />
     </svg>
   );
 }

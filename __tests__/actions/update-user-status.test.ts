@@ -25,6 +25,7 @@ const mockSession = vi.hoisted(() => ({
 const mockNotifications = vi.hoisted(() => ({
   notifyClientAccountApproved: vi.fn().mockResolvedValue(undefined),
   notifyClientAccountRejected: vi.fn().mockResolvedValue(undefined),
+  notifyClientAccountRevoked: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("next-auth", () => ({
@@ -36,7 +37,10 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock("@/lib/notifications", () => mockNotifications);
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+}));
 
 import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
 
@@ -77,6 +81,24 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
       firstName: "Marie",
     });
     expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
+    expect(mockNotifications.notifyClientAccountRevoked).not.toHaveBeenCalled();
+  });
+
+  it("envoie l'email de révocation (pas de refus) quand on passe APPROVED → REJECTED", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      ...baseClient,
+      status: "APPROVED",
+    });
+
+    const result = await updateUserStatus("user-1", "REJECTED");
+
+    expect(result).toEqual({ success: true });
+    expect(mockNotifications.notifyClientAccountRevoked).toHaveBeenCalledWith({
+      email: "client@test.fr",
+      firstName: "Marie",
+    });
+    expect(mockNotifications.notifyClientAccountRejected).not.toHaveBeenCalled();
+    expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
   });
 
   it("n'envoie aucun email si le statut ne change pas", async () => {
@@ -106,6 +128,7 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
     });
     expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
     expect(mockNotifications.notifyClientAccountRejected).not.toHaveBeenCalled();
+    expect(mockNotifications.notifyClientAccountRevoked).not.toHaveBeenCalled();
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 });

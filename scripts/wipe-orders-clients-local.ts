@@ -92,13 +92,18 @@ async function main() {
   console.log("  ✓ conversations vidées");
 
   // 5) Commandes boutique + modifs
+  //    Nettoyer d'abord tout ce qui référence Order.id en RESTRICT :
+  //    - PromotionUsage (FK RESTRICT sur orderId)
+  //    - StockMovement (FK nullable : on détache pour préserver l'historique stock)
+  await prisma.promotionUsage.deleteMany({});
+  await prisma.stockMovement.updateMany({
+    where: { orderId: { not: null } },
+    data: { orderId: null },
+  });
   await prisma.orderItemModification.deleteMany({});
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
   console.log("  ✓ commandes boutique vidées");
-
-  // 6) Usage promo (référence User via Cascade normalement, mais on force)
-  await prisma.promotionUsage.deleteMany({});
 
   // 7) Fiches admin client (répertoire perso admin)
   await prisma.adminClientCardProductPurchase.deleteMany({});

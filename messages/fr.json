@@ -26,7 +26,13 @@
     "contact": "Nous contacter",
     "language": "Langue / Language",
     "adminPreview": "Mode aperçu admin",
-    "adminPreviewDesc": "Vous naviguez comme un client."
+    "adminPreviewDesc": "Vous naviguez comme un client.",
+    "verifiedBadge": "Vérifié",
+    "unverifiedBadge": "Non vérifié",
+    "revokedBadge": "Révoqué",
+    "verifiedTooltip": "Votre compte pro est validé.",
+    "unverifiedTooltip": "Votre compte est en cours de validation par notre équipe.",
+    "revokedTooltip": "Votre compte a été désactivé. Contactez-nous pour toute question."
   },
   "auth": {
     "login": {
@@ -340,6 +346,9 @@
   "products": {
     "title": "Notre catalogue",
     "subtitle": "Catalogue professionnel — tarifs grossiste",
+    "heroEyebrow": "Catalogue",
+    "productsCounterSingular": "produit",
+    "productsCounterPlural": "produits",
     "searchPlaceholder": "Rechercher...",
     "allCategories": "Toutes les catégories",
     "allCollections": "Toutes les collections",
@@ -389,6 +398,7 @@
     "backToProducts": "Retour aux produits"
   },
   "product": {
+    "viewProduct": "Voir le produit",
     "ref": "Réf.",
     "reference": "Référence",
     "color": "Couleur",
@@ -459,6 +469,18 @@
     "proPricesReserved": "Tarifs réservés aux professionnels",
     "proPricesReservedDesc": "Créez votre compte pour découvrir nos prix grossistes et passer commande en quelques clics.",
     "alreadyHaveAccount": "J'ai déjà un compte",
+    "pendingSeePricesTitle": "Compte en cours de vérification",
+    "pendingSeePricesDesc": "Vous verrez les prix dès que notre équipe aura validé votre dossier (sous 48h ouvrées).",
+    "pendingOrderTitle": "Bientôt prêt à commander",
+    "pendingOrderDesc": "Vous pourrez passer commande dès la validation de votre compte par notre équipe.",
+    "pendingCardHint": "Prix visibles après vérification",
+    "pendingCardCta": "Vérification en cours",
+    "revokedSeePricesTitle": "Compte désactivé",
+    "revokedSeePricesDesc": "Votre compte a été désactivé : les prix ne sont plus affichés et la commande n'est plus disponible. Contactez-nous pour toute question.",
+    "revokedOrderTitle": "Commande indisponible",
+    "revokedOrderDesc": "Votre compte a été désactivé. Pour reprendre vos commandes, contactez notre équipe.",
+    "revokedCardHint": "Compte désactivé — prix indisponibles",
+    "goToMyAccount": "Voir mon espace",
     "signIn": "Se connecter",
     "fromPrice": "à partir de {price} €",
     "totalHT": "Total HT",
@@ -966,7 +988,14 @@
     "creditTotal": "Avoir total",
     "modificationReason_OUT_OF_STOCK": "Rupture de stock",
     "modificationReason_CLIENT_REQUEST": "À la demande du client",
-    "total": "Total"
+    "total": "Total",
+    "coordinatesEyebrow": "Coordonnées",
+    "orderInfoTitle": "Informations de la commande",
+    "billing": "Facturation",
+    "delivery": "Livraison",
+    "goodsWithPrices": "Bon avec prix",
+    "goodsWithoutPrices": "Bon sans prix",
+    "paymentPaid": "encaissé"
   },
   "account": {
     "title": "Mon espace pro",
@@ -974,8 +1003,10 @@
     "memberSince": "Membre depuis le {date}",
     "pendingValidation": "En attente de validation",
     "pendingValidationDesc": "Votre dossier est en cours d'examen. Vous recevrez une confirmation sous 48h ouvrées.",
-    "rejected": "Demande refusée",
-    "rejectedDesc": "Votre demande n'a pas été acceptée. Contactez-nous pour plus d'informations.",
+    "pendingBannerTitle": "Compte vérification en cours",
+    "pendingBannerDesc": "Notre équipe examine votre dossier. Vous verrez les prix et pourrez passer commande dès la validation (sous 48h ouvrées).",
+    "rejected": "Compte désactivé",
+    "rejectedDesc": "Votre compte a été désactivé. Vous pouvez toujours consulter la boutique mais les prix et la commande sont indisponibles. Contactez-nous pour toute question.",
     "statsOrders": "Commandes",
     "statsItems": "Articles commandés",
     "statsSpent": "Total dépensé",

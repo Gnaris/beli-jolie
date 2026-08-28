@@ -141,7 +141,7 @@ export default function ProductCarousel({
 
           <div
             ref={scrollRef}
-            className="flex items-stretch gap-5 overflow-x-auto pb-2 scroll-smooth no-scrollbar snap-x snap-mandatory"
+            className="flex items-stretch gap-5 overflow-x-auto px-4 pb-10 scroll-smooth no-scrollbar snap-x snap-mandatory scroll-pl-4"
           >
             {products.map((p) => (
               <div key={p.id} className={`snap-start h-full shrink-0 ${cardWidth}`}>

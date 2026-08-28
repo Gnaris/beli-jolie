@@ -8,6 +8,7 @@ import { Link } from "@/i18n/navigation";
 import { useTranslations } from "next-intl";
 import { loginSchema } from "@/lib/validations/auth";
 import { VALID_LOCALES } from "@/i18n/locales";
+import { stripLocaleFromCallbackUrl } from "@/lib/login-callback-url";
 
 type Mode = "password" | "otp";
 type OtpStep = "email" | "code";
@@ -20,11 +21,7 @@ export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawCallbackUrl = searchParams.get("callbackUrl") || "/";
-
-  // Strip locale prefix from callbackUrl — next-intl's router.push() adds it automatically.
-  // Without this, "/fr/" becomes "/fr/fr/" → 404.
-  const localePattern = new RegExp(`^/(${VALID_LOCALES.join("|")})(?=/|$)`);
-  const callbackUrl = rawCallbackUrl.replace(localePattern, "") || "/";
+  const callbackUrl = stripLocaleFromCallbackUrl(rawCallbackUrl, VALID_LOCALES);
 
   const [mode, setMode] = useState<Mode>("password");
 
@@ -68,7 +65,6 @@ export default function LoginForm() {
     const sessionRes = await fetch("/api/auth/session");
     const session = await sessionRes.json();
     if (session?.user?.role === "ADMIN") {
-      // /admin est hors i18n : full reload pour éviter le préfixe de locale.
       window.location.href = "/admin";
       return;
     }
@@ -189,30 +185,22 @@ export default function LoginForm() {
   }, [otpExpirySec, t]);
 
   return (
-    <div className="w-full max-w-sm mx-auto bg-bg-primary rounded-xl border border-border p-6 md:p-8 shadow-lg">
-      <div className="mb-6">
-        <h1 className="font-heading text-2xl font-bold text-text-primary tracking-tight">
-          {t("title")}
-        </h1>
-        <p className="mt-1.5 font-body text-sm text-text-muted">
-          {t("subtitle")}
-        </p>
-      </div>
-
+    <div className="w-full">
+      {/* Onglets Mot de passe / Code */}
       <div
         role="tablist"
         aria-label="Mode de connexion"
-        className="flex gap-1 mb-6 p-1 bg-bg-secondary rounded-lg"
+        className="flex gap-1 mb-7 p-1 bg-slate-100 rounded-lg"
       >
         <button
           type="button"
           role="tab"
           aria-selected={mode === "password"}
           onClick={() => switchMode("password")}
-          className={`flex-1 text-sm font-body font-medium py-2 rounded-md transition-colors ${
+          className={`flex-1 text-sm font-body font-medium py-2.5 rounded-md transition-all ${
             mode === "password"
-              ? "bg-bg-primary text-text-primary shadow-sm"
-              : "text-text-muted hover:text-text-secondary"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-500 hover:text-slate-700"
           }`}
         >
           {t("tabPassword")}
@@ -222,10 +210,10 @@ export default function LoginForm() {
           role="tab"
           aria-selected={mode === "otp"}
           onClick={() => switchMode("otp")}
-          className={`flex-1 text-sm font-body font-medium py-2 rounded-md transition-colors ${
+          className={`flex-1 text-sm font-body font-medium py-2.5 rounded-md transition-all ${
             mode === "otp"
-              ? "bg-bg-primary text-text-primary shadow-sm"
-              : "text-text-muted hover:text-text-secondary"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-500 hover:text-slate-700"
           }`}
         >
           {t("tabOtp")}
@@ -235,7 +223,7 @@ export default function LoginForm() {
       {error && (
         <div
           role="alert"
-          className="mb-4 bg-red-50 border border-red-200 text-error px-4 py-3 text-sm font-body rounded-lg"
+          className="mb-5 bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm font-body rounded-lg"
         >
           <div className="flex items-start gap-2.5">
             <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -254,13 +242,13 @@ export default function LoginForm() {
                 });
                 setUnlockSent(true);
               }}
-              className="mt-3 w-full text-center text-xs font-medium text-text-primary bg-bg-primary border border-border rounded-lg px-3 py-2 hover:bg-bg-secondary transition-colors"
+              className="mt-3 w-full text-center text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors"
             >
               Demander le déblocage par email
             </button>
           )}
           {unlockSent && (
-            <p className="mt-3 text-xs text-success font-medium text-center">
+            <p className="mt-3 text-xs text-emerald-600 font-medium text-center">
               Demande envoyée. Notre équipe vous contactera par email.
             </p>
           )}
@@ -272,7 +260,7 @@ export default function LoginForm() {
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5"
+              className="block text-xs font-body font-medium text-slate-700 mb-2 tracking-wide"
             >
               {t("email")}
             </label>
@@ -284,21 +272,21 @@ export default function LoginForm() {
               placeholder="votre@email.com"
               autoComplete="email"
               required
-              className="field-input"
+              className="login-input"
             />
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-2">
               <label
                 htmlFor="password"
-                className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide"
+                className="block text-xs font-body font-medium text-slate-700 tracking-wide"
               >
                 {t("password")}
               </label>
               <Link
                 href="/mot-de-passe-oublie"
-                className="text-xs font-body text-text-muted hover:text-text-primary transition-colors"
+                className="text-xs font-body text-slate-500 hover:text-slate-900 transition-colors"
               >
                 {t("forgotPassword")}
               </Link>
@@ -309,15 +297,15 @@ export default function LoginForm() {
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="••••••••••"
                 autoComplete="current-password"
                 required
-                className="field-input pr-10"
+                className="login-input pr-11"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
                 aria-label={showPassword ? t("hide") : t("show")}
               >
                 {showPassword ? (
@@ -337,7 +325,7 @@ export default function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed mt-2"
+            className="login-submit"
           >
             {loading ? (
               <>
@@ -366,7 +354,7 @@ export default function LoginForm() {
           <div>
             <label
               htmlFor="otp-email"
-              className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5"
+              className="block text-xs font-body font-medium text-slate-700 mb-2 tracking-wide"
             >
               {t("email")}
             </label>
@@ -378,14 +366,14 @@ export default function LoginForm() {
               placeholder="votre@email.com"
               autoComplete="email"
               required
-              className="field-input"
+              className="login-input"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            className="login-submit"
           >
             {loading ? t("otpRequesting") : t("otpRequestButton")}
           </button>
@@ -397,7 +385,7 @@ export default function LoginForm() {
           {otpInfo && (
             <div
               role="status"
-              className="bg-bg-secondary border border-border text-text-secondary px-4 py-3 text-xs font-body rounded-lg"
+              className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-3 text-xs font-body rounded-lg leading-relaxed"
             >
               {otpInfo}
             </div>
@@ -406,7 +394,7 @@ export default function LoginForm() {
           <div>
             <label
               htmlFor="otp-code"
-              className="block text-sm font-body font-medium text-text-primary uppercase tracking-wide mb-1.5"
+              className="block text-xs font-body font-medium text-slate-700 mb-2 tracking-wide"
             >
               {t("otpCodeLabel")}
             </label>
@@ -423,9 +411,9 @@ export default function LoginForm() {
               }
               placeholder={t("otpCodePlaceholder")}
               required
-              className="field-input tracking-[0.5em] text-center font-mono text-lg"
+              className="login-input tracking-[0.5em] text-center font-mono text-lg"
             />
-            <p className="mt-2 text-xs text-text-muted">
+            <p className="mt-2 text-xs text-slate-500">
               {otpExpirySec > 0 ? expiryLabel : t("otpExpired")}
             </p>
           </div>
@@ -433,7 +421,7 @@ export default function LoginForm() {
           <button
             type="submit"
             disabled={loading || otpExpirySec <= 0}
-            className="btn-primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            className="login-submit"
           >
             {loading ? t("otpVerifying") : t("otpVerifyButton")}
           </button>
@@ -447,7 +435,7 @@ export default function LoginForm() {
                 setOtpInfo("");
                 resetError();
               }}
-              className="text-text-muted hover:text-text-primary transition-colors"
+              className="text-slate-500 hover:text-slate-900 transition-colors"
             >
               {t("otpBack")}
             </button>
@@ -455,7 +443,7 @@ export default function LoginForm() {
               type="button"
               onClick={requestOtp}
               disabled={loading || otpResendSec > 0}
-              className="font-medium text-text-primary disabled:text-text-muted disabled:cursor-not-allowed"
+              className="font-medium text-slate-900 disabled:text-slate-400 disabled:cursor-not-allowed"
             >
               {otpResendSec > 0
                 ? t("otpResendIn", { seconds: otpResendSec })

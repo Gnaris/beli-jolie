@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import {
   notifyClientAccountApproved,
   notifyClientAccountRejected,
+  notifyClientAccountRevoked,
 } from "@/lib/notifications";
 import type { UserStatus } from "@prisma/client";
 
@@ -69,14 +70,30 @@ export async function updateUserStatus(
           }),
         );
       } else if (status === "REJECTED") {
-        notifyClientAccountRejected({
-          email: user.email,
-          firstName: user.firstName,
-        }).catch((err) =>
-          logger.error("[updateUserStatus] Email refus échoué", {
-            error: err,
-          }),
-        );
+        // On distingue :
+        //  - PENDING → REJECTED : première demande d'inscription refusée
+        //    → mail « votre demande d'inscription »
+        //  - APPROVED → REJECTED : révocation d'un compte déjà validé
+        //    → mail « votre compte a été désactivé »
+        if (user.status === "APPROVED") {
+          notifyClientAccountRevoked({
+            email: user.email,
+            firstName: user.firstName,
+          }).catch((err) =>
+            logger.error("[updateUserStatus] Email révocation échoué", {
+              error: err,
+            }),
+          );
+        } else {
+          notifyClientAccountRejected({
+            email: user.email,
+            firstName: user.firstName,
+          }).catch((err) =>
+            logger.error("[updateUserStatus] Email refus échoué", {
+              error: err,
+            }),
+          );
+        }
       }
     }
 
