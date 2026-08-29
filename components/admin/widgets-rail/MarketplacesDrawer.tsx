@@ -348,8 +348,8 @@ export function MarketplacesDrawer() {
       <div className="flex flex-col h-full min-h-0 bg-slate-50/60">
         {/* ─── Bandeau KPI aurora sky compact ─── */}
         {!isEmpty && (
-          <div className="flex-shrink-0 px-6 pt-5 pb-4">
-            <div className="mx-auto max-w-4xl grid grid-cols-4 gap-3">
+          <div className="flex-shrink-0 px-3 pt-3 pb-2 md:px-6 md:pt-5 md:pb-4">
+            <div className="mx-auto max-w-4xl grid grid-cols-4 gap-1.5 md:gap-3">
               <KpiTile label="En cours" value={runningCount} tone="sky" pulse={runningCount > 0} />
               <KpiTile label="En attente" value={queuedCount} tone="slate" />
               <KpiTile label="Erreurs" value={errorCount + linkErrorCount} tone="rose" />
@@ -359,7 +359,7 @@ export function MarketplacesDrawer() {
         )}
 
         {/* ─── Onglets (5 vues) ─── */}
-        <div className="flex-shrink-0 px-6 border-b border-slate-200 overflow-x-auto scrollbar-none">
+        <div className="flex-shrink-0 px-3 md:px-6 border-b border-slate-200 overflow-x-auto scrollbar-none">
           <div className="mx-auto max-w-6xl flex gap-1">
             {VIEW_ORDER.map((key) => {
               const view = views.find((v) => v.key === key);
@@ -381,20 +381,20 @@ export function MarketplacesDrawer() {
                     setActiveTab(key);
                     setStatusFilter("all");
                   }}
-                  className={`relative flex items-center gap-2 px-4 py-3 text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
+                  className={`relative flex items-center gap-1.5 md:gap-2 px-2 py-2 md:px-4 md:py-3 text-xs md:text-sm font-bold whitespace-nowrap transition-colors border-b-2 ${
                     isActive
                       ? `${accent.chipText} border-current`
                       : "text-slate-500 hover:text-slate-700 border-transparent"
                   }`}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${isActive ? accent.chip : "bg-slate-100"} ${isActive ? accent.chipText : "text-slate-500"}`}>
+                  <span className={`w-6 h-6 md:w-7 md:h-7 rounded-lg flex items-center justify-center ${isActive ? accent.chip : "bg-slate-100"} ${isActive ? accent.chipText : "text-slate-500"}`}>
                     {accent.icon}
                   </span>
                   <span>{meta.title}</span>
                   {badge > 0 && (
                     <span
-                      className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold tabular-nums ${
+                      className={`ml-0.5 md:ml-1 px-1.5 md:px-2 py-0.5 rounded-full text-[10px] md:text-xs font-bold tabular-nums ${
                         hasErrors
                           ? "bg-rose-500 text-white"
                           : isActive
@@ -413,7 +413,7 @@ export function MarketplacesDrawer() {
 
         {/* ─── Filtre statut ─── */}
         {activeView && (activeView.groups.length > 0 || activeView.linkJobs.length > 0) && (
-          <div className="flex-shrink-0 px-6 py-3.5 bg-white border-b border-slate-200 flex items-center gap-4 flex-wrap">
+          <div className="flex-shrink-0 px-3 py-2 md:px-6 md:py-3.5 bg-white border-b border-slate-200 flex items-center gap-2 md:gap-4 flex-wrap">
             <div className="flex items-center gap-1.5">
               <FilterChip active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="Tous" />
               <FilterChip
@@ -508,12 +508,12 @@ function KpiTile({
     slate: "bg-slate-50 border-slate-200 text-slate-600",
   };
   return (
-    <div className={`rounded-xl border px-4 py-3 ${toneClasses[tone]}`}>
-      <div className="text-[11px] uppercase tracking-widest font-bold opacity-80">{label}</div>
-      <div className="flex items-center gap-2 mt-1">
-        <span className="text-2xl font-bold tabular-nums leading-none">{value}</span>
+    <div className={`rounded-lg md:rounded-xl border px-2 py-1.5 md:px-4 md:py-3 ${toneClasses[tone]}`}>
+      <div className="text-[9px] md:text-[11px] uppercase tracking-wider md:tracking-widest font-bold opacity-80 truncate">{label}</div>
+      <div className="flex items-center gap-1 md:gap-2 mt-0.5 md:mt-1">
+        <span className="text-base md:text-2xl font-bold tabular-nums leading-none">{value}</span>
         {pulse && value > 0 && (
-          <span className="w-2 h-2 rounded-full bg-current opacity-70 animate-pulse" />
+          <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-current opacity-70 animate-pulse" />
         )}
       </div>
     </div>
@@ -533,7 +533,7 @@ function FilterChip({
   dot?: string;
   variant?: "dark";
 }) {
-  const base = "px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors";
+  const base = "px-2 py-1 md:px-3 md:py-1.5 rounded-md md:rounded-lg text-xs md:text-sm font-semibold flex items-center gap-1 md:gap-1.5 transition-colors";
   const styles = active
     ? variant === "dark"
       ? "bg-slate-900 text-white"
@@ -653,7 +653,7 @@ function ViewContent({
     const { errorGroups, aggregatedGroups } = partitionGroupsForSummary(filteredGroups);
     const summaries = summarizeGroupsPerMarketplace(aggregatedGroups);
     return (
-      <div className="p-4 md:p-6 space-y-4">
+      <div className="p-3 md:p-6 space-y-3 md:space-y-4">
         {view.key === "scheduled" && (
           <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
         )}
@@ -692,7 +692,7 @@ function ViewContent({
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="p-3 md:p-6 space-y-3 md:space-y-4">
       {view.key === "scheduled" && (
         <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
       )}
@@ -747,13 +747,13 @@ function SummaryPanel({
   onShowDetail: () => void;
 }) {
   return (
-    <div className="mx-auto max-w-4xl rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-xs uppercase tracking-widest font-bold text-sky-700">
+    <div className="mx-auto max-w-4xl rounded-xl md:rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-3 py-3 md:px-5 md:py-4 border-b border-slate-100 flex items-center justify-between gap-2 md:gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[10px] md:text-xs uppercase tracking-widest font-bold text-sky-700">
             Vue résumée
           </div>
-          <div className="text-sm text-slate-600 mt-0.5">
+          <div className="text-xs md:text-sm text-slate-600 mt-0.5">
             <span className="font-bold text-slate-900">{totalAll}</span> produits dans la file
             {totalErrorsShown > 0 && (
               <>
@@ -772,7 +772,7 @@ function SummaryPanel({
         <button
           type="button"
           onClick={onShowDetail}
-          className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold transition-colors flex-shrink-0"
+          className="px-3 py-1.5 md:px-3.5 md:py-2 rounded-md md:rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs md:text-sm font-bold transition-colors flex-shrink-0"
         >
           Voir le détail
         </button>
@@ -796,30 +796,30 @@ function SummaryRow({ summary }: { summary: MarketplaceSummary }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const remaining = active + queued;
   return (
-    <div className="px-5 py-3.5">
-      <div className="flex items-center gap-3">
+    <div className="px-3 py-2.5 md:px-5 md:py-3.5">
+      <div className="flex items-center gap-2 md:gap-3">
         <span
-          className="w-9 h-9 rounded-lg text-white text-sm font-bold flex items-center justify-center flex-shrink-0"
+          className="w-8 h-8 md:w-9 md:h-9 rounded-md md:rounded-lg text-white text-xs md:text-sm font-bold flex items-center justify-center flex-shrink-0"
           style={{ background: meta.grad }}
         >
           {meta.letter}
         </span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-3">
-            <div className="text-sm font-bold text-slate-900">{meta.name}</div>
-            <div className="text-xs text-slate-500 tabular-nums flex-shrink-0">
+          <div className="flex items-baseline justify-between gap-2 md:gap-3">
+            <div className="text-xs md:text-sm font-bold text-slate-900 truncate">{meta.name}</div>
+            <div className="text-[11px] md:text-xs text-slate-500 tabular-nums flex-shrink-0">
               <span className="font-bold text-slate-800">{done}</span>
               <span className="text-slate-400"> / {total}</span>
               <span className="ml-1">({pct}%)</span>
             </div>
           </div>
-          <div className="mt-1.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+          <div className="mt-1 md:mt-1.5 h-1.5 md:h-2 rounded-full bg-slate-100 overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+          <div className="mt-1 md:mt-1.5 flex items-center gap-2 md:gap-3 text-[11px] md:text-xs text-slate-500 flex-wrap">
             {remaining > 0 && (
               <span className="flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />

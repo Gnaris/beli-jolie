@@ -193,9 +193,16 @@ export function RightRail() {
 
         {/* Mini-menu — reste visible même quand un tiroir est ouvert pour
             permettre à la cliente de basculer d'un widget à l'autre en un
-            clic (2026-08-13). */}
+            clic (2026-08-13). Exception mobile (< md) : le tiroir est
+            plein écran, la liste des mini-boutons masquerait le contenu du
+            tiroir. On la cache dès qu'un tiroir est ouvert, la cliente peut
+            toujours fermer via la flèche « retour » du header (2026-08-29). */}
         {menuOpen && (
-          <div className="flex flex-col items-end gap-2 md:gap-3">
+          <div
+            className={`flex flex-col items-end gap-2 md:gap-3 ${
+              somethingOpen ? "max-md:hidden" : ""
+            }`}
+          >
             {ITEMS.map((item, idx) => (
               <MiniButton
                 key={item.id}

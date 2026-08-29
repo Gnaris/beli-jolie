@@ -227,7 +227,8 @@ describe("deleteUser (hard delete client)", () => {
   });
 
   it("supprime le client et toutes ses traces sans FK error", async () => {
-    await expect(deleteUser(userId)).resolves.not.toThrow();
+    const result = await deleteUser(userId);
+    expect(result.success).toBe(true);
 
     // Le client est parti
     expect(await prisma.user.findUnique({ where: { id: userId } })).toBeNull();

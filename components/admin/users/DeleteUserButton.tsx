@@ -1,21 +1,32 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { deleteUser } from "@/app/actions/admin/deleteUser";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useToast } from "@/components/ui/Toast";
 
 export default function DeleteUserButton({ userId, userName }: { userId: string; userName: string }) {
   const [showModal, setShowModal] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const router = useRouter();
+  const toast = useToast();
 
   function handleDelete() {
     if (confirmText !== "Supprimer") return;
     showLoading();
     startTransition(async () => {
       try {
-        await deleteUser(userId);
+        const result = await deleteUser(userId);
+        if (!result.success) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success("Client supprimé");
+        router.push("/admin/utilisateurs");
+        router.refresh();
       } finally {
         hideLoading();
       }

@@ -14,6 +14,7 @@ Cliente **non-développeuse**. Français simple, court. Impact décrit **pour el
 - **Impact croisé** : prévenir **avant** de coder si autre feature impactée.
 - **Suggestions** : proposer variantes UX/perf, elle décide.
 - **Tests Vitest obligatoires** sur toute feature/modif.
+- **Serveur local jamais lancé par Claude** : ne **jamais** exécuter `npm run dev`, ni tuer/redémarrer un process sur `localhost:3000`. La cliente ouvre elle-même son serveur local dans son terminal. Après une modif qui nécessite un redémarrage (schema Prisma, `.env`, `next.config.ts`), le lui dire — ne pas le faire. Si un port 3000 tourne et gêne une commande, demander avant d'agir.
 
 ### Workflow modif → validation → push
 1. Modifier local. Pas de push auto.
