@@ -107,8 +107,17 @@ export async function getStripePublishableKey(): Promise<string | null> {
 }
 
 export async function isStripeConfigured(): Promise<boolean> {
-  const { secretKey, publishableKey } = await readStripeConfig();
-  return !!secretKey && !!publishableKey;
+  const { secretKey, publishableKey, webhookSecret } = await readStripeConfig();
+  // Les 3 clés sont indispensables : sans webhookSecret, le paiement démarre
+  // mais le webhook crashe (client débité, commande jamais créée).
+  if (!secretKey || !publishableKey || !webhookSecret) return false;
+  // sk et pk doivent venir du MÊME compte Stripe. Un mismatch (deux comptes
+  // mélangés dans le formulaire admin) crée un PaymentIntent côté sk qui n'est
+  // pas confirmable côté pk → paiement bloqué à l'étape carte, argent gelé.
+  const skPrefix = stripeAccountPrefix(secretKey);
+  const pkPrefix = stripeAccountPrefix(publishableKey);
+  if (skPrefix && pkPrefix && skPrefix !== pkPrefix) return false;
+  return true;
 }
 
 /**

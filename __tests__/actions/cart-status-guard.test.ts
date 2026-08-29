@@ -19,7 +19,9 @@ const mockPrisma = vi.hoisted(() => ({
   productColor: { findUnique: vi.fn() },
 }));
 
-const mockSession = vi.hoisted(() => ({ user: { id: "user-1" } }));
+const mockSession = vi.hoisted(() => ({
+  user: { id: "user-1", role: "CLIENT", status: "APPROVED" },
+}));
 
 vi.mock("next-auth", () => ({
   getServerSession: vi.fn().mockResolvedValue(mockSession),
@@ -88,6 +90,28 @@ describe("addToCart — refus si produit hors-ligne", () => {
 
     await expect(addToCart("var-1", 1)).resolves.toBeUndefined();
     expect(mockPrisma.cartItem.create).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Garde APPROVED — statut du compte client", () => {
+  it("refuse addToCart si le compte n'est pas APPROVED", async () => {
+    const { getServerSession } = await import("next-auth");
+    (getServerSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      user: { id: "user-1", role: "CLIENT", status: "PENDING" },
+    });
+
+    await expect(addToCart("var-1", 1)).rejects.toThrow(/n'est pas encore approuvé/i);
+    expect(mockPrisma.productColor.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("refuse updateCartItem si le compte est REJECTED", async () => {
+    const { getServerSession } = await import("next-auth");
+    (getServerSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      user: { id: "user-1", role: "CLIENT", status: "REJECTED" },
+    });
+
+    await expect(updateCartItem("ci-1", 1)).rejects.toThrow(/n'est pas encore approuvé/i);
+    expect(mockPrisma.cartItem.findFirst).not.toHaveBeenCalled();
   });
 });
 

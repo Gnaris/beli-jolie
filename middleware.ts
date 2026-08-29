@@ -3,6 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 import { routing } from "@/i18n/routing";
 import { isPreOnboardingAllowed } from "@/lib/onboarding-gating";
+import { logger } from "@/lib/logger";
 export { isPreOnboardingAllowed } from "@/lib/onboarding-gating";
 
 const intlMiddleware = createIntlMiddleware(routing);
@@ -248,7 +249,7 @@ export async function middleware(request: NextRequest) {
       // → En prod, on renvoie 404 sauf pour les chemins bypass ci-dessus.
       // → En dev, on log et on laisse passer pour faciliter les tests locaux.
       if (process.env.NODE_ENV === "development") {
-        console.warn(
+        logger.warn(
           `[middleware] Host inconnu ${host} et fallback dev "${DEV_FALLBACK_HOST}" introuvable — pas de tenant résolu`
         );
       } else if (!isTenantVerificationBypassed) {

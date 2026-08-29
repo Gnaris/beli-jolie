@@ -39,8 +39,12 @@ import { getImageSrc } from "@/lib/image-utils";
 import {
   bucketViews,
   groupItemsByProductAndMode,
+  partitionGroupsForSummary,
+  summarizeGroupsPerMarketplace,
+  SUMMARY_THRESHOLD,
   VIEW_LABEL,
   VIEW_ORDER,
+  type MarketplaceSummary,
   type ProductGroup,
   type ViewBucketProduct,
   type ViewKey,
@@ -562,6 +566,13 @@ function ViewContent({
   onDismiss: (group: ProductGroup) => void;
   onDismissLinkJob: (id: string) => void;
 }) {
+  // Toggle « voir le détail » — reset à chaque changement d'onglet pour ne pas
+  // garder un forçage actif sur une vue qui ne le nécessite plus.
+  const [forceDetail, setForceDetail] = useState(false);
+  useEffect(() => {
+    setForceDetail(false);
+  }, [view.key]);
+
   const filteredGroups = useMemo(() => {
     let arr = view.groups.slice();
 
@@ -632,10 +643,72 @@ function ViewContent({
     );
   }
 
+  // Bascule vue résumée dès que la file dépasse SUMMARY_THRESHOLD (20).
+  // Les liaisons ont leur propre composant simple → seuls les groupes produit
+  // pèsent dans le seuil. On garde toujours affichées les cartes en erreur
+  // (pour permettre relance/ignore direct) et on agrège le reste.
+  const shouldSummarize = !forceDetail && filteredGroups.length > SUMMARY_THRESHOLD;
+
+  if (shouldSummarize) {
+    const { errorGroups, aggregatedGroups } = partitionGroupsForSummary(filteredGroups);
+    const summaries = summarizeGroupsPerMarketplace(aggregatedGroups);
+    return (
+      <div className="p-4 md:p-6 space-y-4">
+        {view.key === "scheduled" && (
+          <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
+        )}
+        <SummaryPanel
+          summaries={summaries}
+          totalAggregated={aggregatedGroups.length}
+          totalErrorsShown={errorGroups.length}
+          totalAll={filteredGroups.length}
+          onShowDetail={() => setForceDetail(true)}
+        />
+        {errorGroups.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-xs uppercase tracking-widest font-bold text-rose-700 px-1">
+              Erreurs à traiter ({errorGroups.length})
+            </div>
+            {errorGroups.map((group) => (
+              <ProductJobRow
+                key={`${group.productId}::${group.dominantMode}`}
+                group={group}
+                view={view.key}
+                onRetry={() => onRetry(group)}
+                onDismiss={() => onDismiss(group)}
+              />
+            ))}
+          </div>
+        )}
+        {filteredLinkJobs.length > 0 && (
+          <div className="space-y-3">
+            {filteredLinkJobs.map((job) => (
+              <LinkJobRow key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       {view.key === "scheduled" && (
         <ScheduleHeader view={view} groups={filteredGroups} nowMs={nowMs} />
+      )}
+      {filteredGroups.length > SUMMARY_THRESHOLD && (
+        <div className="mx-auto max-w-4xl flex items-center justify-between gap-3 rounded-xl bg-slate-100 border border-slate-200 px-4 py-2.5 text-sm">
+          <span className="text-slate-600">
+            Vue détaillée activée sur <span className="font-bold">{filteredGroups.length}</span> produits — ton navigateur peut ramer.
+          </span>
+          <button
+            type="button"
+            onClick={() => setForceDetail(false)}
+            className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors flex-shrink-0"
+          >
+            Revenir au résumé
+          </button>
+        </div>
       )}
       <div className="space-y-3">
         {filteredGroups.map((group) => (
@@ -650,6 +723,120 @@ function ViewContent({
         {filteredLinkJobs.map((job) => (
           <LinkJobRow key={job.id} job={job} onDismiss={() => onDismissLinkJob(job.id)} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Vue résumée — 1 ligne par marketplace au lieu de N cartes produit.
+// Rendue automatiquement au-delà du seuil pour ne pas saturer Chrome.
+// ────────────────────────────────────────────────────────────────
+
+function SummaryPanel({
+  summaries,
+  totalAggregated,
+  totalErrorsShown,
+  totalAll,
+  onShowDetail,
+}: {
+  summaries: MarketplaceSummary[];
+  totalAggregated: number;
+  totalErrorsShown: number;
+  totalAll: number;
+  onShowDetail: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-4xl rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-xs uppercase tracking-widest font-bold text-sky-700">
+            Vue résumée
+          </div>
+          <div className="text-sm text-slate-600 mt-0.5">
+            <span className="font-bold text-slate-900">{totalAll}</span> produits dans la file
+            {totalErrorsShown > 0 && (
+              <>
+                {" · "}
+                <span className="font-bold text-rose-700">{totalErrorsShown} en erreur</span> listés ci-dessous
+              </>
+            )}
+            {totalAggregated > 0 && (
+              <>
+                {" · "}
+                <span className="text-slate-500">{totalAggregated} agrégés pour préserver la fluidité</span>
+              </>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onShowDetail}
+          className="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold transition-colors flex-shrink-0"
+        >
+          Voir le détail
+        </button>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {summaries.length === 0 ? (
+          <div className="px-5 py-4 text-sm text-slate-500 italic">
+            Aucun produit ciblé (uniquement des erreurs listées en dessous).
+          </div>
+        ) : (
+          summaries.map((s) => <SummaryRow key={s.target} summary={s} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ summary }: { summary: MarketplaceSummary }) {
+  const meta = MARKETPLACE_META[summary.target];
+  const { done, active, queued, errors, total } = summary;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const remaining = active + queued;
+  return (
+    <div className="px-5 py-3.5">
+      <div className="flex items-center gap-3">
+        <span
+          className="w-9 h-9 rounded-lg text-white text-sm font-bold flex items-center justify-center flex-shrink-0"
+          style={{ background: meta.grad }}
+        >
+          {meta.letter}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="text-sm font-bold text-slate-900">{meta.name}</div>
+            <div className="text-xs text-slate-500 tabular-nums flex-shrink-0">
+              <span className="font-bold text-slate-800">{done}</span>
+              <span className="text-slate-400"> / {total}</span>
+              <span className="ml-1">({pct}%)</span>
+            </div>
+          </div>
+          <div className="mt-1.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+            {remaining > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
+                <span className="font-semibold text-sky-700 tabular-nums">{remaining}</span> en cours
+              </span>
+            )}
+            {errors > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                <span className="font-semibold text-rose-700 tabular-nums">{errors}</span> erreur{errors > 1 ? "s" : ""}
+              </span>
+            )}
+            {remaining === 0 && errors === 0 && done === total && (
+              <span className="font-semibold text-emerald-700">Tout est passé</span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

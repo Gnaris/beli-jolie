@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { buildStatementDescriptor, getStripeInstance, isStripeConfigured } from "@/lib/stripe";
+import { buildStatementDescriptor, getStripeInstance, isStripeConfigured, getStripeConfigStatus } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { getCachedShopName } from "@/lib/cached-data";
@@ -245,7 +245,22 @@ export async function POST(req: Request) {
   const shopName = await getCachedShopName();
 
   if (!(await isStripeConfigured())) {
-    return NextResponse.json({ error: "Paiement indisponible. Stripe n'est pas configuré." }, { status: 503 });
+    // Diagnostiquer pour le log admin — le message client reste générique.
+    const status = await getStripeConfigStatus();
+    const missing: string[] = [];
+    if (!status.hasSecret) missing.push("clé secrète");
+    if (!status.hasPublishable) missing.push("clé publique");
+    if (!status.hasWebhook) missing.push("signature webhook");
+    let detail = missing.length > 0 ? `Manquant : ${missing.join(", ")}` : "Configuration incohérente";
+    if (missing.length === 0) {
+      // Toutes les clés présentes → c'est un mismatch pk/sk.
+      detail = "Les clés publique et secrète appartiennent à deux comptes Stripe différents.";
+    }
+    logger.warn("[create-intent] Stripe non configuré", { detail });
+    return NextResponse.json(
+      { error: "Paiement indisponible. Contactez la boutique." },
+      { status: 503 },
+    );
   }
 
   let stripe;

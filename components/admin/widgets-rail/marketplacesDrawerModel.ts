@@ -689,6 +689,76 @@ export const MARKETPLACE_FULL_NAME: Record<MarketplaceTarget, string> = {
   microstore: "Microstore",
 };
 
+// ────────────────────────────────────────────────────────────────
+// Vue résumée pour gros volumes — bascule auto au-delà du seuil.
+// Évite de rendre 500 cartes qui saturent le navigateur pendant qu'une
+// file de rafraîchissement / publication massive s'écoule.
+// ────────────────────────────────────────────────────────────────
+
+/** Nombre de groupes au-dessus duquel la vue bascule automatiquement en
+ *  résumé agrégé. Choisi assez bas pour que Chrome reste fluide même sur
+ *  un PC modeste avec plusieurs onglets admin ouverts. */
+export const SUMMARY_THRESHOLD = 20;
+
+export interface MarketplaceSummary {
+  target: MarketplaceTarget;
+  done: number;
+  active: number;
+  queued: number;
+  errors: number;
+  /** Nombre de produits ciblés par cette marketplace dans les groupes agrégés. */
+  total: number;
+}
+
+/**
+ * Agrège les cellules marketplace de tous les groupes en 1 ligne par marketplace.
+ * Ignore les cellules `not-targeted`. Ne retourne que les marketplaces avec au
+ * moins un produit ciblé (total > 0), dans l'ordre canonique `MARKETPLACE_ORDER`.
+ */
+export function summarizeGroupsPerMarketplace(
+  groups: ReadonlyArray<ProductGroup>,
+): MarketplaceSummary[] {
+  const map: Record<MarketplaceTarget, MarketplaceSummary> = {
+    pfs: { target: "pfs", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+    ankorstore: { target: "ankorstore", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+    efashion: { target: "efashion", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+    faire: { target: "faire", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+    orderchamp: { target: "orderchamp", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+    microstore: { target: "microstore", done: 0, active: 0, queued: 0, errors: 0, total: 0 },
+  };
+  for (const g of groups) {
+    for (const target of MARKETPLACE_ORDER) {
+      const cell = g.cells[target];
+      if (!cell || cell.kind === "not-targeted") continue;
+      const s = map[target];
+      s.total += 1;
+      if (cell.kind === "done") s.done += 1;
+      else if (cell.kind === "error") s.errors += 1;
+      else if (cell.kind === "active") s.active += 1;
+      else if (cell.kind === "queued") s.queued += 1;
+    }
+  }
+  return MARKETPLACE_ORDER.map((t) => map[t]).filter((s) => s.total > 0);
+}
+
+/**
+ * Sépare les groupes en 2 pools pour la vue résumée : les groupes en erreur
+ * qui restent affichés individuellement (l'admin doit pouvoir les relancer),
+ * et les autres qui sont juste comptabilisés dans le résumé agrégé.
+ */
+export function partitionGroupsForSummary(groups: ReadonlyArray<ProductGroup>): {
+  errorGroups: ProductGroup[];
+  aggregatedGroups: ProductGroup[];
+} {
+  const errorGroups: ProductGroup[] = [];
+  const aggregatedGroups: ProductGroup[] = [];
+  for (const g of groups) {
+    if (g.section === "errors") errorGroups.push(g);
+    else aggregatedGroups.push(g);
+  }
+  return { errorGroups, aggregatedGroups };
+}
+
 export function cellTooltipTitle(
   target: MarketplaceTarget,
   cell: MarketplaceCell,

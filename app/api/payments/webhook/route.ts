@@ -44,10 +44,19 @@ export async function POST(req: Request) {
       type: event.type,
     },
   });
-  // TODO(2026-03): Set up a cron job (or Next.js API route triggered by external scheduler)
-  // to periodically delete StripeWebhookEvent records older than 30 days.
-  // Without cleanup, this table grows unboundedly (~1 row per webhook event).
-  // SQL: DELETE FROM StripeWebhookEvent WHERE createdAt < NOW() - INTERVAL 30 DAY
+
+  // Purge best-effort des events > 30 jours, tirée ~1 fois sur 100 pour ne pas
+  // charger chaque webhook. Évite d'avoir à câbler un cron externe : le trafic
+  // Stripe (plusieurs events/jour en prod) garantit un passage régulier.
+  if (Math.random() < 0.01) {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    prisma.stripeWebhookEvent
+      .deleteMany({ where: { createdAt: { lt: cutoff } } })
+      .then((res) => {
+        if (res.count > 0) logger.info("[Stripe Webhook] Purge events anciens", { deleted: res.count });
+      })
+      .catch((err) => logger.warn("[Stripe Webhook] Purge échouée", { error: err }));
+  }
 
   switch (event.type) {
     case "payment_intent.succeeded": {

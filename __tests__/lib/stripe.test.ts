@@ -121,15 +121,19 @@ describe("lib/stripe — strict BDD par tenant (plus de fallback env)", () => {
   });
 
   describe("isStripeConfigured", () => {
-    it("true quand sk et pk sont présentes en BDD tenant", async () => {
+    it("true quand les 3 clés sont présentes en BDD tenant (même compte)", async () => {
       siteConfigFindMany.mockResolvedValue(
-        rowsFrom({ stripe_secret_key: "sk_x", stripe_publishable_key: "pk_x" })
+        rowsFrom({
+          stripe_secret_key: "sk_test_51ABCDEFGHIJKLMNOP1234567890",
+          stripe_publishable_key: "pk_test_51ABCDEFGHIJKLMNOP0987654321",
+          stripe_webhook_secret: "whsec_x",
+        })
       );
       const { isStripeConfigured } = await import("@/lib/stripe");
       await expect(isStripeConfigured()).resolves.toBe(true);
     });
 
-    it("false si une des deux clés manque en BDD tenant (pas de fallback env)", async () => {
+    it("false si une des trois clés manque en BDD tenant (pas de fallback env)", async () => {
       siteConfigFindMany.mockResolvedValue(
         rowsFrom({ stripe_secret_key: "sk_x" })
       );
@@ -137,8 +141,31 @@ describe("lib/stripe — strict BDD par tenant (plus de fallback env)", () => {
       await expect(isStripeConfigured()).resolves.toBe(false);
     });
 
-    it("false si les deux clés manquent", async () => {
+    it("false si les clés manquent", async () => {
       siteConfigFindMany.mockResolvedValue([]);
+      const { isStripeConfigured } = await import("@/lib/stripe");
+      await expect(isStripeConfigured()).resolves.toBe(false);
+    });
+
+    it("false si webhook_secret manque (paiement passerait mais webhook crash)", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({
+          stripe_secret_key: "sk_test_51ABCDEFGHIJKLMNOP1234567890",
+          stripe_publishable_key: "pk_test_51ABCDEFGHIJKLMNOP0987654321",
+        })
+      );
+      const { isStripeConfigured } = await import("@/lib/stripe");
+      await expect(isStripeConfigured()).resolves.toBe(false);
+    });
+
+    it("false si sk et pk viennent de deux comptes Stripe différents", async () => {
+      siteConfigFindMany.mockResolvedValue(
+        rowsFrom({
+          stripe_secret_key: "sk_test_51AAAAAAAAAAAAAAAA1234567890",
+          stripe_publishable_key: "pk_test_51ZZZZZZZZZZZZZZZZ0987654321",
+          stripe_webhook_secret: "whsec_x",
+        })
+      );
       const { isStripeConfigured } = await import("@/lib/stripe");
       await expect(isStripeConfigured()).resolves.toBe(false);
     });
