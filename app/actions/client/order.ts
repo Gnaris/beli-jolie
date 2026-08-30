@@ -541,9 +541,12 @@ export async function placeOrder(
 
   // Vérification minimum commande (avant remise perso client). Le seuil
   // dépend du mode configuré + du nombre de commandes existantes du client
-  // (cf. lib/min-order.ts).
+  // (cf. lib/min-order.ts). Bypass en mode « fusion » : la commande parente
+  // a déjà passé le seuil, l'ajout ne doit pas être bloqué (cohérent avec
+  // CartWizardClient.tsx qui laisse déjà passer côté UI).
+  const isMergeIntoExistingOrder = !!input.mergeIntoOrderId?.trim();
   const minHT = await getEffectiveMinOrderHT(userId);
-  if (minHT > 0 && subtotalHT < minHT) {
+  if (!isMergeIntoExistingOrder && minHT > 0 && subtotalHT < minHT) {
     return refundAndAbort(
       input.stripePaymentIntentId,
       userId,
