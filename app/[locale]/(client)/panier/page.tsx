@@ -48,6 +48,13 @@ export default async function PanierPage() {
       locale,
     });
 
+  // Un admin n'a pas vocation à passer commande : depuis le durcissement de
+  // requireClient() (garde-fous checkout, 29/08), toutes les server actions
+  // panier throw pour un rôle ≠ CLIENT → la page crashait sur l'error boundary.
+  if (session.user.role !== "CLIENT") {
+    return redirect({ href: "/admin", locale });
+  }
+
   if (session.user.status !== "APPROVED") {
     const tCart = await getTranslations({ locale, namespace: "cart" });
     return (

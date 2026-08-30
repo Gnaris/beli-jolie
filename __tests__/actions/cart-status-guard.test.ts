@@ -113,6 +113,16 @@ describe("Garde APPROVED — statut du compte client", () => {
     await expect(updateCartItem("ci-1", 1)).rejects.toThrow(/n'est pas encore approuvé/i);
     expect(mockPrisma.cartItem.findFirst).not.toHaveBeenCalled();
   });
+
+  it("refuse addToCart si l'utilisateur est ADMIN (même APPROVED)", async () => {
+    const { getServerSession } = await import("next-auth");
+    (getServerSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      user: { id: "admin-1", role: "ADMIN", status: "APPROVED" },
+    });
+
+    await expect(addToCart("var-1", 1)).rejects.toThrow(/n'est pas encore approuvé/i);
+    expect(mockPrisma.productColor.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateCartItem — refus d'augmenter si produit hors-ligne", () => {
