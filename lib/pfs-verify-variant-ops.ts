@@ -290,6 +290,7 @@ export async function pullAddLocalVariantFromPfs(
       reference: product.reference,
       localPfsProductId: product.pfsProductId,
       remotePfsProductId: checkRef.product.id,
+      remoteReference: checkRef.product.reference ?? null,
     });
     if (dup.isDuplicate) {
       logger.warn("[PFS Verify Ops] Doublon PFS détecté — pull annulé", {

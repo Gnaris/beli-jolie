@@ -151,15 +151,27 @@ export type PfsVerifyError =
  * silence à chaque clic (cf. ref 15187 Issyma, 8 tentatives entre 11 et
  * 15/08/2026). Helper partagé entre `verifyPfsProduct` et
  * `pullAddLocalVariantFromPfs` pour uniformiser le message.
+ *
+ * Match strict de la référence obligatoire (2026-08-30) — `checkReference`
+ * fait un match approximatif côté PFS (ignore espaces / casse) et remonte
+ * régulièrement un vieux fantôme ARCHIVED de l'ancienne base Salesforce
+ * (ex : Issyma "13369ROBE" vs `a0AW…` "13369 ROBE" ARCHIVED). Ce n'est PAS
+ * un doublon de notre produit — les refs sont techniquement différentes. On
+ * exige donc `remoteReference === reference` lettre par lettre avant de
+ * crier au doublon, sinon on l'ignore silencieusement.
  */
 export function detectPfsDuplicate(args: {
   reference: string;
   localPfsProductId: string;
   remotePfsProductId: string;
+  remoteReference?: string | null;
 }):
   | { isDuplicate: true; message: string }
   | { isDuplicate: false } {
   if (args.localPfsProductId === args.remotePfsProductId) {
+    return { isDuplicate: false };
+  }
+  if (args.remoteReference != null && args.remoteReference !== args.reference) {
     return { isDuplicate: false };
   }
   return {
@@ -1420,6 +1432,7 @@ export async function verifyPfsProduct(
     reference: product.reference,
     localPfsProductId: product.pfsProductId,
     remotePfsProductId: checkRef.product.id,
+    remoteReference: checkRef.product.reference ?? null,
   });
   if (dup.isDuplicate) {
     return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };

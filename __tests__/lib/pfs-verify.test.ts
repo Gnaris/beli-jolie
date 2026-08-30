@@ -1206,6 +1206,7 @@ describe("detectPfsDuplicate", () => {
       reference: "15187",
       localPfsProductId: "pro_f57b5da8",
       remotePfsProductId: "pro_3f7c5077",
+      remoteReference: "15187",
     });
     expect(r.isDuplicate).toBe(true);
     if (r.isDuplicate) {
@@ -1221,9 +1222,43 @@ describe("detectPfsDuplicate", () => {
       reference: "REF-X",
       localPfsProductId: "pro_local_secret",
       remotePfsProductId: "pro_remote_visible",
+      remoteReference: "REF-X",
     });
     if (r.isDuplicate) {
       expect(r.message).not.toContain("pro_local_secret");
     }
+  });
+
+  // Match strict de la référence — évite les faux doublons dus au match
+  // approximatif de PFS (cf. Issyma 13369ROBE 2026-08-30 : PFS remonte un
+  // vieux archivé Salesforce "13369 ROBE" avec un espace, l'audit criait
+  // au doublon à tort).
+  it("renvoie isDuplicate=false quand la ref distante diffère (espace)", () => {
+    const r = detectPfsDuplicate({
+      reference: "13369ROBE",
+      localPfsProductId: "pro_new_active",
+      remotePfsProductId: "a0AW5000000RTlwMAG",
+      remoteReference: "13369 ROBE",
+    });
+    expect(r.isDuplicate).toBe(false);
+  });
+
+  it("renvoie isDuplicate=false quand la ref distante diffère (casse)", () => {
+    const r = detectPfsDuplicate({
+      reference: "REFA",
+      localPfsProductId: "pro_a",
+      remotePfsProductId: "pro_b",
+      remoteReference: "refa",
+    });
+    expect(r.isDuplicate).toBe(false);
+  });
+
+  it("garde l'ancien comportement quand remoteReference n'est pas fourni (rétrocompat)", () => {
+    const r = detectPfsDuplicate({
+      reference: "15187",
+      localPfsProductId: "pro_x",
+      remotePfsProductId: "pro_y",
+    });
+    expect(r.isDuplicate).toBe(true);
   });
 });
