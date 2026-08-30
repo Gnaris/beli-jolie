@@ -12,10 +12,14 @@ import { prisma } from "@/lib/prisma";
 async function requireClient() {
   const session = await getServerSession(authOptions);
   if (!session) throw new Error("Non authentifié.");
-  // Un compte PENDING/REJECTED ne doit pas pouvoir manipuler son panier :
-  // le middleware bloque /panier mais pas les server actions appelées en direct.
-  if (session.user.role !== "CLIENT" || session.user.status !== "APPROVED") {
-    throw new Error("Votre compte n'est pas encore approuvé pour commander.");
+  // ADMIN passe (elle teste son propre tunnel commande de bout en bout).
+  // Sinon exiger un CLIENT APPROVED : PENDING/REJECTED ne doit pas pouvoir
+  // manipuler son panier — middleware bloque /panier mais pas les server
+  // actions appelées en direct.
+  if (session.user.role !== "ADMIN") {
+    if (session.user.role !== "CLIENT" || session.user.status !== "APPROVED") {
+      throw new Error("Votre compte n'est pas encore approuvé pour commander.");
+    }
   }
   return session.user.id;
 }
@@ -404,8 +408,15 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
 export async function getCartCount(): Promise<number> {
   const session = await getServerSession(authOptions);
   if (!session) return 0;
-  // Badge silencieux : un compte non-APPROVED ne voit rien plutôt que de crasher.
-  if (session.user.role !== "CLIENT" || session.user.status !== "APPROVED") return 0;
+  // Badge silencieux : un CLIENT non-APPROVED ne voit rien plutôt que de
+  // crasher. ADMIN peut avoir un panier (test tunnel commande) → on laisse
+  // passer.
+  if (
+    session.user.role !== "ADMIN" &&
+    (session.user.role !== "CLIENT" || session.user.status !== "APPROVED")
+  ) {
+    return 0;
+  }
 
   const cart = await prisma.cart.findUnique({
     where: { userId: session.user.id },

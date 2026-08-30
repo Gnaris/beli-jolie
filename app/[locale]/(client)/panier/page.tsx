@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect as rawRedirect } from "next/navigation";
 import { redirect, Link } from "@/i18n/navigation";
 import { getLocale, getTranslations } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
@@ -49,16 +48,7 @@ export default async function PanierPage() {
       locale,
     });
 
-  // Un admin n'a pas vocation à passer commande : depuis le durcissement de
-  // requireClient() (garde-fous checkout, 29/08), toutes les server actions
-  // panier throw pour un rôle ≠ CLIENT → la page crashait sur l'error boundary.
-  // `/admin` est hors i18n → utiliser le redirect brut de next/navigation
-  // sinon on est préfixés /fr/admin qui n'existe pas (404).
-  if (session.user.role !== "CLIENT") {
-    return rawRedirect("/admin");
-  }
-
-  if (session.user.status !== "APPROVED") {
+  if (session.user.role === "CLIENT" && session.user.status !== "APPROVED") {
     const tCart = await getTranslations({ locale, namespace: "cart" });
     return (
       <div className="container-site py-14 text-center">

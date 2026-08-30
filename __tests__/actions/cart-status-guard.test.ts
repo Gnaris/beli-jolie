@@ -114,14 +114,22 @@ describe("Garde APPROVED — statut du compte client", () => {
     expect(mockPrisma.cartItem.findFirst).not.toHaveBeenCalled();
   });
 
-  it("refuse addToCart si l'utilisateur est ADMIN (même APPROVED)", async () => {
+  it("laisse passer un ADMIN (test du tunnel commande par l'admin de la boutique)", async () => {
     const { getServerSession } = await import("next-auth");
     (getServerSession as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       user: { id: "admin-1", role: "ADMIN", status: "APPROVED" },
     });
+    mockPrisma.productColor.findUnique.mockResolvedValue({
+      stock: 10,
+      saleType: "UNIT",
+      packQuantity: null,
+      product: { status: "ONLINE" },
+    });
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-admin" });
+    mockPrisma.cartItem.findUnique.mockResolvedValue(null);
 
-    await expect(addToCart("var-1", 1)).rejects.toThrow(/n'est pas encore approuvé/i);
-    expect(mockPrisma.productColor.findUnique).not.toHaveBeenCalled();
+    await expect(addToCart("var-1", 1)).resolves.toBeUndefined();
+    expect(mockPrisma.cartItem.create).toHaveBeenCalledOnce();
   });
 });
 
