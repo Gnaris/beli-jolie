@@ -276,16 +276,22 @@ export default function CartWizardClient({
   });
   const tvaLabel = `${Math.round(tvaRate * 100)} %`;
 
-  // Remise commerciale client
-  const clientDiscountAmt = useMemo(() => {
-    if (!clientDiscount.discountType || !clientDiscount.discountValue) return 0;
-    if (clientDiscount.discountType === "PERCENT")
-      return Math.min(subtotalHT, subtotalHT * (clientDiscount.discountValue / 100));
-    return Math.min(subtotalHT, clientDiscount.discountValue);
+  // Remise commerciale client — pour PERCENT on floor le sous-total après
+  // remise d'abord puis on dérive la remise (aligné lib/order-pricing.ts).
+  // Reconstruit exactement ce que le serveur stockera en BDD ; évite qu'un
+  // floor prématuré sur la remise laisse 1 ct de trop dans le sous-total.
+  const { clientDiscountAmt, subtotalAfterDiscount } = useMemo(() => {
+    const floor2 = (n: number) => Math.floor(n * 100) / 100;
+    if (!clientDiscount.discountType || !clientDiscount.discountValue) {
+      return { clientDiscountAmt: 0, subtotalAfterDiscount: floor2(subtotalHT) };
+    }
+    if (clientDiscount.discountType === "PERCENT") {
+      const after = Math.max(0, floor2(subtotalHT * (1 - clientDiscount.discountValue / 100)));
+      return { clientDiscountAmt: Math.max(0, floor2(subtotalHT - after)), subtotalAfterDiscount: after };
+    }
+    const amt = Math.min(subtotalHT, clientDiscount.discountValue);
+    return { clientDiscountAmt: amt, subtotalAfterDiscount: Math.max(0, floor2(subtotalHT - amt)) };
   }, [clientDiscount, subtotalHT]);
-
-  // Troncature au centime (pas d'arrondi), identique au checkout serveur (lib/order-pricing.ts).
-  const subtotalAfterDiscount = Math.max(0, Math.floor((subtotalHT - clientDiscountAmt) * 100) / 100);
 
   // Livraison — moteur cascade avec respect du flag `stackable` :
   //   - Cluster stackable = promos SHIPPING stackable + remise commerciale client

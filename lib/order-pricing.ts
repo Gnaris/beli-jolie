@@ -221,15 +221,23 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   }
 
   // ── 3. Remise commerciale client — appliquée UNE FOIS sur le sous-total ──
+  // Pour PERCENT, on calcule le sous-total après remise d'abord (floor au
+  // centime) puis on déduit le montant de remise à partir de la différence :
+  // évite qu'un floor prématuré sur la remise (ex. 12.925 → 12.92) laisse
+  // 1 ct de trop dans le sous-total et fasse dériver le total TTC.
+  // Cas réel : 258.50 − 5 % → sous-total 245.57 (et non 245.58), total ×1.20
+  // = 294.68 (et non 294.69). Facturation externe attend 245.57.
   let clientDiscountAmt = 0;
+  let subtotalAfterDiscount = floorMoney(subtotalHT);
   if (clientDiscountApplies && user.discountType && user.discountValue != null) {
     if (user.discountType === "PERCENT") {
-      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT * (user.discountValue / 100)));
+      subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT * (1 - user.discountValue / 100)));
+      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT - subtotalAfterDiscount));
     } else {
       clientDiscountAmt = Math.min(subtotalHT, user.discountValue);
+      subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT - clientDiscountAmt));
     }
   }
-  const subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT - clientDiscountAmt));
 
   // ── 4. Cascade trace — affichage récap (promos items + remise client) ──
   const discountTrace: CascadeTraceLine[] = [];

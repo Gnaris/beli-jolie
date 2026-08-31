@@ -1080,14 +1080,22 @@ export default function CheckoutClient({
     (s, item) => s + pickItemUnitPrice(item.id, item.variant, promoInfoByItemId) * item.quantity, 0
   );
 
-  // Remise commerciale client
-  const clientDiscountAmt = (() => {
-    if (!clientDiscount?.discountType || !clientDiscount.discountValue) return 0;
-    if (clientDiscount.discountType === "PERCENT")
-      return Math.min(subtotalHT, subtotalHT * (clientDiscount.discountValue / 100));
-    return Math.min(subtotalHT, clientDiscount.discountValue);
+  // Remise commerciale client — pour PERCENT on floor le sous-total après
+  // remise d'abord puis on dérive la remise (aligné lib/order-pricing.ts pour
+  // que le montant affiché ici corresponde exactement à ce que le serveur
+  // stockera dans Order.subtotalHT / Order.totalTTC).
+  const _floor2 = (n: number) => Math.floor(n * 100) / 100;
+  const { clientDiscountAmt, subtotalAfterDiscount } = (() => {
+    if (!clientDiscount?.discountType || !clientDiscount.discountValue) {
+      return { clientDiscountAmt: 0, subtotalAfterDiscount: _floor2(subtotalHT) };
+    }
+    if (clientDiscount.discountType === "PERCENT") {
+      const after = Math.max(0, _floor2(subtotalHT * (1 - clientDiscount.discountValue / 100)));
+      return { clientDiscountAmt: Math.max(0, _floor2(subtotalHT - after)), subtotalAfterDiscount: after };
+    }
+    const amt = Math.min(subtotalHT, clientDiscount.discountValue);
+    return { clientDiscountAmt: amt, subtotalAfterDiscount: Math.max(0, _floor2(subtotalHT - amt)) };
   })();
-  const subtotalAfterDiscount = subtotalHT - clientDiscountAmt;
 
   // selectedCarrier.price est le prix HT renvoyé par /api/carriers (Easy-Express c.price)
   const _rawCarrierPrice = selectedCarrier?.price ?? 0;

@@ -72,24 +72,27 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   }
   const preDiscountSubtotal = discountableSubtotal + compensationSubtotal;
 
+  // Calcul de la base remisée : pour PERCENT, on floor le sous-total après
+  // remise d'abord puis on dérive la remise, sinon un floor prématuré sur
+  // la remise (ex. 258.50 × 5 % = 12.925 arrondi à 12.92) laisse 1 ct de trop
+  // dans le sous-total et fait dériver le total TTC (294.69 au lieu de 294.68).
+  // La reconstruction PDF `subtotalHT + clientDiscountAmt` reste exacte car
+  // clientDiscountAmt = discountableSubtotal − discountedBase (différence).
   let clientDiscountAmt = 0;
+  let discountedBase = discountableSubtotal;
   const discountValue = toNumber(input.clientDiscountValue);
   if (input.clientDiscountType && discountValue > 0) {
     if (input.clientDiscountType === "PERCENT") {
-      clientDiscountAmt = discountableSubtotal * (discountValue / 100);
+      discountedBase = Math.max(0, floorMoney(discountableSubtotal * (1 - discountValue / 100)));
+      clientDiscountAmt = Math.max(0, floorMoney(discountableSubtotal - discountedBase));
     } else {
-      // AMOUNT : remise fixe en euros
-      clientDiscountAmt = discountValue;
+      // AMOUNT : remise fixe en euros, plafonnée à la base remisable.
+      clientDiscountAmt = Math.min(discountableSubtotal, discountValue);
+      discountedBase = Math.max(0, discountableSubtotal - clientDiscountAmt);
     }
-    // La remise ne peut jamais dépasser la base remisable (commande à 0 max).
-    clientDiscountAmt = Math.min(discountableSubtotal, clientDiscountAmt);
-    if (clientDiscountAmt < 0) clientDiscountAmt = 0;
   }
 
-  const subtotalHT = Math.max(
-    0,
-    discountableSubtotal - clientDiscountAmt + compensationSubtotal,
-  );
+  const subtotalHT = Math.max(0, floorMoney(discountedBase + compensationSubtotal));
   const carrierPriceNum = toNumber(input.carrierPrice);
   // TVA appliquée aussi sur les frais de port (art. 267 CGI :
   // le port suit le même régime TVA que les biens vendus).

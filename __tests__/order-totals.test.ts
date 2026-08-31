@@ -83,6 +83,26 @@ describe("recomputeOrderTotals — remise PERCENT", () => {
     expect(res.totalTTC).toBeCloseTo(864, 5);
   });
 
+  // Régression 2026-08-31 : commande beliandjolie cmteptzaw0052dhg4h121pf2k.
+  // 258.50 − 5 % = 245.575 ; le code fautif floorait la remise d'abord (12.925
+  // → 12.92) et laissait 1 ct de trop dans le sous-total (245.58) → total
+  // TTC 294.69 au lieu de 294.68 attendu par la facturation externe.
+  it("258.50 avec −5 % : sous-total 245.57 et total TTC 294.68 (pas 245.58 / 294.69)", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 258.50 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "PERCENT",
+      clientDiscountValue: 5,
+    });
+
+    expect(res.subtotalHT).toBe(245.57);
+    expect(res.clientDiscountAmt).toBe(12.93);
+    // Reconstruction PDF : subtotalHT + clientDiscountAmt = pre-discount.
+    expect(res.subtotalHT + res.clientDiscountAmt).toBeCloseTo(258.50, 5);
+    expect(res.totalTTC).toBe(294.68);
+  });
+
   it("remise de 100% = HT articles à 0, mais TVA sur port restante", () => {
     const res = recomputeOrderTotals({
       items: [{ lineTotal: 100 }],

@@ -134,7 +134,9 @@ describe("Cohérence pricing panier ↔ commande", () => {
 
   it("Remise commerciale client PERCENT appliquée UNE FOIS sur subtotalHT, pas par item", () => {
     // 3 items à 3,33 € → subtotalHT = 9,99 €. Client -10 %.
-    // Nouvelle règle : clientDiscountAmt = floor(9,99 × 0,10) = 0,99 €.
+    // Depuis 2026-08-31, on floor le sous-total après remise d'abord
+    // (avantage client, aligné facturation) : floor(9,99 × 0,90) = 8,99 €,
+    // et clientDiscountAmt = 9,99 − 8,99 = 1,00 €.
     // Le snapshot par item reste à 3,33 € (pas 2,99 par ligne comme avant).
     const items = [
       makeItem("i1", 3.33, 1),
@@ -157,8 +159,8 @@ describe("Cohérence pricing panier ↔ commande", () => {
     };
     const r = computeOrderPricing(input);
     expect(r.subtotalHT).toBeCloseTo(9.99, 2);
-    expect(r.clientDiscountAmt).toBeCloseTo(0.99, 2);
-    expect(r.subtotalAfterDiscount).toBeCloseTo(9.0, 2);
+    expect(r.subtotalAfterDiscount).toBeCloseTo(8.99, 2);
+    expect(r.clientDiscountAmt).toBeCloseTo(1.00, 2);
     // Chaque ligne conserve le prix produit final complet (pas de remise client par ligne)
     for (const [, entry] of r.itemFinalPrices) {
       expect(entry.finalUnitPrice).toBeCloseTo(3.33, 2);
@@ -193,6 +195,35 @@ describe("Cohérence pricing panier ↔ commande", () => {
     const entry = r.itemFinalPrices.get("bl235-unit");
     expect(entry?.finalUnitPrice).toBeCloseTo(2.02, 2);
     expect(entry?.source).toBe("stack");
+  });
+
+  // Régression 2026-08-31 : commande beliandjolie cmteptzaw0052dhg4h121pf2k.
+  // Le calcul fautif floorait la remise avant soustraction : 258.50 × 0.05
+  // = 12.925 → 12.92, puis 258.50 − 12.92 = 245.58 stocké (au lieu de 245.57)
+  // → totalTTC 294.69 au lieu de 294.68 attendu par la facturation externe.
+  it("258.50 avec −5 % : subtotalAfterDiscount 245.57 (pas 245.58), totalTTC 294.68 (pas 294.69)", () => {
+    const items = [makeItem("i1", 258.50, 1)];
+    const user = {
+      ...baseUser,
+      discountType: "PERCENT" as const,
+      discountValue: 5,
+    };
+    const input = {
+      items,
+      carrierId: "pickup_store",
+      carrierPrice: 0,
+      addressCountry: "FR",
+      user,
+      activePromos: [] as ActivePromotion[],
+      appliedCodePromo: null,
+    };
+    const r = computeOrderPricing(input);
+    expect(r.subtotalHT).toBe(258.50);
+    expect(r.subtotalAfterDiscount).toBe(245.57);
+    expect(r.clientDiscountAmt).toBe(12.93);
+    // Reconstruction PDF : subtotalHT + clientDiscountAmt = subtotalBrut affiché.
+    expect(r.subtotalHT).toBeCloseTo(r.subtotalAfterDiscount + r.clientDiscountAmt, 5);
+    expect(r.totalTTC).toBe(294.68);
   });
 
   it("promoAutoDiscount = subtotalBrut - subtotalHT (sans code) — pour affichage séparé du récap", () => {
