@@ -271,14 +271,27 @@ export default function NewsletterEditorClient({ template }: Props) {
     commit(next);
   }
 
-  async function loadProducts(ids: string[]) {
-    const missing = ids.filter((id) => !productsCache.has(id));
+  // Charge en fond les produits référencés par les blocs « Grille produits »
+  // pour l'aperçu. Un seul useEffect qui observe la liste d'IDs — pas de
+  // side-effect pendant le rendu (bug React « setState in render »).
+  useEffect(() => {
+    const allIds = blocks
+      .filter((b): b is Extract<NewsletterBlock, { type: "products" }> => b.type === "products")
+      .flatMap((b) => b.data.productIds);
+    const missing = allIds.filter((id) => !productsCache.has(id));
     if (missing.length === 0) return;
-    const all = await searchProductsForNewsletter("");
-    const next = new Map(productsCache);
-    for (const p of all) next.set(p.id, p);
-    setProductsCache(next);
-  }
+    let cancelled = false;
+    (async () => {
+      const all = await searchProductsForNewsletter("");
+      if (cancelled) return;
+      setProductsCache((prev) => {
+        const next = new Map(prev);
+        for (const p of all) next.set(p.id, p);
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [blocks, productsCache]);
 
   const orderedIds = blocks.map((b) => String(b.id));
   const drag = useDragReorder({
@@ -495,7 +508,6 @@ export default function NewsletterEditorClient({ template }: Props) {
                       onSelect={() => setSelectedId(b.id)}
                       onDelete={() => deleteBlock(b.id)}
                       productsCache={productsCache}
-                      onLoadProducts={loadProducts}
                       dragBinding={drag.bind(String(b.id))}
                       dropIndicator={`${dropIndicatorClass(drag.overId, drag.overPos, String(b.id))} ${paletteDropIndicator(i)}`}
                       isDragging={drag.dragId === String(b.id)}
@@ -620,7 +632,6 @@ function BlockCanvas({
   onSelect,
   onDelete,
   productsCache,
-  onLoadProducts,
   dragBinding,
   dropIndicator,
   isDragging,
@@ -633,7 +644,6 @@ function BlockCanvas({
   onSelect: () => void;
   onDelete: () => void;
   productsCache: Map<string, ProductLite>;
-  onLoadProducts: (ids: string[]) => void;
   dragBinding: ReturnType<ReturnType<typeof useDragReorder>["bind"]>;
   dropIndicator: string;
   isDragging: boolean;
@@ -708,12 +718,12 @@ function BlockCanvas({
           </svg>
         </button>
       </div>
-      <BlockRender block={block} productsCache={productsCache} onLoadProducts={onLoadProducts} />
+      <BlockRender block={block} productsCache={productsCache} />
     </div>
   );
 }
 
-function BlockRender({ block, productsCache, onLoadProducts }: { block: NewsletterBlock; productsCache: Map<string, ProductLite>; onLoadProducts: (ids: string[]) => void }) {
+function BlockRender({ block, productsCache }: { block: NewsletterBlock; productsCache: Map<string, ProductLite> }) {
   const s: React.CSSProperties = { fontFamily: "Roboto, sans-serif" };
   const bg = "bg" in block.data ? (block.data as { bg?: string }).bg : undefined;
 
@@ -775,7 +785,6 @@ function BlockRender({ block, productsCache, onLoadProducts }: { block: Newslett
       if (block.data.productIds.length === 0) {
         return <div style={{ ...s, padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 12, background: bg || "transparent" }}>Aucun produit sélectionné — choisis-en dans les réglages.</div>;
       }
-      onLoadProducts(block.data.productIds);
       const products = block.data.productIds.map((id) => productsCache.get(id)).filter(Boolean) as ProductLite[];
       const cols = block.data.cols;
       return (
