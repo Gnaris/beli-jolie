@@ -65,7 +65,7 @@ export default function RegisterForm({
     addressComplement: "",
     addressZip: "",
     addressCity: "",
-    addressCountry: "FR",
+    addressCountry: "",
     password: "",
     confirmPassword: "",
     registrationMessage: "",

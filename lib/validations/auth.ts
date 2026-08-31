@@ -53,11 +53,18 @@ export const registerSchema = z.object({
     .regex(/^\d{14}$/, "Le SIRET doit contenir exactement 14 chiffres.")
     .optional()
     .or(z.literal("")),
+  // Format libre : chaque pays UE a son propre format (BE0123456789,
+  // FR12345678901, IT12345678901, BE 0123.456.789 avec ou sans préfixe
+  // pays, franchise TVA belge sans préfixe, etc.). L'admin vérifie
+  // manuellement le numéro à la validation du dossier — ici on se contente
+  // d'une longueur raisonnable et d'un jeu de caractères sain.
   vatNumber: z
     .string()
+    .min(4, "Le numéro de TVA est trop court.")
+    .max(32, "Le numéro de TVA est trop long (32 caractères max).")
     .regex(
-      /^[A-Z]{2}[A-Z0-9]{2,13}$/,
-      "Format invalide (ex: FR12345678901, DE123456789)."
+      /^[A-Za-z0-9][A-Za-z0-9\-./ ]*[A-Za-z0-9]$/,
+      "Caractères autorisés : lettres, chiffres, tirets, points, espaces."
     )
     .optional()
     .or(z.literal("")),
@@ -91,6 +98,7 @@ export const registerSchema = z.object({
     .max(100, "Nom de ville trop long."),
   addressCountry: z
     .string()
+    .min(1, "Veuillez sélectionner votre pays.")
     .regex(/^[A-Z]{2}$/, "Code pays invalide (format ISO-2, ex: FR)."),
   password: z
     .string()

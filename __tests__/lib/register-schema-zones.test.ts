@@ -90,6 +90,30 @@ describe("registerSchema — zone UE hors France", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepte un numéro d'entreprise belge (BCE 10 chiffres) dans le champ TVA — format libre validé côté admin", () => {
+    const result = registerSchema.safeParse({
+      ...BASE,
+      addressCountry: "BE",
+      vatNumber: "0123456789",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepte un numéro belge avec points (0123.456.789) — l'admin vérifie", () => {
+    const result = registerSchema.safeParse({
+      ...BASE,
+      addressCountry: "BE",
+      vatNumber: "0123.456.789",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejette une inscription sans pays sélectionné avec un message explicite", () => {
+    const issues = issuesFor({ ...BASE, addressCountry: "", siret: "14345678901234" });
+    const countryIssue = issues.find((i) => i.path === "addressCountry");
+    expect(countryIssue?.message).toContain("sélectionner votre pays");
+  });
+
   it("n'impose pas le SIRET pour une société UE hors France", () => {
     const result = registerSchema.safeParse({
       ...BASE,
