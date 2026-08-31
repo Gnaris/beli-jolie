@@ -100,6 +100,7 @@ export default function RegisterForm({
   const [docError, setDocError]           = useState("");
   const [fieldErrors, setFieldErrors]     = useState<FieldErrors>({});
   const [globalError, setGlobalError]     = useState("");
+  const [staleVersion, setStaleVersion]   = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
@@ -292,6 +293,7 @@ export default function RegisterForm({
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     setGlobalError("");
+    setStaleVersion(false);
 
     const validation = registerSchema.safeParse(fields);
     if (!validation.success) {
@@ -335,7 +337,15 @@ export default function RegisterForm({
       const json = await res.json();
 
       if (!res.ok) {
-        setGlobalError(json.error ?? t("kbisRequired"));
+        // 500 générique = souvent un ChunkLoadError SSR après déploiement
+        // pendant que la cliente remplissait le formulaire. Message dédié
+        // qui l'invite à recharger plutôt que le message serveur brut.
+        if (res.status === 500) {
+          setStaleVersion(true);
+          setGlobalError(t("staleVersionError"));
+        } else {
+          setGlobalError(json.error ?? t("kbisRequired"));
+        }
         return;
       }
       // Inscription réussie : on efface le brouillon local.
@@ -532,7 +542,18 @@ export default function RegisterForm({
               <svg className="w-5 h-5 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
               </svg>
-              <span>{globalError}</span>
+              <div className="flex-1 flex flex-col gap-2">
+                <span>{globalError}</span>
+                {staleVersion && (
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="self-start bg-error text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-error/90 transition-colors"
+                  >
+                    {t("reloadPage")}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

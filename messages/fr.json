@@ -91,6 +91,8 @@
       "kbisClick": "Cliquez pour sélectionner votre Kbis",
       "kbisFormats": "PDF, JPG, PNG — max 5 Mo",
       "kbisRequired": "Le fichier Kbis est obligatoire.",
+      "staleVersionError": "Une nouvelle version du site a été publiée pendant votre saisie. Rafraîchissez la page (tirez vers le bas ou appuyez sur F5), puis renvoyez votre demande.",
+      "reloadPage": "Recharger la page",
       "kbisInvalidFormat": "Format invalide. Accepté : PDF, JPG, PNG (max 5 Mo).",
       "kbisTooBig": "Le fichier dépasse la limite de 5 Mo.",
       "sectionMessage": "Votre message",
