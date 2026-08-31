@@ -56,6 +56,84 @@ import { getCurrentTenantIdSync } from "@/lib/tenant-als";
  */
 const microstorePhotoLockByTenant = new Map<string, Promise<unknown>>();
 
+/**
+ * Délais entre les tentatives du PATCH images Microstore (ms).
+ *
+ * Le back-end Microstore renvoie parfois HTTP 500 générique
+ * ("errorCode":"000001","errorMessage":"Une erreur de système inconnu")
+ * quand on enchaîne trop vite `/goods/update` (BOSS) et `PATCH /goods/{id}`
+ * (H5) sur le même produit — typiquement dans la foulée d'une liaison
+ * manuelle (`linkMicrostoreProductManually`).
+ *
+ * Ré-essayer avec un délai croissant laisse à leur back-end le temps de
+ * digérer la mise à jour de la fiche avant qu'on repique les images.
+ *
+ * Exportés pour être surchargés dans les tests (sinon Vitest attend 20 s
+ * pour un scénario échec × 3).
+ */
+export const MICROSTORE_PATCH_RETRY_DELAYS_MS = [5_000, 15_000];
+
+const PATCH_500_USER_MESSAGE =
+  "Microstore n'a pas voulu accrocher les photos à ta fiche (erreur système côté Microstore, réessayé 3 fois). " +
+  "Attends une minute, puis ouvre le widget « Marketplaces » en bas à droite et clique « Renvoyer les photos ».";
+
+/**
+ * Détecte les 500 génériques Microstore ("errorCode":"000001") sur lesquels
+ * ça vaut la peine de ré-essayer. Un 400/401/403 vient d'un vrai problème
+ * (payload invalide, session expirée…) et ne guérira pas au retry.
+ */
+function isMicrostorePatch500(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("HTTP 500");
+}
+
+/**
+ * Wrapper autour de `patchMicrostoreGoodsImages` avec ré-essai automatique
+ * sur HTTP 500. 3 tentatives maximum, délais croissants (voir
+ * `MICROSTORE_PATCH_RETRY_DELAYS_MS`). Après le 3ᵉ échec 500 consécutif,
+ * throw une erreur avec un message actionnable pour la cliente
+ * (message `PATCH_500_USER_MESSAGE`).
+ *
+ * Les erreurs autres que HTTP 500 sont propagées telles quelles sans retry.
+ */
+export async function patchMicrostoreGoodsImagesWithRetry(
+  pictureStationKey: string,
+  goodsId: number,
+  payload: Parameters<typeof patchMicrostoreGoodsImages>[2],
+  label: string,
+): Promise<void> {
+  const delays = MICROSTORE_PATCH_RETRY_DELAYS_MS;
+  const maxAttempts = delays.length + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await patchMicrostoreGoodsImages(pictureStationKey, goodsId, payload);
+      if (attempt > 1) {
+        logger.info(
+          `[Microstore PATCH retry] ${label} succès à la tentative ${attempt}/${maxAttempts}`,
+          { goodsId },
+        );
+      }
+      return;
+    } catch (err) {
+      const is500 = isMicrostorePatch500(err);
+      if (!is500) throw err;
+      if (attempt === maxAttempts) {
+        logger.error(
+          `[Microstore PATCH retry] ${label} — abandon après ${maxAttempts} tentatives HTTP 500`,
+          { goodsId, error: err instanceof Error ? err.message : String(err) },
+        );
+        throw new Error(PATCH_500_USER_MESSAGE);
+      }
+      const wait = delays[attempt - 1];
+      logger.warn(
+        `[Microstore PATCH retry] ${label} tentative ${attempt}/${maxAttempts} refusée (HTTP 500) — nouvel essai dans ${wait} ms`,
+        { goodsId, error: err instanceof Error ? err.message : String(err) },
+      );
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 export async function withMicrostorePhotoLock<T>(
   fallbackTenantId: string | null,
   label: string,
@@ -487,11 +565,16 @@ async function sendProductPhotosToMicrostoreCoreUnlocked(
 
   await markMicrostoreUploadJobStatus(jobId, "PATCHING");
   try {
-    await patchMicrostoreGoodsImages(stored.key, mstGoods.goodsId, {
-      coverImage,
-      mainImages: [],
-      imageSetting: { skuImage },
-    });
+    await patchMicrostoreGoodsImagesWithRetry(
+      stored.key,
+      mstGoods.goodsId,
+      {
+        coverImage,
+        mainImages: [],
+        imageSetting: { skuImage },
+      },
+      `sendProductPhotos(${product.reference})`,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await markMicrostoreUploadJobStatus(jobId, "FAILED", {
@@ -947,10 +1030,15 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
         });
         continue;
       }
-      await patchMicrostoreGoodsImages(stored.key, mstGoods.goodsId, {
-        coverImage: coverUrl,
-        mainImages: [],
-      });
+      await patchMicrostoreGoodsImagesWithRetry(
+        stored.key,
+        mstGoods.goodsId,
+        {
+          coverImage: coverUrl,
+          mainImages: [],
+        },
+        `bulkCoverPatch(${entry.reference})`,
+      );
       coversPatched++;
       await markMicrostoreUploadJobStatus(jobId, "DONE", { completed: true });
     } catch (err) {

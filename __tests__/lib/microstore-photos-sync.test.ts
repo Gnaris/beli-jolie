@@ -260,6 +260,86 @@ describe("sendProductPhotosToMicrostoreCore — garde-fou microstorePhotosDirty"
   });
 });
 
+describe("patchMicrostoreGoodsImagesWithRetry — 3 tentatives, délais croissants", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const mod = await loadCore();
+    // Raccourcit les délais réels (5s, 15s) à 1 ms pour ne pas ralentir la
+    // suite Vitest. La constante reste exportée depuis le module pour être
+    // surchargeable en env de test.
+    (mod.MICROSTORE_PATCH_RETRY_DELAYS_MS as number[]).splice(
+      0,
+      mod.MICROSTORE_PATCH_RETRY_DELAYS_MS.length,
+      1,
+      1,
+    );
+  });
+
+  it("succès du 1er coup : 1 seul appel PATCH", async () => {
+    const ps = await import("@/lib/microstore-picture-station");
+    const patch = ps.patchMicrostoreGoodsImages as ReturnType<typeof vi.fn>;
+    patch.mockResolvedValue(undefined);
+
+    const { patchMicrostoreGoodsImagesWithRetry } = await loadCore();
+    await patchMicrostoreGoodsImagesWithRetry("K", 6753, { coverImage: "u", mainImages: [] }, "test");
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it("HTTP 500 puis OK : 2 appels PATCH, retourne succès", async () => {
+    const ps = await import("@/lib/microstore-picture-station");
+    const patch = ps.patchMicrostoreGoodsImages as ReturnType<typeof vi.fn>;
+    patch
+      .mockRejectedValueOnce(new Error('Microstore PATCH /goods/6753 HTTP 500 : {"errorCode":"000001"}'))
+      .mockResolvedValueOnce(undefined);
+
+    const { patchMicrostoreGoodsImagesWithRetry } = await loadCore();
+    await expect(
+      patchMicrostoreGoodsImagesWithRetry("K", 6753, { coverImage: "u", mainImages: [] }, "test"),
+    ).resolves.toBeUndefined();
+    expect(patch).toHaveBeenCalledTimes(2);
+  });
+
+  it("HTTP 500 × 3 : throw un message actionnable vers le widget, HTTP 500 brut caché", async () => {
+    const ps = await import("@/lib/microstore-picture-station");
+    const patch = ps.patchMicrostoreGoodsImages as ReturnType<typeof vi.fn>;
+    patch.mockRejectedValue(
+      new Error('Microstore PATCH /goods/6753 HTTP 500 : {"errorCode":"000001"}'),
+    );
+
+    const { patchMicrostoreGoodsImagesWithRetry } = await loadCore();
+    await expect(
+      patchMicrostoreGoodsImagesWithRetry("K", 6753, { coverImage: "u", mainImages: [] }, "test"),
+    ).rejects.toThrow(/widget/i);
+    // 3 tentatives max (1 + 2 retries), pas plus.
+    expect(patch).toHaveBeenCalledTimes(3);
+    // La cliente voit un message actionnable, pas du HTTP brut ni du JSON.
+    try {
+      await patchMicrostoreGoodsImagesWithRetry("K", 6753, { coverImage: "u", mainImages: [] }, "test");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      expect(msg).not.toMatch(/HTTP 500/);
+      expect(msg).not.toMatch(/errorCode/);
+      expect(msg).toMatch(/Renvoyer les photos/i);
+    }
+  });
+
+  it("HTTP 400 : pas de retry, erreur remontée telle quelle", async () => {
+    const ps = await import("@/lib/microstore-picture-station");
+    const patch = ps.patchMicrostoreGoodsImages as ReturnType<typeof vi.fn>;
+    patch.mockRejectedValue(
+      new Error('Microstore PATCH /goods/6753 HTTP 400 : {"error":"invalid"}'),
+    );
+
+    const { patchMicrostoreGoodsImagesWithRetry } = await loadCore();
+    await expect(
+      patchMicrostoreGoodsImagesWithRetry("K", 6753, { coverImage: "u", mainImages: [] }, "test"),
+    ).rejects.toThrow(/HTTP 400/);
+    // 1 seul appel — un 400 est déterministe (mauvais payload), pas la peine
+    // de retry.
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("withMicrostorePhotoLock — sérialisation par tenant", () => {
   beforeEach(() => vi.clearAllMocks());
 
