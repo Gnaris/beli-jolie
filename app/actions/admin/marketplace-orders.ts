@@ -13,13 +13,12 @@
  * Ajouter Ankorstore/Faire consistera à étendre l'UNION avec une 3ᵉ source.
  */
 
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
-import { logger } from "@/lib/logger";
 import {
   getMarketplaceAutoSyncStates,
   setMarketplaceAutoSyncEnabled as setMarketplaceAutoSyncEnabledLib,
@@ -52,8 +51,6 @@ export type MarketplacePeriodKey =
   | "all"
   | "custom";
 
-export type MarketplaceStockFilter = "all" | "pending" | "done" | "nothing";
-
 /**
  * Statut unifié pour l'affichage :
  *  - NEW      → PFS.NEW / eFashion.NEW
@@ -66,12 +63,6 @@ export type MarketplaceUnifiedStatus =
   | "VALIDATED"
   | "SHIPPED"
   | "CANCELLED";
-
-export type MarketplaceStockDeductionState =
-  | "NOT_APPLICABLE"
-  | "NOTHING_TO_DEDUCT"
-  | "PENDING"
-  | "DONE";
 
 export interface MarketplaceOrderListItem {
   id: string;
@@ -87,7 +78,6 @@ export interface MarketplaceOrderListItem {
   totalTTC: number;
   totalHT: number;
   hasInvoice: boolean;
-  stockDeductionState: MarketplaceStockDeductionState;
 }
 
 // ─────────────────────────────────────────────
@@ -257,221 +247,6 @@ function ankorstoreStatusRawLabel(raw: string): string {
 }
 
 // ─────────────────────────────────────────────
-// Stock deduction state — helpers
-// ─────────────────────────────────────────────
-
-async function computePfsStockDeductionMap(
-  tenantId: string,
-  rows: Array<{ id: string; status: "NEW" | "VALIDATED" | "SENT" | "CANCELLED" }>,
-): Promise<Map<string, MarketplaceStockDeductionState>> {
-  const result = new Map<string, MarketplaceStockDeductionState>();
-  if (!rows.length) return result;
-  const orderIds = rows.map((r) => r.id);
-  const [eligible, deducted] = await Promise.all([
-    prisma.pfsOrderItem.groupBy({
-      by: ["pfsOrderId"],
-      where: {
-        tenantId,
-        pfsOrderId: { in: orderIds },
-        productId: { not: null },
-        productColorId: { not: null },
-      },
-      _count: { id: true },
-    }),
-    prisma.pfsOrderItem.groupBy({
-      by: ["pfsOrderId"],
-      where: { tenantId, pfsOrderId: { in: orderIds }, stockDeductedAt: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
-  const elMap = new Map(eligible.map((g) => [g.pfsOrderId, g._count.id]));
-  const dedMap = new Map(deducted.map((g) => [g.pfsOrderId, g._count.id]));
-  for (const r of rows) {
-    if (r.status === "NEW" || r.status === "CANCELLED") {
-      result.set(r.id, "NOT_APPLICABLE");
-    } else if ((dedMap.get(r.id) ?? 0) > 0) {
-      result.set(r.id, "DONE");
-    } else if ((elMap.get(r.id) ?? 0) === 0) {
-      result.set(r.id, "NOTHING_TO_DEDUCT");
-    } else {
-      result.set(r.id, "PENDING");
-    }
-  }
-  return result;
-}
-
-async function computeAnkorstoreStockDeductionMap(
-  tenantId: string,
-  rows: Array<{ id: string; status: "NEW" | "VALIDATED" | "SHIPPED" | "CANCELLED" }>,
-): Promise<Map<string, MarketplaceStockDeductionState>> {
-  // Même logique que PFS/eFashion : on renvoie NOT_APPLICABLE / NOTHING_TO_DEDUCT
-  // / PENDING / DONE selon l'état réel côté BDD. Le bouton « À déduire » côté UI
-  // (tableau) est désactivé pour ANKORSTORE tant que la modale de déduction
-  // dédiée n'est pas livrée — cf. MarketplaceOrdersTable.
-  const result = new Map<string, MarketplaceStockDeductionState>();
-  if (!rows.length) return result;
-  const orderIds = rows.map((r) => r.id);
-  const [eligible, deducted] = await Promise.all([
-    prisma.ankorstoreOrderItem.groupBy({
-      by: ["ankorstoreOrderId"],
-      where: {
-        tenantId,
-        ankorstoreOrderId: { in: orderIds },
-        productId: { not: null },
-        productColorId: { not: null },
-      },
-      _count: { id: true },
-    }),
-    prisma.ankorstoreOrderItem.groupBy({
-      by: ["ankorstoreOrderId"],
-      where: { tenantId, ankorstoreOrderId: { in: orderIds }, stockDeductedAt: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
-  const elMap = new Map(eligible.map((g) => [g.ankorstoreOrderId, g._count.id]));
-  const dedMap = new Map(deducted.map((g) => [g.ankorstoreOrderId, g._count.id]));
-  for (const r of rows) {
-    if (r.status === "NEW" || r.status === "CANCELLED") {
-      result.set(r.id, "NOT_APPLICABLE");
-    } else if ((dedMap.get(r.id) ?? 0) > 0) {
-      result.set(r.id, "DONE");
-    } else if ((elMap.get(r.id) ?? 0) === 0) {
-      result.set(r.id, "NOTHING_TO_DEDUCT");
-    } else {
-      result.set(r.id, "PENDING");
-    }
-  }
-  return result;
-}
-
-async function computeFaireStockDeductionMap(
-  tenantId: string,
-  rows: Array<{ id: string; status: "NEW" | "SHIPPED" | "CANCELLED" }>,
-): Promise<Map<string, MarketplaceStockDeductionState>> {
-  const result = new Map<string, MarketplaceStockDeductionState>();
-  if (!rows.length) return result;
-  const orderIds = rows.map((r) => r.id);
-  const [eligible, deducted] = await Promise.all([
-    prisma.faireOrderItem.groupBy({
-      by: ["faireOrderId"],
-      where: {
-        tenantId,
-        faireOrderId: { in: orderIds },
-        productId: { not: null },
-        productColorId: { not: null },
-      },
-      _count: { id: true },
-    }),
-    prisma.faireOrderItem.groupBy({
-      by: ["faireOrderId"],
-      where: { tenantId, faireOrderId: { in: orderIds }, stockDeductedAt: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
-  const elMap = new Map(eligible.map((g) => [g.faireOrderId, g._count.id]));
-  const dedMap = new Map(deducted.map((g) => [g.faireOrderId, g._count.id]));
-  for (const r of rows) {
-    if (r.status === "NEW" || r.status === "CANCELLED") {
-      result.set(r.id, "NOT_APPLICABLE");
-    } else if ((dedMap.get(r.id) ?? 0) > 0) {
-      result.set(r.id, "DONE");
-    } else if ((elMap.get(r.id) ?? 0) === 0) {
-      result.set(r.id, "NOTHING_TO_DEDUCT");
-    } else {
-      result.set(r.id, "PENDING");
-    }
-  }
-  return result;
-}
-
-async function computeEfashionStockDeductionMap(
-  tenantId: string,
-  rows: Array<{ id: string; status: "NEW" | "VALIDATED" | "SHIPPED" | "CANCELLED" }>,
-): Promise<Map<string, MarketplaceStockDeductionState>> {
-  const result = new Map<string, MarketplaceStockDeductionState>();
-  if (!rows.length) return result;
-  const orderIds = rows.map((r) => r.id);
-  const [eligible, deducted] = await Promise.all([
-    prisma.efashionOrderItem.groupBy({
-      by: ["efashionOrderId"],
-      where: {
-        tenantId,
-        efashionOrderId: { in: orderIds },
-        productId: { not: null },
-        productColorId: { not: null },
-      },
-      _count: { id: true },
-    }),
-    prisma.efashionOrderItem.groupBy({
-      by: ["efashionOrderId"],
-      where: { tenantId, efashionOrderId: { in: orderIds }, stockDeductedAt: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
-  const elMap = new Map(eligible.map((g) => [g.efashionOrderId, g._count.id]));
-  const dedMap = new Map(deducted.map((g) => [g.efashionOrderId, g._count.id]));
-  for (const r of rows) {
-    if (r.status === "NEW" || r.status === "CANCELLED") {
-      result.set(r.id, "NOT_APPLICABLE");
-    } else if ((dedMap.get(r.id) ?? 0) > 0) {
-      result.set(r.id, "DONE");
-    } else if ((elMap.get(r.id) ?? 0) === 0) {
-      result.set(r.id, "NOTHING_TO_DEDUCT");
-    } else {
-      result.set(r.id, "PENDING");
-    }
-  }
-  return result;
-}
-
-async function computeMicrostoreStockDeductionMap(
-  tenantId: string,
-  rows: Array<{ id: string; status: "NEW" | "SHIPPED" | "CANCELLED" }>,
-): Promise<Map<string, MarketplaceStockDeductionState>> {
-  // Microstore : toutes les commandes non annulées sont considérées comme
-  // « Expédiée » et éligibles à la déduction stock (cf.
-  // normalizeMicrostoreToUnified).
-  const result = new Map<string, MarketplaceStockDeductionState>();
-  if (!rows.length) return result;
-  const orderIds = rows.map((r) => r.id);
-  const [eligible, deducted] = await Promise.all([
-    prisma.microstoreOrderItem.groupBy({
-      by: ["microstoreOrderInternalId"],
-      where: {
-        tenantId,
-        microstoreOrderInternalId: { in: orderIds },
-        productId: { not: null },
-        productColorId: { not: null },
-      },
-      _count: { id: true },
-    }),
-    prisma.microstoreOrderItem.groupBy({
-      by: ["microstoreOrderInternalId"],
-      where: {
-        tenantId,
-        microstoreOrderInternalId: { in: orderIds },
-        stockDeductedAt: { not: null },
-      },
-      _count: { id: true },
-    }),
-  ]);
-  const elMap = new Map(eligible.map((g) => [g.microstoreOrderInternalId, g._count.id]));
-  const dedMap = new Map(deducted.map((g) => [g.microstoreOrderInternalId, g._count.id]));
-  for (const r of rows) {
-    if (r.status === "CANCELLED") {
-      result.set(r.id, "NOT_APPLICABLE");
-    } else if ((dedMap.get(r.id) ?? 0) > 0) {
-      result.set(r.id, "DONE");
-    } else if ((elMap.get(r.id) ?? 0) === 0) {
-      result.set(r.id, "NOTHING_TO_DEDUCT");
-    } else {
-      result.set(r.id, "PENDING");
-    }
-  }
-  return result;
-}
-
-// ─────────────────────────────────────────────
 // LIST UNIFIÉE (paginée)
 // ─────────────────────────────────────────────
 
@@ -484,7 +259,6 @@ export interface ListMarketplaceOrdersInput {
   period?: MarketplacePeriodKey;
   customFrom?: string | null;
   customTo?: string | null;
-  stockFilter?: MarketplaceStockFilter;
 }
 
 export interface ListMarketplaceOrdersResult {
@@ -576,10 +350,6 @@ export async function listMarketplaceOrders(
           }),
           prisma.pfsOrder.count({ where }),
         ]);
-        const stockMap = await computePfsStockDeductionMap(
-          tenant.id,
-          rows.map((r) => ({ id: r.id, status: r.status })),
-        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "PFS" as const,
@@ -594,7 +364,6 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.totalTTC),
           totalHT: decimalToNumber(r.totalHT),
           hasInvoice: r.hasInvoice,
-          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -650,10 +419,6 @@ export async function listMarketplaceOrders(
           }),
           prisma.efashionOrder.count({ where }),
         ]);
-        const stockMap = await computeEfashionStockDeductionMap(
-          tenant.id,
-          rows.map((r) => ({ id: r.id, status: r.status })),
-        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "EFASHION" as const,
@@ -668,7 +433,6 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.totalHT), // eFashion HT (pas de TTC séparé)
           totalHT: decimalToNumber(r.totalHT),
           hasInvoice: false,
-          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -723,10 +487,6 @@ export async function listMarketplaceOrders(
           }),
           prisma.ankorstoreOrder.count({ where }),
         ]);
-        const stockMap = await computeAnkorstoreStockDeductionMap(
-          tenant.id,
-          rows.map((r) => ({ id: r.id, status: r.status })),
-        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "ANKORSTORE" as const,
@@ -741,7 +501,6 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.brandTotalAmountWithVat),
           totalHT: decimalToNumber(r.brandTotalAmount),
           hasInvoice: false, // Ankorstore facture pour la marque — pas gérée localement
-          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -799,10 +558,6 @@ export async function listMarketplaceOrders(
           }),
           prisma.faireOrder.count({ where }),
         ]);
-        const stockMap = await computeFaireStockDeductionMap(
-          tenant.id,
-          rows.map((r) => ({ id: r.id, status: r.status })),
-        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "FAIRE" as const,
@@ -817,7 +572,6 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.totalHT), // Faire ne détaille pas la VAT — HT = TTC
           totalHT: decimalToNumber(r.totalHT),
           hasInvoice: false, // Facturation gérée directement par Faire
-          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -872,10 +626,6 @@ export async function listMarketplaceOrders(
           }),
           prisma.microstoreOrder.count({ where }),
         ]);
-        const stockMap = await computeMicrostoreStockDeductionMap(
-          tenant.id,
-          rows.map((r) => ({ id: r.id, status: r.status })),
-        );
         const items: MarketplaceOrderListItem[] = rows.map((r) => ({
           id: r.id,
           source: "MICROSTORE" as const,
@@ -890,7 +640,6 @@ export async function listMarketplaceOrders(
           totalTTC: decimalToNumber(r.totalHT), // Microstore ne détaille pas la TVA
           totalHT: decimalToNumber(r.totalHT),
           hasInvoice: false,
-          stockDeductionState: stockMap.get(r.id) ?? "NOT_APPLICABLE",
         }));
         return { items, total };
       })()
@@ -911,20 +660,9 @@ export async function listMarketplaceOrders(
     ...microstore.items,
   ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 
-  // Filtre stockFilter appliqué en mémoire pour rester générique.
-  const stockFilter = input.stockFilter ?? "all";
-  const filtered = stockFilter === "all"
-    ? merged
-    : merged.filter((r) => {
-        if (stockFilter === "pending") return r.stockDeductionState === "PENDING";
-        if (stockFilter === "done") return r.stockDeductionState === "DONE";
-        if (stockFilter === "nothing") return r.stockDeductionState === "NOTHING_TO_DEDUCT";
-        return true;
-      });
-
-  const total = filtered.length;
+  const total = merged.length;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
-  const items = filtered.slice((page - 1) * perPage, page * perPage);
+  const items = merged.slice((page - 1) * perPage, page * perPage);
 
   return {
     items,
@@ -1914,256 +1652,4 @@ export async function setMarketplaceAutoSyncEnabled(input: {
   revalidatePath("/admin/commandes");
   revalidatePath("/admin/commandes/marketplaces");
   return { success: true };
-}
-
-// ─────────────────────────────────────────────
-// Actions groupées : déduction stock ou marquage « déjà déduites »
-// ─────────────────────────────────────────────
-
-export interface BulkMarketplaceOrderIds {
-  PFS?: string[];
-  EFASHION?: string[];
-  ANKORSTORE?: string[];
-  FAIRE?: string[];
-  MICROSTORE?: string[];
-}
-
-export interface BulkStockDeductionResult {
-  success: boolean;
-  processedCount: number;
-  skippedCount: number;
-  errors: Array<{ source: MarketplaceSource; message: string }>;
-}
-
-/**
- * Déduit le stock pour un lot de commandes marketplaces sélectionnées.
- * Les IDs sont groupés par source, chaque source est traitée en parallèle
- * via sa lib dédiée (deductStockFromXxxOrders). Idempotent : les lignes
- * déjà déduites sont ignorées côté lib.
- */
-export async function bulkDeductMarketplaceOrders(
-  ids: BulkMarketplaceOrderIds,
-): Promise<BulkStockDeductionResult> {
-  const session = await requireAdmin();
-  const tenant = await requireCurrentTenant();
-  const actorId = session.user.id ?? null;
-
-  const pfsIds = (ids.PFS ?? []).filter(Boolean);
-  const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
-  const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
-  const faireIds = (ids.FAIRE ?? []).filter(Boolean);
-  const microstoreIds = (ids.MICROSTORE ?? []).filter(Boolean);
-
-  const errors: Array<{ source: MarketplaceSource; message: string }> = [];
-  let processedCount = 0;
-  let skippedCount = 0;
-  let touched = false;
-
-  await Promise.all([
-    pfsIds.length > 0
-      ? (async () => {
-          try {
-            const { deductStockFromPfsOrders } = await import("@/lib/pfs-stock-deduction");
-            const r = await deductStockFromPfsOrders(tenant.id, actorId, { pfsOrderIds: pfsIds });
-            processedCount += r.processedCount;
-            skippedCount += r.skipped.length;
-            if (r.touchedProductIds.length > 0) touched = true;
-          } catch (err) {
-            logger.error("[Bulk Stock] PFS échec", { error: err as Error });
-            errors.push({
-              source: "PFS",
-              message: err instanceof Error ? err.message : "Erreur inconnue",
-            });
-          }
-        })()
-      : Promise.resolve(),
-    efashionIds.length > 0
-      ? (async () => {
-          try {
-            const { deductStockFromEfashionOrders } = await import(
-              "@/lib/efashion-stock-deduction"
-            );
-            const r = await deductStockFromEfashionOrders(tenant.id, actorId, efashionIds);
-            processedCount += r.processedCount;
-            skippedCount += r.skipped.length;
-            if (r.touchedProductIds.length > 0) touched = true;
-          } catch (err) {
-            logger.error("[Bulk Stock] eFashion échec", { error: err as Error });
-            errors.push({
-              source: "EFASHION",
-              message: err instanceof Error ? err.message : "Erreur inconnue",
-            });
-          }
-        })()
-      : Promise.resolve(),
-    // Ankorstore stock deduction : désactivé pendant chantier reverse back-office.
-    // À réactiver quand le module orders sera complet côté back-office.
-    Promise.resolve(),
-    faireIds.length > 0
-      ? (async () => {
-          try {
-            const { deductStockFromFaireOrders } = await import("@/lib/faire-stock-deduction");
-            const r = await deductStockFromFaireOrders(tenant.id, actorId, faireIds);
-            processedCount += r.processedCount;
-            skippedCount += r.skipped.length;
-            if (r.touchedProductIds.length > 0) touched = true;
-          } catch (err) {
-            logger.error("[Bulk Stock] Faire échec", { error: err as Error });
-            errors.push({
-              source: "FAIRE",
-              message: err instanceof Error ? err.message : "Erreur inconnue",
-            });
-          }
-        })()
-      : Promise.resolve(),
-    microstoreIds.length > 0
-      ? (async () => {
-          try {
-            const { deductStockFromMicrostoreOrders } = await import(
-              "@/lib/microstore-stock-deduction"
-            );
-            const r = await deductStockFromMicrostoreOrders(tenant.id, actorId, microstoreIds);
-            processedCount += r.processedCount;
-            skippedCount += r.skipped.length;
-            if (r.touchedProductIds.length > 0) touched = true;
-          } catch (err) {
-            logger.error("[Bulk Stock] Microstore échec", { error: err as Error });
-            errors.push({
-              source: "MICROSTORE",
-              message: err instanceof Error ? err.message : "Erreur inconnue",
-            });
-          }
-        })()
-      : Promise.resolve(),
-  ]);
-
-  if (touched) {
-    revalidateTag("products", "default");
-    revalidateTag("dashboard-stats", "default");
-    revalidatePath("/admin/produits");
-  }
-  revalidatePath("/admin/commandes");
-
-  return {
-    success: errors.length === 0,
-    processedCount,
-    skippedCount,
-    errors,
-  };
-}
-
-export interface BulkMarkAsDeductedResult {
-  success: boolean;
-  markedCount: number;
-  errors: Array<{ source: MarketplaceSource; message: string }>;
-}
-
-/**
- * Marque un lot de commandes marketplaces comme « déjà déduites » SANS toucher
- * au stock. Utile quand la déduction a été faite manuellement en dehors du
- * système ou déjà passée sur un autre outil. Action irréversible.
- */
-export async function bulkMarkMarketplaceOrdersAsDeducted(
-  ids: BulkMarketplaceOrderIds,
-): Promise<BulkMarkAsDeductedResult> {
-  await requireAdmin();
-  const tenant = await requireCurrentTenant();
-
-  const pfsIds = (ids.PFS ?? []).filter(Boolean);
-  const efashionIds = (ids.EFASHION ?? []).filter(Boolean);
-  const ankorstoreIds = (ids.ANKORSTORE ?? []).filter(Boolean);
-  const faireIds = (ids.FAIRE ?? []).filter(Boolean);
-  const microstoreIds = (ids.MICROSTORE ?? []).filter(Boolean);
-
-  const errors: Array<{ source: MarketplaceSource; message: string }> = [];
-  const now = new Date();
-  let markedCount = 0;
-
-  const runOne = async (
-    source: MarketplaceSource,
-    fn: () => Promise<{ count: number }>,
-  ) => {
-    try {
-      const r = await fn();
-      markedCount += r.count;
-    } catch (err) {
-      logger.error(`[Bulk MarkDeducted] ${source} échec`, { error: err as Error });
-      errors.push({
-        source,
-        message: err instanceof Error ? err.message : "Erreur inconnue",
-      });
-    }
-  };
-
-  await Promise.all([
-    pfsIds.length > 0
-      ? runOne("PFS", () =>
-          prisma.pfsOrderItem.updateMany({
-            where: {
-              tenantId: tenant.id,
-              pfsOrderId: { in: pfsIds },
-              stockDeductedAt: null,
-              stockDeductionExcludedAt: null,
-            },
-            data: { stockDeductedAt: now },
-          }),
-        )
-      : Promise.resolve(),
-    efashionIds.length > 0
-      ? runOne("EFASHION", () =>
-          prisma.efashionOrderItem.updateMany({
-            where: {
-              tenantId: tenant.id,
-              efashionOrderId: { in: efashionIds },
-              stockDeductedAt: null,
-            },
-            data: { stockDeductedAt: now },
-          }),
-        )
-      : Promise.resolve(),
-    ankorstoreIds.length > 0
-      ? runOne("ANKORSTORE", () =>
-          prisma.ankorstoreOrderItem.updateMany({
-            where: {
-              tenantId: tenant.id,
-              ankorstoreOrderId: { in: ankorstoreIds },
-              stockDeductedAt: null,
-            },
-            data: { stockDeductedAt: now },
-          }),
-        )
-      : Promise.resolve(),
-    faireIds.length > 0
-      ? runOne("FAIRE", () =>
-          prisma.faireOrderItem.updateMany({
-            where: {
-              tenantId: tenant.id,
-              faireOrderId: { in: faireIds },
-              stockDeductedAt: null,
-            },
-            data: { stockDeductedAt: now },
-          }),
-        )
-      : Promise.resolve(),
-    microstoreIds.length > 0
-      ? runOne("MICROSTORE", () =>
-          prisma.microstoreOrderItem.updateMany({
-            where: {
-              tenantId: tenant.id,
-              microstoreOrderInternalId: { in: microstoreIds },
-              stockDeductedAt: null,
-            },
-            data: { stockDeductedAt: now },
-          }),
-        )
-      : Promise.resolve(),
-  ]);
-
-  revalidatePath("/admin/commandes");
-
-  return {
-    success: errors.length === 0,
-    markedCount,
-    errors,
-  };
 }

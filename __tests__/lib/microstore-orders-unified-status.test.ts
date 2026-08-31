@@ -1,8 +1,7 @@
 /**
  * Vérifie que les commandes Microstore sont affichées comme « Expédiée »
- * dans la vue marketplaces unifiée dès qu'elles sont importées, avec un
- * état stock « À déduire » si au moins un article est rattaché au catalogue
- * BJ. Reflète la règle métier : une commande Microstore importable = validée
+ * dans la vue marketplaces unifiée dès qu'elles sont importées.
+ * Reflète la règle métier : une commande Microstore importable = validée
  * ET expédiée côté POS.
  *
  * Le helper `normalizeMicrostoreToUnified` n'est pas exporté directement
@@ -39,52 +38,5 @@ describe("normalizeMicrostoreToUnified", () => {
       expect(u).not.toBe("NEW");
       expect(u).not.toBe("VALIDATED");
     }
-  });
-});
-
-/**
- * Contrat de `computeMicrostoreStockDeductionMap` : reflète l'implémentation
- * de `app/actions/admin/marketplace-orders.ts`.
- *
- *  - CANCELLED → NOT_APPLICABLE (peu importe l'état des items)
- *  - dedMap.count > 0 → DONE
- *  - elMap.count === 0 → NOTHING_TO_DEDUCT (aucun item rattaché au catalogue)
- *  - sinon → PENDING (« À déduire »)
- */
-
-type StockState = "NOT_APPLICABLE" | "NOTHING_TO_DEDUCT" | "PENDING" | "DONE";
-
-function computeStateForOrder(
-  status: MicrostoreDbStatus,
-  eligibleCount: number,
-  deductedCount: number,
-): StockState {
-  if (status === "CANCELLED") return "NOT_APPLICABLE";
-  if (deductedCount > 0) return "DONE";
-  if (eligibleCount === 0) return "NOTHING_TO_DEDUCT";
-  return "PENDING";
-}
-
-describe("computeMicrostoreStockDeductionMap (contract)", () => {
-  it("une commande NEW avec des items liés au catalogue est « À déduire »", () => {
-    expect(computeStateForOrder("NEW", 2, 0)).toBe("PENDING");
-  });
-
-  it("une commande SHIPPED avec des items liés est « À déduire » aussi", () => {
-    expect(computeStateForOrder("SHIPPED", 3, 0)).toBe("PENDING");
-  });
-
-  it("une commande où toutes les lignes ont déjà été déduites passe à DONE", () => {
-    expect(computeStateForOrder("NEW", 2, 2)).toBe("DONE");
-    expect(computeStateForOrder("SHIPPED", 5, 1)).toBe("DONE");
-  });
-
-  it("une commande sans article rattaché au catalogue = « Rien à déduire »", () => {
-    expect(computeStateForOrder("NEW", 0, 0)).toBe("NOTHING_TO_DEDUCT");
-  });
-
-  it("une commande CANCELLED n'est jamais concernée par la déduction", () => {
-    expect(computeStateForOrder("CANCELLED", 5, 0)).toBe("NOT_APPLICABLE");
-    expect(computeStateForOrder("CANCELLED", 5, 2)).toBe("NOT_APPLICABLE");
   });
 });

@@ -11,10 +11,8 @@ import { AdminProductsScrollPersistence } from "@/components/admin/products/Admi
 import AdminPagination from "@/components/admin/products/AdminPagination";
 import AdminProductsTabsWrapper from "@/components/admin/products/AdminProductsTabsWrapper";
 import ProductTranslateAllButton from "@/components/admin/products/ProductTranslateAllButton";
-import PfsStockDeductionButton from "@/components/admin/products/PfsStockDeductionButton";
 import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
 import LowStockPdfButton from "@/components/admin/products/LowStockPdfButton";
-import { countPendingPfsStockDeductions } from "@/lib/pfs-stock-deduction";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
 import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasOrderchampConfig, getCachedOrderchampEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
@@ -435,7 +433,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     orderchampEnabled,
     hasMicrostoreConfig,
     microstoreEnabled,
-    pfsStockPendingCount,
     allSizes,
   ] = await Promise.all([
     prisma.product.findMany({
@@ -494,7 +491,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     getCachedOrderchampEnabled(),
     getCachedHasMicrostoreConfig(),
     getCachedMicrostoreEnabled(),
-    countPendingPfsStockDeductions(tenantForImages.id),
     // Tailles en cache (60s TTL) — utilisées pour résoudre les noms des
     // variantSizes sans passer par une jointure SQL sur la table Size.
     getCachedSizes(),
@@ -643,14 +639,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
             accent="emerald"
             actions={
               <>
-                <PfsStockDeductionButton
-                  initialPendingCount={pfsStockPendingCount}
-                  hasPfsConfig={hasPfsConfig}
-                  hasAnkorstoreConfig={hasAnkorstoreConfig}
-                  hasEfashionConfig={hasEfashionConfig}
-                  hasFaireConfig={hasFaireConfig}
-                  hasOrderchampConfig={hasOrderchampConfig}
-                />
                 <LowStockPdfButton />
                 <PfsAuditButton hasPfsConfig={hasPfsConfig} />
                 <PrimaryActionLink href="/admin/produits/importer" variant="secondary">

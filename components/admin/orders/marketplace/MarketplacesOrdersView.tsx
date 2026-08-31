@@ -5,14 +5,10 @@ import {
   listMarketplaceOrders,
   getMarketplaceStats,
   getMarketplaceSyncMeta,
-  bulkDeductMarketplaceOrders,
-  bulkMarkMarketplaceOrdersAsDeducted,
   setMarketplaceAutoSyncEnabled,
-  type BulkMarketplaceOrderIds,
   type MarketplacePeriodKey,
   type MarketplaceOrderListItem,
   type MarketplaceStatsBundle,
-  type MarketplaceStockFilter,
   type MarketplaceSource,
   type MarketplaceUnifiedStatus,
 } from "@/app/actions/admin/marketplace-orders";
@@ -53,13 +49,9 @@ import {
 } from "@/app/actions/admin/microstore-orders";
 import MicrostoreOrderDrawer from "./MicrostoreOrderDrawer";
 import PfsOrderDrawer from "@/components/admin/orders/pfs/PfsOrderDrawer";
-import PfsStockDeductionModal from "@/components/admin/orders/pfs/PfsStockDeductionModal";
 import EfashionOrderDrawer from "./EfashionOrderDrawer";
-import EfashionStockDeductionModal from "./EfashionStockDeductionModal";
 import AnkorstoreOrderDrawer from "./AnkorstoreOrderDrawer";
-import AnkorstoreStockDeductionModal from "./AnkorstoreStockDeductionModal";
 import FaireOrderDrawer from "./FaireOrderDrawer";
-import FaireStockDeductionModal from "./FaireStockDeductionModal";
 import MarketplacePeriodBar from "./MarketplacePeriodBar";
 import MarketplaceKpiRow from "./MarketplaceKpiRow";
 import MarketplaceTopClients from "./MarketplaceTopClients";
@@ -117,7 +109,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<MarketplaceUnifiedStatus | "">("");
   const [sourceFilter, setSourceFilter] = useState<MarketplaceSource | "">("");
-  const [stockFilter, setStockFilter] = useState<MarketplaceStockFilter>("all");
   const [page, setPage] = useState(1);
   const [selectedPfs, setSelectedPfs] = useState<PfsOrderDetailFull | null>(null);
   const [selectedEfashion, setSelectedEfashion] = useState<EfashionOrderDetailFull | null>(null);
@@ -127,10 +118,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [selectedFaire, setSelectedFaire] = useState<FaireOrderDetailFull | null>(null);
   const [selectedMicrostore, setSelectedMicrostore] =
     useState<MicrostoreOrderDetailFull | null>(null);
-  const [deductionSource, setDeductionSource] = useState<{
-    source: MarketplaceSource;
-    orderId: string;
-  } | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [syncingPfs, setSyncingPfs] = useState(false);
   const [syncingEfashion, setSyncingEfashion] = useState(false);
@@ -140,8 +127,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [syncMeta, setSyncMeta] = useState(initialSyncMeta);
   const [nowTick, setNowTick] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkRunning, setBulkRunning] = useState(false);
   const [, startTransition] = useTransition();
   const { confirm } = useConfirm();
   const { open: openWidget, pushManualSync } = useRightRail();
@@ -182,7 +167,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
           q: q || undefined,
           status: statusFilter || null,
           sources,
-          stockFilter,
           period,
           customFrom,
           customTo,
@@ -199,17 +183,11 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setIsRefreshing(false);
     }
-  }, [page, q, statusFilter, sourceFilter, stockFilter, period, customFrom, customTo]);
+  }, [page, q, statusFilter, sourceFilter, period, customFrom, customTo]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  // Réinitialise la sélection à chaque changement de contexte : période,
-  // filtres, page. Évite d'agir par erreur sur des commandes hors écran.
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [page, q, statusFilter, sourceFilter, stockFilter, period, customFrom, customTo]);
 
   // Polling léger de l'état d'import (PFS + eFashion + Ankorstore + Faire +
   // Microstore) pour rafraîchir la vue à la fin de chaque import historique.
@@ -288,10 +266,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setLoadingDetail(false);
     }
-  }, []);
-
-  const onDeductClick = useCallback((row: MarketplaceOrderListItem) => {
-    setDeductionSource({ source: row.source, orderId: row.id });
   }, []);
 
   const onSyncPfs = useCallback(async () => {
@@ -743,147 +717,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
     [],
   );
 
-  // ─── Sélection bulk ────────────────────────────
-  const onToggleSelect = useCallback(
-    (row: MarketplaceOrderListItem, checked: boolean) => {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (checked) next.add(row.id);
-        else next.delete(row.id);
-        return next;
-      });
-    },
-    [],
-  );
-
-  const onToggleSelectAll = useCallback(
-    (checked: boolean) => {
-      if (!list) return;
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const row of list) {
-          if (row.stockDeductionState !== "PENDING") continue;
-          if (checked) next.add(row.id);
-          else next.delete(row.id);
-        }
-        return next;
-      });
-    },
-    [list],
-  );
-
-  const onClearSelection = useCallback(() => setSelectedIds(new Set()), []);
-
-  /** Regroupe les IDs sélectionnés par source, en ne gardant que les commandes
-   *  encore en attente de déduction (les autres n'ont rien à faire). */
-  const buildBulkPayload = useCallback((): BulkMarketplaceOrderIds => {
-    const acc: BulkMarketplaceOrderIds = {
-      PFS: [],
-      EFASHION: [],
-      ANKORSTORE: [],
-      FAIRE: [],
-      MICROSTORE: [],
-    };
-    for (const row of list ?? []) {
-      if (!selectedIds.has(row.id)) continue;
-      if (row.stockDeductionState !== "PENDING") continue;
-      if (row.source === "PFS") acc.PFS!.push(row.id);
-      else if (row.source === "EFASHION") acc.EFASHION!.push(row.id);
-      else if (row.source === "ANKORSTORE") acc.ANKORSTORE!.push(row.id);
-      else if (row.source === "FAIRE") acc.FAIRE!.push(row.id);
-      else if (row.source === "MICROSTORE") acc.MICROSTORE!.push(row.id);
-    }
-    return acc;
-  }, [list, selectedIds]);
-
-  const onBulkDeduct = useCallback(async () => {
-    const payload = buildBulkPayload();
-    const total =
-      (payload.PFS?.length ?? 0) +
-      (payload.EFASHION?.length ?? 0) +
-      (payload.ANKORSTORE?.length ?? 0) +
-      (payload.FAIRE?.length ?? 0) +
-      (payload.MICROSTORE?.length ?? 0);
-    if (total === 0) return;
-    const parts: string[] = [];
-    if (payload.PFS?.length) parts.push(`${payload.PFS.length} PFS`);
-    if (payload.EFASHION?.length) parts.push(`${payload.EFASHION.length} eFashion`);
-    if (payload.ANKORSTORE?.length) parts.push(`${payload.ANKORSTORE.length} Ankorstore`);
-    if (payload.FAIRE?.length) parts.push(`${payload.FAIRE.length} Faire`);
-    if (payload.MICROSTORE?.length) parts.push(`${payload.MICROSTORE.length} Microstore`);
-    const ok = await confirm({
-      type: "warning",
-      title: `Déduire le stock de ${total} commande${total > 1 ? "s" : ""} ?`,
-      message: `Cette action décrémente le stock des articles rattachés à votre boutique pour : ${parts.join(", ")}. Les lignes sans produit rattaché sont ignorées.`,
-      confirmLabel: "Déduire maintenant",
-      cancelLabel: "Annuler",
-    });
-    if (!ok) return;
-    setBulkRunning(true);
-    try {
-      const res = await bulkDeductMarketplaceOrders(payload);
-      if (!res.success) {
-        toast.error(
-          "Déduction partielle",
-          res.errors.map((e) => `${e.source} : ${e.message}`).join(" · "),
-        );
-      } else if (res.processedCount === 0) {
-        toast.warning(
-          "Rien à déduire",
-          "Aucune ligne éligible dans la sélection (produits non rattachés).",
-        );
-      } else {
-        toast.success(
-          "Stock déduit",
-          `${res.processedCount} ligne${res.processedCount > 1 ? "s" : ""} traitée${res.processedCount > 1 ? "s" : ""}.`,
-        );
-      }
-      setSelectedIds(new Set());
-      await refresh();
-    } finally {
-      setBulkRunning(false);
-    }
-  }, [buildBulkPayload, confirm, toast, refresh]);
-
-  const onBulkMarkDeducted = useCallback(async () => {
-    const payload = buildBulkPayload();
-    const total =
-      (payload.PFS?.length ?? 0) +
-      (payload.EFASHION?.length ?? 0) +
-      (payload.ANKORSTORE?.length ?? 0) +
-      (payload.FAIRE?.length ?? 0) +
-      (payload.MICROSTORE?.length ?? 0);
-    if (total === 0) return;
-    const ok = await confirm({
-      type: "warning",
-      title: `Marquer ${total} commande${total > 1 ? "s" : ""} comme déjà déduite${total > 1 ? "s" : ""} ?`,
-      message:
-        "Le stock ne sera pas modifié. Les commandes seront considérées comme traitées et disparaîtront de la file « À déduire ». Cette action est irréversible.",
-      confirmLabel: "Confirmer",
-      cancelLabel: "Annuler",
-    });
-    if (!ok) return;
-    setBulkRunning(true);
-    try {
-      const res = await bulkMarkMarketplaceOrdersAsDeducted(payload);
-      if (!res.success) {
-        toast.error(
-          "Opération partielle",
-          res.errors.map((e) => `${e.source} : ${e.message}`).join(" · "),
-        );
-      } else {
-        toast.success(
-          "Marqué comme déduit",
-          `${res.markedCount} ligne${res.markedCount > 1 ? "s" : ""} marquée${res.markedCount > 1 ? "s" : ""}.`,
-        );
-      }
-      setSelectedIds(new Set());
-      await refresh();
-    } finally {
-      setBulkRunning(false);
-    }
-  }, [buildBulkPayload, confirm, toast, refresh]);
-
   return (
     <div className="space-y-4">
       {/* Barre période */}
@@ -999,22 +832,9 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
           setSourceFilter(s);
           setPage(1);
         }}
-        stockFilter={stockFilter}
-        onStockFilterChange={(v) => {
-          setStockFilter(v);
-          setPage(1);
-        }}
         onPageChange={setPage}
         onOpen={onOpenOrder}
-        onDeductClick={onDeductClick}
         statusCounts={stats?.statusCounts ?? null}
-        selectedIds={selectedIds}
-        onToggleSelect={onToggleSelect}
-        onToggleSelectAll={onToggleSelectAll}
-        onClearSelection={onClearSelection}
-        onBulkDeduct={onBulkDeduct}
-        onBulkMarkDeducted={onBulkMarkDeducted}
-        bulkRunning={bulkRunning}
       />
 
       {isRefreshing && (
@@ -1045,35 +865,6 @@ export default function MarketplacesOrdersView({ initialSyncMeta }: Props) {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
           Chargement du détail…
         </div>
-      )}
-
-      {deductionSource?.source === "PFS" && (
-        <PfsStockDeductionModal
-          orderId={deductionSource.orderId}
-          onClose={() => setDeductionSource(null)}
-          onDeducted={() => void refresh()}
-        />
-      )}
-      {deductionSource?.source === "EFASHION" && (
-        <EfashionStockDeductionModal
-          orderId={deductionSource.orderId}
-          onClose={() => setDeductionSource(null)}
-          onDeducted={() => void refresh()}
-        />
-      )}
-      {deductionSource?.source === "ANKORSTORE" && (
-        <AnkorstoreStockDeductionModal
-          orderId={deductionSource.orderId}
-          onClose={() => setDeductionSource(null)}
-          onDeducted={() => void refresh()}
-        />
-      )}
-      {deductionSource?.source === "FAIRE" && (
-        <FaireStockDeductionModal
-          orderId={deductionSource.orderId}
-          onClose={() => setDeductionSource(null)}
-          onDeducted={() => void refresh()}
-        />
       )}
     </div>
   );

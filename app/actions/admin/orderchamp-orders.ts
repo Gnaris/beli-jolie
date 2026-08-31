@@ -15,10 +15,6 @@ import { tenantALS } from "@/lib/tenant-als";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { syncRecentOrderchampOrders } from "@/lib/orderchamp-orders-sync";
 import {
-  countPendingOrderchampStockDeductions,
-  deductStockFromOrderchampOrders,
-} from "@/lib/orderchamp-stock-deduction";
-import {
   getOrderchampImportState,
   requestStopOrderchampImport,
   startOrderchampHistoricalImport,
@@ -107,56 +103,3 @@ export async function getOrderchampImportStateAction(): Promise<OrderchampImport
   return getOrderchampImportState(tenant.id);
 }
 
-// ─────────────────────────────────────────────
-// Déduction stock
-// ─────────────────────────────────────────────
-
-export async function previewOrderchampStockDeduction(): Promise<{
-  success: boolean;
-  pendingCount?: number;
-  error?: string;
-}> {
-  await requireAdmin();
-  const tenant = await requireCurrentTenant();
-  try {
-    const pendingCount = await countPendingOrderchampStockDeductions(tenant.id);
-    return { success: true, pendingCount };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Erreur inconnue.",
-    };
-  }
-}
-
-export async function runOrderchampStockDeduction(
-  orderchampOrderIds?: string[],
-): Promise<{
-  success: boolean;
-  processed?: number;
-  skipped?: number;
-  error?: string;
-}> {
-  const session = await requireAdmin();
-  const tenant = await requireCurrentTenant();
-  try {
-    const result = await deductStockFromOrderchampOrders(
-      tenant.id,
-      session.user.id ?? null,
-      orderchampOrderIds,
-    );
-    revalidatePath("/admin/produits");
-    revalidatePath("/admin/commandes");
-    revalidateTag("products", "default");
-    return {
-      success: true,
-      processed: result.processedCount,
-      skipped: result.skipped.length,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Erreur inconnue.",
-    };
-  }
-}

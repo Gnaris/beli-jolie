@@ -437,69 +437,6 @@ export async function getFaireImportStateAction(): Promise<FaireImportState> {
   return getFaireImportState(tenant.id);
 }
 
-// ─────────────────────────────────────────────
-// Déduction du stock (preview + run) — commande unique
-// ─────────────────────────────────────────────
-
-export type FaireSingleOrderDeductionPreview = Awaited<
-  ReturnType<typeof import("@/lib/faire-stock-deduction").simulateFaireStockDeductionForOrder>
->;
-
-export async function previewFaireOrderStockDeduction(
-  orderId: string,
-): Promise<
-  | { success: true; preview: NonNullable<FaireSingleOrderDeductionPreview> }
-  | { success: false; error: string }
-> {
-  await requireAdmin();
-  const tenant = await requireCurrentTenant();
-  try {
-    const { simulateFaireStockDeductionForOrder } = await import(
-      "@/lib/faire-stock-deduction"
-    );
-    const preview = await simulateFaireStockDeductionForOrder(tenant.id, orderId);
-    if (!preview) return { success: false, error: "Commande introuvable." };
-    return { success: true, preview };
-  } catch (err) {
-    logger.error("[Faire Stock] Preview échouée", { error: err as Error });
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
-}
-
-export async function runFaireOrderStockDeductionOne(
-  orderId: string,
-): Promise<
-  | {
-      success: true;
-      processedCount: number;
-      skippedCount: number;
-      touchedProductIds: string[];
-    }
-  | { success: false; error: string }
-> {
-  const session = await requireAdmin();
-  const tenant = await requireCurrentTenant();
-  try {
-    const { deductStockFromFaireOrders } = await import("@/lib/faire-stock-deduction");
-    const result = await deductStockFromFaireOrders(tenant.id, session.user.id ?? null, [orderId]);
-    if (result.touchedProductIds.length > 0) {
-      revalidateTag("products", "default");
-      revalidateTag("dashboard-stats", "default");
-      revalidatePath("/admin/produits");
-    }
-    revalidatePath("/admin/commandes");
-    return {
-      success: true,
-      processedCount: result.processedCount,
-      skippedCount: result.skipped.length,
-      touchedProductIds: result.touchedProductIds,
-    };
-  } catch (err) {
-    logger.error("[Faire Stock] Déduction commande unique échouée", { error: err as Error });
-    return { success: false, error: err instanceof Error ? err.message : "Erreur inconnue" };
-  }
-}
-
 export async function getFaireOrdersSyncMeta(): Promise<{
   lastSyncedAt: string | null;
   totalOrdersInDb: number;

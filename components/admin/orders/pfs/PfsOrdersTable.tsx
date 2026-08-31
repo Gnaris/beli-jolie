@@ -1,12 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type {
-  PfsOrderListItem,
-  PfsStockDeductionState,
-  PfsNothingToDeductReason,
-  PfsStockFilter,
-} from "@/app/actions/admin/pfs-orders";
+import { useMemo } from "react";
+import type { PfsOrderListItem } from "@/app/actions/admin/pfs-orders";
 import CustomSelect from "@/components/ui/CustomSelect";
 
 const STATUS_ICONS: Record<"" | PfsOrderListItem["status"], string> = {
@@ -15,29 +10,6 @@ const STATUS_ICONS: Record<"" | PfsOrderListItem["status"], string> = {
   VALIDATED: "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   SENT: "M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5",
   CANCELLED: "M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-};
-
-const STOCK_META: Record<PfsStockDeductionState, { label: string; className: string; tooltip: string }> = {
-  NOT_APPLICABLE: {
-    label: "—",
-    className: "bg-bg-secondary text-text-muted border-border",
-    tooltip: "Statut de la commande non concerné (nouveau ou annulé).",
-  },
-  NOTHING_TO_DEDUCT: {
-    label: "Rien à déduire",
-    className: "bg-bg-secondary text-text-muted border-border",
-    tooltip: "Aucun produit lié — rien à déduire.",
-  },
-  PENDING: {
-    label: "À déduire",
-    className: "bg-amber-50 text-amber-700 border-amber-200",
-    tooltip: "Cette commande sera traitée au prochain clic sur « Déduire stock PFS ».",
-  },
-  DONE: {
-    label: "Déduit",
-    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    tooltip: "Le stock a bien été déduit pour cette commande.",
-  },
 };
 
 const STATUS_META: Record<
@@ -71,20 +43,10 @@ interface Props {
   onQChange: (v: string) => void;
   statusFilter: "" | PfsOrderListItem["status"];
   onStatusChange: (s: "" | PfsOrderListItem["status"]) => void;
-  stockFilter: PfsStockFilter;
-  onStockFilterChange: (v: PfsStockFilter) => void;
   onPageChange: (n: number) => void;
   onOpen: (id: string) => void;
-  onDeductClick: (id: string) => void;
   statusCounts: Record<"NEW" | "VALIDATED" | "SENT" | "CANCELLED", number> | null;
 }
-
-const STOCK_FILTER_ICONS: Record<PfsStockFilter, string> = {
-  all: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
-  pending: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
-  done: "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-  nothing: "M18.364 18.364A9 9 0 105.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L5.636 5.636",
-};
 
 export default function PfsOrdersTable(props: Props) {
   const {
@@ -96,11 +58,8 @@ export default function PfsOrdersTable(props: Props) {
     onQChange,
     statusFilter,
     onStatusChange,
-    stockFilter,
-    onStockFilterChange,
     onPageChange,
     onOpen,
-    onDeductClick,
     statusCounts,
   } = props;
 
@@ -113,16 +72,6 @@ export default function PfsOrdersTable(props: Props) {
       { value: "CANCELLED", label: `Annulé (${statusCounts?.CANCELLED ?? 0})`, icon: STATUS_ICONS.CANCELLED },
     ],
     [statusCounts, total],
-  );
-
-  const stockOptions = useMemo(
-    () => [
-      { value: "all", label: "Stock : Tout", icon: STOCK_FILTER_ICONS.all },
-      { value: "pending", label: "Stock : À déduire", icon: STOCK_FILTER_ICONS.pending },
-      { value: "done", label: "Stock : Déduit", icon: STOCK_FILTER_ICONS.done },
-      { value: "nothing", label: "Stock : Rien à déduire", icon: STOCK_FILTER_ICONS.nothing },
-    ],
-    [],
   );
 
   return (
@@ -147,14 +96,6 @@ export default function PfsOrdersTable(props: Props) {
             aria-label="Filtrer par statut"
             className="min-w-[210px]"
           />
-          <CustomSelect
-            value={stockFilter}
-            onChange={(v) => onStockFilterChange(v as PfsStockFilter)}
-            options={stockOptions}
-            size="sm"
-            aria-label="Filtrer par état de déduction du stock"
-            className="min-w-[210px]"
-          />
         </div>
       </div>
 
@@ -166,7 +107,6 @@ export default function PfsOrdersTable(props: Props) {
               <th className="text-left px-5 py-3 font-medium">Date</th>
               <th className="text-left px-5 py-3 font-medium">Client</th>
               <th className="text-right px-5 py-3 font-medium">Montant TTC</th>
-              <th className="text-center px-5 py-3 font-medium">Stock</th>
               <th className="text-center px-5 py-3 font-medium">Statut</th>
             </tr>
           </thead>
@@ -203,9 +143,6 @@ export default function PfsOrdersTable(props: Props) {
                   <td className="px-5 py-3 text-right font-semibold text-text-primary">
                     {row.totalTTC.toFixed(2).replace(".", ",")} €
                   </td>
-                  <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                    <StockBadge row={row} onDeductClick={onDeductClick} />
-                  </td>
                   <td className="px-5 py-3 text-center">
                     <span className={`inline-block rounded-full text-xs px-3 py-0.5 font-medium border ${meta.className}`}>
                       {meta.label}
@@ -216,14 +153,14 @@ export default function PfsOrdersTable(props: Props) {
             })}
             {items && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-text-muted text-sm">
+                <td colSpan={5} className="text-center py-10 text-text-muted text-sm">
                   Aucune commande sur la période sélectionnée.
                 </td>
               </tr>
             )}
             {items === null && (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-text-muted text-sm">
+                <td colSpan={5} className="text-center py-10 text-text-muted text-sm">
                   Chargement…
                 </td>
               </tr>
@@ -259,125 +196,5 @@ export default function PfsOrdersTable(props: Props) {
         </div>
       </div>
     </section>
-  );
-}
-
-/**
- * Badge « Stock » avec tooltip natif pour les états simples et un popover custom
- * pour « Rien à déduire » qui liste les articles PFS non rattachés à la boutique.
- */
-function StockBadge({
-  row,
-  onDeductClick,
-}: {
-  row: PfsOrderListItem;
-  onDeductClick: (id: string) => void;
-}) {
-  const stockMeta = STOCK_META[row.stockDeductionState];
-  const canShowCustomTooltip =
-    row.stockDeductionState === "NOTHING_TO_DEDUCT" && !!row.stockDeductionReason;
-  const isClickable = row.stockDeductionState === "PENDING";
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-
-  const handleEnter = (e: React.MouseEvent<HTMLElement>) => {
-    if (!canShowCustomTooltip) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    setAnchor({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
-  };
-  const handleLeave = () => setAnchor(null);
-
-  const commonClass = `inline-block rounded-full text-xs px-3 py-0.5 font-medium border ${stockMeta.className}`;
-
-  if (isClickable) {
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDeductClick(row.id);
-        }}
-        title="Cliquez pour prévisualiser et déduire le stock de cette commande."
-        className={`${commonClass} cursor-pointer hover:brightness-95 hover:shadow-sm transition-all`}
-      >
-        {stockMeta.label}
-      </button>
-    );
-  }
-
-  return (
-    <>
-      <span
-        className={`${commonClass} ${canShowCustomTooltip ? "cursor-help" : ""}`}
-        title={canShowCustomTooltip ? undefined : stockMeta.tooltip}
-        onMouseEnter={handleEnter}
-        onMouseLeave={handleLeave}
-        onFocus={handleEnter as unknown as React.FocusEventHandler<HTMLSpanElement>}
-        onBlur={handleLeave}
-      >
-        {stockMeta.label}
-      </span>
-
-      {anchor && canShowCustomTooltip && row.stockDeductionReason && (
-        <NothingToDeductTooltip anchor={anchor} reason={row.stockDeductionReason} />
-      )}
-    </>
-  );
-}
-
-function NothingToDeductTooltip({
-  anchor,
-  reason,
-}: {
-  anchor: { x: number; y: number };
-  reason: PfsNothingToDeductReason;
-}) {
-  const remaining = Math.max(0, reason.totalUnlinkedCount - reason.sampleUnlinkedItems.length);
-  return (
-    <div
-      className="fixed z-[80] pointer-events-none -translate-x-1/2 w-[320px] max-w-[92vw]"
-      style={{ left: anchor.x, top: anchor.y }}
-      role="tooltip"
-    >
-      <div className="rounded-xl bg-slate-900 text-white shadow-2xl border border-slate-700 p-3.5 text-left">
-        <div className="text-[10.5px] uppercase tracking-[0.14em] font-bold text-slate-300 mb-1.5">
-          Pourquoi rien à déduire ?
-        </div>
-        {reason.hasNoItems ? (
-          <p className="text-xs text-slate-100 leading-snug">
-            Cette commande PFS ne contient aucun article.
-          </p>
-        ) : (
-          <>
-            <p className="text-xs text-slate-100 leading-snug">
-              {reason.totalUnlinkedCount === 1
-                ? "1 article de cette commande n'est pas rattaché à un produit de votre boutique."
-                : `${reason.totalUnlinkedCount} articles de cette commande ne sont pas rattachés à un produit de votre boutique.`}
-            </p>
-            {reason.sampleUnlinkedItems.length > 0 && (
-              <ul className="mt-2.5 space-y-1 text-[11.5px] text-slate-200">
-                {reason.sampleUnlinkedItems.map((it, i) => (
-                  <li key={`${it.pfsProductRef}-${i}`} className="flex gap-2">
-                    <span className="font-mono text-slate-300 shrink-0">{it.pfsProductRef}</span>
-                    <span className="truncate">
-                      {it.productName || "Nom inconnu"}
-                      {it.colorLabel ? ` · ${it.colorLabel}` : ""}
-                      {it.sizeLabel ? ` · ${it.sizeLabel}` : ""}
-                    </span>
-                  </li>
-                ))}
-                {remaining > 0 && (
-                  <li className="text-slate-400 italic">
-                    et {remaining} autre{remaining > 1 ? "s" : ""}…
-                  </li>
-                )}
-              </ul>
-            )}
-            <p className="mt-2.5 text-[11px] text-slate-400 leading-snug">
-              Rattachez ces produits à votre boutique pour permettre la déduction.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
   );
 }

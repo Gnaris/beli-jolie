@@ -13,7 +13,6 @@ import {
   type PfsOrderListItem,
   type PfsStatsBundle,
   type PfsOrderDetailFull,
-  type PfsStockFilter,
 } from "@/app/actions/admin/pfs-orders";
 import PfsOrderDrawer from "./PfsOrderDrawer";
 import PfsPeriodBar from "./PfsPeriodBar";
@@ -21,7 +20,6 @@ import PfsKpiRow from "./PfsKpiRow";
 import PfsTopClients from "./PfsTopClients";
 import PfsTopProducts from "./PfsTopProducts";
 import PfsOrdersTable from "./PfsOrdersTable";
-import PfsStockDeductionModal from "./PfsStockDeductionModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useRightRail } from "@/components/admin/widgets-rail";
 
@@ -42,10 +40,8 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
   });
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<"NEW" | "VALIDATED" | "SENT" | "CANCELLED" | "">("");
-  const [stockFilter, setStockFilter] = useState<PfsStockFilter>("all");
   const [page, setPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState<PfsOrderDetailFull | null>(null);
-  const [deductionOrderId, setDeductionOrderId] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [importRunning, setImportRunning] = useState(false);
@@ -81,7 +77,6 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
           page,
           q: q || undefined,
           status: statusFilter || null,
-          stockFilter,
           period,
           customFrom,
           customTo,
@@ -93,7 +88,7 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
     } finally {
       setIsRefreshing(false);
     }
-  }, [page, q, statusFilter, stockFilter, period, customFrom, customTo]);
+  }, [page, q, statusFilter, period, customFrom, customTo]);
 
   useEffect(() => {
     void refresh();
@@ -317,14 +312,8 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
           setStatusFilter(s);
           setPage(1);
         }}
-        stockFilter={stockFilter}
-        onStockFilterChange={(v) => {
-          setStockFilter(v);
-          setPage(1);
-        }}
         onPageChange={setPage}
         onOpen={onOpenOrder}
-        onDeductClick={setDeductionOrderId}
         statusCounts={stats?.statusCounts ?? null}
       />
 
@@ -350,14 +339,6 @@ export default function PfsOrdersView({ initialSyncMeta }: Props) {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2 rounded-full shadow-lg">
           Chargement du détail…
         </div>
-      )}
-
-      {deductionOrderId && (
-        <PfsStockDeductionModal
-          orderId={deductionOrderId}
-          onClose={() => setDeductionOrderId(null)}
-          onDeducted={() => void refresh()}
-        />
       )}
     </div>
   );
