@@ -120,6 +120,43 @@ La colonne `颜色` (« yanse ») indique la couleur.
 | 样咖 | Marron | J — échantillon café |
 | 11#绿色 / 22#白色 / 16#粉色 | Vert / Blanc / Rose | J — préfixe n° d'échantillon devant la couleur |
 
+### Couleurs confirmées 2026-08-31 (bon multi-fournisseurs A/E/G/J/M/N/WF/Z/ZC/ZL)
+
+| Chinois | Couleur BDD | Fournisseur / Notes |
+|---|---|---|
+| 白松 | Blanc | A |
+| 千金 | Doré | A |
+| 天河 | Bleu | A |
+| 大红 / 暗红 / 酒红 / 紫红 | Rouge / Bordeaux / Bordeaux / Fuchsia | A |
+| 梅粉 / 梅粉+粉 / 深粉 / 浅粉 / 暗粉 / 深浅粉 / 深粉+粉 | Rose | A |
+| 深兰 / 深浅兰 / 浅蓝 / 墨兰 / 胡兰+兰 / 兰色 / 兰色系 | Marine/Bleu/Bleu/Marine/Marine/Bleu/Bleu | A, J |
+| 深绿 / 深浅绿 / 军绿 / 墨绿 | Vert | A, J |
+| 透明黑 / 黑白 / 黑白灰 | Noir | A, J |
+| 金黄 / 白金 / 白钢 / 钢 / 彩金 / 蓝金 | Doré/Argent/Argent/Argent/Multicolore/Bleu | A, G, M |
+| 咖色 / 咖啡色 | Marron | A, J |
+| 混色 / 金+七彩 | Multicolore | A, G |
+| 金色白钻 / 金色蓝钻 / 金色绿钻 / 金色咖色钻 / 金色粉钻 / 金色混彩 | Doré/Bleu/Vert/Marron/Rose/Multicolore | Z (couleur = teinte du zircon serti) |
+| 金色耳扣 / 金色镂空四叶草 | Doré | G |
+| 16K+棕 / 16K+蓝 / 16K金绿色 | Marron/Bleu/Vert | N/E |
+| 金-咖色 / 金-墨蓝 / 金-如样咖色 / 金-如样绿色 / 金-祖母绿 | Marron/Marine/Marron/Vert/Vert | WF |
+| 粉色+紫色 | Violet | J — bicolore rose+violet, Violet dominant |
+| 卡其 | Kaki | J — nouvelle couleur à créer |
+| 香槟 | Doré | J — champagne |
+| 虎眼石 / 青金石 | Marron/Marine | ZL — pierres semi-précieuses (couleur = teinte) |
+| 深绿色 / 18K金 | Vert/Doré | ZL |
+| 咖 | Marron | ZC — abréviation |
+| 橘黄 | Orange | A |
+
+### Sous-catégories confirmées 2026-08-31
+
+| Chinois | Catégorie BDD | Sous-catégorie | Notes |
+|---|---|---|---|
+| 耳钉 / 耳针 | Boucles d'oreilles | **Clou d'oreilles** | À créer côté site (n'existe pas encore) |
+| 耳骨夹 / 耳夹 | Boucles d'oreilles | **À clip** | À créer côté site (n'existe pas encore) |
+| 手背链 | Bracelet | **Chaîne de main** | Existe déjà en BDD |
+| 耳扣 | Boucles d'oreilles | — | Nouvelle catégorie (G) |
+| N803, N802 (fournisseur N sans catégorie) | Bracelet | **Jonc** | Cliente confirmé au cas par cas |
+
 ### Nouvelles catégories confirmées 2026-07-24
 
 | Chinois | Catégorie BDD | Sous-catégorie | Notes |

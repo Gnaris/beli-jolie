@@ -67,7 +67,7 @@ function detectSupplier(reference) {
 const KNOWN_CAT_TOKENS = [
   "光面手镯", "豹纹绳子手镯", "单只耳环",
   "耳骨夹", "手背链", "胸针", "胸链", "脚链",
-  "耳钉", "耳环", "项链", "戒指", "手链", "手镯",
+  "耳钉", "耳扣", "耳环", "项链", "戒指", "手链", "手镯",
 ];
 
 function cleanPinming(raw) {
@@ -129,11 +129,13 @@ function parsePO(sourcePath) {
 
   // Les fournisseurs n'ont pas tous le même intitulé de colonne. On accepte
   // toutes les variantes courantes (fournisseur A : 颜色/价格 ; fournisseur WF :
-  // 电镀色/单价 préfixés de l'anglais "plating Color/" et "Price/").
+  // 电镀色/单价 préfixés de l'anglais "plating Color/" et "Price/"). Ordre =
+  // priorité : le premier alias qui matche gagne (ex : 客人条码 avant 编号 car
+  // pour le fournisseur Z, 编号 est le n° interne du fournisseur et non la ref).
   const HEADER_ALIASES = {
-    pinming: ["品名", "说明", "类型"],
-    huohao:  ["货号", "条码", "编号"],
-    yanse:   ["颜色", "颜色要求", "电镀色", "plating color/电镀色", "color/电镀色"],
+    pinming: ["货名", "品名", "说明", "类型"],
+    huohao:  ["客人条码", "货号", "条码", "编号"],
+    yanse:   ["规格", "颜色", "颜色要求", "电镀色", "plating color/电镀色", "color/电镀色"],
     qty:     ["数量", "quantity/pcs/数量", "quantity/数量", "pcs/数量", "装箱数/pcs", "装箱数"],
     price:   ["价格", "单价", "price/单价", "单价/pcs"],
     total:   ["金额", "总价", "amount/总价", "amount/  总价"],
@@ -143,7 +145,8 @@ function parsePO(sourcePath) {
   function matchHeader(s) {
     const norm = String(s).trim().toLowerCase().replace(/\s+/g, " ");
     for (const [key, list] of Object.entries(HEADER_ALIASES)) {
-      if (list.some((alias) => alias.toLowerCase() === norm)) return key;
+      const idx = list.findIndex((alias) => alias.toLowerCase() === norm);
+      if (idx >= 0) return { key, priority: idx };
     }
     return null;
   }
@@ -151,14 +154,25 @@ function parsePO(sourcePath) {
   // Trouver l'en-tête : ligne où on a au moins pinming + huohao + yanse + qty + price
   let headerRowIdx = -1;
   let cols = { pinming: -1, huohao: -1, yanse: -1, qty: -1, price: -1, total: -1, box: -1 };
+  let pinmingSecond = -1; // Fournisseur N : 2ᵉ col « 编号 » contient parfois la catégorie
   // On scanne jusqu'à 30 lignes pour gérer les bons avec long en-tête commercial (WF : 7 lignes)
   for (let i = 0; i < Math.min(30, rows.length); i++) {
     const r = rows[i] || [];
     const map = {};
+    const priorities = {};
     r.forEach((v, j) => {
       if (v == null) return;
-      const key = matchHeader(v);
-      if (key && map[key] == null) map[key] = j;
+      const match = matchHeader(v);
+      if (!match) return;
+      // Le meilleur alias (priorité la plus haute = index le plus bas) gagne.
+      const prev = priorities[match.key];
+      if (prev == null || match.priority < prev) {
+        map[match.key] = j;
+        priorities[match.key] = match.priority;
+      } else if (match.key === "huohao" && pinmingSecond < 0) {
+        // Cas fournisseur N : deux colonnes 编号. La 2ᵉ contient parfois la cat.
+        pinmingSecond = j;
+      }
     });
     // 品名 (catégorie) et 颜色 (couleur) sont optionnels : certains fournisseurs
     // (ex : G n'a pas 品名, ZK n'a pas 颜色). Dans ces cas la cliente devra
@@ -179,13 +193,21 @@ function parsePO(sourcePath) {
     };
   }
 
-  // Suffixes-catégorie collés à la couleur (ex G : "金色手链" → "金色" + cat "手链").
-  const CAT_SUFFIXES = ["手链", "项链", "戒指", "耳环", "手镯", "耳钉", "胸针", "脚链", "手背链", "耳骨夹"];
+  // Suffixes ET préfixes-catégorie collés à la couleur.
+  // Ex G : « 金色手链 » (couleur+cat) OU « 项链金色 » (cat+couleur) OU « 手链混色 » (cat en préfixe).
+  const CAT_TOKENS_IN_COLOR = ["手链", "项链", "戒指", "耳环", "手镯", "耳钉", "耳扣", "胸针", "脚链", "手背链", "耳骨夹"];
   function splitColorCategory(colorRaw) {
     const s = String(colorRaw).trim();
-    for (const suffix of CAT_SUFFIXES) {
-      if (s.endsWith(suffix)) {
-        return { color: s.slice(0, -suffix.length).trim(), embeddedCat: suffix };
+    // Suffixe : « 金色手链 » → couleur=金色, cat=手链
+    for (const token of CAT_TOKENS_IN_COLOR) {
+      if (s.endsWith(token) && s.length > token.length) {
+        return { color: s.slice(0, -token.length).trim(), embeddedCat: token };
+      }
+    }
+    // Préfixe : « 项链金色 », « 手链混色 » → cat=项链, couleur=金色
+    for (const token of CAT_TOKENS_IN_COLOR) {
+      if (s.startsWith(token) && s.length > token.length) {
+        return { color: s.slice(token.length).trim(), embeddedCat: token };
       }
     }
     return { color: s, embeddedCat: null };
@@ -194,9 +216,17 @@ function parsePO(sourcePath) {
   // Parcourir les lignes de données
   const products = [];
   let cur = null;
+  const KNOWN_CAT_TOKEN_SET = new Set(KNOWN_CAT_TOKENS);
   for (let i = headerRowIdx + 1; i < rows.length; i++) {
     const r = rows[i] || [];
-    const pinming = cols.pinming >= 0 ? r[cols.pinming] : null;
+    let pinming = cols.pinming >= 0 ? r[cols.pinming] : null;
+    // Fournisseur N : si le pinming principal est vide, tenter la 2ᵉ col « 编号 »
+    // qui peut contenir 手链 / 项链 / etc.
+    if ((pinming == null || String(pinming).trim() === "") && pinmingSecond > 0) {
+      const alt = r[pinmingSecond];
+      const altStr = alt == null ? "" : String(alt).trim();
+      if (KNOWN_CAT_TOKEN_SET.has(altStr)) pinming = altStr;
+    }
     const huohao = r[cols.huohao];
     const yanse = cols.yanse >= 0 ? r[cols.yanse] : null;
     const qty = toNumber(r[cols.qty]);
@@ -218,19 +248,28 @@ function parsePO(sourcePath) {
 
     const hasHuohao = huohaoStr.length > 0;
     const hasYanse = yanseStr.length > 0;
-    // Pour le format G : la "couleur" peut contenir un suffixe catégorie ("金色手链")
+    // Pour le format G : la "couleur" peut contenir un suffixe/préfixe cat.
+    // ("金色手链", "项链金色", "手链混色", "金色耳环\n咖啡树脂"…).
+    // On isole la 1re ligne pour détecter la catégorie mais on garde la valeur
+    // brute pour la traduction couleur (traite « 金色耳环\n咖啡树脂 » comme une
+    // seule couleur exotique — c'est la cliente qui tranchera à la relecture).
     let yanseClean = yanseStr;
     let embeddedCat = null;
     if (hasYanse) {
-      const split = splitColorCategory(yanseStr);
-      yanseClean = split.color;
-      embeddedCat = split.embeddedCat;
+      const firstLine = yanseStr.split(/\r?\n/)[0].trim();
+      const split = splitColorCategory(firstLine);
+      if (split.embeddedCat) {
+        yanseClean = split.color;
+        embeddedCat = split.embeddedCat;
+      }
     }
 
     if (hasHuohao) {
       // 货号 / 条码 multiligne courant (ex G : "G293-224-590\n22222590") :
       // on garde la première ligne pour la référence visible (fullRef).
-      const refLineRaw = String(huohao).split(/\r?\n/)[0].trim();
+      // Cas fournisseur Z : « Z213AB-660-300 11111300 » (barcode collé après
+      // un espace) → on ne garde que la partie avant le premier espace.
+      const refLineRaw = String(huohao).split(/\r?\n/)[0].split(/\s+/)[0].trim();
       // Cas fournisseur M : le 货号 est RÉ-INSCRIT sur chaque ligne de couleur
       // au lieu d'être laissé vide. Si on retrouve le même 货号 que le produit
       // en cours, c'est une couleur additionnelle, pas un nouveau produit.

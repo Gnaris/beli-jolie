@@ -28,7 +28,7 @@ if (!SOURCE) {
 }
 
 // Tokens couleurs reconnus dans 说明 (abréviations vues chez ZC + extensibles).
-const ZC_SUBCOLOR_TOKENS = ["白", "粉", "蓝", "彩", "黄", "绿", "红", "紫", "黑", "金"];
+const ZC_SUBCOLOR_TOKENS = ["白", "粉", "蓝", "彩", "黄", "绿", "红", "紫", "黑", "金", "咖"];
 
 function toNumber(v) {
   if (v == null) return null;
@@ -150,7 +150,7 @@ function parseZC(sourcePath) {
   // Plating ZC connus
   const KNOWN_PLATING_ZC = new Set(["16K炉内真金", "14K炉内真金", "钢色"]);
   // Sous-couleurs ZC connues
-  const KNOWN_SUBCOLORS_ZC = new Set(["白", "粉", "蓝", "彩", "黄", "绿"]);
+  const KNOWN_SUBCOLORS_ZC = new Set(["白", "粉", "蓝", "彩", "黄", "绿", "咖"]);
 
   for (let i = headerRowIdx + 1; i < rows.length; i++) {
     const r = rows[i] || [];

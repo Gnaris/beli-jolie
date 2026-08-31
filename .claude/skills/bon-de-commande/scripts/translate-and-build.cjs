@@ -52,7 +52,7 @@ const CATS = {
   "单只耳环":      { category: "Boucles d'oreilles", sub: "" },
   "项链":          { category: "Collier",            sub: "" },
   "项链刚":        { category: "Collier",            sub: "" },
-  "胸链":          { category: "Collier",            sub: "Collier de dos" },
+  "胸链":          { category: "Collier",            sub: "" },
   "戒指":          { category: "Bague ajustable",    sub: "" },
   "手链":          { category: "Bracelet",           sub: "" },
   "手链刚":        { category: "Bracelet",           sub: "" },
@@ -64,6 +64,7 @@ const CATS = {
   "臂镯":          { category: "Bracelet",           sub: "" },
   "腰链":          { category: "Chaîne de taille",   sub: "" },
   "胸针":          { category: "Broche",             sub: "" },
+  "耳扣":          { category: "Boucles d'oreilles", sub: "" },
 };
 
 // ── Couleurs chinoises → couleur Beli & Jolie ──
@@ -84,6 +85,7 @@ const COLORS = {
   "米白":  "Beige",
   "桔色":  "Orange",
   "橙色":  "Orange",
+  "橘黄":  "Orange",
   "玫红":  "Fuchsia",
   "咖啡":  "Marron",
   "胡兰":  "Marine",
@@ -200,6 +202,88 @@ const COLORS = {
   "彩":             "Multicolore",
   "黄":             "Jaune",
   "绿":             "Vert",
+  "咖":             "Marron",
+  // ── Ajouts 2026-08-31 (bons A/E/G/J/M/N/WF/Z/ZC/ZL) ──
+  // Rouges / bordeaux
+  "大红":           "Rouge",
+  "暗红":           "Bordeaux",
+  "酒红":           "Bordeaux",
+  "紫红":           "Fuchsia",
+  // Roses variants
+  "梅粉":           "Rose",
+  "梅粉+粉":        "Rose",
+  "深粉":           "Rose",
+  "浅粉":           "Rose",
+  "暗粉":           "Rose",
+  "深粉+粉":        "Rose",
+  "深浅粉":         "Rose",
+  // Bleus variants
+  "深兰":           "Marine",
+  "深浅兰":         "Bleu",
+  "浅蓝":           "Bleu",
+  "墨兰":           "Marine",
+  "胡兰+兰":        "Marine",
+  "兰色":           "Bleu",
+  "兰色系":         "Bleu",
+  // Verts variants
+  "深绿":           "Vert",
+  "深浅绿":         "Vert",
+  "军绿":           "Vert",
+  "墨绿":           "Vert",
+  // Noirs
+  "透明黑":         "Noir",
+  "黑白":           "Noir",
+  "黑白灰":         "Noir",
+  // Doré/argent variants
+  "金黄":           "Doré",
+  "白金":           "Argent",
+  "白钢":           "Argent",
+  "钢":             "Argent",
+  "彩金":           "Multicolore",
+  "蓝金":           "Bleu",
+  // Marron
+  "咖色":           "Marron",
+  "咖啡色":         "Marron",
+  // Multicolore / mélanges
+  "混色":           "Multicolore",
+  "金+七彩":        "Multicolore",
+  // Fournisseur Z — pierres et strass sertis
+  "金色白钻":       "Doré",
+  "金色蓝钻":       "Bleu",
+  "金色绿钻":       "Vert",
+  "金色咖色钻":     "Marron",
+  "金色粉钻":       "Rose",
+  "金色混彩":       "Multicolore",
+  // Fournisseur G — patterns particuliers
+  "金色耳扣":       "Doré",
+  "金色镂空四叶草": "Doré",
+  "2.0*20\n金色耳扣":"Doré",
+  "金色耳环 \n咖啡树脂": "Doré",
+  // Fournisseur N — préfixe 16K + couleur simple
+  "16K+棕":         "Marron",
+  "16K+蓝":         "Bleu",
+  "16K金绿色":      "Vert",
+  // Fournisseur WF — extensions manquantes
+  "金-咖色":        "Marron",
+  "金-墨蓝":        "Marine",
+  "金-如样咖色":    "Marron",
+  "金-如样绿色":    "Vert",
+  "金-祖母绿":      "Vert",
+  // Fournisseur J — couleurs supplémentaires
+  "粉色+紫色":      "Violet",
+  "卡其":           "Kaki",
+  "香槟":           "Doré",
+  "咖色":           "Marron",
+  // Fournisseur ZL — pierres semi-précieuses (couleur = teinte de la pierre)
+  "虎眼石":         "Marron",
+  "青金石":         "Marine",
+  "深绿色":         "Vert",
+  "18K金":          "Doré",
+  "红色":           "Rouge",
+  // Cliente confirmée 2026-08-31 (bon A)
+  "白松":           "Blanc",
+  "千金":           "Doré",
+  "天河":           "Bleu",
 };
 
 const parsed = JSON.parse(fs.readFileSync(PARSED_PATH, "utf-8"));
