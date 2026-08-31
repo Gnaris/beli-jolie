@@ -48,7 +48,7 @@ model User {
   businessRegistrationNumber    String? // N° d'enregistrement d'entreprise (clients hors France : Companies House, EIN, etc.)
   kbisPath                      String?
   documentPath                  String? // Document libre envoyé lors de l'inscription (justificatif d'entreprise hors UE)
-  registrationMessage           String? // Message libre lors de l'inscription
+  registrationMessage           String? @db.Text // Message libre lors de l'inscription (Zod autorise 2000 caractères — VARCHAR(191) MySQL par défaut est trop court)
   // Adresse de la société (saisie à l'inscription)
   addressStreet                 String? // ex: "12 rue des Lilas"
   addressComplement             String? // ex: "Bâtiment B, 3e étage"

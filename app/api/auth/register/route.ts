@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
 import { getCurrentTenantSlug } from "@/lib/tenant";
@@ -313,6 +314,21 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ message }, { status: 201 });
   } catch (error) {
+    // Prisma P2000 : valeur trop longue pour la colonne cible.
+    // Cas typique : un champ Zod .max(2000) mais colonne SQL restée en
+    // VARCHAR(191). On renvoie un 400 clair plutôt que le 500 générique.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2000"
+    ) {
+      const column = (error.meta as { column_name?: string } | undefined)?.column_name;
+      const label = column ? (FIELD_LABELS[column] ?? column) : "un champ";
+      logger.error("[POST /api/auth/register] Valeur trop longue", { column, error });
+      return NextResponse.json(
+        { error: `Le champ « ${label} » est trop long. Raccourcissez le texte puis renvoyez votre demande.` },
+        { status: 400 }
+      );
+    }
     logger.error("[POST /api/auth/register]", { error });
     return NextResponse.json(
       { error: "Une erreur serveur est survenue. Veuillez réessayer." },
@@ -320,3 +336,19 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Libellés lisibles pour les colonnes User exposées à l'utilisateur.
+// Utilisé quand Prisma renvoie une erreur P2000 avec un `column_name`.
+const FIELD_LABELS: Record<string, string> = {
+  registrationMessage: "Message à notre équipe",
+  addressStreet: "Adresse",
+  addressComplement: "Complément d'adresse",
+  addressCity: "Ville",
+  company: "Société",
+  firstName: "Prénom",
+  lastName: "Nom",
+  email: "E-mail",
+  phone: "Téléphone",
+  siret: "SIRET",
+  vatNumber: "N° TVA intra",
+};
