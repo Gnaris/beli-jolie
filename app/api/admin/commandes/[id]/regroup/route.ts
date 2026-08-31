@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 // Endpoint JSON consommé par l'extension Chrome « Regroupement facture ».
 // Auth admin par cookie de session (l'extension appelle avec credentials: include).
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getServerSession(authOptions);
@@ -16,6 +16,19 @@ export async function GET(
   }
 
   const { id } = await params;
+  // `new URL(req.url).origin` fonctionne sur Request comme sur NextRequest
+  // (à la différence de `req.nextUrl` qui n'existe que sur NextRequest).
+  const origin = new URL(req.url).origin;
+
+  // OrderItem.imagePath est un chemin relatif à /public (ex : "products/ref-a/1.jpg").
+  // L'extension Chrome affiche l'image dans son modal Sage — il lui faut une URL
+  // absolue, sinon un chemin relatif se résout contre le contexte de l'extension
+  // et non contre l'origine boutique.
+  const toAbsoluteImage = (path: string | null): string | null => {
+    if (!path) return null;
+    if (/^https?:\/\//i.test(path)) return path;
+    return new URL(path.startsWith("/") ? path : "/" + path, origin).toString();
+  };
 
   const order = await prisma.order.findUnique({
     where: { id },
@@ -50,6 +63,10 @@ export async function GET(
     categorie: catByRef.get(it.productRef) ?? "Sans catégorie",
     prixUnitaire: Number(it.unitPrice),
     quantite: it.quantity,
+    reference: it.productRef || null,
+    name: it.productName || null,
+    color: it.colorName || null,
+    image: toAbsoluteImage(it.imagePath),
   }));
 
   return NextResponse.json({

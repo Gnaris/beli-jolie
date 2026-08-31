@@ -78,6 +78,9 @@ describe("GET /api/admin/commandes/[id]/regroup", () => {
         {
           id: "i1",
           productRef: "REF-A",
+          productName: "Bague ajustable",
+          colorName: "Doré",
+          imagePath: "products/ref-a/1.jpg",
           unitPrice: 12.5,
           quantity: 3,
           createdAt: new Date(),
@@ -85,6 +88,9 @@ describe("GET /api/admin/commandes/[id]/regroup", () => {
         {
           id: "i2",
           productRef: "REF-B",
+          productName: "Bracelet perles",
+          colorName: null,
+          imagePath: null,
           unitPrice: 5,
           quantity: 2,
           createdAt: new Date(),
@@ -106,11 +112,19 @@ describe("GET /api/admin/commandes/[id]/regroup", () => {
       categorie: "Bague",
       prixUnitaire: 12.5,
       quantite: 3,
+      reference: "REF-A",
+      name: "Bague ajustable",
+      color: "Doré",
+      image: "http://test/products/ref-a/1.jpg",
     });
     expect(body.items[1]).toEqual({
       categorie: "Bracelet",
       prixUnitaire: 5,
       quantite: 2,
+      reference: "REF-B",
+      name: "Bracelet perles",
+      color: null,
+      image: null,
     });
     expect(body.shipping.company).toBe("Ma Boutique");
     expect(body.shipping.city).toBe("Paris");
