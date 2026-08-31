@@ -3,15 +3,19 @@
 /**
  * Éditeur newsletter à blocs.
  * Layout 3 colonnes : palette / aperçu / réglages.
- * Enregistrement auto au blur des champs et à chaque modif de blocs.
+ * Enregistrement MANUEL via bouton « Enregistrer » — modale de garde-fou si
+ * on quitte la page avec des modifs non sauvegardées.
+ * Les images restent en local (blob URL) tant que le save n'est pas déclenché,
+ * puis toutes les images en attente sont uploadées en batch avant persist.
  * Drag-and-drop pour réordonner (indicateur au-dessus/en-dessous).
  * Bouton « Ajouter » sur chaque bloc pour dupliquer en bas.
  * Color picker libre (roue chromatique + hex) sur toutes les couleurs.
  * Upload d'image depuis l'ordinateur (bannière, image+texte, colonnes).
  */
 
-import { useState, useTransition, useCallback, useRef } from "react";
+import { useState, useTransition, useCallback, useRef, useEffect, createContext, useContext } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useDragReorder, dropIndicatorClass } from "@/components/admin/shared/useDragReorder";
@@ -26,6 +30,55 @@ import {
   type NewsletterBlockType,
   type ColumnData,
 } from "@/lib/newsletter-blocks";
+
+/**
+ * Une image « locale » : blob URL affiché instantanément dans l'aperçu, avec
+ * le File d'origine conservé en mémoire pour l'upload différé au save.
+ * On enregistre les fichiers dans un ref map indexé par blob URL.
+ */
+const RegisterFileContext = createContext<(blobUrl: string, file: File) => void>(() => {});
+function useRegisterFile() { return useContext(RegisterFileContext); }
+
+/** Extrait toutes les URLs blob: présentes dans les blocs (image bannière / imgtext / colonnes). */
+function collectBlobUrls(blocks: NewsletterBlock[]): string[] {
+  const set = new Set<string>();
+  for (const b of blocks) {
+    if (b.type === "banner" && b.data.img?.startsWith("blob:")) set.add(b.data.img);
+    if (b.type === "imgtext" && b.data.img?.startsWith("blob:")) set.add(b.data.img);
+    if (b.type === "columns") {
+      for (const col of b.data.columns) {
+        if (col.kind === "image" && col.img?.startsWith("blob:")) set.add(col.img);
+      }
+    }
+  }
+  return Array.from(set);
+}
+
+/** Remplace toutes les URLs blob: par leur path serveur définitif (après upload). */
+function replaceBlobUrls(blocks: NewsletterBlock[], map: Map<string, string>): NewsletterBlock[] {
+  return blocks.map((b) => {
+    if (b.type === "banner" && b.data.img && map.has(b.data.img)) {
+      return { ...b, data: { ...b.data, img: map.get(b.data.img)! } };
+    }
+    if (b.type === "imgtext" && b.data.img && map.has(b.data.img)) {
+      return { ...b, data: { ...b.data, img: map.get(b.data.img)! } };
+    }
+    if (b.type === "columns") {
+      return {
+        ...b,
+        data: {
+          ...b.data,
+          columns: b.data.columns.map((col) =>
+            col.kind === "image" && col.img && map.has(col.img)
+              ? { ...col, img: map.get(col.img)! }
+              : col,
+          ),
+        },
+      };
+    }
+    return b;
+  });
+}
 
 interface Props {
   template: NewsletterTemplateFull;
@@ -61,32 +114,124 @@ interface ProductLite {
 
 export default function NewsletterEditorClient({ template }: Props) {
   const toast = useToast();
+  const router = useRouter();
   const [name, setName] = useState(template.name);
   const [subject, setSubject] = useState(template.subject);
   const [blocks, setBlocks] = useState<NewsletterBlock[]>(template.blocks);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [saving, startSaving] = useTransition();
   const [productsCache, setProductsCache] = useState<Map<string, ProductLite>>(new Map());
+  const [dirty, setDirty] = useState(false);
+  const [leaveModal, setLeaveModal] = useState<{ next: string } | null>(null);
 
   const selected = selectedId !== null ? blocks.find((b) => b.id === selectedId) : null;
 
-  const save = useCallback(
-    (patch: Partial<{ name: string; subject: string; blocks: NewsletterBlock[] }>) => {
-      startSaving(async () => {
-        const res = await updateNewsletterTemplate(template.id, patch);
-        if (!res.success) toast.error("Enregistrement échoué", res.error);
-      });
-    },
-    [template.id, toast],
-  );
+  /** Fichiers en attente d'upload, indexés par blob URL. */
+  const pendingFiles = useRef<Map<string, File>>(new Map());
+  const registerFile = useCallback((blobUrl: string, file: File) => {
+    pendingFiles.current.set(blobUrl, file);
+  }, []);
 
-  const commit = useCallback(
-    (next: NewsletterBlock[]) => {
-      setBlocks(next);
-      save({ blocks: next });
-    },
-    [save],
-  );
+  /**
+   * Enregistre le modèle : upload d'abord toutes les images en attente,
+   * remplace les blob URLs par les paths serveur, puis save en BDD.
+   * Retourne true si tout s'est bien passé.
+   */
+  const persist = useCallback(async (): Promise<boolean> => {
+    const usedBlobUrls = collectBlobUrls(blocks);
+    const uploaded = new Map<string, string>();
+    try {
+      for (const blobUrl of usedBlobUrls) {
+        const file = pendingFiles.current.get(blobUrl);
+        if (!file) continue; // déjà uploadée précédemment ou blob perdu
+        const fd = new FormData();
+        fd.append("image", file);
+        const res = await fetch("/api/admin/newsletter-image", { method: "POST", body: fd });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Upload image échoué");
+        uploaded.set(blobUrl, json.path as string);
+      }
+    } catch (err) {
+      toast.error("Enregistrement échoué", (err as Error).message);
+      return false;
+    }
+
+    const finalBlocks = replaceBlobUrls(blocks, uploaded);
+    const res = await updateNewsletterTemplate(template.id, {
+      name,
+      subject,
+      blocks: finalBlocks,
+    });
+    if (!res.success) {
+      toast.error("Enregistrement échoué", res.error);
+      return false;
+    }
+
+    // Cleanup : révoque les blob URLs uploadés, met à jour les blocs
+    setBlocks(finalBlocks);
+    for (const url of uploaded.keys()) {
+      try { URL.revokeObjectURL(url); } catch {}
+      pendingFiles.current.delete(url);
+    }
+    setDirty(false);
+    return true;
+  }, [blocks, name, subject, template.id, toast]);
+
+  const handleSaveClick = useCallback(() => {
+    startSaving(async () => {
+      const ok = await persist();
+      if (ok) toast.success("Modèle enregistré");
+    });
+  }, [persist, toast]);
+
+  const stage = useCallback((next: NewsletterBlock[]) => {
+    setBlocks(next);
+    setDirty(true);
+  }, []);
+
+  // ─── Guard : bloque la fermeture d'onglet / rechargement si dirty ───
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  const requestLeave = useCallback((href: string) => {
+    if (!dirty) {
+      router.push(href);
+      return;
+    }
+    setLeaveModal({ next: href });
+  }, [dirty, router]);
+
+  const leaveWithoutSaving = useCallback(() => {
+    // Libère la mémoire des blob URLs orphelins
+    for (const url of pendingFiles.current.keys()) {
+      try { URL.revokeObjectURL(url); } catch {}
+    }
+    pendingFiles.current.clear();
+    setDirty(false);
+    const href = leaveModal?.next ?? "/admin/utilisateurs/newsletters";
+    setLeaveModal(null);
+    router.push(href);
+  }, [leaveModal, router]);
+
+  const saveAndLeave = useCallback(() => {
+    startSaving(async () => {
+      const ok = await persist();
+      if (!ok) return;
+      const href = leaveModal?.next ?? "/admin/utilisateurs/newsletters";
+      setLeaveModal(null);
+      router.push(href);
+    });
+  }, [persist, leaveModal, router]);
+
+  // Compat legacy : quelques callbacks utilisaient `commit` ; on garde l'alias.
+  const commit = stage;
 
   function makeBlock(type: NewsletterBlockType): NewsletterBlock {
     return {
@@ -193,28 +338,64 @@ export default function NewsletterEditorClient({ template }: Props) {
   }
 
   return (
+    <RegisterFileContext.Provider value={registerFile}>
     <div className="h-[calc(100vh-80px)] flex flex-col">
+      {leaveModal && (
+        <LeaveConfirmModal
+          onCancel={() => setLeaveModal(null)}
+          onLeave={leaveWithoutSaving}
+          onSaveAndLeave={saveAndLeave}
+          saving={saving}
+        />
+      )}
       <div className="bg-bg-primary border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4 min-w-0 flex-1">
-          <Link
-            href="/admin/utilisateurs/newsletters"
+          <button
+            type="button"
+            onClick={() => requestLeave("/admin/utilisateurs/newsletters")}
             className="text-xs font-body font-semibold text-text-secondary hover:text-text-primary shrink-0"
           >
             ← Retour
-          </Link>
+          </button>
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => save({ name })}
+            onChange={(e) => { setName(e.target.value); setDirty(true); }}
             className="flex-1 min-w-0 font-heading font-bold text-lg text-text-primary bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300"
             placeholder="Nom du modèle"
           />
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] font-body text-text-muted">
-            {saving ? "Enregistrement…" : "Enregistré ✓"}
-          </span>
+        <div className="flex items-center gap-3 shrink-0">
+          {dirty && (
+            <span className="text-[11px] font-body text-amber-700 font-medium inline-flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Modifications non enregistrées
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveClick}
+            disabled={saving || !dirty}
+            className={`px-4 py-2 rounded-lg text-xs font-body font-bold shadow-sm transition-all inline-flex items-center gap-1.5 ${
+              !dirty
+                ? "bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default"
+                : "bg-gradient-to-br from-emerald-600 to-emerald-700 text-white hover:opacity-90 disabled:opacity-60"
+            }`}
+          >
+            {saving ? (
+              <>
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Enregistrement…
+              </>
+            ) : !dirty ? (
+              <>✓ Enregistré</>
+            ) : (
+              <>💾 Enregistrer</>
+            )}
+          </button>
         </div>
       </div>
 
@@ -226,8 +407,7 @@ export default function NewsletterEditorClient({ template }: Props) {
             <input
               type="text"
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              onBlur={() => save({ subject })}
+              onChange={(e) => { setSubject(e.target.value); setDirty(true); }}
               placeholder="Ce que verra le client dans sa boîte…"
               className="mt-2 w-full px-3 py-2 rounded-lg border border-border bg-bg-primary text-[13px] focus:outline-none focus:border-slate-500"
             />
@@ -351,6 +531,84 @@ export default function NewsletterEditorClient({ template }: Props) {
             )}
           </div>
         </aside>
+      </div>
+    </div>
+    </RegisterFileContext.Provider>
+  );
+}
+
+/**
+ * Modale à 3 choix quand la cliente clique « Retour » (ou toute nav interne)
+ * avec des modifications non enregistrées.
+ * Le beforeunload du navigateur couvre déjà la fermeture d'onglet.
+ */
+function LeaveConfirmModal({
+  onCancel,
+  onLeave,
+  onSaveAndLeave,
+  saving,
+}: {
+  onCancel: () => void;
+  onLeave: () => void;
+  onSaveAndLeave: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm"
+      onClick={() => !saving && onCancel()}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl bg-bg-primary shadow-2xl border border-border overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b border-border bg-gradient-to-br from-amber-50 to-bg-primary">
+          <div className="text-[10px] uppercase tracking-[0.18em] font-body font-bold text-amber-800 mb-2">
+            ⚠ Attention
+          </div>
+          <h3 className="font-heading font-bold text-lg text-text-primary">
+            Modifications non enregistrées
+          </h3>
+          <p className="text-sm font-body text-text-secondary mt-1.5 leading-relaxed">
+            Vous avez des changements qui n&apos;ont pas encore été sauvegardés. Que voulez-vous faire ?
+          </p>
+        </div>
+        <div className="p-4 flex flex-col sm:flex-row gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg text-sm font-body font-semibold text-text-secondary hover:bg-bg-secondary border border-border transition-colors disabled:opacity-50"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={onLeave}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg text-sm font-body font-semibold text-red-700 hover:bg-red-50 border border-red-200 transition-colors disabled:opacity-50"
+          >
+            Quitter sans enregistrer
+          </button>
+          <button
+            type="button"
+            onClick={onSaveAndLeave}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg text-sm font-body font-bold bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-sm hover:opacity-90 disabled:opacity-60 inline-flex items-center gap-2"
+          >
+            {saving ? (
+              <>
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Enregistrement…
+              </>
+            ) : (
+              <>💾 Enregistrer et quitter</>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -903,39 +1161,38 @@ function ColorPicker({ value, onChange, allowEmpty = false }: { value: string; o
 }
 
 /**
- * Upload d'image depuis l'ordinateur.
+ * Sélection d'image depuis l'ordinateur.
+ * Affichage INSTANTANÉ via blob URL local — aucun upload au moment du choix.
+ * Le fichier est enregistré dans un ref map partagé (via RegisterFileContext) ;
+ * l'upload réel se fait au clic sur « Enregistrer » (persist()), en batch.
  * Retombe sur URL manuelle si besoin (compat avec anciennes newsletters).
  */
 function ImageInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [uploading, setUploading] = useState(false);
   const [showUrl, setShowUrl] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const toast = useToast();
+  const registerFile = useRegisterFile();
 
-  async function upload(file: File) {
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("image", file);
-      const res = await fetch("/api/admin/newsletter-image", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error("Upload échoué", json.error || "Réessaye.");
-        return;
-      }
-      onChange(json.path as string);
-    } catch (err) {
-      toast.error("Upload échoué", (err as Error).message);
-    } finally {
-      setUploading(false);
-    }
+  function handleFile(file: File) {
+    const blobUrl = URL.createObjectURL(file);
+    registerFile(blobUrl, file);
+    onChange(blobUrl);
   }
+
+  const isPending = value.startsWith("blob:");
 
   return (
     <div className="space-y-2">
       {value && (
         <div className="relative rounded-lg overflow-hidden border border-border">
           <img src={value} alt="" className="w-full h-24 object-cover" />
+          {isPending && (
+            <div
+              className="absolute top-1 left-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/95 text-white text-[10px] font-body font-bold shadow"
+              title="Cette image sera envoyée au serveur au moment où vous cliquerez sur « Enregistrer »"
+            >
+              À enregistrer
+            </div>
+          )}
           <button
             type="button"
             onClick={() => onChange("")}
@@ -951,10 +1208,9 @@ function ImageInput({ value, onChange }: { value: string; onChange: (v: string) 
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="flex-1 px-3 py-2 text-[12px] font-semibold bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg"
+          className="flex-1 px-3 py-2 text-[12px] font-semibold bg-slate-900 hover:bg-slate-800 text-white rounded-lg"
         >
-          {uploading ? "Envoi…" : value ? "Remplacer" : "📁 Choisir un fichier"}
+          {value ? "Remplacer" : "📁 Choisir un fichier"}
         </button>
         <button
           type="button"
@@ -981,7 +1237,7 @@ function ImageInput({ value, onChange }: { value: string; onChange: (v: string) 
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) upload(f);
+          if (f) handleFile(f);
           e.target.value = "";
         }}
       />

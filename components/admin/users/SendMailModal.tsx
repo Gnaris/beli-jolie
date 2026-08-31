@@ -36,6 +36,14 @@ import {
   type RestockSearchResult,
 } from "@/app/actions/admin/user-mails";
 import type { MailCondition } from "@/lib/mail-gates";
+import {
+  listNewsletterTemplates,
+  type NewsletterTemplateSummary,
+} from "@/app/actions/admin/newsletter-templates";
+import {
+  getNewsletterPreviewHtml,
+  sendNewsletterToUsers,
+} from "@/app/actions/admin/send-newsletter";
 
 interface Props {
   userId: string;
@@ -242,6 +250,105 @@ function RestockProductPicker({
   );
 }
 
+/**
+ * Sélecteur de modèle newsletter + aperçu iframe du HTML final.
+ * Le HTML est rendu côté serveur (getNewsletterPreviewHtml) pour être
+ * EXACTEMENT le même que celui envoyé au client — pas d'approximation.
+ */
+function NewsletterPicker({
+  templates,
+  loadingTemplates,
+  selectedId,
+  onSelect,
+  previewHtml,
+  previewLoading,
+}: {
+  templates: NewsletterTemplateSummary[];
+  loadingTemplates: boolean;
+  selectedId: string;
+  onSelect: (id: string) => void;
+  previewHtml: string | null;
+  previewLoading: boolean;
+}) {
+  const options: SelectOption[] = templates.map((t) => ({
+    value: t.id,
+    label: `📢  ${t.name} — ${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""}`,
+    disabled: t.blocksCount === 0,
+  }));
+  const selectedTpl = templates.find((t) => t.id === selectedId);
+
+  if (loadingTemplates) {
+    return (
+      <div className="rounded-xl border border-border bg-bg-primary p-4 text-center text-[12px] text-text-muted">
+        <div className="inline-block w-4 h-4 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin mr-2 align-middle" />
+        Chargement de vos modèles…
+      </div>
+    );
+  }
+
+  if (templates.length === 0) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12.5px] text-amber-800">
+        Aucun modèle de newsletter enregistré.{" "}
+        <a href="/admin/utilisateurs/newsletters" className="underline font-semibold">
+          Créer un modèle →
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-primary p-4 space-y-3">
+      <CustomSelect
+        value={selectedId}
+        onChange={onSelect}
+        options={options}
+        placeholder="Sélectionner un modèle…"
+        size="md"
+      />
+      {selectedTpl && (
+        <div className="text-[12px] text-text-secondary leading-relaxed">
+          <div><span className="font-semibold">Sujet du mail :</span> {selectedTpl.subject}</div>
+        </div>
+      )}
+      <a
+        href="/admin/utilisateurs/newsletters"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-block text-[11px] text-violet-700 font-semibold hover:underline"
+      >
+        + Créer ou modifier un modèle (nouvel onglet)
+      </a>
+
+      {selectedId && (
+        <div className="rounded-lg border border-border overflow-hidden bg-slate-100">
+          <div className="px-3 py-2 bg-slate-50 border-b border-border text-[11px] text-text-muted">
+            Aperçu du modèle — exactement ce que recevra le client.
+          </div>
+          {previewLoading ? (
+            <div className="p-10 text-center text-[12px] text-text-muted">
+              <div className="inline-block w-5 h-5 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin mr-2 align-middle" />
+              Chargement de l&apos;aperçu…
+            </div>
+          ) : previewHtml ? (
+            <iframe
+              title="Aperçu newsletter"
+              srcDoc={previewHtml}
+              className="w-full bg-white block"
+              style={{ height: 520, border: 0 }}
+              sandbox=""
+            />
+          ) : (
+            <div className="p-10 text-center text-[12px] text-red-600">
+              Aperçu indisponible.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MailPreview({
   scenario,
   preview,
@@ -391,20 +498,7 @@ function MailPreview({
           </>
         )}
 
-        {/* ═══ NEWSLETTER ═══ */}
-        {scenario === "NEWSLETTER" && (
-          <div style={{ padding: "40px 24px", textAlign: "center" }}>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>📢</div>
-            <h3 style={{ fontFamily: "Poppins", fontSize: "16px", fontWeight: 700, color: "#0f172a", margin: "0 0 8px" }}>
-              L&apos;aperçu dépend du modèle choisi
-            </h3>
-            <p style={{ fontSize: "12px", color: "#64748b", lineHeight: 1.6 }}>
-              La newsletter utilise un des modèles composés à l&apos;avance.<br />
-              Le choix du modèle et son aperçu s&apos;afficheront à l&apos;étape suivante<br />
-              (étape 4 — en cours de développement).
-            </p>
-          </div>
-        )}
+        {/* NEWSLETTER n'utilise plus ce composant — le rendu se fait dans NewsletterPicker (iframe HTML réel) */}
 
         {/* ═══ RETOUR EN STOCK ═══ */}
         {scenario === "RESTOCK" && (
@@ -508,6 +602,52 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
   const [searchResults, setSearchResults] = useState<RestockSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
 
+  // ─── Sélection du modèle pour NEWSLETTER ──────────────────────
+  const [newsletterTemplates, setNewsletterTemplates] = useState<NewsletterTemplateSummary[]>([]);
+  const [newsletterTemplatesLoaded, setNewsletterTemplatesLoaded] = useState(false);
+  const [newsletterTemplatesLoading, setNewsletterTemplatesLoading] = useState(false);
+  const [newsletterTemplateId, setNewsletterTemplateId] = useState<string>("");
+  const [newsletterPreviewHtml, setNewsletterPreviewHtml] = useState<string | null>(null);
+  const [newsletterPreviewLoading, setNewsletterPreviewLoading] = useState(false);
+
+  // Chargement paresseux des modèles quand la cliente choisit "Newsletter"
+  useEffect(() => {
+    if (selected !== "NEWSLETTER" || newsletterTemplatesLoaded) return;
+    let cancelled = false;
+    setNewsletterTemplatesLoading(true);
+    (async () => {
+      const list = await listNewsletterTemplates();
+      if (cancelled) return;
+      setNewsletterTemplates(list);
+      setNewsletterTemplatesLoaded(true);
+      setNewsletterTemplatesLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [selected, newsletterTemplatesLoaded]);
+
+  // Chargement de l'aperçu HTML dès qu'un modèle est choisi
+  useEffect(() => {
+    if (!newsletterTemplateId) { setNewsletterPreviewHtml(null); return; }
+    let cancelled = false;
+    setNewsletterPreviewLoading(true);
+    (async () => {
+      const res = await getNewsletterPreviewHtml(newsletterTemplateId);
+      if (cancelled) return;
+      setNewsletterPreviewLoading(false);
+      if (res.success) setNewsletterPreviewHtml(res.html);
+      else { setNewsletterPreviewHtml(null); toast.error("Aperçu impossible", res.error); }
+    })();
+    return () => { cancelled = true; };
+  }, [newsletterTemplateId, toast]);
+
+  // Reset la sélection modèle si on quitte NEWSLETTER
+  useEffect(() => {
+    if (selected !== "NEWSLETTER") {
+      setNewsletterTemplateId("");
+      setNewsletterPreviewHtml(null);
+    }
+  }, [selected]);
+
   // Debounce la recherche produits
   useEffect(() => {
     if (selected !== "RESTOCK") { setSearchResults([]); return; }
@@ -537,18 +677,45 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     }
   }, [selected]);
 
-  // Override des conditions RESTOCK côté client (les 2 gates liées à la sélection)
+  // Override des conditions RESTOCK / NEWSLETTER côté client (liées à la sélection UI)
   const displayedConditions = useMemo<MailCondition[]>(() => {
     if (!selectedCtx) return [];
-    if (selected !== "RESTOCK") return selectedCtx.conditions;
-    const count = restockProducts.length;
-    const allInStock = count === 0 || restockProducts.every((p) => p.stock > 0);
-    return selectedCtx.conditions.map((c) => {
-      if (c.code === "PRODUCTS_SELECTED") return { ...c, passed: count > 0 };
-      if (c.code === "PRODUCTS_IN_STOCK") return { ...c, passed: count === 0 || allInStock };
-      return c;
-    });
-  }, [selectedCtx, selected, restockProducts]);
+    if (selected === "RESTOCK") {
+      const count = restockProducts.length;
+      const allInStock = count === 0 || restockProducts.every((p) => p.stock > 0);
+      return selectedCtx.conditions.map((c) => {
+        if (c.code === "PRODUCTS_SELECTED") return { ...c, passed: count > 0 };
+        if (c.code === "PRODUCTS_IN_STOCK") return { ...c, passed: count === 0 || allInStock };
+        return c;
+      });
+    }
+    if (selected === "NEWSLETTER") {
+      // Ajoute une condition bloquante : « modèle sélectionné » (avec au moins 1 bloc)
+      const chosen = newsletterTemplates.find((t) => t.id === newsletterTemplateId);
+      const hasTemplate = !!chosen;
+      const hasBlocks = !!chosen && chosen.blocksCount > 0;
+      const extra: MailCondition[] = [
+        {
+          code: "NEWSLETTER_TEMPLATE_SELECTED",
+          label: hasTemplate ? "Modèle sélectionné" : "Choisir un modèle à envoyer",
+          passed: hasTemplate,
+          isSoft: false,
+        },
+        {
+          code: "NEWSLETTER_TEMPLATE_HAS_BLOCKS",
+          label: hasBlocks
+            ? "Le modèle contient du contenu"
+            : hasTemplate
+              ? "Le modèle est vide (ajoute au moins un bloc)"
+              : "Le modèle doit contenir au moins un bloc",
+          passed: hasBlocks,
+          isSoft: false,
+        },
+      ];
+      return [...selectedCtx.conditions, ...extra];
+    }
+    return selectedCtx.conditions;
+  }, [selectedCtx, selected, restockProducts, newsletterTemplates, newsletterTemplateId]);
 
   const displayedBlockers = useMemo(
     () => displayedConditions.filter((c) => !c.passed && !c.isSoft),
@@ -561,14 +728,30 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
   function onSend() {
     if (!selected) return;
 
-    // Newsletter : redirige vers la page de choix de modèle (étape 5)
     if (selected === "NEWSLETTER") {
-      toast.info(
-        "Newsletter",
-        "L'envoi de newsletter passe par la sélection d'un modèle depuis la page dédiée.",
-      );
-      onClose();
-      router.push("/admin/utilisateurs/newsletters");
+      if (!newsletterTemplateId) return;
+      startSending(async () => {
+        const res = await sendNewsletterToUsers({
+          templateId: newsletterTemplateId,
+          userIds: [userId],
+        });
+        if (!res.success) {
+          toast.error("Envoi refusé", res.error);
+          return;
+        }
+        if (res.sent === 0) {
+          toast.error(
+            "Envoi refusé",
+            res.excluded > 0
+              ? "Ce client est désinscrit ou n'a pas le statut Approuvé."
+              : "L'envoi n'a pas abouti — vérifie la configuration SMTP.",
+          );
+          return;
+        }
+        toast.success("Newsletter envoyée", `Mail envoyé à ${userLabel}.`);
+        router.refresh();
+        onClose();
+      });
       return;
     }
 
@@ -681,10 +864,27 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     </div>
                   )}
 
+                  {/* Sélecteur de modèle — uniquement pour NEWSLETTER */}
+                  {selected === "NEWSLETTER" && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
+                        2. Choisir le modèle à envoyer
+                      </div>
+                      <NewsletterPicker
+                        templates={newsletterTemplates}
+                        loadingTemplates={newsletterTemplatesLoading}
+                        selectedId={newsletterTemplateId}
+                        onSelect={setNewsletterTemplateId}
+                        previewHtml={newsletterPreviewHtml}
+                        previewLoading={newsletterPreviewLoading}
+                      />
+                    </div>
+                  )}
+
                   {/* Conditions à réunir (grille) — numérotation dynamique */}
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                      {selected === "RESTOCK" ? "3." : "2."} Conditions à réunir
+                      {selected === "RESTOCK" || selected === "NEWSLETTER" ? "3." : "2."} Conditions à réunir
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {displayedConditions.map((c) => (
@@ -725,8 +925,8 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     </div>
                   )}
 
-                  {/* Aperçu du mail (masqué si envoi bloqué — inutile) */}
-                  {!isBlocked && (
+                  {/* Aperçu du mail (masqué si envoi bloqué OU si NEWSLETTER — l'aperçu est dans le picker) */}
+                  {!isBlocked && selected !== "NEWSLETTER" && (
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
                         {selected === "RESTOCK" ? "4." : "3."} Aperçu du mail

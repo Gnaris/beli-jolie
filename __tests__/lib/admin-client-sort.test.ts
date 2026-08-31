@@ -39,7 +39,7 @@ describe("parseSortDir / defaultDirFor", () => {
     expect(parseSortDir(undefined, "company")).toBe("asc"); // société → A → Z
     expect(parseSortDir(undefined, "orders")).toBe("desc"); // plus de commandes d'abord
     expect(parseSortDir(undefined, "spent")).toBe("desc");
-    expect(parseSortDir(undefined, "login")).toBe("desc"); // connexion la plus récente
+    expect(parseSortDir(undefined, "login")).toBe("desc"); // activité la plus récente
     expect(parseSortDir(undefined, "created")).toBe("desc");
   });
 
@@ -61,7 +61,7 @@ describe("dirLabel", () => {
     expect(dirLabel("company", "desc")).toBe("Z → A");
     expect(dirLabel("orders", "desc")).toBe("Du plus grand nombre");
     expect(dirLabel("orders", "asc")).toBe("Du plus petit nombre");
-    expect(dirLabel("login", "desc")).toBe("Connexion la plus récente");
+    expect(dirLabel("login", "desc")).toBe("Activité la plus récente");
     expect(dirLabel("created", "asc")).toBe("Plus anciens d'abord");
   });
 });
@@ -80,8 +80,8 @@ describe("buildUserOrderBy", () => {
   it("mappe chaque critère sur la bonne colonne", () => {
     expect(buildUserOrderBy("created", "desc")).toEqual({ createdAt: "desc" });
     expect(buildUserOrderBy("created", "asc")).toEqual({ createdAt: "asc" });
-    expect(buildUserOrderBy("login", "desc")).toEqual({ lastLoginAt: "desc" });
-    expect(buildUserOrderBy("login", "asc")).toEqual({ lastLoginAt: "asc" });
+    expect(buildUserOrderBy("login", "desc")).toEqual({ lastSeenAt: "desc" });
+    expect(buildUserOrderBy("login", "asc")).toEqual({ lastSeenAt: "asc" });
     expect(buildUserOrderBy("company", "asc")).toEqual({ company: "asc" });
     expect(buildUserOrderBy("company", "desc")).toEqual({ company: "desc" });
   });

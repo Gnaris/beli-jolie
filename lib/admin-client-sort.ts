@@ -57,9 +57,9 @@ export const CLIENT_SORT_OPTIONS: readonly SortOptionMeta[] = [
   },
   {
     value: "login",
-    label: "Dernière connexion",
-    descLabel: "Connexion la plus récente",
-    ascLabel: "Connexion la plus ancienne",
+    label: "Dernière activité",
+    descLabel: "Activité la plus récente",
+    ascLabel: "Activité la plus ancienne",
     defaultDir: "desc",
   },
   {
@@ -108,12 +108,17 @@ export function isStatsSort(sort: ClientSortKey): sort is "orders" | "spent" {
  * Note : MySQL classe NULL comme la plus petite valeur — les clients qui ne se
  * sont jamais connectés se retrouvent donc en tête en ordre croissant et en
  * queue en ordre décroissant, ce qui est le comportement attendu.
+ *
+ * « login » trie sur `lastSeenAt` (heartbeat toutes les 30s, mis à jour dès
+ * qu'un client navigue sur le site), et non sur `lastLoginAt` qui ne bouge
+ * qu'à un vrai login — sinon un client qui reste connecté et navigue tous
+ * les jours n'apparaissait jamais en tête de « activité la plus récente ».
  */
 export function buildUserOrderBy(
   sort: ClientSortKey,
   dir: SortDir,
-): { createdAt: SortDir } | { lastLoginAt: SortDir } | { company: SortDir } {
-  if (sort === "login") return { lastLoginAt: dir };
+): { createdAt: SortDir } | { lastSeenAt: SortDir } | { company: SortDir } {
+  if (sort === "login") return { lastSeenAt: dir };
   if (sort === "company") return { company: dir };
   return { createdAt: dir };
 }

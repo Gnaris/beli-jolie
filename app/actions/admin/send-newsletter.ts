@@ -23,6 +23,80 @@ import { renderNewsletterHtml, type ProductLite, type NewsletterBlock } from "@/
 
 const INTER_MAIL_DELAY_MS = 300; // Anti-flood SMTP
 
+/**
+ * Rend le HTML d'un modèle de newsletter pour aperçu dans la modale
+ * d'envoi. Utilise exactement le même pipeline que l'envoi réel — ce que
+ * voit la cliente = ce que reçoit le client.
+ */
+export async function getNewsletterPreviewHtml(
+  templateId: string,
+): Promise<{ success: true; html: string; subject: string } | { success: false; error: string }> {
+  try {
+    const { tenant } = await requireAdmin();
+    const template = await prisma.newsletterTemplate.findFirst({
+      where: { id: templateId, tenantId: tenant.id },
+    });
+    if (!template) return { success: false, error: "Modèle introuvable." };
+
+    const blocks = Array.isArray(template.blocks) ? (template.blocks as unknown as NewsletterBlock[]) : [];
+    const productsById = await loadProductsForBlocks(tenant.id, blocks);
+    const shopName = await getCachedShopName();
+    const baseUrl = await getCurrentTenantBaseUrl();
+    const legalLine = await buildLegalLine(tenant.id);
+    const html = renderNewsletterHtml({
+      subject: template.subject,
+      blocks,
+      productsById,
+      shared: { shopName, baseUrl, legalLine },
+    });
+    return { success: true, html, subject: template.subject };
+  } catch (err) {
+    logger.error("[getNewsletterPreviewHtml]", { templateId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/** Charge les produits référencés par les blocs « Grille produits ». */
+async function loadProductsForBlocks(
+  tenantId: string,
+  blocks: NewsletterBlock[],
+): Promise<Map<string, ProductLite>> {
+  const productIds = blocks
+    .filter((b): b is Extract<NewsletterBlock, { type: "products" }> => b.type === "products")
+    .flatMap((b) => b.data.productIds);
+  const uniqueProductIds = [...new Set(productIds)];
+  const productsById = new Map<string, ProductLite>();
+  if (uniqueProductIds.length === 0) return productsById;
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueProductIds }, tenantId },
+    select: {
+      id: true,
+      name: true,
+      reference: true,
+      colors: {
+        take: 1,
+        orderBy: { isPrimary: "desc" },
+        select: {
+          unitPrice: true,
+          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+        },
+      },
+    },
+  });
+  for (const p of products) {
+    const v = p.colors[0];
+    productsById.set(p.id, {
+      id: p.id,
+      name: p.name,
+      reference: p.reference,
+      imagePath: v?.images[0]?.path ?? null,
+      priceCents: v ? Math.round(Number(v.unitPrice) * 100) : null,
+    });
+  }
+  return productsById;
+}
+
 export async function sendNewsletterToUsers({
   templateId,
   userIds,
@@ -49,39 +123,7 @@ export async function sendNewsletterToUsers({
     const blocks = Array.isArray(template.blocks) ? (template.blocks as unknown as NewsletterBlock[]) : [];
 
     // 2. Charge tous les produits référencés dans les blocs « Grille produits »
-    const productIds = blocks
-      .filter((b): b is Extract<NewsletterBlock, { type: "products" }> => b.type === "products")
-      .flatMap((b) => b.data.productIds);
-    const uniqueProductIds = [...new Set(productIds)];
-    const productsById = new Map<string, ProductLite>();
-    if (uniqueProductIds.length > 0) {
-      const products = await prisma.product.findMany({
-        where: { id: { in: uniqueProductIds }, tenantId: tenant.id },
-        select: {
-          id: true,
-          name: true,
-          reference: true,
-          colors: {
-            take: 1,
-            orderBy: { isPrimary: "desc" },
-            select: {
-              unitPrice: true,
-              images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-            },
-          },
-        },
-      });
-      for (const p of products) {
-        const v = p.colors[0];
-        productsById.set(p.id, {
-          id: p.id,
-          name: p.name,
-          reference: p.reference,
-          imagePath: v?.images[0]?.path ?? null,
-          priceCents: v ? Math.round(Number(v.unitPrice) * 100) : null,
-        });
-      }
-    }
+    const productsById = await loadProductsForBlocks(tenant.id, blocks);
 
     // 3. Emails des clients sélectionnés — filtre RGPD strict :
     // seuls les clients APPROVED + acceptsNewsletter=true reçoivent la newsletter.
