@@ -373,12 +373,14 @@ export default function OrderContent({
   const totalTTC = roundCent(subHTNet + carrier + currentTvaAmount);
 
   // ── Détection d'une modification post-paiement pour l'affichage ancien→nouveau ──
-  // Vaut true dès qu'il y a eu au moins une modif (rupture ou compensation),
-  // ou une différence entre brut payé et brut actuel.
+  // On s'appuie uniquement sur les traces explicites (OrderItemModification
+  // ou lignes isCompensation). On NE compare PAS le brut payé au brut recomposé
+  // live : après la migration arrondi Sage (2026-09-01), les vieilles commandes
+  // ont un subtotalBrutHT figé sous Math.floor qui peut différer d'1 ct du
+  // même calcul en roundCent — faux positif visuel.
   const hasBeenModified =
     modifications.length > 0 ||
-    items.some((i) => i.isCompensation) ||
-    Math.abs(subHTGross - currentBrutHT) > 0.005;
+    items.some((i) => i.isCompensation);
 
   // Snapshots de l'état payé (reconstruits depuis les champs figés en BDD).
   const paidBrutHT = subHTGross;
