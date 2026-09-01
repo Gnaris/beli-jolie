@@ -301,17 +301,40 @@ export default function OrderContent({
 
   // Aperçu du sous-total HT NET (mode édition) — inclut la remise ligne persistée.
   // item.unitPrice EST DÉJÀ le prix après remise commerciale + promo (snapshot checkout).
+  // Sous-total HT NET recomposé live depuis les items présents.
+  // On ne lit PLUS totals.currentSubtotalHT (BDD potentiellement figée sous
+  // l'ancien Math.floor → 1 ct de moins que le calcul Sage). Le recalcul
+  // arrondi Sage (roundCent) reproduit exactement la facture Sage 50.
   const previewSubtotalHT = useMemo(() => {
-    if (mode !== "edit") return totals.currentSubtotalHT;
-    let s = 0;
+    let discountable = 0;
+    let compensation = 0;
     items.forEach((it) => {
-      const q = it.isCompensation ? it.quantity : edits[it.id]?.qty ?? it.quantity;
-      const p = it.isCompensation ? it.unitPrice : edits[it.id]?.price ?? it.unitPrice;
+      const q = it.isCompensation
+        ? it.quantity
+        : mode === "edit"
+          ? edits[it.id]?.qty ?? it.quantity
+          : it.quantity;
+      const p = it.isCompensation
+        ? it.unitPrice
+        : mode === "edit"
+          ? edits[it.id]?.price ?? it.unitPrice
+          : it.unitPrice;
       const lineDisc = Number(it.lineDiscountAmt ?? 0);
-      s += Math.max(0, q * p - lineDisc);
+      const lineHT = Math.max(0, q * p - lineDisc);
+      if (it.isCompensation) compensation += lineHT;
+      else discountable += lineHT;
     });
-    return s;
-  }, [mode, edits, items, totals.currentSubtotalHT]);
+    // Remise commerciale : on garde le montant persisté (déjà recomputé par
+    // le serveur à la dernière modif) plutôt que de le recalculer ici — évite
+    // de re-diverger si la config de remise change entre-temps.
+    const discountableRounded = roundCent(discountable);
+    const compensationRounded = roundCent(compensation);
+    const netAfterDiscount = Math.max(
+      0,
+      roundCent(discountableRounded - Number(totals.clientDiscountAmt)),
+    );
+    return roundCent(netAfterDiscount + compensationRounded);
+  }, [mode, edits, items, totals.clientDiscountAmt]);
 
   // Compteurs affichés en résumé
   const totalUnits = items
