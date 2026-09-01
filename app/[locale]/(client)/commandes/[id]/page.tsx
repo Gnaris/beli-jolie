@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getTranslations } from "next-intl/server";
-import { floorMoney } from "@/lib/order-totals";
+import { roundCent } from "@/lib/money";
 import { getOrderStatusVisual } from "@/lib/order-status-visual";
 import OrderContent from "@/components/admin/orders/OrderContent";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
@@ -65,10 +65,11 @@ export default async function CommandeDetailPage({
   const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName ?? "", order.eeTrackingId) : null;
   const statusVisual = getOrderStatusVisual(order.status);
 
-  // Formule additive strictement identique au checkout, pour éviter les écarts d'1 cent.
+  // Reconstruction du TTC payé — arrondi Sage (roundCent). Cf. lib/money.ts.
   const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
   const carrier = Number(order.carrierPrice);
-  const paidTotalTTC = floorMoney(paidHT + carrier + (paidHT + carrier) * order.tvaRate);
+  const paidTvaAmount = roundCent((paidHT + carrier) * order.tvaRate);
+  const paidTotalTTC = roundCent(paidHT + carrier + paidTvaAmount);
 
   const dateFmt = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
     weekday: "long",

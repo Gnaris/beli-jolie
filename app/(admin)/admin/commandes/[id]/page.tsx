@@ -8,7 +8,7 @@ import OrderStatusActions from "@/components/admin/orders/OrderStatusActions";
 import OrderContent from "@/components/admin/orders/OrderContent";
 import OrderQuickActions from "@/components/admin/orders/OrderQuickActions";
 import { EU_COUNTRIES } from "@/lib/vat";
-import { floorMoney } from "@/lib/order-totals";
+import { roundCent } from "@/lib/money";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -61,11 +61,11 @@ export default async function AdminCommandeDetailPage({
 
   const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
 
-  // Formule additive strictement identique au checkout (lib/order-pricing.ts),
-  // pour éviter les écarts IEEE 754 d'1 centime entre la commande et l'affichage admin.
+  // Reconstruction du TTC payé — arrondi Sage (roundCent). Cf. lib/money.ts.
   const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
   const carrier = Number(order.carrierPrice);
-  const paidTotalTTC = floorMoney(paidHT + carrier + (paidHT + carrier) * order.tvaRate);
+  const paidTvaAmount = roundCent((paidHT + carrier) * order.tvaRate);
+  const paidTotalTTC = roundCent(paidHT + carrier + paidTvaAmount);
 
   return (
     <div className="space-y-6">

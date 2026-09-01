@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateOrderPDF } from "@/lib/pdf-order";
 import { logger } from "@/lib/logger";
-import { floorMoney } from "@/lib/order-totals";
+import { roundCent } from "@/lib/money";
 
 /**
  * GET /api/client/commandes/[id]/pdf?noPrices=1
@@ -59,11 +59,10 @@ export async function GET(
       creditApplied:   Number(order.creditApplied),
       tvaRate:         order.tvaRate,
       subtotalHT:      Number(order.subtotalHT),
-      // Recalcul depuis subtotalHT + port + taux : les commandes historiques
-      // avaient un stockage arrondi vers le haut. On aligne systématiquement
-      // sur floorMoney pour matcher le logiciel de facturation externe.
-      tvaAmount:       floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * order.tvaRate),
-      totalTTC:        floorMoney((Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate)),
+      // Recalcul depuis subtotalHT + port + taux — arrondi Sage (roundCent).
+      // TVA arrondie sur la base taxable puis TTC = simple addition.
+      tvaAmount:       roundCent((Number(order.subtotalHT) + Number(order.carrierPrice)) * order.tvaRate),
+      totalTTC:        roundCent(Number(order.subtotalHT) + Number(order.carrierPrice) + roundCent((Number(order.subtotalHT) + Number(order.carrierPrice)) * order.tvaRate)),
       hidePrices,
       items: order.items.map((item) => {
         let categoryName: string | null = null;

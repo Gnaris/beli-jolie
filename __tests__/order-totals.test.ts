@@ -1,46 +1,47 @@
 import { describe, it, expect } from "vitest";
-import { recomputeOrderTotals, floorMoney } from "@/lib/order-totals";
+import { recomputeOrderTotals } from "@/lib/order-totals";
 
-describe("floorMoney — arrondi vers le bas au centime", () => {
-  it("arrondit vers le bas (jamais vers le haut)", () => {
-    expect(floorMoney(234.024)).toBe(234.02);
-    expect(floorMoney(234.029)).toBe(234.02);
-    expect(floorMoney(234.02)).toBe(234.02);
-    expect(floorMoney(234.03)).toBe(234.03);
-  });
-
-  it("gère les valeurs entières et 0", () => {
-    expect(floorMoney(0)).toBe(0);
-    expect(floorMoney(100)).toBe(100);
-  });
-
-  // Régression 2026-08-22 : sur la fiche commande admin, chaque ligne affichait
-  // un total TTC calculé via `HT * (1 + tvaRate)`. IEEE-754 fait dériver
-  // 57 × 1.2 vers 68.39999999999999, et floorMoney tombe alors à 68.39 au lieu
-  // de 68.40 (cas réel commande CYKVNHNP, ligne A2350E : 6 × 9,50 € HT).
-  // La formule additive `HT + HT * tvaRate` évite le piège.
-  it("piège IEEE-754 : préférer `HT + HT*rate` à `HT*(1+rate)`", () => {
-    const totalHT = 57;
-    const tvaRate = 0.2;
-    expect(floorMoney(totalHT * (1 + tvaRate))).toBe(68.39); // formule fautive
-    expect(floorMoney(totalHT + totalHT * tvaRate)).toBe(68.40); // formule à utiliser
-  });
-});
-
-describe("recomputeOrderTotals — arrondi vers le bas (aligné facturation)", () => {
-  it("commande 188.98 HT + port 6.04 + TVA 20% → total 234.02 (pas 234.03)", () => {
-    // Cas réel : commande cmr6p6o4n00dqm34qdukqvuog.
-    // (188.98 + 6.04) × 1.20 = 234.024 → doit s'arrondir vers le bas à 234.02
-    // pour matcher le logiciel de facturation externe.
+describe("recomputeOrderTotals — arrondi Sage (facture FA10005485)", () => {
+  it("commande 4EKJ7LYW après rupture : 212.20 -10% → 190.98 HT / 38.20 TVA / 229.18 TTC", () => {
+    // Reproduction exacte de la facture Sage 50 FA10005485 (2026-09-01).
+    // Ancien floorMoney donnait 38.19 / 229.17 → écart 1 ct.
     const res = recomputeOrderTotals({
-      items: [{ lineTotal: 188.98 }],
+      items: [
+        { lineTotal: 45.0 },
+        { lineTotal: 26.0 },
+        { lineTotal: 33.0 },
+        { lineTotal: 36.0 },
+        { lineTotal: 25.2 },
+        { lineTotal: 3.0 },
+        { lineTotal: 28.0 },
+        { lineTotal: 16.0 },
+      ],
       tvaRate: 0.2,
-      carrierPrice: 6.04,
-      clientDiscountType: null,
-      clientDiscountValue: null,
+      carrierPrice: 0,
+      clientDiscountType: "PERCENT",
+      clientDiscountValue: 10,
     });
-    expect(res.totalTTC).toBe(234.02);
-    expect(res.tvaAmount).toBe(39.00);
+
+    expect(res.preDiscountSubtotal).toBe(212.2);
+    expect(res.clientDiscountAmt).toBe(21.22);
+    expect(res.subtotalHT).toBe(190.98);
+    expect(res.tvaAmount).toBe(38.2);
+    expect(res.totalTTC).toBe(229.18);
+  });
+
+  it("commande initiale 4EKJ7LYW (avant rupture) : 225.20 -10% → 202.68 HT / 40.54 TVA / 243.22 TTC", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 225.2 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "PERCENT",
+      clientDiscountValue: 10,
+    });
+
+    expect(res.clientDiscountAmt).toBe(22.52);
+    expect(res.subtotalHT).toBe(202.68);
+    expect(res.tvaAmount).toBe(40.54);
+    expect(res.totalTTC).toBe(243.22);
   });
 });
 
@@ -57,17 +58,28 @@ describe("recomputeOrderTotals — sans remise client", () => {
     expect(res.preDiscountSubtotal).toBe(150);
     expect(res.clientDiscountAmt).toBe(0);
     expect(res.subtotalHT).toBe(150);
-    // TVA sur (150 articles + 10 port) × 20% = 32
-    expect(res.tvaAmount).toBeCloseTo(32, 5);
-    expect(res.totalTTC).toBeCloseTo(192, 5);
+    expect(res.tvaAmount).toBe(32); // (150 + 10) × 20%
+    expect(res.totalTTC).toBe(192); // 150 + 10 + 32
+  });
+
+  it("cas historique cmr6p6o4n00dqm34qdukqvuog : 188.98 + port 6.04 → TTC 234.02", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 188.98 }],
+      tvaRate: 0.2,
+      carrierPrice: 6.04,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+
+    // (188.98 + 6.04) × 20 % = 39.004 → arrondi 39.00
+    // TTC = 195.02 + 39.00 = 234.02
+    expect(res.tvaAmount).toBe(39);
+    expect(res.totalTTC).toBe(234.02);
   });
 });
 
 describe("recomputeOrderTotals — remise PERCENT", () => {
   it("AUDIT [4] : remise de 10% réappliquée après retrait d'un article", () => {
-    // Cas reel : 1000€ panier, -10% client => 900€ HT.
-    // Admin retire un article 200€ → nouveau panier = 800€ HT.
-    // Sans le fix : subtotalHT = 800 (pas de remise). Avec le fix : 720.
     const res = recomputeOrderTotals({
       items: [{ lineTotal: 800 }],
       tvaRate: 0.2,
@@ -79,27 +91,23 @@ describe("recomputeOrderTotals — remise PERCENT", () => {
     expect(res.preDiscountSubtotal).toBe(800);
     expect(res.clientDiscountAmt).toBe(80);
     expect(res.subtotalHT).toBe(720);
-    expect(res.tvaAmount).toBeCloseTo(144, 5);
-    expect(res.totalTTC).toBeCloseTo(864, 5);
+    expect(res.tvaAmount).toBe(144);
+    expect(res.totalTTC).toBe(864);
   });
 
-  // Régression 2026-08-31 : commande beliandjolie cmteptzaw0052dhg4h121pf2k.
-  // 258.50 − 5 % = 245.575 ; le code fautif floorait la remise d'abord (12.925
-  // → 12.92) et laissait 1 ct de trop dans le sous-total (245.58) → total
-  // TTC 294.69 au lieu de 294.68 attendu par la facturation externe.
-  it("258.50 avec −5 % : sous-total 245.57 et total TTC 294.68 (pas 245.58 / 294.69)", () => {
+  it("258.50 avec −5 % : remise 12.93 / net 245.57 / TTC 294.68", () => {
+    // Round half up : 258.50 × 5% = 12.925 → 12.93 (contre 12.92 avec l'ancien floor).
     const res = recomputeOrderTotals({
-      items: [{ lineTotal: 258.50 }],
+      items: [{ lineTotal: 258.5 }],
       tvaRate: 0.2,
       carrierPrice: 0,
       clientDiscountType: "PERCENT",
       clientDiscountValue: 5,
     });
 
-    expect(res.subtotalHT).toBe(245.57);
     expect(res.clientDiscountAmt).toBe(12.93);
-    // Reconstruction PDF : subtotalHT + clientDiscountAmt = pre-discount.
-    expect(res.subtotalHT + res.clientDiscountAmt).toBeCloseTo(258.50, 5);
+    expect(res.subtotalHT).toBe(245.57);
+    expect(res.tvaAmount).toBe(49.11);
     expect(res.totalTTC).toBe(294.68);
   });
 
@@ -114,9 +122,8 @@ describe("recomputeOrderTotals — remise PERCENT", () => {
 
     expect(res.clientDiscountAmt).toBe(100);
     expect(res.subtotalHT).toBe(0);
-    // TVA sur les frais de port seulement : 5 × 20% = 1
-    expect(res.tvaAmount).toBeCloseTo(1, 5);
-    expect(res.totalTTC).toBeCloseTo(6, 5); // port HT + TVA sur port
+    expect(res.tvaAmount).toBe(1);
+    expect(res.totalTTC).toBe(6);
   });
 });
 
@@ -132,8 +139,8 @@ describe("recomputeOrderTotals — remise AMOUNT (montant fixe)", () => {
 
     expect(res.clientDiscountAmt).toBe(50);
     expect(res.subtotalHT).toBe(150);
-    expect(res.tvaAmount).toBeCloseTo(30, 5);
-    expect(res.totalTTC).toBeCloseTo(180, 5);
+    expect(res.tvaAmount).toBe(30);
+    expect(res.totalTTC).toBe(180);
   });
 
   it("remise > sous-total : plafonnée au sous-total (jamais négatif)", () => {
@@ -165,22 +172,17 @@ describe("recomputeOrderTotals — types Prisma Decimal (toNumber)", () => {
     expect(res.preDiscountSubtotal).toBe(150);
     expect(res.clientDiscountAmt).toBe(30);
     expect(res.subtotalHT).toBe(120);
-    // TVA sur (120 + 10 port) × 20% = 26
-    expect(res.tvaAmount).toBeCloseTo(26, 5);
-    expect(res.totalTTC).toBeCloseTo(156, 5);
+    expect(res.tvaAmount).toBe(26); // (120 + 10) × 20%
+    expect(res.totalTTC).toBe(156);
   });
 });
 
 describe("recomputeOrderTotals — articles ajoutés (compensation) hors base remise", () => {
   it("AMOUNT : remise ne s'applique QUE sur les lignes d'origine, pas sur les ajouts admin", () => {
-    // Cas Delphine Quinchon 2026-08-17 :
-    // - Client avait une remise fixe (ex. −30 €)
-    // - Admin retire des articles pour rupture, puis ajoute d'autres à un prix déjà remisé
-    // - Bug avant fix : la remise se ré-appliquait sur les ajouts → double remise → total qui s'effondre
     const res = recomputeOrderTotals({
       items: [
-        { lineTotal: 50, isCompensation: false }, // article d'origine
-        { lineTotal: 20, isCompensation: true },  // ajout admin (prix saisi déjà remisé)
+        { lineTotal: 50, isCompensation: false },
+        { lineTotal: 20, isCompensation: true },
       ],
       tvaRate: 0.2,
       carrierPrice: 0,
@@ -188,11 +190,9 @@ describe("recomputeOrderTotals — articles ajoutés (compensation) hors base re
       clientDiscountValue: 30,
     });
 
-    // La remise 30€ ne mord QUE sur les 50€ d'origine (=> 20€ HT restants)
-    // Les 20€ d'ajout admin passent tels quels.
     expect(res.clientDiscountAmt).toBe(30);
-    expect(res.subtotalHT).toBe(40); // 20 (origine après remise) + 20 (ajout)
-    expect(res.totalTTC).toBeCloseTo(48, 5);
+    expect(res.subtotalHT).toBe(40);
+    expect(res.totalTTC).toBe(48);
   });
 
   it("PERCENT : remise ne s'applique QUE sur les lignes d'origine", () => {
@@ -207,7 +207,6 @@ describe("recomputeOrderTotals — articles ajoutés (compensation) hors base re
       clientDiscountValue: 10,
     });
 
-    // Remise 10% sur 100 = 10 → base d'origine passe à 90. Ajout 20 intact.
     expect(res.clientDiscountAmt).toBe(10);
     expect(res.subtotalHT).toBe(110);
   });
@@ -215,8 +214,8 @@ describe("recomputeOrderTotals — articles ajoutés (compensation) hors base re
   it("remise AMOUNT plafonnée à la base remisable (pas au total avec ajouts)", () => {
     const res = recomputeOrderTotals({
       items: [
-        { lineTotal: 10, isCompensation: false }, // très peu d'origine
-        { lineTotal: 100, isCompensation: true }, // gros ajout admin
+        { lineTotal: 10, isCompensation: false },
+        { lineTotal: 100, isCompensation: true },
       ],
       tvaRate: 0.2,
       carrierPrice: 0,
@@ -224,9 +223,8 @@ describe("recomputeOrderTotals — articles ajoutés (compensation) hors base re
       clientDiscountValue: 50,
     });
 
-    // La remise 50€ ne peut mordre que sur les 10€ d'origine → plafond à 10€
     expect(res.clientDiscountAmt).toBe(10);
-    expect(res.subtotalHT).toBe(100); // 0 (origine 100%) + 100 (ajout)
+    expect(res.subtotalHT).toBe(100);
   });
 
   it("rétrocompat : items sans isCompensation traités comme lignes d'origine", () => {
@@ -256,9 +254,8 @@ describe("recomputeOrderTotals — edge cases", () => {
     expect(res.preDiscountSubtotal).toBe(0);
     expect(res.clientDiscountAmt).toBe(0);
     expect(res.subtotalHT).toBe(0);
-    // Port 10 + TVA 20% dessus = 12
-    expect(res.tvaAmount).toBeCloseTo(2, 5);
-    expect(res.totalTTC).toBeCloseTo(12, 5);
+    expect(res.tvaAmount).toBe(2); // 10 × 20%
+    expect(res.totalTTC).toBe(12);
   });
 
   it("clientDiscountValue=0 → pas de remise", () => {
@@ -285,9 +282,8 @@ describe("recomputeOrderTotals — TVA sur frais de port (art. 267 CGI)", () => 
       clientDiscountValue: null,
     });
 
-    // (200 + 15) × 20% = 43
-    expect(res.tvaAmount).toBeCloseTo(43, 5);
-    expect(res.totalTTC).toBeCloseTo(258, 5); // 200 + 15 + 43
+    expect(res.tvaAmount).toBe(43);
+    expect(res.totalTTC).toBe(258);
   });
 
   it("hors UE (tvaRate=0) : pas de TVA sur port non plus", () => {
@@ -300,11 +296,10 @@ describe("recomputeOrderTotals — TVA sur frais de port (art. 267 CGI)", () => 
     });
 
     expect(res.tvaAmount).toBe(0);
-    expect(res.totalTTC).toBeCloseTo(215, 5); // 200 + 15
+    expect(res.totalTTC).toBe(215);
   });
 
   it("B2B intracom exonéré (tvaRate=0) : pas de TVA sur port non plus", () => {
-    // Cas d'un client belge validé exonéré par l'admin.
     const res = recomputeOrderTotals({
       items: [{ lineTotal: 500 }],
       tvaRate: 0,
@@ -314,6 +309,6 @@ describe("recomputeOrderTotals — TVA sur frais de port (art. 267 CGI)", () => 
     });
 
     expect(res.tvaAmount).toBe(0);
-    expect(res.totalTTC).toBeCloseTo(520, 5);
+    expect(res.totalTTC).toBe(520);
   });
 });

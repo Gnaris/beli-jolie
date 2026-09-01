@@ -12,6 +12,7 @@ import {
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getTotalUnits } from "@/lib/order-item-display";
+import { roundCent } from "@/lib/money";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -105,9 +106,6 @@ interface Props {
 
 const fmt = (n: number) => n.toFixed(2).replace(".", ",") + " €";
 
-function floorCents(n: number): number {
-  return Math.floor(n * 100) / 100;
-}
 
 function parseSizes(sizesJson: string | null): Array<{ name: string; quantity: number }> | null {
   if (!sizesJson) return null;
@@ -334,30 +332,62 @@ export default function OrderContent({
   ).size;
 
   // ── Résumé financier ──────────────────────────────────────────────
-  // subHTNet = HT NET (après remise commerciale + promotion + remises ligne).
-  // Le brut est le snapshot BDD (subtotalBrutHT), avec fallback pour commandes historiques.
+  // subHTNet = HT NET COURANT (après remise + promotion + remises ligne).
+  // Le brut « ancien » = snapshot subtotalBrutHT (figé au paiement).
+  // Le brut « nouveau » = somme actuelle des lineTotal (recomposée live pour
+  // refléter les articles rompus / ajoutés depuis).
   const subHTNet = previewSubtotalHT;
   const clientDiscount = totals.clientDiscountAmt;
-  const promoDisc = totals.promoDiscount; // code promo saisi
-  const promoAuto = totals.promoAutoDiscount; // promotions automatiques par item
-  const promoTotal = promoAuto + promoDisc; // promotion cumulée (auto + code)
+  const promoDisc = totals.promoDiscount;
+  const promoAuto = totals.promoAutoDiscount;
+  const promoTotal = promoAuto + promoDisc;
   const subHTGross = totals.subtotalBrutHT;
   const carrier = totals.carrierPrice;
 
-  // TVA détaillée (indicative). Peut différer d'1 cent du calcul global à cause du floor.
-  const tvaProducts = floorCents(subHTNet * totals.tvaRate);
-  const tvaShipping = floorCents(carrier * totals.tvaRate);
+  // Brut recomposé live à partir des items présents (nouveau brut).
+  // - Mode view : somme des lineTotal actuels.
+  // - Mode edit : intègre les changements en cours avant enregistrement.
+  const currentBrutHT = useMemo(() => {
+    let s = 0;
+    items.forEach((it) => {
+      if (mode === "edit") {
+        const q = it.isCompensation ? it.quantity : edits[it.id]?.qty ?? it.quantity;
+        const p = it.isCompensation ? it.unitPrice : edits[it.id]?.price ?? it.unitPrice;
+        s += q * p;
+      } else {
+        s += Number(it.lineTotal);
+      }
+    });
+    return roundCent(s);
+  }, [items, mode, edits]);
 
-  // Total TTC :
-  //  - En mode view → source de vérité BDD (Order.totalTTC), déjà à jour via recomputeOrderTotals.
-  //  - En mode édition → formule additive identique au checkout (lib/order-pricing.ts) pour éviter tout écart IEEE 754.
-  const totalTTC =
-    mode === "view"
-      ? totals.currentTotalTTC
-      : floorCents(subHTNet + carrier + (subHTNet + carrier) * totals.tvaRate);
+  // TVA détaillée (indicative). Peut différer d'1 cent du calcul global.
+  const tvaProducts = roundCent(subHTNet * totals.tvaRate);
+  const tvaShipping = roundCent(carrier * totals.tvaRate);
+
+  // Total TTC — règle Sage : TVA sur base taxable arrondie, puis TTC = addition simple.
+  // Recalcul systématique côté client pour rester aligné avec la facture Sage,
+  // même sur les commandes dont la BDD contient encore un totalTTC calculé
+  // avec l'ancien arrondi (floorMoney) — la prochaine modif re-persistera.
+  const currentTvaAmount = roundCent((subHTNet + carrier) * totals.tvaRate);
+  const totalTTC = roundCent(subHTNet + carrier + currentTvaAmount);
+
+  // ── Détection d'une modification post-paiement pour l'affichage ancien→nouveau ──
+  // Vaut true dès qu'il y a eu au moins une modif (rupture ou compensation),
+  // ou une différence entre brut payé et brut actuel.
+  const hasBeenModified =
+    modifications.length > 0 ||
+    items.some((i) => i.isCompensation) ||
+    Math.abs(subHTGross - currentBrutHT) > 0.005;
+
+  // Snapshots de l'état payé (reconstruits depuis les champs figés en BDD).
+  const paidBrutHT = subHTGross;
+  const paidNetHT = totals.paidSubtotalHT;
+  const paidClientDiscount = roundCent(paidBrutHT - paidNetHT);
+  const paidTvaAmount = roundCent((paidNetHT + carrier) * totals.tvaRate);
 
   const paidTTC = totals.paidTotalTTC;
-  const credit = Math.max(0, paidTTC - totalTTC);
+  const credit = Math.max(0, roundCent(paidTTC - totalTTC));
   const overshoot = Math.max(0, subHTNet - totals.paidSubtotalHT);
   const hasOvershoot = overshoot > 0.01;
 
@@ -577,7 +607,11 @@ export default function OrderContent({
         <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4 text-sm">
           {/* ═════ BLOC 1 : Promotion ═════ */}
           <div className="space-y-2">
-            <SummaryLine label="Sous-total produits HT" value={fmt(subHTGross)} />
+            <SummaryLine
+              label="Sous-total produits HT"
+              value={fmt(currentBrutHT)}
+              oldValue={hasBeenModified ? fmt(paidBrutHT) : undefined}
+            />
 
             {promoTotal > 0 && (
               <SummaryLine
@@ -615,7 +649,8 @@ export default function OrderContent({
             {promoTotal > 0 && (
               <SummaryLine
                 label="Total après promotion"
-                value={fmt(Math.floor((subHTGross - promoTotal) * 100) / 100)}
+                value={fmt(roundCent(currentBrutHT - promoTotal))}
+                oldValue={hasBeenModified ? fmt(roundCent(paidBrutHT - promoTotal)) : undefined}
                 bold
                 separatorTop
               />
@@ -628,11 +663,13 @@ export default function OrderContent({
               <SummaryLine
                 label="Remise commerciale client"
                 value={`− ${fmt(clientDiscount)}`}
+                oldValue={hasBeenModified ? `− ${fmt(paidClientDiscount)}` : undefined}
                 valueColor="text-emerald-700"
               />
               <SummaryLine
                 label="Total après remise commerciale"
                 value={fmt(subHTNet)}
+                oldValue={hasBeenModified ? fmt(paidNetHT) : undefined}
                 bold
                 separatorTop
               />
@@ -690,15 +727,27 @@ export default function OrderContent({
             <SummaryLine
               label={`TVA produits (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
               value={fmt(tvaProducts)}
+              oldValue={
+                hasBeenModified
+                  ? fmt(roundCent(paidNetHT * totals.tvaRate))
+                  : undefined
+              }
             />
             <SummaryLine
               label={`TVA frais de port (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
               value={fmt(tvaShipping)}
             />
 
-            <div className="flex justify-between items-center border-t-2 border-slate-900 pt-3 mt-2">
+            <div className="flex justify-between items-baseline gap-3 border-t-2 border-slate-900 pt-3 mt-2">
               <span className="font-heading text-base font-semibold text-slate-900">Prix total TTC</span>
-              <span className="font-heading text-2xl font-bold text-slate-900 tabular-nums">{fmt(totalTTC)}</span>
+              <span className="text-right inline-flex items-baseline gap-2 flex-wrap justify-end">
+                {hasBeenModified && Math.abs(paidTTC - totalTTC) > 0.005 && (
+                  <span className="text-slate-400 line-through decoration-slate-400/70 text-sm font-normal tabular-nums">
+                    {fmt(paidTTC)}
+                  </span>
+                )}
+                <span className="font-heading text-2xl font-bold text-slate-900 tabular-nums">{fmt(totalTTC)}</span>
+              </span>
             </div>
           </div>
 
@@ -894,7 +943,9 @@ function VariantRow({
 
   const priceTotalHT = qty * price;
   const totalHT = Math.max(0, priceTotalHT - discountAmt);
-  const totalTTC = floorCents(totalHT + totalHT * tvaRate);
+  // Sage : TVA arrondie séparément puis TTC = HT + TVA.
+  const lineTva = roundCent(totalHT * tvaRate);
+  const totalTTC = roundCent(totalHT + lineTva);
 
   const isRemoved = qty === 0;
   const perUnit = perUnitFactor(item);
@@ -1247,7 +1298,9 @@ function MobileItemCard({
   const discountAmt = Number(item.lineDiscountAmt ?? 0);
   const priceTotalHT = qty * price;
   const totalHT = Math.max(0, priceTotalHT - discountAmt);
-  const totalTTC = floorCents(totalHT + totalHT * tvaRate);
+  // Sage : TVA arrondie séparément puis TTC = HT + TVA.
+  const lineTva = roundCent(totalHT * tvaRate);
+  const totalTTC = roundCent(totalHT + lineTva);
   const perUnit = perUnitFactor(item);
   const qtyTotal = qty * perUnit;
   const qtyChanged = !!mod && mod.originalQuantity !== mod.newQuantity;
@@ -1507,24 +1560,35 @@ function SummaryTile({
 function SummaryLine({
   label,
   value,
+  oldValue,
   bold,
   separatorTop,
   valueColor,
 }: {
   label: string;
   value: string;
+  /** Ancien montant payé, affiché barré avant le nouveau si différent. */
+  oldValue?: string;
   bold?: boolean;
   separatorTop?: boolean;
   valueColor?: string;
 }) {
+  const showOld = oldValue && oldValue !== value;
   return (
     <div
-      className={`flex justify-between ${separatorTop ? "border-t border-slate-100 pt-2 mt-1" : ""} ${
+      className={`flex justify-between items-baseline gap-3 ${separatorTop ? "border-t border-slate-100 pt-2 mt-1" : ""} ${
         bold ? "text-slate-900 font-medium" : "text-slate-600"
       }`}
     >
       <span>{label}</span>
-      <span className={`tabular-nums ${valueColor ?? "text-slate-900"} font-medium`}>{value}</span>
+      <span className="tabular-nums text-right inline-flex items-baseline gap-2 flex-wrap justify-end">
+        {showOld && (
+          <span className="text-slate-400 line-through decoration-slate-400/70 text-xs font-normal">
+            {oldValue}
+          </span>
+        )}
+        <span className={`${valueColor ?? "text-slate-900"} font-medium`}>{value}</span>
+      </span>
     </div>
   );
 }

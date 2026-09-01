@@ -6,8 +6,13 @@
  * tous les trois le même calcul, qui oubliait de réappliquer la remise
  * commerciale du client (cf. AUDIT 2026-05-29 — point [4]).
  *
+ * 2026-09-01 : bascule vers l'arrondi Sage 50 (roundCent, cf. lib/money.ts).
+ * L'ancien `floorMoney` créait 1 centime d'écart chronique par facture.
+ *
  * Fonction pure pour pouvoir être testée sans Prisma.
  */
+
+import { roundCent } from "@/lib/money";
 
 export type ClientDiscountType = "PERCENT" | "AMOUNT" | null;
 
@@ -30,7 +35,7 @@ export interface OrderTotalsInput {
 }
 
 export interface OrderTotalsResult {
-  /** Somme des lineTotal AVANT remise commerciale. */
+  /** Somme des lineTotal AVANT remise commerciale (= subtotalBrutHT recalculé). */
   preDiscountSubtotal: number;
   /** Montant de la remise commerciale appliquée (>= 0, plafonné au sous-total). */
   clientDiscountAmt: number;
@@ -52,13 +57,11 @@ function toNumber(value: unknown): number {
 }
 
 /**
- * Arrondit un montant vers le bas (floor) au centime.
- * Choix comptable : notre logiciel de facturation externe arrondit aussi vers
- * le bas, donc on aligne totalTTC/tvaAmount pour éviter les écarts de 1 ct.
+ * @deprecated Utiliser `roundCent` de `lib/money.ts` (arrondi Sage au plus
+ * proche). Conservé provisoirement pour les callers historiques qui ne sont
+ * pas encore migrés. À supprimer une fois tous les imports basculés.
  */
-export function floorMoney(value: number): number {
-  return Math.floor(value * 100) / 100;
-}
+export const floorMoney = roundCent;
 
 export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult {
   // Sépare les lignes « d'origine » (soumises à la remise) des lignes ajoutées
@@ -70,36 +73,33 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
     if (item.isCompensation) compensationSubtotal += line;
     else discountableSubtotal += line;
   }
-  const preDiscountSubtotal = discountableSubtotal + compensationSubtotal;
+  const preDiscountSubtotal = roundCent(discountableSubtotal + compensationSubtotal);
 
-  // Calcul de la base remisée : pour PERCENT, on floor le sous-total après
-  // remise d'abord puis on dérive la remise, sinon un floor prématuré sur
-  // la remise (ex. 258.50 × 5 % = 12.925 arrondi à 12.92) laisse 1 ct de trop
-  // dans le sous-total et fait dériver le total TTC (294.69 au lieu de 294.68).
-  // La reconstruction PDF `subtotalHT + clientDiscountAmt` reste exacte car
-  // clientDiscountAmt = discountableSubtotal − discountedBase (différence).
+  // Remise commerciale = round(base × taux) puis Net = base − remise.
+  // Aligné sur Sage 50 (facture FA10005485) : Sage arrondit la remise au
+  // centime le plus proche, pas le sous-total après remise.
   let clientDiscountAmt = 0;
   let discountedBase = discountableSubtotal;
   const discountValue = toNumber(input.clientDiscountValue);
   if (input.clientDiscountType && discountValue > 0) {
     if (input.clientDiscountType === "PERCENT") {
-      discountedBase = Math.max(0, floorMoney(discountableSubtotal * (1 - discountValue / 100)));
-      clientDiscountAmt = Math.max(0, floorMoney(discountableSubtotal - discountedBase));
+      clientDiscountAmt = roundCent(discountableSubtotal * (discountValue / 100));
+      clientDiscountAmt = Math.min(clientDiscountAmt, discountableSubtotal);
+      discountedBase = roundCent(discountableSubtotal - clientDiscountAmt);
     } else {
-      // AMOUNT : remise fixe en euros, plafonnée à la base remisable.
       clientDiscountAmt = Math.min(discountableSubtotal, discountValue);
-      discountedBase = Math.max(0, discountableSubtotal - clientDiscountAmt);
+      discountedBase = roundCent(discountableSubtotal - clientDiscountAmt);
     }
   }
 
-  const subtotalHT = Math.max(0, floorMoney(discountedBase + compensationSubtotal));
+  const subtotalHT = Math.max(0, roundCent(discountedBase + compensationSubtotal));
   const carrierPriceNum = toNumber(input.carrierPrice);
-  // TVA appliquée aussi sur les frais de port (art. 267 CGI :
-  // le port suit le même régime TVA que les biens vendus).
-  // Total et TVA arrondis vers le bas au centime pour rester alignés avec
-  // le logiciel de facturation externe (voir floorMoney).
-  const tvaAmount = floorMoney((subtotalHT + carrierPriceNum) * input.tvaRate);
-  const totalTTC = floorMoney(subtotalHT + carrierPriceNum + (subtotalHT + carrierPriceNum) * input.tvaRate);
+  // TVA sur (subtotalHT + livraison) — art. 267 CGI, le port suit le régime
+  // TVA des biens. Un seul arrondi : la TVA est calculée sur la base taxable
+  // arrondie, puis le TTC est l'addition simple (Net HT + livraison + TVA)
+  // sans re-arrondi. Reproduit exactement le calcul de Sage 50.
+  const tvaAmount = roundCent((subtotalHT + carrierPriceNum) * input.tvaRate);
+  const totalTTC = roundCent(subtotalHT + carrierPriceNum + tvaAmount);
 
   return {
     preDiscountSubtotal,

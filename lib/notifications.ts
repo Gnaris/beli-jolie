@@ -14,7 +14,7 @@ import {
 } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
-import { floorMoney } from "@/lib/order-totals";
+import { roundCent } from "@/lib/money";
 import { decryptIfSensitive } from "@/lib/encryption";
 import { derivePublicContactEmail } from "@/lib/public-contact-email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
@@ -313,9 +313,10 @@ export async function notifyOrderStatusChange(
               const subHT = Number(order.subtotalHT);
               const carrierHT = Number(order.carrierPrice);
               const rate = order.tvaRate;
-              const tvaProducts = floorMoney(subHT * rate);
-              const tvaShipping = floorMoney(carrierHT * rate);
-              const total = floorMoney((subHT + carrierHT) * (1 + rate));
+              const tvaProducts = roundCent(subHT * rate);
+              const tvaShipping = roundCent(carrierHT * rate);
+              const tvaTotal = roundCent((subHT + carrierHT) * rate);
+              const total = roundCent(subHT + carrierHT + tvaTotal);
               const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
               return `<table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
               <tr>
@@ -590,9 +591,10 @@ export async function notifyAdminNewOrder(
     }
 
     const baseUrl = await getCurrentTenantBaseUrl();
-    const totalTTC = floorMoney(
-      (Number(order.subtotalHT) + Number(order.carrierPrice)) * (1 + order.tvaRate),
-    );
+    const subHT = Number(order.subtotalHT);
+    const carrierHT = Number(order.carrierPrice);
+    const tva = roundCent((subHT + carrierHT) * order.tvaRate);
+    const totalTTC = roundCent(subHT + carrierHT + tva);
     const clientLabel = order.clientCompany?.trim() || order.clientEmail;
 
     const html = `

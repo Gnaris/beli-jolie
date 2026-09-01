@@ -14,6 +14,7 @@
 
 import "server-only";
 import { resolveVatRate } from "@/lib/vat";
+import { roundCent } from "@/lib/money";
 import {
   resolveBestItemDiscount,
   resolveBestShippingDiscount,
@@ -101,9 +102,10 @@ export interface OrderPricingResult {
   promoAutoDiscount: number;
 }
 
-function floorMoney(n: number): number {
-  return Math.floor(n * 100) / 100;
-}
+// Alias historique — les callers de ce fichier utilisent encore `floorMoney`.
+// Depuis 2026-09-01 c'est en réalité un arrondi au centime le plus proche
+// (règle Sage), plus un arrondi vers le bas. Voir lib/money.ts.
+const floorMoney = roundCent;
 
 /**
  * Trace cascade pour affichage sur le panier — indépendante du transporteur.
@@ -220,23 +222,20 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     });
   }
 
-  // ── 3. Remise commerciale client — appliquée UNE FOIS sur le sous-total ──
-  // Pour PERCENT, on calcule le sous-total après remise d'abord (floor au
-  // centime) puis on déduit le montant de remise à partir de la différence :
-  // évite qu'un floor prématuré sur la remise (ex. 12.925 → 12.92) laisse
-  // 1 ct de trop dans le sous-total et fasse dériver le total TTC.
-  // Cas réel : 258.50 − 5 % → sous-total 245.57 (et non 245.58), total ×1.20
-  // = 294.68 (et non 294.69). Facturation externe attend 245.57.
+  // ── 3. Remise commerciale client — arrondi Sage ─────────────────────
+  // Sage 50 (facture FA10005485) : Remise = round(base × taux), puis
+  // Net HT = base − Remise (pas de re-arrondi). Sur 258.50 −5 % : remise
+  // 12.93, net 245.57 → TTC 294.68 (idem Sage).
   let clientDiscountAmt = 0;
-  let subtotalAfterDiscount = floorMoney(subtotalHT);
+  let subtotalAfterDiscount = roundCent(subtotalHT);
   if (clientDiscountApplies && user.discountType && user.discountValue != null) {
     if (user.discountType === "PERCENT") {
-      subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT * (1 - user.discountValue / 100)));
-      clientDiscountAmt = Math.max(0, floorMoney(subtotalHT - subtotalAfterDiscount));
+      clientDiscountAmt = Math.max(0, roundCent(subtotalHT * (user.discountValue / 100)));
+      clientDiscountAmt = Math.min(clientDiscountAmt, subtotalHT);
     } else {
       clientDiscountAmt = Math.min(subtotalHT, user.discountValue);
-      subtotalAfterDiscount = Math.max(0, floorMoney(subtotalHT - clientDiscountAmt));
     }
+    subtotalAfterDiscount = Math.max(0, roundCent(subtotalHT - clientDiscountAmt));
   }
 
   // ── 4. Cascade trace — affichage récap (promos items + remise client) ──
@@ -441,21 +440,21 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     }
   }
 
-  // ── 6. TVA — détaillée panier vs livraison ─────────────────────────
+  // ── 6. TVA — arrondi Sage (facture FA10005485) ─────────────────────
+  // TVA = roundCent((base + port) × taux) — un seul arrondi sur la base
+  // taxable arrondie. TTC = simple addition, jamais re-arrondi.
+  // Les breakdowns tvaOnCart/tvaOnShipping restent indicatifs (peuvent
+  // différer d'1 ct de la somme selon les arrondis).
   const tvaRate = resolveVatRate({
     countryCode: input.addressCountry,
     isPickup,
     vatExempt: user.vatExempt,
   });
-  const tvaOnCart = floorMoney(subtotalAfterDiscount * tvaRate);
-  const tvaOnShipping = floorMoney(shipping.finalPrice * tvaRate);
-  const tvaAmount = floorMoney((subtotalAfterDiscount + shipping.finalPrice) * tvaRate);
-  const totalTTC = floorMoney(
-    subtotalAfterDiscount + shipping.finalPrice + (subtotalAfterDiscount + shipping.finalPrice) * tvaRate,
-  );
-  const totalTTCCents = Math.floor(
-    (subtotalAfterDiscount + shipping.finalPrice + (subtotalAfterDiscount + shipping.finalPrice) * tvaRate) * 100,
-  );
+  const tvaOnCart = roundCent(subtotalAfterDiscount * tvaRate);
+  const tvaOnShipping = roundCent(shipping.finalPrice * tvaRate);
+  const tvaAmount = roundCent((subtotalAfterDiscount + shipping.finalPrice) * tvaRate);
+  const totalTTC = roundCent(subtotalAfterDiscount + shipping.finalPrice + tvaAmount);
+  const totalTTCCents = Math.round(totalTTC * 100);
 
   // ── 7. Gain apporté par le code promo ──────────────────────────────
   let promoCodeSaved = 0;
