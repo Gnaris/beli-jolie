@@ -3703,15 +3703,10 @@ export default function ProductForm({
                   hintLabel = "Fiche produit incomplète";
                 }
 
-                // En mode brouillon (create + productId existant), "Finaliser le produit"
-                // fait doublon avec "Enregistrer en brouillon" — on grise le bouton
-                // pour éviter la confusion, la sauvegarde passe par le bouton secondaire.
-                const isDraftFinalize = mode === "create" && !!productId;
                 return (
                   <button
                     type="submit"
-                    disabled={isPending || isSyncLocked || isUploading || isDraftFinalize}
-                    title={isDraftFinalize ? "Utilisez « Enregistrer en brouillon » — ce bouton est désactivé dans ce mode." : undefined}
+                    disabled={isPending || isSyncLocked || isUploading}
                     className="btn-primary h-14 min-w-[260px] px-6 py-0 text-base disabled:opacity-60 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0.5 leading-tight"
                   >
                     <span>{mainLabel}</span>
