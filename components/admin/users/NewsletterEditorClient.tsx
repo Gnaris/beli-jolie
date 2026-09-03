@@ -13,7 +13,7 @@
  * Upload d'image depuis l'ordinateur (bannière, image+texte, colonnes).
  */
 
-import { useState, useTransition, useCallback, useRef, useEffect, createContext, useContext } from "react";
+import React, { useState, useTransition, useCallback, useMemo, useRef, useEffect, createContext, useContext } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
@@ -22,14 +22,36 @@ import { useDragReorder, dropIndicatorClass } from "@/components/admin/shared/us
 import {
   updateNewsletterTemplate,
   searchProductsForNewsletter,
+  listPreviewClients,
   type NewsletterTemplateFull,
+  type PreviewClientLite,
 } from "@/app/actions/admin/newsletter-templates";
 import {
   defaultDataFor,
+  collectBlocksText,
   type NewsletterBlock,
   type NewsletterBlockType,
   type ColumnData,
 } from "@/lib/newsletter-blocks";
+import { resolveHeaderBackground, type MailBranding } from "@/lib/mail-branding-types";
+import {
+  SCENARIO_LABELS,
+  allowedDynamicBlocksFor,
+  missingRequiredBlocks,
+  requiredBlocksFor,
+  type ScenarioKey,
+  type RequiredBlockSpec,
+} from "@/lib/mail-scenario-defaults";
+import { BackgroundInput } from "@/components/admin/shared/GradientBuilder";
+import {
+  interpolate,
+  buildPreviewContext,
+  variablesForScenario,
+  missingRequiredMarketingVariables,
+  VARIABLE_GROUP_LABELS,
+  type MailVariable,
+  type VariableGroup,
+} from "@/lib/mail-merge-variables";
 
 /**
  * Une image « locale » : blob URL affiché instantanément dans l'aperçu, avec
@@ -38,6 +60,24 @@ import {
  */
 const RegisterFileContext = createContext<(blobUrl: string, file: File) => void>(() => {});
 function useRegisterFile() { return useContext(RegisterFileContext); }
+
+/**
+ * Insertion de variable ({firstName}, etc.) — le bouton « Variables » est
+ * GLOBAL, à un seul endroit (bandeau haut). Chaque input/textarea des blocs et
+ * du sujet s'inscrit via `useActiveInputRegistrar()` au moment du focus. Le
+ * bouton lit l'input actif et insère la variable au curseur.
+ */
+interface ActiveInputTarget {
+  element: HTMLInputElement | HTMLTextAreaElement;
+  getValue: () => string;
+  setValue: (v: string) => void;
+}
+const ActiveInputContext = createContext<{
+  target: ActiveInputTarget | null;
+  register: (t: ActiveInputTarget) => void;
+}>({ target: null, register: () => {} });
+function useActiveInputRegistrar() { return useContext(ActiveInputContext).register; }
+function useActiveInput() { return useContext(ActiveInputContext).target; }
 
 /** Extrait toutes les URLs blob: présentes dans les blocs (image bannière / imgtext / colonnes). */
 function collectBlobUrls(blocks: NewsletterBlock[]): string[] {
@@ -82,6 +122,12 @@ function replaceBlobUrls(blocks: NewsletterBlock[], map: Map<string, string>): N
 
 interface Props {
   template: NewsletterTemplateFull;
+  /** Habillage partagé (SiteConfig `mail_header_config` + `mail_footer_config`).
+   *  Rendu en aperçu locked en haut/bas de la zone blocs. */
+  branding: MailBranding;
+  shopName: string;
+  baseUrl: string;
+  legalLine: string;
 }
 
 interface BlockMeta {
@@ -102,6 +148,10 @@ const BLOCKS_META: BlockMeta[] = [
   { key: "list", label: "Liste emojis", desc: "Puces stylisées", icon: "M5 6h14M5 12h14M5 18h14" },
   { key: "divider", label: "Séparateur", desc: "Ligne décorative", icon: "M4 12h16" },
   { key: "empty", label: "Bloc vide", desc: "Espace pour aérer", icon: "M4 4h16v16H4z" },
+  // ─── Blocs dynamiques (mails automatiques uniquement) ───
+  { key: "cartItems", label: "Panier du client", desc: "Liste réelle des articles du panier", icon: "M6 6h15l-1.5 9h-12z M6 6L5 3H2 M9 20a1 1 0 100-2 1 1 0 000 2zm9 0a1 1 0 100-2 1 1 0 000 2z" },
+  { key: "favoritesGrid", label: "Favoris / Produits sélectionnés", desc: "Grille des produits à annoncer", icon: "M12 21s-7-4.5-9-9c-1-4 4-8 9-3 5-5 10-1 9 3-2 4.5-9 9-9 9z" },
+  { key: "daysInactive", label: "Message jours d'inactivité", desc: "Texte avec le nombre de jours", icon: "M12 6v6l4 2 M12 22a10 10 0 100-20 10 10 0 000 20z" },
 ];
 
 interface ProductLite {
@@ -112,12 +162,96 @@ interface ProductLite {
   priceCents: number | null;
 }
 
-export default function NewsletterEditorClient({ template }: Props) {
+export default function NewsletterEditorClient({ template, branding, shopName, baseUrl, legalLine }: Props) {
   const toast = useToast();
   const router = useRouter();
+  const scenarioKey: ScenarioKey | null = template.scenarioKey;
   const [name, setName] = useState(template.name);
   const [subject, setSubject] = useState(template.subject);
   const [blocks, setBlocks] = useState<NewsletterBlock[]>(template.blocks);
+  const subjectRef = useRef<HTMLInputElement | null>(null);
+
+  // Cible active pour insertion de variable : mise à jour au focus de n'importe
+  // quel input/textarea du sujet ou des blocs. Le bouton « Variables » global
+  // dans le header lit cette cible.
+  const [activeInput, setActiveInput] = useState<ActiveInputTarget | null>(null);
+  const registerActiveInput = useCallback((t: ActiveInputTarget) => setActiveInput(t), []);
+  const activeInputContextValue = useMemo(
+    () => ({ target: activeInput, register: registerActiveInput }),
+    [activeInput, registerActiveInput],
+  );
+
+  // Aperçu avec un vrai client (dropdown au-dessus de la zone aperçu).
+  // Fallback : valeurs fictives (buildPreviewContext) tant que la liste n'est
+  // pas encore chargée OU si aucun client APPROVED n'existe encore.
+  const [previewClients, setPreviewClients] = useState<PreviewClientLite[]>([]);
+  const [previewClientId, setPreviewClientId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listPreviewClients().then((rows) => {
+      if (cancelled) return;
+      setPreviewClients(rows);
+      if (rows.length > 0) {
+        // Défaut : un client au hasard, permet à la cliente de voir
+        // instantanément ce que verra un vrai destinataire.
+        const random = rows[Math.floor(Math.random() * rows.length)];
+        setPreviewClientId(random.id);
+      }
+    }).catch(() => { /* silencieux : l'aperçu retombe sur valeurs fictives */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Context d'aperçu : soit vrai client sélectionné, soit valeurs fictives.
+  // Rendu réel côté serveur au moment de l'envoi (chaque destinataire son propre context).
+  const previewContext = useMemo(() => {
+    const fake = buildPreviewContext(scenarioKey);
+    if (!previewClientId) return fake;
+    const c = previewClients.find((u) => u.id === previewClientId);
+    if (!c) return fake;
+    return {
+      ...fake, // conserve les tokens boutique + dynamiques (valeurs fictives)
+      firstName: c.firstName,
+      lastName: c.lastName,
+      fullName: `${c.firstName} ${c.lastName}`.trim(),
+      email: c.email,
+      company: c.company,
+      phone: c.phone,
+      siret: c.siret ?? "",
+      tvaIntra: c.vatNumber ?? "",
+      address: c.addressStreet ?? "",
+      postalCode: c.addressZip ?? "",
+      city: c.addressCity ?? "",
+      country: c.addressCountry ?? "",
+    };
+  }, [scenarioKey, previewClientId, previewClients]);
+
+  // Blocs dynamiques (cartItems / favoritesGrid / daysInactive) : uniquement
+  // disponibles pour les modèles liés au scénario compatible. Les autres
+  // sont cachés de la palette pour éviter la confusion.
+  const allowedDynamic = useMemo(() => allowedDynamicBlocksFor(scenarioKey), [scenarioKey]);
+
+  // Blocs obligatoires : le bouton « Enregistrer » est verrouillé tant que
+  // le modèle n'en contient pas au moins un de chaque type requis.
+  const requiredBlocks = useMemo(() => requiredBlocksFor(scenarioKey), [scenarioKey]);
+  const missingBlocks = useMemo<RequiredBlockSpec[]>(
+    () => missingRequiredBlocks(scenarioKey, blocks.map((b) => b.type)),
+    [scenarioKey, blocks],
+  );
+  // Variables obligatoires manquantes (mentions légales RGPD/LCEN) —
+  // recalcul à chaque changement du sujet ou d'un bloc.
+  const missingRequired = useMemo(() => {
+    const hay = `${subject}\n${collectBlocksText(blocks)}`;
+    return missingRequiredMarketingVariables(hay);
+  }, [subject, blocks]);
+  const canSave = missingBlocks.length === 0 && missingRequired.length === 0;
+  const visibleBlocksMeta = useMemo(
+    () =>
+      BLOCKS_META.filter((b) => {
+        const isDynamic = b.key === "cartItems" || b.key === "favoritesGrid" || b.key === "daysInactive";
+        return isDynamic ? allowedDynamic.has(b.key) : true;
+      }),
+    [allowedDynamic],
+  );
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [saving, startSaving] = useTransition();
   const [productsCache, setProductsCache] = useState<Map<string, ProductLite>>(new Map());
@@ -352,6 +486,7 @@ export default function NewsletterEditorClient({ template }: Props) {
 
   return (
     <RegisterFileContext.Provider value={registerFile}>
+    <ActiveInputContext.Provider value={activeInputContextValue}>
     <div className="h-[calc(100vh-80px)] flex flex-col">
       {leaveModal && (
         <LeaveConfirmModal
@@ -361,6 +496,79 @@ export default function NewsletterEditorClient({ template }: Props) {
           saving={saving}
         />
       )}
+      {scenarioKey && (
+        <div className={`border-b px-6 py-2.5 flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 ${
+          canSave
+            ? "bg-gradient-to-r from-violet-50 to-bg-primary border-violet-200"
+            : "bg-gradient-to-r from-red-50 to-bg-primary border-red-200"
+        }`}>
+          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider shrink-0 ${
+            canSave ? "bg-violet-100 text-violet-800" : "bg-red-100 text-red-800"
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${canSave ? "bg-violet-500" : "bg-red-500"}`} />
+            Mail automatique — {SCENARIO_LABELS[scenarioKey]}
+          </span>
+          <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
+            <span className="text-text-muted">Blocs obligatoires :</span>
+            {requiredBlocks.map((r) => {
+              const present = !missingBlocks.find((m) => m.type === r.type);
+              return (
+                <span
+                  key={r.type}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-body font-semibold ${
+                    present
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-red-100 text-red-800 border border-red-300"
+                  }`}
+                  title={present ? "Présent" : "Manquant — ajoutez-le depuis la palette"}
+                >
+                  {present ? "✓" : "✗"} {r.label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {/* Bandeau mentions légales — TOUJOURS visible (obligation RGPD/LCEN
+          sur tous les mails marketing). Chip vert si présent, rouge si absent. */}
+      <div className={`border-b px-6 py-2.5 flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 ${
+        missingRequired.length === 0
+          ? "bg-gradient-to-r from-emerald-50 to-bg-primary border-emerald-200"
+          : "bg-gradient-to-r from-red-50 to-bg-primary border-red-200"
+      }`}>
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider shrink-0 ${
+          missingRequired.length === 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+        }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${missingRequired.length === 0 ? "bg-emerald-500" : "bg-red-500"}`} />
+          Mentions légales
+        </span>
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary flex-1 min-w-0">
+          <span className="text-text-muted shrink-0">Obligatoires par la loi :</span>
+          {[
+            { token: "shopName", label: "Nom boutique" },
+            { token: "shopAddress", label: "Adresse" },
+            { token: "unsubscribeLink", label: "Désinscription" },
+            { token: "privacyLink", label: "Politique de confidentialité" },
+          ].map((v) => {
+            const present = !missingRequired.find((m) => m.token === v.token);
+            return (
+              <span
+                key={v.token}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-body font-semibold ${
+                  present
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-red-100 text-red-800 border border-red-300"
+                }`}
+                title={present
+                  ? `Variable {${v.token}} présente dans le modèle`
+                  : `Variable {${v.token}} manquante — insérez-la via le bouton Variables`}
+              >
+                {present ? "✓" : "✗"} {v.label}
+              </span>
+            );
+          })}
+        </div>
+      </div>
       <div className="bg-bg-primary border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4 min-w-0 flex-1">
           <button
@@ -379,6 +587,7 @@ export default function NewsletterEditorClient({ template }: Props) {
           />
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          <GlobalVariableButton scenario={scenarioKey} />
           {dirty && (
             <span className="text-[11px] font-body text-amber-700 font-medium inline-flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -388,11 +597,23 @@ export default function NewsletterEditorClient({ template }: Props) {
           <button
             type="button"
             onClick={handleSaveClick}
-            disabled={saving || !dirty}
+            disabled={saving || !dirty || !canSave}
+            title={
+              !canSave
+                ? [
+                    missingBlocks.length > 0 ? `Blocs manquants : ${missingBlocks.map((b) => b.label).join(" · ")}` : "",
+                    missingRequired.length > 0 ? `Variables manquantes : ${missingRequired.map((v) => `{${v.token}}`).join(" · ")}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("  |  ")
+                : undefined
+            }
             className={`px-4 py-2 rounded-lg text-xs font-body font-bold shadow-sm transition-all inline-flex items-center gap-1.5 ${
-              !dirty
-                ? "bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default"
-                : "bg-gradient-to-br from-emerald-600 to-emerald-700 text-white hover:opacity-90 disabled:opacity-60"
+              !canSave
+                ? "bg-red-100 text-red-700 border border-red-300 cursor-not-allowed"
+                : !dirty
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default"
+                  : "bg-gradient-to-br from-emerald-600 to-emerald-700 text-white hover:opacity-90 disabled:opacity-60"
             }`}
           >
             {saving ? (
@@ -403,6 +624,8 @@ export default function NewsletterEditorClient({ template }: Props) {
                 </svg>
                 Enregistrement…
               </>
+            ) : !canSave ? (
+              <>🔒 Bloc requis manquant</>
             ) : !dirty ? (
               <>✓ Enregistré</>
             ) : (
@@ -418,77 +641,118 @@ export default function NewsletterEditorClient({ template }: Props) {
           <div className="p-4 border-b border-border">
             <div className="text-[10px] uppercase tracking-[0.18em] font-body font-bold text-text-muted">Sujet du mail</div>
             <input
+              ref={subjectRef}
               type="text"
               value={subject}
               onChange={(e) => { setSubject(e.target.value); setDirty(true); }}
+              onFocus={(e) => registerActiveInput({
+                element: e.currentTarget,
+                getValue: () => subject,
+                setValue: (v) => { setSubject(v); setDirty(true); },
+              })}
               placeholder="Ce que verra le client dans sa boîte…"
               className="mt-2 w-full px-3 py-2 rounded-lg border border-border bg-bg-primary text-[13px] focus:outline-none focus:border-slate-500"
             />
           </div>
-          <div className="p-4 border-b border-border">
-            <div className="text-[10px] uppercase tracking-[0.18em] font-body font-bold text-text-muted">Blocs disponibles</div>
-            <div className="text-[11px] text-text-muted mt-1">Glisse à la position voulue ou utilise le bouton « + Ajouter »</div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {BLOCKS_META.map((b) => {
-              const isActive = selected?.type === b.key;
-              return (
-                <div
-                  key={b.key}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("application/x-newsletter-type", b.key);
-                    e.dataTransfer.effectAllowed = "copy";
-                  }}
-                  onDragEnd={() => setPaletteHover(null)}
-                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-grab active:cursor-grabbing ${
-                    isActive
-                      ? "border-slate-900 bg-slate-900 text-white shadow-md ring-2 ring-slate-900/20"
-                      : "border-border bg-bg-primary hover:border-emerald-400 hover:bg-emerald-50/40"
-                  }`}
-                  title={isActive ? "Type du bloc actuellement sélectionné dans l'aperçu" : "Glisse à la position voulue, ou clique « + Ajouter » pour poser en bas"}
-                >
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                    isActive ? "bg-white/15 text-white" : "bg-slate-100 text-slate-700"
-                  }`}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d={b.icon} />
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {/* Section 1 : Blocs obligatoires (uniquement si scénario + au moins un requis) */}
+            {requiredBlocks.length > 0 && (
+              <details open className="group rounded-xl border border-red-200 bg-red-50/40 overflow-hidden">
+                <summary className="cursor-pointer select-none px-3 py-2 flex items-center justify-between gap-2 bg-red-100/60 hover:bg-red-100 transition">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-red-700 transition-transform group-open:rotate-90">
+                      <path d="m9 18 6-6-6-6" />
                     </svg>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className={`font-heading font-semibold text-[12.5px] ${isActive ? "text-white" : "text-text-primary"}`}>{b.label}</div>
-                    <div className={`text-[10.5px] truncate ${isActive ? "text-white/70" : "text-text-muted"}`}>{b.desc}</div>
-                  </div>
-                  {isActive ? (
-                    <span className="shrink-0 text-[10px] uppercase tracking-wider font-bold bg-white/15 text-white px-1.5 py-0.5 rounded">
-                      Sélec.
+                    <span className="text-[10px] uppercase tracking-[0.18em] font-body font-bold text-red-800">
+                      Blocs obligatoires
                     </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); addBlock(b.key); }}
-                      draggable={false}
-                      className="shrink-0 h-7 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-body font-semibold flex items-center gap-1 shadow-sm"
-                      title={`Ajouter un bloc « ${b.label} » en bas`}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M12 5v14M5 12h14" />
-                      </svg>
-                      Ajouter
-                    </button>
-                  )}
+                    <span className="text-[10px] font-body font-bold text-red-700 bg-white/60 border border-red-200 rounded-full px-1.5">
+                      {requiredBlocks.length}
+                    </span>
+                  </div>
+                </summary>
+                <div className="p-2 space-y-2">
+                  {visibleBlocksMeta
+                    .filter((b) => requiredBlocks.some((r) => r.type === b.key))
+                    .map((b) => {
+                      const alreadyPresent = blocks.some((existing) => existing.type === b.key);
+                      return renderPaletteBlock(
+                        b,
+                        selected?.type === b.key,
+                        addBlock,
+                        () => setPaletteHover(null),
+                        alreadyPresent, // désactive drag + bouton Ajouter
+                      );
+                    })}
                 </div>
-              );
-            })}
+              </details>
+            )}
+
+            {/* Section 2 : Blocs disponibles (tous les autres) */}
+            <details open className="group rounded-xl border border-border bg-bg-primary overflow-hidden">
+              <summary className="cursor-pointer select-none px-3 py-2 flex items-center justify-between gap-2 bg-bg-secondary/50 hover:bg-bg-secondary transition">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-text-secondary transition-transform group-open:rotate-90">
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                  <span className="text-[10px] uppercase tracking-[0.18em] font-body font-bold text-text-secondary">
+                    Blocs disponibles
+                  </span>
+                </div>
+                <span className="text-[10px] text-text-muted">Glissez ou +&nbsp;Ajouter</span>
+              </summary>
+              <div className="p-2 space-y-2">
+                {visibleBlocksMeta
+                  .filter((b) => !requiredBlocks.some((r) => r.type === b.key))
+                  .map((b) => renderPaletteBlock(b, selected?.type === b.key, addBlock, () => setPaletteHover(null)))}
+              </div>
+            </details>
           </div>
         </aside>
 
         <main className="col-span-6 bg-bg-primary rounded-2xl border border-border overflow-hidden flex flex-col">
-          <div className="px-4 py-3 border-b border-border bg-slate-50 text-[12px] text-text-muted">
-            Aperçu en direct — largeur 600 px (standard mail). Glisse un bloc pour le réorganiser.
+          <div className="px-4 py-2.5 border-b border-border bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <span className="text-[12px] text-text-muted">
+              Aperçu — largeur 600 px. Glissez un bloc pour le réorganiser.
+            </span>
+            {previewClients.length > 0 && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] text-text-muted font-body font-semibold">Aperçu pour :</span>
+                <select
+                  value={previewClientId ?? ""}
+                  onChange={(e) => setPreviewClientId(e.target.value || null)}
+                  className="text-[12px] font-body px-2 py-1 rounded-md border border-border bg-bg-primary max-w-[220px] truncate focus:outline-none focus:border-slate-500"
+                  title="Choisissez un client pour voir le mail rendu avec ses vraies infos"
+                >
+                  {previewClients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.company || `${c.firstName} ${c.lastName}`.trim() || c.email}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const r = previewClients[Math.floor(Math.random() * previewClients.length)];
+                    setPreviewClientId(r.id);
+                  }}
+                  className="text-[11px] font-body font-semibold px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                  title="Choisir un autre client au hasard"
+                >
+                  🎲
+                </button>
+              </div>
+            )}
           </div>
-          <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
+          <div className="flex-1 overflow-y-auto py-6 pl-6 pr-16 bg-slate-100">
+            {/* overflow-visible : permet aux boutons drag/delete de BlockCanvas
+                d'être positionnés à l'extérieur du bloc (right négatif). Les
+                coins arrondis du header/footer sont gérés par leur propre
+                overflow-hidden pour rester nets. */}
             <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm">
+              {/* Header verrouillé — miroir de wrapMail::renderMailHeader */}
+              <LockedHeaderPreview branding={branding} shopName={shopName} baseUrl={baseUrl} subject={interpolate(subject, previewContext)} />
+
               {blocks.length === 0 ? (
                 <div
                   className="p-16 text-center text-text-muted text-sm border-2 border-dashed border-slate-300 rounded-lg m-4"
@@ -514,6 +778,7 @@ export default function NewsletterEditorClient({ template }: Props) {
                       onPaletteDragOver={(e) => handlePaletteDragOver(e, i)}
                       onPaletteDrop={(e) => handlePaletteDrop(e, i)}
                       onPaletteDragLeave={() => setPaletteHover(null)}
+                      previewContext={previewContext}
                     />
                   ))}
                   {/* Zone de drop finale visible pendant un drag depuis palette */}
@@ -525,6 +790,9 @@ export default function NewsletterEditorClient({ template }: Props) {
                   />
                 </>
               )}
+
+              {/* Footer verrouillé — miroir de wrapMail::renderMailFooter */}
+              <LockedFooterPreview branding={branding} shopName={shopName} legalLine={legalLine} />
             </div>
           </div>
         </main>
@@ -539,12 +807,13 @@ export default function NewsletterEditorClient({ template }: Props) {
                 Sélectionne un bloc dans l&apos;aperçu pour voir ses réglages.
               </div>
             ) : (
-              <BlockSettings block={selected} onUpdate={(k, v) => updateBlockData(selected.id, k, v)} />
+              <BlockSettings block={selected} onUpdate={(k, v) => updateBlockData(selected.id, k, v)} scenarioKey={scenarioKey} />
             )}
           </div>
         </aside>
       </div>
     </div>
+    </ActiveInputContext.Provider>
     </RegisterFileContext.Provider>
   );
 }
@@ -638,6 +907,7 @@ function BlockCanvas({
   onPaletteDragOver,
   onPaletteDrop,
   onPaletteDragLeave,
+  previewContext,
 }: {
   block: NewsletterBlock;
   isSelected: boolean;
@@ -650,6 +920,7 @@ function BlockCanvas({
   onPaletteDragOver: (e: React.DragEvent) => void;
   onPaletteDrop: (e: React.DragEvent) => void;
   onPaletteDragLeave: () => void;
+  previewContext: Record<string, string | undefined>;
 }) {
   // On combine les handlers : palette (nouveau bloc) prioritaire sur reorder (bloc existant).
   const combinedOnDragOver = (e: React.DragEvent) => {
@@ -685,32 +956,32 @@ function BlockCanvas({
         onSelect();
       }}
     >
-      {/* Poignée grip visible en haut à gauche : cliquer + glisser pour déplacer */}
-      <div className={`absolute -top-3 -left-3 z-10 ${isSelected ? "" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
+      {/* Boutons drag + supprimer — POSITIONNÉS À L'EXTÉRIEUR DROIT du bloc,
+          centrés verticalement. Le parent (`.max-w-[600px]`) n'a plus
+          d'overflow-hidden ; la zone d'aperçu réserve pr-16 pour l'espace. */}
+      <div className={`absolute -right-11 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-1.5 ${isSelected ? "" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
         <div
-          className="h-7 w-7 rounded-md bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center shadow-md cursor-grab active:cursor-grabbing"
-          title="Glisse pour réorganiser"
+          className="h-9 w-9 rounded-lg bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center shadow-md cursor-grab active:cursor-grabbing"
+          title="Glissez pour réorganiser ce bloc"
         >
-          <svg width="12" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="9" cy="6" r="1.6" />
-            <circle cx="9" cy="12" r="1.6" />
-            <circle cx="9" cy="18" r="1.6" />
-            <circle cx="15" cy="6" r="1.6" />
-            <circle cx="15" cy="12" r="1.6" />
-            <circle cx="15" cy="18" r="1.6" />
+          <svg width="14" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="9" cy="6" r="1.8" />
+            <circle cx="9" cy="12" r="1.8" />
+            <circle cx="9" cy="18" r="1.8" />
+            <circle cx="15" cy="6" r="1.8" />
+            <circle cx="15" cy="12" r="1.8" />
+            <circle cx="15" cy="18" r="1.8" />
           </svg>
         </div>
-      </div>
-      <div className={`absolute -top-3 right-2 z-10 flex gap-1 ${isSelected ? "" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="h-7 w-7 rounded-md bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-md"
+          className="h-9 w-9 rounded-lg bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-md"
           title="Supprimer ce bloc"
           aria-label="Supprimer"
           draggable={false}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
             <path d="M3 6h18" />
             <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
             <path d="M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" />
@@ -718,12 +989,34 @@ function BlockCanvas({
           </svg>
         </button>
       </div>
-      <BlockRender block={block} productsCache={productsCache} />
+      <BlockRender block={block} productsCache={productsCache} previewContext={previewContext} />
     </div>
   );
 }
 
-function BlockRender({ block, productsCache }: { block: NewsletterBlock; productsCache: Map<string, ProductLite> }) {
+function BlockRender({
+  block,
+  productsCache,
+  previewContext,
+}: {
+  block: NewsletterBlock;
+  productsCache: Map<string, ProductLite>;
+  previewContext: Record<string, string | undefined>;
+}) {
+  const t = (s: string | undefined | null) => interpolate(s ?? "", previewContext);
+  // Rendu React qui préserve les retours à la ligne saisis dans les inputs :
+  // remplace chaque `\n` par un vrai <br/> dans le JSX. Mirroir de
+  // escapeHtmlWithBreaks() côté serveur.
+  const tBr = (s: string | undefined | null): React.ReactNode => {
+    const text = interpolate(s ?? "", previewContext);
+    const lines = text.split(/\r?\n/);
+    return lines.map((line, i) => (
+      <React.Fragment key={i}>
+        {i > 0 && <br />}
+        {line}
+      </React.Fragment>
+    ));
+  };
   const s: React.CSSProperties = { fontFamily: "Roboto, sans-serif" };
   const bg = "bg" in block.data ? (block.data as { bg?: string }).bg : undefined;
 
@@ -751,13 +1044,15 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
     case "heading": {
       const hasBody = (block.data.body || "").trim().length > 0;
       const hasTitle = (block.data.title || "").trim().length > 0;
+      const titleAlign = (block.data.titleAlign ?? block.data.align ?? "left") as React.CSSProperties["textAlign"];
+      const bodyAlign = (block.data.bodyAlign ?? block.data.align ?? "left") as React.CSSProperties["textAlign"];
       return (
-        <div style={{ ...s, padding: "24px 20px", textAlign: block.data.align, background: block.data.bg || "transparent" }}>
+        <div style={{ ...s, padding: "24px 20px", background: block.data.bg || "transparent" }}>
           {hasTitle && (
-            <h2 style={{ fontFamily: "Poppins", fontSize: 20, fontWeight: 700, color: block.data.titleColor || "#0f172a", margin: hasBody ? "0 0 10px" : "0" }}>{block.data.title}</h2>
+            <h2 style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 20, fontWeight: 700, color: block.data.titleColor || "#0f172a", margin: hasBody ? "0 0 10px" : "0", textAlign: titleAlign, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</h2>
           )}
           {hasBody && (
-            <p style={{ fontSize: 13, color: block.data.bodyColor || "#475569", lineHeight: 1.6, margin: 0, whiteSpace: "pre-wrap" }}>{block.data.body}</p>
+            <p style={{ fontSize: block.data.bodySize || 13, color: block.data.bodyColor || "#475569", lineHeight: 1.6, margin: 0, textAlign: bodyAlign, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "break-word" }}>{t(block.data.body)}</p>
           )}
           {!hasTitle && !hasBody && (
             <div style={{ color: "#cbd5e1", fontSize: 12 }}>Titre et texte vides — renseigne au moins l&apos;un dans les réglages.</div>
@@ -769,16 +1064,16 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
       return (
         <div style={{ ...s, padding: "12px 20px" }}>
           <div style={{ background: block.data.bg, color: block.data.color, padding: 20, borderRadius: 14, textAlign: "center" }}>
-            <div style={{ fontFamily: "Poppins", fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{block.data.title}</div>
-            <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 14 }}>{block.data.subtitle}</div>
-            <span style={{ display: "inline-block", background: "white", color: block.data.bg, padding: "8px 20px", borderRadius: 999, fontWeight: 600, fontSize: 12 }}>{block.data.cta}</span>
+            <div style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 16, fontWeight: 700, marginBottom: 6, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</div>
+            <div style={{ fontSize: block.data.subtitleSize || 13, opacity: 0.85, marginBottom: 14, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
+            <span style={{ display: "inline-block", background: "white", color: block.data.bg, padding: "8px 20px", borderRadius: 999, fontWeight: 600, fontSize: block.data.ctaSize || 12, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.cta)}</span>
           </div>
         </div>
       );
     case "button":
       return (
         <div style={{ ...s, padding: "12px 20px", textAlign: block.data.align || "center" }}>
-          <span style={{ display: "inline-block", background: block.data.bg, color: block.data.color, padding: "12px 28px", borderRadius: 10, fontFamily: "Poppins", fontWeight: 600, fontSize: 13 }}>{block.data.label} →</span>
+          <span style={{ display: "inline-block", background: block.data.bg, color: block.data.color, padding: "12px 28px", borderRadius: 10, fontFamily: "Poppins", fontWeight: 600, fontSize: block.data.labelSize || 13, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.label)} →</span>
         </div>
       );
     case "products": {
@@ -813,7 +1108,8 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
       const flexDir: React.CSSProperties["flexDirection"] =
         side === "left" ? "row" : side === "right" ? "row-reverse" : side === "top" ? "column" : "column-reverse";
       const imgW = Math.max(20, Math.min(100, block.data.imgWidth || 45));
-      const textAlign = (block.data.textAlign || "left") as React.CSSProperties["textAlign"];
+      const titleAlign = (block.data.titleAlign ?? block.data.textAlign ?? "left") as React.CSSProperties["textAlign"];
+      const bodyAlign = (block.data.bodyAlign ?? block.data.textAlign ?? "left") as React.CSSProperties["textAlign"];
       const imgEl = block.data.img
         ? <img src={block.data.img} alt="" draggable={false} style={{ width: "100%", borderRadius: 8, display: "block" }} />
         : <div style={{ height: 100, background: "#f1f5f9", borderRadius: 8 }} />;
@@ -821,8 +1117,8 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
         <div style={{ ...s, padding: "12px 20px", display: "flex", gap: 12, flexDirection: flexDir, background: block.data.bg || "transparent", alignItems: isVertical ? "center" : undefined }}>
           <div style={{ width: isVertical ? `${imgW}%` : `${imgW}%` }}>{imgEl}</div>
           <div style={{ flex: 1, width: isVertical ? "100%" : undefined }}>
-            <div style={{ fontFamily: "Poppins", fontSize: 15, fontWeight: 700, color: block.data.titleColor || "#0f172a", marginBottom: 6, textAlign }}>{block.data.title}</div>
-            <div style={{ fontSize: 13, color: block.data.bodyColor || "#475569", lineHeight: 1.6, whiteSpace: "pre-wrap", textAlign }}>{block.data.body}</div>
+            <div style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 15, fontWeight: 700, color: block.data.titleColor || "#0f172a", marginBottom: 6, textAlign: titleAlign, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</div>
+            <div style={{ fontSize: block.data.bodySize || 13, color: block.data.bodyColor || "#475569", lineHeight: 1.6, whiteSpace: "pre-wrap", textAlign: bodyAlign, wordBreak: "break-word", overflowWrap: "break-word" }}>{t(block.data.body)}</div>
           </div>
         </div>
       );
@@ -831,7 +1127,7 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
       return (
         <ul style={{ ...s, padding: "12px 20px", listStyle: "none", margin: 0, background: block.data.bg || "transparent" }}>
           {block.data.items.map((it, i) => (
-            <li key={i} style={{ padding: "6px 0", fontSize: 14, color: block.data.color || "#334155", borderBottom: "1px solid #f1f5f9" }}>{it}</li>
+            <li key={i} style={{ padding: "6px 0", fontSize: block.data.itemSize || 14, color: block.data.color || "#334155", borderBottom: "1px solid #f1f5f9", wordBreak: "break-word", overflowWrap: "break-word" }}>{t(it)}</li>
           ))}
         </ul>
       );
@@ -856,7 +1152,7 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
               {col.kind === "image" ? (
                 col.img ? <img src={col.img} alt="" draggable={false} style={{ width: "100%", borderRadius: 8, display: "block" }} /> : <div style={{ height: 90, background: "#f1f5f9", borderRadius: 8 }} />
               ) : (
-                <div style={{ fontSize: 13, color: block.data.color || "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{col.text || <span style={{ color: "#cbd5e1" }}>Texte de colonne…</span>}</div>
+                <div style={{ fontSize: 13, color: block.data.color || "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{col.text ? t(col.text) : <span style={{ color: "#cbd5e1" }}>Texte de colonne…</span>}</div>
               )}
             </div>
           ))}
@@ -867,10 +1163,86 @@ function BlockRender({ block, productsCache }: { block: NewsletterBlock; product
       return <hr style={{ ...s, border: "none", borderTop: "1px solid #e2e8f0", margin: "12px 20px" }} />;
     case "footer":
       return null;
+    case "cartItems": {
+      // Aperçu illustratif : 2 lignes factices + total. En vrai envoi, le
+      // contenu vient du panier du client.
+      const title = block.data.title?.trim();
+      return (
+        <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
+          {title && <div style={{ fontFamily: "Poppins", fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{title}</div>}
+          <div style={{ background: "#f8fafc", borderRadius: 10, padding: 12 }}>
+            {["Article exemple 1", "Article exemple 2"].map((n, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i === 0 ? "1px solid #e2e8f0" : "none", fontSize: 12 }}>
+                <span style={{ color: "#0f172a", fontWeight: 600 }}>{n}</span>
+                <span style={{ color: "#0f172a", fontWeight: 700 }}>—</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", borderTop: "2px solid #cbd5e1", paddingTop: 8, marginTop: 6, fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+              <span>{block.data.totalLabel || "Total"}</span>
+              <span>—</span>
+            </div>
+          </div>
+          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
+            💡 Aperçu — le vrai panier du client sera injecté à l&apos;envoi.
+          </div>
+        </div>
+      );
+    }
+    case "favoritesGrid": {
+      const cols = block.data.cols || 2;
+      return (
+        <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 8 }}>
+            {Array.from({ length: cols }).map((_, i) => (
+              <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 8 }}>
+                <div style={{ height: 80, background: "#f1f5f9", borderRadius: 6, marginBottom: 6 }} />
+                <div style={{ fontSize: 11, fontFamily: "Poppins", fontWeight: 600, color: "#0f172a" }}>Produit exemple</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", marginTop: 2 }}>—</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
+            💡 Aperçu — les vrais produits sélectionnés seront injectés à l&apos;envoi.
+          </div>
+        </div>
+      );
+    }
+    case "daysInactive": {
+      const sampleText = (block.data.template || "").replace(/\{days\}/g, "12");
+      return (
+        <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
+          <p style={{ fontSize: 13, color: block.data.color || "#475569", lineHeight: 1.6, margin: 0 }}>
+            {sampleText || <span style={{ color: "#cbd5e1" }}>Message vide — renseigne le gabarit dans les réglages.</span>}
+          </p>
+          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
+            💡 Aperçu (12 jours) — le vrai nombre sera injecté à l&apos;envoi.
+          </div>
+        </div>
+      );
+    }
   }
 }
 
-function BlockSettings({ block, onUpdate }: { block: NewsletterBlock; onUpdate: (key: string, value: unknown) => void }) {
+function BlockSettings({
+  block,
+  onUpdate,
+  scenarioKey,
+}: {
+  block: NewsletterBlock;
+  onUpdate: (key: string, value: unknown) => void;
+  scenarioKey: ScenarioKey | null;
+}) {
+  // Enregistre chaque input/textarea comme cible potentielle d'insertion de
+  // variable via le bouton global (voir ActiveInputContext).
+  const registerActive = useActiveInputRegistrar();
+  const fieldProps = (value: string, key: string) => ({
+    onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      registerActive({
+        element: e.currentTarget,
+        getValue: () => value,
+        setValue: (v) => onUpdate(key, v),
+      }),
+  });
   switch (block.type) {
     case "banner":
       return (
@@ -909,81 +1281,96 @@ function BlockSettings({ block, onUpdate }: { block: NewsletterBlock; onUpdate: 
               />
             </Field>
           ) : null}
-          <Field label="Couleur de fond du bloc">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
-          </Field>
+          {/* Pas de couleur/dégradé de fond : la bannière est une image pleine
+              qui couvre tout le bloc — un fond derrière ne serait visible que
+              sous un PNG transparent, cas ultra-rare qui n'a pas mérité un
+              réglage supplémentaire dans l'UI. */}
         </div>
       );
     case "heading":
       return (
         <div className="space-y-3">
-          <Field label="Titre">
-            <input type="text" className="prop-input" value={block.data.title} onChange={(e) => onUpdate("title", e.target.value)} />
-          </Field>
-          <Field label="Paragraphe (facultatif — laisse vide pour un titre seul)">
-            <textarea rows={4} className="prop-input" value={block.data.body} onChange={(e) => onUpdate("body", e.target.value)} placeholder="Vide pour n'afficher que le titre." />
-          </Field>
-          <Field label="Alignement">
-            <CustomSelect
-              value={block.data.align}
-              onChange={(v) => onUpdate("align", v)}
-              options={[
-                { value: "left", label: "← Gauche" },
-                { value: "center", label: "↔ Centre" },
-                { value: "right", label: "Droite →" },
-              ]}
-              size="sm"
-            />
-          </Field>
-          <Field label="Couleur du titre">
-            <ColorPicker value={block.data.titleColor || "#0f172a"} onChange={(c) => onUpdate("titleColor", c)} />
-          </Field>
-          <Field label="Couleur du texte">
-            <ColorPicker value={block.data.bodyColor || "#475569"} onChange={(c) => onUpdate("bodyColor", c)} />
-          </Field>
-          <Field label="Couleur de fond du bloc">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
-          </Field>
+          <FieldGroup title="Titre">
+            <Field label="Texte">
+              <WrappingTextInput value={block.data.title} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title, "title")} />
+            </Field>
+            <AlignField value={block.data.titleAlign ?? block.data.align} onChange={(v) => onUpdate("titleAlign", v)} fallback="left" />
+            <Field label="Couleur">
+              <ColorPicker value={block.data.titleColor || "#0f172a"} onChange={(c) => onUpdate("titleColor", c)} />
+            </Field>
+            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={20} min={12} max={40} />
+          </FieldGroup>
+          <FieldGroup title="Paragraphe (facultatif)">
+            <Field label="Texte">
+              <textarea rows={4} className="prop-input" value={block.data.body} onChange={(e) => onUpdate("body", e.target.value)} placeholder="Vide pour n'afficher que le titre." {...fieldProps(block.data.body, "body")} />
+            </Field>
+            <AlignField value={block.data.bodyAlign ?? block.data.align} onChange={(v) => onUpdate("bodyAlign", v)} fallback="left" />
+            <Field label="Couleur">
+              <ColorPicker value={block.data.bodyColor || "#475569"} onChange={(c) => onUpdate("bodyColor", c)} />
+            </Field>
+            <SizeField label="Taille" value={block.data.bodySize} onChange={(v) => onUpdate("bodySize", v)} defaultSize={14} />
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+            </Field>
+          </FieldGroup>
         </div>
       );
     case "callout":
       return (
         <div className="space-y-3">
-          <Field label="Titre"><input type="text" className="prop-input" value={block.data.title} onChange={(e) => onUpdate("title", e.target.value)} /></Field>
-          <Field label="Sous-titre"><input type="text" className="prop-input" value={block.data.subtitle} onChange={(e) => onUpdate("subtitle", e.target.value)} /></Field>
-          <Field label="Texte du bouton"><input type="text" className="prop-input" value={block.data.cta} onChange={(e) => onUpdate("cta", e.target.value)} /></Field>
-          <Field label="Lien du bouton"><input type="text" className="prop-input" value={block.data.ctaUrl} onChange={(e) => onUpdate("ctaUrl", e.target.value)} placeholder="https://…" /></Field>
-          <Field label="Couleur de fond">
-            <ColorPicker value={block.data.bg} onChange={(c) => onUpdate("bg", c)} />
-          </Field>
-          <Field label="Couleur du texte">
-            <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
-          </Field>
+          <FieldGroup title="Titre">
+            <Field label="Texte"><WrappingTextInput value={block.data.title} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title, "title")} /></Field>
+            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={16} min={12} max={32} />
+          </FieldGroup>
+          <FieldGroup title="Sous-titre">
+            <Field label="Texte"><WrappingTextInput value={block.data.subtitle} onChange={(v) => onUpdate("subtitle", v)} {...fieldProps(block.data.subtitle, "subtitle")} /></Field>
+            <SizeField label="Taille" value={block.data.subtitleSize} onChange={(v) => onUpdate("subtitleSize", v)} defaultSize={13} />
+          </FieldGroup>
+          <FieldGroup title="Bouton CTA">
+            <Field label="Texte du bouton"><WrappingTextInput value={block.data.cta} onChange={(v) => onUpdate("cta", v)} {...fieldProps(block.data.cta, "cta")} /></Field>
+            <Field label="Lien"><input type="text" className="prop-input" value={block.data.ctaUrl} onChange={(e) => onUpdate("ctaUrl", e.target.value)} placeholder="https://…" /></Field>
+            <SizeField label="Taille" value={block.data.ctaSize} onChange={(v) => onUpdate("ctaSize", v)} defaultSize={13} />
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
+            </Field>
+            <Field label="Couleur des textes">
+              <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
+            </Field>
+          </FieldGroup>
         </div>
       );
     case "button":
       return (
         <div className="space-y-3">
-          <Field label="Texte du bouton"><input type="text" className="prop-input" value={block.data.label} onChange={(e) => onUpdate("label", e.target.value)} /></Field>
-          <Field label="Lien"><input type="text" className="prop-input" value={block.data.url} onChange={(e) => onUpdate("url", e.target.value)} placeholder="https://…" /></Field>
-          <Field label="Alignement">
-            <CustomSelect
-              value={block.data.align || "center"}
-              onChange={(v) => onUpdate("align", v)}
-              options={[
-                { value: "left", label: "← Gauche" },
-                { value: "center", label: "↔ Centre" },
-                { value: "right", label: "Droite →" },
-              ]}
-              size="sm"
-            />
-          </Field>
-          <Field label="Couleur de fond">
-            <ColorPicker value={block.data.bg} onChange={(c) => onUpdate("bg", c)} />
-          </Field>
-          <Field label="Couleur du texte">
-            <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
-          </Field>
+          <FieldGroup title="Bouton">
+            <Field label="Texte"><WrappingTextInput value={block.data.label} onChange={(v) => onUpdate("label", v)} {...fieldProps(block.data.label, "label")} /></Field>
+            <Field label="Lien"><input type="text" className="prop-input" value={block.data.url} onChange={(e) => onUpdate("url", e.target.value)} placeholder="https://…" /></Field>
+            <SizeField label="Taille" value={block.data.labelSize} onChange={(v) => onUpdate("labelSize", v)} defaultSize={14} />
+            <Field label="Couleur du texte">
+              <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
+            </Field>
+            <Field label="Couleur de fond">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
+            </Field>
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Alignement">
+              <CustomSelect
+                value={block.data.align || "center"}
+                onChange={(v) => onUpdate("align", v)}
+                options={[
+                  { value: "left", label: "← Gauche" },
+                  { value: "center", label: "↔ Centre" },
+                  { value: "right", label: "Droite →" },
+                ]}
+                size="sm"
+              />
+            </Field>
+          </FieldGroup>
         </div>
       );
     case "products":
@@ -1002,82 +1389,92 @@ function BlockSettings({ block, onUpdate }: { block: NewsletterBlock; onUpdate: 
             onChange={(ids) => onUpdate("productIds", ids)}
           />
           <Field label="Couleur de fond du bloc">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
           </Field>
         </div>
       );
     case "imgtext":
       return (
         <div className="space-y-3">
-          <Field label="Image">
-            <ImageInput value={block.data.img} onChange={(v) => onUpdate("img", v)} />
-          </Field>
-          <Field label="Titre"><input type="text" className="prop-input" value={block.data.title} onChange={(e) => onUpdate("title", e.target.value)} /></Field>
-          <Field label="Texte"><textarea rows={3} className="prop-input" value={block.data.body} onChange={(e) => onUpdate("body", e.target.value)} /></Field>
-          <Field label="Position de l'image">
-            <CustomSelect
-              value={block.data.side}
-              onChange={(v) => onUpdate("side", v)}
-              options={[
-                { value: "left", label: "← Image à gauche" },
-                { value: "right", label: "Image à droite →" },
-                { value: "top", label: "↑ Image en haut" },
-                { value: "bottom", label: "↓ Image en bas" },
-              ]}
-              size="sm"
-            />
-          </Field>
-          <Field label={`Largeur de l'image (${block.data.imgWidth || 45} %)`}>
-            <input
-              type="range"
-              min={20}
-              max={100}
-              step={5}
-              value={block.data.imgWidth || 45}
-              onChange={(e) => onUpdate("imgWidth", Number(e.target.value))}
-              className="w-full"
-            />
-          </Field>
-          <Field label="Alignement du texte">
-            <CustomSelect
-              value={block.data.textAlign || "left"}
-              onChange={(v) => onUpdate("textAlign", v)}
-              options={[
-                { value: "left", label: "← Gauche" },
-                { value: "center", label: "↔ Centre" },
-                { value: "right", label: "Droite →" },
-              ]}
-              size="sm"
-            />
-          </Field>
-          <Field label="Couleur du titre">
-            <ColorPicker value={block.data.titleColor || "#0f172a"} onChange={(c) => onUpdate("titleColor", c)} />
-          </Field>
-          <Field label="Couleur du texte">
-            <ColorPicker value={block.data.bodyColor || "#475569"} onChange={(c) => onUpdate("bodyColor", c)} />
-          </Field>
-          <Field label="Couleur de fond du bloc">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
-          </Field>
+          <FieldGroup title="Image">
+            <Field label="Photo">
+              <ImageInput value={block.data.img} onChange={(v) => onUpdate("img", v)} />
+            </Field>
+            <Field label="Position">
+              <CustomSelect
+                value={block.data.side}
+                onChange={(v) => onUpdate("side", v)}
+                options={[
+                  { value: "left", label: "← Image à gauche" },
+                  { value: "right", label: "Image à droite →" },
+                  { value: "top", label: "↑ Image en haut" },
+                  { value: "bottom", label: "↓ Image en bas" },
+                ]}
+                size="sm"
+              />
+            </Field>
+            <Field label={`Largeur (${block.data.imgWidth || 45} %)`}>
+              <input
+                type="range"
+                min={20}
+                max={100}
+                step={5}
+                value={block.data.imgWidth || 45}
+                onChange={(e) => onUpdate("imgWidth", Number(e.target.value))}
+                className="w-full"
+              />
+            </Field>
+          </FieldGroup>
+          <FieldGroup title="Titre">
+            <Field label="Texte"><WrappingTextInput value={block.data.title} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title, "title")} /></Field>
+            <AlignField value={block.data.titleAlign ?? block.data.textAlign} onChange={(v) => onUpdate("titleAlign", v)} fallback="left" />
+            <Field label="Couleur">
+              <ColorPicker value={block.data.titleColor || "#0f172a"} onChange={(c) => onUpdate("titleColor", c)} />
+            </Field>
+            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={15} min={12} max={32} />
+          </FieldGroup>
+          <FieldGroup title="Paragraphe">
+            <Field label="Texte"><textarea rows={3} className="prop-input" value={block.data.body} onChange={(e) => onUpdate("body", e.target.value)} {...fieldProps(block.data.body, "body")} /></Field>
+            <AlignField value={block.data.bodyAlign ?? block.data.textAlign} onChange={(v) => onUpdate("bodyAlign", v)} fallback="left" />
+            <Field label="Couleur">
+              <ColorPicker value={block.data.bodyColor || "#475569"} onChange={(c) => onUpdate("bodyColor", c)} />
+            </Field>
+            <SizeField label="Taille" value={block.data.bodySize} onChange={(v) => onUpdate("bodySize", v)} defaultSize={13} />
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+            </Field>
+          </FieldGroup>
         </div>
       );
     case "list":
       return (
         <div className="space-y-3">
-          <Field label="Un item par ligne (commence par un emoji)">
-            <textarea
-              rows={6}
-              className="prop-input"
-              value={block.data.items.join("\n")}
-              onChange={(e) => onUpdate("items", e.target.value.split("\n"))}
-            />
-          </Field>
-          <Field label="Couleur du texte">
-            <ColorPicker value={block.data.color || "#334155"} onChange={(c) => onUpdate("color", c)} />
-          </Field>
-          <Field label="Couleur de fond du bloc">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
-          </Field>
+          <FieldGroup title="Liste">
+            <Field label="Un item par ligne (commence par un emoji)">
+              <textarea
+                rows={6}
+                className="prop-input"
+                value={block.data.items.join("\n")}
+                onChange={(e) => onUpdate("items", e.target.value.split("\n"))}
+                onFocus={(e) => registerActive({
+                  element: e.currentTarget,
+                  getValue: () => block.data.items.join("\n"),
+                  setValue: (v) => onUpdate("items", v.split("\n")),
+                })}
+              />
+            </Field>
+            <Field label="Couleur du texte">
+              <ColorPicker value={block.data.color || "#334155"} onChange={(c) => onUpdate("color", c)} />
+            </Field>
+            <SizeField label="Taille des lignes" value={block.data.itemSize} onChange={(v) => onUpdate("itemSize", v)} defaultSize={14} />
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+            </Field>
+          </FieldGroup>
         </div>
       );
     case "empty":
@@ -1095,7 +1492,7 @@ function BlockSettings({ block, onUpdate }: { block: NewsletterBlock; onUpdate: 
             />
           </Field>
           <Field label="Couleur de fond">
-            <ColorPicker value={block.data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
           </Field>
         </div>
       );
@@ -1105,6 +1502,68 @@ function BlockSettings({ block, onUpdate }: { block: NewsletterBlock; onUpdate: 
       return <div className="text-[12px] text-text-muted p-3 bg-bg-secondary rounded-lg">Ligne fine décorative — pas de réglage.</div>;
     case "footer":
       return null;
+    case "cartItems":
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-violet-50 border border-violet-200 rounded-lg p-3">
+            💡 Ce bloc affiche <strong>le vrai panier du client</strong> à l&apos;envoi. Vous personnalisez le titre, le libellé du total, et le message affiché si le panier est vide.
+          </div>
+          <Field label="Titre au-dessus de la liste (facultatif)">
+            <WrappingTextInput value={block.data.title || ""} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title || "", "title")} />
+          </Field>
+          <Field label="Libellé de la ligne total">
+            <WrappingTextInput value={block.data.totalLabel || "Total"} onChange={(v) => onUpdate("totalLabel", v)} {...fieldProps(block.data.totalLabel || "Total", "totalLabel")} />
+          </Field>
+          <Field label="Message si le panier du client est vide">
+            <textarea rows={2} className="prop-input" value={block.data.emptyMessage || ""} onChange={(e) => onUpdate("emptyMessage", e.target.value)} {...fieldProps(block.data.emptyMessage || "", "emptyMessage")} />
+          </Field>
+          <Field label="Couleur de fond du bloc">
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+          </Field>
+        </div>
+      );
+    case "favoritesGrid":
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-violet-50 border border-violet-200 rounded-lg p-3">
+            💡 Ce bloc affiche <strong>les produits que vous sélectionnez</strong> au moment de l&apos;envoi du mail « Retour en stock ».
+          </div>
+          <Field label="Nombre de colonnes">
+            <CustomSelect
+              value={String(block.data.cols)}
+              onChange={(v) => onUpdate("cols", Number(v))}
+              options={[{ value: "2", label: "2 colonnes" }, { value: "3", label: "3 colonnes" }]}
+              size="sm"
+            />
+          </Field>
+          <Field label="Message si aucun produit n'est sélectionné">
+            <textarea rows={2} className="prop-input" value={block.data.emptyMessage || ""} onChange={(e) => onUpdate("emptyMessage", e.target.value)} {...fieldProps(block.data.emptyMessage || "", "emptyMessage")} />
+          </Field>
+          <Field label="Couleur de fond du bloc">
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+          </Field>
+        </div>
+      );
+    case "daysInactive":
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-violet-50 border border-violet-200 rounded-lg p-3">
+            💡 Utilisez <code className="bg-white px-1 rounded border">{"{days}"}</code> à l&apos;endroit où le nombre de jours d&apos;inactivité doit apparaître.
+          </div>
+          <Field label="Message (avec {days} pour le nombre de jours)">
+            <textarea rows={3} className="prop-input" value={block.data.template || ""} onChange={(e) => onUpdate("template", e.target.value)} {...fieldProps(block.data.template || "", "template")} />
+          </Field>
+          <Field label="Message si le client n'a jamais visité">
+            <textarea rows={2} className="prop-input" value={block.data.neverVisitedTemplate || ""} onChange={(e) => onUpdate("neverVisitedTemplate", e.target.value)} {...fieldProps(block.data.neverVisitedTemplate || "", "neverVisitedTemplate")} />
+          </Field>
+          <Field label="Couleur du texte">
+            <ColorPicker value={block.data.color || "#475569"} onChange={(c) => onUpdate("color", c)} />
+          </Field>
+          <Field label="Couleur de fond du bloc">
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+          </Field>
+        </div>
+      );
   }
 }
 
@@ -1130,6 +1589,187 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         }
       `}</style>
     </div>
+  );
+}
+
+/**
+ * Regroupe plusieurs Field liés à un même élément (ex. « Titre » = input +
+ * couleur + taille). Cadre gris subtil avec titre en tête pour clarifier
+ * visuellement le périmètre des réglages.
+ */
+function FieldGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border/80 bg-bg-secondary/30 p-3 space-y-3">
+      <div className="text-[10px] uppercase tracking-[0.14em] font-body font-bold text-text-primary">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Champ alignement — 3 boutons icônes côte à côte (style Google Docs).
+ * Icônes SVG universelles (traits horizontaux alignés gauche / centre / droite).
+ */
+function AlignField({
+  value,
+  onChange,
+  fallback,
+}: {
+  value: "left" | "center" | "right" | undefined;
+  onChange: (v: "left" | "center" | "right") => void;
+  fallback: "left" | "center" | "right";
+}) {
+  const current = value ?? fallback;
+  const options: Array<{ v: "left" | "center" | "right"; label: string; icon: React.ReactNode }> = [
+    {
+      v: "left",
+      label: "Aligner à gauche",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="15" y2="12" />
+          <line x1="3" y1="18" x2="18" y2="18" />
+        </svg>
+      ),
+    },
+    {
+      v: "center",
+      label: "Centrer",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+          <line x1="5" y1="18" x2="19" y2="18" />
+        </svg>
+      ),
+    },
+    {
+      v: "right",
+      label: "Aligner à droite",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="9" y1="12" x2="21" y2="12" />
+          <line x1="6" y1="18" x2="21" y2="18" />
+        </svg>
+      ),
+    },
+  ];
+  return (
+    <Field label="Alignement">
+      <div className="inline-flex rounded-lg border border-border bg-bg-primary p-0.5" role="radiogroup" aria-label="Alignement">
+        {options.map((o) => {
+          const active = current === o.v;
+          return (
+            <button
+              key={o.v}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={o.label}
+              title={o.label}
+              onClick={() => onChange(o.v)}
+              className={`h-8 w-9 rounded-md flex items-center justify-center transition ${
+                active
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-text-secondary hover:bg-bg-secondary"
+              }`}
+            >
+              {o.icon}
+            </button>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Champ nombre pour la taille de police d'un texte (en px).
+ * Compact : input number à côté d'un slider, dans un Field partagé.
+ */
+function SizeField({
+  label,
+  value,
+  onChange,
+  defaultSize,
+  min = 10,
+  max = 48,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+  defaultSize: number;
+  min?: number;
+  max?: number;
+}) {
+  const current = value ?? defaultSize;
+  return (
+    <Field label={`${label} — ${current} px`}>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={1}
+          value={current}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1"
+        />
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={current}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) onChange(Math.max(min, Math.min(max, n)));
+          }}
+          className="w-16 px-2 py-1 text-[12px] font-mono border border-border rounded-md focus:outline-none focus:border-slate-500"
+        />
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Champ texte mono-ligne qui se comporte comme le paragraphe : au lieu de
+ * scroller horizontalement (input) et cacher le bout quand le contenu est
+ * long, il wrap sur plusieurs lignes et grandit avec le contenu.
+ * Utilisé pour tous les champs « titre / label / cta » des blocs newsletter.
+ */
+function WrappingTextInput({
+  value,
+  onChange,
+  onFocus,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onFocus?: (e: React.FocusEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // Auto-hauteur : reset à `auto` puis lit `scrollHeight` pour coller au contenu.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
+      placeholder={placeholder}
+      rows={1}
+      className="prop-input"
+      style={{ resize: "none", overflow: "hidden", wordBreak: "break-word" }}
+    />
   );
 }
 
@@ -1255,6 +1895,7 @@ function ImageInput({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 function ColumnsSettings({ data, onUpdate }: { data: { cols: 2 | 3; columns: ColumnData[]; bg?: string; color?: string }; onUpdate: (key: string, value: unknown) => void }) {
+  const registerActive = useActiveInputRegistrar();
   const columns = [...data.columns];
   while (columns.length < data.cols) columns.push({ kind: "text", text: "" });
 
@@ -1295,6 +1936,11 @@ function ColumnsSettings({ data, onUpdate }: { data: { cols: 2 | 3; columns: Col
               className="prop-input"
               value={col.text || ""}
               onChange={(e) => updateCol(i, { text: e.target.value })}
+              onFocus={(e) => registerActive({
+                element: e.currentTarget,
+                getValue: () => col.text || "",
+                setValue: (v) => updateCol(i, { text: v }),
+              })}
               placeholder="Texte de la colonne…"
             />
           ) : (
@@ -1306,7 +1952,7 @@ function ColumnsSettings({ data, onUpdate }: { data: { cols: 2 | 3; columns: Col
         <ColorPicker value={data.color || "#334155"} onChange={(c) => onUpdate("color", c)} />
       </Field>
       <Field label="Couleur de fond du bloc">
-        <ColorPicker value={data.bg || ""} onChange={(c) => onUpdate("bg", c)} allowEmpty />
+        <BackgroundInput value={data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
       </Field>
     </div>
   );
@@ -1368,6 +2014,367 @@ function ProductsPicker({ value, onChange }: { value: string[]; onChange: (ids: 
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Header/Footer verrouillés (aperçu miroir de wrapMail)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/** Petit badge « verrouillé » + lien vers Paramètres > Habillage des mails. */
+function LockedBadge() {
+  return (
+    <div className="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-900/85 text-white text-[10px] font-body font-bold shadow-lg backdrop-blur-sm">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      Partagé
+      <a
+        href="/admin/parametres?open=habillage-mails"
+        target="_blank"
+        rel="noreferrer"
+        className="ml-1 underline decoration-white/60 hover:decoration-white"
+      >
+        Modifier
+      </a>
+    </div>
+  );
+}
+
+function LockedHeaderPreview({
+  branding,
+  shopName,
+  baseUrl,
+  subject,
+}: {
+  branding: MailBranding;
+  shopName: string;
+  baseUrl: string;
+  subject: string;
+}) {
+  const header = branding.header;
+  const bg = resolveHeaderBackground(header);
+  const logoSrc = header.logoUrl
+    ? header.logoUrl.startsWith("http")
+      ? header.logoUrl
+      : `${baseUrl}${header.logoUrl.startsWith("/") ? "" : "/"}${header.logoUrl}`
+    : null;
+
+  return (
+    <div className="relative select-none rounded-t-lg overflow-hidden" title="En-tête partagé — se modifie dans Paramètres > Habillage des mails">
+      <LockedBadge />
+      <div
+        style={{
+          background: bg,
+          padding: "36px 24px",
+          color: header.textColor,
+          textAlign: "center",
+        }}
+      >
+        {logoSrc ? (
+          <div style={{ marginBottom: 14 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={logoSrc}
+              alt={shopName}
+              style={{ maxHeight: header.logoMaxHeight, display: "inline-block", border: 0 }}
+            />
+          </div>
+        ) : header.showShopName ? (
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              opacity: 0.85,
+              marginBottom: 8,
+              color: header.textColor,
+            }}
+          >
+            {shopName}
+          </div>
+        ) : null}
+        <h1
+          style={{
+            fontFamily: "Poppins, sans-serif",
+            fontSize: 24,
+            fontWeight: 700,
+            margin: 0,
+            color: header.textColor,
+          }}
+        >
+          {subject}
+        </h1>
+      </div>
+    </div>
+  );
+}
+
+function LockedFooterPreview({
+  branding,
+  shopName,
+  legalLine,
+}: {
+  branding: MailBranding;
+  shopName: string;
+  legalLine: string;
+}) {
+  const footer = branding.footer;
+  const message =
+    footer.customMessage?.trim() || `Vous recevez ce mail car vous êtes client ${shopName}.`;
+  const social: React.ReactNode[] = [];
+  if (footer.instagramUrl?.trim()) social.push(
+    <span key="ig" style={{ display: "inline-block", margin: "0 6px" }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={footer.textColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+        <rect x="2" y="2" width="20" height="20" rx="5"/>
+        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+      </svg>
+    </span>,
+  );
+  if (footer.facebookUrl?.trim()) social.push(
+    <span key="fb" style={{ display: "inline-block", margin: "0 6px" }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={footer.textColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+        <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+      </svg>
+    </span>,
+  );
+
+  return (
+    <div className="relative select-none rounded-b-lg overflow-hidden" title="Pied de page partagé — se modifie dans Paramètres > Habillage des mails">
+      <LockedBadge />
+      <div
+        style={{
+          background: footer.bg,
+          color: footer.textColor,
+          padding: 24,
+          textAlign: "center",
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "Poppins, sans-serif",
+            fontSize: 18,
+            fontWeight: 700,
+            letterSpacing: "0.02em",
+            marginBottom: 6,
+            color: footer.textColor,
+          }}
+        >
+          {shopName}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 12, color: footer.textColor }}>{legalLine}</div>
+        {social.length > 0 && <div style={{ margin: "12px 0" }}>{social}</div>}
+        <div style={{ fontSize: 10, opacity: 0.4, color: footer.textColor }}>{message}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rendu d'un item de la palette (utilisé dans les 2 accordéons obligatoires /
+ * disponibles). Drag-and-drop + bouton « Ajouter » identiques à l'existant.
+ */
+function renderPaletteBlock(
+  b: BlockMeta,
+  isActive: boolean,
+  addBlock: (type: NewsletterBlockType) => void,
+  onDragEnd: () => void,
+  alreadyPresent: boolean = false,
+): React.ReactNode {
+  const disabled = alreadyPresent;
+  return (
+    <div
+      key={b.key}
+      draggable={!disabled}
+      onDragStart={(e) => {
+        if (disabled) { e.preventDefault(); return; }
+        e.dataTransfer.setData("application/x-newsletter-type", b.key);
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      onDragEnd={onDragEnd}
+      className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
+        disabled
+          ? "border-emerald-200 bg-emerald-50/60 cursor-not-allowed"
+          : isActive
+            ? "border-slate-900 bg-slate-900 text-white shadow-md ring-2 ring-slate-900/20 cursor-grab active:cursor-grabbing"
+            : "border-border bg-bg-primary hover:border-emerald-400 hover:bg-emerald-50/40 cursor-grab active:cursor-grabbing"
+      }`}
+      title={
+        disabled
+          ? "Ce bloc obligatoire est déjà ajouté au modèle — un seul autorisé."
+          : isActive
+            ? "Bloc actuellement sélectionné dans l'aperçu"
+            : "Glissez à la position voulue, ou cliquez « + Ajouter »"
+      }
+    >
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+        disabled ? "bg-emerald-100 text-emerald-700" : isActive ? "bg-white/15 text-white" : "bg-slate-100 text-slate-700"
+      }`}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d={b.icon} />
+        </svg>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className={`font-heading font-semibold text-[12.5px] ${
+          disabled ? "text-emerald-900" : isActive ? "text-white" : "text-text-primary"
+        }`}>{b.label}</div>
+        <div className={`text-[10.5px] truncate ${
+          disabled ? "text-emerald-700/80" : isActive ? "text-white/70" : "text-text-muted"
+        }`}>{b.desc}</div>
+      </div>
+      {disabled ? (
+        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
+          ✓ Ajouté
+        </span>
+      ) : isActive ? (
+        <span className="shrink-0 text-[10px] uppercase tracking-wider font-bold bg-white/15 text-white px-1.5 py-0.5 rounded">
+          Sélec.
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); addBlock(b.key); }}
+          draggable={false}
+          className="shrink-0 h-7 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-body font-semibold flex items-center gap-1 shadow-sm"
+          title={`Ajouter un bloc « ${b.label} » en bas`}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Ajouter
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Bouton Variables GLOBAL — un seul par éditeur, dans la barre du haut.
+   S'active quand un input/textarea du sujet ou des blocs est focus.
+   ───────────────────────────────────────────────────────────────────────────── */
+function GlobalVariableButton({ scenario }: { scenario: ScenarioKey | null }) {
+  const target = useActiveInput();
+  const enabled = target !== null;
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function insertToken(token: string) {
+    if (!target) return;
+    const literal = `{${token}}`;
+    const el = target.element;
+    // Lecture DOM (toujours à jour) au lieu du closure `getValue()` figé au
+    // moment du focus — sinon la 2ᵉ insertion écrasait la 1ère.
+    const current = el.value;
+    const start = el.selectionStart ?? current.length;
+    const end = el.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + literal + current.slice(end);
+    target.setValue(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + literal.length;
+      el.setSelectionRange(pos, pos);
+    });
+    setOpen(false);
+  }
+
+  const variables = variablesForScenario(scenario);
+  const byGroup = new Map<VariableGroup, MailVariable[]>();
+  for (const v of variables) {
+    const arr = byGroup.get(v.group) ?? [];
+    arr.push(v);
+    byGroup.set(v.group, arr);
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        // preventDefault sur mousedown : évite que le clic sur le bouton fasse
+        // perdre le focus de l'input actif (sinon `target` devient null avant
+        // que le handler onClick s'exécute).
+        onMouseDown={(e) => { e.preventDefault(); }}
+        onClick={() => enabled && setOpen((o) => !o)}
+        disabled={!enabled}
+        title={
+          enabled
+            ? "Insérez une info du client (prénom, entreprise, etc.) dans le champ que vous éditez."
+            : "Cliquez d'abord dans un champ texte (sujet, titre, paragraphe…) pour choisir où insérer la variable."
+        }
+        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-body font-bold border transition ${
+          enabled
+            ? "bg-violet-600 hover:bg-violet-700 text-white border-violet-700 shadow-sm cursor-pointer"
+            : "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+        }`}
+      >
+        <span className="font-mono">{"{ }"}</span>
+        Variables
+      </button>
+
+      {open && enabled && (
+        <div
+          className="absolute z-50 right-0 mt-2 w-80 max-h-96 overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl"
+          role="menu"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <div className="sticky top-0 bg-bg-primary border-b border-border px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.14em] font-body font-bold text-text-muted">
+              Cliquez pour insérer
+            </div>
+            <div className="text-[11px] text-text-muted mt-0.5 leading-snug">
+              La variable sera remplacée par la vraie info du client à l'envoi.
+            </div>
+          </div>
+          {(["legal", "client", "boutique", "dynamique"] as VariableGroup[]).map((g) => {
+            const items = byGroup.get(g);
+            if (!items || items.length === 0) return null;
+            return (
+              <div key={g} className="py-1">
+                <div className="px-3 py-1 text-[10px] uppercase tracking-[0.14em] font-body font-bold text-text-muted bg-bg-secondary/50">
+                  {VARIABLE_GROUP_LABELS[g]}
+                </div>
+                {items.map((v) => (
+                  <button
+                    key={v.token}
+                    type="button"
+                    onClick={() => insertToken(v.token)}
+                    className="w-full flex items-baseline justify-between gap-2 px-3 py-1.5 hover:bg-slate-50 text-left"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-[12.5px] text-text-primary font-body font-semibold">{v.label}</span>
+                        {v.requiredMarketing && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-body font-bold uppercase bg-red-100 text-red-800 border border-red-200">
+                            ⚠ Obligatoire
+                          </span>
+                        )}
+                      </span>
+                      {v.hint && <span className="block text-[10.5px] text-text-muted mt-0.5">{v.hint}</span>}
+                    </span>
+                    <code className="shrink-0 text-[10.5px] text-slate-600 font-mono">{`{${v.token}}`}</code>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

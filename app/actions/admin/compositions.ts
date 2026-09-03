@@ -85,15 +85,9 @@ export async function updateCompositionPfsRef(
 ): Promise<{ success: true; impact: MappingChangeSummary | null }> {
   await requireAdmin();
   const normalized = pfsCompositionRef?.trim() || null;
-  if (normalized) {
-    const conflict = await prisma.composition.findFirst({
-      where: { pfsCompositionRef: normalized, id: { not: id } },
-      select: { id: true, name: true },
-    });
-    if (conflict) {
-      throw new Error(`Cette référence PFS est déjà utilisée par la composition « ${conflict.name} ».`);
-    }
-  }
+  // Pas de contrainte d'unicité sur `pfsCompositionRef` : plusieurs compositions BJ
+  // peuvent pointer vers la même ref PFS (ex. « Acier 304 » et « Acier inox »).
+  // Au reverse-sync, une seule gagne via `pfsCompositionUid` (Salesforce Uid stable).
   const before = await prisma.composition.findUnique({
     where: { id },
     select: { name: true, pfsCompositionRef: true },

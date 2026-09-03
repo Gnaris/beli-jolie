@@ -29,9 +29,18 @@ interface Props {
   children: ReactNode;
   /** Facultatif : chip d'état affiché à droite du titre dans le header. */
   headerRight?: ReactNode;
+  /** Largeur max — default (5xl) / wide (6xl) / xl (7xl) / full (95vw). */
+  size?: "default" | "wide" | "xl" | "full";
 }
 
-export default function SettingsModal({ open, onClose, title, description, icon, accent, children, headerRight }: Props) {
+const SIZE_CLASSES: Record<NonNullable<Props["size"]>, string> = {
+  default: "max-w-5xl",
+  wide: "max-w-6xl",
+  xl: "max-w-7xl",
+  full: "max-w-[95vw]",
+};
+
+export default function SettingsModal({ open, onClose, title, description, icon, accent, children, headerRight, size = "default" }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const style = ACCENT_STYLES[accent];
   // Portail rendu uniquement après l'hydratation client : évite le mismatch SSR (createPortal ne rend rien
@@ -75,7 +84,7 @@ export default function SettingsModal({ open, onClose, title, description, icon,
       />
 
       {/* Fenêtre */}
-      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-3xl bg-bg-primary shadow-2xl border border-border overflow-hidden">
+      <div className={`relative w-full ${SIZE_CLASSES[size]} max-h-[95vh] flex flex-col rounded-3xl bg-bg-primary shadow-2xl border border-border overflow-hidden`}>
         {/* Header aurora coloré — classes marqueur pour override dark mode dans globals.css */}
         <div className={`settings-modal-header settings-modal-header--${accent} relative overflow-hidden ${style.bgGradient} text-white shrink-0`}>
           <div className={`settings-modal-halo absolute -top-16 -right-12 w-56 h-56 rounded-full blur-3xl pointer-events-none ${style.halo}`} />

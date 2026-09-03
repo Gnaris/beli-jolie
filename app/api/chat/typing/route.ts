@@ -1,12 +1,14 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { emitChatEvent } from "@/lib/chat-events";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session) return new Response("Unauthorized", { status: 401 });
+  await getCurrentTenantId();
 
   const body = await request.json();
   const { conversationId, userId, typing } = body as {

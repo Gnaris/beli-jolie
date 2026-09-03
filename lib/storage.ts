@@ -349,6 +349,11 @@ export function faviconDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/favicon", tenantSlug) : "uploads/favicon";
 }
 
+/** Directory key for the shared mail header logo (marketing mails). */
+export function mailBrandingDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("uploads/mail-branding", tenantSlug) : "uploads/mail-branding";
+}
+
 /** Directory key for color pattern images. */
 export function colorPatternDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/motifs-couleurs", tenantSlug) : "uploads/motifs-couleurs";

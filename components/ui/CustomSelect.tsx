@@ -66,25 +66,68 @@ export default function CustomSelect({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  // Distingue la source du dernier changement de highlight : « keyboard »
-  // (Arrow up/down) déclenche le scroll auto pour amener l'option dans la vue ;
-  // « mouse » (survol) NE doit PAS scroller — sinon la ligne pointée passe
-  // sous le curseur, une nouvelle ligne se retrouve sous le curseur et
-  // déclenche à son tour un scroll, effet d'entraînement vers le bas du modal.
   const highlightSourceRef = useRef<"keyboard" | "mouse">("keyboard");
+
+  // Mode d'affichage : « dropdown » (desktop ≥ 768 px, ancré sous le bouton
+  // trigger) ou « modal » (mobile, plein écran). Réévalué à chaque ouverture
+  // via matchMedia — permet une bascule propre au resize.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Position absolue du trigger (recalculée à l'ouverture + au resize/scroll).
+  // Utilisée pour ancrer le dropdown desktop juste sous le bouton.
+  const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!open || !isDesktop) return;
+    const measure = () => {
+      if (triggerRef.current) setTriggerRect(triggerRef.current.getBoundingClientRect());
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open, isDesktop]);
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Verrouille le scroll de la page derrière le modal (plein écran mobile /
-  // centré desktop) — dans les deux cas la page ne doit plus défiler.
+  // Verrouille le scroll de la page — UNIQUEMENT en mode modal (mobile).
+  // En mode dropdown desktop la page reste défilable (comme un select natif).
   useEffect(() => {
-    if (!open) return;
+    if (!open || isDesktop) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
-  }, [open]);
+  }, [open, isDesktop]);
+
+  // Ferme au clic extérieur — mode dropdown desktop uniquement.
+  useEffect(() => {
+    if (!open || !isDesktop) return;
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (dropdownRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    // On écoute sur le prochain tick pour laisser le clic d'ouverture passer.
+    const t = setTimeout(() => document.addEventListener("mousedown", onDoc), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("mousedown", onDoc);
+    };
+  }, [open, isDesktop]);
 
   const selected = options.find((o) => o.value === value);
 
@@ -217,29 +260,141 @@ export default function CustomSelect({
   // Titre affiché dans le header du picker (mobile plein écran / desktop modal centré).
   const pickerTitle = title ?? ariaLabel ?? placeholder ?? "Sélectionner";
 
-  // ─── Picker unifié : plein écran mobile / modal centré + voile noir desktop ─
-  // Sur mobile (< 768 px) : layout `fixed inset-0` qui prend tout l'écran, pas
-  // de voile (rien derrière à voiler). Sur tablette / PC : voile noir cliquable
-  // pour fermer + modal centré vertical `min(92vw, 460px) x max-h-85vh`.
-  const pickerModal = open && mounted && (
+  // Contenu partagé (liste des options + éventuelle recherche + loader) —
+  // rendu identique en mode dropdown (desktop) et modal (mobile).
+  const listContent = (
+    <div className="flex-1 overflow-y-auto" role="listbox">
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 px-4 py-6">
+          <svg className="w-5 h-5 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-[14px] text-text-muted font-body">Chargement…</span>
+        </div>
+      ) : emptyMessage && displayedOptions.filter((o) => o.value !== "").length === 0 ? (
+        <p className="px-4 py-6 text-[14px] text-text-muted text-center">{emptyMessage}</p>
+      ) : displayedOptions.length === 0 ? (
+        <p className="px-4 py-6 text-[14px] text-text-muted text-center">Aucun résultat</p>
+      ) : (
+        displayedOptions.map((opt, idx) => {
+          const isSelected = opt.value === value;
+          const isHighlighted = idx === highlightedIndex;
+          return (
+            <button
+              key={opt.value}
+              ref={(el) => {
+                if (el) optionRefs.current.set(idx, el);
+                else optionRefs.current.delete(idx);
+              }}
+              type="button"
+              role="option"
+              aria-selected={isSelected}
+              disabled={opt.disabled}
+              onClick={() => handleSelect(opt.value)}
+              onMouseEnter={() => { highlightSourceRef.current = "mouse"; setHighlightedIndex(idx); }}
+              className={`w-full ${isDesktop ? "min-h-9 px-3 py-2" : "min-h-[56px] px-4"} flex items-center justify-between gap-3 border-b border-border-light text-left transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                isSelected
+                  ? "bg-emerald-50"
+                  : isHighlighted
+                    ? "bg-bg-secondary"
+                    : "hover:bg-bg-secondary active:bg-bg-secondary"
+              }`}
+            >
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                {opt.iconNode ? (
+                  <span className="shrink-0 flex items-center">{opt.iconNode}</span>
+                ) : opt.iconUrl ? (
+                  <img
+                    src={opt.iconUrl}
+                    alt=""
+                    loading="lazy"
+                    className="w-6 h-[18px] rounded-sm object-cover shadow-[0_0_0_1px_rgba(15,23,42,0.08)] shrink-0"
+                  />
+                ) : opt.icon ? (
+                  <svg
+                    className="w-5 h-5 shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    style={{ color: isSelected ? "var(--color-text-primary)" : "var(--color-text-muted)" }}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d={opt.icon} />
+                  </svg>
+                ) : null}
+                <span
+                  className={`${isDesktop ? "text-[13px]" : "text-[15px]"} truncate ${
+                    isSelected ? "font-semibold text-text-primary" : "text-text-secondary"
+                  } ${opt.className ?? ""}`}
+                >
+                  {opt.label}
+                </span>
+              </div>
+              {isSelected && (
+                <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+
+  // ─── DROPDOWN desktop ≥ 768 px — ancré sous le trigger via position fixed ──
+  // Pas de voile (comme un select natif). Fermeture au clic extérieur ou ESC.
+  const dropdownDesktop = open && mounted && isDesktop && triggerRect && (
     <div
-      className="fixed inset-0 z-[10500] flex md:items-center md:justify-center md:p-4"
+      ref={dropdownRef}
+      role="listbox"
+      aria-label={pickerTitle}
+      className="fixed z-[10500] bg-bg-primary border border-border rounded-lg shadow-[0_10px_28px_rgba(15,23,42,0.18)] overflow-hidden"
+      style={{
+        top: triggerRect.bottom + 4,
+        left: triggerRect.left,
+        // Largeur : au moins celle du trigger, avec plancher raisonnable pour
+        // les triggers très étroits. Plafond pour listes très larges.
+        minWidth: Math.max(triggerRect.width, 180),
+        maxWidth: Math.min(420, window.innerWidth - triggerRect.left - 8),
+        maxHeight: Math.min(360, window.innerHeight - triggerRect.bottom - 16),
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {searchable && (
+        <div className="shrink-0 border-b border-border-light p-2">
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher…"
+              className="w-full h-8 pl-8 pr-2 rounded-md border border-border bg-bg-primary text-[12.5px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-text-primary"
+            />
+          </div>
+        </div>
+      )}
+      {listContent}
+    </div>
+  );
+
+  // ─── MODAL mobile < 768 px — plein écran, header retour + footer valider ──
+  const pickerModal = open && mounted && !isDesktop && (
+    <div
+      className="fixed inset-0 z-[10500] flex"
       role="dialog"
       aria-modal="true"
       aria-label={pickerTitle}
     >
-      {/* Voile noir — visible ≥ md uniquement (mobile prend tout l'écran) */}
-      <button
-        type="button"
-        aria-label="Fermer"
-        tabIndex={-1}
-        onClick={() => setOpen(false)}
-        className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
-      />
-      {/* Modal */}
       <div
         ref={modalRef}
-        className="relative w-full h-full flex flex-col bg-bg-primary md:w-[min(92vw,460px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-[0_24px_60px_rgba(0,0,0,0.25)] md:overflow-hidden"
+        className="relative w-full h-full flex flex-col bg-bg-primary"
       >
         {/* Header */}
         <div
@@ -294,90 +449,12 @@ export default function CustomSelect({
           )}
         </div>
 
-        {/* Liste scrollable */}
-        <div className="flex-1 overflow-y-auto" role="listbox">
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 px-4 py-6">
-              <svg className="w-5 h-5 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span className="text-[14px] text-text-muted font-body">Chargement…</span>
-            </div>
-          ) : emptyMessage && displayedOptions.filter((o) => o.value !== "").length === 0 ? (
-            <p className="px-4 py-6 text-[14px] text-text-muted text-center">{emptyMessage}</p>
-          ) : displayedOptions.length === 0 ? (
-            <p className="px-4 py-6 text-[14px] text-text-muted text-center">Aucun résultat</p>
-          ) : (
-            displayedOptions.map((opt, idx) => {
-              const isSelected = opt.value === value;
-              const isHighlighted = idx === highlightedIndex;
-              return (
-                <button
-                  key={opt.value}
-                  ref={(el) => {
-                    if (el) optionRefs.current.set(idx, el);
-                    else optionRefs.current.delete(idx);
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={isSelected}
-                  disabled={opt.disabled}
-                  onClick={() => handleSelect(opt.value)}
-                  onMouseEnter={() => { highlightSourceRef.current = "mouse"; setHighlightedIndex(idx); }}
-                  className={`w-full min-h-[56px] md:min-h-[52px] px-4 md:px-5 flex items-center justify-between gap-3 border-b border-border-light text-left transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
-                    isSelected
-                      ? "bg-emerald-50"
-                      : isHighlighted
-                        ? "bg-bg-secondary"
-                        : "hover:bg-bg-secondary active:bg-bg-secondary"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {opt.iconNode ? (
-                      <span className="shrink-0 flex items-center">{opt.iconNode}</span>
-                    ) : opt.iconUrl ? (
-                      <img
-                        src={opt.iconUrl}
-                        alt=""
-                        loading="lazy"
-                        className="w-6 h-[18px] rounded-sm object-cover shadow-[0_0_0_1px_rgba(15,23,42,0.08)] shrink-0"
-                      />
-                    ) : opt.icon ? (
-                      <svg
-                        className="w-5 h-5 shrink-0"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        style={{ color: isSelected ? "var(--color-text-primary)" : "var(--color-text-muted)" }}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" d={opt.icon} />
-                      </svg>
-                    ) : null}
-                    <span
-                      className={`text-[15px] md:text-[14px] truncate ${
-                        isSelected ? "font-semibold text-text-primary" : "text-text-secondary"
-                      } ${opt.className ?? ""}`}
-                    >
-                      {opt.label}
-                    </span>
-                  </div>
-                  {isSelected && (
-                    <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
+        {/* Liste scrollable — partagée avec le dropdown desktop */}
+        {listContent}
 
-        {/* Footer sticky avec bouton Valider (mobile seulement — sur desktop
-            on ferme par clic sur voile / croix / choix d'une option). */}
+        {/* Footer sticky avec bouton Valider (mobile). */}
         <div
-          className="md:hidden shrink-0 border-t border-border bg-bg-primary px-4 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
+          className="shrink-0 border-t border-border bg-bg-primary px-4 pt-3 pb-[max(env(safe-area-inset-bottom),16px)]"
         >
           <button
             type="button"
@@ -443,7 +520,7 @@ export default function CustomSelect({
         </svg>
       </button>
 
-      {mounted && createPortal(pickerModal, document.body)}
+      {mounted && createPortal(<>{dropdownDesktop}{pickerModal}</>, document.body)}
     </>
   );
 }

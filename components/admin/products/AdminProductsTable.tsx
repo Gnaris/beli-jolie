@@ -39,6 +39,7 @@ import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
+import { useMicrostoreBulkPush } from "@/components/admin/products/MicrostoreBulkPushContext";
 import { useEfashionShootingBatch } from "@/components/admin/products/EfashionShootingBatchContext";
 import { useRightRail } from "@/components/admin/widgets-rail/RightRailContext";
 import { useFilterPending } from "@/components/admin/products/FilterPendingContext";
@@ -47,6 +48,7 @@ import { computeBulkVariantMarketplaceTargets } from "@/lib/bulk-variant-marketp
 import { isMicrostorePropagationEligible } from "@/lib/microstore-propagation-eligibility";
 import { groupPendingStatuses, countPendingStatusChanges } from "@/lib/pending-status-grouping";
 import { isOrderchampPropagationEligible } from "@/lib/orderchamp-propagation-eligibility";
+import { isMarketplaceLinked } from "@/lib/marketplace-visibility";
 import {
   MISSING_FIELD_LABELS,
   MISSING_FIELD_TITLES,
@@ -2947,6 +2949,9 @@ function ProductRow({
   const [refCopied, setRefCopied] = useState(false);
   const { enqueue, items: queueItems, getRecentClientSuccessAt } = useMarketplaceRefreshQueue();
   const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
+  // Suivi des bulk pushs Microstore (ne passent pas par la file → sinon badge
+  // resterait sur l'état précédent pendant tout le push).
+  const { isBulkPushing: isMicrostoreBulkPushing } = useMicrostoreBulkPush();
   const { addProduct: addToEfashionShootingBatch, items: efashionShootingItems } = useEfashionShootingBatch();
   const { open: openRailWidget, nudgeWidget: nudgeRailWidget } = useRightRail();
   const efashionShootingPending = React.useMemo(() => {
@@ -2973,14 +2978,15 @@ function ProductRow({
   const orderchampDisabledOverall = !product.orderchampEnabled || !orderchampEnabled;
   const efashionLinked = product.colors.some((c) => c.efashionProductId != null);
   const { refreshSingle } = useRefreshMarketplaceDialog({
-    showPfs: pfsOperational,
-    showAnkorstore: ankorstoreOperational,
-    showEfashion: efashionOperational,
-    showFaire: faireOperational,
-    // OC : aligné sur les autres marketplaces — la case n'apparaît que si le
-    // produit est déjà lié. Un « Rafraîchir » sur un produit non-lié
-    // enclencherait sinon la création côté OC (fallback publish).
-    showOrderchamp: orderchampOperational && !!product.orderchampProductId,
+    // Toutes les marketplaces n'apparaissent que si le produit y est déjà lié.
+    // Un « Rafraîchir » sur un produit non-lié laisserait sinon le worker
+    // tourner à vide (pas d'ID à republier) → toast « succès » trompeur.
+    // La 1ʳᵉ publication passe par le badge coloré de la fiche produit.
+    showPfs: pfsOperational && isMarketplaceLinked(product, "pfs"),
+    showAnkorstore: ankorstoreOperational && isMarketplaceLinked(product, "ankorstore"),
+    showEfashion: efashionOperational && isMarketplaceLinked(product, "efashion"),
+    showFaire: faireOperational && isMarketplaceLinked(product, "faire"),
+    showOrderchamp: orderchampOperational && isMarketplaceLinked(product, "orderchamp"),
   });
 
   // Optimistic UI : quand la cliente clique la croix « ignorer » d'un badge
@@ -3127,7 +3133,10 @@ function ProductRow({
     false,
   );
   const [pendingMicrostoreEnqueue, setPendingMicrostoreEnqueue] = useState(false);
-  const isMicrostorePublishing = microstoreBadgeState.loading || pendingMicrostoreEnqueue;
+  const isMicrostorePublishing =
+    microstoreBadgeState.loading
+    || pendingMicrostoreEnqueue
+    || isMicrostoreBulkPushing(product.id);
 
   // État de confirmation « Publier sur X ? » — piloté par une seule modale
   // partagée (MarketplacePublishConfirmModal). null = fermée.
@@ -4846,6 +4855,9 @@ export default function AdminProductsTable({
     showOrderchamp,
   });
   const { enqueue: enqueuePfs } = useMarketplaceRefreshQueue();
+  // Wrapper des pushs bulk Microstore → active le badge bleu « En cours »
+  // sur chaque produit concerné pendant toute la durée du fire-and-forget.
+  const { runBulkPush: runMicrostoreBulkPush } = useMicrostoreBulkPush();
   const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
   const { nudgeWidget: nudgeRailWidget } = useRightRail();
   const toast = useToast();
@@ -5162,7 +5174,7 @@ export default function AdminProductsTable({
       if (options.microstore && microstoreProducts.length > 0) {
         nudgeRailWidget("microstore-upload");
         const toPushIds = microstoreProducts.map((p) => p.id);
-        void (async () => {
+        runMicrostoreBulkPush(toPushIds, async () => {
           const { bulkPushProductsToMicrostore } = await import(
             "@/app/actions/admin/microstore-products"
           );
@@ -5170,7 +5182,8 @@ export default function AdminProductsTable({
           if (!res.success && res.error) {
             toast.error("Envoi Microstore partiellement échoué", res.error);
           }
-        })();
+          router.refresh();
+        });
       }
       if (inputs.length > 0) enqueuePfs(inputs);
     } catch (e) {
@@ -5194,6 +5207,7 @@ export default function AdminProductsTable({
     showOrderchamp,
     askMarketplaceOptions,
     enqueuePfs,
+    runMicrostoreBulkPush,
     router,
     toast,
     confirm,
@@ -5507,7 +5521,7 @@ export default function AdminProductsTable({
         const toPushIds = decision.microstoreEligibleIds.filter((id) => onlineIds.has(id));
         if (toPushIds.length > 0) {
           nudgeRailWidget("microstore-upload");
-          void (async () => {
+          runMicrostoreBulkPush(toPushIds, async () => {
             const { bulkPushProductsToMicrostore } = await import(
               "@/app/actions/admin/microstore-products"
             );
@@ -5515,7 +5529,8 @@ export default function AdminProductsTable({
             if (!res.success && res.error) {
               toast.error("Envoi Microstore partiellement échoué", res.error);
             }
-          })();
+            router.refresh();
+          });
         }
       }
 
@@ -5525,6 +5540,7 @@ export default function AdminProductsTable({
     [
       allProducts,
       enqueuePfs,
+      runMicrostoreBulkPush,
       hasPfsConfig,
       hasMicrostoreConfig,
       showAnkorstore,
@@ -6190,23 +6206,20 @@ export default function AdminProductsTable({
     const showFaireLocal = hasFaireConfig && faireEnabled;
     const showOrderchampLocal = hasOrderchampConfig && orderchampEnabled;
     const targets = allProducts.filter((p) => ids.includes(p.id));
-    const pfsTargets = hasPfsConfig ? targets.filter((p) => p.pfsProductId) : [];
-    const ankorsTargets = showAnkorstore ? targets.filter((p) => p.ankorsProductId) : [];
-    const efashionTargets = showEfashion
-      ? targets.filter((p) => (p.colors ?? []).some((c) => c.efashionProductId != null))
-      : [];
-    const faireTargets = showFaireLocal ? targets.filter((p) => p.faireProductId) : [];
-    // Orderchamp est upsert-style (règle transversale — voir mémoire) : la case
-    // apparaît même si le produit n'est pas encore lié à OC. Les produits déjà
-    // liés partent en mode "resync" (productRepublish + forceFullSync), les
-    // non-liés partent en mode "publish" (crée la fiche OC).
+    // Chaque marketplace n'apparaît que si le produit y est déjà lié — sans
+    // lien un « Synchroniser » laissait le worker tourner à vide (ou tenter
+    // un publish qui pouvait échouer silencieusement) et la cliente voyait
+    // un toast « succès » sans fiche côté marketplace. La 1ʳᵉ publication
+    // passe par le badge coloré de la fiche produit.
+    const pfsTargets = hasPfsConfig ? targets.filter((p) => isMarketplaceLinked(p, "pfs")) : [];
+    const ankorsTargets = showAnkorstore ? targets.filter((p) => isMarketplaceLinked(p, "ankorstore")) : [];
+    const efashionTargets = showEfashion ? targets.filter((p) => isMarketplaceLinked(p, "efashion")) : [];
+    const faireTargets = showFaireLocal ? targets.filter((p) => isMarketplaceLinked(p, "faire")) : [];
     const orderchampTargets = showOrderchampLocal
-      ? targets.filter((p) => isOrderchampPropagationEligible(p))
+      ? targets.filter((p) => isMarketplaceLinked(p, "orderchamp") && isOrderchampPropagationEligible(p))
       : [];
-    const orderchampLinkedTargets = orderchampTargets.filter((p) => !!p.orderchampProductId);
-    const orderchampUnlinkedTargets = orderchampTargets.filter((p) => !p.orderchampProductId);
     const microstoreTargets = hasMicrostoreConfig
-      ? targets.filter((p) => isMicrostorePropagationEligible(p))
+      ? targets.filter((p) => isMarketplaceLinked(p, "microstore") && isMicrostorePropagationEligible(p))
       : [];
 
     if (
@@ -6254,29 +6267,15 @@ export default function AdminProductsTable({
       actionMode: "update",
     });
     if (!options) return;
-    // Split OC : le mode "resync" ne fonctionne QUE pour les fiches déjà liées
-    // (productRepublish exige l'ID OC). Les fiches non-liées passent en mode
-    // "publish" — le worker appellera orderchampPublishProduct pour créer la
-    // fiche de zéro. Idem Microstore : "resync" n'existe pas → toujours
-    // "publish" (le worker choisit create vs update selon microstoreProductId).
-    const candidatesLinkedOc: MarketplaceCandidates = {
-      ...candidates,
-      orderchamp: orderchampLinkedTargets,
-      microstore: [],
-    };
-    const inputs = buildMarketplaceInputs(candidatesLinkedOc, options, "resync");
-    if (options.orderchamp && orderchampUnlinkedTargets.length > 0) {
-      const ocPublishCandidates: MarketplaceCandidates = {
-        pfs: [], ankorstore: [], efashion: [], faire: [], microstore: [],
-        orderchamp: orderchampUnlinkedTargets,
-      };
-      const ocPublishInputs = buildMarketplaceInputs(
-        ocPublishCandidates,
-        { orderchamp: true },
-        "publish",
-      );
-      inputs.push(...ocPublishInputs);
-    }
+    // Tous les produits ciblés sont déjà liés (filtre plus haut). OC =
+    // "resync" via productRepublish. Microstore = "publish" (mode "resync"
+    // n'existe pas côté Microstore, le worker fait toujours un update quand
+    // microstoreProductId est posé).
+    const inputs = buildMarketplaceInputs(
+      { ...candidates, microstore: [] },
+      options,
+      "resync",
+    );
     if (options.microstore && microstoreTargets.length > 0) {
       nudgeRailWidget("microstore-upload");
       const microstorePublishCandidates: MarketplaceCandidates = {
@@ -6288,7 +6287,7 @@ export default function AdminProductsTable({
       );
     }
     if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast]);
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast]);
 
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
   // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque

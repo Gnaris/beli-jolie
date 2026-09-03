@@ -15,6 +15,7 @@ import path from "path";
 import nodemailer, { type Transporter } from "nodemailer";
 import { logger } from "@/lib/logger";
 import { getCachedShopName } from "@/lib/cached-data";
+import type { EmailScenarioKey } from "@/lib/email-scenarios";
 
 export interface MailAttachment {
   filename: string;
@@ -22,6 +23,24 @@ export interface MailAttachment {
   path?: string;
   /** Contenu direct (Buffer ou string base64). Priorité sur `path`. */
   content?: Buffer | string;
+}
+
+/**
+ * Métadonnées de traçage d'un envoi. Si présent, `sendMail` écrit un
+ * enregistrement `EmailSend` en BDD (SENT ou FAILED). Sans `tracking`, aucun
+ * log BDD n'est créé — utilisé pour les mails admin internes (login notify,
+ * paiement orphelin, etc.) qu'on ne veut pas afficher dans le journal client.
+ */
+export interface SendMailTracking {
+  scenarioKey: EmailScenarioKey;
+  /** ID du client destinataire. Absent = mail lié à un email sans compte. */
+  userId?: string | null;
+  /** Info contextuelle stockée en JSON (ex. orderId, claimId, templateId). */
+  metadata?: Record<string, unknown>;
+  /** Nombre de tentatives (défaut 1). Utilisé pour les renvois. */
+  attempts?: number;
+  /** ID d'un précédent EmailSend dont celui-ci est le renvoi. */
+  resendOfId?: string;
 }
 
 export interface SendMailParams {
@@ -34,6 +53,8 @@ export interface SendMailParams {
   fromEmail?: string;
   replyTo?: string;
   attachments?: MailAttachment[];
+  /** Si fourni, log l'envoi dans EmailSend (succès ou échec). */
+  tracking?: SendMailTracking;
 }
 
 export type SendMailResult =
@@ -273,12 +294,79 @@ export async function getSmtpConfigStatus(): Promise<{
 }
 
 /**
+ * Écrit un log d'envoi dans EmailSend. Best-effort : n'échoue jamais
+ * (les erreurs sont loggées mais pas propagées, on ne veut pas casser
+ * un envoi de mail parce que la trace n'a pas pu s'écrire).
+ */
+async function persistEmailLog(input: {
+  tracking: SendMailTracking;
+  to: string;
+  subject: string;
+  html: string;
+  fromEmail: string | null;
+  fromName: string | null;
+  status: "SENT" | "FAILED";
+  messageId?: string | null;
+  errorMessage?: string | null;
+}): Promise<void> {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const { getCurrentTenantIdSync } = await import("@/lib/tenant-als");
+
+    let tenantId = getCurrentTenantIdSync();
+    if (!tenantId) {
+      try {
+        const { headers } = await import("next/headers");
+        const h = await headers();
+        tenantId = h.get("x-tenant-id");
+      } catch { /* hors requête */ }
+    }
+    if (!tenantId) {
+      logger.warn("[email] Trace journal ignorée — tenant non résolu", {
+        scenarioKey: input.tracking.scenarioKey,
+        to: input.to,
+      });
+      return;
+    }
+
+    await prisma.emailSend.create({
+      data: {
+        tenantId,
+        userId: input.tracking.userId ?? null,
+        recipientEmail: input.to.slice(0, 320),
+        fromEmail: input.fromEmail?.slice(0, 320) ?? null,
+        fromName: input.fromName?.slice(0, 200) ?? null,
+        scenarioKey: input.tracking.scenarioKey,
+        subject: input.subject.slice(0, 500),
+        htmlBody: input.html,
+        status: input.status,
+        errorMessage: input.errorMessage ?? null,
+        messageId: input.messageId?.slice(0, 500) ?? null,
+        attempts: input.tracking.attempts ?? 1,
+        resendOfId: input.tracking.resendOfId ?? null,
+        metadata: input.tracking.metadata
+          ? (input.tracking.metadata as object)
+          : undefined,
+      },
+    });
+  } catch (err) {
+    logger.error("[email] Écriture journal EmailSend échouée", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
  * Envoie un email via SMTP (nodemailer).
  *
  * - Pas de config complète → `{ sent: false, reason: "no_config" }`.
  * - Pas d'adresse expéditeur → `{ sent: false, reason: "no_from" }`.
  * - Échec SMTP → log + `{ sent: false, reason: "smtp_error" }`.
  * - Succès → `{ sent: true, id }` (messageId renvoyé par nodemailer).
+ *
+ * Si `params.tracking` est fourni, chaque envoi (succès OU échec, y compris
+ * config manquante) est enregistré dans `EmailSend` pour affichage dans le
+ * journal client. Les mails admin internes ne passent pas `tracking`.
  */
 export async function sendMail(
   params: SendMailParams
@@ -286,14 +374,40 @@ export async function sendMail(
   const { connection, fromEmail: cfgFromEmail, fromName: cfgFromName } =
     await resolveSmtpConfig();
 
+  const toString = Array.isArray(params.to) ? params.to.join(", ") : params.to;
+
   if (!connection) {
     logger.warn("[email] Configuration SMTP incomplète — email ignoré.");
+    if (params.tracking) {
+      await persistEmailLog({
+        tracking: params.tracking,
+        to: toString,
+        subject: params.subject,
+        html: params.html,
+        fromEmail: params.fromEmail?.trim() || cfgFromEmail || null,
+        fromName: params.fromName?.trim() || cfgFromName || null,
+        status: "FAILED",
+        errorMessage: "Configuration SMTP absente (aucun serveur d'envoi configuré).",
+      });
+    }
     return { sent: false, reason: "no_config" };
   }
 
   const fromEmail = params.fromEmail?.trim() || cfgFromEmail;
   if (!fromEmail) {
     logger.warn("[email] Aucune adresse expéditeur configurée — email ignoré.");
+    if (params.tracking) {
+      await persistEmailLog({
+        tracking: params.tracking,
+        to: toString,
+        subject: params.subject,
+        html: params.html,
+        fromEmail: null,
+        fromName: params.fromName?.trim() || cfgFromName || null,
+        status: "FAILED",
+        errorMessage: "Aucune adresse expéditeur configurée.",
+      });
+    }
     return { sent: false, reason: "no_from" };
   }
 
@@ -312,12 +426,24 @@ export async function sendMail(
     const transporter = buildTransporter(connection);
     const info = await transporter.sendMail({
       from: formatFrom(fromName, fromEmail),
-      to: Array.isArray(params.to) ? params.to.join(", ") : params.to,
+      to: toString,
       subject: params.subject,
       html: params.html,
       replyTo: params.replyTo,
       attachments: attachments.length > 0 ? attachments : undefined,
     });
+    if (params.tracking) {
+      await persistEmailLog({
+        tracking: params.tracking,
+        to: toString,
+        subject: params.subject,
+        html: params.html,
+        fromEmail,
+        fromName: fromName ?? null,
+        status: "SENT",
+        messageId: info.messageId || null,
+      });
+    }
     return { sent: true, id: info.messageId || "" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -326,6 +452,18 @@ export async function sendMail(
       to: params.to,
       subject: params.subject,
     });
+    if (params.tracking) {
+      await persistEmailLog({
+        tracking: params.tracking,
+        to: toString,
+        subject: params.subject,
+        html: params.html,
+        fromEmail,
+        fromName: fromName ?? null,
+        status: "FAILED",
+        errorMessage: msg,
+      });
+    }
     return { sent: false, reason: "smtp_error", error: msg };
   }
 }

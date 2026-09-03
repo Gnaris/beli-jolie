@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { renderNewsletterHtml, defaultDataFor, type NewsletterBlock, type ProductLite } from "@/lib/newsletter-blocks";
+import {
+  renderNewsletterHtml,
+  defaultDataFor,
+  substituteFirstName,
+  type NewsletterBlock,
+  type NewsletterDynamicContext,
+  type ProductLite,
+} from "@/lib/newsletter-blocks";
 import type { SharedMailContext } from "@/lib/mail-templates/shared";
 
 const shared: SharedMailContext = {
@@ -8,8 +15,12 @@ const shared: SharedMailContext = {
   legalLine: "Beli & Jolie · Grossiste en bijoux, Aubervilliers, France",
 };
 
-function render(blocks: NewsletterBlock[], productsById = new Map<string, ProductLite>()): string {
-  return renderNewsletterHtml({ subject: "Test", blocks, productsById, shared });
+function render(
+  blocks: NewsletterBlock[],
+  productsById = new Map<string, ProductLite>(),
+  dynamic?: NewsletterDynamicContext,
+): string {
+  return renderNewsletterHtml({ subject: "Test", blocks, productsById, shared, dynamic });
 }
 
 describe("newsletter-blocks — nouveaux types", () => {
@@ -263,5 +274,127 @@ describe("newsletter-blocks — nouveaux types", () => {
     expect(html).toMatch(/text-align:left/);
     expect(html).toMatch(/background:#e11d48/);
     expect(html).toContain("Voir");
+  });
+});
+
+describe("blocs dynamiques — panier / favoris / jours inactifs", () => {
+  it("bloc cartItems injecte les items du contexte dynamique", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "cart",
+        type: "cartItems",
+        data: { totalLabel: "Total", emptyMessage: "Panier vide" },
+      },
+    ];
+    const html = render(blocks, new Map(), {
+      cart: {
+        items: [
+          { productName: "Bague Sunny", colorName: "Doré", quantity: 2, totalCents: 5400, imagePath: null },
+          { productName: "Bracelet Zen", colorName: null, quantity: 1, totalCents: 1990, imagePath: "/uploads/br.webp" },
+        ],
+        totalCents: 7390,
+      },
+    });
+    expect(html).toContain("Bague Sunny");
+    expect(html).toContain("Bracelet Zen");
+    expect(html).toContain("x2");
+    expect(html).toContain("Total");
+    // Total 73,90 € (formatEuros)
+    expect(html).toMatch(/73[,.]90/);
+    // Image absolue
+    expect(html).toContain("https://beliandjolie.com/uploads/br.webp");
+  });
+
+  it("bloc cartItems affiche le emptyMessage si aucun item", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "cart", type: "cartItems", data: { emptyMessage: "Rien dans le panier !" } },
+    ];
+    const html = render(blocks, new Map(), { cart: { items: [], totalCents: 0 } });
+    expect(html).toContain("Rien dans le panier !");
+    expect(html).not.toContain("Total");
+  });
+
+  it("bloc favoritesGrid rend la sélection en grille 2 colonnes", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "f", type: "favoritesGrid", data: { cols: 2 } },
+    ];
+    const html = render(blocks, new Map(), {
+      favorites: [
+        { productName: "Alpha", colorName: "Bleu", priceCents: 1500, imagePath: null },
+        { productName: "Beta", colorName: null, priceCents: 2500, imagePath: null },
+      ],
+    });
+    expect(html).toContain("Alpha");
+    expect(html).toContain("Beta");
+    expect(html).toMatch(/<td width="50%"/);
+  });
+
+  it("bloc daysInactive substitue {days} par la valeur réelle", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "d",
+        type: "daysInactive",
+        data: {
+          template: "Cela fait {days} jour(s) qu'on ne vous a pas vu.",
+          neverVisitedTemplate: "Jamais visité.",
+        },
+      },
+    ];
+    const html = render(blocks, new Map(), { daysInactive: 42 });
+    expect(html).toContain("Cela fait 42 jour(s)");
+  });
+
+  it("bloc daysInactive utilise neverVisitedTemplate si daysInactive=null", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "d",
+        type: "daysInactive",
+        data: {
+          template: "Cela fait {days} jour(s).",
+          neverVisitedTemplate: "Jamais visité, pourtant !",
+        },
+      },
+    ];
+    const html = render(blocks, new Map(), { daysInactive: null });
+    expect(html).toContain("Jamais visité, pourtant !");
+    expect(html).not.toContain("{days}");
+  });
+});
+
+describe("substituteFirstName", () => {
+  it("remplace {firstName} dans heading title + body", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h",
+        type: "heading",
+        data: { title: "Bonjour {firstName} !", body: "Contenu pour {firstName}.", align: "left" },
+      },
+    ];
+    const result = substituteFirstName(blocks, "Marie");
+    const h = result[0] as Extract<NewsletterBlock, { type: "heading" }>;
+    expect(h.data.title).toBe("Bonjour Marie !");
+    expect(h.data.body).toBe("Contenu pour Marie.");
+  });
+
+  it("remplace {firstName} dans les items d'une liste", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "l", type: "list", data: { items: ["Bonjour {firstName}", "Item libre"] } },
+    ];
+    const result = substituteFirstName(blocks, "Alice");
+    const l = result[0] as Extract<NewsletterBlock, { type: "list" }>;
+    expect(l.data.items[0]).toBe("Bonjour Alice");
+    expect(l.data.items[1]).toBe("Item libre");
+  });
+
+  it("no-op si firstName vide", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h",
+        type: "heading",
+        data: { title: "Bonjour {firstName}", body: "", align: "left" },
+      },
+    ];
+    const result = substituteFirstName(blocks, "");
+    expect(result).toBe(blocks);
   });
 });

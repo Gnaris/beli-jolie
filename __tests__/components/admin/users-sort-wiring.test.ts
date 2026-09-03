@@ -53,14 +53,18 @@ describe("Page clients — interface de tri", () => {
     expect(PAGE).toMatch(/<PerPageSelect value=\{perPage\} \/>/);
   });
 
-  it("rend les en-têtes Société, Commandes, Présence et Inscription cliquables", () => {
-    for (const key of ["company", "orders", "login", "created"]) {
+  it("rend les en-têtes Société, Commandes et Activité cliquables", () => {
+    // La colonne Inscription a été fusionnée : la date d'inscription est
+    // désormais affichée sous la ligne Activité, et l'ancienne case
+    // « Inscription » accueille le panier en cours. Le tri par date d'inscription
+    // reste disponible via le sélecteur « Trier par » (option "created").
+    for (const key of ["company", "orders", "login"]) {
       expect(PAGE).toMatch(new RegExp(`<SortableHeader[^>]*sortKey="${key}"`));
     }
   });
 
   it("changer de filtre de statut conserve le tri et le nombre par page", () => {
-    expect(PAGE).toMatch(/href=\{buildListHref\(\{ status: filter\.value, perPage, sort, dir \}\)\}/);
+    expect(PAGE).toMatch(/href=\{buildListHref\(\{ status: filter\.value, perPage, sort, dir, view \}\)\}/);
     // L'ancien lien écrasait tous les réglages
     expect(PAGE).not.toMatch(/href=\{filter\.value === "ALL" \? "\/admin\/utilisateurs"/);
   });
@@ -75,6 +79,51 @@ describe("Page clients — interface de tri", () => {
 
   it("affiche aussi les commandes sur la vue mobile", () => {
     expect(PAGE).toMatch(/\{orderStats\.count\} commande\{orderStats\.count > 1 \? "s" : ""\}/);
+  });
+});
+
+describe("Page clients — refonte colonnes 2026-09-02", () => {
+  // Cliente : "déplace la colonne Inscription dans la colonne Présence" +
+  // "dans la colonne Inscription je veux le panier du client" + "SIRET et
+  // TVA dans la colonne Société · Email" (avec libellé N° entreprise pour
+  // les clients hors France).
+
+  it("charge un résumé du panier par client (nb d'articles + total HT)", () => {
+    expect(PAGE).toMatch(/async function loadCartsFor\(userIds: string\[\]\)/);
+    expect(PAGE).toMatch(/type CartSummary = \{ itemCount: number; total: number \}/);
+    expect(PAGE).toMatch(/prisma\.cart\.findMany/);
+    // n'appelle loadCartsFor QUE sur la vue infos (pas quand on est en vue mails)
+    expect(PAGE).toMatch(/view === "infos"[\s\S]{0,120}loadCartsFor/);
+  });
+
+  it("charge SIRET, N° d'entreprise, TVA et pays dans le SELECT client", () => {
+    for (const field of ["siret: true", "businessRegistrationNumber: true", "vatNumber: true", "addressCountry: true"]) {
+      expect(PAGE).toContain(field);
+    }
+  });
+
+  it("étend la recherche au N° d'entreprise (clients hors France)", () => {
+    expect(PAGE).toMatch(/\{ businessRegistrationNumber: \{ contains: registeredSearch \} \}/);
+  });
+
+  it("libellé SIRET pour FR, N° entreprise pour les autres pays", () => {
+    expect(PAGE).toMatch(/label: "SIRET"/);
+    expect(PAGE).toMatch(/label: "N° entreprise"/);
+  });
+
+  it("affiche les colonnes Activité et Panier (Inscription et SIRET supprimées)", () => {
+    expect(PAGE).toMatch(/label="Activité"/);
+    expect(PAGE).toContain(">Panier<");
+    // L'ancienne colonne SIRET séparée n'existe plus
+    expect(PAGE).not.toMatch(/>SIRET</);
+    // L'ancien en-tête cliquable Inscription n'existe plus
+    expect(PAGE).not.toMatch(/label="Inscription"/);
+  });
+
+  it("affiche le résumé du panier (nb articles + total) dans la table desktop", () => {
+    expect(PAGE).toMatch(/const cart = carts\.get\(c\.id\)/);
+    expect(PAGE).toMatch(/\{cart\.itemCount\}/);
+    expect(PAGE).toMatch(/formatSpent\(cart\.total\)/);
   });
 });
 

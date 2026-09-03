@@ -48,7 +48,7 @@ model User {
   businessRegistrationNumber    String? // N° d'enregistrement d'entreprise (clients hors France : Companies House, EIN, etc.)
   kbisPath                      String?
   documentPath                  String? // Document libre envoyé lors de l'inscription (justificatif d'entreprise hors UE)
-  registrationMessage           String? @db.Text // Message libre lors de l'inscription (Zod autorise 2000 caractères — VARCHAR(191) MySQL par défaut est trop court)
+  registrationMessage           String?             @db.Text // Message libre lors de l'inscription (Zod autorise 2000 caractères — VARCHAR(191) MySQL par défaut est trop court)
   // Adresse de la société (saisie à l'inscription)
   addressStreet                 String? // ex: "12 rue des Lilas"
   addressComplement             String? // ex: "Bâtiment B, 3e étage"
@@ -1287,28 +1287,28 @@ model SeasonTranslation {
 
 // Bibliothèque de compositions (matériaux) — scopée par tenant
 model Composition {
-  id                     String                   @id @default(cuid())
-  name                   String
-  pfsCompositionRef      String?
+  id                      String                   @id @default(cuid())
+  name                    String
+  pfsCompositionRef       String?
   // Salesforce Uid PFS (globalement stable, immunisé aux fautes d'orthographe
   // et aux renommages côté PFS). Rempli à la volée par le fallback mobile
   // via le dictionnaire /attributes/composition, et par backfill sur les
   // compos existantes. Match prioritaire par Uid dans resolvePfsCompositionsToLocal.
-  pfsCompositionUid      String?
-  efashionId             Int?
-  faireMaterialLabel     String?
+  pfsCompositionUid       String?
+  efashionId              Int?
+  faireMaterialLabel      String?
   // Mapping Orderchamp : un des ~35 codes bijoux de l'enum `FilterMaterialValue`
   // (ex "STAINLESS_STEEL", "GOLD_PLATED", "ENAMEL"). Sélectionné par l'admin
   // dans /admin/compositions. Envoyé en `filterMaterial` sur chaque variante
   // au publish. Max 4 matériaux par produit, triés par % décroissant.
-  orderchampMaterialCode String?
+  orderchampMaterialCode  String?
   // Mapping Microstore : ID composition côté MC Gérant. Rempli manuellement via
   // CustomSelect dans CompositionEditorModal. Priorité sur matching par nom au push.
   microstoreCompositionId Int?
-  position               Int                      @default(0)
-  createdAt              DateTime                 @default(now())
-  products               ProductComposition[]
-  translations           CompositionTranslation[]
+  position                Int                      @default(0)
+  createdAt               DateTime                 @default(now())
+  products                ProductComposition[]
+  translations            CompositionTranslation[]
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
   tenantId String?
@@ -1540,7 +1540,7 @@ model Product {
   /// quand colorImages change, linkMicrostoreProductManually, demande explicite
   /// de resync. Reset false uniquement après push photos réussi. Défaut true
   /// pour forcer un premier alignement sur l'existant après déploiement.
-  microstorePhotosDirty      Boolean @default(true)
+  microstorePhotosDirty      Boolean   @default(true)
 
   // Drapeaux "Synchronisation nécessaire" — passés à true quand un changement
   // local n'a pas été propagé au marketplace correspondant (save sans cocher
@@ -3498,19 +3498,32 @@ model Tenant {
 // - futures clés au besoin (ex. campagnes ciblées)
 // ─────────────────────────────────────────────
 model EmailSend {
-  id             String   @id @default(cuid())
+  id             String      @id @default(cuid())
   tenantId       String
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId         String?
-  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  recipientEmail String   @db.VarChar(320)
-  scenarioKey    String   @db.VarChar(50)
-  subject        String   @db.VarChar(500)
-  sentAt         DateTime @default(now())
+  user           User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  recipientEmail String      @db.VarChar(320)
+  fromEmail      String?     @db.VarChar(320)
+  fromName       String?     @db.VarChar(200)
+  scenarioKey    String      @db.VarChar(50)
+  subject        String      @db.VarChar(500)
+  htmlBody       String?     @db.LongText
+  textBody       String?     @db.Text
+  sentAt         DateTime    @default(now())
+  status         String      @default("SENT") @db.VarChar(10) // SENT | FAILED
+  errorMessage   String?     @db.Text
+  messageId      String?     @db.VarChar(500)
+  attempts       Int         @default(1)
+  resendOfId     String?
+  resendOf       EmailSend?  @relation("EmailResend", fields: [resendOfId], references: [id], onDelete: SetNull)
+  resends        EmailSend[] @relation("EmailResend")
   metadata       Json?
 
+  @@index([tenantId, userId, sentAt])
   @@index([tenantId, userId, scenarioKey, sentAt])
   @@index([tenantId, scenarioKey, sentAt])
+  @@index([tenantId, status, sentAt])
 }
 
 // ─────────────────────────────────────────────
@@ -3523,16 +3536,21 @@ model EmailSend {
 // leur configuration. Rendu HTML côté serveur au moment de l'envoi.
 // ─────────────────────────────────────────────
 model NewsletterTemplate {
-  id         String    @id @default(cuid())
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name       String    @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
-  subject    String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
-  blocks     Json      @default("[]") // Structure des blocs de l'éditeur
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  lastSentAt DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String    @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
+  subject     String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
+  blocks      Json      @default("[]") // Structure des blocs de l'éditeur
+  // Si posé, ce modèle est le modèle actif d'un scénario transactionnel
+  // (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK). Un seul modèle par scénario
+  // par tenant. Non supprimable tant que ce champ est posé.
+  scenarioKey String?   @db.VarChar(40)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastSentAt  DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
 
+  @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
 }
 

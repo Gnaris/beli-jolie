@@ -30,6 +30,25 @@ function escapeHtml(str: string): string {
 }
 
 /**
+ * Retrouve le userId d'un compte client à partir de son email (best-effort).
+ * Utilisé pour rattacher les mails transactionnels au journal du client.
+ * Retourne null si aucun compte ne correspond (ex. inscription en cours) —
+ * dans ce cas le log est écrit sans userId, mais reste consultable via
+ * l'email destinataire.
+ */
+async function resolveUserIdByEmail(email: string): Promise<string | null> {
+  try {
+    const u = await prisma.user.findFirst({
+      where: { email: email.toLowerCase().trim() },
+      select: { id: true },
+    });
+    return u?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Destinataire des notifications admin (nouvelle commande, inscription…).
  * Priorités :
  * 1. `smtp_from_email` (SiteConfig) — la boîte pro `contact@<domaine>` créée
@@ -367,11 +386,30 @@ export async function notifyOrderStatusChange(
       </div>
     `;
 
+    const scenarioKey =
+      data.newStatus === "PENDING" ? "ORDER_CREATED"
+      : data.newStatus === "VALIDATED" ? "ORDER_VALIDATED"
+      : data.newStatus === "SHIPPED" ? "ORDER_SHIPPED"
+      : data.newStatus === "CANCELLED" ? "ORDER_CANCELLED"
+      : null;
+
+    const userId = await resolveUserIdByEmail(order.clientEmail);
+
     await sendMail({
       fromName: shopName,
       to: order.clientEmail,
       subject: config.subject(order.orderNumber, shopName),
       html,
+      tracking: scenarioKey ? {
+        scenarioKey,
+        userId,
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          newStatus: data.newStatus,
+          hasAdjustments: data.hasAdjustments ?? false,
+        },
+      } : undefined,
     });
   } catch (err) {
     logger.error("[order-status-email] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
@@ -436,6 +474,8 @@ export async function notifyClientNewReply(params: {
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
   const baseUrl = await getCurrentTenantBaseUrl();
 
+  const userId = await resolveUserIdByEmail(clientEmail);
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
@@ -453,6 +493,11 @@ export async function notifyClientNewReply(params: {
         </a>
       </div>
     `,
+    tracking: {
+      scenarioKey: "SUPPORT_REPLY",
+      userId,
+      metadata: { conversationId, subject },
+    },
   });
 
   logger.info(`[Notifications] Client ${clientEmail} notified of reply [${ref}]`);
@@ -522,6 +567,8 @@ export async function notifyClientHasNewReply(params: {
   const shopName = await getCachedShopName();
   const baseUrl = await getCurrentTenantBaseUrl();
 
+  const userId = await resolveUserIdByEmail(clientEmail);
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
@@ -539,6 +586,11 @@ export async function notifyClientHasNewReply(params: {
         </p>
       </div>
     `,
+    tracking: {
+      scenarioKey: "CLAIM_REPLY",
+      userId,
+      metadata: { claimId, claimReference, subject },
+    },
   });
 
   logger.info(`[Notifications] Client ${clientEmail} notifié — nouvelle réponse ${claimReference}`);
@@ -650,6 +702,7 @@ export async function notifyClientAccountApproved(params: {
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
 
+    const userId = await resolveUserIdByEmail(params.email);
     await sendMail({
       fromName: shopName,
       to: params.email,
@@ -683,6 +736,11 @@ export async function notifyClientAccountApproved(params: {
           </p>
         </div>
       `,
+      tracking: {
+        scenarioKey: "ACCOUNT_APPROVED",
+        userId,
+        metadata: { firstName: params.firstName },
+      },
     });
     logger.info("[account-approved] Email envoyé", { to: params.email });
   } catch (err) {
@@ -720,6 +778,7 @@ export async function notifyClientAccountRejected(params: {
         </p>`
       : "";
 
+    const userId = await resolveUserIdByEmail(params.email);
     await sendMail({
       fromName: shopName,
       to: params.email,
@@ -745,6 +804,14 @@ export async function notifyClientAccountRejected(params: {
           </p>
         </div>
       `,
+      tracking: {
+        scenarioKey: "ACCOUNT_REJECTED",
+        userId,
+        metadata: {
+          firstName: params.firstName,
+          reason: params.reason ?? null,
+        },
+      },
     });
     logger.info("[account-rejected] Email envoyé", { to: params.email });
   } catch (err) {
@@ -787,6 +854,7 @@ export async function notifyClientAccountRevoked(params: {
         </p>`
       : "";
 
+    const userId = await resolveUserIdByEmail(params.email);
     await sendMail({
       fromName: shopName,
       to: params.email,
@@ -814,6 +882,14 @@ export async function notifyClientAccountRevoked(params: {
           </p>
         </div>
       `,
+      tracking: {
+        scenarioKey: "ACCOUNT_REVOKED",
+        userId,
+        metadata: {
+          firstName: params.firstName,
+          reason: params.reason ?? null,
+        },
+      },
     });
     logger.info("[account-revoked] Email envoyé", { to: params.email });
   } catch (err) {
@@ -888,10 +964,21 @@ export async function notifyClientOrderModified(
       )
       .join("");
 
+    const userId = await resolveUserIdByEmail(order.clientEmail);
     await sendMail({
       fromName: shopName,
       to: order.clientEmail,
       subject: `${shopName} — Modification de votre commande ${order.orderNumber}`,
+      tracking: {
+        scenarioKey: "ORDER_MODIFIED",
+        userId,
+        metadata: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          modificationsCount: data.modifications.length,
+          totalCredit,
+        },
+      },
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
           <div style="background:#F59E0B;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">

@@ -24,6 +24,7 @@ const TILE_ICONS: Record<SettingsTileKey, ReactNode> = {
   marketplaces: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14"/></svg>,
   contenu:      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>,
   messagerie:   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75"/><path d="M21.75 6.75l-9.75 6-9.75-6"/></svg>,
+  "habillage-mails": <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 8h18M7 12h6M7 15h4"/></svg>,
   traduction:   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h7M9 3v2M4 9c0 5 4 8 8 8M9 9c-2 4 0 8 4 8M14 5l6 14M17 15h6"/></svg>,
   compte:       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
   maintenance:  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v3.75m0 3.75h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>,
@@ -54,6 +55,8 @@ export interface DashboardTile {
   summary?: string;
   /** Le contenu de la modale — server components pré-rendus depuis page.tsx. */
   content: ReactNode;
+  /** Largeur de la modale — default (5xl), wide (6xl), xl (7xl), full (95vw). */
+  modalSize?: "default" | "wide" | "xl" | "full";
 }
 
 interface Props {
@@ -177,6 +180,7 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
           icon={TILE_ICONS[openTileMeta.key]}
           accent={openTileMeta.accent}
           headerRight={<StatusChipDark status={openTileData.status} />}
+          size={openTileData.modalSize ?? "default"}
         >
           {openTileData.content}
         </SettingsModal>

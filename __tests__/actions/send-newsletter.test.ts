@@ -8,6 +8,10 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// buildUnsubscribeUrl (appelée par sendNewsletterToUsers pour insérer le lien
+// de désinscription) exige un NEXTAUTH_SECRET. Posé au top du fichier.
+process.env.NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET || "test-secret-32bytes-min-do-not-use-in-prod";
+
 const mockPrisma = vi.hoisted(() => ({
   newsletterTemplate: {
     findFirst: vi.fn(),
@@ -38,7 +42,18 @@ vi.mock("@/lib/tenant-url", () => ({
 }));
 vi.mock("@/lib/cached-data", () => ({
   getCachedShopName: vi.fn().mockResolvedValue("Beli & Jolie"),
+  // tenantScopedCacheWithTid est invoqué au top-level par lib/mail-branding
+  // (pour construire getCachedMailBranding). En test on renvoie une factory
+  // passthrough : elle appelle simplement la fn sous-jacente avec un tid bidon.
+  tenantScopedCacheWithTid: (_k: string, fn: (tid: string) => unknown) => () => fn("test-tenant"),
 }));
+vi.mock("@/lib/mail-branding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/mail-branding")>();
+  return {
+    ...actual,
+    getCachedMailBranding: vi.fn().mockResolvedValue(actual.DEFAULT_MAIL_BRANDING),
+  };
+});
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -87,15 +102,14 @@ describe("sendNewsletterToUsers", () => {
     expect(res.failed).toBe(0);
     expect(res.excluded).toBe(0);
     expect(mockSendMail).toHaveBeenCalledTimes(1);
+    // tracking passé à sendMail → c'est sendMail qui écrit EmailSend en interne
     expect(mockSendMail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "marie@shop.fr", fromName: "Beli & Jolie" }),
-    );
-    // Trace EmailSend créée
-    expect(mockPrisma.emailSend.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          userId: "u-1",
+        to: "marie@shop.fr",
+        fromName: "Beli & Jolie",
+        tracking: expect.objectContaining({
           scenarioKey: "NEWSLETTER",
+          userId: "u-1",
         }),
       }),
     );
@@ -122,7 +136,6 @@ describe("sendNewsletterToUsers", () => {
     if (res.success) return;
     expect(res.error).toMatch(/2 clients? exclu/);
     expect(mockSendMail).not.toHaveBeenCalled();
-    expect(mockPrisma.emailSend.create).not.toHaveBeenCalled();
   });
 
   it("refuse un userIds vide", async () => {

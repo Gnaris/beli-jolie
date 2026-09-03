@@ -28,6 +28,11 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   const baseUrl = await getCurrentTenantBaseUrl();
   const resetUrl = `${baseUrl}/reinitialiser-mot-de-passe?token=${token}`;
 
+  const user = await prisma.user.findFirst({
+    where: { email: email.toLowerCase().trim() },
+    select: { id: true },
+  });
+
   const result = await sendMail({
     fromName: shopName,
     to: email,
@@ -41,6 +46,10 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
         <p style="color:#9CA3AF;font-size:11px;margin-top:8px">Lien direct : ${resetUrl}</p>
       </div>
     `,
+    tracking: {
+      scenarioKey: "PASSWORD_RESET",
+      userId: user?.id ?? null,
+    },
   });
 
   if (!result.sent && result.reason === "no_config") {

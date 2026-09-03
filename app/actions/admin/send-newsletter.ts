@@ -19,7 +19,10 @@ import { logger } from "@/lib/logger";
 import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
-import { renderNewsletterHtml, type ProductLite, type NewsletterBlock } from "@/lib/newsletter-blocks";
+import { getCachedMailBranding } from "@/lib/mail-branding";
+import { renderNewsletterHtml, substituteVariables, type ProductLite, type NewsletterBlock } from "@/lib/newsletter-blocks";
+import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
+import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
 
 const INTER_MAIL_DELAY_MS = 300; // Anti-flood SMTP
 
@@ -43,11 +46,12 @@ export async function getNewsletterPreviewHtml(
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
+    const branding = await getCachedMailBranding();
     const html = renderNewsletterHtml({
       subject: template.subject,
       blocks,
       productsById,
-      shared: { shopName, baseUrl, legalLine },
+      shared: { shopName, baseUrl, legalLine, branding },
     });
     return { success: true, html, subject: template.subject };
   } catch (err) {
@@ -128,6 +132,8 @@ export async function sendNewsletterToUsers({
     // 3. Emails des clients sélectionnés — filtre RGPD strict :
     // seuls les clients APPROVED + acceptsNewsletter=true reçoivent la newsletter.
     // Les autres sont exclus silencieusement mais comptés pour retour visuel.
+    // On charge les champs nécessaires à l'interpolation des variables
+    // ({firstName}, {company}, {city}…) — la substitution est faite par user.
     const users = await prisma.user.findMany({
       where: {
         id: { in: userIds },
@@ -136,7 +142,11 @@ export async function sendNewsletterToUsers({
         status: "APPROVED",
         acceptsNewsletter: true,
       },
-      select: { id: true, email: true },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, company: true,
+        phone: true, siret: true, vatNumber: true,
+        addressStreet: true, addressZip: true, addressCity: true, addressCountry: true,
+      },
     });
     const excludedCount = userIds.length - users.length;
     if (users.length === 0) {
@@ -148,41 +158,86 @@ export async function sendNewsletterToUsers({
       };
     }
 
-    // 4. Rendu HTML (une seule fois — même contenu pour tous)
+    // 4. Contexte partagé (shopName, baseUrl, branding — identiques à tous)
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
-    const html = renderNewsletterHtml({
-      subject: template.subject,
-      blocks,
-      productsById,
-      shared: { shopName, baseUrl, legalLine },
+    const branding = await getCachedMailBranding();
+    const companyInfo = await prisma.companyInfo.findFirst({
+      where: { tenantId: tenant.id },
+      select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
     });
+    const shopContext: MailMergeContext = {
+      shopName,
+      shopAddress: companyInfo
+        ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
+            .filter(Boolean)
+            .join(", ")
+        : "",
+      shopEmail: companyInfo?.email ?? "",
+      shopPhone: companyInfo?.phone ?? "",
+      shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
+    };
 
-    // 5. Envoi séquentiel avec délai
+    // 5. Rendu ET envoi PAR USER (substitution des variables {firstName}, etc.)
     const details: Array<{ userId: string; email: string; ok: boolean; error?: string }> = [];
     let sentCount = 0;
     for (const user of users) {
+      const userContext: MailMergeContext = {
+        ...shopContext,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: `${user.firstName} ${user.lastName}`.trim(),
+        email: user.email,
+        company: user.company,
+        phone: user.phone,
+        siret: user.siret ?? "",
+        tvaIntra: user.vatNumber ?? "",
+        address: user.addressStreet ?? "",
+        postalCode: user.addressZip ?? "",
+        city: user.addressCity ?? "",
+        country: user.addressCountry ?? "",
+      };
+      // Mentions légales : chaque destinataire a son propre lien de désinscription
+      // (token signé sur son userId). `privacyLink` est le même pour tous
+      // (pointe vers la page publique /confidentialite).
+      const userContextWithLegal: MailMergeContext = {
+        ...userContext,
+        unsubscribeLink: buildUnsubscribeUrl({
+          baseUrl,
+          userId: user.id,
+          tenantId: tenant.id,
+        }),
+        privacyLink: `${baseUrl}/fr/confidentialite`,
+      };
+      const interpolatedBlocks = substituteVariables(blocks, userContextWithLegal);
+      const interpolatedSubject = interpolate(template.subject, userContextWithLegal);
+      const html = renderNewsletterHtml({
+        subject: interpolatedSubject,
+        blocks: interpolatedBlocks,
+        productsById,
+        // Marketing : l'admin compose son propre en-tête/pied via blocs et
+        // insère les mentions légales via les 4 variables obligatoires.
+        // On désactive l'habillage global pour éviter la duplication.
+        omitGlobalChrome: true,
+        shared: { shopName, baseUrl, legalLine, branding, mergeContext: userContextWithLegal },
+      });
+
       const result = await sendMail({
         to: user.email,
-        subject: template.subject,
+        subject: interpolatedSubject,
         html,
         fromName: shopName,
+        tracking: {
+          scenarioKey: "NEWSLETTER",
+          userId: user.id,
+          metadata: { templateId, templateName: template.name },
+        },
       });
 
       if (result.sent) {
         sentCount++;
         details.push({ userId: user.id, email: user.email, ok: true });
-        await prisma.emailSend.create({
-          data: {
-            tenantId: tenant.id,
-            userId: user.id,
-            recipientEmail: user.email,
-            scenarioKey: "NEWSLETTER",
-            subject: template.subject,
-            metadata: { templateId, templateName: template.name },
-          },
-        });
       } else {
         const reason =
           result.reason === "no_config"

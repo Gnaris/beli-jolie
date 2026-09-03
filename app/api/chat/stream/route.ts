@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { subscribeChatEvents } from "@/lib/chat-events";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,6 +14,7 @@ export async function GET() {
 
   const userRole = session.user.role;
   const userId = session.user.id;
+  const requestTenantId = await getCurrentTenantId();
   const encoder = new TextEncoder();
 
   let unsubscribe: (() => void) | null = null;
@@ -29,6 +31,10 @@ export async function GET() {
         // Filter: ADMIN gets all ADMIN-targeted events, CLIENT gets only their own
         if (userRole === "ADMIN" && event.targetRole !== "ADMIN") return;
         if (userRole === "CLIENT" && (event.targetRole !== "CLIENT" || event.userId !== userId)) return;
+        // Isolation multi-tenant : ne jamais laisser un event d'un autre tenant
+        // réveiller le widget chat (sinon le son sonne côté BJ quand Issyma
+        // reçoit un message et vice-versa).
+        if (requestTenantId && event.tenantId && event.tenantId !== requestTenantId) return;
 
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

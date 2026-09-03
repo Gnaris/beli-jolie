@@ -26,12 +26,22 @@ vi.mock("@/lib/cached-data", () => ({
 
 // Mock Prisma pour forcer le fallback env-only : resolveSmtpConfig lit
 // désormais SiteConfig avant l'env, on veut couper cet accès dans les tests.
+// emailSend.create est mocké pour vérifier le traçage optionnel via tracking.
+const emailSendCreateMock = vi.fn().mockResolvedValue({ id: "log-1" });
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     siteConfig: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    emailSend: {
+      create: emailSendCreateMock,
+    },
   },
+}));
+
+const tenantAlsMock = vi.fn<() => string | null>().mockReturnValue("tenant-1");
+vi.mock("@/lib/tenant-als", () => ({
+  getCurrentTenantIdSync: () => tenantAlsMock(),
 }));
 
 import {
@@ -434,6 +444,140 @@ describe("lib/email — SMTP via nodemailer", () => {
       expect(captured.config?.secure).toBe(true); // auto à 465
       expect(captured.config?.user).toBe("env-user@example.com");
       expect(captured.sent?.from).toBe("env-sender@example.com");
+    });
+  });
+
+  describe("sendMail — tracking (journal EmailSend)", () => {
+    beforeEach(() => {
+      setValidConfig();
+      emailSendCreateMock.mockClear();
+      tenantAlsMock.mockReturnValue("tenant-1");
+    });
+
+    it("écrit un EmailSend SENT quand un envoi réussi porte un tracking", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("msg_ok", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "client@ex.com",
+        subject: "Bienvenue",
+        html: "<p>hi</p>",
+        tracking: {
+          scenarioKey: "ACCOUNT_APPROVED",
+          userId: "user-42",
+          metadata: { source: "test" },
+        },
+      });
+
+      expect(emailSendCreateMock).toHaveBeenCalledTimes(1);
+      const arg = emailSendCreateMock.mock.calls[0][0];
+      expect(arg.data.status).toBe("SENT");
+      expect(arg.data.scenarioKey).toBe("ACCOUNT_APPROVED");
+      expect(arg.data.userId).toBe("user-42");
+      expect(arg.data.recipientEmail).toBe("client@ex.com");
+      expect(arg.data.tenantId).toBe("tenant-1");
+      expect(arg.data.htmlBody).toBe("<p>hi</p>");
+      expect(arg.data.messageId).toBe("msg_ok");
+    });
+
+    it("écrit un EmailSend FAILED quand SMTP refuse", async () => {
+      __setTransporterFactoryForTests(
+        buildFailingFactory(new Error("connection refused")) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      const result = await sendMail({
+        to: "client@ex.com",
+        subject: "Panne",
+        html: "<p>hi</p>",
+        tracking: { scenarioKey: "NEWSLETTER", userId: "user-42" },
+      });
+
+      expect(result.sent).toBe(false);
+      expect(emailSendCreateMock).toHaveBeenCalledTimes(1);
+      const arg = emailSendCreateMock.mock.calls[0][0];
+      expect(arg.data.status).toBe("FAILED");
+      expect(arg.data.errorMessage).toBe("connection refused");
+    });
+
+    it("écrit un EmailSend FAILED quand la config SMTP est absente", async () => {
+      // Retire toute config SMTP
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_PORT;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASSWORD;
+
+      const result = await sendMail({
+        to: "client@ex.com",
+        subject: "sans SMTP",
+        html: "<p>hi</p>",
+        tracking: { scenarioKey: "PASSWORD_RESET", userId: "user-42" },
+      });
+
+      expect(result).toEqual({ sent: false, reason: "no_config" });
+      expect(emailSendCreateMock).toHaveBeenCalledTimes(1);
+      const arg = emailSendCreateMock.mock.calls[0][0];
+      expect(arg.data.status).toBe("FAILED");
+      expect(arg.data.errorMessage).toMatch(/SMTP absente/);
+    });
+
+    it("n'écrit RIEN si tracking est absent (mails admin internes)", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "admin@ex.com",
+        subject: "notif admin",
+        html: "<p>hi</p>",
+      });
+
+      expect(emailSendCreateMock).not.toHaveBeenCalled();
+    });
+
+    it("ignore le log si le tenant n'est pas résolvable (hors requête)", async () => {
+      tenantAlsMock.mockReturnValue(null);
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      const result = await sendMail({
+        to: "client@ex.com",
+        subject: "s",
+        html: "h",
+        tracking: { scenarioKey: "NEWSLETTER", userId: "user-42" },
+      });
+
+      // Le mail est bien envoyé, seul le log est ignoré (best-effort)
+      expect(result.sent).toBe(true);
+      expect(emailSendCreateMock).not.toHaveBeenCalled();
+    });
+
+    it("passe resendOfId et attempts quand fournis (cas renvoi manuel)", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m2", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "client@ex.com",
+        subject: "renvoi",
+        html: "<p>hi</p>",
+        tracking: {
+          scenarioKey: "ORDER_SHIPPED",
+          userId: "user-42",
+          resendOfId: "original-log-id",
+          attempts: 2,
+        },
+      });
+
+      expect(emailSendCreateMock).toHaveBeenCalledTimes(1);
+      const arg = emailSendCreateMock.mock.calls[0][0];
+      expect(arg.data.resendOfId).toBe("original-log-id");
+      expect(arg.data.attempts).toBe(2);
     });
   });
 

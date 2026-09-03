@@ -17,9 +17,17 @@ import { logger } from "@/lib/logger";
 import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
-import { renderAbandonedCartMail } from "@/lib/mail-templates/abandoned-cart";
-import { renderInactiveClientMail } from "@/lib/mail-templates/inactive-client";
-import { renderRestockMail } from "@/lib/mail-templates/restock";
+import { getCachedMailBranding } from "@/lib/mail-branding";
+import {
+  renderNewsletterHtml,
+  substituteVariables,
+  type NewsletterBlock,
+  type NewsletterDynamicContext,
+  type ProductLite,
+} from "@/lib/newsletter-blocks";
+import { getScenarioTemplate } from "@/app/actions/admin/newsletter-templates";
+import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
+import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
 import {
   computeMailGates,
   hasBlockers,
@@ -460,41 +468,131 @@ export async function sendManualMail(
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
-    const shared = { shopName, baseUrl, legalLine };
+    const branding = await getCachedMailBranding();
 
-    let rendered: { subject: string; html: string };
-    switch (scenario) {
-      case "ABANDONED_CART":
-        rendered = renderAbandonedCartMail({
-          firstName: ctx.preview.firstName,
-          items: ctx.preview.cart.items,
-          totalCents: ctx.preview.cart.totalCents,
-          shared,
-        });
-        break;
-      case "INACTIVE_CLIENT":
-        rendered = renderInactiveClientMail({
-          firstName: ctx.preview.firstName,
-          daysInactive: ctx.preview.daysSinceLastActivity,
-          shared,
-        });
-        break;
-      case "RESTOCK":
-        rendered = renderRestockMail({
-          firstName: ctx.preview.firstName,
-          favorites: restockProducts,
-          shared,
-        });
-        break;
-      default:
-        return { success: false, error: "Type de mail inconnu." };
-    }
+    // Charge le user complet + companyInfo pour construire le contexte de
+    // variables. Les champs viennent de la fiche client (adresse, TVA, SIRET…)
+    // et de la config de la boutique (adresse, tél, site).
+    const [fullUser, companyInfo] = await Promise.all([
+      prisma.user.findFirst({
+        where: { id: userId, tenantId: tenant.id },
+        select: {
+          firstName: true, lastName: true, email: true, company: true, phone: true,
+          siret: true, vatNumber: true, addressStreet: true, addressZip: true,
+          addressCity: true, addressCountry: true,
+        },
+      }),
+      prisma.companyInfo.findFirst({
+        where: { tenantId: tenant.id },
+        select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
+      }),
+    ]);
+
+    const shopContext: MailMergeContext = {
+      shopName,
+      shopAddress: companyInfo
+        ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
+            .filter(Boolean)
+            .join(", ")
+        : "",
+      shopEmail: companyInfo?.email ?? "",
+      shopPhone: companyInfo?.phone ?? "",
+      shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
+    };
+    const userContext: MailMergeContext = {
+      ...shopContext,
+      firstName: fullUser?.firstName ?? ctx.preview.firstName,
+      lastName: fullUser?.lastName ?? "",
+      fullName: `${fullUser?.firstName ?? ""} ${fullUser?.lastName ?? ""}`.trim(),
+      email: fullUser?.email ?? ctx.userEmail,
+      company: fullUser?.company ?? "",
+      phone: fullUser?.phone ?? "",
+      siret: fullUser?.siret ?? "",
+      tvaIntra: fullUser?.vatNumber ?? "",
+      address: fullUser?.addressStreet ?? "",
+      postalCode: fullUser?.addressZip ?? "",
+      city: fullUser?.addressCity ?? "",
+      country: fullUser?.addressCountry ?? "",
+      // Variables dynamiques : ne sont renseignées que si pertinentes pour le
+      // scénario. Les blocs `cartItems`/`favoritesGrid`/`daysInactive` restent
+      // rendus via le `dynamic` context ci-dessous — ce mergeContext sert
+      // uniquement aux textes libres (sujet, blocs texte, footer message).
+      cartTotal:
+        scenario === "ABANDONED_CART"
+          ? (ctx.preview.cart.totalCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })
+          : "",
+      cartCount:
+        scenario === "ABANDONED_CART" ? String(ctx.preview.cart.items.length) : "",
+      days:
+        scenario === "INACTIVE_CLIENT" && ctx.preview.daysSinceLastActivity != null
+          ? String(ctx.preview.daysSinceLastActivity)
+          : "",
+      favoritesCount: scenario === "RESTOCK" ? String(restockProducts.length) : "",
+      // Mentions légales : lien de désinscription signé (token HMAC), lien
+      // politique de confidentialité (page publique).
+      unsubscribeLink: buildUnsubscribeUrl({
+        baseUrl,
+        userId,
+        tenantId: tenant.id,
+      }),
+      privacyLink: `${baseUrl}/fr/confidentialite`,
+    };
+
+    const shared = { shopName, baseUrl, legalLine, branding, mergeContext: userContext };
+
+    // Charge le modèle newsletter lié à ce scénario (créé si absent).
+    const template = await getScenarioTemplate(tenant.id, scenario);
+
+    // Contexte dynamique injecté aux blocs (cartItems / favoritesGrid / daysInactive).
+    const dynamic: NewsletterDynamicContext = {
+      firstName: ctx.preview.firstName,
+      cart:
+        scenario === "ABANDONED_CART"
+          ? { items: ctx.preview.cart.items, totalCents: ctx.preview.cart.totalCents }
+          : undefined,
+      favorites: scenario === "RESTOCK" ? restockProducts : undefined,
+      daysInactive:
+        scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
+    };
+
+    // Charge les produits éventuellement référencés par des blocs `products`
+    // que la cliente aurait ajoutés à son modèle personnalisé.
+    const productsById = await loadProductsForTemplateBlocks(template.blocks, tenant.id);
+
+    // Substitue toutes les variables ({firstName}, {shopName}, {days}…) dans
+    // le sujet + les textes des blocs. Idempotent : tokens absents laissés tels quels.
+    const blocks = substituteVariables(template.blocks, userContext);
+    const finalSubject = interpolate(template.subject, userContext);
+    const rendered = {
+      subject: finalSubject,
+      html: renderNewsletterHtml({
+        subject: finalSubject,
+        blocks,
+        productsById,
+        shared,
+        dynamic,
+        // Marketing : pas d'habillage global auto (l'admin l'a composé via
+        // blocs, avec les mentions légales intégrées via variables obligatoires).
+        omitGlobalChrome: true,
+      }),
+    };
 
     const result = await sendMail({
       to: ctx.userEmail,
       subject: rendered.subject,
       html: rendered.html,
       fromName: shopName,
+      tracking: {
+        scenarioKey: scenario,
+        userId,
+        metadata: {
+          source: "manual",
+          cartItems: scenario === "ABANDONED_CART" ? ctx.preview.cart.items.length : undefined,
+          daysInactive: scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
+          selectedProductsCount: scenario === "RESTOCK" ? restockProducts.length : undefined,
+          selectedProductIds: scenario === "RESTOCK" ? (payload?.productIds ?? []) : undefined,
+        },
+      },
     });
 
     if (!result.sent) {
@@ -506,23 +604,6 @@ export async function sendManualMail(
             : `Serveur SMTP a refusé l'envoi (${result.error ?? "raison inconnue"}).`;
       return { success: false, error: reason };
     }
-
-    await prisma.emailSend.create({
-      data: {
-        tenantId: tenant.id,
-        userId,
-        recipientEmail: ctx.userEmail,
-        scenarioKey: scenario,
-        subject: rendered.subject,
-        metadata: {
-          source: "manual",
-          cartItems: scenario === "ABANDONED_CART" ? ctx.preview.cart.items.length : undefined,
-          daysInactive: scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
-          selectedProductsCount: scenario === "RESTOCK" ? restockProducts.length : undefined,
-          selectedProductIds: scenario === "RESTOCK" ? (payload?.productIds ?? []) : undefined,
-        },
-      },
-    });
 
     revalidatePath("/admin/utilisateurs");
     return { success: true, message: `Mail envoyé à ${ctx.userEmail}.` };
@@ -621,4 +702,49 @@ async function buildLegalLine(tenantId: string): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/**
+ * Charge la variante principale + prix + image des produits référencés par
+ * les blocs `products` d'un modèle. Vide si le modèle n'en contient aucun.
+ */
+async function loadProductsForTemplateBlocks(
+  blocks: NewsletterBlock[],
+  tenantId: string,
+): Promise<Map<string, ProductLite>> {
+  const ids = new Set<string>();
+  for (const b of blocks) {
+    if (b.type === "products") {
+      for (const id of b.data.productIds) ids.add(id);
+    }
+  }
+  if (ids.size === 0) return new Map();
+  const rows = await prisma.product.findMany({
+    where: { tenantId, id: { in: [...ids] } },
+    select: {
+      id: true,
+      name: true,
+      reference: true,
+      colors: {
+        take: 1,
+        orderBy: { isPrimary: "desc" },
+        select: {
+          unitPrice: true,
+          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+        },
+      },
+    },
+  });
+  const map = new Map<string, ProductLite>();
+  for (const r of rows) {
+    const variant = r.colors[0];
+    map.set(r.id, {
+      id: r.id,
+      name: r.name,
+      reference: r.reference,
+      imagePath: variant?.images[0]?.path ?? null,
+      priceCents: variant ? Math.round(Number(variant.unitPrice) * 100) : null,
+    });
+  }
+  return map;
 }

@@ -3,6 +3,7 @@
  * Uses globalThis to guarantee a single shared instance across
  * Next.js server actions, API routes, and middleware.
  */
+import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CONVERSATION_DELETED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
 
@@ -13,6 +14,12 @@ export interface ChatEvent {
   userId: string;
   /** Which role should receive this event */
   targetRole: "ADMIN" | "CLIENT";
+  /**
+   * Tenant propriétaire de la conversation. Rempli automatiquement depuis
+   * l'ALS si non fourni. Sans ce champ, un émetteur d'un tenant réveille les
+   * SSE abonnés de tous les autres tenants (fuite du son de notification).
+   */
+  tenantId?: string;
   /**
    * Contexte de la conversation. "claim" = Service Client (géré par ses
    * propres pages). Absent = chat général SUPPORT (widget flottant).
@@ -60,7 +67,8 @@ function getListeners(): Set<Listener> {
 }
 
 export function emitChatEvent(event: Omit<ChatEvent, "timestamp">) {
-  const full: ChatEvent = { ...event, timestamp: Date.now() };
+  const tenantId = event.tenantId ?? getCurrentTenantIdSync() ?? undefined;
+  const full: ChatEvent = { ...event, tenantId, timestamp: Date.now() };
   const listeners = getListeners();
   for (const listener of listeners) {
     try { listener(full); } catch { /* ignore */ }

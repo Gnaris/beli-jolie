@@ -13,6 +13,7 @@ import UsersSortControl from "@/components/admin/users/UsersSortControl";
 import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
 import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 import SendMailButton from "@/components/admin/users/SendMailButton";
+import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
 import UsersViewToggle from "@/components/admin/users/UsersViewToggle";
 import { MailSelectionProvider } from "@/components/admin/users/MailSelectionContext";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
@@ -207,6 +208,7 @@ export default async function UtilisateursPage({
           { email: { contains: registeredSearch } },
           { phone: { contains: registeredSearch } },
           { siret: { contains: registeredSearch } },
+          { businessRegistrationNumber: { contains: registeredSearch } },
           { vatNumber: { contains: registeredSearch } },
         ],
       }
@@ -253,6 +255,12 @@ export default async function UtilisateursPage({
           listNewsletterTemplates(),
         ])
       : [new Map<string, MailLastSends>(), []];
+
+  // Vue Infos : charger le panier en cours de chaque client affiché.
+  const cartsData: Map<string, CartSummary> =
+    view === "infos" && currentTab === "inscrits"
+      ? await loadCartsFor(registeredData.clients.map((c) => c.id))
+      : new Map();
 
   return (
     <div className="space-y-6">
@@ -341,6 +349,7 @@ export default async function UtilisateursPage({
             search={registeredSearch}
             view={view}
             mails={mailsData}
+            carts={cartsData}
           />
           {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
         </MailSelectionProvider>
@@ -375,6 +384,9 @@ type RegisteredClient = {
   email: string;
   phone: string;
   siret: string | null;
+  businessRegistrationNumber: string | null;
+  vatNumber: string | null;
+  addressCountry: string | null;
   status: UserStatus;
   lastLoginAt: Date | null;
   lastSeenAt: Date | null;
@@ -390,12 +402,58 @@ const REGISTERED_SELECT = {
   email: true,
   phone: true,
   siret: true,
+  businessRegistrationNumber: true,
+  vatNumber: true,
+  addressCountry: true,
   status: true,
   lastLoginAt: true,
   lastSeenAt: true,
   createdAt: true,
   acceptsNewsletter: true,
 } as const;
+
+// ─── Panier en cours : nb d'articles + total HT par client ───────────────────
+
+type CartSummary = { itemCount: number; total: number };
+
+async function loadCartsFor(userIds: string[]): Promise<Map<string, CartSummary>> {
+  if (userIds.length === 0) return new Map();
+  const carts = await prisma.cart.findMany({
+    where: { userId: { in: userIds } },
+    select: {
+      userId: true,
+      items: {
+        select: {
+          quantity: true,
+          variant: { select: { unitPrice: true } },
+        },
+      },
+    },
+  });
+  const map = new Map<string, CartSummary>();
+  for (const c of carts) {
+    let itemCount = 0;
+    let total = 0;
+    for (const it of c.items) {
+      itemCount += it.quantity;
+      total += it.quantity * Number(it.variant.unitPrice);
+    }
+    if (itemCount > 0) map.set(c.userId, { itemCount, total });
+  }
+  return map;
+}
+
+// SIRET (FR) vs numéro d'enregistrement d'entreprise (autres pays)
+function businessNumberLabel(client: {
+  siret: string | null;
+  businessRegistrationNumber: string | null;
+}): { label: string; value: string } | null {
+  if (client.siret) return { label: "SIRET", value: client.siret };
+  if (client.businessRegistrationNumber) {
+    return { label: "N° entreprise", value: client.businessRegistrationNumber };
+  }
+  return null;
+}
 
 type GroupedOrderStats = {
   userId: string;
@@ -699,12 +757,19 @@ function MailsView({
                       );
                     })}
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      <SendMailButton
-                        userId={c.id}
-                        userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
-                        userEmail={c.email}
-                        acceptsNewsletter={c.acceptsNewsletter}
-                      />
+                      <div className="inline-flex gap-2">
+                        <EmailJournalButton
+                          userId={c.id}
+                          userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                          userEmail={c.email}
+                        />
+                        <SendMailButton
+                          userId={c.id}
+                          userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                          userEmail={c.email}
+                          acceptsNewsletter={c.acceptsNewsletter}
+                        />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -755,7 +820,12 @@ function MailsView({
                       );
                     })}
                   </div>
-                  <div className="mt-3 flex justify-end">
+                  <div className="mt-3 flex justify-end gap-2">
+                    <EmailJournalButton
+                      userId={c.id}
+                      userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                      userEmail={c.email}
+                    />
                     <SendMailButton
                       userId={c.id}
                       userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
@@ -797,6 +867,7 @@ function RegisteredPane({
   search,
   view,
   mails,
+  carts,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -810,6 +881,7 @@ function RegisteredPane({
   search: string;
   view: "infos" | "mails";
   mails: Map<string, MailLastSends>;
+  carts: Map<string, CartSummary>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
   const infosHref = buildListHref({ status: filterStatus, perPage, sort, dir, view: "infos" });
@@ -923,19 +995,16 @@ function RegisteredPane({
                   <tr className="border-b border-border">
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Client</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">
-                      <SortableHeader label="Société · Email" sortKey="company" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
+                      <SortableHeader label="Société · Contact" sortKey="company" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
                     </th>
-                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">SIRET</th>
                     <th className={`px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap ${ordersColumnActive ? "bg-slate-900/[0.04]" : ""}`}>
                       <SortableHeader label="Commandes" sortKey="orders" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} alsoActiveFor={["spent"]} />
                     </th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Statut</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">
-                      <SortableHeader label="Présence" sortKey="login" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
+                      <SortableHeader label="Activité" sortKey="login" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
                     </th>
-                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">
-                      <SortableHeader label="Inscription" sortKey="created" currentSort={sort} currentDir={dir} filterStatus={filterStatus} perPage={perPage} />
-                    </th>
+                    <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Panier</th>
                     <th className="px-5 py-3 text-right text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
@@ -947,6 +1016,8 @@ function RegisteredPane({
                     const inscription = formatShortDate(c.createdAt);
                     const gradient = avatarGradientFor(c.id);
                     const orderStats = stats.get(c.id) ?? EMPTY_CLIENT_STATS;
+                    const businessNum = businessNumberLabel(c);
+                    const cart = carts.get(c.id);
                     return (
                       <tr
                         key={c.id}
@@ -978,15 +1049,27 @@ function RegisteredPane({
                           </div>
                         </td>
                         <td className="px-5 py-3.5 min-w-0">
-                          <p className="text-[13.5px] font-body font-medium text-text-primary truncate max-w-xs">
+                          <p className="text-[13.5px] font-body font-semibold text-text-primary truncate max-w-xs">
                             {c.company}
                           </p>
-                          <p className="text-xs font-body text-text-muted truncate max-w-xs">
-                            {c.email}
-                          </p>
-                        </td>
-                        <td className="px-5 py-3.5 whitespace-nowrap">
-                          <p className="font-mono text-[12.5px] text-text-secondary tabular-nums">{c.siret || "—"}</p>
+                          <div className="mt-1 space-y-0.5">
+                            <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Email :</span>
+                              <span className="truncate max-w-xs text-text-secondary">{c.email}</span>
+                            </p>
+                            {businessNum && (
+                              <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">{businessNum.label} :</span>
+                                <span className="font-mono tabular-nums text-text-secondary">{businessNum.value}</span>
+                              </p>
+                            )}
+                            {c.vatNumber && (
+                              <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted">
+                                <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">TVA :</span>
+                                <span className="font-mono tabular-nums text-text-secondary">{c.vatNumber}</span>
+                              </p>
+                            )}
+                          </div>
                         </td>
                         <td className={`px-5 py-3.5 whitespace-nowrap ${ordersColumnActive ? "bg-slate-900/[0.02]" : ""}`}>
                           {orderStats.count === 0 ? (
@@ -1031,10 +1114,38 @@ function RegisteredPane({
                           <p className={`text-[11px] font-body mt-0.5 ${online ? "text-text-secondary" : "text-text-muted"}`}>
                             {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
                           </p>
+                          <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-body text-text-muted" title={`Inscrit le ${inscription.date} à ${inscription.time}`}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                              <line x1="16" y1="2" x2="16" y2="6" />
+                              <line x1="8" y1="2" x2="8" y2="6" />
+                              <line x1="3" y1="10" x2="21" y2="10" />
+                            </svg>
+                            {inscription.date}
+                          </p>
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
-                          <p className="text-xs font-body text-text-secondary">{inscription.date}</p>
-                          <p className="text-[11px] font-body text-text-muted">{inscription.time}</p>
+                          {cart ? (
+                            <div className="inline-flex items-center gap-2">
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <circle cx="9" cy="21" r="1" />
+                                  <circle cx="20" cy="21" r="1" />
+                                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                                </svg>
+                              </span>
+                              <div>
+                                <p className="text-[13px] font-heading font-bold text-text-primary tabular-nums leading-none">
+                                  {cart.itemCount} <span className="text-[10.5px] font-body font-medium text-text-muted uppercase tracking-[0.08em]">art.</span>
+                                </p>
+                                <p className="text-[11px] font-body text-text-muted mt-1 tabular-nums">
+                                  {formatSpent(cart.total)}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[13px] font-body text-text-muted/50">—</p>
+                          )}
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
                           {isPending ? (
@@ -1073,6 +1184,8 @@ function RegisteredPane({
               const isRejected = c.status === "REJECTED";
               const gradient = avatarGradientFor(c.id);
               const orderStats = stats.get(c.id) ?? EMPTY_CLIENT_STATS;
+              const businessNum = businessNumberLabel(c);
+              const cart = carts.get(c.id);
               return (
                 <Link
                   key={c.id}
@@ -1111,14 +1224,44 @@ function RegisteredPane({
                            "Rejeté"}
                         </span>
                       </div>
-                      {orderStats.count > 0 && (
-                        <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-secondary border border-border text-[11.5px] font-body font-semibold text-text-secondary">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/>
-                          </svg>
-                          {orderStats.count} commande{orderStats.count > 1 ? "s" : ""} · {formatSpent(orderStats.spent)}
-                        </div>
-                      )}
+                      <div className="mt-2 space-y-0.5 text-[11.5px] font-body text-text-muted">
+                        <p className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Email :</span>
+                          <span className="truncate text-text-secondary">{c.email}</span>
+                        </p>
+                        {businessNum && (
+                          <p className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">{businessNum.label} :</span>
+                            <span className="font-mono tabular-nums text-text-secondary">{businessNum.value}</span>
+                          </p>
+                        )}
+                        {c.vatNumber && (
+                          <p className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">TVA :</span>
+                            <span className="font-mono tabular-nums text-text-secondary">{c.vatNumber}</span>
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {orderStats.count > 0 && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-secondary border border-border text-[11.5px] font-body font-semibold text-text-secondary">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/>
+                            </svg>
+                            {orderStats.count} commande{orderStats.count > 1 ? "s" : ""} · {formatSpent(orderStats.spent)}
+                          </span>
+                        )}
+                        {cart && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11.5px] font-body font-semibold text-emerald-700">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="9" cy="21" r="1" />
+                              <circle cx="20" cy="21" r="1" />
+                              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                            </svg>
+                            Panier : {cart.itemCount} art. · {formatSpent(cart.total)}
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-2 flex items-center justify-between text-[11.5px] font-body">
                         {online ? (
                           <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
@@ -1134,7 +1277,13 @@ function RegisteredPane({
                             {isRejected ? "Refusé" : `Hors ligne · ${formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}`}
                           </span>
                         )}
-                        <span className="text-text-muted">
+                        <span className="inline-flex items-center gap-1 text-text-muted">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                            <line x1="16" y1="2" x2="16" y2="6" />
+                            <line x1="8" y1="2" x2="8" y2="6" />
+                            <line x1="3" y1="10" x2="21" y2="10" />
+                          </svg>
                           {new Date(c.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
                         </span>
                       </div>

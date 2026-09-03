@@ -141,6 +141,11 @@ export async function sendLoginOtpEmail(
 ): Promise<void> {
   const shopName = await getCachedShopName();
 
+  const user = await prisma.user.findFirst({
+    where: { email: normalizeEmail(email) },
+    select: { id: true },
+  });
+
   const result = await sendMail({
     fromName: shopName,
     to: email,
@@ -153,6 +158,10 @@ export async function sendLoginOtpEmail(
         <p style="color:#9CA3AF;font-size:12px;margin-top:24px">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email. Votre compte reste sécurisé.</p>
       </div>
     `,
+    tracking: {
+      scenarioKey: "LOGIN_OTP",
+      userId: user?.id ?? null,
+    },
   });
 
   if (!result.sent) {

@@ -16,6 +16,7 @@ import AdminChatWidgetLoader from "@/components/admin/AdminChatWidgetLoader";
 import { MarketplaceRefreshProvider } from "@/components/admin/products/MarketplaceRefreshContext";
 import { MappingImpactProvider } from "@/components/admin/mapping/MappingImpactContext";
 import { MarketplaceLinkProvider } from "@/components/admin/products/MarketplaceLinkContext";
+import { MicrostoreBulkPushProvider } from "@/components/admin/products/MicrostoreBulkPushContext";
 import { EfashionShootingBatchProvider } from "@/components/admin/products/EfashionShootingBatchContext";
 import { RefreshWarningProvider } from "@/components/admin/products/RecentlyRefreshedWarningModal";
 import { IneligibleRefreshProvider } from "@/components/admin/products/IneligibleRefreshModal";
@@ -107,6 +108,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
     <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
+    <MicrostoreBulkPushProvider>
     <MappingImpactProvider>
     <EfashionShootingBatchProvider>
     <RefreshWarningProvider>
@@ -160,6 +162,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </RefreshWarningProvider>
     </EfashionShootingBatchProvider>
     </MappingImpactProvider>
+    </MicrostoreBulkPushProvider>
     </MarketplaceRefreshProvider>
     </MarketplaceLinkProvider>
     </DeeplConfigProvider>

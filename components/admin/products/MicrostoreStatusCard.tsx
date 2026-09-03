@@ -22,6 +22,8 @@ import { useToast } from "@/components/ui/Toast";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useRightRail } from "@/components/admin/widgets-rail";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
+import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
+import { useMicrostoreBulkPush } from "@/components/admin/products/MicrostoreBulkPushContext";
 import { clearMicrostoreSyncRequired } from "@/app/actions/admin/microstore-products";
 import { unlinkMicrostoreProduct } from "@/app/actions/admin/microstore-linking";
 import { setProductMarketplaceEnabled } from "@/app/actions/admin/product-marketplace-enabled";
@@ -105,6 +107,16 @@ export function MicrostoreStatusCard({
   const toast = useToast();
   const { nudgeWidget } = useRightRail();
   const { enqueue, inFlightProductIds } = useMarketplaceRefreshQueue();
+  // Liaison manuelle Microstore (LinkMicrostoreProductModal → enqueueLinkJob).
+  // Les autres cartes marketplace (PFS/Ankor/eFa/Faire) branchent le même
+  // contexte pour virer bleu « En cours » pendant la liaison. Sans ce signal,
+  // la carte Microstore restait sur son état "non liée" puis basculait vert
+  // d'un coup à la fin — le bleu intermédiaire manquait.
+  const { hasActiveJobForProduct: hasLinkJob } = useMarketplaceLinkJobs();
+  // Bulk pushs Microstore lancés depuis /admin/produits (apply variantes,
+  // apply statuts) : ne passent pas par la file → sans ce signal, le badge
+  // resterait sur son état précédent pendant tout le fire-and-forget.
+  const { isBulkPushing } = useMicrostoreBulkPush();
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [unlinkBusy, setUnlinkBusy] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
@@ -112,7 +124,9 @@ export function MicrostoreStatusCard({
   // le bon bouton pendant que le job tourne dans la file.
   const [busyAction, setBusyAction] = useState<"push" | null>(null);
   const inFlight = inFlightProductIds.has(productId);
-  const busy = inFlight;
+  const linking = hasLinkJob(productId, "microstore");
+  const bulkPushing = isBulkPushing(productId);
+  const busy = inFlight || linking || bulkPushing;
   useEffect(() => {
     if (!inFlight) setBusyAction(null);
   }, [inFlight]);
@@ -141,33 +155,42 @@ export function MicrostoreStatusCard({
         ? "Microstore désactivé dans Paramètres."
         : "Microstore bloquée pour ce produit — cliquez sur le cadenas pour débloquer.";
 
+  // Priorité couleur : expired > disabled > loading (busy/linking) > syncRequired
+  // > online > offline. Le bleu « loading » doit passer AVANT online sinon un
+  // resync sur produit déjà lié resterait vert au lieu de virer bleu.
   const cardClasses = expired
     ? "bg-[#FEF2F2] border-[#FECACA]"
     : disabled
       ? "bg-[#FAFAFA] border-border-dark"
-      : syncRequired
-        ? "sync-required-card bg-[#FEF3C7] border-[#FDE68A]"
-        : online
-          ? "mp-online-card bg-[#DCFCE7] border-[#BBF7D0]"
-          : "mp-offline-card bg-[#f3f4f6] border-[#e5e7eb]";
+      : busy
+        ? "mp-loading-card bg-[#EEF2FF] border-[#C7D2FE] cursor-wait"
+        : syncRequired
+          ? "sync-required-card bg-[#FEF3C7] border-[#FDE68A]"
+          : online
+            ? "mp-online-card bg-[#DCFCE7] border-[#BBF7D0]"
+            : "mp-offline-card bg-[#f3f4f6] border-[#e5e7eb]";
   const textColor = expired
     ? "text-[#B91C1C]"
     : disabled
       ? "text-text-muted"
-      : syncRequired
-        ? "sync-required-text text-[#92400E]"
-        : online
-          ? "mp-online-text text-[#15803D]"
-          : "mp-offline-text text-text-secondary";
+      : busy
+        ? "mp-loading-text text-[#4F46E5]"
+        : syncRequired
+          ? "sync-required-text text-[#92400E]"
+          : online
+            ? "mp-online-text text-[#15803D]"
+            : "mp-offline-text text-text-secondary";
   const dividerClass = expired
     ? "border-[#FECACA]"
     : disabled
       ? "border-border-dark/60"
-      : syncRequired
-        ? "sync-required-divider border-[#FDE68A]"
-        : online
-          ? "mp-online-divide border-[#BBF7D0]"
-          : "mp-offline-divide border-[#e5e7eb]";
+      : busy
+        ? "mp-loading-divide border-[#C7D2FE]"
+        : syncRequired
+          ? "sync-required-divider border-[#FDE68A]"
+          : online
+            ? "mp-online-divide border-[#BBF7D0]"
+            : "mp-offline-divide border-[#e5e7eb]";
 
   // Hachures rouges pour la session expirée (cas exceptionnel), sinon hachures
   // beiges pour l'état désactivé « classique ».
@@ -195,13 +218,15 @@ export function MicrostoreStatusCard({
 
   const title = disabled
     ? disabledReason
-    : busy
-      ? "Envoi Microstore en cours…"
-      : syncRequired
-        ? "Synchronisation nécessaire — cliquez pour renvoyer vers Microstore"
-        : online
-          ? "Envoyé à Microstore — cliquez pour renvoyer"
-          : "Pas encore envoyé — cliquez pour créer cette fiche sur Microstore";
+    : linking
+      ? "Liaison Microstore en cours…"
+      : busy
+        ? "Envoi Microstore en cours…"
+        : syncRequired
+          ? "Synchronisation nécessaire — cliquez pour renvoyer vers Microstore"
+          : online
+            ? "Envoyé à Microstore — cliquez pour renvoyer"
+            : "Pas encore envoyé — cliquez pour créer cette fiche sur Microstore";
 
   async function handlePush() {
     if (disabled || busy) return;
@@ -344,7 +369,10 @@ export function MicrostoreStatusCard({
         </span>
 
         {busy && !disabled ? (
-          <span className="inline-flex items-center gap-1.5">{Icon.Spinner}Envoi Microstore…</span>
+          <span className="inline-flex items-center gap-1.5">
+            {Icon.Spinner}
+            {linking ? "Liaison…" : "Envoi Microstore…"}
+          </span>
         ) : (
           <span>Microstore</span>
         )}
