@@ -3589,7 +3589,7 @@ function ProductRow({
         {/* Produit — photo + nom + référence dans une seule colonne (fusion
             des anciennes cellules Photo + Réf. + Produit pour ressembler à
             la maquette Ardoise). */}
-        <td className="px-4 md:px-6 py-7 md:py-8 md:min-w-[280px]">
+        <td className="px-4 md:px-6 py-7 md:py-8 md:w-[320px] lg:w-[380px] xl:w-[440px]">
           <div className="flex items-center gap-4">
             {/* Miniature à gauche — plus grande pour bien voir le produit
                 (72px mobile, 88px tablette, 64px desktop). Clic = édition. */}
@@ -3617,7 +3617,7 @@ function ProductRow({
             {/* Nom + référence */}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 min-w-0">
-                <p className="font-semibold text-text-primary text-[13.5px] leading-tight truncate" title={product.name}>
+                <p className="font-semibold text-text-primary text-[13.5px] leading-tight line-clamp-2 break-words min-w-0" title={product.name}>
                   {product.name}
                 </p>
                 {hasMissingTranslations && (
