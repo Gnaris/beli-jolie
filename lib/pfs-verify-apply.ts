@@ -48,6 +48,7 @@ import {
 } from "@/lib/pfs-verify-variant-ops";
 import { Prisma } from "@prisma/client";
 import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { clampStock } from "@/lib/product-variant-validation";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -752,7 +753,10 @@ function buildVariantPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalP
       break;
     }
     case "stock":
-      existing.stock = Number(pv.stock_qty ?? 0);
+      // Plafond MAX_STOCK : PFS peut renvoyer des valeurs aberrantes (bug côté
+      // eux, ex. 29 732 222 222 au lieu de 297). Notre colonne stock est un
+      // INT MySQL (max ~2,1 mds) et le métier n'accepte pas plus de 1000.
+      existing.stock = clampStock(pv.stock_qty);
       break;
     case "weight":
       existing.weight = Number(pv.weight ?? 0);

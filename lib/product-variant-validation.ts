@@ -102,6 +102,34 @@ export function validateProductFields(input: {
 }
 
 /**
+ * Plafond métier absolu sur `ProductColor.stock`.
+ * Au-delà : silencieusement ramené à MAX_STOCK. Protège contre les saisies
+ * accidentelles (297 tapé « 29732222222 ») et les valeurs aberrantes remontées
+ * par PFS (bug rencontré 2026-09-04 sur issyma réf 91820 — MySQL INT
+ * dépassé → toute la récupération d'audit plantait).
+ */
+export const MAX_STOCK = 1000;
+
+export function clampStock(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  const int = Math.floor(n);
+  return int > MAX_STOCK ? MAX_STOCK : int;
+}
+
+/**
+ * Applique `clampStock` à chaque variante d'entrée (mutation en place).
+ * Appelée en tête de `createProduct` / `updateProduct` — même chemin que
+ * `validateVariantBounds`. Silencieux : un stock > MAX_STOCK est ramené
+ * sans erreur pour ne pas casser le save.
+ */
+export function clampVariantStocks(colors: ColorInput[]): void {
+  for (const c of colors) {
+    c.stock = clampStock(c.stock);
+  }
+}
+
+/**
  * Bornes numériques sur les variantes — toujours appliquées, y compris en
  * brouillon. Refuse prix/stock/poids/quantités négatifs avant que les
  * données ne touchent la BDD.

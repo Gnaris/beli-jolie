@@ -45,6 +45,7 @@ import { requirePfsBrand } from "@/lib/pfs-brand";
 import { loadPfsImportPriceMarkup, applyImportMarkupToUnitPrice } from "@/lib/pfs-import-price-markup";
 import { getCountryByIso, getCountryByPfsRef } from "@/lib/countries";
 import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { clampStock } from "@/lib/product-variant-validation";
 
 // Re-export pour ne pas casser les imports existants de `pfs-import`.
 export { sanitizePfsFamilyName, inferPfsFamilyFromCategoryLabel };
@@ -1964,7 +1965,10 @@ export async function resolveVariant(
     pfsVariantId: v.id,
     unitPrice: v.price_sale?.total?.value ?? v.price_sale?.unit?.value ?? 0,
     weight: v.weight ?? 0,
-    stock: v.stock_qty ?? 0,
+    // Plafond MAX_STOCK sur l'import PFS : évite qu'une valeur aberrante côté
+    // PFS (bug 2026-09-04 sur issyma réf 91820, stock = 29 732 222 222) ne
+    // crashe l'insertion (INT MySQL max ~2,1 mds).
+    stock: clampStock(v.stock_qty),
     saleType: v.type === "PACK" ? "PACK" : "UNIT",
     packQuantity: v.type === "PACK" ? (v.pieces ?? 1) : null,
     isActive: v.is_active !== false,

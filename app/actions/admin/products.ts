@@ -38,6 +38,7 @@ import {
   validateVariants,
   validateVariantBounds,
   validateProductFields,
+  clampVariantStocks,
   isMultiColorPackInput,
   type ColorInput,
   type PackLineInput,
@@ -537,6 +538,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   // Garde-fous toujours appliqués (AUDIT [7]) : remise produit 0-100 %,
   // prix/stock/poids/quantités jamais négatifs — y compris en brouillon.
   validateProductFields(input);
+  clampVariantStocks(input.colors);
   validateVariantBounds(input.colors);
 
   // Skip strict variant validation for incomplete products
@@ -840,6 +842,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // Garde-fous toujours appliqués (AUDIT [7]) : remise produit 0-100 %,
   // prix/stock/poids/quantités jamais négatifs — y compris en brouillon.
   validateProductFields(input);
+  clampVariantStocks(input.colors);
   validateVariantBounds(input.colors);
 
   // Strict validation only when going ONLINE (not for drafts or OFFLINE saves)

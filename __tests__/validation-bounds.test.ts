@@ -8,6 +8,9 @@ import { describe, it, expect } from "vitest";
 import {
   validateVariantBounds,
   validateProductFields,
+  clampStock,
+  clampVariantStocks,
+  MAX_STOCK,
   type ColorInput,
 } from "@/lib/product-variant-validation";
 import { validatePromotionInput } from "@/lib/promotion-validation";
@@ -114,6 +117,54 @@ describe("validateVariantBounds — prix / stock / poids", () => {
         }),
       ]),
     ).toThrow(/négatif/i);
+  });
+});
+
+describe("clampStock — plafond MAX_STOCK", () => {
+  it("laisse une valeur normale intacte", () => {
+    expect(clampStock(0)).toBe(0);
+    expect(clampStock(1)).toBe(1);
+    expect(clampStock(500)).toBe(500);
+    expect(clampStock(1000)).toBe(1000);
+  });
+
+  it("plafonne toute valeur > 1000 à 1000", () => {
+    expect(clampStock(1001)).toBe(MAX_STOCK);
+    expect(clampStock(10_000)).toBe(MAX_STOCK);
+    expect(clampStock(29_732_222_222)).toBe(MAX_STOCK); // bug PFS 91820
+  });
+
+  it("ramène une valeur négative ou NaN à 0", () => {
+    expect(clampStock(-1)).toBe(0);
+    expect(clampStock(-1000)).toBe(0);
+    expect(clampStock(NaN)).toBe(0);
+    expect(clampStock(Infinity)).toBe(0);
+  });
+
+  it("tronque les décimales", () => {
+    expect(clampStock(3.9)).toBe(3);
+    expect(clampStock(1000.5)).toBe(MAX_STOCK);
+  });
+
+  it("accepte une string parseable et rejette une string invalide", () => {
+    expect(clampStock("42")).toBe(42);
+    expect(clampStock("bogus")).toBe(0);
+    expect(clampStock(null)).toBe(0);
+    expect(clampStock(undefined)).toBe(0);
+  });
+});
+
+describe("clampVariantStocks — mutation en place", () => {
+  it("plafonne le stock de chaque variante", () => {
+    const colors: ColorInput[] = [
+      baseColor({ stock: 500 }),
+      baseColor({ stock: 5000 }),
+      baseColor({ stock: 29_732_222_222 }),
+    ];
+    clampVariantStocks(colors);
+    expect(colors[0].stock).toBe(500);
+    expect(colors[1].stock).toBe(MAX_STOCK);
+    expect(colors[2].stock).toBe(MAX_STOCK);
   });
 });
 

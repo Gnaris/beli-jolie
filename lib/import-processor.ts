@@ -20,6 +20,7 @@ import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { computeMarketplaceSyncFlags } from "@/lib/marketplace-sync-flag";
 import { resolveCountryCode } from "@/lib/countries";
+import { clampStock } from "@/lib/product-variant-validation";
 import path from "path";
 
 // ─────────────────────────────────────────────
@@ -270,7 +271,7 @@ function normalizeRow(raw: Record<string, unknown>, index: number): ProductImpor
     saleType: saleTypeRaw === "PACK" ? "PACK" : "UNIT",
     unitPrice: num(raw["unit_price"] ?? raw["unit_price *"] ?? raw["prix"] ?? raw["price"] ?? raw["Prix unitaire *"]) ?? 0,
     packQuantity: int(raw["pack_qty"] ?? raw["pack_quantity"] ?? raw["quantite_pack"] ?? raw["Qté pack"]),
-    stock: int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0,
+    stock: clampStock(int(raw["stock"] ?? raw["stock *"] ?? raw["quantite"] ?? raw["qty"] ?? raw["Stock *"]) ?? 0),
     weight: num(raw["weight_kg"] ?? raw["poids_kg"] ?? raw["poids"] ?? raw["Poids (kg)"] ?? raw["Poids (kg) *"]) ?? undefined,
     discountPercent: num(raw["discount_percent"] ?? raw["remise_percent"] ?? raw["Remise %"] ?? raw["discount_value"] ?? raw["remise_valeur"] ?? raw["Valeur remise"]),
     size: str(raw["size"] ?? raw["size *"] ?? raw["taille"] ?? raw["Taille"] ?? raw["Taille *"]) || undefined,
