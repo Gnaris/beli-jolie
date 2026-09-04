@@ -880,6 +880,9 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       dimensionWidth: true,
       dimensionHeight: true,
       primaryColorId: true,
+      // Utilisé pour autoriser le renommage de la référence sur un brouillon
+      // jamais publié (aucun ID marketplace posé).
+      isIncomplete: true,
       // Pour décider si on doit poser les drapeaux « Synchro nécessaire »
       // sur les marketplaces liées après la mise à jour.
       pfsProductId: true,
@@ -896,17 +899,37 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     },
   });
 
-  // ── Référence verrouillée après création ────────────────────────
+  // ── Référence verrouillée après création (sauf brouillon jamais publié) ──
   // Décision cliente 2026-08-21 (incident A2251(2)/(3)) : la référence
   // sert de clé aux marketplaces (PFS/Ankor/eFa/Faire/OC) et aux chemins
   // fichiers. La modifier a posteriori provoque des décalages (images
   // fantômes, images considérées orphelines et supprimées, échec
   // « Invalid attachment » côté OC…). Le UI passe déjà le champ en
-  // readOnly, ce bloc est un garde-fou serveur.
+  // readOnly en mode édition, ce bloc est un garde-fou serveur.
+  //
+  // Exception 2026-09-04 : un brouillon (`isIncomplete = true`) qui n'a
+  // jamais été poussé sur AUCUNE marketplace peut voir sa référence
+  // renommée — aucun lien externe à casser. Le UI l'ouvre déjà en mode
+  // « create » dans ce cas.
   const _oldRefLocked = oldProduct?.reference ?? "";
   const _submittedRefLocked = input.reference.trim().toUpperCase();
-  const _effectiveRef = _oldRefLocked || _submittedRefLocked;
-  if (_oldRefLocked && _submittedRefLocked && _submittedRefLocked !== _oldRefLocked) {
+  const _neverPublishedDraft = !!oldProduct?.isIncomplete
+    && !oldProduct?.pfsProductId
+    && !oldProduct?.ankorsProductId
+    && !oldProduct?.efashionReferenceBase
+    && !oldProduct?.faireProductId
+    && !oldProduct?.orderchampProductId
+    && !oldProduct?.microstoreProductId;
+  const _refCanChange = _neverPublishedDraft;
+  const _effectiveRef = _refCanChange
+    ? (_submittedRefLocked || _oldRefLocked)
+    : (_oldRefLocked || _submittedRefLocked);
+  if (
+    !_refCanChange
+    && _oldRefLocked
+    && _submittedRefLocked
+    && _submittedRefLocked !== _oldRefLocked
+  ) {
     logger.warn("[updateProduct] Reference change ignored (locked after creation)", {
       productId: id,
       oldRef: _oldRefLocked,
@@ -947,11 +970,29 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
 
   // Référence verrouillée : cf. bloc « Référence verrouillée après
   // création » plus haut. Ces variables restent utilisées par les
-  // requêtes en aval mais ne déclenchent aucun renommage.
+  // requêtes en aval. Un vrai renommage n'a lieu que pour un brouillon
+  // jamais publié (aucun ID marketplace posé).
   const oldRef = _oldRefLocked;
   const newRefUpper = _effectiveRef;
-  const folderRenameSwaps: { oldDbPath: string; newDbPath: string }[] = [];
-  const folderRenamed = false;
+  let folderRenameSwaps: { oldDbPath: string; newDbPath: string }[] = [];
+  let folderRenamed = false;
+  if (_refCanChange && oldRef && oldRef !== newRefUpper) {
+    try {
+      const { renamed } = await renameProductFolder(oldRef, newRefUpper, tenant.slug);
+      folderRenameSwaps = renamed;
+      folderRenamed = true;
+    } catch (err) {
+      logger.error("[Storage] renameProductFolder failed", {
+        productId: id,
+        oldRef,
+        newRef: newRefUpper,
+        error: err,
+      });
+      // On laisse passer : le swap de path ne sera pas effectué, mais la
+      // BDD reste cohérente. L'admin peut relancer un save plus tard.
+      folderRenameSwaps = [];
+    }
+  }
 
   // Map BDD-path → BDD-path (toutes tailles : large/md/thumb).
   const pathRenameMap = new Map<string, string>();
