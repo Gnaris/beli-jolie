@@ -6412,11 +6412,23 @@ export default function AdminProductsTable({
     if (ok !== true) return;
 
     const products = allProducts.filter((p) => ids.includes(p.id));
-    const options = { local: false, pfs: false, ankorstore: false, efashion: false, faire: false };
-    if (marketplace === "pfs") options.pfs = true;
-    if (marketplace === "ankorstore") options.ankorstore = true;
-    if (marketplace === "efashion") options.efashion = true;
-    if (marketplace === "faire") options.faire = true;
+    // ⚠️ Toutes les clés marketplace DOIVENT figurer ici + être posées à true
+    // pour la marketplace ciblée. Sans ça, `validateEnqueueInput` normalise
+    // `undefined` → `false`, et le worker skip silencieusement le job
+    // (`runOrderchampJob` : `if (options.orderchamp === false) SUCCEEDED return`).
+    // Bug historique 2026-09-05 : orderchamp était absent → aucune synchro
+    // bulk OC ne partait, alors que les jobs remontaient SUCCEEDED dans le
+    // widget. Reproduit uniquement en bulk (l'unitaire pose `orderchamp: true`).
+    const options: Record<"local" | "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore", boolean> = {
+      local: false,
+      pfs: false,
+      ankorstore: false,
+      efashion: false,
+      faire: false,
+      orderchamp: false,
+      microstore: false,
+    };
+    options[marketplace] = true;
     enqueuePfs(
       products.map((p) => ({
         productId: p.id,

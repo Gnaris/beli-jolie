@@ -92,10 +92,18 @@ export async function orderchampGraphQL<T = unknown>(
   const init: RequestInit = { method: "POST", headers, body };
 
   // disableRetry : pour les mutations non-idempotentes (productCreate,
-  // customCategoryCreate, etc.). Un retry après un 5xx peut créer un doublon
-  // si la mutation a bien été traitée côté OC mais que la réponse a été
-  // perdue en route. Cf. incident du 2026-08-20 (produits triplés sur OC).
-  const maxAttempts = options?.disableRetry ? 1 : MAX_ATTEMPTS;
+  // customCategoryCreate, etc.). Un retry après un 5xx ou une erreur réseau
+  // peut créer un doublon si la mutation a bien été traitée côté OC mais que
+  // la réponse a été perdue en route. Cf. incident du 2026-08-20 (produits
+  // triplés sur OC).
+  //
+  // ⚠️ Un 429 (rate-limit) reste TOUJOURS retriable même avec disableRetry :
+  // OC a explicitement rejeté la requête sans la traiter — pas de risque de
+  // doublon, et sans retry la cliente se prend un « HTTP 429 sans JSON » en
+  // pleine figure alors qu'il suffit d'attendre 30-60s (cf. bug 2026-09-05
+  // sur productCreate Orderchamp après un batch de publish PFS/eFashion).
+  const disableRetry = options?.disableRetry ?? false;
+  const maxAttempts = MAX_ATTEMPTS;
 
   let lastNetworkError: unknown = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -105,6 +113,11 @@ export async function orderchampGraphQL<T = unknown>(
       // On sort du retry immédiatement et on laisse parseGraphQLResponse throw
       // un OrderchampGraphQLError propre que le caller peut détecter.
       if (res.status === 401 || res.status === 403) {
+        return await parseGraphQLResponse<T>(res, opName);
+      }
+      // 5xx : dangereux à retenter pour une mutation non-idempotente
+      // (réponse potentiellement perdue en route → doublon).
+      if (res.status >= 500 && disableRetry) {
         return await parseGraphQLResponse<T>(res, opName);
       }
       if (res.status !== 429 && res.status < 500) {
@@ -122,6 +135,20 @@ export async function orderchampGraphQL<T = unknown>(
       const causeCode = causeObj instanceof Error
         ? (causeObj as Error & { code?: string }).code ?? causeObj.name
         : undefined;
+      // Erreur réseau : dangereuse à retenter pour une mutation non-idempotente
+      // (la requête a peut-être atteint OC malgré la coupure côté réponse).
+      if (disableRetry) {
+        logger.error("[Orderchamp] fetch network error (disableRetry actif)", {
+          opName,
+          attempt,
+          message: err instanceof Error ? err.message : String(err),
+          cause: causeCode,
+        });
+        if (err instanceof Error && causeCode) {
+          err.message = `${err.message} (${causeCode})`;
+        }
+        throw err;
+      }
       if (attempt === maxAttempts - 1) {
         logger.error("[Orderchamp] fetch network error (retries épuisés)", {
           opName,
@@ -144,6 +171,30 @@ export async function orderchampGraphQL<T = unknown>(
   return await parseGraphQLResponse<T>(finalRes, opName);
 }
 
+/**
+ * Traduit un statut HTTP brut Orderchamp en message lisible pour la cliente.
+ * Le message est celui affiché dans la modale save / toast d'erreur — évite
+ * les libellés techniques comme « HTTP 429 sans JSON » qui n'aident pas.
+ */
+function friendlyHttpMessage(status: number): string {
+  if (status === 429) {
+    return "Orderchamp est saturé (trop de requêtes récentes). Réessayez dans 2 à 3 minutes.";
+  }
+  if (status === 401 || status === 403) {
+    return "Clé API Orderchamp invalide ou révoquée. Vérifiez le token dans Paramètres → Marketplaces → Orderchamp.";
+  }
+  if (status >= 500) {
+    return `Orderchamp est momentanément indisponible (HTTP ${status}). Réessayez dans quelques instants.`;
+  }
+  if (status === 404) {
+    return "Ressource Orderchamp introuvable (HTTP 404). Le produit ou la variante n'existe peut-être plus côté OC.";
+  }
+  if (status >= 400) {
+    return `Orderchamp a refusé la requête (HTTP ${status}).`;
+  }
+  return `Orderchamp a répondu HTTP ${status}.`;
+}
+
 async function parseGraphQLResponse<T>(res: Response, opName?: string): Promise<T> {
   let payload: GraphQLResponse<T> | null = null;
   try {
@@ -151,13 +202,13 @@ async function parseGraphQLResponse<T>(res: Response, opName?: string): Promise<
   } catch {
     if (!res.ok) {
       throw new OrderchampGraphQLError(
-        `Orderchamp HTTP ${res.status} sans JSON`,
+        friendlyHttpMessage(res.status),
         [{ message: `HTTP ${res.status}` }],
         res.status,
       );
     }
     throw new OrderchampGraphQLError(
-      "Orderchamp a renvoyé une réponse non-JSON",
+      "Orderchamp a renvoyé une réponse illisible (corps non-JSON).",
       [{ message: "invalid-json" }],
       res.status,
     );
@@ -175,7 +226,7 @@ async function parseGraphQLResponse<T>(res: Response, opName?: string): Promise<
 
   if (!res.ok) {
     throw new OrderchampGraphQLError(
-      `Orderchamp HTTP ${res.status}`,
+      friendlyHttpMessage(res.status),
       [{ message: `HTTP ${res.status}` }],
       res.status,
     );
@@ -183,7 +234,7 @@ async function parseGraphQLResponse<T>(res: Response, opName?: string): Promise<
 
   if (!payload?.data) {
     throw new OrderchampGraphQLError(
-      "Réponse Orderchamp vide (pas de data)",
+      "Orderchamp a répondu sans données. Réessayez la publication.",
       [{ message: "empty-data" }],
       res.status,
     );
