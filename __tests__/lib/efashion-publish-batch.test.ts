@@ -170,6 +170,59 @@ describe("efashionPublishProductsBatch", () => {
     expect(saveDraftMock).not.toHaveBeenCalled();
   });
 
+  it("découpe en lots de 10 : 12 produits → 2 appels save-mel-draft + 2 save-mel-choice", async () => {
+    // 12 produits, 1 couleur chacun → chunks de 10 puis 2
+    for (let i = 0; i < 12; i++) {
+      findUniqueMock.mockResolvedValueOnce(makeProduct(`p${i}`, `REF${i}`, 1));
+    }
+    // 1er chunk : 10 IDs, 2ᵉ chunk : 2 IDs
+    saveDraftMock
+      .mockResolvedValueOnce({
+        success: true,
+        productIds: Array.from({ length: 10 }, (_, k) => 1000 + k),
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        productIds: [2001, 2002],
+      });
+    saveChoiceMock.mockResolvedValue({ success: true, shootings: [] });
+
+    const res = await efashionPublishProductsBatch(
+      Array.from({ length: 12 }, (_, i) => `p${i}`),
+    );
+
+    expect(saveDraftMock).toHaveBeenCalledTimes(2);
+    expect(saveChoiceMock).toHaveBeenCalledTimes(2);
+    expect(saveDraftMock.mock.calls[0][0].references).toHaveLength(10);
+    expect(saveDraftMock.mock.calls[1][0].references).toHaveLength(2);
+    expect(res.success).toBe(true);
+    expect(res.results.filter((r) => r.success)).toHaveLength(12);
+  });
+
+  it("un chunk qui plante à save-mel-draft n'empêche pas les autres chunks", async () => {
+    for (let i = 0; i < 12; i++) {
+      findUniqueMock.mockResolvedValueOnce(makeProduct(`p${i}`, `REF${i}`, 1));
+    }
+    // 1er chunk plante, 2ᵉ passe
+    saveDraftMock
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValueOnce({ success: true, productIds: [2001, 2002] });
+    saveChoiceMock.mockResolvedValue({ success: true, shootings: [] });
+
+    const res = await efashionPublishProductsBatch(
+      Array.from({ length: 12 }, (_, i) => `p${i}`),
+    );
+
+    // 10 échecs (1er chunk) + 2 succès (2ᵉ chunk)
+    expect(res.success).toBe(false); // partiel
+    const failed = res.results.filter((r) => !r.success);
+    const succeeded = res.results.filter((r) => r.success);
+    expect(failed).toHaveLength(10);
+    expect(succeeded).toHaveLength(2);
+    expect(failed.every((r) => r.error?.includes("save-mel-draft"))).toBe(true);
+    expect(succeeded.map((r) => r.productId).sort()).toEqual(["p10", "p11"]);
+  });
+
   it("rejette les produits avec mappings manquants sans bloquer les autres", async () => {
     const badProduct = makeProduct("bad", "REFBAD", 1) as { category: { efashionCategorieId: number | null } };
     badProduct.category.efashionCategorieId = null;

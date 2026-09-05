@@ -363,83 +363,121 @@ export async function efashionPublishProductsBatch(
     };
   }
 
-  // 3. saveMelDraft groupé — UN SEUL appel pour tous les produits
-  let draftResult: { success: boolean; productIds: number[]; message?: string };
-  try {
-    draftResult = await efashionSaveMelDraft({
-      references: prepared.map((p) => p.draftReference),
+  // 3-5. saveMelDraft + saveMelChoice — découpés en lots de CHUNK_SIZE
+  //
+  // Historiquement 1 seul appel groupé pour toute la file → 1 seul ticket
+  // shooting. Incident 05/09/2026 : batch de 50 produits → payload trop lourd,
+  // eFashion coupe la connexion (« fetch failed » après ~15s). On chunk à 10
+  // pour rester sous le seuil observé qui passe. Contrepartie : N tickets
+  // shooting au lieu d'1 (10 produits → 1 ticket, 50 → 5 tickets). Toujours
+  // beaucoup mieux que l'ancien mode « 1 ticket par produit ».
+  const CHUNK_SIZE = 10;
+  const idsByProduct = new Map<string, number[]>();
+  const succeeded: PreparedProduct[] = [];
+
+  for (let start = 0; start < prepared.length; start += CHUNK_SIZE) {
+    const chunk = prepared.slice(start, start + CHUNK_SIZE);
+    const chunkIndex = Math.floor(start / CHUNK_SIZE) + 1;
+    const chunkTotal = Math.ceil(prepared.length / CHUNK_SIZE);
+
+    logger.info("[eFashion batch publish] Envoi lot", {
+      chunkIndex,
+      chunkTotal,
+      chunkSize: chunk.length,
     });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    for (const p of prepared) {
-      results.push({ productId: p.productId, success: false, error: `save-mel-draft : ${msg}` });
+
+    // 3. saveMelDraft (lot)
+    let draftResult: { success: boolean; productIds: number[]; message?: string };
+    try {
+      draftResult = await efashionSaveMelDraft({
+        references: chunk.map((p) => p.draftReference),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error("[eFashion batch publish] save-mel-draft failed for chunk", {
+        chunkIndex,
+        chunkTotal,
+        error: err as Error,
+      });
+      for (const p of chunk) {
+        results.push({ productId: p.productId, success: false, error: `save-mel-draft : ${msg}` });
+      }
+      continue;
     }
-    return { success: false, results, globalError: `Échec save-mel-draft : ${msg}` };
-  }
-  if (!draftResult.success || draftResult.productIds.length === 0) {
-    for (const p of prepared) {
-      results.push({
-        productId: p.productId,
-        success: false,
-        error: draftResult.message ?? "save-mel-draft a échoué",
+    if (!draftResult.success || draftResult.productIds.length === 0) {
+      for (const p of chunk) {
+        results.push({
+          productId: p.productId,
+          success: false,
+          error: draftResult.message ?? "save-mel-draft a échoué",
+        });
+      }
+      continue;
+    }
+
+    // 4. Distribue les productIds renvoyés par couleur (ordre : p1_c1, p1_c2, p2_c1…)
+    const chunkExpected = chunk.reduce((sum, p) => sum + p.unitColors.length, 0);
+    if (draftResult.productIds.length !== chunkExpected) {
+      logger.warn("[eFashion batch publish] productIds count mismatch", {
+        chunkIndex,
+        expected: chunkExpected,
+        got: draftResult.productIds.length,
       });
     }
+    let cursor = 0;
+    const idsByChunkProduct = new Map<string, number[]>();
+    for (const p of chunk) {
+      const slice = draftResult.productIds.slice(cursor, cursor + p.unitColors.length);
+      idsByChunkProduct.set(p.productId, slice);
+      idsByProduct.set(p.productId, slice);
+      cursor += p.unitColors.length;
+    }
+
+    // 5. saveMelChoice (lot) → 1 ticket shooting pour ce lot
+    const choiceRefs = chunk.flatMap((p) => {
+      const efIds = idsByChunkProduct.get(p.productId) ?? [];
+      return efIds.map((pid) => ({ ...p.draftReference, id: `db-${pid}` }));
+    });
+    try {
+      await efashionSaveMelChoice({ references: choiceRefs });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Draft OK mais choice KO → fiches créées sans shooting. On persiste
+      // quand même les IDs pour permettre un alignement manuel après coup.
+      logger.error("[eFashion batch publish] save-mel-choice failed for chunk", {
+        chunkIndex,
+        chunkTotal,
+        error: err as Error,
+        affected: chunk.map((p) => p.productId),
+      });
+      await persistIds(chunk, idsByChunkProduct);
+      for (const p of chunk) {
+        results.push({
+          productId: p.productId,
+          success: false,
+          error: `Brouillon créé mais save-mel-choice a échoué : ${msg}`,
+          efashionProductIds: idsByChunkProduct.get(p.productId),
+        });
+      }
+      continue;
+    }
+
+    // Persistance IDs par chunk pour ne pas perdre le progrès si un chunk
+    // ultérieur crashe.
+    await persistIds(chunk, idsByChunkProduct);
+    succeeded.push(...chunk);
+  }
+
+  if (succeeded.length === 0) {
     return {
       success: false,
       results,
-      globalError: draftResult.message ?? "save-mel-draft a échoué",
+      globalError: "Tous les lots ont échoué (save-mel-draft/save-mel-choice).",
     };
   }
 
-  // 4. Distribue les productIds renvoyés par couleur de chaque BJ product
-  // On suppose un ordre stable : ref1_col1, ref1_col2, ..., ref2_col1, ...
-  const allReturned = draftResult.productIds;
-  const expectedTotal = prepared.reduce((sum, p) => sum + p.unitColors.length, 0);
-  if (allReturned.length !== expectedTotal) {
-    logger.warn("[eFashion batch publish] productIds count mismatch", {
-      expected: expectedTotal,
-      got: allReturned.length,
-    });
-  }
-
-  let cursor = 0;
-  const idsByProduct = new Map<string, number[]>();
-  for (const p of prepared) {
-    const slice = allReturned.slice(cursor, cursor + p.unitColors.length);
-    idsByProduct.set(p.productId, slice);
-    cursor += p.unitColors.length;
-  }
-
-  // 5. saveMelChoice groupé — UN SEUL appel → 1 shooting créé
-  const choiceRefs = prepared.flatMap((p) => {
-    const efIds = idsByProduct.get(p.productId) ?? [];
-    return efIds.map((pid) => ({ ...p.draftReference, id: `db-${pid}` }));
-  });
-  try {
-    await efashionSaveMelChoice({ references: choiceRefs });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Le draft est passé mais le choice a planté → les fiches existent côté
-    // eFashion mais aucun shooting créé. On enregistre quand même les IDs en
-    // BDD pour permettre un alignement manuel par la suite.
-    logger.error("[eFashion batch publish] save-mel-choice failed", {
-      error: err as Error,
-      affected: prepared.map((p) => p.productId),
-    });
-    await persistIds(prepared, idsByProduct);
-    for (const p of prepared) {
-      results.push({
-        productId: p.productId,
-        success: false,
-        error: `Brouillon créé mais save-mel-choice a échoué : ${msg}`,
-        efashionProductIds: idsByProduct.get(p.productId),
-      });
-    }
-    return { success: false, results, globalError: `save-mel-choice : ${msg}` };
-  }
-
   // 6. Upload des photos par produit (loop séquentielle pour ne pas saturer)
-  for (const p of prepared) {
+  for (const p of succeeded) {
     const efIds = idsByProduct.get(p.productId) ?? [];
     for (let i = 0; i < p.unitColors.length && i < efIds.length; i++) {
       const colorRef = p.unitColors[i];
@@ -464,11 +502,9 @@ export async function efashionPublishProductsBatch(
     }
   }
 
-  // 7. Persiste les IDs en BDD
-  await persistIds(prepared, idsByProduct);
-
-  // 8. publishBrouillonBulk — un seul appel pour TOUS les productIds créés
-  const allEfIds = prepared.flatMap((p) => idsByProduct.get(p.productId) ?? []);
+  // 7. publishBrouillonBulk — un seul appel pour TOUS les productIds créés
+  //    des chunks qui ont réussi.
+  const allEfIds = succeeded.flatMap((p) => idsByProduct.get(p.productId) ?? []);
   try {
     const me = await efashionGetMe();
     const publishedCount = await efashionPublishBrouillonBulk({
@@ -476,7 +512,7 @@ export async function efashionPublishProductsBatch(
       idVendeur: me.id_vendeur,
     });
     logger.info("[eFashion batch publish] Sortie du brouillon", {
-      totalProducts: prepared.length,
+      totalProducts: succeeded.length,
       totalColors: allEfIds.length,
       publishedCount,
     });
@@ -486,9 +522,9 @@ export async function efashionPublishProductsBatch(
     });
   }
 
-  // 9. Alignement par couleur — boucle par produit BJ
+  // 8. Alignement par couleur — boucle par produit BJ
   const { efashionUpdateProductInPlace } = await import("@/lib/efashion-update");
-  for (const p of prepared) {
+  for (const p of succeeded) {
     try {
       const alignRes = await efashionUpdateProductInPlace(p.productId, { forceFullSync: true });
       if (!alignRes.success) {
@@ -505,7 +541,7 @@ export async function efashionPublishProductsBatch(
     }
   }
 
-  for (const p of prepared) {
+  for (const p of succeeded) {
     results.push({
       productId: p.productId,
       success: true,
@@ -513,7 +549,14 @@ export async function efashionPublishProductsBatch(
     });
   }
 
-  return { success: true, results };
+  const overallSuccess = succeeded.length === prepared.length;
+  return {
+    success: overallSuccess,
+    results,
+    globalError: overallSuccess
+      ? undefined
+      : `${prepared.length - succeeded.length} produit(s) sur ${prepared.length} ont échoué dans un lot.`,
+  };
 }
 
 async function persistIds(

@@ -24,6 +24,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { validateEfashionPublishable } from "@/lib/efashion-validate";
+import { resolveJobIntentsBulk } from "@/lib/marketplace-job-intent";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { tenantALS } from "@/lib/tenant-als";
 
@@ -304,9 +305,23 @@ export async function commitEfashionShootingBatch(): Promise<
   // bleu eFashion sur chaque produit comme pour PFS/Ankorstore.
   // payload reprend les infos déjà calculées dans `state.items` (reference,
   // productName, firstImage) pour l'affichage immédiat.
+  //
+  // L'intent est résolu ici (CREATE vs UPDATE vs REFRESH) — sans ça, le widget
+  // marketplaces tombe sur son fallback client et classe tous les jobs eFashion
+  // dans « Modification » au lieu de « Création » (incident 05/09/2026).
+  const orderedProductIds = [...toPublish, ...toRefresh];
+  const intentInputs = orderedProductIds.map((productId) => ({
+    productId,
+    marketplace: "efashion" as const,
+    mode: (toPublish.includes(productId) ? "publish" : "refresh") as "publish" | "refresh",
+    scheduled: false,
+  }));
+  const resolvedIntents = await resolveJobIntentsBulk(intentInputs);
+
   const viewByProduct = new Map(state.items.map((it) => [it.productId, it]));
   const jobIdByProduct = new Map<string, string>();
-  for (const productId of [...toPublish, ...toRefresh]) {
+  for (let i = 0; i < orderedProductIds.length; i++) {
+    const productId = orderedProductIds[i];
     const view = viewByProduct.get(productId);
     const mode = toPublish.includes(productId) ? "PUBLISH" : "REFRESH";
     const job = await prisma.marketplaceRefreshJob.create({
@@ -314,6 +329,7 @@ export async function commitEfashionShootingBatch(): Promise<
         productId,
         marketplace: "EFASHION",
         mode,
+        intent: resolvedIntents[i],
         status: "IN_PROGRESS",
         startedAt: new Date(),
         payload: {

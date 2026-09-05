@@ -58,6 +58,13 @@ vi.mock("next/cache", () => ({
 vi.mock("@/lib/efashion-validate", () => ({
   validateEfashionPublishable: vi.fn(),
 }));
+vi.mock("@/lib/marketplace-job-intent", () => ({
+  // Par défaut : traite tous les inputs "publish" comme des CREATE (produit sans ID).
+  // Les tests peuvent override via `.mockResolvedValueOnce(...)` si besoin.
+  resolveJobIntentsBulk: vi.fn(async (inputs: Array<{ mode: string }>) =>
+    inputs.map((i) => (i.mode === "publish" ? "CREATE" : "REFRESH")),
+  ),
+}));
 vi.mock("@/lib/tenant", () => ({
   requireCurrentTenant: vi.fn().mockResolvedValue({ id: "t1", slug: "beliandjolie" }),
 }));
@@ -284,6 +291,46 @@ describe("commitEfashionShootingBatch", () => {
     expect(res.success).toBe(false);
     // La file ne doit PAS être vidée tant qu'il y a une erreur bloquante
     expect(deleteManyMock).not.toHaveBeenCalledWith({});
+  });
+
+  it("pose intent=CREATE sur les jobs PUBLISH (pour affichage dans onglet Création)", async () => {
+    findBatchMock
+      .mockResolvedValueOnce([
+        { id: "item1", productId: "p1", mode: "PUBLISH", addedAt: new Date() },
+        { id: "item2", productId: "p2", mode: "REFRESH", addedAt: new Date() },
+      ])
+      .mockResolvedValueOnce([
+        { productId: "p1", mode: "PUBLISH" },
+        { productId: "p2", mode: "REFRESH" },
+      ]);
+    findProductManyMock.mockResolvedValueOnce([
+      { id: "p1", reference: "R1", name: "P1", colors: [] },
+      { id: "p2", reference: "R2", name: "P2", colors: [] },
+    ]);
+    validateMock.mockResolvedValue({
+      productId: "p1",
+      ok: true,
+      missing: [],
+      noEligibleVariants: false,
+    });
+    deleteManyMock.mockResolvedValue({ count: 0 });
+
+    const createMock = prisma.marketplaceRefreshJob.create as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    createMock.mockClear();
+    createMock.mockResolvedValue({ id: "job-x" });
+
+    await commitEfashionShootingBatch();
+
+    // Vérifie que chaque job est créé avec un intent explicite (bug 05/09/2026 :
+    // sans ça, tous les jobs eFashion atterrissaient dans « Modification »).
+    const jobCreations = createMock.mock.calls.map((c) => c[0].data);
+    expect(jobCreations).toHaveLength(2);
+    const publishJob = jobCreations.find((d) => d.mode === "PUBLISH");
+    const refreshJob = jobCreations.find((d) => d.mode === "REFRESH");
+    expect(publishJob?.intent).toBe("CREATE");
+    expect(refreshJob?.intent).toBe("REFRESH");
   });
 
   it("nettoie les orphelins silencieusement avant de lancer le batch", async () => {

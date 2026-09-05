@@ -134,6 +134,14 @@ interface MarketplaceRefreshContextValue {
    *  FAILED marqués CANCELLED côté serveur). Les jobs actifs
    *  (IN_PROGRESS / AWAITING_CALLBACK) sont laissés intacts. */
   dismiss: (ids: string[]) => void;
+  /**
+   * Rejoue les items en erreur : dismiss les FAILED donnés PUIS enqueue les
+   * nouveaux inputs. Sans le dismiss synchrone, le prochain poll ré-affiche
+   * les FAILED (encore présents en BDD tant que /dismiss n'a pas complété)
+   * et l'ErrorPanel reste rouge avec le bouton « Relancer » toujours actif
+   * — la cliente peut alors re-cliquer en boucle sans voir le nouveau job.
+   */
+  retry: (errorItemIds: string[], inputs: MarketplaceRefreshEnqueueInput[]) => void;
   isAllFinished: boolean;
   runningCount: number;
   queuedCount: number;
@@ -477,6 +485,80 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     [pollOnce],
   );
 
+  // Relance atomique : on retire les items en erreur (optimiste + serveur)
+  // AVANT d'enfiler les nouveaux — sinon le poll qui suit l'enqueue voit
+  // encore les FAILED en BDD, l'ErrorPanel rouge se ré-affiche et le bouton
+  // « Relancer » reste actif (incident 05/09/2026 remonté par la cliente).
+  const retry = useCallback(
+    (errorItemIds: string[], inputs: MarketplaceRefreshEnqueueInput[]) => {
+      if (errorItemIds.length === 0 && inputs.length === 0) return;
+
+      // Optimistes : cache les erreurs et pose les nouveaux en "queued" tout
+      // de suite pour que la cliente voie le produit repasser en chargement.
+      if (errorItemIds.length > 0) {
+        setItems((prev) => prev.filter((i) => !errorItemIds.includes(i.id)));
+      }
+
+      // Note les intents "create" pour héritage optimiste (comme enqueue).
+      const createEntries: [string, "create"][] = [];
+      for (const inp of inputs) {
+        if (inp.intent !== "create") continue;
+        const mode = inp.mode ?? "refresh";
+        const marketplace = inp.marketplace ?? "pfs";
+        createEntries.push([intentKey(inp.productId, marketplace, mode), "create"]);
+      }
+      if (createEntries.length > 0) {
+        setIntentMap((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of createEntries) next.set(k, v);
+          return next;
+        });
+      }
+
+      void (async () => {
+        // Étape 1 : dismiss côté serveur — on ATTEND avant l'enqueue pour que
+        // le prochain poll ne renvoie plus les FAILED.
+        if (errorItemIds.length > 0) {
+          try {
+            await fetch("/api/admin/marketplace-queue/dismiss", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids: errorItemIds }),
+            });
+          } catch {
+            // ignored
+          }
+        }
+        // Étape 2 : enqueue des nouveaux jobs
+        if (inputs.length > 0) {
+          try {
+            const res = await fetch("/api/admin/marketplace-queue", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ items: inputs, intervalMs: 0 }),
+            });
+            if (res.ok) {
+              const data = (await res.json()) as {
+                items: MarketplaceRefreshItem[];
+              };
+              if (Array.isArray(data.items) && data.items.length > 0) {
+                setItems((prev) => {
+                  const existingIds = new Set(prev.map((i) => i.id));
+                  const fresh = data.items.filter((i) => !existingIds.has(i.id));
+                  return [...prev, ...fresh];
+                });
+              }
+            }
+          } catch {
+            // ignored
+          }
+        }
+        void pollOnce();
+      })();
+    },
+    [pollOnce],
+  );
+
   // ── Refresh RSC quand des items basculent en "done" ───────────────
   // Comme avant : on rafraîchit les données serveur (badges marketplace,
   // date du dernier rafraîchissement…) sans recharger toute la page.
@@ -546,6 +628,7 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
     clear,
     stop,
     dismiss,
+    retry,
     isAllFinished,
     runningCount,
     queuedCount,

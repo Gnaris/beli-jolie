@@ -160,7 +160,7 @@ type StatusFilter = "all" | "active" | "errors" | "done";
 
 export function MarketplacesDrawer() {
   const { openWidget, close, setBadge } = useRightRail();
-  const { items, clear, enqueue, runningCount, queuedCount, stop, dismiss } =
+  const { items, clear, enqueue, retry, runningCount, queuedCount, stop, dismiss } =
     useMarketplaceRefreshQueue();
   const {
     jobs: linkJobs,
@@ -241,26 +241,26 @@ export function MarketplacesDrawer() {
   };
 
   const retryOneGroup = (group: ProductGroup) => {
-    const inputs = group.items
-      .filter((it) => {
-        const outcome = outcomeForMarketplace(it, it.marketplace);
-        return outcome && outcome.ok === false;
-      })
-      .map((it) => ({
-        productId: it.productId,
-        reference: it.reference,
-        productName: it.productName,
-        firstImage: it.firstImage,
-        options: it.options,
-        mode: it.mode,
-        marketplace: it.marketplace,
-      }));
-    if (inputs.length > 0) enqueue(inputs);
+    const errorItems = group.items.filter((it) => {
+      const outcome = outcomeForMarketplace(it, it.marketplace);
+      return outcome && outcome.ok === false;
+    });
+    const inputs = errorItems.map((it) => ({
+      productId: it.productId,
+      reference: it.reference,
+      productName: it.productName,
+      firstImage: it.firstImage,
+      options: it.options,
+      mode: it.mode,
+      marketplace: it.marketplace,
+    }));
+    if (inputs.length > 0) retry(errorItems.map((it) => it.id), inputs);
   };
 
   const retryAllErrorsInView = () => {
     if (!activeView) return;
     const inputs: Parameters<typeof enqueue>[0] = [];
+    const errorIds: string[] = [];
     for (const g of activeView.groups) {
       if (g.section !== "errors") continue;
       for (const it of g.items) {
@@ -275,11 +275,12 @@ export function MarketplacesDrawer() {
             mode: it.mode,
             marketplace: it.marketplace,
           });
+          errorIds.push(it.id);
         }
       }
     }
     if (inputs.length > 0) {
-      enqueue(inputs);
+      retry(errorIds, inputs);
       toast.success(
         "Relancé",
         `${inputs.length} envoi${inputs.length > 1 ? "s" : ""} en erreur remis en file.`,
