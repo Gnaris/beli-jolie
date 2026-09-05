@@ -382,11 +382,10 @@ function buildOrderchampProductPayload(
       width: mmToCm(product.dimensionWidth),
       height: mmToCm(product.dimensionHeight),
       diameter: mmToCm(product.dimensionDiameter),
-      // Code SH aussi sur la variante — OC n'a pas d'endpoint pour modifier
-      // le HS au niveau produit après création (`ProductUpdateInput` ne
-      // l'expose pas). Le poser sur chaque variante garantit qu'il est
-      // toujours propagé lors d'un update ultérieur.
-      hsCode: product.hsCode?.code ?? undefined,
+      // ⚠️ Pas de `hsCode` ici : `ProductCreateVariantInput` ne l'expose pas
+      // côté OC (contrairement à `ProductVariantUpdateInput`). Le HS est posé
+      // au niveau produit ci-dessus + propagé par variante dans la post-passe
+      // `productVariantUpdate` juste après création.
     })),
     images: imageUrls.map((url) => ({ sourceUrl: url })),
   };
@@ -644,6 +643,11 @@ export async function orderchampPublishProduct(
       const imgId = bj?.color?.id ? imageIdByColorId.get(bj.color.id) : undefined;
       const varInput: Record<string, unknown> = { id: m.orderchampVariantId };
       if (imgId) varInput.productImageId = imgId;
+      // HS code sur la variante (impossible à la création, cf. commentaire
+      // dans `buildOrderchampProductPayload`). On le pose ici pour que les
+      // updates ultérieurs — qui passent par `productVariantUpdate` — voient
+      // déjà la bonne valeur côté OC.
+      if (product.hsCode?.code) varInput.hsCode = product.hsCode.code;
       if (Object.keys(varInput).length > 1) {
         try {
           await orderchampGraphQL(
