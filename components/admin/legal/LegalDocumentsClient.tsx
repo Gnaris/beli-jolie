@@ -63,12 +63,15 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
 
   // Initialize default documents
   const handleInitialize = () => {
+    setMessage(null);
     showLoading();
     startTransition(async () => {
       try {
         const result = await initializeLegalDocuments();
         if (result.success && result.created > 0) {
           window.location.reload();
+        } else if (!result.success) {
+          setMessage({ type: "error", text: result.error || "Impossible d'initialiser les documents." });
         }
       } finally {
         hideLoading();
@@ -199,6 +202,11 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
         <button onClick={handleInitialize} disabled={isPending} className="btn-primary mx-auto">
           {isPending ? "Initialisation..." : "Initialiser les documents"}
         </button>
+        {message && message.type === "error" && (
+          <div className="mt-4 rounded-lg px-4 py-3 text-sm bg-red-50 text-red-700 border border-red-200">
+            {message.text}
+          </div>
+        )}
       </div>
     );
   }

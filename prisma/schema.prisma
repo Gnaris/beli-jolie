@@ -2975,7 +2975,7 @@ enum LegalDocumentType {
 
 model LegalDocument {
   id        String                 @id @default(cuid())
-  type      LegalDocumentType      @unique
+  type      LegalDocumentType
   title     String
   content   String                 @db.LongText // HTML with {{variable}} placeholders
   isActive  Boolean                @default(true)
@@ -2987,6 +2987,7 @@ model LegalDocument {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, type])
   @@index([tenantId])
 }
 

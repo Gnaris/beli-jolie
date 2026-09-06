@@ -28,7 +28,7 @@ export async function getLegalDocuments() {
  * Get a single legal document by type
  */
 export async function getLegalDocument(type: LegalDocumentType) {
-  return prisma.legalDocument.findUnique({ where: { type } });
+  return prisma.legalDocument.findFirst({ where: { type } });
 }
 
 /**
@@ -45,7 +45,7 @@ export async function getLegalDocumentVersions(documentId: string) {
 /**
  * Initialize default documents if none exist
  */
-export async function initializeLegalDocuments(): Promise<{ success: boolean; created: number }> {
+export async function initializeLegalDocuments(): Promise<{ success: boolean; created: number; error?: string }> {
   try {
     await requireAdmin();
 
@@ -79,8 +79,8 @@ export async function initializeLegalDocuments(): Promise<{ success: boolean; cr
 
     revalidateTag("legal-documents", "default");
     return { success: true, created: types.length };
-  } catch {
-    return { success: false, created: 0 };
+  } catch (e) {
+    return { success: false, created: 0, error: e instanceof Error ? e.message : "Erreur" };
   }
 }
 
@@ -102,12 +102,12 @@ export async function saveLegalDocument(
     const companyInfo = await prisma.companyInfo.findFirst();
     const companySnapshot = JSON.stringify(companyInfo || {});
 
-    const existing = await prisma.legalDocument.findUnique({ where: { type } });
+    const existing = await prisma.legalDocument.findFirst({ where: { type } });
 
     if (existing) {
       // Update document
       await prisma.legalDocument.update({
-        where: { type },
+        where: { id: existing.id },
         data: {
           content,
           ...(title ? { title } : {}),
@@ -167,8 +167,10 @@ export async function toggleLegalDocument(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
+    const existing = await prisma.legalDocument.findFirst({ where: { type } });
+    if (!existing) return { success: false, error: "Document introuvable." };
     await prisma.legalDocument.update({
-      where: { type },
+      where: { id: existing.id },
       data: { isActive },
     });
     revalidatePath("/admin/documents-legaux");

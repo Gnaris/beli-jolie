@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
   }
 
   const [doc, companyInfo] = await Promise.all([
-    prisma.legalDocument.findUnique({ where: { type: type as LegalDocumentType } }),
+    prisma.legalDocument.findFirst({ where: { type: type as LegalDocumentType } }),
     prisma.companyInfo.findFirst(),
   ]);
 

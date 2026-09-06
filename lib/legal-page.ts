@@ -11,7 +11,7 @@ import type { LegalDocumentType } from "@prisma/client";
 
 export async function loadLegalPage(type: LegalDocumentType) {
   const [doc, companyInfo] = await Promise.all([
-    prisma.legalDocument.findUnique({ where: { type } }),
+    prisma.legalDocument.findFirst({ where: { type } }),
     prisma.companyInfo.findFirst(),
   ]);
 
