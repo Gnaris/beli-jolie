@@ -32,6 +32,7 @@ import { tenantALS } from "@/lib/tenant-als";
 import { getCurrentTenantIdSafe } from "@/lib/tenant";
 import { decidePrimaryRotation } from "@/lib/auto-rotate-primary";
 import { emitProductEvent } from "@/lib/product-events";
+import { dedupeEnqueueDrafts } from "@/lib/marketplace-queue-dedupe";
 
 export interface RotationResult {
   rotated: boolean;
@@ -178,20 +179,38 @@ async function rotatePrimaryInner(productId: string): Promise<RotationResult> {
       jobs.push({ marketplace: "FAIRE", options: { faire: true } });
     }
 
-    if (jobs.length > 0) {
+    // Dédoublonnage — plusieurs rotations rapprochées (rafale de stock) sur
+    // le même produit ne doivent pas empiler N × 4 jobs PUBLISH par marketplace.
+    // Le debounce de 2 s en tête absorbe déjà la plupart des rafales, mais si
+    // un job PUBLISH est encore QUEUED d'une rotation précédente, l'ignorer :
+    // il enverra l'état à jour au moment de son exécution.
+    const dedupeInput = jobs.map((j) => ({
+      productId,
+      marketplace: j.marketplace,
+      mode: "PUBLISH" as const,
+      _options: j.options,
+    }));
+    const { toCreate: dedupedJobs, deduplicated } = await dedupeEnqueueDrafts(dedupeInput);
+    if (dedupedJobs.length > 0) {
       await prisma.$transaction(
-        jobs.map((j) =>
+        dedupedJobs.map((j) =>
           prisma.marketplaceRefreshJob.create({
             data: {
               productId,
               marketplace: j.marketplace,
               mode: "PUBLISH",
               status: "QUEUED",
-              payload: { ...basePayload, options: j.options },
+              payload: { ...basePayload, options: j._options },
             },
           }),
         ),
       );
+    }
+    if (deduplicated > 0) {
+      logger.info("[RotatePrimary] jobs dédupliqués", {
+        productId,
+        deduplicated,
+      });
     }
 
     revalidateTag("admin-products", "default");

@@ -22,6 +22,24 @@ import {
 } from "@/lib/pfs-verify";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
+import {
+  captureProductSnapshot,
+  diffProductSnapshots,
+  createPfsAuditRun,
+  finalizePfsAuditRunError,
+  finalizePfsAuditRunSuccess,
+  persistProductChange,
+} from "@/lib/pfs-audit-history";
+import {
+  applyPfsVerifyPullsOnly,
+  isPullSupportedLotB,
+  issueKey,
+  type PfsVerifyActionInput,
+} from "@/lib/pfs-verify-apply";
+import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
+import { sendMail } from "@/lib/email";
+import { resolveJobIntentsBulk } from "@/lib/marketplace-job-intent";
+import { dedupeEnqueueDrafts } from "@/lib/marketplace-queue-dedupe";
 
 export type PfsAuditStatus = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "STOPPED";
 
@@ -56,6 +74,8 @@ export interface PfsAuditState {
   diffCount: number;
   errorCount: number;
   errorMessage?: string;
+  /** true = déclenché par le scheduler auto (SiteConfig `pfs_audit_auto_enabled`). */
+  autoTriggered?: boolean;
   /** Uniquement les produits en écart ou en erreur (conformes exclus). */
   results: PfsAuditProductResult[];
 }
@@ -76,11 +96,47 @@ interface PfsAuditPersistedState {
   diffCount: number;
   errorCount: number;
   errorMessage?: string;
+  /** true = ce run a été lancé par le scheduler auto. */
+  autoTriggered?: boolean;
+  /** Id du PfsAuditRun (table journal) associé — présent uniquement en auto. */
+  historyRunId?: string | null;
 }
 
 const KEY_STATE = "pfs_audit_state";
 const KEY_STOP = "pfs_audit_stop";
 const CONCURRENCY = 10;
+
+// Config auto — clés SiteConfig
+export const KEY_AUTO_ENABLED = "pfs_audit_auto_enabled";
+/** Intervalle stocké en secondes (nouveau format — libre : jour/heure/min/sec). */
+export const KEY_AUTO_INTERVAL_SECONDS = "pfs_audit_auto_interval_seconds";
+/** Intervalle legacy en heures — lu en fallback si secondes absent. */
+export const KEY_AUTO_INTERVAL_HOURS = "pfs_audit_auto_interval_hours";
+export const KEY_AUTO_ALERT_EMAIL = "pfs_audit_auto_alert_email";
+export const KEY_AUTO_LAST_RUN_AT = "pfs_audit_auto_last_run_at";
+/** Timestamp de mise en pause (ms). Absent ou "0" = pas en pause. */
+export const KEY_AUTO_PAUSED_AT = "pfs_audit_auto_paused_at";
+/** Minimum absolu 30 s : évite de saturer PFS si la cliente met tout à zéro par erreur. */
+export const MIN_AUTO_INTERVAL_SECONDS = 30;
+/** Legacy — conservé pour compat de tests / imports historiques. */
+export const MIN_AUTO_INTERVAL_HOURS = 1;
+
+/**
+ * Résout l'intervalle en secondes depuis les 2 clés SiteConfig. Priorité au
+ * nouveau format `pfs_audit_auto_interval_seconds` ; fallback sur l'ancien
+ * `pfs_audit_auto_interval_hours` × 3600. Clamp au minimum absolu.
+ */
+export function resolveIntervalSeconds(rows: { key: string; value: string }[]): number {
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const rawSec = Number(map.get(KEY_AUTO_INTERVAL_SECONDS) ?? "");
+  if (Number.isFinite(rawSec) && rawSec >= MIN_AUTO_INTERVAL_SECONDS) return rawSec;
+  const rawHours = Number(map.get(KEY_AUTO_INTERVAL_HOURS) ?? "");
+  if (Number.isFinite(rawHours) && rawHours > 0) {
+    const asSec = rawHours * 3600;
+    return asSec >= MIN_AUTO_INTERVAL_SECONDS ? asSec : MIN_AUTO_INTERVAL_SECONDS;
+  }
+  return MIN_AUTO_INTERVAL_SECONDS;
+}
 
 const EMPTY_PERSISTED: PfsAuditPersistedState = {
   status: "IDLE",
@@ -92,6 +148,8 @@ const EMPTY_PERSISTED: PfsAuditPersistedState = {
   okCount: 0,
   diffCount: 0,
   errorCount: 0,
+  autoTriggered: false,
+  historyRunId: null,
 };
 
 async function readPersistedState(tenantId: string): Promise<PfsAuditPersistedState> {
@@ -170,6 +228,7 @@ export async function getPfsAuditState(tenantId: string): Promise<PfsAuditState>
     diffCount: persisted.diffCount,
     errorCount: persisted.errorCount,
     errorMessage: persisted.errorMessage,
+    autoTriggered: persisted.autoTriggered ?? false,
     results,
   };
 }
@@ -199,10 +258,17 @@ async function checkStopSignal(tenantId: string): Promise<boolean> {
 /**
  * Démarre un audit PFS complet en tâche de fond (fire-and-forget).
  * Idempotent : renvoie l'état actuel si un audit est déjà RUNNING.
+ *
+ * @param opts.autoTriggered Passer `true` depuis le scheduler (workers).
+ *   Active la logique post-run automatique : auto-apply des corrections,
+ *   propagation marketplaces, écriture dans le journal historique, désactivation
+ *   du toggle auto + envoi mail admin en cas de moindre erreur.
  */
 export async function startPfsAuditInBackground(
   tenantId: string,
+  opts?: { autoTriggered?: boolean },
 ): Promise<PfsAuditState> {
+  const autoTriggered = opts?.autoTriggered === true;
   const current = await readPersistedState(tenantId);
   if (current.status === "RUNNING") return getPfsAuditState(tenantId);
 
@@ -252,6 +318,17 @@ export async function startPfsAuditInBackground(
   await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
 
   const auditRunId = randomUUID();
+  // Journal historique : uniquement pour les runs auto. Le run est créé
+  // en RUNNING, finalisé en DONE/ERROR à la fin.
+  const historyRunId = autoTriggered
+    ? await createPfsAuditRun(tenantId, true).catch((err) => {
+        logger.error("[PFS Audit] Création historique impossible", {
+          tenantId,
+          error: err as Error,
+        });
+        return null;
+      })
+    : null;
   const initial: PfsAuditPersistedState = {
     status: "RUNNING",
     auditRunId,
@@ -262,6 +339,8 @@ export async function startPfsAuditInBackground(
     okCount: 0,
     diffCount: 0,
     errorCount: 0,
+    autoTriggered,
+    historyRunId,
   };
   await writePersistedState(tenantId, initial);
   await setStopSignal(tenantId, false);
@@ -393,6 +472,70 @@ export async function startPfsAuditInBackground(
       await Promise.all(workers);
 
       const stopped = await checkStopSignal(tenantId);
+
+      // ─── Branche auto : à la fin du scan, applique + propage + journal ─
+      // Comportement figé avec la cliente : la MOINDRE erreur technique OU
+      // le moindre écart bloqué (compo non mappée, variante ajoutée côté PFS,
+      // champ non-pull-able Lot B) → stop total, désactive l'auto, mail admin.
+      if (autoTriggered && !stopped && historyRunId) {
+        try {
+          const outcome = await runAutoPostAudit({
+            tenantId,
+            auditRunId,
+            historyRunId,
+          });
+          await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
+            tenantId,
+          });
+          const doneState: PfsAuditPersistedState = {
+            status: outcome.ok ? "DONE" : "ERROR",
+            auditRunId,
+            startedAt: initial.startedAt,
+            finishedAt: Date.now(),
+            total: products.length,
+            processed,
+            okCount,
+            diffCount,
+            errorCount,
+            errorMessage: outcome.ok ? undefined : outcome.reason,
+            autoTriggered: true,
+            historyRunId,
+          };
+          await writePersistedState(tenantId, doneState);
+          await setStopSignal(tenantId, false);
+          return;
+        } catch (err) {
+          // Filet ultime — un crash du post-run auto passe aussi par la voie
+          // erreur (mail + désactivation).
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error("[PFS Audit Auto] Post-run échoué", {
+            tenantId,
+            error: msg,
+          });
+          await handleAutoAuditFailure(tenantId, historyRunId, msg);
+          await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
+            tenantId,
+          });
+          const errorState: PfsAuditPersistedState = {
+            status: "ERROR",
+            auditRunId,
+            startedAt: initial.startedAt,
+            finishedAt: Date.now(),
+            total: products.length,
+            processed,
+            okCount,
+            diffCount,
+            errorCount,
+            errorMessage: msg,
+            autoTriggered: true,
+            historyRunId,
+          };
+          await writePersistedState(tenantId, errorState);
+          await setStopSignal(tenantId, false);
+          return;
+        }
+      }
+
       const finalState: PfsAuditPersistedState = {
         status: stopped ? "STOPPED" : "DONE",
         auditRunId,
@@ -403,17 +546,26 @@ export async function startPfsAuditInBackground(
         okCount,
         diffCount,
         errorCount,
+        autoTriggered,
+        historyRunId,
       };
       await writePersistedState(tenantId, finalState);
       await setStopSignal(tenantId, false);
     } catch (err) {
       logger.error("[PFS Audit] Audit échoué", { tenantId, error: err as Error });
+      const msg = err instanceof Error ? err.message : String(err);
+      if (autoTriggered && historyRunId) {
+        await handleAutoAuditFailure(tenantId, historyRunId, msg);
+        await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
+          tenantId,
+        }).catch(() => {});
+      }
       const previous = await readPersistedState(tenantId);
       const errorState: PfsAuditPersistedState = {
         ...previous,
         status: "ERROR",
         finishedAt: Date.now(),
-        errorMessage: err instanceof Error ? err.message : String(err),
+        errorMessage: msg,
       };
       await writePersistedState(tenantId, errorState);
     }
@@ -529,4 +681,406 @@ export async function dismissAuditResults(
     return { remaining: 0, autoReset: true };
   }
   return { remaining, autoReset: false };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTO-AUDIT — Post-run automatique : applique, propage, journalise, alerte
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Détermine si une issue est corrigeable automatiquement par un pull PFS.
+ * Utilisé par le runner auto pour filtrer les écarts à appliquer produit par
+ * produit. Les écarts non corrigeables (compo non mappée, champ Lot C comme
+ * catégorie, etc.) sont ignorés — l'audit continue sur les autres produits.
+ * Seule une erreur technique (crash apply, PFS unreachable) stoppe tout.
+ */
+function isIssueAutoPullable(iss: PfsVerifyIssue): boolean {
+  if (iss.pullBlocked) return false;
+  if (iss.blockingMappingIssue) return false;
+  if (iss.missingLocalPfs && iss.missingLocalPfs.length > 0) return false;
+  if (!isPullSupportedLotB(iss.scope, iss.field)) return false;
+  return true;
+}
+
+/**
+ * Post-audit auto : décide si tout est corrigeable sans erreur, applique les
+ * corrections produit par produit, écrit le journal historique, et enfin
+ * enqueue une propagation vers les autres marketplaces (best-effort).
+ *
+ * Renvoie `{ ok: true }` si tout s'est bien passé, sinon `{ ok: false, reason }`
+ * — le caller finalise l'audit en ERROR et envoie le mail admin.
+ */
+async function runAutoPostAudit(args: {
+  tenantId: string;
+  auditRunId: string;
+  historyRunId: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { tenantId, auditRunId, historyRunId } = args;
+
+  // 1. Charge les résultats de ce run (uniquement les produits en écart/erreur).
+  const rows = await prisma.pfsAuditResult.findMany({
+    where: { tenantId, auditRunId, dismissedAt: null },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // 2. La MOINDRE erreur technique bloque tout.
+  const firstTechError = rows.find((r) => !r.ok);
+  if (firstTechError) {
+    const reason = `Erreur technique sur « ${firstTechError.name} » (réf. ${firstTechError.reference}) : ${firstTechError.errorMessage ?? "erreur inconnue"}`;
+    await handleAutoAuditFailure(tenantId, historyRunId, reason);
+    return { ok: false, reason };
+  }
+
+  // 3. Applique les corrections produit par produit + écrit le journal.
+  //    Les écarts non corrigeables auto (Lot C : catégorie, saison, pays,
+  //    genre… + compo non mappée + variantes structurelles) sont **skippés
+  //    par écart** — l'audit ne s'arrête pas là-dessus, elle les corrigera à
+  //    la main. Seule une erreur technique côté PFS/apply arrête tout.
+  let changedProducts = 0;
+  const productsToPropagate: string[] = [];
+  for (const r of rows) {
+    if (!r.ok) continue;
+    const issues = (r.issues as unknown as PfsVerifyIssue[]) ?? [];
+    const actions: PfsVerifyActionInput[] = issues
+      .filter(isIssueAutoPullable)
+      .map((iss) => ({
+        key: issueKey(iss),
+        direction: "pull" as const,
+      }));
+    if (actions.length === 0) continue;
+
+    const before = await captureProductSnapshot(r.productId);
+    if (!before) continue;
+
+    try {
+      const { report } = await applyPfsVerifyPullsOnly(r.productId, actions);
+      if (report.errors.length > 0) {
+        const err = report.errors[0];
+        const reason = `Application PFS impossible sur « ${r.name} » (réf. ${r.reference}) : ${err.error}`;
+        await handleAutoAuditFailure(tenantId, historyRunId, reason);
+        return { ok: false, reason };
+      }
+      const after = await captureProductSnapshot(r.productId);
+      if (!after) continue;
+      const changes = diffProductSnapshots(before, after);
+      if (changes.length > 0) {
+        changedProducts++;
+        await persistProductChange(
+          historyRunId,
+          tenantId,
+          {
+            productId: r.productId,
+            reference: r.reference,
+            name: r.name,
+            firstImage: r.firstImage,
+          },
+          changes,
+        );
+        productsToPropagate.push(r.productId);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const reason = `Application PFS impossible sur « ${r.name} » (réf. ${r.reference}) : ${msg}`;
+      await handleAutoAuditFailure(tenantId, historyRunId, reason);
+      return { ok: false, reason };
+    }
+  }
+
+  // 4. Finalise le journal DONE.
+  await finalizePfsAuditRunSuccess(historyRunId, rows.length, changedProducts);
+
+  // 5. Propagation marketplaces — best-effort, ne casse pas le succès.
+  //    Enqueue jobs dans MarketplaceRefreshJob : traités asynchrone par le
+  //    worker, visibles dans le widget flottant Marketplaces. Un échec côté
+  //    Ankor/eFa/Faire/OC laissera un job FAILED dans le widget (attendu).
+  if (productsToPropagate.length > 0) {
+    void enqueueMarketplacePropagation(tenantId, productsToPropagate).catch((err) => {
+      logger.error("[PFS Audit Auto] Propagation marketplaces échouée", {
+        tenantId,
+        error: err as Error,
+      });
+    });
+  }
+
+  logger.info("[PFS Audit Auto] Run terminé", {
+    tenantId,
+    historyRunId,
+    totalProducts: rows.length,
+    changedProducts,
+    propagatedProducts: productsToPropagate.length,
+  });
+  return { ok: true };
+}
+
+/**
+ * Enqueue des jobs marketplace REFRESH pour tous les produits corrigés, sur
+ * chaque marketplace éligible (Ankor, eFashion, Faire, Orderchamp, Microstore).
+ * Traités par le marketplace-queue-worker. Erreurs remontent dans le widget
+ * Marketplaces (widget en bas à droite), pas dans l'audit lui-même.
+ */
+type PropagateMkt = "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
+
+async function enqueueMarketplacePropagation(
+  tenantId: string,
+  productIds: string[],
+): Promise<void> {
+  interface JobDraft {
+    productId: string;
+    reference: string;
+    productName: string;
+    firstImage: string | null;
+    marketplace: PropagateMkt;
+  }
+  const drafts: JobDraft[] = [];
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: {
+      id: true,
+      reference: true,
+      name: true,
+      primaryColorId: true,
+      status: true,
+      ankorsProductId: true,
+      ankorsEnabled: true,
+      efashionEnabled: true,
+      faireProductId: true,
+      faireEnabled: true,
+      orderchampProductId: true,
+      orderchampEnabled: true,
+      microstoreProductId: true,
+      colors: {
+        select: {
+          colorId: true,
+          efashionProductId: true,
+          images: {
+            orderBy: { order: "asc" },
+            take: 1,
+            select: { path: true },
+          },
+        },
+      },
+    },
+  });
+  const firstImageByProduct = new Map<string, string | null>();
+  for (const p of products) {
+    const primary = p.primaryColorId
+      ? p.colors.find((c) => c.colorId === p.primaryColorId)?.images[0]?.path
+      : null;
+    const fallback = p.colors
+      .map((c) => c.images[0]?.path)
+      .find((v): v is string => !!v);
+    firstImageByProduct.set(p.id, primary ?? fallback ?? null);
+  }
+  // Lecture DIRECTE SiteConfig (bypass cache stale) : chaque marketplace est
+  // considérée connectée uniquement si sa clé de config est bien présente ET
+  // le kill-switch "products_management_enabled" n'est pas à "false"/"0".
+  // Sans ça, une clé retirée après démarrage du scheduler resterait "true"
+  // en cache 5 min et un job fantôme serait créé.
+  const configRows = await prisma.siteConfig.findMany({
+    where: {
+      tenantId,
+      key: {
+        in: [
+          "ankorstore_bo_email",
+          "ankorstore_products_management_enabled",
+          "efashion_email",
+          "efashion_products_management_enabled",
+          "faire_api_key",
+          "faire_products_management_enabled",
+          "orderchamp_api_key",
+          "orderchamp_products_management_enabled",
+          "microstore_session_key",
+          "microstore_products_management_enabled",
+        ],
+      },
+    },
+    select: { key: true, value: true },
+  });
+  const configMap = new Map(configRows.map((r) => [r.key, r.value]));
+  const isConnected = (credentialKey: string, killSwitchKey: string): boolean => {
+    const hasCred = !!(configMap.get(credentialKey) ?? "").trim();
+    const kill = configMap.get(killSwitchKey);
+    // kill "0" ou "false" = OFF. Absent = ON par défaut.
+    const enabled = kill !== "0" && kill !== "false";
+    return hasCred && enabled;
+  };
+  const ankConnected = isConnected("ankorstore_bo_email", "ankorstore_products_management_enabled");
+  const efaConnected = isConnected("efashion_email", "efashion_products_management_enabled");
+  const faiConnected = isConnected("faire_api_key", "faire_products_management_enabled");
+  const ocConnected = isConnected("orderchamp_api_key", "orderchamp_products_management_enabled");
+  const microConnected = isConnected("microstore_session_key", "microstore_products_management_enabled");
+
+  logger.info("[PFS Audit Auto] Propagation — marketplaces connectées", {
+    tenantId,
+    ankorstore: ankConnected,
+    efashion: efaConnected,
+    faire: faiConnected,
+    orderchamp: ocConnected,
+    microstore: microConnected,
+  });
+
+  for (const p of products) {
+    const info = { productId: p.id, reference: p.reference, productName: p.name, firstImage: firstImageByProduct.get(p.id) ?? null };
+    if (p.ankorsProductId && p.ankorsEnabled && ankConnected) drafts.push({ ...info, marketplace: "ankorstore" });
+    const hasEfashionLink = p.colors.some((c) => c.efashionProductId != null);
+    if (hasEfashionLink && p.efashionEnabled && efaConnected) drafts.push({ ...info, marketplace: "efashion" });
+    if (p.faireProductId && p.faireEnabled && faiConnected) drafts.push({ ...info, marketplace: "faire" });
+    if (p.orderchampProductId && p.orderchampEnabled && ocConnected && p.status !== "OFFLINE") {
+      drafts.push({ ...info, marketplace: "orderchamp" });
+    }
+    if (p.microstoreProductId && microConnected) drafts.push({ ...info, marketplace: "microstore" });
+  }
+  if (drafts.length === 0) return;
+
+  const mpDb: Record<PropagateMkt, "ANKORSTORE" | "EFASHION" | "FAIRE" | "ORDERCHAMP" | "MICROSTORE"> = {
+    ankorstore: "ANKORSTORE",
+    efashion: "EFASHION",
+    faire: "FAIRE",
+    orderchamp: "ORDERCHAMP",
+    microstore: "MICROSTORE",
+  };
+
+  // Dédoublonnage — un audit auto qui re-tourne toutes les X minutes peut
+  // ré-enfiler les mêmes REFRESH que le run précédent tant qu'ils n'ont pas
+  // fini. Le helper filtre contre les QUEUED existants (mais pas les
+  // IN_PROGRESS, qui doivent laisser un nouveau job s'empiler derrière pour
+  // capturer les modifs récentes).
+  const { toCreate, deduplicated } = await dedupeEnqueueDrafts(
+    drafts.map((d) => ({
+      productId: d.productId,
+      marketplace: mpDb[d.marketplace],
+      mode: "REFRESH" as const,
+      _draft: d,
+    })),
+  );
+
+  if (toCreate.length === 0) {
+    logger.info("[PFS Audit Auto] Aucun nouveau job — tous déjà en file", {
+      tenantId,
+      deduplicated,
+    });
+    return;
+  }
+
+  const intents = await resolveJobIntentsBulk(
+    toCreate.map((d) => ({
+      productId: d._draft.productId,
+      marketplace: d._draft.marketplace,
+      mode: "refresh" as const,
+      scheduled: false,
+    })),
+  );
+  await prisma.$transaction(
+    toCreate.map((d, i) => {
+      // Poser explicitement le flag de la marketplace visée dans payload.options
+      // pour que le worker ne se rabatte pas sur le comportement par défaut ni
+      // ne saute silencieusement le vrai push.
+      const options: Record<string, boolean> = { local: false };
+      options[d._draft.marketplace] = true;
+      return prisma.marketplaceRefreshJob.create({
+        data: {
+          productId: d._draft.productId,
+          tenantId,
+          marketplace: d.marketplace,
+          mode: "REFRESH",
+          intent: intents[i],
+          payload: {
+            reference: d._draft.reference,
+            productName: d._draft.productName,
+            firstImage: d._draft.firstImage,
+            options,
+          },
+          status: "QUEUED",
+        },
+      });
+    }),
+  );
+  logger.info("[PFS Audit Auto] Jobs marketplace enqueue", {
+    tenantId,
+    jobs: toCreate.length,
+    deduplicated,
+  });
+}
+
+/**
+ * En cas d'erreur pendant un run auto : marque le run journal en ERROR,
+ * désactive le toggle auto (elle devra le réactiver depuis les paramètres),
+ * et envoie un mail à l'adresse d'alerte configurée.
+ */
+async function handleAutoAuditFailure(
+  tenantId: string,
+  historyRunId: string | null,
+  reason: string,
+): Promise<void> {
+  if (historyRunId) {
+    await finalizePfsAuditRunError(historyRunId, reason).catch((err) => {
+      logger.error("[PFS Audit Auto] Finalisation historique en erreur impossible", {
+        tenantId,
+        error: err as Error,
+      });
+    });
+  }
+  await setSiteConfig(KEY_AUTO_ENABLED, "0", { tenantId }).catch((err) => {
+    logger.error("[PFS Audit Auto] Désactivation kill-switch impossible", {
+      tenantId,
+      error: err as Error,
+    });
+  });
+  await sendAuditAlertMail(tenantId, reason).catch((err) => {
+    logger.error("[PFS Audit Auto] Envoi mail d'alerte impossible", {
+      tenantId,
+      error: err as Error,
+    });
+  });
+}
+
+/**
+ * Résout l'adresse de destination du mail d'alerte : priorité à
+ * `pfs_audit_auto_alert_email` (spécifique à cette feature), fallback sur
+ * `admin_personal_email` déjà utilisé pour les autres alertes.
+ */
+async function resolveAlertEmailRecipient(tenantId: string): Promise<string | null> {
+  const rows = await prisma.siteConfig.findMany({
+    where: {
+      tenantId,
+      key: { in: [KEY_AUTO_ALERT_EMAIL, "admin_personal_email"] },
+    },
+    select: { key: true, value: true },
+  });
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  const specific = (map.get(KEY_AUTO_ALERT_EMAIL) ?? "").trim();
+  if (specific) return specific;
+  const fallback = (map.get("admin_personal_email") ?? "").trim();
+  return fallback || null;
+}
+
+async function sendAuditAlertMail(tenantId: string, reason: string): Promise<void> {
+  const to = await resolveAlertEmailRecipient(tenantId);
+  if (!to) {
+    logger.warn("[PFS Audit Auto] Aucune adresse d'alerte configurée — mail non envoyé", {
+      tenantId,
+    });
+    return;
+  }
+  const html = `
+<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#0f172a;">
+  <p><strong>L'audit PFS automatique a été interrompu.</strong></p>
+  <p>Motif : ${escapeHtml(reason)}</p>
+  <p>Le déclencheur automatique a été <strong>désactivé</strong>. Pour le réactiver, allez dans <em>Paramètres → Marketplaces → PFS → Audit automatique</em> après avoir traité les blocages depuis le widget « Audit PFS » de la fenêtre flottante.</p>
+  <p style="color:#64748b;font-size:12px;">Ce mail est envoyé par votre back-office Beli &amp; Jolie.</p>
+</div>`.trim();
+  await sendMail({
+    to,
+    subject: "Audit PFS interrompu — action requise",
+    html,
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

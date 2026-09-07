@@ -40,6 +40,11 @@ const PRODUCT_FIELDS_PULL = new Set([
   "isBestSeller",
   "productStatus",
   "composition",
+  // 2026-09-08 : ajout catégorie — résolution inverse via Category.pfsCategoryId
+  // (matching la Category BJ locale qui pointe sur la même catégorie PFS).
+  // Si aucune Category locale n'est mappée à la valeur PFS reçue, l'apply
+  // lève une erreur claire et l'audit-auto skippe cet écart pour ce produit.
+  "category",
 ]);
 
 // `missingVariant` / `extraVariant` sont considérés comme des champs "variante"

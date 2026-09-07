@@ -211,6 +211,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Scheduler d'audit PFS automatique. Tick 5 min. Kill switch géré par tenant
+  // dans SiteConfig `pfs_audit_auto_enabled`. En cas de moindre erreur pendant
+  // un run auto, l'audit désactive le kill switch et prévient l'admin par mail.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startPfsAuditScheduler } = await import("@/lib/pfs-audit-scheduler");
+        startPfsAuditScheduler();
+      } catch (err) {
+        logger.error("[PFS Audit Scheduler] Démarrage échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

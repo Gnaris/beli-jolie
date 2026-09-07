@@ -29,6 +29,8 @@ import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useRightRail } from "./RightRailContext";
 import { DrawerShell } from "./DrawerShell";
+import { PfsAuditHistoryView } from "./PfsAuditHistoryView";
+import { PfsAuditNextRunBanner } from "./PfsAuditNextRunBanner";
 import {
   getPfsAuditStateAction,
   cancelPfsAuditAction,
@@ -97,6 +99,9 @@ export function PfsAuditDrawer() {
   const [state, setState] = useState<PfsAuditState | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
+  // Onglet actif : « current » = liste des écarts du run courant (comportement
+  // historique), « history » = journal des runs auto (90 j de rétention).
+  const [activeTab, setActiveTab] = useState<"current" | "history">("current");
   const [isVisible, setIsVisible] = useState(true);
   // Loading unitaire : ID du produit dont on applique le fix actuellement
   // (spinner sur la carte + bouton désactivé).
@@ -1014,7 +1019,11 @@ export function PfsAuditDrawer() {
       }
       icon={AUDIT_ICON}
       footer={
-        isDone && counts.all > 0 ? (
+        activeTab === "history" ? (
+          <div className="text-[12px] text-slate-500 text-center">
+            Journal des runs automatiques — 90 derniers jours conservés.
+          </div>
+        ) : isDone && counts.all > 0 ? (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1067,7 +1076,39 @@ export function PfsAuditDrawer() {
           gère nous-mêmes sur la zone grille pour que le header (progression +
           filtres) reste sticky en haut. */}
       <div className="h-full flex flex-col min-h-0">
-        {bulkProgress ? (
+        {/* Bandeau timer prochain audit auto — sticky en tête. */}
+        <PfsAuditNextRunBanner />
+        {/* Onglets En cours / Historique — sticky en tête, toujours visibles. */}
+        <div className="flex items-center gap-1 px-3 pt-2.5 pb-2 border-b border-slate-200 bg-white shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab("current")}
+            className={`flex-1 h-9 px-3 rounded-lg text-[12px] font-semibold transition ${
+              activeTab === "current"
+                ? "bg-emerald-100 text-emerald-700"
+                : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            En cours
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("history")}
+            className={`flex-1 h-9 px-3 rounded-lg text-[12px] font-semibold transition ${
+              activeTab === "history"
+                ? "bg-emerald-100 text-emerald-700"
+                : "text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            Historique
+          </button>
+        </div>
+
+        {activeTab === "history" ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <PfsAuditHistoryView visible={activeTab === "history"} />
+          </div>
+        ) : bulkProgress ? (
           <BulkApplyingScreen done={bulkProgress.done} total={bulkProgress.total} />
         ) : !state || status === "IDLE" ? (
           <div className="flex-1 flex items-center justify-center p-10">

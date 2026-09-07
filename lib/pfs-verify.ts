@@ -837,13 +837,16 @@ export function comparePfsProduct(
   } else if (categoryDiffers || familyDiffers) {
     const pfsCatLabel = labels?.categoryLabelById?.get(pfsProduct.category?.id ?? "") ?? "(inconnue)";
     const localCatLabel = local.category.pfsCategoryName || local.category.name;
+    // Catégorie : pull activé depuis le 2026-09-08 — résolution inverse
+    // via Category.pfsCategoryId. Plus de pullBlocked ici : soit une
+    // Category BJ est mappée sur la valeur PFS et l'apply la pose, soit
+    // l'apply échoue proprement et l'audit-auto skippe l'écart.
     issues.push({
       scope: "product",
       field: "category",
       fieldLabel: "Catégorie",
       pfsValue: pfsCatLabel,
       expectedValue: localCatLabel,
-      pullBlocked: PULL_LOT_C_REASON,
     });
   }
 

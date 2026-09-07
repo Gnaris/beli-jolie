@@ -28,6 +28,7 @@ import {
   type MarketplaceKey,
 } from "@/lib/marketplace-enabled";
 import { resolveJobIntentsBulk } from "@/lib/marketplace-job-intent";
+import { dedupeEnqueueDrafts } from "@/lib/marketplace-queue-dedupe";
 
 const LIST_WINDOW_HOURS = 24;
 // Borne large : ~30 jours. Empêche les intervalles absurdes qui feraient
@@ -102,13 +103,58 @@ export async function POST(req: NextRequest) {
       items: [],
       skipped: totalSkipped,
       skippedByMarketplace,
+      deduplicated: 0,
+    });
+  }
+
+  // ─── Dédoublonnage contre QUEUED uniquement ───────────────────────
+  // Règle complète documentée dans `lib/marketplace-queue-dedupe.ts`. Résumé :
+  //  - Un job QUEUED équivalent (productId, marketplace, mode) déjà présent →
+  //    on ignore le doublon et on renvoie l'existant.
+  //  - Un job IN_PROGRESS n'empêche PAS l'ajout : le worker sérialise par
+  //    productId, le nouveau job attendra son tour derrière et capturera la
+  //    modif faite pendant le push en cours.
+  //  - DELETE / DISABLE / ENABLE ne sont pas concernés (actions ponctuelles).
+  //  - Les jobs `verifyActions` (chemin PFS Verify granulaire) portent un
+  //    payload spécifique et sont laissés passer sans dédoublonnage.
+  const dedupeInput = kept.map((input) => ({
+    productId: input.productId,
+    marketplace: mapMarketplaceToDb(input.marketplace ?? "pfs"),
+    mode: mapModeToDb(input.mode ?? "refresh"),
+    _original: input,
+    _hasVerify: !!input.verifyActions && input.verifyActions.length > 0,
+  }));
+
+  // On demande le dédoublonnage seulement pour les items sans verifyActions —
+  // les autres passent directement dans toCreate.
+  const [dedupeCandidates, verifyItems] = [
+    dedupeInput.filter((d) => !d._hasVerify),
+    dedupeInput.filter((d) => d._hasVerify),
+  ];
+  const {
+    toCreate: dedupedToCreate,
+    reused: reusedJobs,
+    deduplicated,
+  } = await dedupeEnqueueDrafts(dedupeCandidates);
+
+  const toCreate = [...dedupedToCreate, ...verifyItems].map((d) => d._original);
+
+  // Aucun nouveau à créer — on renvoie juste les jobs réutilisés (le widget
+  // s'en sert pour maintenir le badge « en file » sur les produits concernés).
+  if (toCreate.length === 0) {
+    return NextResponse.json({
+      created: 0,
+      items: reusedJobs.map(serializeJob),
+      skipped: totalSkipped,
+      skippedByMarketplace,
+      deduplicated,
     });
   }
 
   // Calcule pour chaque input (dans l'ordre d'arrivée) la date de départ.
   // Groupé par productId : les items d'un même produit partent en même temps.
   const schedule = computeScheduledTimestamps(
-    kept.map((i) => i.productId),
+    toCreate.map((i) => i.productId),
     rawInterval,
     new Date(),
   );
@@ -117,7 +163,7 @@ export async function POST(req: NextRequest) {
   // Utilisée par le widget marketplaces pour router chaque job vers l'onglet
   // correspondant. Groupé pour minimiser les requêtes produit.
   const intents = await resolveJobIntentsBulk(
-    kept.map((input, index) => ({
+    toCreate.map((input, index) => ({
       productId: input.productId,
       marketplace: input.marketplace ?? "pfs",
       mode: input.mode ?? "refresh",
@@ -126,7 +172,7 @@ export async function POST(req: NextRequest) {
   );
 
   const created = await prisma.$transaction(
-    kept.map((input, index) =>
+    toCreate.map((input, index) =>
       prisma.marketplaceRefreshJob.create({
         data: {
           productId: input.productId,
@@ -151,9 +197,10 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     created: created.length,
-    items: created.map(serializeJob),
+    items: [...created.map(serializeJob), ...reusedJobs.map(serializeJob)],
     skipped: totalSkipped,
     skippedByMarketplace,
+    deduplicated,
   });
 }
 

@@ -571,6 +571,7 @@ interface LocalPatch {
     dimensionHeight: number | null;
     dimensionDiameter: number | null;
     dimensionCircumference: number | null;
+    categoryId: string;
   }>;
   /**
    * Nouvel état exhaustif des ProductComposition (remplace complètement les
@@ -627,6 +628,27 @@ async function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: 
     }
     case "composition": {
       patch.compositions = await resolvePfsCompositionsToLocal(pfs.material_composition ?? []);
+      return;
+    }
+    case "category": {
+      // Résolution inverse : trouver la Category BJ locale qui pointe sur la
+      // catégorie PFS courante via `Category.pfsCategoryId`. Si aucun mapping
+      // trouvé, on lève une erreur claire — l'audit-auto skippe cet écart et
+      // continue sur les autres produits (comportement 2026-09-08).
+      const pfsCatId = ctx.pfsProduct.category?.id;
+      if (!pfsCatId) {
+        throw new Error("PFS n'a pas retourné d'identifiant de catégorie.");
+      }
+      const localCat = await prisma.category.findFirst({
+        where: { pfsCategoryId: pfsCatId, tenantId: ctx.local.tenantId },
+        select: { id: true, name: true },
+      });
+      if (!localCat) {
+        throw new Error(
+          `Catégorie PFS ${pfsCatId} non liée à une catégorie de votre site. Rattachez-la depuis Paramètres → Catégories.`,
+        );
+      }
+      patch.product.categoryId = localCat.id;
       return;
     }
     default:

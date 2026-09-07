@@ -3478,7 +3478,9 @@ model Tenant {
   microstoreOrders     MicrostoreOrder[]
   microstoreOrderItems MicrostoreOrderItem[]
 
-  pfsAuditResults PfsAuditResult[]
+  pfsAuditResults    PfsAuditResult[]
+  pfsAuditRuns       PfsAuditRun[]
+  pfsAuditRunChanges PfsAuditRunChange[]
 
   emailSends          EmailSend[]
   newsletterTemplates NewsletterTemplate[]
@@ -3585,6 +3587,50 @@ model PfsAuditResult {
 
   @@index([tenantId, auditRunId])
   @@index([tenantId, auditRunId, dismissedAt])
+}
+
+// Journal historique des runs d'audit PFS (manuel ou automatique).
+// Une ligne par exécution complète. `autoTriggered=true` = lancé par le
+// scheduler (SiteConfig `pfs_audit_auto_enabled`) ; false = déclenché par un
+// clic humain. Purge auto après 90 jours (voir purgeOldPfsAuditRuns).
+model PfsAuditRun {
+  id              String   @id @default(cuid())
+  tenantId        String
+  autoTriggered   Boolean  @default(false)
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  // "RUNNING" | "DONE" | "ERROR"
+  status          String
+  totalProducts   Int      @default(0)
+  changedProducts Int      @default(0)
+  errorMessage    String?  @db.Text
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  changes PfsAuditRunChange[]
+
+  @@index([tenantId, startedAt])
+  @@index([tenantId, finishedAt])
+}
+
+// Une ligne par produit touché lors d'un run. Le tableau JSON `changes`
+// contient un item par champ modifié : { scope, field, colorRef?, variantType?,
+// colorName?, before, after, label }. Rendu en tableau avant/après côté drawer.
+model PfsAuditRunChange {
+  id         String   @id @default(cuid())
+  runId      String
+  tenantId   String
+  productId  String
+  reference  String
+  name       String   @db.Text
+  firstImage String?  @db.Text
+  changes    Json
+  createdAt  DateTime @default(now())
+
+  run    PfsAuditRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([tenantId, createdAt])
 }
 
 model TenantDomain {

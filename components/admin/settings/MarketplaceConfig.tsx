@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import MicrostoreConnectCard from "@/components/admin/settings/MicrostoreConnectCard";
 import MicrostorePictureStationCard from "@/components/admin/settings/MicrostorePictureStationCard";
+import { PfsAutoAuditSection } from "@/components/admin/settings/PfsAutoAuditSection";
 import CountryMultiPicker from "@/components/ui/CountryMultiPicker";
 
 interface MarketplaceStats {
@@ -1585,6 +1586,23 @@ export default function MarketplaceConfig({
         <DrawerSection icon={<Icons.Bolt className="w-4 h-4" />} title="Majoration prix HT" subtitle="Appliquée à tous les prix envoyés à PFS.">
           <MarkupRow label="Prix HT" state={pfsMarkup} onChange={setPfsMarkup} />
           <DrawerSaveBar onSave={handleSaveMarkup} saving={isSavingMarkup} />
+        </DrawerSection>
+
+        <DrawerSection
+          icon={<Icons.Bolt className="w-4 h-4" />}
+          title="Audit automatique"
+          subtitle="Vérifie tous vos produits PFS à intervalle régulier, applique les corrections corrigeables et propage vers les autres marketplaces. En cas d'erreur ou de blocage, tout s'arrête et vous êtes prévenue par email."
+        >
+          <PfsAutoAuditSection
+            disabled={!hasPfsConfig || !pfsBrand}
+            disabledReason={
+              !hasPfsConfig
+                ? "Configurez d'abord vos identifiants PFS."
+                : !pfsBrand
+                ? "Choisissez d'abord une marque PFS."
+                : undefined
+            }
+          />
         </DrawerSection>
       </Drawer>
 
