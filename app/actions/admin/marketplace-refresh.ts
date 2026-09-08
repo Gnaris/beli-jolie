@@ -63,6 +63,12 @@ export interface MarketplaceRefreshOptions {
   orderchamp?: boolean; // Refresh Orderchamp (productRepublish — garde le même ID)
   microstore?: boolean; // Legacy — laissé pour compat propagation modal, non traité ici.
   /**
+   * Vrai quand ce job a été enqueue par la propagation post-audit PFS auto.
+   * Sert au drawer marketplaces à router ces jobs vers l'onglet dédié
+   * « Audit PFS » plutôt que « Rafraîchissement ». Défaut absent = false.
+   */
+  pfsAudit?: boolean;
+  /**
    * Étalement du lot : délai en millisecondes entre le départ de chaque
    * produit. 0 ou absent = tous les produits partent en même temps
    * (comportement historique). Le 1er produit part immédiatement, le 2e

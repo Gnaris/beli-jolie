@@ -17,6 +17,7 @@ const findManyResults = vi.fn();
 const updateManyResults = vi.fn();
 const countResults = vi.fn();
 const deleteManyResults = vi.fn();
+const updateManyRuns = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -30,6 +31,9 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...args: unknown[]) => updateManyResults(...args),
       count: (...args: unknown[]) => countResults(...args),
       deleteMany: (...args: unknown[]) => deleteManyResults(...args),
+    },
+    pfsAuditRun: {
+      updateMany: (...args: unknown[]) => updateManyRuns(...args),
     },
   },
 }));
@@ -47,7 +51,11 @@ vi.mock("@/lib/pfs-verify", () => ({
   loadPfsVerifyContext: vi.fn(),
 }));
 
-import { getPfsAuditState, dismissAuditResults } from "@/lib/pfs-audit-runner";
+import {
+  getPfsAuditState,
+  dismissAuditResults,
+  hardStopPfsAudit,
+} from "@/lib/pfs-audit-runner";
 
 beforeEach(() => {
   findFirstSiteConfig.mockReset();
@@ -57,6 +65,7 @@ beforeEach(() => {
   updateManyResults.mockReset();
   countResults.mockReset();
   deleteManyResults.mockReset();
+  updateManyRuns.mockReset();
 });
 
 describe("getPfsAuditState", () => {
@@ -338,5 +347,66 @@ describe("dismissAuditResults", () => {
     const result = await dismissAuditResults("t1", ["p1"]);
     expect(result).toEqual({ remaining: 0, autoReset: false });
     expect(updateManyResults).not.toHaveBeenCalled();
+  });
+});
+
+describe("hardStopPfsAudit", () => {
+  it("pose le stop signal, purge les résultats, finalise les runs auto en cours, reset le state et désactive l'audit auto", async () => {
+    upsertSiteConfig.mockResolvedValue({});
+    deleteManyResults.mockResolvedValue({ count: 42 });
+    updateManyRuns.mockResolvedValue({ count: 1 });
+
+    await hardStopPfsAudit("t1");
+
+    // Historique : les runs RUNNING sont finalisés en ERROR avec message.
+    expect(updateManyRuns).toHaveBeenCalledWith({
+      where: { tenantId: "t1", status: "RUNNING" },
+      data: {
+        status: "ERROR",
+        finishedAt: expect.any(Date),
+        errorMessage: "Audit interrompu manuellement",
+      },
+    });
+
+    // Stop signal posé.
+    expect(upsertSiteConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId_key: { tenantId: "t1", key: "pfs_audit_stop" } },
+        update: { value: "1" },
+      }),
+    );
+    // Résultats purgés.
+    expect(deleteManyResults).toHaveBeenCalledWith({ where: { tenantId: "t1" } });
+    // State reset en IDLE.
+    const stateUpsertCall = upsertSiteConfig.mock.calls.find(
+      (c) =>
+        (c[0] as { where: { tenantId_key: { key: string } } }).where.tenantId_key.key ===
+        "pfs_audit_state",
+    );
+    expect(stateUpsertCall).toBeDefined();
+    const stateWritten = JSON.parse(
+      (stateUpsertCall![0] as { update: { value: string } }).update.value,
+    );
+    expect(stateWritten.status).toBe("IDLE");
+    expect(stateWritten.total).toBe(0);
+    expect(stateWritten.processed).toBe(0);
+    // Audit auto désactivé (KEY_AUTO_ENABLED = "0").
+    const autoDisableCall = upsertSiteConfig.mock.calls.find(
+      (c) =>
+        (c[0] as { where: { tenantId_key: { key: string } } }).where.tenantId_key.key ===
+        "pfs_audit_auto_enabled",
+    );
+    expect(autoDisableCall).toBeDefined();
+    expect(
+      (autoDisableCall![0] as { update: { value: string } }).update.value,
+    ).toBe("0");
+    // On ne touche plus au chrono (KEY_AUTO_LAST_RUN_AT) — la réactivation
+    // manuelle depuis le bandeau se chargera de le reset.
+    const lastRunCall = upsertSiteConfig.mock.calls.find(
+      (c) =>
+        (c[0] as { where: { tenantId_key: { key: string } } }).where.tenantId_key.key ===
+        "pfs_audit_auto_last_run_at",
+    );
+    expect(lastRunCall).toBeUndefined();
   });
 });

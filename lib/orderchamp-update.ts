@@ -112,12 +112,15 @@ export async function orderchampUpdateProduct(
   const product = await loadOrderchampProductFull(productId);
   if (!product) return { success: false, error: "Impossible de recharger le produit BJ." };
 
-  // Résout le mapping catégorie OC (facultatif — décision cliente 2026-08-24).
-  // Sans mapping, on omet le champ `category` de l'update : OC garde sa
-  // catégorie actuelle (ou devine à la 1ʳᵉ publication). Évite de spammer
-  // la cliente avec un blocage à chaque save d'un produit non mappé.
+  // Résout le mapping catégorie OC — OBLIGATOIRE (décision cliente rappelée
+  // 2026-09-08). Sans mapping, on refuse l'update et on remonte le message
+  // clair à l'UI. Cohérent avec publish : impossible de créer OU de mettre à
+  // jour une fiche OC tant que la catégorie BJ n'est pas mappée.
   const categoryResolution = await resolveOrderchampCategoryForProduct(productId);
-  const resolvedCategoryPath = categoryResolution.ok ? categoryResolution.path : null;
+  if (!categoryResolution.ok) {
+    return { success: false, error: categoryResolution.error };
+  }
+  const resolvedCategoryPath = categoryResolution.path;
 
   // 1) Update meta produit (title, desc, dimensions, made-in)
   const changedFields: string[] = [];
@@ -125,7 +128,9 @@ export async function orderchampUpdateProduct(
   // Décision cliente 2026-08-21 : Orderchamp ne reçoit QUE les variantes
   // UNIT. Les PACK ne sont pas envoyées (marketplace B2B → acheteuses
   // commandent par multiple UNIT via `minimumOrderQuantity`).
-  const activeVariants = product.colors.filter((c) => !c.disabled && c.saleType !== "PACK");
+  // Décision cliente 2026-09-08 : les variantes désactivées SONT envoyées
+  // avec stock=0 (rupture temporaire, fiche reste visible côté acheteuse).
+  const activeVariants = product.colors.filter((c) => c.saleType !== "PACK");
   const countryAlpha2 = resolveOrderchampCountry(product.countryIsoCode);
   let countryEnName: string | null = null;
   try {
@@ -215,10 +220,10 @@ export async function orderchampUpdateProduct(
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
     customCategory: catRes.orderchampCustomCategoryId ?? undefined,
-    // Feuille standard OC facultative (décision cliente 2026-08-24) — envoyée
-    // seulement si mapping BJ résolu. Sinon omise : OC garde la catégorie
-    // actuelle de la fiche (ou reste vide au 1ᵉʳ publish si jamais mappée).
-    category: resolvedCategoryPath ?? undefined,
+    // Feuille standard OC obligatoire (décision cliente rappelée 2026-09-08) —
+    // le blocage est fait plus haut si `resolveOrderchampCategoryForProduct`
+    // renvoie `ok:false`, donc on est certain d'avoir un path ici.
+    category: resolvedCategoryPath,
     // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
     // si le canal n'est pas activé côté compte (Settings > Sales channels
     // dans le back-office OC).
@@ -340,7 +345,9 @@ export async function orderchampUpdateProduct(
   const inventoryUpdates: OrderchampInventoryUpdate[] = [];
   for (const v of activeVariants) {
     if (!v.orderchampVariantId) continue;
-    const newStock = Math.max(0, v.stock);
+    // Désactivée côté BJ → stock forcé à 0 côté OC (rupture temporaire,
+    // décision cliente 2026-09-08).
+    const newStock = v.disabled ? 0 : Math.max(0, v.stock);
     inventoryUpdates.push({
       productVariantId: v.orderchampVariantId,
       action: "SET",

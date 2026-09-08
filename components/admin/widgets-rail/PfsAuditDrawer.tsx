@@ -383,14 +383,30 @@ export function PfsAuditDrawer() {
     const ok = await confirm.confirm({
       type: "warning",
       title: "Arrêter l'audit ?",
-      message: "L'audit sera interrompu. Les produits déjà vérifiés gardent leur pastille à jour.",
+      message:
+        "L'audit va s'arrêter immédiatement, les écarts déjà affichés seront effacés et l'audit automatique sera désactivé. Vous pourrez le réactiver depuis le bandeau vert en haut de la fenêtre.",
       confirmLabel: "Arrêter",
       cancelLabel: "Continuer",
     });
     if (!ok) return;
-    await cancelPfsAuditAction();
-    void load();
-  }, [confirm, load]);
+    const res = await cancelPfsAuditAction();
+    if (!res.success) {
+      toast.error("Impossible d'arrêter l'audit", res.error);
+      return;
+    }
+    // Reset visuel immédiat — le hardStop côté serveur a déjà vidé la BDD.
+    // On garde le tiroir OUVERT (règle validée cliente 2026-09-08 : rester
+    // sur la fenêtre après confirmation d'arrêt, elle veut voir le bandeau
+    // « désactivé » et son bouton « Réactiver »).
+    setState(null);
+    setDismissedIds(new Set());
+    doneToastFiredRef.current = false;
+    previousStatusRef.current = null;
+    // Le bandeau du chrono (PfsAuditNextRunBanner) écoute cet event pour
+    // refresh l'info immédiatement au lieu d'attendre son prochain poll 30 s.
+    window.dispatchEvent(new Event("pfs-audit-config-changed"));
+    router.refresh();
+  }, [confirm, router, toast]);
 
   const handleDismissAudit = useCallback(async () => {
     await dismissPfsAuditAction();
@@ -574,16 +590,23 @@ export function PfsAuditDrawer() {
           return;
         }
       }
-      // Rien d'appliqué + au moins une erreur → toast d'erreur avec la vraie
-      // cause. Sinon la cliente voyait « corrigé depuis PFS » pour un pull qui
-      // avait silencieusement échoué à chaque écart (cas des doublons PFS :
-      // ref 15187 Issyma a subi 8 clics « Modifier » sans jamais rien créer,
-      // toast success à chaque fois).
-      if (res.result.appliedCount === 0 && res.result.errorCount > 0) {
-        toast.error(
-          `Correction impossible pour « ${r.name} »`,
-          res.result.firstError ?? "Aucune correction appliquée.",
-        );
+      // Un échec partiel (ex : suppression de couleur refusée à cause de
+      // commandes historiques) ne doit JAMAIS déclencher un toast success —
+      // sinon la cliente pense que tout est corrigé et le prochain audit
+      // repropose le même écart (cas Noir sur 15219 Issyma 2026-09-08).
+      //  - errorCount > 0 seul → tout raté → toast.error rouge
+      //  - errorCount > 0 + appliedCount > 0 → partiel → toast.warning
+      //  - errorCount = 0 → tout OK → toast.success + on peut dismiss + propager
+      if (res.result.errorCount > 0) {
+        const isTotal = res.result.appliedCount === 0;
+        const title = isTotal
+          ? `Correction impossible pour « ${r.name} »`
+          : `« ${r.name} » corrigé partiellement`;
+        const detail = res.result.firstError ?? "Aucune correction appliquée.";
+        if (isTotal) toast.error(title, detail);
+        else toast.warning(title, detail);
+        // On refresh mais on ne dismisse pas la carte : elle contient
+        // encore un écart non résolu, l'audit doit continuer à l'afficher.
         router.refresh();
         return;
       }
@@ -1036,11 +1059,18 @@ export function PfsAuditDrawer() {
             <button
               type="button"
               onClick={handleFixAll}
-              disabled={fixableResults.length === 0 || hasBlockersRemaining || bulkProgress !== null}
+              disabled={
+                fixableResults.length === 0 ||
+                hasBlockersRemaining ||
+                bulkProgress !== null ||
+                state?.autoTriggered === true
+              }
               title={
-                hasBlockersRemaining
-                  ? "Résolvez d'abord tous les blocages (compos manquantes, mappings) — impossible tant qu'au moins un produit reste bloqué ou en erreur."
-                  : undefined
+                state?.autoTriggered
+                  ? "Audit lancé automatiquement — les corrections ont déjà été appliquées par le système. Vous n'avez rien à faire ici."
+                  : hasBlockersRemaining
+                    ? "Résolvez d'abord tous les blocages (compos manquantes, mappings) — impossible tant qu'au moins un produit reste bloqué ou en erreur."
+                    : undefined
               }
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm transition disabled:bg-slate-300 disabled:cursor-not-allowed"
             >
@@ -1204,6 +1234,7 @@ export function PfsAuditDrawer() {
                       result={r}
                       justRevealed={justRevealedIdRef.current === r.productId}
                       fixing={fixingProductId === r.productId}
+                      disableFix={state?.autoTriggered === true}
                       onIgnore={() => {
                         setDismissedIds((prev) => new Set(prev).add(r.productId));
                         void persistDismiss([r.productId]);
@@ -1298,6 +1329,7 @@ function ProductCard({
   result,
   justRevealed,
   fixing,
+  disableFix,
   onIgnore,
   onFix,
   onZoomImage,
@@ -1306,6 +1338,10 @@ function ProductCard({
   result: PfsAuditProductResult;
   justRevealed?: boolean;
   fixing?: boolean;
+  /** Grise le bouton « Modifier » — utilisé quand l'audit est autoTriggered :
+   *  les corrections sont appliquées automatiquement par le système, la cliente
+   *  n'a pas à cliquer. */
+  disableFix?: boolean;
   onIgnore: () => void;
   onFix: () => void;
   onZoomImage: () => void;
@@ -1441,7 +1477,12 @@ function ProductCard({
             <button
               type="button"
               onClick={onFix}
-              disabled={fixing}
+              disabled={fixing || disableFix}
+              title={
+                disableFix
+                  ? "Audit lancé automatiquement — corrections déjà appliquées par le système."
+                  : undefined
+              }
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-slate-900 hover:bg-black shadow-sm disabled:bg-slate-400 disabled:cursor-not-allowed"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.4} viewBox="0 0 24 24" aria-hidden="true">

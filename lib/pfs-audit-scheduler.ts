@@ -27,6 +27,7 @@ import {
   KEY_AUTO_INTERVAL_HOURS,
   KEY_AUTO_LAST_RUN_AT,
   KEY_AUTO_PAUSED_AT,
+  KEY_AUDIT_AWAITING_PROPAGATIONS,
   resolveIntervalSeconds,
 } from "@/lib/pfs-audit-runner";
 import { purgeOldPfsAuditRuns } from "@/lib/pfs-audit-history";
@@ -67,6 +68,7 @@ async function tickTenant(tenantId: string): Promise<void> {
           KEY_AUTO_INTERVAL_HOURS,
           KEY_AUTO_LAST_RUN_AT,
           KEY_AUTO_PAUSED_AT,
+          KEY_AUDIT_AWAITING_PROPAGATIONS,
           KEY_STATE,
           "pfs_products_management_enabled",
         ],
@@ -102,6 +104,19 @@ async function tickTenant(tenantId: string): Promise<void> {
       /* état corrompu — on ignore, on ne relance rien */
       return;
     }
+  }
+
+  // Propagations post-audit encore en cours ? On ne relance pas tant que la
+  // file marketplace n'est pas vide (règle 2026-09-08 : éviter de spam des
+  // bugs pendant qu'un push est en train de finir).
+  if (map.get(KEY_AUDIT_AWAITING_PROPAGATIONS)) {
+    const remaining = await prisma.marketplaceRefreshJob.count({
+      where: {
+        tenantId,
+        status: { in: ["QUEUED", "IN_PROGRESS"] },
+      },
+    });
+    if (remaining > 0) return;
   }
 
   // Délai écoulé depuis le dernier run ? Respecté en dev ET en prod : sans ça

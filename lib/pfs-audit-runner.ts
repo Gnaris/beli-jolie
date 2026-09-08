@@ -116,6 +116,12 @@ export const KEY_AUTO_ALERT_EMAIL = "pfs_audit_auto_alert_email";
 export const KEY_AUTO_LAST_RUN_AT = "pfs_audit_auto_last_run_at";
 /** Timestamp de mise en pause (ms). Absent ou "0" = pas en pause. */
 export const KEY_AUTO_PAUSED_AT = "pfs_audit_auto_paused_at";
+/** Timestamp de fin d'audit auto (ms). Posé quand la post-run enqueue des jobs
+ *  marketplace : tant que la valeur est présente, le chrono du prochain audit
+ *  auto est figé (règle validée cliente 2026-09-08 : ne pas relancer un audit
+ *  tant que les propagations tournent, sinon on spam des bugs).
+ *  Effacé quand plus aucun `MarketplaceRefreshJob` QUEUED/IN_PROGRESS. */
+export const KEY_AUDIT_AWAITING_PROPAGATIONS = "pfs_audit_awaiting_propagations";
 /** Minimum absolu 30 s : évite de saturer PFS si la cliente met tout à zéro par erreur. */
 export const MIN_AUTO_INTERVAL_SECONDS = 30;
 /** Legacy — conservé pour compat de tests / imports historiques. */
@@ -344,6 +350,17 @@ export async function startPfsAuditInBackground(
   };
   await writePersistedState(tenantId, initial);
   await setStopSignal(tenantId, false);
+  // Reset du chrono de l'audit auto au DÉMARRAGE : sans ça, `lastRunAt` reste
+  // sur la fin du run précédent et le chrono continue à descendre pendant
+  // l'audit courant. Écriture inconditionnelle — bénigne si auto désactivé.
+  await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), { tenantId });
+  // Audit MANUEL : désactive l'audit auto. Règle validée cliente le 2026-09-08 :
+  // « quand on lance manuellement l'audit, il faut arrêter l'auto — il faut
+  // l'activer manuellement pour le reprendre ». Le bandeau bascule sur
+  // « Audit automatique désactivé » ; réactivation via Paramètres → PFS.
+  if (!autoTriggered) {
+    await setSiteConfig(KEY_AUTO_ENABLED, "0", { tenantId });
+  }
 
   void tenantALS.run(tenantId, async () => {
     try {
@@ -359,8 +376,17 @@ export async function startPfsAuditInBackground(
 
       // Flush périodique des compteurs (payload constant, ne dépend plus des
       // écarts). Toutes les 500ms ou tous les 5 produits.
+      // Coupure nette : si `pfs_audit_stop` a été posé entre-temps (hard stop
+      // depuis l'UI), on écrit IDLE plutôt que RUNNING — ça rétablit l'état
+      // que le hard stop a posé, y compris si un flush concurrent a réussi à
+      // ressusciter RUNNING dans la fenêtre de course entre le check du stop
+      // signal et l'upsert (~ms de latence BDD).
       let lastFlush = Date.now();
       const flush = async () => {
+        if (await checkStopSignal(tenantId)) {
+          await writePersistedState(tenantId, { ...EMPTY_PERSISTED });
+          return;
+        }
         await writePersistedState(tenantId, {
           status: "RUNNING",
           auditRunId,
@@ -473,17 +499,34 @@ export async function startPfsAuditInBackground(
 
       const stopped = await checkStopSignal(tenantId);
 
+      // Hard stop demandé pendant le run : le state IDLE est déjà posé par
+      // `hardStopPfsAudit`, on rend la main sans rien réécrire (sinon on
+      // ressuscite le run en STOPPED avec ses compteurs partiels). On laisse
+      // aussi le stop signal en place — c'est le prochain `startPfsAuditInBackground`
+      // qui le nettoiera.
+      if (stopped) return;
+
       // ─── Branche auto : à la fin du scan, applique + propage + journal ─
       // Comportement figé avec la cliente : la MOINDRE erreur technique OU
       // le moindre écart bloqué (compo non mappée, variante ajoutée côté PFS,
       // champ non-pull-able Lot B) → stop total, désactive l'auto, mail admin.
-      if (autoTriggered && !stopped && historyRunId) {
+      if (autoTriggered && historyRunId) {
         try {
           const outcome = await runAutoPostAudit({
             tenantId,
             auditRunId,
             historyRunId,
           });
+          // Nouvelle vérif du stop signal : la post-run peut prendre plusieurs
+          // secondes (pull PFS + writes BDD par produit). Si un hard stop est
+          // arrivé pendant, on ne touche à rien — le state IDLE reste, et la
+          // désactivation de l'auto par `handleAutoAuditFailure` (côté outcome
+          // ko) n'est PAS souhaitable si l'utilisateur a explicitement stoppé.
+          if (await checkStopSignal(tenantId)) return;
+          // Re-reset du chrono à la fin (en plus du début) pour que le
+          // bandeau affiche la valeur pleine dès la fin, pas
+          // « interval - durée_audit ». Le chrono est caché pendant l'audit
+          // (bandeau « Audit en cours… »), donc pas de saut visible.
           await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
             tenantId,
           });
@@ -506,7 +549,9 @@ export async function startPfsAuditInBackground(
           return;
         } catch (err) {
           // Filet ultime — un crash du post-run auto passe aussi par la voie
-          // erreur (mail + désactivation).
+          // erreur (mail + désactivation). Sauf si l'utilisateur a hard-stop
+          // entretemps : dans ce cas on avale le crash silencieusement.
+          if (await checkStopSignal(tenantId).catch(() => false)) return;
           const msg = err instanceof Error ? err.message : String(err);
           logger.error("[PFS Audit Auto] Post-run échoué", {
             tenantId,
@@ -536,8 +581,13 @@ export async function startPfsAuditInBackground(
         }
       }
 
+      // Chemin nominal : audit manuel qui a fini sans coupure (stopped = false,
+      // testé plus haut). On écrit DONE et on nettoie le stop signal.
+      // Re-reset du chrono auto à la fin : chrono à valeur pleine côté UI
+      // dès la fermeture — pas « interval - durée_audit ».
+      await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), { tenantId });
       const finalState: PfsAuditPersistedState = {
-        status: stopped ? "STOPPED" : "DONE",
+        status: "DONE",
         auditRunId,
         startedAt: initial.startedAt,
         finishedAt: Date.now(),
@@ -554,6 +604,8 @@ export async function startPfsAuditInBackground(
     } catch (err) {
       logger.error("[PFS Audit] Audit échoué", { tenantId, error: err as Error });
       const msg = err instanceof Error ? err.message : String(err);
+      // Hard stop pendant un crash : on ne touche à rien (state IDLE déjà posé).
+      if (await checkStopSignal(tenantId).catch(() => false)) return;
       if (autoTriggered && historyRunId) {
         await handleAutoAuditFailure(tenantId, historyRunId, msg);
         await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
@@ -582,6 +634,41 @@ export async function resetPfsAuditState(tenantId: string): Promise<void> {
   await writePersistedState(tenantId, { ...EMPTY_PERSISTED });
   await setStopSignal(tenantId, false);
   await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
+}
+
+/**
+ * Coupure nette d'un audit en cours — équivalent d'un « arrêt total » :
+ *   1. Pose le stop signal (les workers en cours sortent au prochain check,
+ *      et leurs writes intermédiaires sont neutralisés par le check inline
+ *      dans `flush()` — cf. plus haut).
+ *   2. Purge la table `PfsAuditResult` pour ce tenant → toutes les cartes
+ *      affichées dans le drawer disparaissent immédiatement.
+ *   3. Reset le state en IDLE → le drawer bascule sur l'écran vide.
+ *   4. Désactive l'audit auto (`pfs_audit_auto_enabled = "0"`). Règle validée
+ *      cliente le 2026-09-08 : « si on arrête l'audit en bas à droite, ça
+ *      désactive aussi l'auto ». Réactivation via le bouton « Réactiver »
+ *      du bandeau chrono (ou Paramètres → PFS).
+ *
+ * Le stop signal reste posé après ; c'est le prochain
+ * `startPfsAuditInBackground` qui le nettoie au démarrage.
+ */
+export async function hardStopPfsAudit(tenantId: string): Promise<void> {
+  await setStopSignal(tenantId, true);
+  await prisma.pfsAuditResult.deleteMany({ where: { tenantId } });
+  // Finalise le PfsAuditRun encore en RUNNING (seulement pour les runs auto,
+  // mais on filtre par tenantId + status, donc no-op si aucun run auto n'est
+  // en cours). Sans ça, un audit auto arrêté manuellement reste marqué
+  // « en cours » dans l'onglet Historique du drawer, pour toujours.
+  await prisma.pfsAuditRun.updateMany({
+    where: { tenantId, status: "RUNNING" },
+    data: {
+      status: "ERROR",
+      finishedAt: new Date(),
+      errorMessage: "Audit interrompu manuellement",
+    },
+  });
+  await writePersistedState(tenantId, { ...EMPTY_PERSISTED });
+  await setSiteConfig(KEY_AUTO_ENABLED, "0", { tenantId });
 }
 
 /**
@@ -908,7 +995,16 @@ async function enqueueMarketplacePropagation(
   const efaConnected = isConnected("efashion_email", "efashion_products_management_enabled");
   const faiConnected = isConnected("faire_api_key", "faire_products_management_enabled");
   const ocConnected = isConnected("orderchamp_api_key", "orderchamp_products_management_enabled");
-  const microConnected = isConnected("microstore_session_key", "microstore_products_management_enabled");
+  // Microstore : le check simple (clé présente + kill switch) ne suffit pas —
+  // la session Microstore peut être expirée (durée ~1 an) et la Station de
+  // transfert d'images peut aussi être expirée (7 j). Sans preflight complet,
+  // un job partait quand même dans la file et échouait au niveau du worker
+  // avec un message pas toujours actionnable. On appelle donc le même
+  // preflight que le push direct — si !ok, on n'enqueue simplement rien pour
+  // Microstore (log lisible dans les logs pour la cliente).
+  const { assertMicrostorePushAllowed } = await import("@/lib/microstore-preflight");
+  const microPreflight = await assertMicrostorePushAllowed();
+  const microConnected = microPreflight.ok;
 
   logger.info("[PFS Audit Auto] Propagation — marketplaces connectées", {
     tenantId,
@@ -917,6 +1013,7 @@ async function enqueueMarketplacePropagation(
     faire: faiConnected,
     orderchamp: ocConnected,
     microstore: microConnected,
+    microstoreBlockReason: microPreflight.ok ? undefined : microPreflight.reason,
   });
 
   for (const p of products) {
@@ -977,6 +1074,10 @@ async function enqueueMarketplacePropagation(
       // ne saute silencieusement le vrai push.
       const options: Record<string, boolean> = { local: false };
       options[d._draft.marketplace] = true;
+      // `pfsAudit: true` : marque ce job comme provenant d'un audit auto —
+      // le bandeau chrono s'en sert pour compter combien de propagations
+      // restent à finir avant de relancer le décompte du prochain audit.
+      options.pfsAudit = true;
       return prisma.marketplaceRefreshJob.create({
         data: {
           productId: d._draft.productId,
@@ -995,6 +1096,12 @@ async function enqueueMarketplacePropagation(
       });
     }),
   );
+  // Pose le flag qui gèle le chrono du prochain audit auto tant que la file
+  // n'est pas retombée à zéro. `getPfsAuditNextRunAction` efface ce flag et
+  // reset `lastRunAt` quand la file est vide (cf. `pfs-audit-auto.ts`).
+  await setSiteConfig(KEY_AUDIT_AWAITING_PROPAGATIONS, String(Date.now()), {
+    tenantId,
+  });
   logger.info("[PFS Audit Auto] Jobs marketplace enqueue", {
     tenantId,
     jobs: toCreate.length,

@@ -20,7 +20,7 @@ import { logger } from "@/lib/logger";
 import {
   startPfsAuditInBackground,
   getPfsAuditState,
-  requestStopPfsAudit,
+  hardStopPfsAudit,
   resetPfsAuditState,
   dismissAuditResults,
   stripMissingCompositionsFromAudit,
@@ -81,7 +81,10 @@ export async function cancelPfsAuditAction(): Promise<
   await requireAdmin();
   try {
     const tenant = await requireCurrentTenant();
-    await requestStopPfsAudit(tenant.id);
+    // Coupure nette : vide les cartes affichées, purge le state, relance le
+    // chrono de l'audit auto si activé. Les 10 workers en cours finissent
+    // leur produit courant dans le vide (leurs writes sont neutralisés).
+    await hardStopPfsAudit(tenant.id);
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

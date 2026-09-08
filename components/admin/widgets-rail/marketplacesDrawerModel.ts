@@ -150,7 +150,7 @@ export function columnKeyFromItem(item: MarketplaceRefreshItem): ColumnKey {
 // fallback sur `mode` + heuristique client pour les anciens jobs sans intent.
 // ────────────────────────────────────────────────────────────────
 
-export type ViewKey = "creation" | "update" | "sync" | "link" | "refresh" | "scheduled";
+export type ViewKey = "creation" | "update" | "sync" | "link" | "refresh" | "scheduled" | "pfs_audit";
 
 export const VIEW_ORDER: ViewKey[] = [
   "creation",
@@ -159,6 +159,7 @@ export const VIEW_ORDER: ViewKey[] = [
   "link",
   "refresh",
   "scheduled",
+  "pfs_audit",
 ];
 
 export const VIEW_LABEL: Record<ViewKey, { title: string; subtitle: string; short: string }> = {
@@ -192,6 +193,11 @@ export const VIEW_LABEL: Record<ViewKey, { title: string; subtitle: string; shor
     subtitle: "Lot programmé toutes les X min",
     short: "rafraîchissement étalé",
   },
+  pfs_audit: {
+    title: "Audit PFS",
+    subtitle: "Propagation post-audit — corrections tirées de PFS",
+    short: "audit PFS",
+  },
 };
 
 /**
@@ -200,6 +206,12 @@ export const VIEW_LABEL: Record<ViewKey, { title: string; subtitle: string; shor
  * une heuristique : mode + scheduledFor.
  */
 export function viewKeyFromItem(item: MarketplaceRefreshItem, now: number = Date.now()): ViewKey {
+  // Origine audit PFS auto : priorité absolue. Les jobs viennent de la
+  // propagation post-audit (cf. `lib/pfs-audit-runner.ts::enqueueMarketplacePropagation`)
+  // et doivent être visibles dans leur propre onglet, pas dans « Rafraîchissement ».
+  if (item.options && (item.options as { pfsAudit?: boolean }).pfsAudit) {
+    return "pfs_audit";
+  }
   const scheduled = itemIsScheduledFuture(item, now);
   if (item.intent === "create") return "creation";
   if (item.intent === "update") return "update";
@@ -335,7 +347,17 @@ export function groupItemsByProductAndMode(
   items: ReadonlyArray<MarketplaceRefreshItem>,
   now: number = Date.now(),
 ): ProductGroup[] {
-  return buildGroups(items, now, (item) => `${item.productId}::${columnKeyFromItem(item)}`);
+  return buildGroups(items, now, (item) => {
+    // On ajoute une dimension audit-pfs à la clé pour que les jobs issus d'un
+    // audit auto ne fusionnent pas avec un rafraîchissement manuel du même
+    // produit — sinon un audit puis un ↻ manuel se retrouvent dans une seule
+    // carte routée sur le premier onglet trouvé (bug 2026-09-08).
+    const auditFlag =
+      item.options && (item.options as { pfsAudit?: boolean }).pfsAudit
+        ? "audit"
+        : "std";
+    return `${item.productId}::${columnKeyFromItem(item)}::${auditFlag}`;
+  });
 }
 
 function buildGroups(

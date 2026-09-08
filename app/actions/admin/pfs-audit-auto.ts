@@ -22,6 +22,7 @@ import {
   KEY_AUTO_ALERT_EMAIL,
   KEY_AUTO_LAST_RUN_AT,
   KEY_AUTO_PAUSED_AT,
+  KEY_AUDIT_AWAITING_PROPAGATIONS,
   MIN_AUTO_INTERVAL_SECONDS,
   resolveIntervalSeconds,
 } from "@/lib/pfs-audit-runner";
@@ -210,8 +211,12 @@ export interface PfsAuditNextRunInfo {
     | "pfs_disabled" // kill switch PFS OFF
     | "running" // audit en cours
     | "paused" // mis en pause manuellement
+    | "awaiting_propagations" // audit fini mais jobs marketplace pas encore terminés
     | "pending" // en attente d'un tick
     | "imminent"; // le délai est déjà écoulé, se lance au prochain tick
+  /** Nombre de jobs marketplace encore actifs (QUEUED/IN_PROGRESS) — utile
+   *  quand status === "awaiting_propagations" pour afficher un compteur. */
+  awaitingPropagationsCount?: number;
   /** Tick du scheduler en ms — utile pour l'UI qui refresh à cette cadence. */
   schedulerTickMs: number;
   /**
@@ -238,6 +243,7 @@ export async function getPfsAuditNextRunAction(): Promise<
             KEY_AUTO_INTERVAL_HOURS,
             KEY_AUTO_LAST_RUN_AT,
             KEY_AUTO_PAUSED_AT,
+            KEY_AUDIT_AWAITING_PROPAGATIONS,
             "pfs_audit_state",
             "pfs_products_management_enabled",
           ],
@@ -251,9 +257,43 @@ export async function getPfsAuditNextRunAction(): Promise<
     const pfsProdEnabled = (map.get("pfs_products_management_enabled") ?? "1") !== "0";
     const intervalSeconds = resolveIntervalSeconds(rows);
     const lastRunRaw = Number(map.get(KEY_AUTO_LAST_RUN_AT) ?? "0");
-    const lastRunAt = Number.isFinite(lastRunRaw) && lastRunRaw > 0 ? lastRunRaw : null;
+    // `let` (pas const) — on peut re-baser cette valeur juste après quand la
+    // fin des propagations reset le chrono, sinon le calcul du dueAt plus bas
+    // continue à voir l'ancien timestamp et affiche un chrono déjà entamé.
+    let lastRunAt: number | null =
+      Number.isFinite(lastRunRaw) && lastRunRaw > 0 ? lastRunRaw : null;
     const pausedAtRaw = Number(map.get(KEY_AUTO_PAUSED_AT) ?? "0");
     const paused = Number.isFinite(pausedAtRaw) && pausedAtRaw > 0;
+    // Flag « audit fini, propagations en cours ». Si présent, on compte les
+    // MarketplaceRefreshJob QUEUED/IN_PROGRESS pour ce tenant ; s'il n'en
+    // reste plus, on efface le flag ET on reset le chrono (le décompte
+    // repart de zéro APRÈS la fin de la dernière propagation, pas avant).
+    const awaitingRaw = map.get(KEY_AUDIT_AWAITING_PROPAGATIONS);
+    let awaitingActive = !!awaitingRaw;
+    let awaitingCount = 0;
+    if (awaitingActive) {
+      awaitingCount = await prisma.marketplaceRefreshJob.count({
+        where: {
+          tenantId: tenant.id,
+          status: { in: ["QUEUED", "IN_PROGRESS"] },
+        },
+      });
+      if (awaitingCount === 0) {
+        // Toutes les propagations sont finies — on relance le chrono.
+        const newLastRunAt = Date.now();
+        await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(newLastRunAt), {
+          tenantId: tenant.id,
+        });
+        await unsetSiteConfig(KEY_AUDIT_AWAITING_PROPAGATIONS, {
+          tenantId: tenant.id,
+        });
+        awaitingActive = false;
+        // Re-base la variable locale : sinon le dueAt calculé plus bas
+        // utilise l'ancien lastRunAt et le chrono repart à « intervalle
+        // moins durée audit » au lieu de la valeur pleine.
+        lastRunAt = newLastRunAt;
+      }
+    }
 
     let isRunning = false;
     const rawState = map.get("pfs_audit_state");
@@ -277,6 +317,9 @@ export async function getPfsAuditNextRunAction(): Promise<
       nextRunAtMs = null;
     } else if (isRunning) {
       status = "running";
+      nextRunAtMs = null;
+    } else if (awaitingActive) {
+      status = "awaiting_propagations";
       nextRunAtMs = null;
     } else if (paused) {
       // Pause : chrono figé au moment de la pause. On calcule le temps qu'il
@@ -309,6 +352,7 @@ export async function getPfsAuditNextRunAction(): Promise<
         lastRunAt,
         nextRunAtMs,
         status,
+        awaitingPropagationsCount: awaitingActive ? awaitingCount : undefined,
         schedulerTickMs: PFS_AUDIT_SCHEDULER_TICK_MS,
         frozenRemainingMs,
       },
@@ -327,7 +371,12 @@ export async function getPfsAuditNextRunAction(): Promise<
  *   - l'audit est en pause,
  *   - le délai n'est pas encore écoulé (garde-fou anti-abus UI).
  */
-export async function triggerPfsAuditIfDueAction(): Promise<
+export async function triggerPfsAuditIfDueAction(opts?: {
+  /** Bypass le check `dueAt <= now` : forcé par le bouton « Lancer maintenant »
+   *  du bandeau (cliente veut relancer l'audit auto sans attendre la fin du
+   *  chrono). Les autres gardes-fous (enabled/paused/RUNNING) restent actifs. */
+  force?: boolean;
+}): Promise<
   { success: true; launched: boolean } | { success: false; error: string }
 > {
   await requireAdmin();
@@ -359,10 +408,28 @@ export async function triggerPfsAuditIfDueAction(): Promise<
       const parsed = JSON.parse(map.get("pfs_audit_state") ?? "{}") as { status?: string };
       if (parsed.status === "RUNNING") return { success: true, launched: false };
     } catch { /* état corrompu — safe : on ne lance rien */ return { success: true, launched: false }; }
-    const intervalSeconds = resolveIntervalSeconds(rows);
-    const lastRun = Number(map.get(KEY_AUTO_LAST_RUN_AT) ?? "0");
-    const dueAt = (Number.isFinite(lastRun) ? lastRun : 0) + intervalSeconds * 1000;
-    if (dueAt > Date.now()) return { success: true, launched: false };
+    // Bloc « en attente des propagations » : on ne relance JAMAIS un audit
+    // tant que les jobs marketplace du précédent tournent encore, même en
+    // force. Sinon on spam des bugs (règle validée cliente 2026-09-08).
+    const awaitingRow = await prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: KEY_AUDIT_AWAITING_PROPAGATIONS },
+      select: { value: true },
+    });
+    if (awaitingRow?.value) {
+      const remaining = await prisma.marketplaceRefreshJob.count({
+        where: {
+          tenantId: tenant.id,
+          status: { in: ["QUEUED", "IN_PROGRESS"] },
+        },
+      });
+      if (remaining > 0) return { success: true, launched: false };
+    }
+    if (!opts?.force) {
+      const intervalSeconds = resolveIntervalSeconds(rows);
+      const lastRun = Number(map.get(KEY_AUTO_LAST_RUN_AT) ?? "0");
+      const dueAt = (Number.isFinite(lastRun) ? lastRun : 0) + intervalSeconds * 1000;
+      if (dueAt > Date.now()) return { success: true, launched: false };
+    }
 
     // Lance en tâche de fond via ALS (le scheduler fait pareil).
     const { tenantALS } = await import("@/lib/tenant-als");
@@ -373,6 +440,35 @@ export async function triggerPfsAuditIfDueAction(): Promise<
     return { success: true, launched: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Bascule ON/OFF le toggle d'audit auto (`pfs_audit_auto_enabled`). Utilisé
+ * par le bouton « Réactiver » du bandeau après qu'un audit manuel ait coupé
+ * l'auto. À la réactivation, remet `lastRunAt = now` pour que le chrono
+ * reparte de la valeur pleine, et efface une éventuelle pause résiduelle.
+ */
+export async function setPfsAuditAutoEnabledAction(
+  enabled: boolean,
+): Promise<{ success: true } | { success: false; error: string }> {
+  await requireAdmin();
+  try {
+    const tenant = await requireCurrentTenant();
+    await setSiteConfig(KEY_AUTO_ENABLED, enabled ? "1" : "0", {
+      tenantId: tenant.id,
+    });
+    if (enabled) {
+      await setSiteConfig(KEY_AUTO_LAST_RUN_AT, String(Date.now()), {
+        tenantId: tenant.id,
+      });
+      await unsetSiteConfig(KEY_AUTO_PAUSED_AT, { tenantId: tenant.id });
+    }
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error("[PFS Audit Auto] Toggle enabled failed", { error: msg });
+    return { success: false, error: msg };
   }
 }
 

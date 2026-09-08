@@ -193,7 +193,12 @@ export default function PfsVerifyBadge(props: Props) {
           {state === "ok" && (
             <>
               Conforme
-              {checkedAt && ` · ${formatRelative(checkedAt)}`}
+              {checkedAt && (
+                <>
+                  {" · "}
+                  <RelativeTime iso={checkedAt} />
+                </>
+              )}
               <br />
               <span className="opacity-70">Cliquez pour revérifier</span>
             </>
@@ -435,7 +440,12 @@ function DiffModal({
                 </h2>
                 <p className="text-[13px] text-slate-600 mt-0.5">
                   <b>{issues.length}</b> écart{issues.length > 1 ? "s" : ""} détecté{issues.length > 1 ? "s" : ""}
-                  {checkedAt && ` · vérifié ${formatRelative(checkedAt)}`}
+                  {checkedAt && (
+                    <>
+                      {" · vérifié "}
+                      <RelativeTime iso={checkedAt} />
+                    </>
+                  )}
                   <span className="hidden sm:inline"> · les valeurs PFS remplaceront celles de notre site.</span>
                 </p>
               </div>
@@ -845,6 +855,23 @@ function formatRelative(iso: string): string {
   const diffD = Math.round(diffH / 24);
   if (diffD < 30) return `il y a ${diffD} j`;
   return new Date(iso).toLocaleDateString("fr-FR");
+}
+
+/**
+ * Rend un texte relatif « il y a X min » côté client uniquement — évite le
+ * mismatch d'hydration Next.js quand la valeur diverge entre SSR (5 min) et
+ * hydration (6 min). Se refresh toutes les 60 s pour rester à jour sans
+ * rechargement de la page.
+ */
+function RelativeTime({ iso }: { iso: string }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    setText(formatRelative(iso));
+    const id = window.setInterval(() => setText(formatRelative(iso)), 60_000);
+    return () => window.clearInterval(id);
+  }, [iso]);
+  if (text === null) return null;
+  return <>{text}</>;
 }
 
 interface VariantGroup {

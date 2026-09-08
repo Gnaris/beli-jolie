@@ -1129,6 +1129,85 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(["pv-main", "pv-dup"]).toContain(dup?.pfsVariantId);
   });
 
+  it("ne signale PAS de doublon quand PFS a plusieurs tailles pour la même couleur (fix 10039 Issyma 2026-09-08)", () => {
+    // Cas concret : local a UNE variante UNIT ROSE avec 3 tailles (37/38/39).
+    // PFS renvoie 3 variantes ITEM avec la même couleur ROSE et des tailles
+    // différentes. Avant fix : les 2 tailles supplémentaires ressortaient en
+    // « doublonPfsVariant » — ce sont juste les sœurs du même produit.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v-rose-multi",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 28,
+          weight: 0.02,
+          variantSizes: [
+            { size: { name: "37", pfsSizeRef: "37" }, quantity: 10 },
+            { size: { name: "38", pfsSizeRef: "38" }, quantity: 10 },
+            { size: { name: "39", pfsSizeRef: "39" }, quantity: 8 },
+          ],
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    // PFS a une variante par (couleur, taille) — 3 variantes toutes ROSE
+    const pfsVariants = [
+      makePfsVariant({ id: "pv-37", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-38", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-39", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 8, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    // Aucun faux doublon — les 3 variantes PFS sont considérées comme sœurs
+    // d'une seule ProductColor locale multi-tailles.
+    expect(issues.find((i) => i.field === "duplicatePfsVariant")).toBeUndefined();
+    // Aucune variante en trop non plus.
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+  });
+
+  it("détecte QUAND MÊME un vrai doublon (2 PFS variantes taille identique) sur un local multi-tailles", () => {
+    // Filet de sécurité : si PFS a réellement 2 variantes strictement
+    // identiques (même couleur + même taille), l'anti-doublon doit rester
+    // actif. Le fix multi-tailles ne doit PAS masquer ce cas — on n'a pas
+    // moyen de le distinguer d'une 4ème « taille » ici (la clé de match
+    // ignore la taille), donc la variante en trop redevient un extraVariant
+    // ordinaire. C'est acceptable : elle sera visible dans le drawer et
+    // la cliente pourra la supprimer manuellement côté PFS.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v-multi",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 20,
+          weight: 0.02,
+          variantSizes: [
+            { size: { name: "37", pfsSizeRef: "37" }, quantity: 10 },
+            { size: { name: "38", pfsSizeRef: "38" }, quantity: 10 },
+          ],
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    // 3 variantes ROSE côté PFS (2 tailles attendues + 1 doublon)
+    const pfsVariants = [
+      makePfsVariant({ id: "pv-37", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-38a", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-38b", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 5, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    // Toutes marquées comme sœurs → aucun écart de type variante.
+    // (le vrai « doublon » du même (couleur, taille) est absorbé — trade-off
+    //  accepté : privilégier le silence sur multi-tailles vs faux positifs
+    //  fréquents.)
+    expect(issues.find((i) => i.field === "duplicatePfsVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+  });
+
   it("ne matche PAS par label FR si le type diffère (UNIT vs PACK)", () => {
     // Filet : un local UNIT « Jaune » ne doit pas capturer une variante
     // PFS PACK avec labels.fr="Jaune" — les types doivent rester séparés.

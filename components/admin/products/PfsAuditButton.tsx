@@ -57,6 +57,12 @@ export default function PfsAuditButton({ hasPfsConfig }: Props) {
       // Ouvre directement le tiroir « Audit PFS » du widget flottant pour que
       // la cliente voie la progression tout de suite.
       open("pfs-audit");
+      // Le lancement pose `pfs_audit_auto_last_run_at = now` côté serveur
+      // (reset du chrono auto). On dispatch tout de suite l'event que
+      // `PfsAuditNextRunBanner` écoute pour rafraîchir son affichage —
+      // sans ça, le bandeau attendrait son prochain poll (jusqu'à 30 s)
+      // avant de basculer sur « Audit en cours… » et de reset le chrono.
+      window.dispatchEvent(new Event("pfs-audit-config-changed"));
       toast.info(
         "Audit PFS lancé",
         "Suivez la progression dans la fenêtre en bas à droite.",

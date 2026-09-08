@@ -35,6 +35,7 @@ import { mapLocalToPfsStatus, type PfsTargetStatus } from "@/lib/pfs-status";
 import { countryName } from "@/lib/countries";
 import { logger } from "@/lib/logger";
 import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { MAX_STOCK } from "@/lib/product-variant-validation";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -990,6 +991,21 @@ export function comparePfsProduct(
       continue;
     }
     seenPfsIds.add(pv.id);
+    // Multi-tailles : notre catalogue a UNE ProductColor par couleur (avec
+    // `variantSizes` = plusieurs tailles), PFS renvoie une variante par
+    // couple (couleur, taille). Sans marquer les « sœurs » (mêmes clé
+    // {type, couleur}) comme vues, elles ressortent en faux
+    // « doublonPfsVariant » (cas 10039 Issyma 2026-09-08). On ne fait ce
+    // marquage que pour UNIT — les PACK partagent déjà une clé unique par
+    // couleur principale, pas de sœur à agréger.
+    if (l.expected.type === "UNIT" && l.local.variantSizes.length > 1) {
+      for (const sibling of pfsVariants) {
+        if (sibling.id === pv.id) continue;
+        if (pfsVariantMatchKey(sibling) === key) {
+          seenPfsIds.add(sibling.id);
+        }
+      }
+    }
     // Comparaisons variantes
     const pushV = (
       field: PfsVerifyIssueField,
@@ -1014,9 +1030,23 @@ export function comparePfsProduct(
     const priceMatch = Math.abs(pfsPrice - Number(l.expected.price)) < 0.005;
     if (!priceMatch)
       pushV("price", "Prix", `${pfsPrice.toFixed(2)} €`, `${l.expected.price.toFixed(2)} €`);
+    // Garde-fou stock : chez nous, le stock est plafonné à MAX_STOCK (=1000,
+    // cf. `lib/product-variant-validation.ts::clampStock`). Règle validée
+    // cliente 2026-09-08 :
+    //   - Si PFS > MAX_STOCK → on ne peut pas stocker plus que 1000 chez nous,
+    //     donc on ignore l'écart UNIQUEMENT si local est déjà au plafond.
+    //     Sinon (local < 1000 alors que PFS > 1000), c'est un vrai écart.
+    //   - Si PFS <= MAX_STOCK → comparaison stricte. Même 1 unité de
+    //     différence doit remonter (ex PFS=500, local=501 → écart).
     const pfsStock = Number(pv.stock_qty ?? 0);
-    if (pfsStock !== Number(l.expected.stock))
-      pushV("stock", "Stock", String(pfsStock), String(l.expected.stock));
+    const localStock = Number(l.expected.stock);
+    const shouldReport =
+      pfsStock > MAX_STOCK
+        ? localStock !== MAX_STOCK
+        : pfsStock !== localStock;
+    if (shouldReport) {
+      pushV("stock", "Stock", String(pfsStock), String(localStock));
+    }
     // Poids : force Number() sur les deux côtés (défensif contre du string
     // renvoyé par PFS ou un Decimal Prisma inattendu). Attention : PFS et
     // notre BDD stockent le poids en KILOGRAMMES (0.002 = 2g), pas en g.
@@ -1441,6 +1471,28 @@ export async function verifyPfsProduct(
     return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
   }
 
+  // Match strict de la référence — PFS's `checkReference` fait un match
+  // approximatif (ignore casse / espaces) et remonte parfois un vieux
+  // fantôme ARCHIVED de l'ancienne base Salesforce avec une référence
+  // légèrement différente (ex : Issyma « 13369ROBE » → « 13369 ROBE »
+  // ARCHIVED, ou « 13369ROBE » → « 13369 » base). `detectPfsDuplicate`
+  // ci-dessus ignore ce cas (« pas un vrai doublon ») mais on ne peut PAS
+  // laisser la compare tourner : elle proposerait d'ajouter/retirer des
+  // couleurs qui viennent de l'AUTRE fiche PFS. Stop net avec message
+  // clair pour que la cliente vérifie côté PFS.
+  if (checkRef.product.reference !== product.reference) {
+    return {
+      ok: false,
+      error: {
+        kind: "not_found_on_pfs",
+        message:
+          `PFS n'a pas la référence exacte « ${product.reference} » — a répondu ` +
+          `avec « ${checkRef.product.reference} » par correspondance approximative. ` +
+          `Vérifiez que ${product.reference} existe toujours sur PFS.`,
+      },
+    };
+  }
+
   // Compo : API admin (mobile PFS) prioritaire — la cliente saisit via
   // l'appli mobile et le wholesaler renvoie parfois une compo stale (bug de
   // synchro côté PFS). On lit toujours mobile d'abord ; wholesaler ne sert
@@ -1579,6 +1631,16 @@ export async function verifyPfsProduct(
     );
   }
 
+  // Enrichit les `missingVariant` avec `pullBlocked` quand la variante
+  // locale a des commandes historiques : `pullRemoveLocalVariant` (dans
+  // `lib/pfs-verify-variant-ops.ts`) refuse toute suppression pour
+  // préserver la traçabilité comptable. Sans marquage à l'audit, la
+  // cliente cliquait « Modifier depuis PFS », le pull échouait pour
+  // Noir mais les autres pulls réussissaient — un toast success masquait
+  // l'échec, Noir restait, l'audit suivant reproposait la suppression
+  // (cas 15219 Issyma 2026-09-08).
+  await annotateMissingVariantsBlockedByOrders(product, issues);
+
   return {
     ok: true,
     result: {
@@ -1588,6 +1650,53 @@ export async function verifyPfsProduct(
       checkedAt: new Date().toISOString(),
     },
   };
+}
+
+/**
+ * Pour chaque écart `missingVariant`, compte les commandes historiques qui
+ * référencent la variante locale (4 tables — même liste que
+ * `pullRemoveLocalVariant`). Si > 0, pose `pullBlocked` avec un message
+ * humain expliquant qu'il faut désactiver la variante au lieu de la
+ * supprimer. La cliente voit alors le bouton grisé et la raison au lieu
+ * d'un pull qui va échouer silencieusement.
+ */
+async function annotateMissingVariantsBlockedByOrders(
+  product: FullProduct,
+  issues: PfsVerifyIssue[],
+): Promise<void> {
+  const missing = issues.filter(
+    (iss) =>
+      iss.field === "missingVariant" &&
+      iss.scope === "color" &&
+      !iss.pullBlocked &&
+      !!iss.colorName,
+  );
+  if (missing.length === 0) return;
+
+  for (const iss of missing) {
+    // Match par (saleType, colorName) — même critère que le check dans
+    // `pullRemoveLocalVariant`, mais sans avoir à rappeler la map de
+    // couleurs PFS (l'issue expose déjà le nom local).
+    const localVariant = product.colors.find(
+      (c) => c.saleType === iss.variantType && c.color?.name === iss.colorName,
+    );
+    if (!localVariant) continue;
+
+    const [ordered, pfsOrdered, efashionOrdered, ankorsOrdered] = await Promise.all([
+      prisma.orderItem.count({ where: { productColorId: localVariant.id } }),
+      prisma.pfsOrderItem.count({ where: { productColorId: localVariant.id } }),
+      prisma.efashionOrderItem.count({ where: { productColorId: localVariant.id } }),
+      prisma.ankorstoreOrderItem.count({ where: { productColorId: localVariant.id } }),
+    ]);
+    const total = ordered + pfsOrdered + efashionOrdered + ankorsOrdered;
+    if (total === 0) continue;
+
+    iss.pullBlocked =
+      `Impossible à supprimer chez nous : ${total} commande${total > 1 ? "s" : ""} ` +
+      `historique${total > 1 ? "s" : ""} référence${total > 1 ? "nt" : ""} cette ` +
+      `variante (protection comptable). Désactivez-la depuis la fiche produit pour ` +
+      `la cacher côté clients.`;
+  }
 }
 
 /**

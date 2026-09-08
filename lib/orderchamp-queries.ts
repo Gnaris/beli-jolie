@@ -87,31 +87,56 @@ export const PRODUCT_FIELDS_FRAGMENT = /* GraphQL */ `
 
 /** Fragment commande — inclut adresse livraison + items via Relay.
  *  ⚠️ Pas de `databaseId` sur `Order` (contrairement à Product) — le schéma OC
- *  ne l'expose pas et le demander fait planter la query. */
+ *  ne l'expose pas et le demander fait planter la query.
+ *  ⚠️ Pas de `retailer` sur Order : le magasin acheteur est exposé via
+ *  `customer` (objet Customer) et via des champs plats sur Order lui-même
+ *  (`companyName`, `email`, `firstName`, `lastName`, `companyPhone`).
+ *  Sur `Address` : `companyName` (pas `company`), `country` (pas `countryCode`),
+ *  et pas de champ `phone` — le tel est sur `Order.companyPhone`.
+ *  Sur `OrderProduct` : `unitPrice` (pas `price`). */
 export const ORDER_FIELDS_FRAGMENT = /* GraphQL */ `
   fragment OrderFields on Order {
     id
     reference
+    number
     status
     createdAt
     updatedAt
-    total
-    subtotal
+    totalPrice
+    subtotalPrice
+    taxPrice
+    shippingPrice
     currency
-    retailer {
+    email
+    firstName
+    lastName
+    companyName
+    companyPhone
+    vatNumber
+    customer {
       id
-      name
+      companyName
       email
+      phone
+      firstName
+      lastName
+      vatNumber
+    }
+    retailerOrder {
+      id
+      number
     }
     shippingAddress {
       firstName
       lastName
-      company
+      companyName
       street
+      addressLine2
+      houseNumber
       city
       postalCode
-      countryCode
-      phone
+      country
+      email
     }
     products(first: 100) {
       edges {
@@ -119,8 +144,11 @@ export const ORDER_FIELDS_FRAGMENT = /* GraphQL */ `
           id
           sku
           title
+          variantTitle
           quantity
-          price
+          unitPrice
+          subtotalPrice
+          totalPrice
         }
       }
     }

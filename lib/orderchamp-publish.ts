@@ -131,7 +131,10 @@ export async function loadOrderchampProductFull(
         orderBy: { name: "asc" },
       },
       colors: {
-        where: { disabled: false },
+        // Décision cliente 2026-09-08 : on charge AUSSI les variantes
+        // désactivées — elles sont envoyées à OC avec stock=0 (voir
+        // `expandBjVariantToOrderchamp`) pour garder la fiche visible
+        // côté acheteuse en cas de rupture temporaire.
         include: {
           color: { select: { id: true, name: true } },
           variantSizes: {
@@ -196,11 +199,14 @@ function expandBjVariantToOrderchamp(v: FullVariant): Array<{
 }> {
   const colorName = orderchampColorNameOf(v.color?.name, v.orderchampColorNameOverride);
   const sizes = sizesOf(v);
+  // Décision cliente 2026-09-08 : une variante désactivée reste envoyée à OC
+  // pour garder la fiche visible (rupture temporaire), mais avec stock=0.
+  const stockBase = v.disabled ? 0 : v.stock;
   if (sizes.length === 0) {
-    return [{ bjVariantId: v.id, colorName, sizeName: FALLBACK_SIZE, stockShare: v.stock }];
+    return [{ bjVariantId: v.id, colorName, sizeName: FALLBACK_SIZE, stockShare: stockBase }];
   }
   if (sizes.length === 1) {
-    return [{ bjVariantId: v.id, colorName, sizeName: sizes[0], stockShare: v.stock }];
+    return [{ bjVariantId: v.id, colorName, sizeName: sizes[0], stockShare: stockBase }];
   }
   // Multi-taille : Orderchamp attend N variantes (couleur × taille). Le stock
   // BJ est global par couleur ; on le distribue proportionnellement à
@@ -210,7 +216,7 @@ function expandBjVariantToOrderchamp(v: FullVariant): Array<{
     bjVariantId: v.id,
     colorName,
     sizeName: vs.size.name,
-    stockShare: Math.max(0, Math.round((v.stock * vs.quantity) / totalQty)),
+    stockShare: v.disabled ? 0 : Math.max(0, Math.round((v.stock * vs.quantity) / totalQty)),
   }));
 }
 
@@ -256,7 +262,11 @@ function buildOrderchampProductPayload(
   // multiple UNIT si besoin. Les PACK gonflaient artificiellement le
   // nombre de variantes OC et affichaient des prix incohérents (prix total
   // pack divisé par qty vs prix unité BJ).
-  const activeVariants = product.colors.filter((c) => !c.disabled && c.saleType !== "PACK");
+  // Décision cliente 2026-09-08 : les variantes désactivées SONT envoyées
+  // (avec stock=0 dans `expandBjVariantToOrderchamp`) pour garder la fiche
+  // visible côté acheteuse en rupture temporaire, plutôt que la faire
+  // disparaître complètement.
+  const activeVariants = product.colors.filter((c) => c.saleType !== "PACK");
   const expansions = activeVariants.flatMap(expandBjVariantToOrderchamp);
 
   // SKU : pour chaque BJ variant (colorId), on génère un SKU de base ; les
@@ -358,10 +368,10 @@ function buildOrderchampProductPayload(
     width: mmToCm(product.dimensionWidth),
     height: mmToCm(product.dimensionHeight),
     diameter: mmToCm(product.dimensionDiameter),
-    // Feuille standard OC — facultative (résolue via mapping BJ Category /
-    // SubCategory dans `resolveOrderchampCategoryForProduct`). Si absente,
-    // omise de l'input : OC devinera depuis titre/description (moins précis
-    // mais évite le blocage — décision cliente 2026-08-24).
+    // Feuille standard OC — obligatoire (résolue via mapping BJ Category /
+    // SubCategory dans `resolveOrderchampCategoryForProduct`). Le blocage est
+    // fait en amont dans `orderchampPublishProduct`, donc on a toujours un
+    // path valide ici (décision cliente rappelée 2026-09-08).
     category: ctx.orderchampCategoryPath ?? undefined,
     customCategory: ctx.orderchampCategoryId ?? undefined,
     // Publie automatiquement sur le canal Marketplace. OC ignore silencieusement
@@ -412,11 +422,15 @@ export async function orderchampPublishProduct(
   }
 
   // 0) Résout la feuille standard Orderchamp via mapping BJ (priorité 1ʳᵉ
-  // sous-catégorie mappée → catégorie principale). Facultatif : sans mapping,
-  // on continue et OC devinera (décision cliente 2026-08-24 — évite le spam
-  // d'erreurs au save quand la cliente n'a pas encore mappé sa catégorie).
+  // sous-catégorie mappée → catégorie principale). OBLIGATOIRE : sans mapping,
+  // on refuse la publication et on remonte le message à l'UI (décision cliente
+  // rappelée 2026-09-08 : OC devine mal, il faut forcer la cliente à mapper
+  // sa catégorie avant de créer la fiche).
   const categoryResolution = await resolveOrderchampCategoryForProduct(productId);
-  const resolvedCategoryPath = categoryResolution.ok ? categoryResolution.path : null;
+  if (!categoryResolution.ok) {
+    return { success: false, error: categoryResolution.error };
+  }
+  const resolvedCategoryPath = categoryResolution.path;
 
   // 1) Assure la customCategory OC. Si le produit a au moins une sous-catégorie
   // BJ, on prend la première (ordre alphabétique) et on crée une customCategory
@@ -597,7 +611,7 @@ export async function orderchampPublishProduct(
     // On itère sur les variantes UNIT uniquement (PACK non envoyées à OC).
     const colorOrder: string[] = [];
     if (product.primaryColorId) colorOrder.push(product.primaryColorId);
-    for (const c of product.colors.filter((c) => !c.disabled && c.saleType !== "PACK")) {
+    for (const c of product.colors.filter((c) => c.saleType !== "PACK")) {
       if (c.color?.id && !colorOrder.includes(c.color.id)) colorOrder.push(c.color.id);
     }
     const imageIdByColorId = new Map<string, string>();
