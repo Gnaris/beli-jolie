@@ -1471,24 +1471,27 @@ export async function verifyPfsProduct(
     return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
   }
 
-  // Match strict de la référence — PFS's `checkReference` fait un match
-  // approximatif (ignore casse / espaces) et remonte parfois un vieux
-  // fantôme ARCHIVED de l'ancienne base Salesforce avec une référence
-  // légèrement différente (ex : Issyma « 13369ROBE » → « 13369 ROBE »
-  // ARCHIVED, ou « 13369ROBE » → « 13369 » base). `detectPfsDuplicate`
-  // ci-dessus ignore ce cas (« pas un vrai doublon ») mais on ne peut PAS
-  // laisser la compare tourner : elle proposerait d'ajouter/retirer des
-  // couleurs qui viennent de l'AUTRE fiche PFS. Stop net avec message
-  // clair pour que la cliente vérifie côté PFS.
-  if (checkRef.product.reference !== product.reference) {
+  // Match strict par ID PFS — `checkReference` fait un match approximatif
+  // côté PFS (ignore casse + espaces) et peut soit renvoyer :
+  //  (a) le MÊME produit avec une casse cosmétique différente (ex : « 12543Z »
+  //      → « 12543z ») — même `pfsProductId`, c'est bien nous.
+  //  (b) un vieux fantôme ARCHIVED d'une autre fiche (ex : Issyma « 13369ROBE »
+  //      → « 13369 ROBE » ARCHIVED, ou « 13369ROBE » → « 13369 » base) — ID
+  //      différent, ce n'est PAS notre produit et il ne faut pas comparer.
+  // On compare donc les IDs, jamais les refs : c'est fiable, indépendant de
+  // la cosmétique, et évite tout faux positif sur la casse. Les produits non
+  // liés à PFS (`pfsProductId === null`) sont déjà filtrés en amont par le
+  // runner d'audit — le check ci-dessus (`if (!product.pfsProductId)`)
+  // renvoie `not_linked`.
+  if (checkRef.product.id !== product.pfsProductId) {
     return {
       ok: false,
       error: {
         kind: "not_found_on_pfs",
         message:
-          `PFS n'a pas la référence exacte « ${product.reference} » — a répondu ` +
-          `avec « ${checkRef.product.reference} » par correspondance approximative. ` +
-          `Vérifiez que ${product.reference} existe toujours sur PFS.`,
+          `PFS n'a pas retrouvé votre fiche « ${product.reference} » — a répondu ` +
+          `avec un autre produit (${checkRef.product.reference}). Vérifiez que ` +
+          `${product.reference} existe toujours sur PFS.`,
       },
     };
   }
