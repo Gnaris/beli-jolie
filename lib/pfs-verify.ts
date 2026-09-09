@@ -970,6 +970,15 @@ export function comparePfsProduct(
 
   const seenPfsIds = new Set<string>();
 
+  // Nombre de ProductColor locales par clé (type, couleur). Sert à distinguer
+  // le cas legacy « N ProductColor UNIT même couleur, 1 taille chacune » des
+  // vrais doublons — voir bloc « sœurs PFS » plus bas.
+  const localsPerKey = new Map<string, number>();
+  for (const l of locals) {
+    const k = localMatchKey(l);
+    localsPerKey.set(k, (localsPerKey.get(k) ?? 0) + 1);
+  }
+
   for (const l of locals) {
     const key = localMatchKey(l);
     const pv = pfsByKey.get(key);
@@ -991,14 +1000,20 @@ export function comparePfsProduct(
       continue;
     }
     seenPfsIds.add(pv.id);
-    // Multi-tailles : notre catalogue a UNE ProductColor par couleur (avec
-    // `variantSizes` = plusieurs tailles), PFS renvoie une variante par
-    // couple (couleur, taille). Sans marquer les « sœurs » (mêmes clé
+    // Multi-tailles côté PFS pour une même couleur : PFS renvoie une variante
+    // par couple (couleur, taille). Sans marquer les « sœurs » (même clé
     // {type, couleur}) comme vues, elles ressortent en faux
-    // « doublonPfsVariant » (cas 10039 Issyma 2026-09-08). On ne fait ce
-    // marquage que pour UNIT — les PACK partagent déjà une clé unique par
-    // couleur principale, pas de sœur à agréger.
-    if (l.expected.type === "UNIT" && l.local.variantSizes.length > 1) {
+    // « doublonPfsVariant ». Deux modèles locaux légitimes à neutraliser :
+    //   1) UNE ProductColor avec `variantSizes` = plusieurs tailles
+    //      (convention BJ actuelle — fix initial 2026-09-08).
+    //   2) PLUSIEURS ProductColor UNIT partageant la même couleur, chacune
+    //      avec 1 taille (legacy 10039 Issyma — étendu 2026-09-09).
+    // Réservé à UNIT — les PACK partagent déjà une clé unique par couleur
+    // principale, pas de sœur à agréger.
+    if (
+      l.expected.type === "UNIT" &&
+      (l.local.variantSizes.length > 1 || (localsPerKey.get(key) ?? 0) > 1)
+    ) {
       for (const sibling of pfsVariants) {
         if (sibling.id === pv.id) continue;
         if (pfsVariantMatchKey(sibling) === key) {

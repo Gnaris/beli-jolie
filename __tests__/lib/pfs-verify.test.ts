@@ -1208,6 +1208,58 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
   });
 
+  it("ne signale PAS de doublon quand plusieurs ProductColor locales UNIT partagent la même couleur (legacy 10039 Issyma 2026-09-09)", () => {
+    // Cas legacy : le produit a été importé avec 1 ProductColor UNIT par
+    // couple (couleur, taille) — donc 3 PC ROSE, chacune avec 1 taille.
+    // PFS renvoie aussi 3 variantes ITEM ROSE (une par taille). Avant fix,
+    // seule la 1re PC était matchée et les 2 autres PFS variantes ROSE
+    // ressortaient en « duplicatePfsVariant ». Ici on veut zéro écart.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v-rose-sm",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 10,
+          weight: 0.02,
+          variantSizes: [{ size: { name: "S/M", pfsSizeRef: "SM" }, quantity: 10 }],
+        }),
+        makeLocalVariant({
+          id: "v-rose-ml",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 10,
+          weight: 0.02,
+          variantSizes: [{ size: { name: "M/L", pfsSizeRef: "ML" }, quantity: 10 }],
+        }),
+        makeLocalVariant({
+          id: "v-rose-lxl",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 8,
+          weight: 0.02,
+          variantSizes: [{ size: { name: "L/XL", pfsSizeRef: "LXL" }, quantity: 8 }],
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    const pfsVariants = [
+      makePfsVariant({ id: "pv-sm", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-ml", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 10, weight: 0.02 }),
+      makePfsVariant({ id: "pv-lxl", type: "ITEM", colorRef: "ROSE", price: 16.5, stock: 8, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    expect(issues.find((i) => i.field === "duplicatePfsVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "missingVariant")).toBeUndefined();
+  });
+
   it("ne matche PAS par label FR si le type diffère (UNIT vs PACK)", () => {
     // Filet : un local UNIT « Jaune » ne doit pas capturer une variante
     // PFS PACK avec labels.fr="Jaune" — les types doivent rester séparés.
