@@ -13,6 +13,7 @@ import { interpolate as interpolateVariables } from "@/lib/mail-merge-variables"
 
 export type NewsletterBlockType =
   | "banner"
+  | "header"
   | "heading"
   | "callout"
   | "button"
@@ -29,6 +30,21 @@ export type NewsletterBlockType =
   | "daysInactive";
 
 export interface BannerData { img: string; alt: string; bg?: string; height?: number; fit?: "cover" | "contain" }
+export interface HeaderData {
+  /** Logo (chemin public ou URL absolue). Vide = pas de logo affiché. */
+  logo?: string;
+  /** Hauteur max du logo en pixels. */
+  logoMaxHeight?: number;
+  /** Titre principal (souvent le nom de la boutique ou l'accroche). */
+  title?: string;
+  /** Sous-titre (baseline ou courte intro). */
+  subtitle?: string;
+  bg?: string;
+  textColor?: string;
+  titleSize?: number;
+  subtitleSize?: number;
+  align?: "left" | "center" | "right";
+}
 export interface HeadingData { title: string; body: string; align: "left" | "center" | "right"; bg?: string; titleColor?: string; bodyColor?: string; titleSize?: number; bodySize?: number; titleAlign?: "left" | "center" | "right"; bodyAlign?: "left" | "center" | "right" }
 export interface CalloutData { title: string; subtitle: string; cta: string; ctaUrl: string; bg: string; color: string; titleSize?: number; subtitleSize?: number; ctaSize?: number }
 export interface ButtonData { label: string; url: string; bg: string; color: string; align?: "left" | "center" | "right"; labelSize?: number }
@@ -38,7 +54,17 @@ export interface ListData { items: string[]; bg?: string; color?: string; itemSi
 export interface EmptyData { height: number; bg?: string }
 export interface ColumnData { kind: "text" | "image"; text?: string; img?: string }
 export interface ColumnsData { cols: 2 | 3; columns: ColumnData[]; bg?: string; color?: string }
-// divider + footer sont sans data
+// divider est sans data
+export interface FooterData {
+  /** Contenu texte (multi-ligne) — DOIT contenir les 4 variables obligatoires
+   *  {shopName} {shopAddress} {unsubscribeLink} {privacyLink} (validation
+   *  côté sauvegarde du modèle). Ligne = un retour à la ligne dans l'input. */
+  content: string;
+  bg?: string;
+  color?: string;
+  align?: "left" | "center" | "right";
+  fontSize?: number;
+}
 
 // ─── Blocs dynamiques (mails transactionnels) ───
 // Ces blocs sont rendus avec les vraies données du client au moment de l'envoi
@@ -70,6 +96,7 @@ export interface DaysInactiveData {
 
 export type NewsletterBlock =
   | { id: number | string; type: "banner"; data: BannerData }
+  | { id: number | string; type: "header"; data: HeaderData }
   | { id: number | string; type: "heading"; data: HeadingData }
   | { id: number | string; type: "callout"; data: CalloutData }
   | { id: number | string; type: "button"; data: ButtonData }
@@ -79,7 +106,7 @@ export type NewsletterBlock =
   | { id: number | string; type: "empty"; data: EmptyData }
   | { id: number | string; type: "columns"; data: ColumnsData }
   | { id: number | string; type: "divider"; data: Record<string, never> }
-  | { id: number | string; type: "footer"; data: Record<string, never> }
+  | { id: number | string; type: "footer"; data: FooterData }
   | { id: number | string; type: "cartItems"; data: CartItemsData }
   | { id: number | string; type: "favoritesGrid"; data: FavoritesGridData }
   | { id: number | string; type: "daysInactive"; data: DaysInactiveData };
@@ -103,6 +130,10 @@ export function collectBlocksText(blocks: NewsletterBlock[]): string {
   const parts: string[] = [];
   for (const b of blocks) {
     switch (b.type) {
+      case "header":
+        if (b.data.title) parts.push(b.data.title);
+        if (b.data.subtitle) parts.push(b.data.subtitle);
+        break;
       case "heading":
         parts.push(b.data.title, b.data.body);
         break;
@@ -123,6 +154,9 @@ export function collectBlocksText(blocks: NewsletterBlock[]): string {
           if (col.kind === "text" && col.text) parts.push(col.text);
         }
         break;
+      case "footer":
+        if (b.data.content) parts.push(b.data.content);
+        break;
       case "cartItems":
         if (b.data.title) parts.push(b.data.title);
         if (b.data.totalLabel) parts.push(b.data.totalLabel);
@@ -135,16 +169,42 @@ export function collectBlocksText(blocks: NewsletterBlock[]): string {
         parts.push(b.data.template, b.data.neverVisitedTemplate);
         break;
       default:
-        break; // banner/divider/empty/footer/products : pas de texte de merge
+        break; // banner/divider/empty/products : pas de texte de merge
     }
   }
   return parts.filter(Boolean).join("\n");
+}
+
+/**
+ * Retourne le contenu texte du 1er bloc footer trouvé, ou `null` s'il n'y a
+ * aucun bloc footer dans le modèle. Utilisé par la validation « variables
+ * obligatoires DANS le footer » (nom + adresse boutique + désinscription +
+ * politique de confidentialité).
+ */
+export function getFooterContent(blocks: NewsletterBlock[]): string | null {
+  for (const b of blocks) {
+    if (b.type === "footer") {
+      return typeof b.data?.content === "string" ? b.data.content : "";
+    }
+  }
+  return null;
 }
 
 // Défaut de chaque type de bloc
 export function defaultDataFor(type: NewsletterBlockType): NewsletterBlockData {
   switch (type) {
     case "banner": return { img: "", alt: "Bannière" };
+    case "header": return {
+      logo: "",
+      logoMaxHeight: 60,
+      title: "",
+      subtitle: "",
+      bg: "#0f172a",
+      textColor: "#ffffff",
+      titleSize: 22,
+      subtitleSize: 13,
+      align: "center" as const,
+    };
     case "heading": return { title: "Nouveau titre", body: "Votre texte ici.", align: "center" as const };
     case "callout": return { title: "Offre spéciale", subtitle: "Utilisez le code…", cta: "En profiter", ctaUrl: "", bg: "#334155", color: "#ffffff" };
     case "button": return { label: "Découvrir", url: "", bg: "#0f172a", color: "#ffffff", align: "center" as const };
@@ -154,7 +214,16 @@ export function defaultDataFor(type: NewsletterBlockType): NewsletterBlockData {
     case "empty": return { height: 40 };
     case "columns": return { cols: 2 as const, columns: [{ kind: "text", text: "Colonne 1" }, { kind: "text", text: "Colonne 2" }] };
     case "divider": return {};
-    case "footer": return {};
+    case "footer": return {
+      // Contenu par défaut : contient déjà les 4 variables obligatoires pour
+      // que la sauvegarde passe dès l'ajout du bloc. La cliente peut ensuite
+      // reformuler à sa guise — tant que les 4 tokens restent présents.
+      content: "{shopName} · {shopAddress}\nSe désinscrire : {unsubscribeLink}\nPolitique de confidentialité : {privacyLink}",
+      bg: "#f8fafc",
+      color: "#64748b",
+      align: "center" as const,
+      fontSize: 12,
+    };
     case "cartItems": return { title: "Votre panier", totalLabel: "Total", emptyMessage: "Votre panier est vide — venez découvrir nos nouveautés !" };
     case "favoritesGrid": return { cols: 2 as const, emptyMessage: "Aucun produit sélectionné." };
     case "daysInactive": return {
@@ -225,6 +294,10 @@ function applySubToBlock(
   sub: (s: string | undefined) => string | undefined,
 ): NewsletterBlock {
   switch (b.type) {
+    case "header":
+      return { ...b, data: { ...b.data, title: sub(b.data.title), subtitle: sub(b.data.subtitle) } };
+    case "footer":
+      return { ...b, data: { ...b.data, content: sub(b.data.content) ?? "" } };
     case "heading":
       return { ...b, data: { ...b.data, title: sub(b.data.title) ?? "", body: sub(b.data.body) ?? "" } };
     case "callout":
@@ -286,7 +359,6 @@ export function renderNewsletterHtml({
   omitGlobalChrome?: boolean;
 }): string {
   const bodyHtml = blocks
-    .filter((b) => b.type !== "footer") // footer géré par wrapMail
     .map((b) => renderBlock(b, productsById, shared, dynamic))
     .join("\n");
 
@@ -329,6 +401,35 @@ function renderBlock(
       const fit = block.data.fit === "contain" ? "contain" : "cover";
       const heightStyle = h ? `height:${h}px; object-fit:${fit};` : "";
       return wrapBg(block.data.bg, `<div style="margin:16px 0;"><img src="${escapeHtml(src)}" alt="${escapeHtml(block.data.alt || "")}" style="width:100%; ${heightStyle} display:block; border-radius:8px;"></div>`);
+    }
+    case "header": {
+      const bg = block.data.bg || "#0f172a";
+      const color = block.data.textColor || "#ffffff";
+      const align = block.data.align || "center";
+      const logoSrc = block.data.logo ? absoluteUrl(shared.baseUrl, block.data.logo) : "";
+      const logoMax = Math.max(20, Math.min(160, Number(block.data.logoMaxHeight) || 60));
+      const logoHtml = logoSrc
+        ? `<div style="margin-bottom:14px;"><img src="${escapeHtml(logoSrc)}" alt="" style="max-height:${logoMax}px; display:inline-block; border:0;"></div>`
+        : "";
+      const hasTitle = !!(block.data.title || "").trim();
+      const hasSubtitle = !!(block.data.subtitle || "").trim();
+      const titleHtml = hasTitle
+        ? `<h1 style="font-family:'Poppins', sans-serif; font-size:${block.data.titleSize || 22}px; font-weight:700; margin:0; color:${color}; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title || "")}</h1>`
+        : "";
+      const subtitleHtml = hasSubtitle
+        ? `<div style="font-size:${block.data.subtitleSize || 13}px; margin-top:${hasTitle ? "8px" : "0"}; color:${color}; opacity:0.85; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.subtitle || "")}</div>`
+        : "";
+      if (!logoHtml && !titleHtml && !subtitleHtml) return "";
+      return `<div style="background:${bg}; padding:36px 24px; text-align:${align};">${logoHtml}${titleHtml}${subtitleHtml}</div>`;
+    }
+    case "footer": {
+      const bg = block.data.bg || "#f8fafc";
+      const color = block.data.color || "#64748b";
+      const align = block.data.align || "center";
+      const fontSize = Math.max(9, Math.min(20, Number(block.data.fontSize) || 12));
+      const content = (block.data.content || "").trim();
+      if (!content) return "";
+      return `<div style="background:${bg}; color:${color}; padding:20px 24px; text-align:${align}; font-size:${fontSize}px; line-height:1.6; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(content)}</div>`;
     }
     case "heading": {
       const titleColor = block.data.titleColor || "#0f172a";
@@ -449,8 +550,6 @@ ${block.data.items.map((item) => `<li style="padding:8px 0; font-size:${block.da
     }
     case "divider":
       return contained(`<hr style="border:none; border-top:1px solid #e2e8f0; margin:16px 0;">`);
-    case "footer":
-      return ""; // Géré par wrapMail
     case "cartItems": {
       const items = dynamic?.cart?.items ?? [];
       const totalCents = dynamic?.cart?.totalCents ?? 0;

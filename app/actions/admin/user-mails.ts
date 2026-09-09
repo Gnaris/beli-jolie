@@ -17,7 +17,6 @@ import { logger } from "@/lib/logger";
 import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
-import { getCachedMailBranding } from "@/lib/mail-branding";
 import {
   renderNewsletterHtml,
   substituteVariables,
@@ -468,7 +467,6 @@ export async function sendManualMail(
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
-    const branding = await getCachedMailBranding();
 
     // Charge le user complet + companyInfo pour construire le contexte de
     // variables. Les champs viennent de la fiche client (adresse, TVA, SIRET…)
@@ -538,7 +536,7 @@ export async function sendManualMail(
       privacyLink: `${baseUrl}/fr/confidentialite`,
     };
 
-    const shared = { shopName, baseUrl, legalLine, branding, mergeContext: userContext };
+    const shared = { shopName, baseUrl, legalLine, mergeContext: userContext };
 
     // Charge le modèle newsletter lié à ce scénario (créé si absent).
     const template = await getScenarioTemplate(tenant.id, scenario);

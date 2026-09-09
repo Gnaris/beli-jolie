@@ -1649,16 +1649,6 @@ export async function verifyPfsProduct(
     );
   }
 
-  // Enrichit les `missingVariant` avec `pullBlocked` quand la variante
-  // locale a des commandes historiques : `pullRemoveLocalVariant` (dans
-  // `lib/pfs-verify-variant-ops.ts`) refuse toute suppression pour
-  // préserver la traçabilité comptable. Sans marquage à l'audit, la
-  // cliente cliquait « Modifier depuis PFS », le pull échouait pour
-  // Noir mais les autres pulls réussissaient — un toast success masquait
-  // l'échec, Noir restait, l'audit suivant reproposait la suppression
-  // (cas 15219 Issyma 2026-09-08).
-  await annotateMissingVariantsBlockedByOrders(product, issues);
-
   return {
     ok: true,
     result: {
@@ -1668,53 +1658,6 @@ export async function verifyPfsProduct(
       checkedAt: new Date().toISOString(),
     },
   };
-}
-
-/**
- * Pour chaque écart `missingVariant`, compte les commandes historiques qui
- * référencent la variante locale (4 tables — même liste que
- * `pullRemoveLocalVariant`). Si > 0, pose `pullBlocked` avec un message
- * humain expliquant qu'il faut désactiver la variante au lieu de la
- * supprimer. La cliente voit alors le bouton grisé et la raison au lieu
- * d'un pull qui va échouer silencieusement.
- */
-async function annotateMissingVariantsBlockedByOrders(
-  product: FullProduct,
-  issues: PfsVerifyIssue[],
-): Promise<void> {
-  const missing = issues.filter(
-    (iss) =>
-      iss.field === "missingVariant" &&
-      iss.scope === "color" &&
-      !iss.pullBlocked &&
-      !!iss.colorName,
-  );
-  if (missing.length === 0) return;
-
-  for (const iss of missing) {
-    // Match par (saleType, colorName) — même critère que le check dans
-    // `pullRemoveLocalVariant`, mais sans avoir à rappeler la map de
-    // couleurs PFS (l'issue expose déjà le nom local).
-    const localVariant = product.colors.find(
-      (c) => c.saleType === iss.variantType && c.color?.name === iss.colorName,
-    );
-    if (!localVariant) continue;
-
-    const [ordered, pfsOrdered, efashionOrdered, ankorsOrdered] = await Promise.all([
-      prisma.orderItem.count({ where: { productColorId: localVariant.id } }),
-      prisma.pfsOrderItem.count({ where: { productColorId: localVariant.id } }),
-      prisma.efashionOrderItem.count({ where: { productColorId: localVariant.id } }),
-      prisma.ankorstoreOrderItem.count({ where: { productColorId: localVariant.id } }),
-    ]);
-    const total = ordered + pfsOrdered + efashionOrdered + ankorsOrdered;
-    if (total === 0) continue;
-
-    iss.pullBlocked =
-      `Impossible à supprimer chez nous : ${total} commande${total > 1 ? "s" : ""} ` +
-      `historique${total > 1 ? "s" : ""} référence${total > 1 ? "nt" : ""} cette ` +
-      `variante (protection comptable). Désactivez-la depuis la fiche produit pour ` +
-      `la cacher côté clients.`;
-  }
 }
 
 /**

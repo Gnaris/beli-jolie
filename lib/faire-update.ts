@@ -837,6 +837,78 @@ export async function faireUpdateProduct(
     }
   }
 
+  // 3.quinquies) Adoption des vids orphelins par SKU.
+  //
+  // Cas : une variante BJ dont `faireVariantId` est null en BDD peut
+  // correspondre à une variante Faire déjà existante avec le même SKU.
+  // Se produit quand un PATCH précédent a bien créé la variante côté Faire
+  // mais que notre code n'a pas persisté l'id (timeout réseau, race, job
+  // interrompu). Sans adoption, chaque nouvelle tentative renvoie la
+  // variante SANS id → Faire rejette avec « Duplicate variants with same
+  // options » (2 variantes candidates pour la même valeur Color).
+  //
+  // Cas vu 2026-09-09 sur W124 : suppression Bleu + ajout Marine. Faire
+  // avait créé Marine (`po_aswmet5p84`) mais notre BDD n'a pas retenu
+  // l'id → boucle d'erreurs à chaque push jusqu'à réparation manuelle
+  // (UPDATE ProductColor).
+  const orphanSkus = variants
+    .filter((v) => !faireVariantIdBySku.has(v.sku))
+    .map((v) => v.sku);
+  if (orphanSkus.length > 0) {
+    const state = await getFaireProductState();
+    if (state) {
+      const faireIdBySku = new Map<string, string>();
+      for (const fv of state.variants) faireIdBySku.set(fv.sku, fv.id);
+      const adoptions: {
+        bjVariantId: string;
+        sku: string;
+        faireVariantId: string;
+      }[] = [];
+      for (const sku of orphanSkus) {
+        const vid = faireIdBySku.get(sku);
+        const bjId = bjVariantIdBySku.get(sku);
+        if (vid && bjId) {
+          adoptions.push({ bjVariantId: bjId, sku, faireVariantId: vid });
+          faireVariantIdBySku.set(sku, vid);
+        }
+      }
+      if (adoptions.length > 0) {
+        logger.warn("[Faire Update] Vids orphelins adoptés par match SKU", {
+          productId,
+          adoptions,
+        });
+        await prisma.$transaction(
+          adoptions.map((a) =>
+            prisma.productColor.update({
+              where: { id: a.bjVariantId },
+              data: { faireVariantId: a.faireVariantId },
+            }),
+          ),
+        );
+        // Le payload contient déjà ces variantes SANS `id` (car pas de
+        // `faireVariantId` en BDD au moment du build). On injecte l'id
+        // adopté pour que le PATCH consolidé matche la variante existante
+        // au lieu de tenter une re-création (« Duplicate variants »).
+        const adoptedBySku = new Map(
+          adoptions.map((a) => [a.sku, a.faireVariantId] as const),
+        );
+        const bodyRecord = body as Record<string, unknown>;
+        if (Array.isArray(bodyRecord.variants)) {
+          bodyRecord.variants = (
+            bodyRecord.variants as Record<string, unknown>[]
+          ).map((v) => {
+            const sku = typeof v.sku === "string" ? v.sku : "";
+            const adoptedVid = adoptedBySku.get(sku);
+            if (adoptedVid && !("id" in v)) {
+              return { id: adoptedVid, ...v };
+            }
+            return v;
+          });
+        }
+      }
+    }
+  }
+
   // 3.quater) Migration axisless → axe couleur.
   //
   // Cas : Faire connaît le produit avec ≥ 1 variante SANS axe (options: []),

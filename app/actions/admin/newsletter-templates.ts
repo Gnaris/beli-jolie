@@ -14,7 +14,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { collectBlocksText, type NewsletterBlock } from "@/lib/newsletter-blocks";
+import { getFooterContent, type NewsletterBlock } from "@/lib/newsletter-blocks";
 import { missingRequiredMarketingVariables } from "@/lib/mail-merge-variables";
 import {
   SCENARIO_DEFAULTS,
@@ -262,17 +262,23 @@ export async function updateNewsletterTemplate(
 
     // Validation « mentions légales » : tous les modèles enregistrés dans cette
     // table sont marketing (les mails système passent par shared.ts direct).
-    // On refuse la sauvegarde si une des 4 variables obligatoires manque —
-    // filet contre l'envoi d'un mail non conforme (RGPD/LCEN).
-    const finalSubject = data.subject ?? existing.subject;
+    // Règle : les 4 variables obligatoires DOIVENT figurer dans le bloc
+    // « Pied de page » (bloc `footer`). Le mail ne peut pas être enregistré
+    // sans ce bloc, ni si son contenu ne contient pas les 4 variables.
     const finalBlocks = (data.blocks ??
       (Array.isArray(existing.blocks) ? (existing.blocks as unknown as NewsletterBlock[]) : []));
-    const hay = `${finalSubject}\n${collectBlocksText(finalBlocks)}`;
-    const missing = missingRequiredMarketingVariables(hay);
+    const footerContent = getFooterContent(finalBlocks);
+    if (footerContent === null) {
+      return {
+        success: false,
+        error: "Ajoutez un bloc « Pied de page » — il doit contenir les mentions légales (nom + adresse boutique + désinscription + politique de confidentialité).",
+      };
+    }
+    const missing = missingRequiredMarketingVariables(footerContent);
     if (missing.length > 0) {
       return {
         success: false,
-        error: `Ces variables obligatoires manquent : ${missing.map((v) => `{${v.token}}`).join(", ")}. Insérez-les dans un bloc texte (elles seront remplacées à l'envoi par la vraie info).`,
+        error: `Ces variables obligatoires manquent dans le pied de page : ${missing.map((v) => `{${v.token}}`).join(", ")}. Elles doivent figurer dans le bloc « Pied de page » — elles seront remplacées à l'envoi par la vraie info.`,
         missingVariables: missing.map((v) => v.token),
       };
     }

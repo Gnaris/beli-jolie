@@ -3,7 +3,16 @@ import {
   missingRequiredMarketingVariables,
   REQUIRED_MARKETING_VARIABLES,
 } from "@/lib/mail-merge-variables";
-import { collectBlocksText, renderNewsletterHtml, type NewsletterBlock, type ProductLite } from "@/lib/newsletter-blocks";
+import {
+  collectBlocksText,
+  defaultDataFor,
+  getFooterContent,
+  renderNewsletterHtml,
+  type FooterData,
+  type HeaderData,
+  type NewsletterBlock,
+  type ProductLite,
+} from "@/lib/newsletter-blocks";
 import type { SharedMailContext } from "@/lib/mail-templates/shared";
 
 const shared: SharedMailContext = {
@@ -60,6 +69,153 @@ describe("collectBlocksText", () => {
     ];
     const text = collectBlocksText(blocks);
     expect(text).toBe("");
+  });
+});
+
+describe("defaultDataFor(\"footer\")", () => {
+  it("contient les 4 variables obligatoires — la sauvegarde passe dès l'ajout du bloc", () => {
+    const data = defaultDataFor("footer") as FooterData;
+    const missing = missingRequiredMarketingVariables(data.content);
+    expect(missing).toEqual([]);
+  });
+});
+
+describe("getFooterContent", () => {
+  it("retourne null si aucun bloc footer n'est présent", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "h", type: "heading", data: { title: "T", body: "B", align: "left" } },
+    ];
+    expect(getFooterContent(blocks)).toBeNull();
+  });
+
+  it("retourne le contenu du 1er bloc footer trouvé", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "h", type: "heading", data: { title: "T", body: "B", align: "left" } },
+      { id: "f", type: "footer", data: { content: "Mentions légales ici" } as FooterData },
+    ];
+    expect(getFooterContent(blocks)).toBe("Mentions légales ici");
+  });
+
+  it("retourne \"\" (chaîne vide) si le bloc footer existe mais data.content absent (rétrocompat)", () => {
+    const blocks = [
+      { id: "f", type: "footer", data: {} as unknown as FooterData },
+    ] as NewsletterBlock[];
+    expect(getFooterContent(blocks)).toBe("");
+  });
+});
+
+describe("Validation « variables obligatoires DANS le footer »", () => {
+  const legalContent = "{shopName} · {shopAddress}\n{unsubscribeLink} — {privacyLink}";
+
+  it("les 4 tokens DANS le footer → validation OK", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "h", type: "heading", data: { title: "Coucou", body: "corps", align: "left" } },
+      { id: "f", type: "footer", data: { content: legalContent } as FooterData },
+    ];
+    const footer = getFooterContent(blocks);
+    expect(footer).not.toBeNull();
+    expect(missingRequiredMarketingVariables(footer ?? "")).toEqual([]);
+  });
+
+  it("les 4 tokens HORS du footer (dans un heading) → validation KO — les variables doivent être dans le footer", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "h", type: "heading", data: { title: legalContent, body: "", align: "left" } },
+      { id: "f", type: "footer", data: { content: "Pas de mentions" } as FooterData },
+    ];
+    const footer = getFooterContent(blocks);
+    expect(footer).toBe("Pas de mentions");
+    expect(missingRequiredMarketingVariables(footer ?? "").length).toBe(4);
+  });
+
+  it("pas de bloc footer du tout → getFooterContent null (message d'erreur spécifique côté server action)", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "h", type: "heading", data: { title: legalContent, body: "", align: "left" } },
+    ];
+    expect(getFooterContent(blocks)).toBeNull();
+  });
+});
+
+describe("collectBlocksText (header + footer)", () => {
+  it("inclut le titre et le sous-titre du bloc header", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "hd", type: "header", data: { title: "Bienvenue {firstName}", subtitle: "chez nous" } as HeaderData },
+    ];
+    const text = collectBlocksText(blocks);
+    expect(text).toContain("Bienvenue {firstName}");
+    expect(text).toContain("chez nous");
+  });
+
+  it("inclut le contenu du bloc footer", () => {
+    const blocks: NewsletterBlock[] = [
+      { id: "f", type: "footer", data: { content: "Mentions {shopName}" } as FooterData },
+    ];
+    expect(collectBlocksText(blocks)).toContain("Mentions {shopName}");
+  });
+});
+
+describe("renderNewsletterHtml — nouveaux blocs header / footer", () => {
+  it("rend le bloc footer dans le HTML final (n'est plus filtré par renderNewsletterHtml)", () => {
+    const html = renderNewsletterHtml({
+      subject: "S",
+      blocks: [
+        {
+          id: "f",
+          type: "footer",
+          data: { content: "Pied de page perso", bg: "#f8fafc", color: "#64748b", align: "center", fontSize: 12 } as FooterData,
+        },
+      ],
+      productsById: new Map<string, ProductLite>(),
+      shared,
+      omitGlobalChrome: true,
+    });
+    expect(html).toContain("Pied de page perso");
+  });
+
+  it("rend le bloc header avec logo, titre et sous-titre", () => {
+    const html = renderNewsletterHtml({
+      subject: "S",
+      blocks: [
+        {
+          id: "hd",
+          type: "header",
+          data: {
+            logo: "/uploads/logo.webp",
+            logoMaxHeight: 60,
+            title: "Belle boutique",
+            subtitle: "Nouvelle collection",
+            bg: "#0f172a",
+            textColor: "#ffffff",
+            titleSize: 22,
+            subtitleSize: 13,
+            align: "center",
+          } as HeaderData,
+        },
+      ],
+      productsById: new Map<string, ProductLite>(),
+      shared,
+      omitGlobalChrome: true,
+    });
+    expect(html).toContain("Belle boutique");
+    expect(html).toContain("Nouvelle collection");
+    expect(html).toContain("/uploads/logo.webp");
+  });
+
+  it("bloc header vide (aucun logo/titre/sous-titre) → n'ajoute rien au HTML", () => {
+    const html = renderNewsletterHtml({
+      subject: "S",
+      blocks: [
+        {
+          id: "hd",
+          type: "header",
+          data: { logo: "", title: "", subtitle: "" } as HeaderData,
+        },
+      ],
+      productsById: new Map<string, ProductLite>(),
+      shared,
+      omitGlobalChrome: true,
+    });
+    // Le corps du wrapMail ne doit pas contenir de <h1> issu du header
+    expect(html).not.toMatch(/<h1[^>]*>Bienvenue/);
   });
 });
 

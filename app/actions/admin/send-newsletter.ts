@@ -19,7 +19,6 @@ import { logger } from "@/lib/logger";
 import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
-import { getCachedMailBranding } from "@/lib/mail-branding";
 import { renderNewsletterHtml, substituteVariables, type ProductLite, type NewsletterBlock } from "@/lib/newsletter-blocks";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
@@ -46,12 +45,15 @@ export async function getNewsletterPreviewHtml(
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
-    const branding = await getCachedMailBranding();
+    // Aperçu cohérent avec l'envoi réel : les 2 passent omitGlobalChrome=true —
+    // l'en-tête et le pied de page sont composés via les blocs éditables du
+    // modèle, plus d'habillage global partagé.
     const html = renderNewsletterHtml({
       subject: template.subject,
       blocks,
       productsById,
-      shared: { shopName, baseUrl, legalLine, branding },
+      shared: { shopName, baseUrl, legalLine },
+      omitGlobalChrome: true,
     });
     return { success: true, html, subject: template.subject };
   } catch (err) {
@@ -158,11 +160,10 @@ export async function sendNewsletterToUsers({
       };
     }
 
-    // 4. Contexte partagé (shopName, baseUrl, branding — identiques à tous)
+    // 4. Contexte partagé (shopName, baseUrl — identiques à tous les destinataires)
     const shopName = await getCachedShopName();
     const baseUrl = await getCurrentTenantBaseUrl();
     const legalLine = await buildLegalLine(tenant.id);
-    const branding = await getCachedMailBranding();
     const companyInfo = await prisma.companyInfo.findFirst({
       where: { tenantId: tenant.id },
       select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
@@ -220,7 +221,7 @@ export async function sendNewsletterToUsers({
         // insère les mentions légales via les 4 variables obligatoires.
         // On désactive l'habillage global pour éviter la duplication.
         omitGlobalChrome: true,
-        shared: { shopName, baseUrl, legalLine, branding, mergeContext: userContextWithLegal },
+        shared: { shopName, baseUrl, legalLine, mergeContext: userContextWithLegal },
       });
 
       const result = await sendMail({

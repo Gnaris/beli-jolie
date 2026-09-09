@@ -28,12 +28,11 @@ import {
 } from "@/app/actions/admin/newsletter-templates";
 import {
   defaultDataFor,
-  collectBlocksText,
+  getFooterContent,
   type NewsletterBlock,
   type NewsletterBlockType,
   type ColumnData,
 } from "@/lib/newsletter-blocks";
-import { resolveHeaderBackground, type MailBranding } from "@/lib/mail-branding-types";
 import {
   SCENARIO_LABELS,
   allowedDynamicBlocksFor,
@@ -122,12 +121,6 @@ function replaceBlobUrls(blocks: NewsletterBlock[], map: Map<string, string>): N
 
 interface Props {
   template: NewsletterTemplateFull;
-  /** Habillage partagé (SiteConfig `mail_header_config` + `mail_footer_config`).
-   *  Rendu en aperçu locked en haut/bas de la zone blocs. */
-  branding: MailBranding;
-  shopName: string;
-  baseUrl: string;
-  legalLine: string;
 }
 
 interface BlockMeta {
@@ -138,6 +131,7 @@ interface BlockMeta {
 }
 
 const BLOCKS_META: BlockMeta[] = [
+  { key: "header", label: "En-tête du mail", desc: "Logo + titre + sous-titre — toujours en haut", icon: "M3 5h18v6H3z M7 15h10 M7 19h6" },
   { key: "banner", label: "Bannière image", desc: "Photo plein largeur", icon: "M3 5h18v14H3zM8.5 10.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm12.5 4.5-5-5L5 21" },
   { key: "heading", label: "Titre + texte", desc: "Titre + paragraphe", icon: "M4 6h16M4 12h16M4 18h10" },
   { key: "callout", label: "Callout coloré", desc: "Bandeau coloré + CTA", icon: "M3 6h18v12H3z" },
@@ -148,6 +142,7 @@ const BLOCKS_META: BlockMeta[] = [
   { key: "list", label: "Liste emojis", desc: "Puces stylisées", icon: "M5 6h14M5 12h14M5 18h14" },
   { key: "divider", label: "Séparateur", desc: "Ligne décorative", icon: "M4 12h16" },
   { key: "empty", label: "Bloc vide", desc: "Espace pour aérer", icon: "M4 4h16v16H4z" },
+  { key: "footer", label: "Pied de page", desc: "Mentions légales — toujours en bas", icon: "M3 5h18v14H3z M7 9h10 M7 13h10 M7 17h6" },
   // ─── Blocs dynamiques (mails automatiques uniquement) ───
   { key: "cartItems", label: "Panier du client", desc: "Liste réelle des articles du panier", icon: "M6 6h15l-1.5 9h-12z M6 6L5 3H2 M9 20a1 1 0 100-2 1 1 0 000 2zm9 0a1 1 0 100-2 1 1 0 000 2z" },
   { key: "favoritesGrid", label: "Favoris / Produits sélectionnés", desc: "Grille des produits à annoncer", icon: "M12 21s-7-4.5-9-9c-1-4 4-8 9-3 5-5 10-1 9 3-2 4.5-9 9-9 9z" },
@@ -162,13 +157,53 @@ interface ProductLite {
   priceCents: number | null;
 }
 
-export default function NewsletterEditorClient({ template, branding, shopName, baseUrl, legalLine }: Props) {
+export default function NewsletterEditorClient({ template }: Props) {
   const toast = useToast();
   const router = useRouter();
   const scenarioKey: ScenarioKey | null = template.scenarioKey;
   const [name, setName] = useState(template.name);
   const [subject, setSubject] = useState(template.subject);
-  const [blocks, setBlocks] = useState<NewsletterBlock[]>(template.blocks);
+  // À l'ouverture, on complète automatiquement le modèle avec les 2 blocs
+  // OBLIGATOIRES (en-tête + pied de page) s'ils sont absents. Le header est
+  // TOUJOURS en 1ʳᵉ position, le footer en DERNIÈRE — impossible à déplacer,
+  // impossible à supprimer. La cliente ne peut que les personnaliser.
+  const initialAutoAdded = useRef<boolean>(false);
+  const [blocks, setBlocks] = useState<NewsletterBlock[]>(() => {
+    const initial: NewsletterBlock[] = Array.isArray(template.blocks) ? [...template.blocks] : [];
+    let header: NewsletterBlock | null = null;
+    let footer: NewsletterBlock | null = null;
+    const middle: NewsletterBlock[] = [];
+    for (const b of initial) {
+      if (b.type === "header" && !header) header = b;
+      else if (b.type === "footer" && !footer) footer = b;
+      else middle.push(b);
+    }
+    // Détection « il y a des changements à sauver » : header/footer manquant
+    // OU présent mais mal positionné (pas en 1ᵉʳ / pas en dernier).
+    const headerWasFirst = initial[0]?.type === "header";
+    const footerWasLast = initial[initial.length - 1]?.type === "footer";
+    if (!header) {
+      header = {
+        id: `auto-header-${Date.now()}`,
+        type: "header",
+        data: defaultDataFor("header"),
+      } as NewsletterBlock;
+      initialAutoAdded.current = true;
+    } else if (!headerWasFirst) {
+      initialAutoAdded.current = true;
+    }
+    if (!footer) {
+      footer = {
+        id: `auto-footer-${Date.now()}`,
+        type: "footer",
+        data: defaultDataFor("footer"),
+      } as NewsletterBlock;
+      initialAutoAdded.current = true;
+    } else if (!footerWasLast) {
+      initialAutoAdded.current = true;
+    }
+    return [header, ...middle, footer];
+  });
   const subjectRef = useRef<HTMLInputElement | null>(null);
 
   // Cible active pour insertion de variable : mise à jour au focus de n'importe
@@ -232,17 +267,30 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
 
   // Blocs obligatoires : le bouton « Enregistrer » est verrouillé tant que
   // le modèle n'en contient pas au moins un de chaque type requis.
-  const requiredBlocks = useMemo(() => requiredBlocksFor(scenarioKey), [scenarioKey]);
-  const missingBlocks = useMemo<RequiredBlockSpec[]>(
-    () => missingRequiredBlocks(scenarioKey, blocks.map((b) => b.type)),
-    [scenarioKey, blocks],
+  // Header + Footer sont OBLIGATOIRES et VERROUILLÉS en position sur tous
+  // les modèles marketing (header en 1ᵉʳ, footer en dernier — impossible à
+  // déplacer/supprimer).
+  const requiredBlocks = useMemo<RequiredBlockSpec[]>(
+    () => [
+      { type: "header", label: "En-tête" },
+      { type: "footer", label: "Pied de page" },
+      ...requiredBlocksFor(scenarioKey),
+    ],
+    [scenarioKey],
   );
+  const missingBlocks = useMemo<RequiredBlockSpec[]>(() => {
+    const present = new Set<string>(blocks.map((b) => b.type));
+    return requiredBlocks.filter((r) => !present.has(r.type));
+  }, [requiredBlocks, blocks]);
   // Variables obligatoires manquantes (mentions légales RGPD/LCEN) —
-  // recalcul à chaque changement du sujet ou d'un bloc.
+  // vérifiées UNIQUEMENT dans le contenu du bloc « Pied de page ».
+  // Si le footer est absent, on considère toutes les variables manquantes
+  // (le message « Ajoutez un bloc pied de page » est déjà porté par missingBlocks).
   const missingRequired = useMemo(() => {
-    const hay = `${subject}\n${collectBlocksText(blocks)}`;
-    return missingRequiredMarketingVariables(hay);
-  }, [subject, blocks]);
+    const footerContent = getFooterContent(blocks);
+    if (footerContent === null) return missingRequiredMarketingVariables("");
+    return missingRequiredMarketingVariables(footerContent);
+  }, [blocks]);
   const canSave = missingBlocks.length === 0 && missingRequired.length === 0;
   const visibleBlocksMeta = useMemo(
     () =>
@@ -255,7 +303,11 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [saving, startSaving] = useTransition();
   const [productsCache, setProductsCache] = useState<Map<string, ProductLite>>(new Map());
-  const [dirty, setDirty] = useState(false);
+  // Si on a auto-ajouté / réordonné le header ou footer à l'ouverture, on
+  // marque le modèle comme « modifié » pour inciter la cliente à cliquer
+  // Enregistrer — sinon le bouton reste vert « Enregistré » alors que les
+  // changements ne sont qu'en mémoire.
+  const [dirty, setDirty] = useState(() => initialAutoAdded.current);
   const [leaveModal, setLeaveModal] = useState<{ next: string } | null>(null);
 
   const selected = selectedId !== null ? blocks.find((b) => b.id === selectedId) : null;
@@ -375,9 +427,26 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
     } as NewsletterBlock;
   }
 
+  /**
+   * Bornes autorisées pour insérer un nouveau bloc : jamais avant le header
+   * (position 0) ni après le footer (position N-1). Retourne [min, max]
+   * inclusifs — max = index où on peut splice, càd juste avant le footer.
+   */
+  function insertBounds(list: NewsletterBlock[]): { min: number; max: number } {
+    let min = 0;
+    let max = list.length;
+    if (list[0]?.type === "header") min = 1;
+    if (list[list.length - 1]?.type === "footer") max = list.length - 1;
+    if (max < min) max = min;
+    return { min, max };
+  }
+
   function addBlock(type: NewsletterBlockType) {
     const newBlock = makeBlock(type);
-    const next = [...blocks, newBlock];
+    const { max } = insertBounds(blocks);
+    // Insertion juste avant le footer (ou en fin si pas de footer, cas rare).
+    const next = [...blocks];
+    next.splice(max, 0, newBlock);
     setSelectedId(newBlock.id);
     commit(next);
   }
@@ -385,13 +454,31 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
   function insertBlockAt(type: NewsletterBlockType, index: number) {
     const newBlock = makeBlock(type);
     const next = [...blocks];
-    const safe = Math.max(0, Math.min(next.length, index));
+    const { min, max } = insertBounds(next);
+    const safe = Math.max(min, Math.min(max, index));
     next.splice(safe, 0, newBlock);
     setSelectedId(newBlock.id);
     commit(next);
   }
 
   function deleteBlock(id: number | string) {
+    // Header et Footer sont obligatoires et verrouillés en position — refus
+    // de suppression. La cliente peut les personnaliser mais pas les retirer.
+    const target = blocks.find((b) => b.id === id);
+    if (target?.type === "header") {
+      toast.error(
+        "Impossible de supprimer l'en-tête",
+        "L'en-tête est obligatoire et toujours en haut du mail. Vous pouvez le personnaliser depuis les réglages du bloc.",
+      );
+      return;
+    }
+    if (target?.type === "footer") {
+      toast.error(
+        "Impossible de supprimer le pied de page",
+        "Il contient les mentions légales obligatoires ({shopName}, {shopAddress}, {unsubscribeLink}, {privacyLink}). Vous pouvez le modifier depuis les réglages du bloc.",
+      );
+      return;
+    }
     const next = blocks.filter((b) => b.id !== id);
     if (selectedId === id) setSelectedId(null);
     commit(next);
@@ -428,8 +515,19 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
   }, [blocks, productsCache]);
 
   const orderedIds = blocks.map((b) => String(b.id));
+  // Header et footer sont VERROUILLÉS en position (haut / bas) — non
+  // déplaçables, non droppables (aucun autre bloc ne peut passer avant le
+  // header ou après le footer).
+  const lockedBlockIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of blocks) {
+      if (b.type === "header" || b.type === "footer") set.add(String(b.id));
+    }
+    return set;
+  }, [blocks]);
   const drag = useDragReorder({
     orderedIds,
+    isLocked: (id) => lockedBlockIds.has(id),
     onReorder: (newOrder) => {
       const byId = new Map(blocks.map((b) => [String(b.id), b]));
       const next = newOrder.map((id) => byId.get(id)!).filter(Boolean);
@@ -449,6 +547,9 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
 
   function handlePaletteDragOver(e: React.DragEvent, blockIndex: number) {
     if (!e.dataTransfer.types.includes("application/x-newsletter-type")) return false;
+    // Refuse le survol de drop sur header + footer (positions verrouillées).
+    const target = blocks[blockIndex];
+    if (target?.type === "header" || target?.type === "footer") return false;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -459,6 +560,8 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
 
   function handlePaletteDrop(e: React.DragEvent, blockIndex: number) {
     if (!e.dataTransfer.types.includes("application/x-newsletter-type")) return false;
+    const target = blocks[blockIndex];
+    if (target?.type === "header" || target?.type === "footer") return false;
     e.preventDefault();
     const type = e.dataTransfer.getData("application/x-newsletter-type") as NewsletterBlockType;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -474,14 +577,18 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
     e.preventDefault();
     const type = e.dataTransfer.getData("application/x-newsletter-type") as NewsletterBlockType;
     setPaletteHover(null);
-    if (type) insertBlockAt(type, blocks.length);
+    if (!type) return;
+    // Insertion « en fin » = juste avant le footer (jamais après).
+    const { max } = insertBounds(blocks);
+    insertBlockAt(type, max);
   }
 
   function handlePaletteDragOverEnd(e: React.DragEvent) {
     if (!e.dataTransfer.types.includes("application/x-newsletter-type")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    setPaletteHover({ index: blocks.length, pos: "above" });
+    const { max } = insertBounds(blocks);
+    setPaletteHover({ index: max, pos: "above" });
   }
 
   return (
@@ -543,7 +650,7 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
           Mentions légales
         </span>
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary flex-1 min-w-0">
-          <span className="text-text-muted shrink-0">Obligatoires par la loi :</span>
+          <span className="text-text-muted shrink-0">Obligatoires dans le pied de page :</span>
           {[
             { token: "shopName", label: "Nom boutique" },
             { token: "shopAddress", label: "Adresse" },
@@ -560,8 +667,8 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
                     : "bg-red-100 text-red-800 border border-red-300"
                 }`}
                 title={present
-                  ? `Variable {${v.token}} présente dans le modèle`
-                  : `Variable {${v.token}} manquante — insérez-la via le bouton Variables`}
+                  ? `Variable {${v.token}} présente dans le pied de page`
+                  : `Variable {${v.token}} manquante — insérez-la dans le bloc « Pied de page »`}
               >
                 {present ? "✓" : "✗"} {v.label}
               </span>
@@ -749,10 +856,10 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
                 d'être positionnés à l'extérieur du bloc (right négatif). Les
                 coins arrondis du header/footer sont gérés par leur propre
                 overflow-hidden pour rester nets. */}
-            <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm">
-              {/* Header verrouillé — miroir de wrapMail::renderMailHeader */}
-              <LockedHeaderPreview branding={branding} shopName={shopName} baseUrl={baseUrl} subject={interpolate(subject, previewContext)} />
-
+            <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm overflow-hidden">
+              {/* overflow-hidden garde les coins arrondis nets ; la sélection
+                  de bloc utilise un `ring-inset` (à l'intérieur du bloc) et
+                  reste donc visible même sur le 1ᵉʳ et le dernier bloc. */}
               {blocks.length === 0 ? (
                 <div
                   className="p-16 text-center text-text-muted text-sm border-2 border-dashed border-slate-300 rounded-lg m-4"
@@ -791,8 +898,6 @@ export default function NewsletterEditorClient({ template, branding, shopName, b
                 </>
               )}
 
-              {/* Footer verrouillé — miroir de wrapMail::renderMailFooter */}
-              <LockedFooterPreview branding={branding} shopName={shopName} legalLine={legalLine} />
             </div>
           </div>
         </main>
@@ -950,7 +1055,7 @@ function BlockCanvas({
       onDragOver={combinedOnDragOver}
       onDragLeave={combinedOnDragLeave}
       onDrop={combinedOnDrop}
-      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator} ${isSelected ? "outline outline-2 outline-slate-900 outline-offset-2 rounded" : "hover:outline hover:outline-2 hover:outline-slate-300 hover:outline-offset-2 hover:rounded"}`}
+      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator} ${isSelected ? "ring-2 ring-inset ring-slate-900" : "hover:ring-2 hover:ring-inset hover:ring-slate-300"}`}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -960,34 +1065,63 @@ function BlockCanvas({
           centrés verticalement. Le parent (`.max-w-[600px]`) n'a plus
           d'overflow-hidden ; la zone d'aperçu réserve pr-16 pour l'espace. */}
       <div className={`absolute -right-11 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-1.5 ${isSelected ? "" : "opacity-0 group-hover:opacity-100"} transition-opacity`}>
-        <div
-          className="h-9 w-9 rounded-lg bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center shadow-md cursor-grab active:cursor-grabbing"
-          title="Glissez pour réorganiser ce bloc"
-        >
-          <svg width="14" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <circle cx="9" cy="6" r="1.8" />
-            <circle cx="9" cy="12" r="1.8" />
-            <circle cx="9" cy="18" r="1.8" />
-            <circle cx="15" cy="6" r="1.8" />
-            <circle cx="15" cy="12" r="1.8" />
-            <circle cx="15" cy="18" r="1.8" />
-          </svg>
-        </div>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="h-9 w-9 rounded-lg bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-md"
-          title="Supprimer ce bloc"
-          aria-label="Supprimer"
-          draggable={false}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <path d="M3 6h18" />
-            <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-            <path d="M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" />
-            <path d="M10 11v6M14 11v6" />
-          </svg>
-        </button>
+        {block.type === "header" || block.type === "footer" ? (
+          <div
+            className="h-9 w-9 rounded-lg bg-slate-300 text-white flex items-center justify-center shadow-md cursor-not-allowed opacity-70"
+            title={block.type === "header"
+              ? "En-tête verrouillé — toujours en haut, non déplaçable"
+              : "Pied de page verrouillé — toujours en bas, non déplaçable"}
+          >
+            <svg width="14" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 018 0v4" />
+            </svg>
+          </div>
+        ) : (
+          <div
+            className="h-9 w-9 rounded-lg bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center shadow-md cursor-grab active:cursor-grabbing"
+            title="Glissez pour réorganiser ce bloc"
+          >
+            <svg width="14" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="9" cy="6" r="1.8" />
+              <circle cx="9" cy="12" r="1.8" />
+              <circle cx="9" cy="18" r="1.8" />
+              <circle cx="15" cy="6" r="1.8" />
+              <circle cx="15" cy="12" r="1.8" />
+              <circle cx="15" cy="18" r="1.8" />
+            </svg>
+          </div>
+        )}
+        {block.type === "header" || block.type === "footer" ? (
+          <div
+            className="h-9 w-9 rounded-lg bg-slate-300 text-white flex items-center justify-center shadow-md cursor-not-allowed opacity-70"
+            title={block.type === "header"
+              ? "L'en-tête est obligatoire — il ne peut pas être supprimé."
+              : "Le pied de page est obligatoire — il ne peut pas être supprimé."}
+            aria-label="Suppression verrouillée"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 018 0v4" />
+            </svg>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="h-9 w-9 rounded-lg bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-md"
+            title="Supprimer ce bloc"
+            aria-label="Supprimer"
+            draggable={false}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+              <path d="M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" />
+              <path d="M10 11v6M14 11v6" />
+            </svg>
+          </button>
+        )}
       </div>
       <BlockRender block={block} productsCache={productsCache} previewContext={previewContext} />
     </div>
@@ -1037,6 +1171,34 @@ function BlockRender({
             <div style={{ ...s, height: h || 140, background: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>
               Choisis une image dans les réglages
             </div>
+          )}
+        </div>
+      );
+    }
+    case "header": {
+      const hBg = block.data.bg || "#0f172a";
+      const color = block.data.textColor || "#ffffff";
+      const align = (block.data.align || "center") as React.CSSProperties["textAlign"];
+      const logoMax = Math.max(20, Math.min(160, block.data.logoMaxHeight || 60));
+      const hasTitle = (block.data.title || "").trim().length > 0;
+      const hasSubtitle = (block.data.subtitle || "").trim().length > 0;
+      const hasLogo = !!block.data.logo;
+      const isEmpty = !hasLogo && !hasTitle && !hasSubtitle;
+      return (
+        <div style={{ ...s, background: hBg, padding: "36px 24px", textAlign: align, color }}>
+          {hasLogo && (
+            <div style={{ marginBottom: 14 }}>
+              <img src={block.data.logo} alt="" draggable={false} style={{ maxHeight: logoMax, display: "inline-block", border: 0 }} />
+            </div>
+          )}
+          {hasTitle && (
+            <h1 style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 22, fontWeight: 700, margin: 0, color, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</h1>
+          )}
+          {hasSubtitle && (
+            <div style={{ fontSize: block.data.subtitleSize || 13, marginTop: hasTitle ? 8 : 0, color, opacity: 0.85, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
+          )}
+          {isEmpty && (
+            <div style={{ color, opacity: 0.55, fontSize: 12 }}>En-tête vide — renseigne logo, titre ou sous-titre dans les réglages.</div>
           )}
         </div>
       );
@@ -1161,8 +1323,20 @@ function BlockRender({
     }
     case "divider":
       return <hr style={{ ...s, border: "none", borderTop: "1px solid #e2e8f0", margin: "12px 20px" }} />;
-    case "footer":
-      return null;
+    case "footer": {
+      const fBg = block.data.bg || "#f8fafc";
+      const color = block.data.color || "#64748b";
+      const align = (block.data.align || "center") as React.CSSProperties["textAlign"];
+      const fontSize = Math.max(9, Math.min(20, block.data.fontSize || 12));
+      const content = (block.data.content || "").trim();
+      return (
+        <div style={{ ...s, background: fBg, color, padding: "20px 24px", textAlign: align, fontSize, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowWrap: "break-word" }}>
+          {content ? tBr(block.data.content) : (
+            <span style={{ opacity: 0.55 }}>Pied de page vide — insère les mentions légales dans les réglages.</span>
+          )}
+        </div>
+      );
+    }
     case "cartItems": {
       // Aperçu illustratif : 2 lignes factices + total. En vrai envoi, le
       // contenu vient du panier du client.
@@ -1501,7 +1675,94 @@ function BlockSettings({
     case "divider":
       return <div className="text-[12px] text-text-muted p-3 bg-bg-secondary rounded-lg">Ligne fine décorative — pas de réglage.</div>;
     case "footer":
-      return null;
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-red-50 border border-red-200 rounded-lg p-3">
+            🔒 Pied de page <strong>obligatoire</strong>. Il DOIT contenir les 4 variables suivantes (elles seront remplacées à l&apos;envoi par les vraies infos) :
+            <div className="mt-2 flex flex-wrap gap-1">
+              <code className="bg-white px-1.5 py-0.5 rounded border">{"{shopName}"}</code>
+              <code className="bg-white px-1.5 py-0.5 rounded border">{"{shopAddress}"}</code>
+              <code className="bg-white px-1.5 py-0.5 rounded border">{"{unsubscribeLink}"}</code>
+              <code className="bg-white px-1.5 py-0.5 rounded border">{"{privacyLink}"}</code>
+            </div>
+          </div>
+          <Field label="Contenu (texte multi-ligne)">
+            <textarea
+              rows={6}
+              className="prop-input"
+              value={block.data.content || ""}
+              onChange={(e) => onUpdate("content", e.target.value)}
+              placeholder="{shopName} · {shopAddress}\nSe désinscrire : {unsubscribeLink}\nPolitique de confidentialité : {privacyLink}"
+              {...fieldProps(block.data.content || "", "content")}
+            />
+          </Field>
+          <Field label="Alignement">
+            <CustomSelect
+              value={block.data.align || "center"}
+              onChange={(v) => onUpdate("align", v)}
+              options={[
+                { value: "left", label: "← Gauche" },
+                { value: "center", label: "↔ Centre" },
+                { value: "right", label: "Droite →" },
+              ]}
+              size="sm"
+            />
+          </Field>
+          <SizeField label="Taille du texte" value={block.data.fontSize} onChange={(v) => onUpdate("fontSize", v)} defaultSize={12} min={9} max={20} />
+          <Field label="Couleur du texte">
+            <ColorPicker value={block.data.color || "#64748b"} onChange={(c) => onUpdate("color", c)} />
+          </Field>
+          <Field label="Fond du bloc">
+            <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
+          </Field>
+        </div>
+      );
+    case "header":
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-slate-50 border border-slate-200 rounded-lg p-3">
+            🔒 En-tête <strong>obligatoire</strong>, toujours en haut du mail (non déplaçable, non supprimable). Logo, titre et sous-titre restent facultatifs individuellement.
+          </div>
+          <FieldGroup title="Logo">
+            <Field label="Image du logo">
+              <ImageInput value={block.data.logo || ""} onChange={(v) => onUpdate("logo", v)} />
+            </Field>
+            <SizeField label="Hauteur max du logo" value={block.data.logoMaxHeight} onChange={(v) => onUpdate("logoMaxHeight", v)} defaultSize={60} min={20} max={160} />
+          </FieldGroup>
+          <FieldGroup title="Titre (facultatif)">
+            <Field label="Texte">
+              <WrappingTextInput value={block.data.title || ""} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title || "", "title")} />
+            </Field>
+            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={22} min={14} max={40} />
+          </FieldGroup>
+          <FieldGroup title="Sous-titre (facultatif)">
+            <Field label="Texte">
+              <WrappingTextInput value={block.data.subtitle || ""} onChange={(v) => onUpdate("subtitle", v)} {...fieldProps(block.data.subtitle || "", "subtitle")} />
+            </Field>
+            <SizeField label="Taille" value={block.data.subtitleSize} onChange={(v) => onUpdate("subtitleSize", v)} defaultSize={13} />
+          </FieldGroup>
+          <FieldGroup title="Général">
+            <Field label="Alignement">
+              <CustomSelect
+                value={block.data.align || "center"}
+                onChange={(v) => onUpdate("align", v)}
+                options={[
+                  { value: "left", label: "← Gauche" },
+                  { value: "center", label: "↔ Centre" },
+                  { value: "right", label: "Droite →" },
+                ]}
+                size="sm"
+              />
+            </Field>
+            <Field label="Couleur des textes">
+              <ColorPicker value={block.data.textColor || "#ffffff"} onChange={(c) => onUpdate("textColor", c)} />
+            </Field>
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
+            </Field>
+          </FieldGroup>
+        </div>
+      );
     case "cartItems":
       return (
         <div className="space-y-3">
@@ -2018,160 +2279,10 @@ function ProductsPicker({ value, onChange }: { value: string[]; onChange: (ids: 
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Header/Footer verrouillés (aperçu miroir de wrapMail)
-   ───────────────────────────────────────────────────────────────────────────── */
-
-/** Petit badge « verrouillé » + lien vers Paramètres > Habillage des mails. */
-function LockedBadge() {
-  return (
-    <div className="absolute top-2 left-2 z-10 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-900/85 text-white text-[10px] font-body font-bold shadow-lg backdrop-blur-sm">
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="11" width="18" height="11" rx="2"/>
-        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-      </svg>
-      Partagé
-      <a
-        href="/admin/parametres?open=habillage-mails"
-        target="_blank"
-        rel="noreferrer"
-        className="ml-1 underline decoration-white/60 hover:decoration-white"
-      >
-        Modifier
-      </a>
-    </div>
-  );
-}
-
-function LockedHeaderPreview({
-  branding,
-  shopName,
-  baseUrl,
-  subject,
-}: {
-  branding: MailBranding;
-  shopName: string;
-  baseUrl: string;
-  subject: string;
-}) {
-  const header = branding.header;
-  const bg = resolveHeaderBackground(header);
-  const logoSrc = header.logoUrl
-    ? header.logoUrl.startsWith("http")
-      ? header.logoUrl
-      : `${baseUrl}${header.logoUrl.startsWith("/") ? "" : "/"}${header.logoUrl}`
-    : null;
-
-  return (
-    <div className="relative select-none rounded-t-lg overflow-hidden" title="En-tête partagé — se modifie dans Paramètres > Habillage des mails">
-      <LockedBadge />
-      <div
-        style={{
-          background: bg,
-          padding: "36px 24px",
-          color: header.textColor,
-          textAlign: "center",
-        }}
-      >
-        {logoSrc ? (
-          <div style={{ marginBottom: 14 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={logoSrc}
-              alt={shopName}
-              style={{ maxHeight: header.logoMaxHeight, display: "inline-block", border: 0 }}
-            />
-          </div>
-        ) : header.showShopName ? (
-          <div
-            style={{
-              fontSize: 11,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              opacity: 0.85,
-              marginBottom: 8,
-              color: header.textColor,
-            }}
-          >
-            {shopName}
-          </div>
-        ) : null}
-        <h1
-          style={{
-            fontFamily: "Poppins, sans-serif",
-            fontSize: 24,
-            fontWeight: 700,
-            margin: 0,
-            color: header.textColor,
-          }}
-        >
-          {subject}
-        </h1>
-      </div>
-    </div>
-  );
-}
-
-function LockedFooterPreview({
-  branding,
-  shopName,
-  legalLine,
-}: {
-  branding: MailBranding;
-  shopName: string;
-  legalLine: string;
-}) {
-  const footer = branding.footer;
-  const message =
-    footer.customMessage?.trim() || `Vous recevez ce mail car vous êtes client ${shopName}.`;
-  const social: React.ReactNode[] = [];
-  if (footer.instagramUrl?.trim()) social.push(
-    <span key="ig" style={{ display: "inline-block", margin: "0 6px" }}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={footer.textColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
-        <rect x="2" y="2" width="20" height="20" rx="5"/>
-        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
-      </svg>
-    </span>,
-  );
-  if (footer.facebookUrl?.trim()) social.push(
-    <span key="fb" style={{ display: "inline-block", margin: "0 6px" }}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={footer.textColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
-        <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
-      </svg>
-    </span>,
-  );
-
-  return (
-    <div className="relative select-none rounded-b-lg overflow-hidden" title="Pied de page partagé — se modifie dans Paramètres > Habillage des mails">
-      <LockedBadge />
-      <div
-        style={{
-          background: footer.bg,
-          color: footer.textColor,
-          padding: 24,
-          textAlign: "center",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: "Poppins, sans-serif",
-            fontSize: 18,
-            fontWeight: 700,
-            letterSpacing: "0.02em",
-            marginBottom: 6,
-            color: footer.textColor,
-          }}
-        >
-          {shopName}
-        </div>
-        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 12, color: footer.textColor }}>{legalLine}</div>
-        {social.length > 0 && <div style={{ margin: "12px 0" }}>{social}</div>}
-        <div style={{ fontSize: 10, opacity: 0.4, color: footer.textColor }}>{message}</div>
-      </div>
-    </div>
-  );
-}
+// Historique : LockedBadge / LockedHeaderPreview / LockedFooterPreview retirés
+// le 2026-09-09. Le header et le pied de page sont maintenant composés via
+// des blocs éditables (types "header" et "footer"). Plus d'habillage global
+// partagé — l'écran « Paramètres > Habillage des mails » a été supprimé.
 
 /**
  * Rendu d'un item de la palette (utilisé dans les 2 accordéons obligatoires /

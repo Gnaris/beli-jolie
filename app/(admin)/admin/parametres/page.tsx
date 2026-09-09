@@ -41,7 +41,6 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
-import MailBrandingSection from "@/components/admin/settings/MailBrandingSection";
 import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
 import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
@@ -49,7 +48,6 @@ import PersonalEmailCard from "@/components/admin/settings/PersonalEmailCard";
 import AdminThemeToggle from "@/components/admin/settings/AdminThemeToggle";
 import { getMailForwardStatus, getSmtpPublicConfig } from "@/app/actions/admin/mail-notify";
 import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
-import { readMailBrandingForTenant } from "@/lib/mail-branding";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { cookies } from "next/headers";
@@ -110,7 +108,6 @@ export default async function ParametresPage({
     buildMarketplacesTile(),
     buildContenuTile(),
     buildMessagerieTile(),
-    buildHabillageMailsTile(),
     buildTraductionTile(),
     buildCompteTile(),
     buildMaintenanceTile(),
@@ -952,59 +949,6 @@ async function buildMessagerieTile(): Promise<DashboardTile> {
           <MailboxPasswordResetCard persoEmail={verifiedEmail} mailboxUser={smtpPublic.user || null} />
         </SettingCard>
       </CardsStack>
-    ),
-  };
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   TUILE — Habillage des mails
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function buildHabillageMailsTile(): Promise<DashboardTile> {
-  const tenant = await requireCurrentTenant();
-  const [branding, shopName, baseUrl, companyInfo] = await Promise.all([
-    readMailBrandingForTenant(tenant.id),
-    getCachedShopName(),
-    getCurrentTenantBaseUrl(),
-    prisma.companyInfo.findFirst({
-      where: { tenantId: tenant.id },
-      select: { shopName: true, name: true, address: true, postalCode: true, city: true },
-    }),
-  ]);
-  const legalDisplayName = companyInfo?.shopName?.trim() || companyInfo?.name?.trim() || shopName;
-  const legalAddress = companyInfo
-    ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
-        .filter(Boolean)
-        .join(", ")
-    : "";
-  const legalLine = [legalDisplayName, legalAddress].filter(Boolean).join(" · ");
-
-  const configured =
-    branding.header.bgType !== "gradient" ||
-    branding.header.bgGradient !== "linear-gradient(135deg,#0f172a,#334155)" ||
-    branding.header.logoUrl !== null ||
-    branding.footer.bg !== "#0f172a" ||
-    branding.footer.customMessage !== null ||
-    branding.footer.instagramUrl !== null ||
-    branding.footer.facebookUrl !== null;
-
-  const status: TileStatus = configured
-    ? { tone: "ok", label: "Personnalisé" }
-    : { tone: "off", label: "Par défaut" };
-
-  return {
-    key: "habillage-mails",
-    status,
-    modalSize: "full",
-    summary: configured
-      ? "Vos couleurs / logo sont appliqués aux mails marketing"
-      : "Habillage par défaut — cliquez pour personnaliser",
-    content: (
-      <MailBrandingSection
-        initial={branding}
-        shopName={shopName}
-        legalLine={legalLine}
-        baseUrl={baseUrl}
-      />
     ),
   };
 }
