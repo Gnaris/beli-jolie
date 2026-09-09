@@ -2,7 +2,7 @@
 
 /**
  * Bouton « Journal » affiché dans la colonne Action de la Vue Mails
- * (/admin/utilisateurs?view=mails), à côté de « Envoyer un mail ».
+ * (/admin/clients?view=mails), à côté de « Envoyer un mail ».
  * Ouvre <EmailJournalModal> qui liste tous les emails envoyés à ce client.
  */
 

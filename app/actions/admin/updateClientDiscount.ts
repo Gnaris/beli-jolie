@@ -117,6 +117,6 @@ export async function updateClientDiscount(
     },
   });
 
-  revalidatePath(`/admin/utilisateurs/${userId}`);
+  revalidatePath(`/admin/clients/${userId}`);
   return { success: true };
 }

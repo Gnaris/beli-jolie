@@ -14,10 +14,7 @@ import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
 import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 import SendMailButton from "@/components/admin/users/SendMailButton";
 import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
-import UsersViewToggle from "@/components/admin/users/UsersViewToggle";
-import { MailSelectionProvider } from "@/components/admin/users/MailSelectionContext";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
-import NewsletterBulkBar from "@/components/admin/users/NewsletterBulkBar";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
@@ -178,13 +175,24 @@ export default async function UtilisateursPage({
 
   const params = await searchParams;
   const currentTab: "inscrits" | "fiches" = params.tab === "fiches" ? "fiches" : "inscrits";
-  const filterStatus = params.status || "ALL";
+  // Ne garder que les valeurs UserStatus valides — un param `status`
+  // hérité d'une autre page (ex. filtres marketing `HAS_PENDING_CART`)
+  // doit être traité comme « ALL » sinon Prisma refuse le cast.
+  const VALID_STATUS_FILTERS = new Set(["ALL", "PENDING", "APPROVED", "REJECTED"]);
+  const filterStatus = VALID_STATUS_FILTERS.has(params.status ?? "")
+    ? (params.status as string)
+    : "ALL";
   const perPage = parsePerPage(params.per);
   const page = parsePage(params.page);
   const sort = parseClientSort(params.sort);
   const dir = parseSortDir(params.dir, sort);
   const registeredSearch = (params.q ?? "").trim();
-  const view: "infos" | "mails" = params.view === "mails" ? "mails" : "infos";
+  // Page clients : uniquement la vue « Infos ». La vue « Mails » vit
+  // désormais sur /admin/marketing (page dédiée dans la sidebar). L'annotation
+  // large `as ...` garde les blocs de rendu de secours pour le jour où on
+  // remettra la vue mails ici — sinon TypeScript narrow à la valeur littérale
+  // et refuse toute comparaison `view === "mails"` en aval.
+  const view = "infos" as "infos" | "mails";
 
   const onlineThreshold = getOnlineThreshold();
 
@@ -335,7 +343,7 @@ export default async function UtilisateursPage({
       <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} />
 
       {currentTab === "inscrits" ? (
-        <MailSelectionProvider>
+        <>
           <RegisteredPane
             clients={registeredData.clients}
             stats={registeredData.stats}
@@ -351,8 +359,7 @@ export default async function UtilisateursPage({
             mails={mailsData}
             carts={cartsData}
           />
-          {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
-        </MailSelectionProvider>
+        </>
       ) : (
         cardsData && (
           <AdminCardsPane
@@ -591,7 +598,7 @@ function buildListHref(opts: {
   }
   if (opts.view === "mails") params.set("view", "mails");
   const qs = params.toString();
-  return qs ? `/admin/utilisateurs?${qs}` : "/admin/utilisateurs";
+  return qs ? `/admin/clients?${qs}` : "/admin/clients";
 }
 
 /** En-tête de colonne cliquable : re-trie sur ce critère, ou inverse le sens. */
@@ -884,24 +891,12 @@ function RegisteredPane({
   carts: Map<string, CartSummary>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
-  const infosHref = buildListHref({ status: filterStatus, perPage, sort, dir, view: "infos" });
-  const mailsHref = buildListHref({ status: filterStatus, perPage, sort, dir, view: "mails" });
 
   return (
     <>
-      {/* Toggle vue + accès modèles + barre de recherche */}
+      {/* Barre de recherche */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-          <UsersViewToggle view={view} infosHref={infosHref} mailsHref={mailsHref} />
-          {view === "mails" && (
-            <Link
-              href="/admin/utilisateurs/newsletters"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 h-10 sm:h-8 rounded-lg text-xs font-body font-semibold text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100 transition-colors"
-            >
-              📢 Gérer mes modèles de newsletter
-            </Link>
-          )}
-        </div>
+        <div className="hidden sm:block" />
         <UsersSearchBar initialValue={search} />
       </div>
 
@@ -972,7 +967,7 @@ function RegisteredPane({
                 : `Aucun client avec le statut « ${FILTERS.find(f => f.value === filterStatus)?.label ?? ""} » pour l'instant.`}
           </p>
           {(search || filterStatus !== "ALL") && (
-            <Link href="/admin/utilisateurs" className="btn-ghost mt-6 inline-flex">
+            <Link href="/admin/clients" className="btn-ghost mt-6 inline-flex">
               ← Voir tous les clients
             </Link>
           )}
@@ -1150,14 +1145,14 @@ function RegisteredPane({
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
                           {isPending ? (
                             <Link
-                              href={`/admin/utilisateurs/${c.id}`}
+                              href={`/admin/clients/${c.id}`}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
                             >
                               Examiner
                             </Link>
                           ) : (
                             <Link
-                              href={`/admin/utilisateurs/${c.id}`}
+                              href={`/admin/clients/${c.id}`}
                               className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
                             >
                               Voir
@@ -1189,7 +1184,7 @@ function RegisteredPane({
               return (
                 <Link
                   key={c.id}
-                  href={`/admin/utilisateurs/${c.id}`}
+                  href={`/admin/clients/${c.id}`}
                   className={`block rounded-2xl border p-4 shadow-sm transition-colors ${
                     isPending
                       ? "border-amber-200 bg-gradient-to-br from-amber-50 to-bg-primary"

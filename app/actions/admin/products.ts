@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { recalculateAllRulesForProduct } from "@/lib/collection-rules";
 import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
@@ -802,6 +803,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
   if (effectiveStatus === "ONLINE") {
     emitProductEvent({ type: "PRODUCT_ONLINE", productId: product.id });
   }
+
+  // Recalcule l'appartenance de ce produit aux collections avec règles auto.
+  // Ne throw jamais (encapsule ses erreurs) — un échec ne doit pas casser la
+  // création du produit.
+  await recalculateAllRulesForProduct(product.id);
 
   // Marketplace publishing (PFS) is triggered from the save dialog, not here.
 
@@ -1752,6 +1758,12 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // vers cette autre. Mode immédiat car c'est une seule action explicite
   // (pas de rafale à fusionner comme sur updateVariantQuick).
   await rotatePrimaryIfNeeded(id, { immediate: true });
+
+  // Recalcule l'appartenance de ce produit aux collections avec règles auto.
+  // Un changement de saison / catégorie / tag / composition peut le faire entrer
+  // dans certaines collections et sortir d'autres. Idem si le statut passe à
+  // ONLINE (il devient candidat) ou en sort (les lignes AUTO sont retirées).
+  await recalculateAllRulesForProduct(id);
 
   // Return variant DB IDs in the same order as input.colors
   // so the client can update its local state without a page reload.

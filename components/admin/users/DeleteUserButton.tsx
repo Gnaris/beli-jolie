@@ -25,7 +25,7 @@ export default function DeleteUserButton({ userId, userName }: { userId: string;
           return;
         }
         toast.success("Client supprimé");
-        router.push("/admin/utilisateurs");
+        router.push("/admin/clients");
         router.refresh();
       } finally {
         hideLoading();

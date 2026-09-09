@@ -70,6 +70,13 @@ model User {
   // Consentement RGPD : englobe newsletter + relances panier abandonné (case
   // unique à l'inscription, cf. docs multi-tenant / mémoire projet).
   acceptsNewsletter             Boolean             @default(false)
+  // Opt-out spécifique aux relances panier abandonné (case dans /espace-pro
+  // + lien 1-clic dans le mail via abandonedCartOptOutToken). Prime sur
+  // acceptsNewsletter : posé à true → aucun job créé + tous les jobs pending
+  // annulés. Case séparée pour ne pas désinscrire de toutes les newsletters
+  // quand le client veut juste couper les relances panier.
+  abandonedCartOptOut           Boolean             @default(false)
+  abandonedCartOptOutToken      String?             @unique // token 1-clic (nullable = lazy, généré au 1er envoi)
   role                          Role                @default(CLIENT)
   status                        UserStatus          @default(PENDING)
   // Remise commerciale
@@ -115,6 +122,7 @@ model User {
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
   microstoreOrders           MicrostoreOrder[]
   emailSends                 EmailSend[]
+  abandonedCartJob           AbandonedCartJob?
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -1406,6 +1414,7 @@ model Product {
   colorImages                 ProductColorImage[]
   compositions                ProductComposition[]
   collections                 CollectionProduct[]
+  collectionExclusions        CollectionExclusion[]
   favorites                   Favorite[]
   tags                        ProductTag[]
   translations                ProductTranslation[]
@@ -2558,6 +2567,8 @@ model Collection {
   products     CollectionProduct[]
   translations CollectionTranslation[]
   promotions   PromotionCollection[]
+  rule         CollectionRule?
+  exclusions   CollectionExclusion[]
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
@@ -2566,6 +2577,55 @@ model Collection {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
+}
+
+// Marqueur origine d'un produit dans une collection.
+// AUTO   = ajouté par une règle, ressort si le produit ne matche plus.
+// MANUAL = ajouté ou épinglé à la main, reste tant qu'on ne le retire pas.
+enum CollectionProductSource {
+  AUTO
+  MANUAL
+}
+
+// Règle de peuplement automatique d'une collection. 1 collection → 0 ou 1 règle.
+// Toutes les conditions sont combinées en ET. À l'intérieur d'un champ multi-valeurs
+// (categoryIds, subCategoryIds, tagIds), le OU est implicite.
+// `compositions` = tableau [{ compositionId, minPercent? }] tous ET'és.
+model CollectionRule {
+  id                 String     @id @default(cuid())
+  collectionId       String     @unique
+  collection         Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  seasonId           String?
+  categoryIds        Json? // string[]
+  subCategoryIds     Json? // string[]
+  tagIds             Json? // string[]
+  compositions       Json? // Array<{ compositionId: string; minPercent?: number }>
+  lastRecalculatedAt DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+// Exclusion manuelle : un produit qui matche la règle mais qu'on ne veut PAS dans la collection.
+model CollectionExclusion {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  excludedAt   DateTime   @default(now())
+  excludedById String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@unique([collectionId, productId])
+  @@index([tenantId])
+  @@index([productId])
 }
 
 model CollectionTranslation {
@@ -2586,15 +2646,17 @@ model CollectionTranslation {
 
 // Liaison produit ↔ collection avec couleur et ordre d'affichage
 model CollectionProduct {
-  id           String        @id @default(cuid())
-  collectionId String
-  collection   Collection    @relation(fields: [collectionId], references: [id], onDelete: Cascade)
-  productId    String
-  product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  colorId      String? // Couleur à afficher dans cette collection (null = couleur primaire)
-  productColor ProductColor? @relation(fields: [colorId], references: [id])
-  position     Int           @default(0)
-  createdAt    DateTime      @default(now())
+  id            String                  @id @default(cuid())
+  collectionId  String
+  collection    Collection              @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorId       String? // Couleur à afficher dans cette collection (null = couleur primaire)
+  productColor  ProductColor?           @relation(fields: [colorId], references: [id])
+  position      Int                     @default(0)
+  source        CollectionProductSource @default(MANUAL)
+  addedByRuleAt DateTime? // horodatage entrée automatique par la règle
+  createdAt     DateTime                @default(now())
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -3416,6 +3478,8 @@ model Tenant {
   collections                Collection[]
   collectionTranslations     CollectionTranslation[]
   collectionProducts         CollectionProduct[]
+  collectionRules            CollectionRule[]
+  collectionExclusions       CollectionExclusion[]
   promotions                 Promotion[]
   promotionCategorys         PromotionCategory[]
   promotionCollections       PromotionCollection[]
@@ -3484,6 +3548,8 @@ model Tenant {
 
   emailSends          EmailSend[]
   newsletterTemplates NewsletterTemplate[]
+  abandonedCartStages AbandonedCartStage[]
+  abandonedCartJobs   AbandonedCartJob[]
 
   @@index([isActive])
 }
@@ -3548,13 +3614,90 @@ model NewsletterTemplate {
   // Si posé, ce modèle est le modèle actif d'un scénario transactionnel
   // (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK). Un seul modèle par scénario
   // par tenant. Non supprimable tant que ce champ est posé.
+  // Note panier abandonné : seul le Stage 1 porte scenarioKey="ABANDONED_CART".
+  // Les Stages 2+ ont scenarioKey=null mais sont protégés via FK
+  // AbandonedCartStage.templateId (voir relation `abandonedCartStage`).
   scenarioKey String?   @db.VarChar(40)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   lastSentAt  DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
 
+  abandonedCartStage AbandonedCartStage?
+
   @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
+}
+
+// ─────────────────────────────────────────────
+// Stades de relance panier abandonné.
+// La cliente configure N stades (1, 2, 3…). Chaque stade a un délai (en
+// secondes depuis la dernière mutation panier) et un template mail dédié.
+// Contraintes applicatives (server actions) : délais strictement croissants,
+// stageIndex commence à 1 sans trou, chaque template contient {unsubscribeLink}
+// dans son contenu (footer désinscription obligatoire pour l'envoi).
+// Suppression d'un stade → cascade delete du template lié (`onDelete: Cascade`
+// côté templateId) pour rester propre : l'utilisatrice l'a validé le
+// 2026-09-09 (« Supprime avec pour être plus propre »).
+// ─────────────────────────────────────────────
+model AbandonedCartStage {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
+  delaySeconds Int // délai depuis la dernière mutation panier avant envoi
+  templateId   String   @unique
+  template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, stageIndex])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Job actif de relance panier pour un client.
+// Un unique job par (tenant, user) : upsert à chaque mutation panier
+// (add/remove/qty/size/color). Reset le timer du prochain stade non-envoyé,
+// n'efface JAMAIS `stagesFired` (règle validée : un stade envoyé ne se
+// rejoue pas, même si le client vide/remplit le panier).
+// Passé à CANCELLED sur commande créée, panier vidé, opt-out, ou stade max
+// atteint. Worker `abandoned-cart-worker.ts` poll toutes les 10s :
+// SELECT WHERE status="PENDING" AND nextStageAt <= now().
+// ─────────────────────────────────────────────
+model AbandonedCartJob {
+  id     String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Dernier stade envoyé avec succès (0 = aucun envoi encore).
+  // La règle « ne jamais rejouer un stade déjà envoyé » repose sur ce champ.
+  currentStage    Int      @default(0)
+  // Historique JSON : [{stageIndex, sentAt, emailSendId}].
+  stagesFired     Json     @default("[]")
+  // Date planifiée du prochain envoi. null si :
+  //  - status != "PENDING", OU
+  //  - tous les stades disponibles ont été envoyés (jusqu'à ce que la
+  //    cliente ajoute un stade supérieur → recalcul via upsert au prochain
+  //    mouvement panier).
+  nextStageAt     DateTime?
+  status          String   @default("PENDING") @db.VarChar(20)
+  // PENDING | COMPLETED (tous stades envoyés) | CANCELLED (commande / opt-out / panier vidé)
+
+  // Dernière mutation panier détectée : sert de point de référence pour
+  // recalculer `nextStageAt` = lastCartUpdateAt + stage.delaySeconds.
+  lastCartUpdateAt DateTime
+  // Dernière évaluation par le worker (debug).
+  lastEvaluatedAt  DateTime?
+  // Cause de dernier CANCELLED / COMPLETED (debug côté admin).
+  cancelReason     String?  @db.VarChar(50)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status, nextStageAt])
+  @@index([tenantId, userId])
 }
 
 // ─────────────────────────────────────────────

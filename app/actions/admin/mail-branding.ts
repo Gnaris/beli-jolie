@@ -96,7 +96,7 @@ export async function updateMailHeaderConfig(
     await setSiteConfig("mail_header_config", JSON.stringify(merged));
     revalidateTag("mail-branding", "default");
     revalidatePath("/admin/parametres");
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (e) {
     logger.error("[updateMailHeaderConfig]", { error: e as Error });
@@ -131,7 +131,7 @@ export async function updateMailFooterConfig(
     await setSiteConfig("mail_footer_config", JSON.stringify(merged));
     revalidateTag("mail-branding", "default");
     revalidatePath("/admin/parametres");
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (e) {
     logger.error("[updateMailFooterConfig]", { error: e as Error });
@@ -156,7 +156,7 @@ export async function resetMailBranding(): Promise<{ success: true } | { success
     ]);
     revalidateTag("mail-branding", "default");
     revalidatePath("/admin/parametres");
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (e) {
     logger.error("[resetMailBranding]", { error: e as Error });

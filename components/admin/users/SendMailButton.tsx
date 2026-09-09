@@ -2,7 +2,7 @@
 
 /**
  * Bouton « Envoyer un mail » affiché dans la colonne Action de la Vue Mails
- * (/admin/utilisateurs?view=mails). Ouvre <SendMailModal>.
+ * (/admin/clients?view=mails). Ouvre <SendMailModal>.
  *
  * Bloqué (grisé + tooltip) si le client n'a pas accepté la newsletter — la
  * case unique couvre newsletter + relances panier + retour en stock (RGPD).

@@ -74,6 +74,8 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "Collection",
   "CollectionTranslation",
   "CollectionProduct",
+  "CollectionRule",
+  "CollectionExclusion",
   "Promotion",
   "PromotionCategory",
   "PromotionCollection",

@@ -9,6 +9,7 @@ import { getAvailableCredit } from "@/lib/credits";
 import { buildProductHandle } from "@/lib/product-url";
 import AccountEditor from "@/components/client/AccountEditor";
 import NewsletterToggle from "@/components/client/NewsletterToggle";
+import AbandonedCartOptOutToggle from "@/components/client/AbandonedCartOptOutToggle";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations, getLocale } from "next-intl/server";
 
@@ -775,6 +776,9 @@ export default async function DashboardPage() {
 
           {/* -- Préférences newsletter (opt-in / opt-out en 1 clic) -- */}
           <NewsletterToggle acceptsNewsletter={user.acceptsNewsletter} />
+
+          {/* -- Préférences relances panier abandonné -- */}
+          <AbandonedCartOptOutToggle optOut={user.abandonedCartOptOut} />
         </div>
 
         {/* -- Colonne droite : Historique des produits commandes -- */}

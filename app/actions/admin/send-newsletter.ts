@@ -262,8 +262,8 @@ export async function sendNewsletterToUsers({
       });
     }
 
-    revalidatePath("/admin/utilisateurs");
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/clients");
+    revalidatePath("/admin/marketing/mails");
 
     return {
       success: true,

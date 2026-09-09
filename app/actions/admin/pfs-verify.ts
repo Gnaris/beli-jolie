@@ -41,6 +41,9 @@ export interface PfsVerifyOutcome {
    *  immédiatement sans attendre un refresh de la liste des produits. */
   issues?: PfsVerifyIssue[];
   checkedAt?: string;
+  /** Renseigné quand l'audit s'est fait en mode partiel (comparaison
+   *  variantes uniquement). Cf. `PfsVerifyResult.partialAuditReason`. */
+  partialAuditReason?: string;
   error?: { kind: PfsVerifyError["kind"]; message: string };
 }
 
@@ -101,6 +104,9 @@ export async function verifyPfsProducts(
                 issueCount: res.result.issueCount,
                 issues: res.result.issues,
                 checkedAt: res.result.checkedAt,
+                ...(res.result.partialAuditReason
+                  ? { partialAuditReason: res.result.partialAuditReason }
+                  : {}),
               });
             } else {
               outcomes.push({

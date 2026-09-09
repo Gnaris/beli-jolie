@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Modale « Envoyer un mail » — affichée depuis la Vue Mails de /admin/utilisateurs.
+ * Modale « Envoyer un mail » — affichée depuis la Vue Mails de /admin/clients.
  *
  * Layout :
  *  ┌─────────────────────────────────────────────────────┐
@@ -290,7 +290,7 @@ function NewsletterPicker({
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12.5px] text-amber-800">
         Aucun modèle de newsletter enregistré.{" "}
-        <a href="/admin/utilisateurs/newsletters" className="underline font-semibold">
+        <a href="/admin/marketing/mails" className="underline font-semibold">
           Créer un modèle →
         </a>
       </div>
@@ -312,7 +312,7 @@ function NewsletterPicker({
         </div>
       )}
       <a
-        href="/admin/utilisateurs/newsletters"
+        href="/admin/marketing/mails"
         target="_blank"
         rel="noreferrer"
         className="inline-block text-[11px] text-violet-700 font-semibold hover:underline"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "@/components/ui/SmartImage";
 import {
@@ -14,6 +14,9 @@ import TranslateButton from "@/components/admin/TranslateButton";
 import { VALID_LOCALES, LOCALE_FULL_NAMES, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import ProductPickerModal, { type PickerProduct, type PickerFilterOptions } from "@/components/admin/catalogues/ProductPickerModal";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { pinCollectionProduct, unpinCollectionProduct } from "@/app/actions/admin/collections";
+import CollectionRuleEditor from "@/components/admin/collections/CollectionRuleEditor";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +44,27 @@ interface CollectionProductRow {
   productId: string;
   colorId: string | null;
   position: number;
+  source?: "AUTO" | "MANUAL";
   product: ProductSnap;
+}
+
+interface RuleData {
+  seasons: { id: string; name: string }[];
+  tags: { id: string; name: string }[];
+  initialRule: {
+    seasonId: string | null;
+    categoryIds: string[];
+    subCategoryIds: string[];
+    tagIds: string[];
+    compositions: { compositionId: string; minPercent: number | null }[];
+  } | null;
+  initialLastRecalculatedAt: string | null;
+  exclusions: {
+    productId: string;
+    name: string;
+    reference: string;
+    excludedAt: string;
+  }[];
 }
 
 interface CollectionData {
@@ -69,6 +92,7 @@ interface Props {
   collection: CollectionData;
   categories: CategoryOption[];
   filterOptions?: PickerFilterOptions;
+  ruleData?: RuleData;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -94,8 +118,9 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-export default function CollectionEditor({ collection, categories, filterOptions }: Props) {
+export default function CollectionEditor({ collection, categories, filterOptions, ruleData }: Props) {
   const router = useRouter();
+  const { confirm } = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Form state ──────────────────────────────────────────────────────────
@@ -112,6 +137,13 @@ export default function CollectionEditor({ collection, categories, filterOptions
   const [selectedProducts, setSelectedProducts] = useState<CollectionProductRow[]>(collection.products);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Resync la liste locale quand le server component re-render (après
+  // router.refresh() suite à un save de règle, une modification produit, etc.)
+  // Sans ça, l'état local reste figé sur les produits chargés au premier montage.
+  useEffect(() => {
+    setSelectedProducts(collection.products);
+  }, [collection.products]);
   // Bloc produits scrollable — ~10 cartes visibles par défaut sur desktop
   // (5 lignes × 2 colonnes). Au-delà, la scrollbar interne prend le relais.
   const PRODUCTS_LIST_MAX_HEIGHT = "max-h-[520px]";
@@ -222,7 +254,23 @@ export default function CollectionEditor({ collection, categories, filterOptions
     );
   };
 
-  const handleRemove = (productId: string) => {
+  const handleRemove = async (productId: string) => {
+    const row = selectedProducts.find((p) => p.productId === productId);
+    const isAuto = row?.source === "AUTO";
+    if (isAuto && ruleData?.initialRule) {
+      // La ligne était ajoutée par la règle. Si on la retire simplement, elle
+      // reviendra au prochain recalcul. On force donc une exclusion et on
+      // demande confirmation.
+      const ok = await confirm({
+        type: "warning",
+        title: "Retirer ce produit ?",
+        message:
+          "Ce produit a été ajouté automatiquement par la règle. Le retirer va l'exclure définitivement de cette collection — la règle ne le réajoutera pas au prochain recalcul. Vous pourrez lever l'exclusion plus tard.",
+        confirmLabel: "Exclure de la collection",
+        cancelLabel: "Annuler",
+      });
+      if (!ok) return;
+    }
     const previous = selectedProducts;
     const wasExpanded = expandedProduct === productId;
     setSelectedProducts((prev) => prev.filter((p) => p.productId !== productId));
@@ -234,6 +282,32 @@ export default function CollectionEditor({ collection, categories, filterOptions
         if (wasExpanded) setExpandedProduct(productId);
       },
       "Impossible de retirer le produit.",
+    );
+    if (isAuto) {
+      // La règle ne le réajoutera pas → on doit rafraîchir la liste des
+      // exclusions affichées dans le panneau CollectionRuleEditor.
+      setTimeout(() => router.refresh(), 300);
+    }
+  };
+
+  const handleTogglePin = (productId: string) => {
+    const row = selectedProducts.find((p) => p.productId === productId);
+    if (!row) return;
+    const currentlyPinned = row.source === "MANUAL";
+    // Optimistic : mise à jour immédiate de la source.
+    setSelectedProducts((prev) =>
+      prev.map((p) =>
+        p.productId === productId ? { ...p, source: currentlyPinned ? "AUTO" : "MANUAL" } : p,
+      ),
+    );
+    const previous = selectedProducts;
+    runInBackground(
+      () =>
+        currentlyPinned
+          ? unpinCollectionProduct(collection.id, productId)
+          : pinCollectionProduct(collection.id, productId),
+      () => setSelectedProducts(previous),
+      "Impossible de changer le marqueur.",
     );
   };
 
@@ -508,9 +582,27 @@ export default function CollectionEditor({ collection, categories, filterOptions
 
                             {/* Info */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-heading font-medium text-text-primary truncate">
-                                {row.product.name}
-                              </p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="text-sm font-heading font-medium text-text-primary truncate">
+                                  {row.product.name}
+                                </p>
+                                {row.source === "AUTO" && ruleData?.initialRule && (
+                                  <span
+                                    title="Ajouté automatiquement par la règle"
+                                    className="shrink-0 inline-flex items-center gap-1 text-[9px] font-body font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wide"
+                                  >
+                                    Auto
+                                  </span>
+                                )}
+                                {row.source === "MANUAL" && ruleData?.initialRule && (
+                                  <span
+                                    title="Épinglé — reste dans la collection quoi qu'il arrive"
+                                    className="shrink-0 inline-flex items-center gap-1 text-[9px] font-body font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 uppercase tracking-wide"
+                                  >
+                                    Épinglé
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-text-muted font-body mt-0.5">
                                 {row.product.reference}
                               </p>
@@ -566,6 +658,29 @@ export default function CollectionEditor({ collection, categories, filterOptions
                                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                                       d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                                  </svg>
+                                </button>
+                              )}
+
+                              {/* Pin / Unpin — visible seulement si une règle est active */}
+                              {ruleData?.initialRule && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePin(row.productId)}
+                                  title={
+                                    row.source === "MANUAL"
+                                      ? "Désépingler — sortira automatiquement s'il ne matche plus"
+                                      : "Épingler — restera même s'il ne matche plus"
+                                  }
+                                  className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                                    row.source === "MANUAL"
+                                      ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                                      : "text-text-muted hover:text-amber-700 hover:bg-amber-50"
+                                  }`}
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                      d="M12 21v-6m0 0l6-3-6-3m0 6l-6-3 6-3m0-6v6" />
                                   </svg>
                                 </button>
                               )}
@@ -643,6 +758,21 @@ export default function CollectionEditor({ collection, categories, filterOptions
 
         {/* ── Right column: settings (1/3) ─────────────────────────────── */}
         <div className="xl:col-span-1 space-y-5">
+
+          {/* Rule editor (peuplement automatique) */}
+          {ruleData && (
+            <CollectionRuleEditor
+              collectionId={collection.id}
+              seasons={ruleData.seasons}
+              categories={categories}
+              subCategories={filterOptions?.subCategories ?? []}
+              tags={ruleData.tags}
+              compositions={filterOptions?.compositions ?? []}
+              initialRule={ruleData.initialRule}
+              initialLastRecalculatedAt={ruleData.initialLastRecalculatedAt}
+              exclusions={ruleData.exclusions}
+            />
+          )}
 
           {/* Image */}
           <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm space-y-4">

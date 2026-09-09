@@ -42,6 +42,18 @@ export async function POST(request: Request): Promise<NextResponse<CheckResponse
       return NextResponse.json({ status: "ok" });
     }
 
+    // PFS matche parfois par préfixe/substring et renvoie un produit dont la
+    // référence n'est PAS celle demandée (ex: "13369ROBE" → "13369"). On
+    // considère qu'une référence proposée par la cliente est libre tant que
+    // PFS ne renvoie pas exactement la même chaîne.
+    const returnedRefNorm = (pfsResult.product.reference ?? "")
+      .trim()
+      .replace(/\s/g, "")
+      .toUpperCase();
+    if (returnedRefNorm !== reference) {
+      return NextResponse.json({ status: "ok" });
+    }
+
     if (body.currentProductId) {
       const local = await prisma.product.findUnique({
         where: { id: body.currentProductId },

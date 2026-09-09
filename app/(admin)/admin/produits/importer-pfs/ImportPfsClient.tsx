@@ -399,7 +399,7 @@ function StepIndicator({ active, done, label }: { active: boolean; done: boolean
     <span
       className={`px-3 py-1.5 rounded-lg border ${
         active
-          ? "bg-text-primary text-white border-text-primary"
+          ? "bg-bg-dark text-text-inverse border-bg-dark"
           : done
             ? "bg-[#16a34a] text-white border-[#16a34a]"
             : "bg-bg-primary text-text-muted border-border"
@@ -626,7 +626,7 @@ function ProductsStep({
             onClick={() => onImportModeChange("browse")}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               importMode === "browse"
-                ? "bg-text-primary text-white"
+                ? "bg-bg-dark text-text-inverse"
                 : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
             }`}
           >
@@ -636,7 +636,7 @@ function ProductsStep({
             onClick={() => onImportModeChange("byRef")}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               importMode === "byRef"
-                ? "bg-text-primary text-white"
+                ? "bg-bg-dark text-text-inverse"
                 : "bg-bg-muted text-text-secondary hover:bg-bg-muted/80"
             }`}
           >

@@ -227,6 +227,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de relance panier abandonné (pilote AbandonedCartJob).
+  // Tick 10s pour rester précis sur des délais courts saisis en secondes/
+  // minutes. Poll multi-tenant + wrap tenantALS.run par tenant côté worker.
+  // Kill switch SiteConfig `abandoned_cart_automation_enabled` respecté.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startAbandonedCartWorker } = await import("@/lib/abandoned-cart-worker");
+        startAbandonedCartWorker();
+      } catch (err) {
+        logger.error("[Abandoned Cart] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

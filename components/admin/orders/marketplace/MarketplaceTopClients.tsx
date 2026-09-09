@@ -200,7 +200,7 @@ export default function MarketplaceTopClients({ stats }: Props) {
             <li key={c.key} className="flex-1 flex">
               {c.adminClientCardId ? (
                 <Link
-                  href={`/admin/utilisateurs?tab=fiches&card=${c.adminClientCardId}`}
+                  href={`/admin/clients?tab=fiches&card=${c.adminClientCardId}`}
                   className="flex items-center gap-3 py-3.5 -mx-2 px-2 hover:bg-bg-secondary rounded-lg w-full h-full"
                 >
                   {inner}

@@ -11,7 +11,7 @@ import { logger } from "@/lib/logger";
  *
  * Pas de `redirect()` ici : Next.js 16 déclenche un bug de manifest
  * (`InvariantError: The client reference manifest for route
- * "/admin/utilisateurs/[id]" does not exist`) quand une action redirige
+ * "/admin/clients/[id]" does not exist`) quand une action redirige
  * depuis cette route dynamique → page blanche. La navigation
  * post-suppression est faite côté client via `router.push()`.
  */
@@ -75,8 +75,8 @@ export async function deleteUser(
       await tx.user.delete({ where: { id: userId } });
     });
 
-    revalidatePath("/admin/utilisateurs");
-    revalidatePath(`/admin/utilisateurs/${userId}`);
+    revalidatePath("/admin/clients");
+    revalidatePath(`/admin/clients/${userId}`);
     revalidatePath("/admin");
 
     return { success: true };

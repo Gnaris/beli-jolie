@@ -44,6 +44,19 @@ export async function POST(request: Request) {
     }
 
     const p = pfsResult.product;
+
+    // PFS matche parfois par préfixe/substring et renvoie un produit dont la
+    // référence n'est PAS celle demandée (ex: "13369ROBE" → "13369"). On
+    // vérifie ici strictement l'égalité (insensible à la casse et aux
+    // espaces) pour ne jamais importer un produit à la place d'un autre.
+    const returnedRefNorm = (p.reference ?? "").trim().toUpperCase();
+    if (returnedRefNorm !== reference) {
+      return NextResponse.json({
+        valid: false,
+        error: `La référence exacte « ${reference} » n'existe pas sur Paris Fashion Shop. PFS a proposé « ${p.reference} » mais on refuse pour éviter d'importer le mauvais produit.`,
+      });
+    }
+
     const name = p.label?.fr || p.label?.en || Object.values(p.label ?? {})[0] || reference;
 
     return NextResponse.json({

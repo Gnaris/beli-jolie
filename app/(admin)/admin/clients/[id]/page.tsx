@@ -398,7 +398,7 @@ export default async function ClientDetailPage({
       <nav className="flex items-center gap-2 text-xs text-text-muted" aria-label="Fil d'Ariane">
         <Link href="/admin" className="hover:text-text-primary transition-colors">Admin</Link>
         <span>/</span>
-        <Link href="/admin/utilisateurs" className="hover:text-text-primary transition-colors">Clients</Link>
+        <Link href="/admin/clients" className="hover:text-text-primary transition-colors">Clients</Link>
         <span>/</span>
         <span className="text-text-primary font-medium">{user.firstName} {user.lastName}</span>
       </nav>

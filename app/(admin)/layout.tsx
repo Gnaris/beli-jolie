@@ -142,7 +142,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 .map(([href, w]) => [href, w!.count]),
             ),
             "/admin/commandes": pendingOrdersCount,
-            "/admin/utilisateurs": pendingUsersCount,
+            "/admin/clients": pendingUsersCount,
             "/admin/reclamations": openClaimsCount,
           }}
           shopName={shopName}

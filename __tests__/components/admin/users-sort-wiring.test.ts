@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 // connexion (croissant/décroissant) et par nom de société A→Z.
 
 const PAGE = readFileSync(
-  resolve(__dirname, "../../../app/(admin)/admin/utilisateurs/page.tsx"),
+  resolve(__dirname, "../../../app/(admin)/admin/clients/page.tsx"),
   "utf8",
 );
 

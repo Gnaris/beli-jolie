@@ -16,12 +16,12 @@ import type { UserStatus } from "@prisma/client";
  * Server Action — Mise à jour du statut d'un compte client
  *
  * Sécurité : vérifie côté serveur que l'appelant est bien ADMIN
- * Utilisée depuis la page /admin/utilisateurs/[id] via un composant client
+ * Utilisée depuis la page /admin/clients/[id] via un composant client
  * (`UserStatusActions`) qui gère la navigation post-action côté navigateur.
  *
  * Pas de `redirect()` ici : Next.js 16 déclenche un bug de manifest
  * (`InvariantError: The client reference manifest for route
- * "/admin/utilisateurs/[id]" does not exist`) quand une action redirige
+ * "/admin/clients/[id]" does not exist`) quand une action redirige
  * depuis une route dynamique lourde en composants client → page blanche.
  */
 export async function updateUserStatus(
@@ -97,8 +97,8 @@ export async function updateUserStatus(
       }
     }
 
-    revalidatePath("/admin/utilisateurs");
-    revalidatePath(`/admin/utilisateurs/${userId}`);
+    revalidatePath("/admin/clients");
+    revalidatePath(`/admin/clients/${userId}`);
     revalidatePath("/admin");
     revalidateTag("users", "default");
 

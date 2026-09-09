@@ -1299,11 +1299,13 @@ html.admin-dark,
 
   /* Palette légèrement remontée en luminosité (demande cliente 2026-08-13 :
      « ne pas descendre à 100 % noir »). Hiérarchie : page < cartes
-     principales < surfaces internes. */
-  --color-bg-primary:    #1e1e22;
-  --color-bg-secondary:  #26262b;
-  --color-bg-tertiary:   #2d2d33;
-  --color-bg-muted:      #2d2d33;
+     principales < surfaces internes. Écart d'élévation renforcé
+     (2026-09-09) pour que les cartes se détachent nettement du fond
+     de page (avant : différence de 10 unités RGB → invisible). */
+  --color-bg-primary:    #26262d;
+  --color-bg-secondary:  #2f2f37;
+  --color-bg-tertiary:   #37373f;
+  --color-bg-muted:      #37373f;
   /* bg-dark reste noir en sombre (btn-primary, boutons « Rafraîchir »,
      tuile « Total visiteurs ») avec texte-inverse clair — le CTA garde
      la lisibilité classique « bouton sombre, texte clair » qu'on a en
@@ -1319,22 +1321,22 @@ html.admin-dark,
   --color-text-muted:     #71717a;
   --color-text-inverse:   #f4f4f5;
 
-  --color-border:        #2f2f34;
-  --color-border-strong: #3f3f46;
-  --color-border-light:  #27272a;
-  --color-border-dark:   #52525b;
+  --color-border:        #3f3f47;
+  --color-border-strong: #52525b;
+  --color-border-light:  #33333a;
+  --color-border-dark:   #6b6b74;
 
   --color-ink:           #d4d4d8;
   --color-accent:        #a1a1aa;
-  --color-accent-light:  #2d2d33;
+  --color-accent-light:  #37373f;
   --color-accent-dark:   #141417;
 
-  --color-surface:        #1e1e22;
-  --color-surface-alt:    #26262b;
-  --color-white:          #1e1e22;
+  --color-surface:        #26262d;
+  --color-surface-alt:    #2f2f37;
+  --color-white:          #26262d;
   --color-primary:        #141417;
   --color-primary-hover:  #000000;
-  --color-primary-light:  #2d2d33;
+  --color-primary-light:  #37373f;
   --color-muted:          #71717a;
 
   /* ─── Redéfinition de la palette Tailwind (zinc/slate/blue/sky/violet…)
@@ -1348,14 +1350,14 @@ html.admin-dark,
 
   /* Neutrals — plus discrets que le stock Tailwind */
   --color-zinc-50:   #18181b;
-  --color-zinc-100:  #26262b;
-  --color-zinc-200:  #2d2d33;
+  --color-zinc-100:  #2f2f37;
+  --color-zinc-200:  #37373f;
   --color-zinc-700:  #b5b5bb;
   --color-zinc-800:  #c8c8ce;
   --color-zinc-900:  #d4d4d8;
   --color-slate-50:  #18181b;
-  --color-slate-100: #26262b;
-  --color-slate-200: #2d2d33;
+  --color-slate-100: #2f2f37;
+  --color-slate-200: #37373f;
   --color-slate-300: #3f3f46;
   --color-slate-400: #71717a;
   --color-slate-500: #97979f;
@@ -1443,19 +1445,19 @@ html.admin-dark,
   --color-cyan-100:  #164e63;
   --color-cyan-700:  #22d3ee;
 
-  --shadow-card:    0 1px 3px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.4);
-  --shadow-pop:     0 1px 2px rgba(0,0,0,0.5), 0 10px 30px -8px rgba(0,0,0,0.55);
-  --shadow-modal:   0 25px 60px -10px rgba(0,0,0,0.7), 0 6px 16px rgba(0,0,0,0.5);
-  --shadow-card-md: 0 4px 6px -1px rgba(0,0,0,0.45), 0 2px 4px -2px rgba(0,0,0,0.3);
-  --shadow-card-lg: 0 10px 15px -3px rgba(0,0,0,0.5), 0 4px 6px -4px rgba(0,0,0,0.35);
-  --shadow-sm:      0 1px 2px rgba(0,0,0,0.4);
+  --shadow-card:    0 1px 3px rgba(0,0,0,0.6), 0 8px 22px rgba(0,0,0,0.55);
+  --shadow-pop:     0 1px 2px rgba(0,0,0,0.65), 0 12px 34px -8px rgba(0,0,0,0.65);
+  --shadow-modal:   0 25px 60px -10px rgba(0,0,0,0.8), 0 6px 16px rgba(0,0,0,0.6);
+  --shadow-card-md: 0 4px 8px -1px rgba(0,0,0,0.55), 0 2px 4px -2px rgba(0,0,0,0.4);
+  --shadow-card-lg: 0 12px 20px -3px rgba(0,0,0,0.6), 0 5px 8px -4px rgba(0,0,0,0.45);
+  --shadow-sm:      0 1px 2px rgba(0,0,0,0.55);
 
   background-color: #141417 !important;
 }
 
 /* ─── Fonds figés (bg-white, bg-zinc-*, bg-slate-*) ───────────────────── */
 html.admin-dark .bg-white,
-html.admin-dark .bg-bg-primary { background-color: #1e1e22 !important; }
+html.admin-dark .bg-bg-primary { background-color: #26262d !important; }
 
 /* `--color-ink` est inversé en sombre (#d4d4d8) car il sert de couleur de
    texte/bordure d'accent. Mais utilisé comme fond (`bg-ink` = boutons
@@ -1467,22 +1469,22 @@ html.admin-dark .bg-bg-primary { background-color: #1e1e22 !important; }
    claire attendue. */
 html.admin-dark .bg-ink,
 html.admin-dark .hover\:bg-ink:hover { background-color: #141417 !important; }
-html.admin-dark .bg-white\/70 { background-color: rgba(28,28,31,0.7) !important; }
-html.admin-dark .bg-white\/60 { background-color: rgba(28,28,31,0.6) !important; }
+html.admin-dark .bg-white\/70 { background-color: rgba(38,38,45,0.7) !important; }
+html.admin-dark .bg-white\/60 { background-color: rgba(38,38,45,0.6) !important; }
 html.admin-dark .bg-white\/20 { background-color: rgba(255,255,255,0.14) !important; }
 html.admin-dark .bg-white\/14 { background-color: rgba(255,255,255,0.14) !important; }
 html.admin-dark .bg-white\/12 { background-color: rgba(255,255,255,0.12) !important; }
 html.admin-dark .lg\:bg-white { background-color: #141417 !important; }
 
-html.admin-dark .bg-zinc-50 { background-color: #18181b !important; }
-html.admin-dark .bg-zinc-50\/60 { background-color: rgba(24,24,27,0.6) !important; }
-html.admin-dark .bg-zinc-100 { background-color: #26262b !important; }
-html.admin-dark .bg-zinc-200 { background-color: #2d2d33 !important; }
+html.admin-dark .bg-zinc-50 { background-color: #1c1c20 !important; }
+html.admin-dark .bg-zinc-50\/60 { background-color: rgba(28,28,32,0.6) !important; }
+html.admin-dark .bg-zinc-100 { background-color: #2f2f37 !important; }
+html.admin-dark .bg-zinc-200 { background-color: #37373f !important; }
 html.admin-dark .bg-zinc-800 { background-color: #f4f4f5 !important; }
 html.admin-dark .bg-zinc-900 { background-color: #ececee !important; }
 
-html.admin-dark .bg-slate-50 { background-color: #18181b !important; }
-html.admin-dark .bg-slate-100 { background-color: #26262b !important; }
+html.admin-dark .bg-slate-50 { background-color: #1c1c20 !important; }
+html.admin-dark .bg-slate-100 { background-color: #2f2f37 !important; }
 
 /* Fonds Bs sémantiques déjà pastel → assombrir un peu pour rester lisibles */
 html.admin-dark .bg-amber-50 { background-color: #3b2a08 !important; }
@@ -1612,11 +1614,11 @@ html.admin-dark [data-drawer-accent] > .blur-3xl {
 
 /* ─── Barre d'actions bulk (admin/produits) — surface plus sombre ─────
    La barre flottante en bas mobile utilise `bg-white`, remappé à
-   `#1e1e22` par l'override générique. Sur une petite surface flottante,
+   `#26262d` par l'override générique. Sur une petite surface flottante,
    cette teinte proche du gris de page fait paraître la barre « trop
    claire » (feedback cliente 2026-08-24). On descend à un noir profond
    uniquement sur mobile (barre `fixed bottom-3` isolée du reste de la
-   page) — sur desktop la barre reste à `#1e1e22` pour ne pas assombrir
+   page) — sur desktop la barre reste à `#26262d` pour ne pas assombrir
    le contexte des SegButtons colorés à côté. */
 @media (max-width: 767px) {
   html.admin-dark [data-bulk-bar-surface] {
@@ -1626,21 +1628,21 @@ html.admin-dark [data-drawer-accent] > .blur-3xl {
 
 /* ─── Bordures figées ─────────────────────────────────────────────────── */
 html.admin-dark .border-zinc-100,
-html.admin-dark .border-slate-100 { border-color: #27272a !important; }
+html.admin-dark .border-slate-100 { border-color: #33333a !important; }
 html.admin-dark .border-zinc-200,
-html.admin-dark .border-slate-200 { border-color: #2f2f34 !important; }
+html.admin-dark .border-slate-200 { border-color: #3f3f47 !important; }
 html.admin-dark .border-zinc-300,
 html.admin-dark .border-slate-300 { border-color: #3f3f46 !important; }
 
 /* ─── Divides (tableaux, listes) ─────────────────────────────────────── */
 html.admin-dark .divide-zinc-100 > * + *,
-html.admin-dark .divide-slate-100 > * + * { border-color: #27272a !important; }
+html.admin-dark .divide-slate-100 > * + * { border-color: #33333a !important; }
 html.admin-dark .divide-zinc-200 > * + *,
-html.admin-dark .divide-slate-200 > * + * { border-color: #2f2f34 !important; }
+html.admin-dark .divide-slate-200 > * + * { border-color: #3f3f47 !important; }
 
 /* ─── Hover états courants ────────────────────────────────────────────── */
-html.admin-dark .hover\:bg-zinc-50:hover { background-color: #26262b !important; }
-html.admin-dark .hover\:bg-zinc-100:hover { background-color: #2d2d33 !important; }
+html.admin-dark .hover\:bg-zinc-50:hover { background-color: #2f2f37 !important; }
+html.admin-dark .hover\:bg-zinc-100:hover { background-color: #37373f !important; }
 html.admin-dark .hover\:text-zinc-900:hover { color: #f4f4f5 !important; }
 html.admin-dark .hover\:border-zinc-900:hover { border-color: #f4f4f5 !important; }
 
@@ -1691,7 +1693,7 @@ html.admin-dark .blur-3xl { opacity: 0.4; }
 html.admin-dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
 html.admin-dark textarea,
 html.admin-dark select {
-  background-color: #26262b;
+  background-color: #2f2f37;
   color: #f4f4f5;
   border-color: #3f3f46;
 }
@@ -1703,11 +1705,11 @@ html.admin-dark textarea::placeholder { color: #71717a; }
 
 /* Field-input custom du design system : la variable a bougé, on force la
    couleur du fond aussi (safety net). */
-html.admin-dark .field-input { background-color: #26262b; color: #f4f4f5; }
+html.admin-dark .field-input { background-color: #2f2f37; color: #f4f4f5; }
 
 /* ─── Custom checkbox : garder l'aspect check, inverser le fond ──────── */
 html.admin-dark .checkbox-custom {
-  background-color: #26262b;
+  background-color: #2f2f37;
   border-color: #52525b;
 }
 html.admin-dark .checkbox-custom:checked {
@@ -1718,7 +1720,7 @@ html.admin-dark .checkbox-custom:checked::after { border-color: #18181b; }
 
 /* ─── Focus ring visible sur fond sombre ─────────────────────────────── */
 html.admin-dark .focus-ring:focus-visible {
-  box-shadow: 0 0 0 2px #1e1e22, 0 0 0 4px #f4f4f5;
+  box-shadow: 0 0 0 2px #26262d, 0 0 0 4px #f4f4f5;
 }
 
 /* ─── Ligne produit sélectionnée (mobile/desktop) ────────────────────── */
@@ -1950,7 +1952,7 @@ html.admin-dark .text-fuchsia-700 { color: #e879f9 !important; }
    des boutons sombres à texte clair — idiome cohérent avec le reste.
    `text-white` dessus reste blanc adouci `#e4e4e7` via l'override plus
    haut → bien lisible. */
-html.admin-dark .bg-slate-200 { background-color: #2d2d33 !important; }
+html.admin-dark .bg-slate-200 { background-color: #37373f !important; }
 html.admin-dark .bg-slate-700 { background-color: #334155 !important; }
 html.admin-dark .bg-slate-800 { background-color: #1e293b !important; }
 html.admin-dark .bg-slate-900 { background-color: #0f172a !important; }
@@ -1974,6 +1976,28 @@ html.admin-dark .bg-slate-900\/90 .text-white,
 html.admin-dark .bg-slate-900\/90.bg-slate-900\/90 { color: #f4f4f5; }
 html.admin-dark .hover\:bg-slate-200:hover { background-color: #3f3f46 !important; }
 html.admin-dark .focus\:ring-slate-400:focus { --tw-ring-color: #71717a !important; }
+
+/* Gradient stops slate-700/800/900 — rescue CTA sombres.
+   Les vars --color-slate-700/800/900 sont redéfinies claires en dark mode
+   (pour que `text-slate-900` reste lisible sur fond sombre). Conséquence
+   inattendue : les utilities `from-slate-800`/`to-slate-900` compilaient
+   vers `#e4e4e7`/`#f4f4f5` → CTA gradient BLANC avec text-white blanc dessus,
+   totalement invisible (bouton « Envoyer mail » vue Mails, CTA SendMailModal,
+   EmailDetailModal, AdminCardDrawer, SettingsModal, LegalGenerateButton,
+   StripeAccountStatusCard, etc.).
+   On restaure les stops à des valeurs slate d'origine — remontées d'un cran
+   pour garder du contraste avec le fond zinc-950 global (#18181b) sans se
+   fondre. `.admin-fab-preserve` a ses propres overrides (voir plus haut). */
+html.admin-dark .from-slate-700:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-from: #475569 !important; }
+html.admin-dark .from-slate-800:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-from: #334155 !important; }
+html.admin-dark .from-slate-900:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-from: #1e293b !important; }
+html.admin-dark .via-slate-700:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-via: #475569 !important; }
+html.admin-dark .via-slate-800:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-via: #334155 !important; }
+html.admin-dark .via-slate-900:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-via: #1e293b !important; }
+html.admin-dark .to-slate-700:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-to: #475569 !important; }
+html.admin-dark .to-slate-800:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-to: #334155 !important; }
+html.admin-dark .to-slate-900:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-to: #1e293b !important; }
+html.admin-dark .to-slate-950:not(.admin-fab-preserve):not(.admin-fab-preserve *) { --tw-gradient-to: #0f172a !important; }
 
 /* Dégradés header de colonne (from-{color}-50/40 to-white) — le côté
    `to-white` devient sombre via l'override .bg-white, le côté pastel-50
@@ -2036,8 +2060,8 @@ html.admin-dark .text-\[\#7C3AED\] { color: #c4b5fd !important; }
 html.admin-dark .badge-success  { background-color: #14321e !important; color: #86efac !important; border-color: #166534 !important; }
 html.admin-dark .badge-warning  { background-color: #3a2e12 !important; color: #fbbf24 !important; border-color: #92400e !important; }
 html.admin-dark .badge-error    { background-color: #331414 !important; color: #fca5a5 !important; border-color: #7f1d1d !important; }
-html.admin-dark .badge-neutral  { background-color: #26262b !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
-html.admin-dark .badge-info     { background-color: #26262b !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
+html.admin-dark .badge-neutral  { background-color: #2f2f37 !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
+html.admin-dark .badge-info     { background-color: #2f2f37 !important; color: #a1a1aa !important; border-color: #3f3f46 !important; }
 html.admin-dark .badge-purple   { background-color: #262a45 !important; color: #a5b4fc !important; border-color: #3730a3 !important; }
 
 /* ─── Switches (role="switch") — ON vert vif, OFF gris moyen, boule
@@ -2073,9 +2097,9 @@ html.admin-dark .hover\:bg-black:hover { background-color: #27272a !important; }
    Ajouts spécifiques : */
 html.admin-dark [data-drawer-content],
 html.admin-dark [role="dialog"] .bg-slate-50 { background-color: #18181b !important; }
-html.admin-dark [role="dialog"] .bg-slate-100 { background-color: #26262b !important; }
+html.admin-dark [role="dialog"] .bg-slate-100 { background-color: #2f2f37 !important; }
 html.admin-dark [role="dialog"] hr,
-html.admin-dark [role="dialog"] .border-t { border-color: #2f2f34 !important; }
+html.admin-dark [role="dialog"] .border-t { border-color: #3f3f47 !important; }
 
 /* Fond du footer des drawers (souvent bg-slate-50) */
 html.admin-dark [role="dialog"] footer,
@@ -2123,12 +2147,12 @@ html.admin-dark [style*="rgba(24,24,27,0.03)"] {
    `#FAFAFA`, `#F3F4F6`, `#F9FAFB`, `#E5E7EB`, `#D1D5DB` pour les fonds
    secondaires et bordures. En dark mode ces couleurs restent blanches
    et illisibles. On les remappe vers la palette sombre. */
-html.admin-dark [class*="bg-\[\#FAFAFA\]"] { background-color: #26262b !important; }
-html.admin-dark [class*="bg-\[\#F3F4F6\]"] { background-color: #26262b !important; }
-html.admin-dark [class*="bg-\[\#F9FAFB\]"] { background-color: #26262b !important; }
-html.admin-dark [class*="bg-\[\#F5F5F4\]"] { background-color: #26262b !important; }
-html.admin-dark [class*="bg-\[\#E5E5E5\]"] { background-color: #2d2d33 !important; }
-html.admin-dark [class*="bg-\[\#E5E7EB\]"] { background-color: #2d2d33 !important; }
+html.admin-dark [class*="bg-\[\#FAFAFA\]"] { background-color: #2f2f37 !important; }
+html.admin-dark [class*="bg-\[\#F3F4F6\]"] { background-color: #2f2f37 !important; }
+html.admin-dark [class*="bg-\[\#F9FAFB\]"] { background-color: #2f2f37 !important; }
+html.admin-dark [class*="bg-\[\#F5F5F4\]"] { background-color: #2f2f37 !important; }
+html.admin-dark [class*="bg-\[\#E5E5E5\]"] { background-color: #37373f !important; }
+html.admin-dark [class*="bg-\[\#E5E7EB\]"] { background-color: #37373f !important; }
 html.admin-dark [class*="bg-\[\#D1D5DB\]"] { background-color: #52525b !important; }
 html.admin-dark [class*="hover\:bg-\[\#E5E5E5\]"]:hover { background-color: #3f3f46 !important; }
 html.admin-dark [class*="hover\:bg-\[\#E5E7EB\]"]:hover { background-color: #3f3f46 !important; }
@@ -2164,7 +2188,7 @@ html.admin-dark [class*="bg-bg-primary"].rounded-full {
    avec bord clair — en dark il disparaissait quasi. On passe à un
    gris/noir bien visible. */
 html.admin-dark .sidebar-collapse-btn {
-  background-color: #26262b !important;
+  background-color: #2f2f37 !important;
   border-color: #52525b !important;
   color: #a1a1aa !important;
 }
@@ -2348,7 +2372,7 @@ html.admin-dark .mp-unpublished-divide.mp-unpublished-divide {
 
 /* HORS LIGNE / neutre — ardoise plein */
 html.admin-dark .mp-offline-card.mp-offline-card {
-  background-color: #2d2d33 !important;
+  background-color: #37373f !important;
   border-color: #3f3f46 !important;
 }
 html.admin-dark .mp-offline-text.mp-offline-text {
@@ -2359,7 +2383,7 @@ html.admin-dark .mp-offline-divide.mp-offline-divide {
 }
 
 /* ─── Délimiteur des drawers de widgets ───────────────────────────────
-   En dark mode, la border par défaut (border-slate-200 → #2f2f34) et
+   En dark mode, la border par défaut (border-slate-200 → #3f3f47) et
    le fond blanc du drawer se confondent avec le fond de page très
    sombre — la fenêtre n'a plus de contour visible. On force une
    border plus claire + un léger ring blanc translucide pour bien
@@ -2373,7 +2397,7 @@ html.admin-dark .admin-drawer-frame {
 }
 
 /* ─── Overlay de chargement (LoadingOverlay.tsx) ─────────────────────
-   Le pill « Chargement… » utilise `bg-bg-primary` qui devient #1e1e22 en
+   Le pill « Chargement… » utilise `bg-bg-primary` qui devient #26262d en
    dark, quasi indiscernable de la page (#141417). On le remonte à un
    gris plus clair et on éclaircit le spinner (par défaut text-bg-dark
    = noir pur, invisible sur fond sombre). */
@@ -2391,7 +2415,7 @@ html.admin-dark .loading-overlay-pill p { color: #f4f4f5 !important; }
 /* ─── Modale de liaison Ankorstore (LinkAnkorstoreProductModal.tsx) ──
    L'en-tête aurora sky (bleu vif) devient bleu marine en mode sombre —
    demande cliente 2026-08-14, le sky vif brûle les yeux sur fond
-   #1e1e22 alors que le marine se fond au thème sans perdre le rappel
+   #26262d alors que le marine se fond au thème sans perdre le rappel
    « Ankorstore = bleu ». Halos et rond d'initiale suivent. */
 .ankor-link-header-bg { background: linear-gradient(135deg, #0ea5e9, #38bdf8); }
 .ankor-link-halo-primary   { background: #38bdf8; }
@@ -2461,12 +2485,12 @@ html.admin-dark .settings-modal-icon {
 #admin-theme-wrapper.admin-dark .variant-cell-editable:hover,
 html.admin-dark .variant-cell-editable:hover {
   border-color: #52525b;
-  background: #2d2d33;
+  background: #37373f;
   color: #f4f4f5;
 }
 #admin-theme-wrapper.admin-dark .variant-cell-input,
 html.admin-dark .variant-cell-input {
-  background: #26262b;
+  background: #2f2f37;
   border-color: #2dd4bf;
   color: #f4f4f5;
 }
@@ -2516,7 +2540,7 @@ html.admin-dark .product-row-status-badge[data-status="ONLINE"] {
 }
 #admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="OFFLINE"],
 html.admin-dark .product-row-status-badge[data-status="OFFLINE"] {
-  background-color: #2d2d33 !important;
+  background-color: #37373f !important;
 }
 #admin-theme-wrapper.admin-dark .product-row-status-badge[data-status="ARCHIVED"],
 html.admin-dark .product-row-status-badge[data-status="ARCHIVED"] {

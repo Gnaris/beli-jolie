@@ -57,8 +57,8 @@ export async function setVatExemption(
       },
     });
 
-    revalidatePath(`/admin/utilisateurs/${userId}`);
-    revalidatePath("/admin/utilisateurs");
+    revalidatePath(`/admin/clients/${userId}`);
+    revalidatePath("/admin/clients");
 
     return { success: true };
   } catch (err) {

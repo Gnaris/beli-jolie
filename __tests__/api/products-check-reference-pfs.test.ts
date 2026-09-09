@@ -85,6 +85,20 @@ describe("POST /api/admin/products/check-reference-pfs", () => {
     expect(json.message).toContain("déjà");
   });
 
+  it("renvoie status=ok si PFS matche par préfixe (ref différente renvoyée)", async () => {
+    // Bug PFS : /checkReference/13369ROBE renvoie parfois le produit "13369"
+    // au lieu de dire que la ref exacte n'existe pas. Sans garde, on
+    // bloquerait à tort la création côté BJ.
+    (getCachedHasPfsConfig as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (pfsCheckReference as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      product: { id: "pro_OTHER", reference: "13369", label: { fr: "Autre" } },
+    });
+    const res = await POST(makeReq({ reference: "13369ROBE" }));
+    const json = await res.json();
+    expect(json.status).toBe("ok");
+  });
+
   it("renvoie status=ok si la ref appartient au produit en cours d'édition", async () => {
     (getCachedHasPfsConfig as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(true);
     (pfsCheckReference as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({

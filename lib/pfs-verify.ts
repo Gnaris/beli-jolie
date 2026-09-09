@@ -134,6 +134,15 @@ export interface PfsVerifyResult {
   issueCount: number;
   issues: PfsVerifyIssue[];
   checkedAt: string; // ISO
+  /**
+   * Renseigné quand l'audit n'a pas pu comparer la fiche produit (nom,
+   * description, compo, catégorie, statut) parce que `checkReference` retombe
+   * sur une autre fiche PFS que celle liée à notre `pfsProductId` (fantôme
+   * ARCHIVED, doublon partiel, ref ambiguë). Les variantes (couleurs / prix /
+   * stock / poids) restent comparées car chargées via notre ID local. Message
+   * humain à afficher dans la modale d'audit pour prévenir la cliente.
+   */
+  partialAuditReason?: string;
 }
 
 /** Erreurs communes remontées à la server action. */
@@ -656,10 +665,20 @@ export function comparePfsProduct(
      *  elle, le reconcile bloque sur toute compo non rattachée au produit,
      *  même si elle est déjà dans Paramètres > Compositions. */
     compositionLibrary?: CompositionLibraryIndex;
+    /**
+     * Quand true, saute toute la comparaison des champs fiche produit (nom,
+     * description, compo, pays, genre, catégorie, statut, best-seller). Utilisé
+     * quand `pfsProduct` ne correspond PAS au produit lié localement — cas où
+     * `pfsCheckReference` matche un fantôme d'une autre fiche mais notre
+     * `pfsGetVariants(pfsProductId)` a bien renvoyé les vraies variantes. On
+     * garde alors uniquement l'audit variantes.
+     */
+    skipProductFields?: boolean;
   },
 ): PfsVerifyIssue[] {
   const issues: PfsVerifyIssue[] = [];
 
+  if (!opts.skipProductFields) {
   // 1) Champs fiche produit
   const expectedP = buildExpectedProductSnapshot(local);
   const actualP = extractPfsProductLive(pfsProduct, pfsVariants);
@@ -897,6 +916,7 @@ export function comparePfsProduct(
       );
     }
   }
+  } // end if (!opts.skipProductFields)
 
   // 2) Variantes — matching par (type, colorRef)
   const locals = buildLocalVariantsForCompare(
@@ -1457,7 +1477,47 @@ export async function verifyPfsProduct(
     };
   }
 
-  // 1) PFS product live via checkReference
+  // 1) Source de vérité : notre lien local `pfsProductId`. On charge les
+  // variants PAR ID (endpoint `/products/{id}/variants`) — c'est le seul
+  // endpoint PFS qui répond directement par ID pour valider qu'un produit
+  // existe encore. Un 404 = notre lien pointe vers un produit supprimé
+  // côté PFS, il faut re-lier ce produit.
+  //
+  // On fait CE test avant `checkReference` parce que `checkReference` fait
+  // un match approximatif par NOM (ignore casse et espaces) et peut retomber
+  // sur une autre fiche PFS ayant une ref proche (fantôme ARCHIVED, doublon
+  // partiel — ex Issyma « 13369ROBE » qui matche « 13369 »). Si on part
+  // seulement de `checkReference`, on comparerait notre produit BJ à la
+  // mauvaise fiche PFS.
+  let variantsResp: Awaited<ReturnType<typeof pfsGetVariants>>;
+  try {
+    variantsResp = await pfsGetVariants(product.pfsProductId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Le fetcher PFS ne renvoie pas de status structuré : on détecte 404
+    // par le contenu du message (`PfsNonRetryableError` inclut le code).
+    if (/\b404\b/.test(msg)) {
+      return {
+        ok: false,
+        error: {
+          kind: "not_found_on_pfs",
+          message:
+            `Votre lien PFS pointe vers un produit qui n'existe plus (${product.pfsProductId}). ` +
+            `Il a été supprimé côté PFS — re-liez ce produit depuis la modale « Lier PFS ».`,
+        },
+      };
+    }
+    logger.warn("[PFS Verify] getVariants failed", {
+      pfsProductId: product.pfsProductId,
+      error: msg,
+    });
+    return { ok: false, error: { kind: "pfs_unreachable", message: msg } };
+  }
+
+  // 2) Données fiche produit via checkReference (par nom) — n'existe pas par
+  // ID côté PFS. On tolère mismatch d'ID : dans ce cas, on désactive la
+  // comparaison des champs fiche produit (nom/description/compo/…) mais on
+  // conserve la comparaison variantes (déjà chargées par notre ID).
   let checkRef: Awaited<ReturnType<typeof pfsCheckReference>>;
   try {
     checkRef = await pfsCheckReference(product.reference);
@@ -1466,56 +1526,54 @@ export async function verifyPfsProduct(
     logger.warn("[PFS Verify] checkReference failed", { reference: product.reference, error: msg });
     return { ok: false, error: { kind: "pfs_unreachable", message: msg } };
   }
-  if (!checkRef?.exists || !checkRef.product) {
-    return {
-      ok: false,
-      error: { kind: "not_found_on_pfs", message: `Référence ${product.reference} inexistante sur PFS` },
-    };
+
+  // Doublon PFS strict : deux vraies fiches PFS partagent la même ref. Bloque
+  // proprement — la cliente doit nettoyer PFS avant tout audit. Test placé
+  // AVANT le mismatch d'ID pour surfacer un message plus précis quand c'est
+  // vraiment un doublon (ex 15187 Issyma).
+  if (checkRef?.exists && checkRef.product) {
+    const dup = detectPfsDuplicate({
+      reference: product.reference,
+      localPfsProductId: product.pfsProductId,
+      remotePfsProductId: checkRef.product.id,
+      remoteReference: checkRef.product.reference ?? null,
+    });
+    if (dup.isDuplicate) {
+      return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
+    }
   }
 
-  // Doublon PFS : voir `detectPfsDuplicate` — comparer les variantes n'a
-  // plus de sens quand `pfsCheckReference` renvoie un produit différent
-  // de notre lien local.
-  const dup = detectPfsDuplicate({
-    reference: product.reference,
-    localPfsProductId: product.pfsProductId,
-    remotePfsProductId: checkRef.product.id,
-    remoteReference: checkRef.product.reference ?? null,
-  });
-  if (dup.isDuplicate) {
-    return { ok: false, error: { kind: "pfs_duplicate", message: dup.message } };
-  }
-
-  // Match strict par ID PFS — `checkReference` fait un match approximatif
-  // côté PFS (ignore casse + espaces) et peut soit renvoyer :
-  //  (a) le MÊME produit avec une casse cosmétique différente (ex : « 12543Z »
-  //      → « 12543z ») — même `pfsProductId`, c'est bien nous.
-  //  (b) un vieux fantôme ARCHIVED d'une autre fiche (ex : Issyma « 13369ROBE »
-  //      → « 13369 ROBE » ARCHIVED, ou « 13369ROBE » → « 13369 » base) — ID
-  //      différent, ce n'est PAS notre produit et il ne faut pas comparer.
-  // On compare donc les IDs, jamais les refs : c'est fiable, indépendant de
-  // la cosmétique, et évite tout faux positif sur la casse. Les produits non
-  // liés à PFS (`pfsProductId === null`) sont déjà filtrés en amont par le
-  // runner d'audit — le check ci-dessus (`if (!product.pfsProductId)`)
-  // renvoie `not_linked`.
-  if (checkRef.product.id !== product.pfsProductId) {
-    return {
-      ok: false,
-      error: {
-        kind: "not_found_on_pfs",
-        message:
-          `PFS n'a pas retrouvé votre fiche « ${product.reference} » — a répondu ` +
-          `avec un autre produit (${checkRef.product.reference}). Vérifiez que ` +
-          `${product.reference} existe toujours sur PFS.`,
-      },
-    };
+  // Décision : audit complet OU audit partiel (variants only). Complet si
+  // checkReference a bien retrouvé notre fiche par son ID. Sinon on bascule
+  // en partiel — soit `!checkRef.exists` (PFS ne trouve pas la ref alors que
+  // notre ID est vivant : cas fantôme inverse), soit `checkRef.product.id`
+  // pointe ailleurs (fantôme ARCHIVED, ex 13369ROBE → 13369).
+  const idMatches =
+    checkRef?.exists && checkRef.product && checkRef.product.id === product.pfsProductId;
+  const skipProductFields = !idMatches;
+  let partialAuditReason: string | undefined;
+  if (skipProductFields) {
+    const remoteRef = checkRef?.product?.reference;
+    partialAuditReason = remoteRef
+      ? `PFS a répondu avec une autre fiche pour la référence « ${product.reference} » (« ${remoteRef} »). ` +
+        `Votre lien local reste valide — audit limité aux couleurs, prix, stock et poids. ` +
+        `Les autres champs (nom, description, composition, catégorie) n'ont pas été comparés.`
+      : `PFS n'a pas retrouvé la référence « ${product.reference} », mais votre lien local reste valide. ` +
+        `Audit limité aux couleurs, prix, stock et poids.`;
+    logger.warn("[PFS Verify] Audit partiel (mismatch ID/ref)", {
+      reference: product.reference,
+      pfsProductId: product.pfsProductId,
+      remoteId: checkRef?.product?.id ?? null,
+      remoteRef: remoteRef ?? null,
+    });
   }
 
   // Compo : API admin (mobile PFS) prioritaire — la cliente saisit via
   // l'appli mobile et le wholesaler renvoie parfois une compo stale (bug de
   // synchro côté PFS). On lit toujours mobile d'abord ; wholesaler ne sert
-  // que de fallback si mobile est vide ou HS.
-  if (checkRef.product.id) {
+  // que de fallback si mobile est vide ou HS. Chargée uniquement en audit
+  // complet — en audit partiel on skip la section compo de toute façon.
+  if (!skipProductFields && checkRef.product) {
     const mobileCompo = await pfsAdminFetchMaterialComposition(checkRef.product.id).catch((err) => {
       logger.warn("[PFS Verify] Lecture composition (API admin) échouée — fallback wholesaler", {
         pfsProductId: checkRef.product!.id,
@@ -1534,19 +1592,6 @@ export async function verifyPfsProduct(
     }
   }
 
-  // 2) PFS variants (correct prices/stock/weight/is_star)
-  let variantsResp: Awaited<ReturnType<typeof pfsGetVariants>>;
-  try {
-    variantsResp = await pfsGetVariants(checkRef.product.id);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("[PFS Verify] getVariants failed", {
-      pfsProductId: checkRef.product.id,
-      error: msg,
-    });
-    return { ok: false, error: { kind: "pfs_unreachable", message: msg } };
-  }
-
   // 3) Mapping couleurs + markup + labels PFS pour l'affichage humain.
   // Réutilise le contexte préchargé si fourni (audit en lot / bulk verify) —
   // évite 5 HTTP + 2 BDD redondants par produit.
@@ -1559,15 +1604,24 @@ export async function verifyPfsProduct(
   const compositionHeals: CompositionAutoHealAction[] = [];
   const colorHeals: ColorAutoHealAction[] = [];
 
+  // En audit partiel, `checkRef.product` peut être `null` ou pointer vers un
+  // fantôme. On passe un shim vide (`comparePfsProduct` respecte
+  // `skipProductFields` et ne lit jamais `pfsProduct` dans ce cas) — évite
+  // d'avoir à rendre le paramètre nullable et casser tous les autres callers.
+  const pfsProductForCompare = skipProductFields
+    ? EMPTY_PFS_PRODUCT_SHIM
+    : checkRef.product!;
+
   const issues = comparePfsProduct(
     product,
-    checkRef.product,
+    pfsProductForCompare,
     variantsResp.data ?? [],
     ctx.colorRefMap,
     {
       pfsMarkup: ctx.pfsMarkup,
       labels: ctx.labels,
       compositionLibrary: ctx.compositionLibrary,
+      skipProductFields,
       onCompositionAutoHeal: (heal) => {
         compositionHeals.push(heal);
       },
@@ -1656,9 +1710,34 @@ export async function verifyPfsProduct(
       issueCount: issues.length,
       issues,
       checkedAt: new Date().toISOString(),
+      ...(partialAuditReason ? { partialAuditReason } : {}),
     },
   };
 }
+
+// Shim vide passé à `comparePfsProduct` en audit partiel. La section
+// « champs fiche produit » étant skippée via `skipProductFields`, aucun de
+// ces champs n'est lu — on garde uniquement la structure attendue par le
+// type non-nullable pour éviter un refactor plus large.
+const EMPTY_PFS_PRODUCT_SHIM: NonNullable<
+  Awaited<ReturnType<typeof pfsCheckReference>>["product"]
+> = {
+  id: "",
+  brand: { id: "", name: "" },
+  gender: { reference: "" },
+  family: { id: "", reference: "" },
+  category: { id: "", reference: "" },
+  reference: "",
+  label: {},
+  material_composition: [],
+  lining_composition: [],
+  country_of_manufacture: "",
+  description: {},
+  status: "",
+  default_color: "",
+  images: {},
+  flash_sales_discount: null,
+};
 
 /**
  * Charge en parallèle les 4 listes d'attributs PFS et bâtit des Map ID → label

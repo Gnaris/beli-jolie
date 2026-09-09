@@ -8,8 +8,8 @@ interface UsersTabsProps {
 
 export default function UsersTabs({ currentTab, registeredCount, cardsCount }: UsersTabsProps) {
   const tabs = [
-    { key: "inscrits" as const, label: "Clients inscrits", count: registeredCount, href: "/admin/utilisateurs", badge: "bg-bg-secondary text-text-secondary" },
-    { key: "fiches" as const, label: "Mes fiches clients", count: cardsCount, href: "/admin/utilisateurs?tab=fiches", badge: "bg-violet-100 text-violet-700" },
+    { key: "inscrits" as const, label: "Clients inscrits", count: registeredCount, href: "/admin/clients", badge: "bg-bg-secondary text-text-secondary" },
+    { key: "fiches" as const, label: "Mes fiches clients", count: cardsCount, href: "/admin/clients?tab=fiches", badge: "bg-violet-100 text-violet-700" },
   ];
 
   return (

@@ -1,6 +1,6 @@
 /**
  * Layout HTML partagé pour tous les mails semi-automatiques envoyés depuis
- * /admin/utilisateurs. Charte Beli & Jolie : ardoise + arrondis + Roboto/Poppins.
+ * /admin/clients. Charte Beli & Jolie : ardoise + arrondis + Roboto/Poppins.
  *
  * Compatibilité clients mail : styles inline, tableaux pour la mise en page,
  * pas de flexbox/grid, images en absolu.

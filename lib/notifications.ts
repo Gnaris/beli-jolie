@@ -162,7 +162,7 @@ export async function notifyNewClientRegistration(
         ${kbisNote}
         ${docNote}
         <div style="margin-top:20px;">
-          <a href="${baseUrl}/admin/utilisateurs"
+          <a href="${baseUrl}/admin/clients"
              style="background:#1A1A1A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
             Examiner le dossier →
           </a>

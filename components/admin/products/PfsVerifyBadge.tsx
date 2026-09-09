@@ -82,6 +82,10 @@ export default function PfsVerifyBadge(props: Props) {
   const [status, setStatus] = useState<"ok" | "diff" | null>(props.pfsCheckStatus);
   const [issues, setIssues] = useState<PfsVerifyIssue[] | null>(props.pfsCheckIssues);
   const [modalOpen, setModalOpen] = useState(false);
+  // Message informatif quand l'audit s'est fait en mode partiel (PFS a
+  // renvoyé une autre fiche pour cette ref). Transitoire, non persisté —
+  // remis à zéro à la prochaine vérif ou au reload de la liste produits.
+  const [partialAuditReason, setPartialAuditReason] = useState<string | null>(null);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -132,7 +136,11 @@ export default function PfsVerifyBadge(props: Props) {
       setCheckedAt(o.checkedAt ?? new Date().toISOString());
       setStatus(o.status ?? "ok");
       setIssues(o.issues ?? null);
-      if (o.status === "ok") {
+      setPartialAuditReason(o.partialAuditReason ?? null);
+      if (o.partialAuditReason) {
+        toast.info(o.partialAuditReason);
+      }
+      if (o.status === "ok" && !o.partialAuditReason) {
         toast.success(`« ${props.productName} » conforme à PFS`);
       } else if (o.status === "diff" && (o.issueCount ?? 0) > 0) {
         toast.info(
@@ -218,6 +226,7 @@ export default function PfsVerifyBadge(props: Props) {
           productReference={props.productReference}
           issues={issues}
           checkedAt={checkedAt}
+          partialAuditReason={partialAuditReason}
           loading={loading}
           applying={applying}
           submitting={submitting}
@@ -380,6 +389,7 @@ function DiffModal({
   productReference,
   issues,
   checkedAt,
+  partialAuditReason,
   loading,
   applying,
   submitting,
@@ -391,6 +401,7 @@ function DiffModal({
   productReference: string;
   issues: PfsVerifyIssue[];
   checkedAt: string | null;
+  partialAuditReason?: string | null;
   loading: boolean;
   applying: boolean;
   submitting: boolean;
@@ -448,6 +459,14 @@ function DiffModal({
                   )}
                   <span className="hidden sm:inline"> · les valeurs PFS remplaceront celles de notre site.</span>
                 </p>
+                {partialAuditReason && (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-900">
+                    <svg className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M4.93 19.07a10 10 0 1114.14 0" />
+                    </svg>
+                    <span>{partialAuditReason}</span>
+                  </div>
+                )}
               </div>
               <button
                 type="button"

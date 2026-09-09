@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Barre de recherche pour la liste des clients inscrits (/admin/utilisateurs
+ * Barre de recherche pour la liste des clients inscrits (/admin/clients
  * onglet "Inscrits"). Pousse la valeur dans `?q=…` avec un debounce léger
  * pour éviter de recharger la page à chaque caractère.
  *

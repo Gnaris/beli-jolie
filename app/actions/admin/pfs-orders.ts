@@ -902,6 +902,6 @@ export async function listPfsOrdersForClientCard(adminClientCardId: string): Pro
 export async function invalidatePfsOrdersCache(): Promise<void> {
   await requireAdmin();
   revalidatePath("/admin/commandes");
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   revalidateTag("pfs-orders", "default");
 }

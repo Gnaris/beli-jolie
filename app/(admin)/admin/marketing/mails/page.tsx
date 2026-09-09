@@ -7,9 +7,9 @@ import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-template
 import NewslettersListClient from "@/components/admin/users/NewslettersListClient";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Modèles de newsletter — Admin" };
+export const metadata: Metadata = { title: "Modèles de mail — Admin" };
 
-export default async function NewslettersPage() {
+export default async function MailsPage() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
@@ -25,15 +25,15 @@ export default async function NewslettersPage() {
             <div>
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 backdrop-blur border border-border text-[11px] font-body font-bold uppercase tracking-[0.18em] text-violet-800">
                 <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
-                Newsletters
+                Mails clients
               </span>
-              <h1 className="page-title mt-4">Mes modèles de newsletter</h1>
+              <h1 className="page-title mt-4">Mes modèles de mail</h1>
               <p className="page-subtitle font-body max-w-2xl">
-                Composez plusieurs modèles à l&apos;avance (nouvelle collection, saison, événement…). Choisissez celui à envoyer au moment de l&apos;envoi groupé.
+                Composez plusieurs modèles à l&apos;avance (nouvelle collection, saison, événement…). Choisissez celui à envoyer au moment de l&apos;envoi groupé. Les mails automatiques (panier abandonné, inactivité, retour en stock) partent tout seuls aux moments configurés.
               </p>
             </div>
             <Link
-              href="/admin/utilisateurs"
+              href="/admin/clients"
               className="text-xs font-body font-semibold text-text-secondary hover:text-text-primary"
             >
               ← Retour à la liste des clients

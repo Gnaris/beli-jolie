@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Server actions pour la Vue Mails de /admin/utilisateurs.
+ * Server actions pour la Vue Mails de /admin/clients.
  *
  * Ces actions préparent le contexte affiché dans la modale « Envoyer un mail »
  * (panier, inactivité, favoris en rupture) + les avertissements contextuels
@@ -603,7 +603,7 @@ export async function sendManualMail(
       return { success: false, error: reason };
     }
 
-    revalidatePath("/admin/utilisateurs");
+    revalidatePath("/admin/clients");
     return { success: true, message: `Mail envoyé à ${ctx.userEmail}.` };
   } catch (err) {
     logger.error("[sendManualMail]", { userId, scenario, error: err as Error });

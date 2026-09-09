@@ -5,7 +5,7 @@
  * un compte client — et qu'on n'envoie PAS d'email si le statut ne change pas.
  *
  * Depuis 2026-08-12 : l'action ne fait plus `redirect()` (bug manifest
- * Next.js 16 sur `/admin/utilisateurs/[id]`). Elle renvoie
+ * Next.js 16 sur `/admin/clients/[id]`). Elle renvoie
  * `{ success: true }` ou `{ success: false, error }` et c'est le composant
  * client `UserStatusActions` qui navigue.
  */

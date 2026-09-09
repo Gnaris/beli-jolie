@@ -10,6 +10,15 @@ import { renameCollectionFolder, deleteDirectory, collectionImageDir, deleteFile
 import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import {
+  countProductsMatchingRule,
+  isRuleEmpty,
+  normalizeRuleInput,
+  parseStoredRule,
+  recalculateCollection as runRecalculateCollection,
+  type CollectionRuleInput,
+  type CollectionRuleShape,
+} from "@/lib/collection-rules";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -46,9 +55,13 @@ export async function getCollections() {
 export async function createCollection(formData: FormData) {
   await requireAdmin();
 
+  // formData.get renvoie `null` si le champ est absent — Zod v4 refuse `null`
+  // sur un champ `.optional()`, on le convertit en `undefined` d'abord.
+  const rawName = formData.get("name");
+  const rawImage = formData.get("image");
   const raw = {
-    name:  formData.get("name")  as string,
-    image: formData.get("image") as string | undefined,
+    name: typeof rawName === "string" ? rawName : "",
+    image: typeof rawImage === "string" && rawImage.length > 0 ? rawImage : undefined,
   };
 
   const parsed = CollectionSchema.safeParse(raw);
@@ -77,9 +90,12 @@ export async function updateCollection(id: string, formData: FormData) {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
 
+  // Idem createCollection : normaliser null → undefined pour Zod v4.
+  const rawName = formData.get("name");
+  const rawImage = formData.get("image");
   const raw = {
-    name:  formData.get("name")  as string,
-    image: formData.get("image") as string | undefined,
+    name: typeof rawName === "string" ? rawName : "",
+    image: typeof rawImage === "string" && rawImage.length > 0 ? rawImage : undefined,
   };
 
   const parsed = CollectionSchema.safeParse(raw);
@@ -248,21 +264,29 @@ export async function addProductToCollection(
     };
   }
 
-  // Position = max actuel + 1
+  // Ajout manuel → source = MANUAL. On lève aussi toute exclusion existante
+  // (elle est incohérente avec un ajout explicite : la cliente veut ce produit
+  // dans la collection).
   const maxPos = await prisma.collectionProduct.aggregate({
     where:   { collectionId },
     _max:    { position: true },
   });
   const position = (maxPos._max.position ?? -1) + 1;
 
-  await prisma.collectionProduct.upsert({
-    where:  { collectionId_productId: { collectionId, productId } },
-    create: { collectionId, productId, colorId: colorId || null, position },
-    update: { colorId: colorId || null },
-  });
+  await prisma.$transaction([
+    prisma.collectionExclusion.deleteMany({
+      where: { collectionId, productId },
+    }),
+    prisma.collectionProduct.upsert({
+      where:  { collectionId_productId: { collectionId, productId } },
+      create: { collectionId, productId, colorId: colorId || null, position, source: "MANUAL" },
+      update: { colorId: colorId || null, source: "MANUAL" },
+    }),
+  ]);
 
   revalidatePath(`/admin/collections/${collectionId}/modifier`);
   revalidatePath(`/collections/${collectionId}`);
+  revalidateTag("collections", "default");
   return { success: true as const };
 }
 
@@ -310,9 +334,17 @@ export async function bulkAddProductsToCollection(
     productId: p.id,
     colorId: null,
     position: position++,
+    source: "MANUAL" as const,
   }));
 
-  // skipDuplicates : si le produit est déjà dans la collection on ne casse pas.
+  // Ajout bulk manuel → lever les exclusions existantes sur ces produits pour
+  // rester cohérent (comme addProductToCollection unitaire).
+  await prisma.collectionExclusion.deleteMany({
+    where: { collectionId, productId: { in: eligible.map((p) => p.id) } },
+  });
+
+  // skipDuplicates : si le produit est déjà dans la collection on ne casse pas
+  // (mais on ne le repromeut pas non plus en MANUAL — comportement historique).
   const result = await prisma.collectionProduct.createMany({
     data,
     skipDuplicates: true,
@@ -334,19 +366,49 @@ export async function bulkAddProductsToCollection(
 // ─────────────────────────────────────────────
 // Retirer un produit d'une collection
 // ─────────────────────────────────────────────
+// Comportement dépend du `source` de la ligne :
+//   - AUTO : ligne supprimée + création d'une CollectionExclusion pour que le
+//     produit ne soit pas réintégré au prochain recalcul (il matche toujours
+//     la règle mais la cliente a explicitement dit « je n'en veux pas »).
+//   - MANUAL : ligne supprimée sans exclusion (le produit ne matche peut-être
+//     rien et de toute façon la cliente pourra le rajouter à la main).
+// Le caller peut forcer l'exclusion via `alwaysExclude: true` (utile si UI
+// veut proposer « supprimer ET exclure » sur un MANUAL épinglé qui matche).
 export async function removeProductFromCollection(
   collectionId: string,
-  productId: string
+  productId: string,
+  opts?: { alwaysExclude?: boolean },
 ) {
   await requireAdmin();
+  const session = await getServerSession(authOptions);
+  const adminId = session?.user?.id ?? null;
 
-  await prisma.collectionProduct.delete({
+  const existing = await prisma.collectionProduct.findUnique({
     where: { collectionId_productId: { collectionId, productId } },
+    select: { source: true },
+  });
+
+  const shouldExclude = existing?.source === "AUTO" || opts?.alwaysExclude === true;
+
+  await prisma.$transaction(async (tx) => {
+    if (existing) {
+      await tx.collectionProduct.delete({
+        where: { collectionId_productId: { collectionId, productId } },
+      });
+    }
+    if (shouldExclude) {
+      await tx.collectionExclusion.upsert({
+        where: { collectionId_productId: { collectionId, productId } },
+        create: { collectionId, productId, excludedById: adminId },
+        update: { excludedById: adminId, excludedAt: new Date() },
+      });
+    }
   });
 
   revalidatePath(`/admin/collections/${collectionId}/modifier`);
   revalidatePath(`/collections/${collectionId}`);
-  return { success: true };
+  revalidateTag("collections", "default");
+  return { success: true, excluded: shouldExclude };
 }
 
 // ─────────────────────────────────────────────
@@ -372,24 +434,264 @@ export async function updateCollectionProductColor(
 // ─────────────────────────────────────────────
 // Mettre à jour les positions des produits
 // ─────────────────────────────────────────────
+// Si une ligne AUTO change de position (drag & drop), on la promeut en MANUAL :
+// la cliente a pris une décision explicite sur son placement, on la respecte
+// même si le produit sort du critère de la règle plus tard.
 export async function reorderCollectionProducts(
   collectionId: string,
   items: { productId: string; position: number }[]
 ) {
   await requireAdmin();
 
+  // Récupère les positions et sources actuelles pour détecter les AUTO déplacés.
+  const current = await prisma.collectionProduct.findMany({
+    where: { collectionId },
+    select: { productId: true, position: true, source: true },
+  });
+  const currentByProduct = new Map(current.map((cp) => [cp.productId, cp]));
+
   // P3-13 — toutes les positions dans la même transaction. Avant : un échec
   // sur la moitié laissait la collection avec des positions incohérentes.
   await prisma.$transaction(
-    items.map(({ productId, position }) =>
-      prisma.collectionProduct.update({
+    items.map(({ productId, position }) => {
+      const before = currentByProduct.get(productId);
+      const promoteToManual = before?.source === "AUTO" && before.position !== position;
+      return prisma.collectionProduct.update({
         where: { collectionId_productId: { collectionId, productId } },
-        data:  { position },
-      })
-    )
+        data: promoteToManual
+          ? { position, source: "MANUAL" as const }
+          : { position },
+      });
+    })
   );
 
   revalidatePath(`/admin/collections/${collectionId}/modifier`);
   revalidatePath(`/collections/${collectionId}`);
   return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Épingler une ligne AUTO (la promouvoir en MANUAL sans la déplacer).
+// Utile quand la cliente veut garder un produit dans la collection même s'il
+// ne matche plus la règle un jour.
+// ─────────────────────────────────────────────
+export async function pinCollectionProduct(collectionId: string, productId: string) {
+  await requireAdmin();
+
+  await prisma.collectionProduct.update({
+    where: { collectionId_productId: { collectionId, productId } },
+    data: { source: "MANUAL" },
+  });
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidateTag("collections", "default");
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Désépingler : repasse en AUTO. Si le produit ne matche plus la règle
+// au prochain recalcul, il sortira.
+// ─────────────────────────────────────────────
+export async function unpinCollectionProduct(collectionId: string, productId: string) {
+  await requireAdmin();
+
+  await prisma.collectionProduct.update({
+    where: { collectionId_productId: { collectionId, productId } },
+    data: { source: "AUTO" },
+  });
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidateTag("collections", "default");
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Retirer une exclusion : le produit redevient candidat à l'ajout auto
+// au prochain recalcul.
+// ─────────────────────────────────────────────
+export async function reincludeProductInCollection(collectionId: string, productId: string) {
+  await requireAdmin();
+
+  await prisma.collectionExclusion.deleteMany({
+    where: { collectionId, productId },
+  });
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidateTag("collections", "default");
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Règles de peuplement automatique
+// ─────────────────────────────────────────────
+
+const RuleInputSchema = z.object({
+  seasonId: z.string().nullable().optional(),
+  categoryIds: z.array(z.string()).optional(),
+  subCategoryIds: z.array(z.string()).optional(),
+  tagIds: z.array(z.string()).optional(),
+  compositions: z
+    .array(
+      z.object({
+        compositionId: z.string(),
+        minPercent: z.number().min(0).max(100).optional(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * Crée ou met à jour la règle d'une collection, puis recalcule immédiatement
+ * son contenu automatique.
+ */
+export async function setCollectionRule(collectionId: string, input: CollectionRuleInput) {
+  await requireAdmin();
+
+  const parsed = RuleInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0].message };
+  }
+
+  const shape = normalizeRuleInput(parsed.data);
+  if (isRuleEmpty(shape)) {
+    return {
+      success: false as const,
+      error: "La règle doit contenir au moins un critère.",
+    };
+  }
+
+  const collection = await prisma.collection.findUnique({
+    where: { id: collectionId },
+    select: { id: true },
+  });
+  if (!collection) {
+    return { success: false as const, error: "Collection introuvable." };
+  }
+
+  await prisma.collectionRule.upsert({
+    where: { collectionId },
+    create: {
+      collectionId,
+      seasonId: shape.seasonId,
+      categoryIds: shape.categoryIds,
+      subCategoryIds: shape.subCategoryIds,
+      tagIds: shape.tagIds,
+      compositions: shape.compositions as unknown as object,
+    },
+    update: {
+      seasonId: shape.seasonId,
+      categoryIds: shape.categoryIds,
+      subCategoryIds: shape.subCategoryIds,
+      tagIds: shape.tagIds,
+      compositions: shape.compositions as unknown as object,
+    },
+  });
+
+  let result;
+  try {
+    result = await runRecalculateCollection(collectionId);
+  } catch (err) {
+    logger.error("[collections] setCollectionRule: recalcul échoué", {
+      collectionId,
+      error: err,
+    });
+    result = null;
+  }
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidatePath(`/collections/${collectionId}`);
+  revalidatePath("/admin/collections");
+  revalidateTag("collections", "default");
+
+  return { success: true as const, result };
+}
+
+/**
+ * Supprime la règle. Les produits AUTO déjà présents restent (mais deviennent
+ * orphelins — la cliente peut les épingler ou les retirer un par un).
+ */
+export async function removeCollectionRule(collectionId: string) {
+  await requireAdmin();
+
+  await prisma.collectionRule.deleteMany({ where: { collectionId } });
+
+  revalidatePath(`/admin/collections/${collectionId}/modifier`);
+  revalidatePath(`/collections/${collectionId}`);
+  revalidateTag("collections", "default");
+  return { success: true as const };
+}
+
+/**
+ * Bouton « Recalculer maintenant » de l'éditeur.
+ */
+export async function recalculateCollectionAction(collectionId: string) {
+  await requireAdmin();
+  try {
+    const result = await runRecalculateCollection(collectionId);
+    revalidatePath(`/admin/collections/${collectionId}/modifier`);
+    revalidatePath(`/collections/${collectionId}`);
+    revalidateTag("collections", "default");
+    return { success: true as const, result };
+  } catch (err) {
+    logger.error("[collections] recalcul manuel échoué", {
+      collectionId,
+      error: err,
+    });
+    return { success: false as const, error: "Recalcul échoué." };
+  }
+}
+
+/**
+ * Preview UI : compte les produits qui matcheraient une règle donnée (sans la
+ * sauvegarder). Utilisé par l'éditeur pour afficher « N produits éligibles »
+ * en direct.
+ */
+export async function previewRuleMatchCount(input: CollectionRuleInput) {
+  await requireAdmin();
+  const parsed = RuleInputSchema.safeParse(input);
+  if (!parsed.success) return { count: 0 };
+  const shape: CollectionRuleShape = normalizeRuleInput(parsed.data);
+  const count = await countProductsMatchingRule(shape);
+  return { count };
+}
+
+/**
+ * Renvoie la règle courante + la liste des exclusions actives (avec noms de
+ * produits). Utilisé par la page d'édition pour afficher l'état.
+ */
+export async function getCollectionRuleAndExclusions(collectionId: string) {
+  await requireAdmin();
+
+  const [rule, exclusions] = await Promise.all([
+    prisma.collectionRule.findUnique({
+      where: { collectionId },
+      select: {
+        seasonId: true,
+        categoryIds: true,
+        subCategoryIds: true,
+        tagIds: true,
+        compositions: true,
+        lastRecalculatedAt: true,
+      },
+    }),
+    prisma.collectionExclusion.findMany({
+      where: { collectionId },
+      select: {
+        productId: true,
+        excludedAt: true,
+        product: { select: { id: true, name: true, reference: true } },
+      },
+      orderBy: { excludedAt: "desc" },
+    }),
+  ]);
+
+  return {
+    rule: rule ? { ...parseStoredRule(rule), lastRecalculatedAt: rule.lastRecalculatedAt } : null,
+    exclusions: exclusions.map((e) => ({
+      productId: e.productId,
+      excludedAt: e.excludedAt,
+      name: e.product.name,
+      reference: e.product.reference,
+    })),
+  };
 }

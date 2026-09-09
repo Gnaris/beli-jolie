@@ -122,7 +122,7 @@ export default function FaireOrderDrawer({ order, onClose }: Props) {
               </div>
               {order.adminClientCardId && (
                 <Link
-                  href={`/admin/utilisateurs?tab=fiches&card=${order.adminClientCardId}`}
+                  href={`/admin/clients?tab=fiches&card=${order.adminClientCardId}`}
                   className="inline-block mt-2 text-xs text-text-secondary hover:text-text-primary underline"
                 >
                   Voir la fiche client

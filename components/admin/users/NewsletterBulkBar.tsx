@@ -128,7 +128,7 @@ export default function NewsletterBulkBar({ templates }: Props) {
                     {templates.length === 0 ? (
                       <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 text-sm text-amber-800">
                         Aucun modèle enregistré.{" "}
-                        <Link href="/admin/utilisateurs/newsletters" className="underline font-semibold">
+                        <Link href="/admin/marketing/mails" className="underline font-semibold">
                           Créer un modèle →
                         </Link>
                       </div>
@@ -146,7 +146,7 @@ export default function NewsletterBulkBar({ templates }: Props) {
                           </div>
                         )}
                         <Link
-                          href="/admin/utilisateurs/newsletters"
+                          href="/admin/marketing/mails"
                           className="mt-2 inline-block text-[11px] text-violet-700 font-semibold hover:underline"
                         >
                           + Gérer mes modèles

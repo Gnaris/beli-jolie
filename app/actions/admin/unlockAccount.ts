@@ -21,6 +21,6 @@ export async function unlockAccount(email: string) {
     where: { email: normalizedEmail },
   });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   return { success: true };
 }

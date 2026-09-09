@@ -514,19 +514,20 @@ export async function pullAddLocalVariantFromPfs(
 /**
  * Retire une `ProductColor` locale (identifiée par `colorRef` + `variantType`).
  *
- *   - Cas normal (aucune commande historique) : suppression pure, cascade
- *     Prisma (VariantSize / PackColorLine / ProductColorImage) + nettoyage
- *     panier.
- *   - Cas commandé (au moins une OrderItem des 4 tables marketplace ou du
- *     panier historique référence cette variante) : impossible à supprimer
- *     sans casser la traçabilité comptable. **Fallback** : la variante est
- *     désactivée (`disabled = true`, invisible côté clients) et son stock
- *     est mis à zéro — sur `ProductColor.stock`, toutes les `VariantSize`,
- *     et les `PackColorLineSize` si PACK multi-couleurs. Les autres
- *     variantes du produit ne bougent pas.
+ * Suppression pure — la variante est effacée de la BDD, cascade Prisma sur
+ * VariantSize / PackColorLine / ProductColorImage / CartItem. Les commandes
+ * historiques (OrderItem, PfsOrderItem, EfashionOrderItem, AnkorstoreOrderItem,
+ * FaireOrderItem, OrderchampOrderItem, MicrostoreOrderItem) sont préservées
+ * grâce à `onDelete: SetNull` sur leur relation `productColor` — elles gardent
+ * leur `productColorId = null` mais aussi leurs snapshots texte
+ * (`colorLabelFr`, `productSnapshotName`, `variantSnapshot` selon la table),
+ * qui suffisent à afficher facture / historique client sans le lien vivant.
  *
- * Dans les deux cas, `ok: true`. Le message précise le mode appliqué pour
- * que la modale d'audit puisse l'afficher.
+ * Les flags de resync marketplace sont posés (`ankorsSyncRequired`,
+ * `efashionSyncRequired`, `faireSyncRequired`). C'est chaque marketplace qui
+ * gère son propre fallback disable+stock 0 si la suppression distante n'est
+ * pas autorisée par la plateforme (cas typique : variante commandée côté PFS
+ * / eFashion → ces plateformes refusent le DELETE et on doit désactiver).
  */
 export async function pullRemoveLocalVariant(
   productId: string,
@@ -567,70 +568,12 @@ export async function pullRemoveLocalVariant(
     };
   }
 
-  // Intégrité comptable : si commandée, on ne peut pas supprimer. On tombe
-  // sur un fallback "désactivation + stock 0" plutôt que d'échouer.
-  const [ordered, pfsOrdered, efashionOrdered, ankorsOrdered] = await Promise.all([
-    prisma.orderItem.count({ where: { productColorId: local.id } }),
-    prisma.pfsOrderItem.count({ where: { productColorId: local.id } }),
-    prisma.efashionOrderItem.count({ where: { productColorId: local.id } }),
-    prisma.ankorstoreOrderItem.count({ where: { productColorId: local.id } }),
-  ]);
-  const totalOrders = ordered + pfsOrdered + efashionOrdered + ankorsOrdered;
-
   const otherMarketplaceFlags: Prisma.ProductUpdateInput = {};
   if (product.ankorsProductId) otherMarketplaceFlags.ankorsSyncRequired = true;
   if (product.efashionReferenceBase) otherMarketplaceFlags.efashionSyncRequired = true;
   if (product.faireProductId) otherMarketplaceFlags.faireSyncRequired = true;
 
-  if (totalOrders > 0) {
-    await prisma.$transaction(async (tx) => {
-      const packLines = await tx.packColorLine.findMany({
-        where: { productColorId: local.id },
-        select: { id: true },
-      });
-      await tx.variantSize.updateMany({
-        where: { productColorId: local.id },
-        data: { quantity: 0 },
-      });
-      if (packLines.length > 0) {
-        await tx.packColorLineSize.updateMany({
-          where: { packColorLineId: { in: packLines.map((l) => l.id) } },
-          data: { quantity: 0 },
-        });
-      }
-      await tx.cartItem.deleteMany({ where: { variantId: local.id } });
-      await tx.productColor.update({
-        where: { id: local.id },
-        data: { disabled: true, stock: 0 },
-      });
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          ...otherMarketplaceFlags,
-          pfsSyncRequired: false,
-          pfsLastSyncSnapshot: Prisma.DbNull,
-        },
-      });
-    }, { timeout: 15000 });
-
-    logger.info("[PFS Verify Ops] Variant deactivated (historic orders)", {
-      productReference: product.reference,
-      colorRef,
-      variantType,
-      totalOrders,
-    });
-
-    return {
-      ok: true,
-      message: `Variante ${colorRef} désactivée et stock mis à zéro (${totalOrders} commande${totalOrders > 1 ? "s" : ""} historique${totalOrders > 1 ? "s" : ""} préservée${totalOrders > 1 ? "s" : ""}).`,
-    };
-  }
-
   await prisma.$transaction(async (tx) => {
-    // Cascade Prisma existante : ProductColor onDelete: Cascade sur
-    // VariantSize/PackColorLine/ProductColorImage. CartItem est en Cascade
-    // via variantId. Panier persistant : on nettoie explicitement pour être
-    // safe si le schéma n'a pas de cascade dessus.
     await tx.cartItem.deleteMany({ where: { variantId: local.id } });
     await tx.productColor.delete({ where: { id: local.id } });
 
@@ -639,6 +582,12 @@ export async function pullRemoveLocalVariant(
       data: { ...otherMarketplaceFlags, pfsSyncRequired: false, pfsLastSyncSnapshot: Prisma.DbNull },
     });
   }, { timeout: 15000 });
+
+  logger.info("[PFS Verify Ops] Variant deleted", {
+    productReference: product.reference,
+    colorRef,
+    variantType,
+  });
 
   return { ok: true, message: `Variante ${colorRef} retirée chez nous.` };
 }

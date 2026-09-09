@@ -88,7 +88,7 @@ export default function PfsOrderDrawer({ order, onClose }: Props) {
             <div className="rounded-xl border border-border bg-bg-secondary p-4 text-sm flex items-center justify-between">
               <span className="text-text-secondary">Fiche client rattachée</span>
               <Link
-                href={`/admin/utilisateurs?tab=fiches&card=${order.adminClientCardId}`}
+                href={`/admin/clients?tab=fiches&card=${order.adminClientCardId}`}
                 className="text-text-primary font-medium hover:underline"
               >
                 Ouvrir la fiche →

@@ -30,7 +30,7 @@ export async function setUserNewsletter(userId: string, accept: boolean) {
     data: { acceptsNewsletter: Boolean(accept) },
   });
 
-  revalidatePath(`/admin/utilisateurs/${userId}`);
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath(`/admin/clients/${userId}`);
+  revalidatePath("/admin/clients");
   return { success: true, acceptsNewsletter: Boolean(accept) };
 }

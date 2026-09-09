@@ -1,19 +1,18 @@
 /**
- * `pullRemoveLocalVariant` — comportement quand la variante a des commandes
- * historiques.
+ * `pullRemoveLocalVariant` — suppression locale d'une variante.
  *
- * Règle métier (2026-09-09) : si la couleur qu'on veut retirer chez nous a
- * déjà été commandée (Order / PfsOrder / EfashionOrder / AnkorstoreOrder),
- * on ne PEUT pas la supprimer sans casser la traçabilité comptable. On
- * bascule sur un fallback qui :
- *   - passe la variante à `disabled = true` (invisible côté client)
- *   - met `ProductColor.stock = 0`
- *   - met toutes les `VariantSize.quantity = 0`
- *   - met toutes les `PackColorLineSize.quantity = 0` si PACK
- *   - retire les CartItem qui la référencent
- *   - ne touche PAS aux autres variantes du même produit
- * Le résultat est `ok: true` (ce n'est pas une erreur), avec un message qui
- * précise le mode appliqué pour la modale d'audit.
+ * Règle métier (2026-09-10, révisée) : la cliente veut supprimer la variante
+ * côté BJ dans TOUS les cas, y compris quand la couleur a déjà des commandes
+ * historiques (Order / PfsOrder / EfashionOrder / AnkorstoreOrder /
+ * FaireOrder / OrderchampOrder / MicrostoreOrder). Les commandes conservent
+ * leurs snapshots texte (colorLabelFr, productSnapshotName, variantSnapshot)
+ * et `ProductColor.productColorId` passe automatiquement à NULL grâce au
+ * `onDelete: SetNull` déclaré sur chaque table `*OrderItem`.
+ *
+ * La désactivation + stock 0 doit rester la responsabilité de chaque
+ * marketplace côté distant (via son propre worker de sync) quand sa
+ * plateforme refuse la suppression d'une variante commandée — ce n'est plus
+ * la responsabilité de la BDD BJ locale.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -34,10 +33,6 @@ const { prismaMock, txMock } = vi.hoisted(() => {
     txMock: tx,
     prismaMock: {
       product: { findUnique: vi.fn() },
-      orderItem: { count: vi.fn() },
-      pfsOrderItem: { count: vi.fn() },
-      efashionOrderItem: { count: vi.fn() },
-      ankorstoreOrderItem: { count: vi.fn() },
       $transaction: vi.fn(async (cb: (tx: typeof tx) => Promise<unknown>) => cb(tx)),
     },
   };
@@ -115,13 +110,8 @@ beforeEach(() => {
   prismaMock.$transaction.mockImplementation(async (cb: (tx: typeof txMock) => Promise<unknown>) => cb(txMock));
 });
 
-describe("pullRemoveLocalVariant — sans commande historique", () => {
-  it("supprime purement la ProductColor (comportement historique)", async () => {
-    prismaMock.orderItem.count.mockResolvedValue(0);
-    prismaMock.pfsOrderItem.count.mockResolvedValue(0);
-    prismaMock.efashionOrderItem.count.mockResolvedValue(0);
-    prismaMock.ankorstoreOrderItem.count.mockResolvedValue(0);
-
+describe("pullRemoveLocalVariant — suppression pure", () => {
+  it("supprime la ProductColor et purge le panier (aucune commande historique)", async () => {
     const res = await pullRemoveLocalVariant("prod-1", "BLACK", "UNIT");
 
     expect(res.ok).toBe(true);
@@ -130,62 +120,43 @@ describe("pullRemoveLocalVariant — sans commande historique", () => {
     expect(txMock.variantSize.updateMany).not.toHaveBeenCalled();
     expect(txMock.cartItem.deleteMany).toHaveBeenCalledWith({ where: { variantId: "pc-noir" } });
   });
-});
 
-describe("pullRemoveLocalVariant — avec commandes historiques", () => {
-  it("désactive la variante et met stock + tailles à 0 (fallback)", async () => {
-    prismaMock.orderItem.count.mockResolvedValue(0);
-    prismaMock.pfsOrderItem.count.mockResolvedValue(0);
-    prismaMock.efashionOrderItem.count.mockResolvedValue(2);
-    prismaMock.ankorstoreOrderItem.count.mockResolvedValue(0);
-    txMock.packColorLine.findMany.mockResolvedValue([]);
-
+  it("supprime AUSSI quand la variante a des commandes historiques (règle 2026-09-10)", async () => {
+    // Peu importe l'existence de commandes historiques : la fonction n'appelle
+    // plus `orderItem.count` et supprime toujours. Les snapshots texte sur
+    // *OrderItem (colorLabelFr, productSnapshotName…) suffisent à préserver
+    // l'historique côté facturation / commandes.
     const res = await pullRemoveLocalVariant("prod-1", "BLACK", "UNIT");
 
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.message).toMatch(/désactivée/i);
-    expect(txMock.productColor.delete).not.toHaveBeenCalled();
-    expect(txMock.productColor.update).toHaveBeenCalledWith({
-      where: { id: "pc-noir" },
-      data: { disabled: true, stock: 0 },
-    });
-    expect(txMock.variantSize.updateMany).toHaveBeenCalledWith({
-      where: { productColorId: "pc-noir" },
-      data: { quantity: 0 },
-    });
-    expect(txMock.cartItem.deleteMany).toHaveBeenCalledWith({ where: { variantId: "pc-noir" } });
-    // Aucune autre variante ne doit être touchée : les mocks ci-dessus ne
-    // reçoivent que "pc-noir" et jamais "pc-beige".
-    for (const call of txMock.productColor.update.mock.calls) {
-      expect(call[0].where.id).toBe("pc-noir");
-    }
+    if (res.ok) expect(res.message).toMatch(/retirée/i);
+    expect(txMock.productColor.delete).toHaveBeenCalledWith({ where: { id: "pc-noir" } });
+    // Pas de fallback "disabled + stock 0" : la variante disparaît vraiment.
+    expect(txMock.productColor.update).not.toHaveBeenCalled();
+    expect(txMock.variantSize.updateMany).not.toHaveBeenCalled();
+    expect(txMock.packColorLineSize.updateMany).not.toHaveBeenCalled();
   });
 
-  it("met aussi PackColorLineSize à 0 pour un PACK multi-couleurs", async () => {
-    prismaMock.orderItem.count.mockResolvedValue(1);
-    prismaMock.pfsOrderItem.count.mockResolvedValue(0);
-    prismaMock.efashionOrderItem.count.mockResolvedValue(0);
-    prismaMock.ankorstoreOrderItem.count.mockResolvedValue(0);
-    txMock.packColorLine.findMany.mockResolvedValue([{ id: "pl-1" }, { id: "pl-2" }]);
-
-    const res = await pullRemoveLocalVariant("prod-1", "BLACK", "UNIT");
-
-    expect(res.ok).toBe(true);
-    expect(txMock.packColorLineSize.updateMany).toHaveBeenCalledWith({
-      where: { packColorLineId: { in: ["pl-1", "pl-2"] } },
-      data: { quantity: 0 },
+  it("marque `*SyncRequired` pour les marketplaces liées afin de propager la suppression", async () => {
+    prismaMock.product.findUnique.mockResolvedValue({
+      ...productBase,
+      ankorsProductId: "ankor-42",
+      efashionReferenceBase: "REF42",
+      faireProductId: "faire-42",
     });
-  });
-
-  it("compte le total quand plusieurs marketplaces référencent la variante", async () => {
-    prismaMock.orderItem.count.mockResolvedValue(1);
-    prismaMock.pfsOrderItem.count.mockResolvedValue(2);
-    prismaMock.efashionOrderItem.count.mockResolvedValue(3);
-    prismaMock.ankorstoreOrderItem.count.mockResolvedValue(0);
 
     const res = await pullRemoveLocalVariant("prod-1", "BLACK", "UNIT");
 
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.message).toMatch(/6 commandes historiques/);
+    expect(txMock.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ankorsSyncRequired: true,
+          efashionSyncRequired: true,
+          faireSyncRequired: true,
+          pfsSyncRequired: false,
+        }),
+      }),
+    );
   });
 });

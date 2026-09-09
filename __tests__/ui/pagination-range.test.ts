@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 // Mock next/navigation avant l'import (le composant est client)
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/admin/utilisateurs",
+  usePathname: () => "/admin/clients",
   useSearchParams: () => new URLSearchParams(),
 }));
 

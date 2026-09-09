@@ -20,5 +20,5 @@ export default async function NewsletterEditorPage({
   const template = await getNewsletterTemplate(id);
   if (!template) notFound();
 
-  return <NewsletterEditorClient template={template} />;
+  return <NewsletterEditorClient template={template} backUrl="/admin/marketing/mails" />;
 }

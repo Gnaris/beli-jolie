@@ -3,7 +3,7 @@
 /**
  * Server actions du Journal des emails (par client).
  *
- * Alimente la modale « Journal » ouverte depuis /admin/utilisateurs?view=mails :
+ * Alimente la modale « Journal » ouverte depuis /admin/clients?view=mails :
  *  - listUserEmailJournal : liste paginée + filtres type/statut/période
  *  - getEmailSendDetail : détail complet d'un mail (HTML inclus)
  *  - resendEmail : renvoie un mail à partir de sa trace (crée un nouveau
@@ -245,7 +245,7 @@ export async function resendEmail(
       return { success: false, error: reason };
     }
 
-    revalidatePath("/admin/utilisateurs");
+    revalidatePath("/admin/clients");
     // Le nouvel EmailSend est créé par sendMail — on relit pour renvoyer l'id.
     const created = await prisma.emailSend.findFirst({
       where: {

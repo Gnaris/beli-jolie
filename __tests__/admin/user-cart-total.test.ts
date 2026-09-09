@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 
-// Réplique le calcul du `cartTotal` affiché sur /admin/utilisateurs/[id]
-// (cf. app/(admin)/admin/utilisateurs/[id]/page.tsx).
+// Réplique le calcul du `cartTotal` affiché sur /admin/clients/[id]
+// (cf. app/(admin)/admin/clients/[id]/page.tsx).
 // Rappel : `unitPrice` en BDD est le prix TOTAL aussi bien pour UNIT que pour
 // PACK (cf. ProductForm.tsx → `unitPrice: computeTotalPrice(v)` pour les PACK).
 // Avant correction, ce calcul multipliait à nouveau par `packQuantity` pour les
@@ -21,7 +21,7 @@ function computeAdminCartTotal(items: CartItem[]): number {
   }, 0);
 }
 
-describe("/admin/utilisateurs/[id] — total du panier", () => {
+describe("/admin/clients/[id] — total du panier", () => {
   it("PACK : utilise le prix total du pack tel quel (pas × packQuantity)", () => {
     const items: CartItem[] = [
       { quantity: 1, variant: { unitPrice: 39.6, saleType: "PACK", packQuantity: 12 } },

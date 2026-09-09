@@ -2,7 +2,7 @@
 
 /**
  * Modale « Journal des emails » d'un client.
- * Ouverte depuis <EmailJournalButton> dans /admin/utilisateurs?view=mails.
+ * Ouverte depuis <EmailJournalButton> dans /admin/clients?view=mails.
  *
  * Affiche la liste paginée + filtres (type / statut / période).
  * Clic sur une ligne → ouvre <EmailDetailModal> avec le contenu HTML.

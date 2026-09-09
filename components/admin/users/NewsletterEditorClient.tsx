@@ -121,6 +121,19 @@ function replaceBlobUrls(blocks: NewsletterBlock[], map: Map<string, string>): N
 
 interface Props {
   template: NewsletterTemplateFull;
+  /**
+   * URL de retour pour le bouton « ← Retour » et la modale « Quitter sans
+   * enregistrer ». Défaut : `/admin/marketing/mails` (hub des mails).
+   * Utilisé par la variante panier abandonné pour renvoyer vers la config
+   * des stades plutôt que la liste générale des modèles.
+   */
+  backUrl?: string;
+  /**
+   * Si fourni, remplace la navigation `router.push(backUrl)` par cet appel —
+   * utilisé quand l'éditeur est monté dans une modale (fermer = fermer la
+   * modale, pas naviguer). Reçoit un `save` flag pour info si besoin.
+   */
+  onLeave?: () => void;
 }
 
 interface BlockMeta {
@@ -157,7 +170,7 @@ interface ProductLite {
   priceCents: number | null;
 }
 
-export default function NewsletterEditorClient({ template }: Props) {
+export default function NewsletterEditorClient({ template, backUrl = "/admin/marketing/mails", onLeave }: Props) {
   const toast = useToast();
   const router = useRouter();
   const scenarioKey: ScenarioKey | null = template.scenarioKey;
@@ -401,20 +414,22 @@ export default function NewsletterEditorClient({ template }: Props) {
     }
     pendingFiles.current.clear();
     setDirty(false);
-    const href = leaveModal?.next ?? "/admin/utilisateurs/newsletters";
+    const href = leaveModal?.next ?? backUrl;
     setLeaveModal(null);
-    router.push(href);
-  }, [leaveModal, router]);
+    if (onLeave) onLeave();
+    else router.push(href);
+  }, [leaveModal, router, backUrl, onLeave]);
 
   const saveAndLeave = useCallback(() => {
     startSaving(async () => {
       const ok = await persist();
       if (!ok) return;
-      const href = leaveModal?.next ?? "/admin/utilisateurs/newsletters";
+      const href = leaveModal?.next ?? backUrl;
       setLeaveModal(null);
-      router.push(href);
+      if (onLeave) onLeave();
+      else router.push(href);
     });
-  }, [persist, leaveModal, router]);
+  }, [persist, leaveModal, router, backUrl, onLeave]);
 
   // Compat legacy : quelques callbacks utilisaient `commit` ; on garde l'alias.
   const commit = stage;
@@ -680,7 +695,12 @@ export default function NewsletterEditorClient({ template }: Props) {
         <div className="flex items-center gap-4 min-w-0 flex-1">
           <button
             type="button"
-            onClick={() => requestLeave("/admin/utilisateurs/newsletters")}
+            onClick={() => {
+              // En mode modale, requestLeave utilise le callback onLeave via
+              // leaveWithoutSaving/saveAndLeave — la modale « quitter sans
+              // enregistrer » s'affiche quand même si dirty=true.
+              requestLeave(backUrl);
+            }}
             className="text-xs font-body font-semibold text-text-secondary hover:text-text-primary shrink-0"
           >
             ← Retour

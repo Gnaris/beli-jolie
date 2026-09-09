@@ -586,7 +586,7 @@ export async function addPurchaseToClientCard(input: {
     });
   }
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   return { success: true as const, productId: product.id, colorId: color.id };
 }
 
@@ -678,7 +678,7 @@ export async function updatePurchase(input: {
           where: { id: current.id },
         }),
       ]);
-      revalidatePath("/admin/utilisateurs");
+      revalidatePath("/admin/clients");
       return { success: true as const };
     }
   }
@@ -688,7 +688,7 @@ export async function updatePurchase(input: {
     data: { source: input.source, quantity },
   });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   return { success: true as const };
 }
 
@@ -710,7 +710,7 @@ export async function deletePurchase(
 
   await prisma.adminClientCardProductPurchase.delete({ where: { id: entry.id } });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   return { success: true as const };
 }
 

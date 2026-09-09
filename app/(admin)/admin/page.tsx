@@ -227,7 +227,7 @@ export default async function AdminDashboardPage() {
               <div className="flex flex-wrap items-center gap-2 shrink-0">
                 {pendingCount > 0 && (
                   <AlertPill
-                    href="/admin/utilisateurs?status=PENDING"
+                    href="/admin/clients?status=PENDING"
                     count={pendingCount}
                     label={`demande${pendingCount > 1 ? "s" : ""} à examiner`}
                     tone="amber"
@@ -274,7 +274,7 @@ export default async function AdminDashboardPage() {
             }
           />
           <KpiTile
-            href="/admin/utilisateurs?status=PENDING"
+            href="/admin/clients?status=PENDING"
             label="Clients à examiner"
             value={pendingCount.toString()}
             tone={pendingCount > 0 ? "warning" : null}
@@ -361,7 +361,7 @@ export default async function AdminDashboardPage() {
           </div>
           {pendingCount > 5 && (
             <Link
-              href="/admin/utilisateurs?status=PENDING"
+              href="/admin/clients?status=PENDING"
               className="text-xs sm:text-sm text-text-primary hover:text-text-secondary font-body font-medium transition-colors underline underline-offset-2"
             >
               Voir tout ({pendingCount})
@@ -385,7 +385,7 @@ export default async function AdminDashboardPage() {
               {latestPending.map((user) => (
                 <Link
                   key={user.id}
-                  href={`/admin/utilisateurs/${user.id}`}
+                  href={`/admin/clients/${user.id}`}
                   className="block bg-bg-primary border border-border rounded-2xl p-4 shadow-sm hover:shadow-card-md transition-all"
                 >
                   <div className="flex items-start gap-3">
@@ -448,7 +448,7 @@ export default async function AdminDashboardPage() {
                           </p>
                         </td>
                         <td className="px-5 py-4 text-right whitespace-nowrap">
-                          <Link href={`/admin/utilisateurs/${user.id}`} className="btn-primary text-xs">Examiner</Link>
+                          <Link href={`/admin/clients/${user.id}`} className="btn-primary text-xs">Examiner</Link>
                         </td>
                       </tr>
                     ))}
@@ -465,7 +465,7 @@ export default async function AdminDashboardPage() {
         <SectionHeader eyebrow="Accès rapides" title="naviguer dans l'admin" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           <QuickLinkTile
-            href="/admin/utilisateurs"
+            href="/admin/clients"
             label="Clients"
             desc="Voir et valider les comptes"
             icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>}

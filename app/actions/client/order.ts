@@ -19,6 +19,8 @@ import {
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
+import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -806,6 +808,17 @@ export async function placeOrder(
 
       return created;
     });
+
+    // Annule le job de relance panier abandonné (s'il existait) : commande
+    // passée = plus aucun rappel à envoyer. Fire-and-forget, hors transaction.
+    try {
+      const tenantId = await getCurrentTenantId();
+      if (tenantId) {
+        await cancelAbandonedCartJob(userId, tenantId, "ORDER_CREATED");
+      }
+    } catch (err) {
+      logger.error("[placeOrder] cancel abandoned cart failed", { userId, error: err as Error });
+    }
   } catch (err) {
     if (err instanceof StockError) {
       logger.warn("[placeOrder] Stock insuffisant", { message: err.message });

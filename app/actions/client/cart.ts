@@ -4,6 +4,20 @@ import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCurrentTenantId } from "@/lib/tenant";
+import { bumpAbandonedCartTimer } from "@/lib/abandoned-cart-trigger";
+
+/**
+ * Déclenche la mise à jour du timer de relance panier abandonné.
+ * Fire-and-forget : les erreurs internes du trigger ne cassent jamais la
+ * mutation panier utilisateur (elles sont loggées côté helper).
+ * Skip silencieusement si aucun tenant résolu (script CLI, appel hors requête).
+ */
+async function fireAbandonedCartTrigger(userId: string): Promise<void> {
+  const tenantId = await getCurrentTenantId();
+  if (!tenantId) return;
+  await bumpAbandonedCartTimer(userId, tenantId);
+}
 
 // ─────────────────────────────────────────────
 // Helper
@@ -356,6 +370,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
     if (existing) {
       await prisma.cartItem.delete({ where: { id: existing.id } });
       revalidatePath("/panier");
+      await fireAbandonedCartTrigger(userId);
     }
     return { success: true as const, quantity: 0, capped: false };
   }
@@ -398,6 +413,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
   }
 
   revalidatePath("/panier");
+  await fireAbandonedCartTrigger(userId);
   return { success: true as const, quantity: cappedQty, capped };
 }
 
@@ -481,6 +497,7 @@ export async function addToCart(variantId: string, quantity: number = 1) {
   }
 
   revalidatePath("/panier");
+  await fireAbandonedCartTrigger(userId);
 }
 
 // ─────────────────────────────────────────────
@@ -558,6 +575,7 @@ export async function addMultipleToCart(
   }
 
   revalidatePath("/panier");
+  if (addedCount > 0) await fireAbandonedCartTrigger(userId);
   return { addedCount, errors };
 }
 
@@ -587,6 +605,7 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   if (quantity <= 0) {
     await prisma.cartItem.delete({ where: { id: cartItemId } });
     revalidatePath("/panier");
+    await fireAbandonedCartTrigger(userId);
     return undefined;
   }
 
@@ -609,6 +628,7 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
   });
 
   revalidatePath("/panier");
+  await fireAbandonedCartTrigger(userId);
   return { quantity: finalQuantity, capped: finalQuantity < quantity };
 }
 
@@ -626,6 +646,7 @@ export async function removeFromCart(cartItemId: string) {
 
   await prisma.cartItem.delete({ where: { id: cartItemId } });
   revalidatePath("/panier");
+  await fireAbandonedCartTrigger(userId);
 }
 
 // ─────────────────────────────────────────────
@@ -640,6 +661,8 @@ export async function clearCart() {
 
   await prisma.cartItem.deleteMany({ where: { cartId: cart.id } });
   revalidatePath("/panier");
+  // Panier vide → trigger annule le job pending (CART_EMPTY).
+  await fireAbandonedCartTrigger(userId);
 }
 
 // ─────────────────────────────────────────────

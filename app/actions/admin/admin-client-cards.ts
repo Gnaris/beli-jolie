@@ -126,7 +126,7 @@ export async function createAdminClientCard(input: AdminClientCardInput) {
     select: { id: true },
   });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   revalidateTag("admin-client-cards", "default");
   return { success: true as const, id: created.id };
 }
@@ -151,7 +151,7 @@ export async function updateAdminClientCard(id: string, input: AdminClientCardIn
     data: toPrismaData(parsed.data),
   });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   revalidateTag("admin-client-cards", "default");
   return { success: true as const };
 }
@@ -167,7 +167,7 @@ export async function deleteAdminClientCard(id: string) {
 
   await prisma.adminClientCard.delete({ where: { id } });
 
-  revalidatePath("/admin/utilisateurs");
+  revalidatePath("/admin/clients");
   revalidateTag("admin-client-cards", "default");
   return { success: true as const };
 }

@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
             suite à de trop nombreuses tentatives de connexion échouées.</p>
             <p>L'utilisateur demande un déblocage.</p>
             <div style="margin-top:20px;">
-              <a href="${baseUrl}/admin/utilisateurs"
+              <a href="${baseUrl}/admin/clients"
                  style="background:#1A1A1A;color:#fff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
                 Gérer les utilisateurs →
               </a>

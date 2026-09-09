@@ -11,7 +11,7 @@ import type { UserStatus } from "@prisma/client";
  *
  * Wrap client-side pour contourner un bug Next.js 16 : quand l'action
  * `updateUserStatus` faisait `redirect()` depuis cette route dynamique
- * (`/admin/utilisateurs/[id]`), Next.js perdait le client reference
+ * (`/admin/clients/[id]`), Next.js perdait le client reference
  * manifest et renvoyait une page blanche. On appelle donc l'action
  * comme un simple RPC puis on navigue via `router.push` côté navigateur.
  */
@@ -34,7 +34,7 @@ export default function UserStatusActions({
         return;
       }
       toast.success(successMessage);
-      router.push("/admin/utilisateurs");
+      router.push("/admin/clients");
       router.refresh();
     });
   }

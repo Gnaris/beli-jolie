@@ -142,7 +142,7 @@ export async function assignTemplateToScenario(
         data: { scenarioKey: scenario },
       });
     });
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (err) {
     logger.error("[assignTemplateToScenario]", { templateId, scenario, error: err as Error });
@@ -187,9 +187,9 @@ export async function resetScenarioTemplateToDefault(
           blocks: def.blocks as unknown as object,
         },
       });
-      revalidatePath(`/admin/utilisateurs/newsletters/${existing.id}`);
+      revalidatePath(`/admin/marketing/mails/${existing.id}`);
     }
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (err) {
     logger.error("[resetScenarioTemplateToDefault]", { scenario, error: err as Error });
@@ -240,7 +240,7 @@ export async function createNewsletterTemplate(
         blocks: [],
       },
     });
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true, id: row.id };
   } catch (err) {
     logger.error("[createNewsletterTemplate]", { error: err as Error });
@@ -291,8 +291,8 @@ export async function updateNewsletterTemplate(
         ...(data.blocks !== undefined ? { blocks: data.blocks as unknown as object } : {}),
       },
     });
-    revalidatePath("/admin/utilisateurs/newsletters");
-    revalidatePath(`/admin/utilisateurs/newsletters/${id}`);
+    revalidatePath("/admin/marketing/mails");
+    revalidatePath(`/admin/marketing/mails/${id}`);
     return { success: true };
   } catch (err) {
     logger.error("[updateNewsletterTemplate]", { id, error: err as Error });
@@ -317,7 +317,7 @@ export async function deleteNewsletterTemplate(
       };
     }
     await prisma.newsletterTemplate.delete({ where: { id } });
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true };
   } catch (err) {
     logger.error("[deleteNewsletterTemplate]", { id, error: err as Error });
@@ -346,7 +346,7 @@ export async function duplicateNewsletterTemplate(
         scenarioKey: null,
       },
     });
-    revalidatePath("/admin/utilisateurs/newsletters");
+    revalidatePath("/admin/marketing/mails");
     return { success: true, id: copy.id };
   } catch (err) {
     logger.error("[duplicateNewsletterTemplate]", { id, error: err as Error });
