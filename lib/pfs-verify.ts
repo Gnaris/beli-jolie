@@ -999,9 +999,30 @@ export function comparePfsProduct(
     localsPerKey.set(k, (localsPerKey.get(k) ?? 0) + 1);
   }
 
+  // Match strict par pfsVariantId d'abord — chaque ProductColor legacy (case
+  // 10037/10039 Issyma : N PC UNIT même couleur, 1 taille chacune) retrouve
+  // ainsi SA variante PFS dédiée, et non pas la « dernière » écrasée dans
+  // `pfsByKey` (bug 2026-09-10 : le stock d'une taille en rupture n'était pas
+  // détecté car les 3 PC ROSE comparaient toutes leur stock à la même
+  // variante PFS ROSE arbitraire). Sanity : la couleur des deux côtés doit
+  // s'aligner (protège contre un `pfsVariantId` obsolète qui pointerait
+  // aujourd'hui vers une autre couleur PFS).
+  const pfsById = new Map<string, PfsVariantDetail>();
+  for (const pv of pfsVariants) pfsById.set(pv.id, pv);
+  const specificMatch = new Map<string, PfsVariantDetail>(); // clé = ProductColor.id
+  for (const l of locals) {
+    const pvid = l.local.pfsVariantId;
+    if (!pvid) continue;
+    const pv = pfsById.get(pvid);
+    if (!pv) continue;
+    if (pfsVariantMatchKey(pv) !== localMatchKey(l)) continue;
+    specificMatch.set(l.local.id, pv);
+  }
+
   for (const l of locals) {
     const key = localMatchKey(l);
-    const pv = pfsByKey.get(key);
+    // Priorité au match strict par pfsVariantId (voir plus haut).
+    const pv = specificMatch.get(l.local.id) ?? pfsByKey.get(key);
     if (!pv) {
       // Variante attendue mais absente sur PFS
       issues.push({
@@ -1041,7 +1062,20 @@ export function comparePfsProduct(
         }
       }
     }
-    // Comparaisons variantes
+    // Comparaisons variantes. Quand la variante PFS a été identifiée par
+    // pfsVariantId (case legacy N PC même couleur), on propage l'id sur les
+    // écarts scalaires (stock/prix/poids/actif) pour que « Envoyer PFS » /
+    // « Prendre PFS » vise LA bonne variante des deux côtés — sinon la
+    // résolution retomberait sur la 1ʳᵉ PC locale de la couleur et écraserait
+    // la mauvaise (10037 Issyma).
+    const specificPfsVariantId = specificMatch.get(l.local.id) ? pv.id : undefined;
+    // Suffixe libellé « (taille XX) » quand plusieurs PC partagent la même
+    // couleur — sinon la cliente ne peut pas distinguer visuellement les 3
+    // écarts de stock ROSE qui s'affichent d'un coup.
+    const sizeSuffix =
+      (localsPerKey.get(key) ?? 0) > 1 && l.local.variantSizes[0]
+        ? ` (taille ${l.local.variantSizes[0].size.name})`
+        : "";
     const pushV = (
       field: PfsVerifyIssueField,
       label: string,
@@ -1051,7 +1085,7 @@ export function comparePfsProduct(
       issues.push({
         scope: "color",
         field,
-        fieldLabel: label,
+        fieldLabel: label + sizeSuffix,
         colorRef: l.colorRef,
         colorName: l.colorName,
         colorHex: l.colorHex,
@@ -1059,6 +1093,7 @@ export function comparePfsProduct(
         packQuantity: l.expected.packQuantity,
         pfsValue,
         expectedValue,
+        ...(specificPfsVariantId ? { pfsVariantId: specificPfsVariantId } : {}),
       });
     };
     const pfsPrice = Number(pv.price_sale?.unit?.value ?? 0);

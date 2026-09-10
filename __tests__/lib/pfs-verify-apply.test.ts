@@ -90,6 +90,27 @@ describe("pfs-verify-apply — issueKey", () => {
     };
     expect(issueKey(unit)).not.toBe(issueKey(pack));
   });
+
+  it("distingue deux écarts stock de la même couleur via pfsVariantId (legacy N PC UNIT — 10037 Issyma 2026-09-10)", () => {
+    // Sans ce 5ᵉ segment, les 2 écarts de stock ROSE des tailles S et M
+    // auraient la MÊME clé — l'apply router écraserait la mauvaise PC quand
+    // la cliente cocherait sélectivement une seule taille dans la modale.
+    const stockM: PfsVerifyIssue = {
+      scope: "color", field: "stock", fieldLabel: "Stock (taille M)",
+      colorRef: "ROSE", variantType: "UNIT",
+      pfsVariantId: "pv-rose-m",
+      pfsValue: "0", expectedValue: "3",
+    };
+    const stockL: PfsVerifyIssue = {
+      scope: "color", field: "stock", fieldLabel: "Stock (taille L)",
+      colorRef: "ROSE", variantType: "UNIT",
+      pfsVariantId: "pv-rose-l",
+      pfsValue: "1", expectedValue: "10",
+    };
+    expect(issueKey(stockM)).toBe("color:stock:ROSE:UNIT:pv-rose-m");
+    expect(issueKey(stockL)).toBe("color:stock:ROSE:UNIT:pv-rose-l");
+    expect(issueKey(stockM)).not.toBe(issueKey(stockL));
+  });
 });
 
 describe("pfs-verify-apply — extractDimensionsFromPfs", () => {

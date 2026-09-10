@@ -474,6 +474,14 @@ interface ParsedKey {
   field: string;
   colorRef: string;
   variantType: "UNIT" | "PACK" | "";
+  /**
+   * Optionnel — pfsVariantId spécifique quand la clé issue en transporte un
+   * (5ᵉ segment). Permet de router push/pull vers LA bonne PC / variante PFS
+   * dans les cas legacy « N ProductColor UNIT même couleur, 1 taille chacune »
+   * (10037/10039 Issyma). Sans lui, `findLocalVariant` retomberait sur la
+   * 1ʳᵉ PC matchant (colorRef, variantType) et écraserait la mauvaise taille.
+   */
+  pfsVariantId?: string;
 }
 
 interface ParsedAction extends ParsedKey {
@@ -483,16 +491,37 @@ interface ParsedAction extends ParsedKey {
 
 function parseKey(key: string): ParsedKey | null {
   const parts = key.split(":");
-  if (parts.length !== 4) return null;
-  const [scope, field, colorRef, variantType] = parts;
+  if (parts.length !== 4 && parts.length !== 5) return null;
+  const [scope, field, colorRef, variantType, pfsVariantId] = parts;
   if (scope !== "product" && scope !== "color") return null;
   if (variantType !== "UNIT" && variantType !== "PACK" && variantType !== "") return null;
-  return { scope, field, colorRef, variantType };
+  return {
+    scope,
+    field,
+    colorRef,
+    variantType,
+    pfsVariantId: pfsVariantId && pfsVariantId.length > 0 ? pfsVariantId : undefined,
+  };
 }
 
 // ─── Résolution variante locale ────────────────────────────────────────────
 
-function findLocalVariant(local: LocalRow, colorRef: string, variantType: string) {
+function findLocalVariant(
+  local: LocalRow,
+  colorRef: string,
+  variantType: string,
+  pfsVariantId?: string,
+) {
+  // Priorité au match strict par pfsVariantId : indispensable quand plusieurs
+  // ProductColor legacy partagent la même couleur (1 par taille). Sans cette
+  // priorité, on écraserait le stock/prix de la 1ʳᵉ PC au lieu de celle
+  // ciblée par l'écart.
+  if (pfsVariantId) {
+    const byPfsId = local.colors.find(
+      (v) => v.pfsVariantId === pfsVariantId && v.saleType === variantType,
+    );
+    if (byPfsId) return byPfsId;
+  }
   const norm = normalizeColorRef(colorRef);
   return local.colors.find((v) => {
     if (v.saleType !== variantType) return false;
@@ -501,7 +530,16 @@ function findLocalVariant(local: LocalRow, colorRef: string, variantType: string
   });
 }
 
-function findPfsVariant(pfsVariants: PfsVariantDetail[], colorRef: string, variantType: string) {
+function findPfsVariant(
+  pfsVariants: PfsVariantDetail[],
+  colorRef: string,
+  variantType: string,
+  pfsVariantId?: string,
+) {
+  if (pfsVariantId) {
+    const byId = pfsVariants.find((pv) => pv.id === pfsVariantId);
+    if (byId) return byId;
+  }
   const norm = normalizeColorRef(colorRef);
   return pfsVariants.find((pv) => {
     if (variantType === "UNIT" && pv.type === "ITEM" && pv.item) {
@@ -754,9 +792,9 @@ export async function resolvePfsCompositionsToLocal(
 }
 
 function buildVariantPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalPatch): void {
-  const local = findLocalVariant(ctx.local, a.colorRef, a.variantType);
+  const local = findLocalVariant(ctx.local, a.colorRef, a.variantType, a.pfsVariantId);
   if (!local) throw new Error(`Variante locale ${a.colorRef}/${a.variantType} introuvable`);
-  const pv = findPfsVariant(ctx.pfsVariants, a.colorRef, a.variantType);
+  const pv = findPfsVariant(ctx.pfsVariants, a.colorRef, a.variantType, a.pfsVariantId);
   if (!pv) throw new Error(`Variante PFS ${a.colorRef}/${a.variantType} introuvable`);
 
   const existing = patch.variants.get(local.id) ?? {};
@@ -951,7 +989,7 @@ async function applyVariantPushes(
   const availability: { pfsVariantId: string; enable: boolean }[] = [];
 
   for (const a of actions) {
-    const lv = findLocalVariant(local, a.colorRef, a.variantType);
+    const lv = findLocalVariant(local, a.colorRef, a.variantType, a.pfsVariantId);
     if (!lv) throw new Error(`Variante locale ${a.colorRef}/${a.variantType} introuvable`);
     if (!lv.pfsVariantId) throw new Error(`Variante ${a.colorRef} sans identifiant PFS`);
 
@@ -1102,7 +1140,7 @@ async function applyStructuralAction(a: ParsedAction, ctx: ApplyContext): Promis
   if (a.field === "extraVariant") {
     // La variante n'existe pas chez nous — on retrouve son id PFS depuis
     // l'état chargé au début de l'apply (ctx.pfsVariants).
-    const pv = findPfsVariant(ctx.pfsVariants, a.colorRef, variantType);
+    const pv = findPfsVariant(ctx.pfsVariants, a.colorRef, variantType, a.pfsVariantId);
     if (!pv) {
       throw new Error(`Variante PFS ${a.colorRef}/${variantType} introuvable — a-t-elle déjà été supprimée ?`);
     }

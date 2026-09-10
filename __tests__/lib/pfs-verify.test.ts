@@ -63,10 +63,11 @@ function makeLocalVariant(o: {
   disabled?: boolean;
   packLines?: LocalProduct["colors"][number]["packLines"];
   variantSizes?: LocalProduct["colors"][number]["variantSizes"];
+  pfsVariantId?: string | null;
 }): LocalProduct["colors"][number] {
   return {
     id: o.id,
-    pfsVariantId: null,
+    pfsVariantId: o.pfsVariantId ?? null,
     unitPrice: o.price,
     weight: o.weight,
     stock: o.stock,
@@ -119,6 +120,7 @@ function makePfsVariant(o: {
   colorRef: string;
   colorLabelFr?: string;
   colorHex?: string;
+  size?: string;
   price: number;
   stock: number;
   weight: number;
@@ -160,7 +162,7 @@ function makePfsVariant(o: {
     colors: [color],
   };
   if (o.type === "ITEM") {
-    base.item = { color, size: "TU" };
+    base.item = { color, size: o.size ?? "TU" };
   } else if (o.packs) {
     base.packs = o.packs.map((p) => ({
       color: {
@@ -1258,6 +1260,72 @@ describe("comparePfsProduct — mapping BJ manquant (blockingMappingIssue)", () 
     expect(issues.find((i) => i.field === "duplicatePfsVariant")).toBeUndefined();
     expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
     expect(issues.find((i) => i.field === "missingVariant")).toBeUndefined();
+  });
+
+  it("détecte un écart de stock par taille quand plusieurs PC UNIT partagent la même couleur (10037 Issyma 2026-09-10)", () => {
+    // Régression du fix 2026-09-09 : en neutralisant les sœurs PFS pour éviter
+    // le faux doublon, on comparait les 3 PC locales ROSE au MÊME PFS variant
+    // (la « dernière » à écraser `pfsByKey`). Résultat : une taille en rupture
+    // sur PFS mais avec du stock chez nous (ou l'inverse) passait sous le
+    // radar. Le match strict par pfsVariantId rétablit la comparaison
+    // 1-pour-1 taille par taille.
+    const local = makeLocalProduct({
+      colors: [
+        makeLocalVariant({
+          id: "v-rose-s",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 5,
+          weight: 0.02,
+          pfsVariantId: "pv-rose-s",
+          variantSizes: [{ size: { name: "S", pfsSizeRef: "S" }, quantity: 5 }],
+        }),
+        makeLocalVariant({
+          id: "v-rose-m",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 3,
+          weight: 0.02,
+          pfsVariantId: "pv-rose-m",
+          variantSizes: [{ size: { name: "M", pfsSizeRef: "M" }, quantity: 3 }],
+        }),
+        makeLocalVariant({
+          id: "v-rose-l",
+          colorPfsRef: "ROSE",
+          colorName: "Rose",
+          saleType: "UNIT",
+          price: 16.5,
+          stock: 10,
+          weight: 0.02,
+          pfsVariantId: "pv-rose-l",
+          variantSizes: [{ size: { name: "L", pfsSizeRef: "L" }, quantity: 10 }],
+        }),
+      ],
+    });
+    const pfsProduct = makePfsProduct();
+    // Écart isolé sur la taille M : PFS=0 alors que site=3.
+    const pfsVariants = [
+      makePfsVariant({ id: "pv-rose-s", type: "ITEM", colorRef: "ROSE", size: "S", price: 16.5, stock: 5, weight: 0.02 }),
+      makePfsVariant({ id: "pv-rose-m", type: "ITEM", colorRef: "ROSE", size: "M", price: 16.5, stock: 0, weight: 0.02 }),
+      makePfsVariant({ id: "pv-rose-l", type: "ITEM", colorRef: "ROSE", size: "L", price: 16.5, stock: 10, weight: 0.02 }),
+    ];
+    const issues = comparePfsProduct(local, pfsProduct, pfsVariants, EMPTY_COLOR_MAP, NO_MARKUP);
+    // Zéro parasite structurel.
+    expect(issues.find((i) => i.field === "duplicatePfsVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "extraVariant")).toBeUndefined();
+    expect(issues.find((i) => i.field === "missingVariant")).toBeUndefined();
+    // Exactement un écart de stock, sur la taille M, avec le bon pfsVariantId
+    // et le suffixe libellé « (taille M) » pour distinguer visuellement.
+    const stockIssues = issues.filter((i) => i.field === "stock");
+    expect(stockIssues).toHaveLength(1);
+    expect(stockIssues[0].pfsValue).toBe("0");
+    expect(stockIssues[0].expectedValue).toBe("3");
+    expect(stockIssues[0].pfsVariantId).toBe("pv-rose-m");
+    expect(stockIssues[0].fieldLabel).toContain("taille M");
   });
 
   it("ne matche PAS par label FR si le type diffère (UNIT vs PACK)", () => {

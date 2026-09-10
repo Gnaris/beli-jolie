@@ -94,7 +94,14 @@ export function isPullSupportedLotB(scope: "product" | "color", field: string) {
 // ─── Clé d'écart (client + serveur) ────────────────────────────────────────
 
 export function issueKey(iss: PfsVerifyIssue): string {
-  return [iss.scope, iss.field, iss.colorRef ?? "", iss.variantType ?? ""].join(":");
+  // 5ᵉ segment optionnel = pfsVariantId. Permet de router l'apply push/pull
+  // vers LA bonne ProductColor / variante PFS quand plusieurs PC UNIT partagent
+  // la même couleur (legacy 10037/10039 Issyma : 1 PC par taille, chacune sa
+  // variante PFS). Sans cet id, `findLocalVariant` retomberait sur la première
+  // PC matchant (colorRef, variantType) et écraserait la mauvaise taille.
+  const parts: string[] = [iss.scope, iss.field, iss.colorRef ?? "", iss.variantType ?? ""];
+  if (iss.pfsVariantId) parts.push(iss.pfsVariantId);
+  return parts.join(":");
 }
 
 // ─── Comptage des écarts corrigeables par pull (client + serveur) ──────────
