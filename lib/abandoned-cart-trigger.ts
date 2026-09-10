@@ -197,6 +197,163 @@ async function cancelJobIfExists(
   });
 }
 
+/**
+ * Décision d'amorçage pour un client donné au moment où la cliente active
+ * l'automation panier abandonné. Extrait comme fonction pure pour être
+ * testable sans BDD.
+ *
+ * Règles :
+ * - Aucun job → CREATE avec timer = délai du stade 1.
+ * - Job PENDING ou COMPLETED → LAISSE tel quel (le worker prend le relais).
+ * - Job CANCELLED → RESUME au prochain stade non-envoyé (préserve les
+ *   stades déjà envoyés, timer = délai du prochain stade). Si tous les
+ *   stades configurés ont déjà été envoyés → COMPLETE_NOW.
+ */
+export type ResumeAction = "CREATE" | "RESUME" | "COMPLETE_NOW" | "LEAVE_UNCHANGED";
+
+export interface ResumeDecision {
+  action: ResumeAction;
+  /** Stade déjà envoyé le plus haut. 0 = aucun envoyé. */
+  currentStage: number;
+  /** Délai (secondes) avant le prochain envoi. Défini si CREATE ou RESUME. */
+  nextStageDelaySeconds?: number;
+}
+
+export function decideResumeAction(
+  existingJob: {
+    status: string;
+    stagesFired: unknown;
+  } | null,
+  stages: StageRow[],
+): ResumeDecision {
+  if (stages.length === 0) {
+    return { action: "LEAVE_UNCHANGED", currentStage: 0 };
+  }
+
+  if (!existingJob) {
+    return {
+      action: "CREATE",
+      currentStage: 0,
+      nextStageDelaySeconds: stages[0].delaySeconds,
+    };
+  }
+
+  if (existingJob.status === "PENDING" || existingJob.status === "COMPLETED") {
+    return { action: "LEAVE_UNCHANGED", currentStage: 0 };
+  }
+
+  // CANCELLED → reprend en préservant les stades déjà envoyés.
+  const fired = parseStagesFired(existingJob.stagesFired);
+  const maxFired = fired.reduce((m, e) => (e.stageIndex > m ? e.stageIndex : m), 0);
+  const next = pickNextStage(stages, maxFired);
+  if (!next) {
+    return { action: "COMPLETE_NOW", currentStage: maxFired };
+  }
+  return {
+    action: "RESUME",
+    currentStage: maxFired,
+    nextStageDelaySeconds: next.delaySeconds,
+  };
+}
+
+/**
+ * Amorce ou reprend les timers de relance panier abandonné pour tous les
+ * clients APPROVED du tenant qui ont un panier non-vide au moment de
+ * l'activation de l'automation. Idempotent : peut être ré-appelé plusieurs
+ * fois sans effet de bord (les jobs actifs sont laissés intacts).
+ */
+export async function seedAbandonedCartJobsForTenant(
+  tenantId: string,
+): Promise<{ created: number; resumed: number; completed: number }> {
+  const stages = await prisma.abandonedCartStage.findMany({
+    where: { tenantId },
+    orderBy: { stageIndex: "asc" },
+    select: { stageIndex: true, delaySeconds: true },
+  });
+  if (stages.length === 0) {
+    return { created: 0, resumed: 0, completed: 0 };
+  }
+
+  const users = await prisma.user.findMany({
+    where: {
+      tenantId,
+      role: "CLIENT",
+      status: "APPROVED",
+      abandonedCartOptOut: false,
+      acceptsNewsletter: true,
+      cart: { items: { some: {} } },
+    },
+    select: {
+      id: true,
+      abandonedCartJob: {
+        select: { id: true, status: true, stagesFired: true },
+      },
+    },
+  });
+
+  let created = 0;
+  let resumed = 0;
+  let completed = 0;
+  const now = new Date();
+
+  for (const user of users) {
+    const decision = decideResumeAction(user.abandonedCartJob ?? null, stages);
+    try {
+      if (decision.action === "CREATE") {
+        const delayMs = (decision.nextStageDelaySeconds ?? 0) * 1000;
+        await prisma.abandonedCartJob.create({
+          data: {
+            tenantId,
+            userId: user.id,
+            currentStage: 0,
+            stagesFired: [] as unknown as object,
+            nextStageAt: new Date(now.getTime() + delayMs),
+            status: "PENDING",
+            lastCartUpdateAt: now,
+            cancelReason: null,
+          },
+        });
+        created++;
+      } else if (decision.action === "RESUME" && user.abandonedCartJob) {
+        const delayMs = (decision.nextStageDelaySeconds ?? 0) * 1000;
+        await prisma.abandonedCartJob.update({
+          where: { id: user.abandonedCartJob.id },
+          data: {
+            currentStage: decision.currentStage,
+            status: "PENDING",
+            nextStageAt: new Date(now.getTime() + delayMs),
+            lastCartUpdateAt: now,
+            cancelReason: null,
+            lastEvaluatedAt: now,
+          },
+        });
+        resumed++;
+      } else if (decision.action === "COMPLETE_NOW" && user.abandonedCartJob) {
+        await prisma.abandonedCartJob.update({
+          where: { id: user.abandonedCartJob.id },
+          data: {
+            currentStage: decision.currentStage,
+            status: "COMPLETED",
+            nextStageAt: null,
+            lastCartUpdateAt: now,
+            cancelReason: null,
+            lastEvaluatedAt: now,
+          },
+        });
+        completed++;
+      }
+    } catch (err) {
+      logger.error("[abandonedCart] seed job failed", {
+        tenantId,
+        userId: user.id,
+        error: err as Error,
+      });
+    }
+  }
+
+  return { created, resumed, completed };
+}
+
 function parseStagesFired(raw: unknown): FiredEntry[] {
   if (!Array.isArray(raw)) return [];
   return raw

@@ -18,13 +18,17 @@ import { logger } from "@/lib/logger";
 import type { NewsletterBlock } from "@/lib/newsletter-blocks";
 import { SCENARIO_DEFAULTS } from "@/lib/mail-scenario-defaults";
 import {
+  extractLastSentFromFired,
   MAX_STAGES,
   MIN_DELAY_SECONDS,
   MAX_DELAY_SECONDS,
   templateHasUnsubscribeLink,
   validateStages,
 } from "@/lib/abandoned-cart-config";
-import { pickNextStage } from "@/lib/abandoned-cart-trigger";
+import {
+  pickNextStage,
+  seedAbandonedCartJobsForTenant,
+} from "@/lib/abandoned-cart-trigger";
 import { setSiteConfig } from "@/lib/site-config-write";
 
 const AUTOMATION_ENABLED_KEY = "abandoned_cart_automation_enabled";
@@ -394,7 +398,7 @@ export async function setAbandonedCartAutomationEnabled(
   | { success: false; error: string }
 > {
   try {
-    await requireAdmin();
+    const { tenant } = await requireAdmin();
     if (enabled) {
       // Filet dur : on refuse d'activer si un template manque le lien de
       // désinscription — impossible d'envoyer un mail marketing sans lui.
@@ -415,6 +419,18 @@ export async function setAbandonedCartAutomationEnabled(
       }
     }
     await setSiteConfig(AUTOMATION_ENABLED_KEY, enabled ? "true" : "false");
+    if (enabled) {
+      // À l'activation : amorce un timer pour tous les paniers non-vides déjà
+      // en cours. Sans ça, un client dont le panier date d'avant l'activation
+      // ne recevrait aucune relance (le trigger ne se déclenche que sur une
+      // mutation panier). Reprend proprement les jobs annulés en préservant
+      // les stades déjà envoyés (jamais 2 fois le même mail).
+      const stats = await seedAbandonedCartJobsForTenant(tenant.id);
+      logger.info?.("[abandonedCart] activation seed", {
+        tenantId: tenant.id,
+        ...stats,
+      });
+    }
     revalidatePath("/admin/marketing/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, config };
@@ -428,121 +444,183 @@ export async function setAbandonedCartAutomationEnabled(
 }
 
 /**
+ * Info affichée par ligne client dans la vue Mails + Panier abandonné.
+ * - `nextStageAt` / `nextStageIndex` : la prochaine relance à envoyer
+ *   (null si le job est COMPLETED / CANCELLED).
+ * - `lastSent` : le dernier stade effectivement envoyé, avec sa date et
+ *   `stillExists` = true si ce stade fait toujours partie de la config
+ *   actuelle. Sinon = false (stade supprimé entre-temps par l'admin) → la
+ *   vue affiche « (supprimé) ».
+ */
+export interface AbandonedCartJobInfo {
+  nextStageAt: Date | null;
+  nextStageIndex: number | null;
+  lastSent: {
+    stageIndex: number;
+    at: Date;
+    stillExists: boolean;
+  } | null;
+}
+
+/**
  * Utilitaire pour les vues qui affichent le compte à rebours par client.
- * Renvoie une Map userId → prochainStageAt (Date). Un job non-PENDING n'a
- * pas d'entrée dans la Map.
+ * Renvoie une Map userId → info. Un client qui n'a jamais eu de job ni
+ * envoi n'apparaît pas dans la Map.
  */
 export async function loadAbandonedCartJobsFor(
   userIds: string[],
-): Promise<Map<string, { stageIndex: number; nextStageAt: Date }>> {
-  const map = new Map<string, { stageIndex: number; nextStageAt: Date }>();
+): Promise<Map<string, AbandonedCartJobInfo>> {
+  const map = new Map<string, AbandonedCartJobInfo>();
   if (userIds.length === 0) return map;
   const { tenant } = await requireAdmin();
 
-  const jobs = await prisma.abandonedCartJob.findMany({
-    where: {
-      tenantId: tenant.id,
-      userId: { in: userIds },
-      status: "PENDING",
-      nextStageAt: { not: null },
-    },
-    select: {
-      userId: true,
-      currentStage: true,
-      nextStageAt: true,
-    },
-  });
+  const [jobs, stages] = await Promise.all([
+    prisma.abandonedCartJob.findMany({
+      where: {
+        tenantId: tenant.id,
+        userId: { in: userIds },
+      },
+      select: {
+        userId: true,
+        currentStage: true,
+        nextStageAt: true,
+        status: true,
+        stagesFired: true,
+      },
+    }),
+    prisma.abandonedCartStage.findMany({
+      where: { tenantId: tenant.id },
+      select: { stageIndex: true },
+    }),
+  ]);
+
+  const existingStageIndices = new Set(stages.map((s) => s.stageIndex));
+
   for (const j of jobs) {
-    if (!j.nextStageAt) continue;
-    // currentStage = dernier stade envoyé (0 = aucun) — la prochaine relance
-    // porte donc l'index currentStage + 1 dans la config.
+    const isPending = j.status === "PENDING" && j.nextStageAt !== null;
+    const lastSent = extractLastSentFromFired(
+      j.stagesFired,
+      existingStageIndices,
+    );
+    if (!isPending && !lastSent) continue; // rien à afficher pour ce client
     map.set(j.userId, {
-      stageIndex: j.currentStage + 1,
-      nextStageAt: j.nextStageAt,
+      nextStageAt: isPending ? j.nextStageAt : null,
+      // currentStage = dernier stade envoyé (0 = aucun) — la prochaine
+      // relance porte donc l'index currentStage + 1 dans la config.
+      nextStageIndex: isPending ? j.currentStage + 1 : null,
+      lastSent,
     });
   }
   return map;
 }
 
-export interface PendingAbandonedCartJobDTO {
-  jobId: string;
-  userId: string;
-  userLabel: string;
-  userEmail: string;
-  userCompany: string;
-  currentStage: number; // 0 = aucun envoyé encore
-  nextStageIndex: number; // = currentStage + 1
-  nextStageAt: string; // ISO string (pour countdown JS)
-  cartItemCount: number;
-  cartTotalCents: number;
-  lastCartUpdateAt: string; // ISO string
-}
-
 /**
- * Liste tous les jobs PENDING du tenant, triés par prochaine échéance
- * croissante. Pour l'écran « Prochaines relances programmées » de la page
- * panier abandonné (visibilité globale : qui va recevoir quoi, quand).
+ * Réinitialise les stades d'un client : vide `stagesFired`, remet
+ * `currentStage=0`. Si le panier contient au moins un article, le cycle
+ * repart au stade 1 (status PENDING, timer stade 1 armé). Sinon, le job est
+ * mis en CANCELLED — dès que la cliente rajoute un article, le trigger
+ * relancera proprement depuis le stade 1.
+ *
+ * Filet dur `requireAdmin()` : cette action mute des données côté client
+ * final (elle recevra un mail dans quelques minutes si le panier est plein).
  */
-export async function listPendingAbandonedCartJobs(): Promise<PendingAbandonedCartJobDTO[]> {
-  const { tenant } = await requireAdmin();
+export async function resetAbandonedCartStagesForUser(
+  userId: string,
+): Promise<
+  | { success: true; cartWasEmpty: boolean; timerStarted: boolean }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
 
-  const jobs = await prisma.abandonedCartJob.findMany({
-    where: {
-      tenantId: tenant.id,
-      status: "PENDING",
-      nextStageAt: { not: null },
-    },
-    orderBy: { nextStageAt: "asc" },
-    select: {
-      id: true,
-      userId: true,
-      currentStage: true,
-      nextStageAt: true,
-      lastCartUpdateAt: true,
-      user: {
-        select: {
-          firstName: true,
-          lastName: true,
-          company: true,
-          email: true,
-          cart: {
-            select: {
-              items: {
-                select: {
-                  quantity: true,
-                  variant: { select: { unitPrice: true } },
-                },
-              },
-            },
+    const user = await prisma.user.findFirst({
+      where: { id: userId, tenantId: tenant.id },
+      select: { id: true, role: true, status: true, abandonedCartOptOut: true, acceptsNewsletter: true },
+    });
+    if (!user) return { success: false, error: "Client introuvable." };
+    if (user.role !== "CLIENT") {
+      return { success: false, error: "Cette action ne concerne que les clients." };
+    }
+
+    const [cartItemCount, stages, existingJob] = await Promise.all([
+      prisma.cartItem.count({
+        where: { cart: { userId }, tenantId: tenant.id },
+      }),
+      prisma.abandonedCartStage.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: { stageIndex: "asc" },
+        select: { stageIndex: true, delaySeconds: true },
+      }),
+      prisma.abandonedCartJob.findFirst({
+        where: { userId, tenantId: tenant.id },
+        select: { id: true },
+      }),
+    ]);
+
+    const now = new Date();
+    const cartWasEmpty = cartItemCount === 0;
+    const canStartTimer =
+      !cartWasEmpty &&
+      stages.length > 0 &&
+      user.status === "APPROVED" &&
+      user.acceptsNewsletter &&
+      !user.abandonedCartOptOut;
+
+    if (existingJob) {
+      if (canStartTimer) {
+        await prisma.abandonedCartJob.update({
+          where: { id: existingJob.id },
+          data: {
+            currentStage: 0,
+            stagesFired: [] as unknown as object,
+            status: "PENDING",
+            nextStageAt: new Date(now.getTime() + stages[0].delaySeconds * 1000),
+            lastCartUpdateAt: now,
+            cancelReason: null,
+            lastEvaluatedAt: now,
           },
+        });
+      } else {
+        await prisma.abandonedCartJob.update({
+          where: { id: existingJob.id },
+          data: {
+            currentStage: 0,
+            stagesFired: [] as unknown as object,
+            status: "CANCELLED",
+            nextStageAt: null,
+            lastCartUpdateAt: now,
+            cancelReason: "RESET_ADMIN",
+            lastEvaluatedAt: now,
+          },
+        });
+      }
+    } else if (canStartTimer) {
+      // Pas de job encore : on n'en crée un que si le timer doit démarrer.
+      await prisma.abandonedCartJob.create({
+        data: {
+          tenantId: tenant.id,
+          userId,
+          currentStage: 0,
+          stagesFired: [] as unknown as object,
+          nextStageAt: new Date(now.getTime() + stages[0].delaySeconds * 1000),
+          status: "PENDING",
+          lastCartUpdateAt: now,
+          cancelReason: null,
         },
-      },
-    },
-  });
+      });
+    }
 
-  return jobs.map((j) => {
-    const cartItems = j.user.cart?.items ?? [];
-    const cartItemCount = cartItems.reduce((s, it) => s + it.quantity, 0);
-    const cartTotalCents = cartItems.reduce(
-      (s, it) =>
-        s + Math.round(Number(it.variant.unitPrice) * 100) * it.quantity,
-      0,
-    );
-    const fullName = `${j.user.firstName ?? ""} ${j.user.lastName ?? ""}`.trim();
+    revalidatePath("/admin/marketing");
+    revalidatePath("/admin/marketing/mails/panier-abandonne");
     return {
-      jobId: j.id,
-      userId: j.userId,
-      userLabel: fullName || j.user.company || j.user.email,
-      userEmail: j.user.email,
-      userCompany: j.user.company ?? "",
-      currentStage: j.currentStage,
-      nextStageIndex: j.currentStage + 1,
-      nextStageAt: (j.nextStageAt as Date).toISOString(),
-      cartItemCount,
-      cartTotalCents,
-      lastCartUpdateAt: j.lastCartUpdateAt.toISOString(),
+      success: true,
+      cartWasEmpty,
+      timerStarted: canStartTimer,
     };
-  });
+  } catch (err) {
+    logger.error("[resetAbandonedCartStagesForUser]", { userId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
 }
 
 // Note : les fichiers "use server" ne peuvent PAS re-exporter de types

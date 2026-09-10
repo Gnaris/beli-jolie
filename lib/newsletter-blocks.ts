@@ -387,6 +387,44 @@ function contained(inner: string): string {
   return `<div style="padding:0 20px;">${inner}</div>`;
 }
 
+/**
+ * Libellés courts substitués aux URLs des variables `{unsubscribeLink}` et
+ * `{privacyLink}` dans le rendu HTML final. Sans ce raccourci, la cliente
+ * verrait une URL longue affichée en clair — ici elle voit un texte cliquable
+ * lisible comme « Cliquez ici ».
+ */
+const URL_TOKEN_LINK_LABELS: Record<string, string> = {
+  unsubscribeLink: "Cliquez ici",
+  privacyLink: "Cliquez ici",
+};
+
+/**
+ * Remplace, dans un fragment HTML déjà échappé, chaque URL correspondant à
+ * une variable connue (`unsubscribeLink`, `privacyLink`) par une balise
+ * `<a>` avec un libellé court. Sans effet si :
+ *  - le context de fusion est absent (mails système),
+ *  - l'URL n'est pas trouvée dans le fragment (token non substitué ou
+ *    template ne l'utilisant pas).
+ */
+function linkifyUrlTokens(
+  escapedHtml: string,
+  shared: SharedMailContext,
+): string {
+  const mc = shared.mergeContext;
+  if (!mc) return escapedHtml;
+  let out = escapedHtml;
+  for (const [token, label] of Object.entries(URL_TOKEN_LINK_LABELS)) {
+    const url = mc[token];
+    if (!url) continue;
+    const urlStr = String(url);
+    const escapedUrl = escapeHtml(urlStr);
+    if (!out.includes(escapedUrl)) continue;
+    const anchor = `<a href="${escapedUrl}" style="color:inherit; text-decoration:underline;">${escapeHtml(label)}</a>`;
+    out = out.split(escapedUrl).join(anchor);
+  }
+  return out;
+}
+
 function renderBlock(
   block: NewsletterBlock,
   productsById: Map<string, ProductLite>,
@@ -429,7 +467,7 @@ function renderBlock(
       const fontSize = Math.max(9, Math.min(20, Number(block.data.fontSize) || 12));
       const content = (block.data.content || "").trim();
       if (!content) return "";
-      return `<div style="background:${bg}; color:${color}; padding:20px 24px; text-align:${align}; font-size:${fontSize}px; line-height:1.6; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(content)}</div>`;
+      return `<div style="background:${bg}; color:${color}; padding:20px 24px; text-align:${align}; font-size:${fontSize}px; line-height:1.6; word-wrap:break-word; overflow-wrap:break-word;">${linkifyUrlTokens(escapeHtmlWithBreaks(content), shared)}</div>`;
     }
     case "heading": {
       const titleColor = block.data.titleColor || "#0f172a";
@@ -444,7 +482,7 @@ function renderBlock(
         ? `<h2 style="font-family:'Poppins', sans-serif; font-size:${block.data.titleSize || 20}px; font-weight:700; color:${titleColor}; margin:0${hasBody ? " 0 10px" : ""}; text-align:${titleAlign}; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title)}</h2>`
         : "";
       const bodyHtml = hasBody
-        ? `<p style="font-size:${block.data.bodySize || 14}px; color:${bodyColor}; line-height:1.6; margin:0; text-align:${bodyAlign}; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtml(block.data.body)}</p>`
+        ? `<p style="font-size:${block.data.bodySize || 14}px; color:${bodyColor}; line-height:1.6; margin:0; text-align:${bodyAlign}; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:break-word;">${linkifyUrlTokens(escapeHtml(block.data.body), shared)}</p>`
         : "";
       if (!hasTitle && !hasBody) return "";
       return wrapBg(block.data.bg, `<div style="padding:16px 20px;">${titleHtml}${bodyHtml}</div>`);

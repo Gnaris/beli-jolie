@@ -96,6 +96,43 @@ export function formatCountdownDetailed(seconds: number): string {
   return `${days} j ${String(hours).padStart(2, "0")} h ${String(minutes).padStart(2, "0")} min ${String(secs).padStart(2, "0")} s`;
 }
 
+// ─── Historique d'envoi ────────────────────────────────────────────────
+
+/**
+ * Extrait le dernier stade envoyé depuis un `stagesFired` (JSON stocké dans
+ * `AbandonedCartJob`). Retourne `null` si le champ est vide ou mal formé.
+ *
+ * `existingStageIndices` sert à marquer si le stade fait toujours partie de
+ * la config actuelle. Un stade supprimé entre-temps garde son numéro
+ * historique + un flag `stillExists=false` pour que la vue affiche
+ * « (supprimé) ».
+ */
+export function extractLastSentFromFired(
+  raw: unknown,
+  existingStageIndices: Set<number>,
+): { stageIndex: number; at: Date; stillExists: boolean } | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  // On prend l'entrée au plus grand stageIndex (les stades s'envoient dans
+  // l'ordre croissant — donc c'est le dernier envoyé chronologiquement).
+  let best: { stageIndex: number; at: string } | null = null;
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue;
+    const rec = e as Record<string, unknown>;
+    const idx = Number(rec.stageIndex);
+    const at = typeof rec.sentAt === "string" ? rec.sentAt : "";
+    if (!Number.isFinite(idx) || idx <= 0 || !at) continue;
+    if (!best || idx > best.stageIndex) best = { stageIndex: idx, at };
+  }
+  if (!best) return null;
+  const parsed = new Date(best.at);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return {
+    stageIndex: best.stageIndex,
+    at: parsed,
+    stillExists: existingStageIndices.has(best.stageIndex),
+  };
+}
+
 // ─── Validation d'un jeu de stades ─────────────────────────────────────
 
 export interface StageLike {

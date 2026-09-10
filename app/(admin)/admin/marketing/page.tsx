@@ -18,8 +18,13 @@ import { MailSelectionProvider } from "@/components/admin/users/MailSelectionCon
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
 import NewsletterBulkBar from "@/components/admin/users/NewsletterBulkBar";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
-import { loadAbandonedCartJobsFor } from "@/app/actions/admin/abandoned-cart";
+import {
+  loadAbandonedCartJobsFor,
+  type AbandonedCartJobInfo,
+} from "@/app/actions/admin/abandoned-cart";
 import AbandonedCartCountdown from "@/components/admin/users/AbandonedCartCountdown";
+import AbandonedCartLastSent from "@/components/admin/users/AbandonedCartLastSent";
+import AbandonedCartResetButton from "@/components/admin/users/AbandonedCartResetButton";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import {
@@ -307,7 +312,7 @@ export default async function MarketingPage({
 
   // Prochaine relance panier abandonné — affichée directement dans la
   // colonne « Panier abandonné » de la vue Mails (countdown live JS).
-  const abandonedJobsData: Map<string, { stageIndex: number; nextStageAt: Date }> =
+  const abandonedJobsData: Map<string, AbandonedCartJobInfo> =
     currentTab === "inscrits"
       ? await loadAbandonedCartJobsFor(registeredData.clients.map((c) => c.id))
       : new Map();
@@ -691,7 +696,7 @@ function MailsView({
   page: number;
   perPage: number;
   mails: Map<string, MailLastSends>;
-  abandonedJobs: Map<string, { stageIndex: number; nextStageAt: Date }>;
+  abandonedJobs: Map<string, AbandonedCartJobInfo>;
 }) {
   const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
     { key: "ABANDONED_CART", label: "Panier abandonné", short: "Panier" },
@@ -770,12 +775,30 @@ function MailsView({
                             <p className="text-[13px] font-body text-text-muted/50">—</p>
                           )}
                           {abandonedJob && (
-                            <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                              <AbandonedCartCountdown
-                                stageIndex={abandonedJob.stageIndex}
-                                nextAtIso={abandonedJob.nextStageAt.toISOString()}
-                              />
+                            <div className="mt-2 space-y-1">
+                              {abandonedJob.nextStageAt &&
+                                abandonedJob.nextStageIndex !== null && (
+                                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                    <AbandonedCartCountdown
+                                      stageIndex={abandonedJob.nextStageIndex}
+                                      nextAtIso={abandonedJob.nextStageAt.toISOString()}
+                                    />
+                                  </div>
+                                )}
+                              {abandonedJob.lastSent && (
+                                <AbandonedCartLastSent
+                                  stageIndex={abandonedJob.lastSent.stageIndex}
+                                  atIso={abandonedJob.lastSent.at.toISOString()}
+                                  stillExists={abandonedJob.lastSent.stillExists}
+                                />
+                              )}
+                              <div>
+                                <AbandonedCartResetButton
+                                  userId={c.id}
+                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                                />
+                              </div>
                             </div>
                           )}
                         </td>
@@ -843,11 +866,27 @@ function MailsView({
                             {date ? formatTimeAgo(date) : "—"}
                           </p>
                           {abandonedJob && (
-                            <div className="mt-1.5">
-                              <AbandonedCartCountdown
-                                stageIndex={abandonedJob.stageIndex}
-                                nextAtIso={abandonedJob.nextStageAt.toISOString()}
-                              />
+                            <div className="mt-1.5 space-y-0.5">
+                              {abandonedJob.nextStageAt &&
+                                abandonedJob.nextStageIndex !== null && (
+                                  <AbandonedCartCountdown
+                                    stageIndex={abandonedJob.nextStageIndex}
+                                    nextAtIso={abandonedJob.nextStageAt.toISOString()}
+                                  />
+                                )}
+                              {abandonedJob.lastSent && (
+                                <AbandonedCartLastSent
+                                  stageIndex={abandonedJob.lastSent.stageIndex}
+                                  atIso={abandonedJob.lastSent.at.toISOString()}
+                                  stillExists={abandonedJob.lastSent.stillExists}
+                                />
+                              )}
+                              <div className="mt-1">
+                                <AbandonedCartResetButton
+                                  userId={c.id}
+                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                                />
+                              </div>
                             </div>
                           )}
                         </div>
@@ -917,7 +956,7 @@ function RegisteredPane({
   view: "infos" | "mails";
   mails: Map<string, MailLastSends>;
   carts: Map<string, CartSummary>;
-  abandonedJobs: Map<string, { stageIndex: number; nextStageAt: Date }>;
+  abandonedJobs: Map<string, AbandonedCartJobInfo>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
@@ -1175,17 +1214,36 @@ function RegisteredPane({
                           )}
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
-                          {abandonedJob && cart ? (
-                            <div className="inline-flex items-center gap-2">
-                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M4 4h16v4H4zM6 8v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8M10 12h4"/>
-                                </svg>
-                              </span>
-                              <AbandonedCartCountdown
-                                stageIndex={abandonedJob.stageIndex}
-                                nextAtIso={abandonedJob.nextStageAt.toISOString()}
-                              />
+                          {abandonedJob ? (
+                            <div className="space-y-1">
+                              {abandonedJob.nextStageAt &&
+                              abandonedJob.nextStageIndex !== null &&
+                              cart ? (
+                                <div className="inline-flex items-center gap-2">
+                                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M4 4h16v4H4zM6 8v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8M10 12h4"/>
+                                    </svg>
+                                  </span>
+                                  <AbandonedCartCountdown
+                                    stageIndex={abandonedJob.nextStageIndex}
+                                    nextAtIso={abandonedJob.nextStageAt.toISOString()}
+                                  />
+                                </div>
+                              ) : null}
+                              {abandonedJob.lastSent && (
+                                <AbandonedCartLastSent
+                                  stageIndex={abandonedJob.lastSent.stageIndex}
+                                  atIso={abandonedJob.lastSent.at.toISOString()}
+                                  stillExists={abandonedJob.lastSent.stillExists}
+                                />
+                              )}
+                              <div>
+                                <AbandonedCartResetButton
+                                  userId={c.id}
+                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                                />
+                              </div>
                             </div>
                           ) : (
                             <p className="text-[13px] font-body text-text-muted/50">—</p>

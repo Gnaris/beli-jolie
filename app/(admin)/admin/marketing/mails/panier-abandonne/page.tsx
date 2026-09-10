@@ -3,12 +3,8 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
-import {
-  getAbandonedCartConfig,
-  listPendingAbandonedCartJobs,
-} from "@/app/actions/admin/abandoned-cart";
+import { getAbandonedCartConfig } from "@/app/actions/admin/abandoned-cart";
 import AbandonedCartStagesEditor from "@/components/admin/users/AbandonedCartStagesEditor";
-import PendingAbandonedCartQueue from "@/components/admin/users/PendingAbandonedCartQueue";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Relances panier abandonné — Admin" };
@@ -17,10 +13,7 @@ export default async function AbandonedCartPage() {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
-  const [config, pendingJobs] = await Promise.all([
-    getAbandonedCartConfig(),
-    listPendingAbandonedCartJobs(),
-  ]);
+  const config = await getAbandonedCartConfig();
 
   return (
     <div className="space-y-6">
@@ -52,8 +45,6 @@ export default async function AbandonedCartPage() {
       </section>
 
       <AbandonedCartStagesEditor initialConfig={config} />
-
-      <PendingAbandonedCartQueue initialJobs={pendingJobs} />
     </div>
   );
 }

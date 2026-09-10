@@ -398,3 +398,111 @@ describe("substituteFirstName", () => {
     expect(result).toBe(blocks);
   });
 });
+
+describe("newsletter-blocks — linkification des URLs (unsubscribe/privacy)", () => {
+  const UNSUB_URL =
+    "https://beliandjolie.com/api/newsletter/unsubscribe?t=abc.def.ghi";
+  const PRIVACY_URL = "https://beliandjolie.com/fr/confidentialite";
+
+  function renderWithMerge(blocks: NewsletterBlock[]): string {
+    // omitGlobalChrome : les mails marketing n'ont pas de footer global —
+    // c'est justement là que la cliente compose son propre pied avec les
+    // tokens { unsubscribeLink } et { privacyLink }.
+    return renderNewsletterHtml({
+      subject: "Test",
+      blocks,
+      productsById: new Map(),
+      shared: {
+        ...shared,
+        mergeContext: {
+          unsubscribeLink: UNSUB_URL,
+          privacyLink: PRIVACY_URL,
+        },
+      },
+      omitGlobalChrome: true,
+    });
+  }
+
+  it("bloc footer : remplace l'URL de désinscription par une balise <a> courte", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "f",
+        type: "footer",
+        data: {
+          content: `Se désinscrire : ${UNSUB_URL}`,
+          bg: "#f8fafc",
+          color: "#64748b",
+          align: "center",
+          fontSize: 12,
+        },
+      },
+    ];
+    const html = renderWithMerge(blocks);
+    expect(html).toContain(`<a href="${UNSUB_URL}"`);
+    expect(html).toContain(">Cliquez ici</a>");
+    // L'URL brute ne doit plus apparaître en clair après le texte « Se désinscrire ».
+    expect(html).not.toMatch(new RegExp(`Se désinscrire : ${UNSUB_URL.replace(/[.?/]/g, "\\$&")}<`));
+  });
+
+  it("bloc heading (body) : remplace {privacyLink} par un <a>", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h",
+        type: "heading",
+        data: {
+          title: "",
+          body: `Politique : ${PRIVACY_URL}`,
+          align: "center",
+        },
+      },
+    ];
+    const html = renderWithMerge(blocks);
+    expect(html).toContain(`<a href="${PRIVACY_URL}"`);
+    expect(html).toContain(">Cliquez ici</a>");
+  });
+
+  it("sans mergeContext (mail système), aucune linkification — texte brut préservé", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "f",
+        type: "footer",
+        data: {
+          content: `Contact : ${UNSUB_URL}`,
+          bg: "#f8fafc",
+          color: "#64748b",
+          align: "center",
+          fontSize: 12,
+        },
+      },
+    ];
+    // shared sans mergeContext → pas d'anchor injecté.
+    const html = renderNewsletterHtml({
+      subject: "Test",
+      blocks,
+      productsById: new Map(),
+      shared,
+      omitGlobalChrome: true,
+    });
+    expect(html).not.toContain("<a href=");
+    expect(html).toContain(UNSUB_URL);
+  });
+
+  it("linkifie plusieurs occurrences dans le même bloc", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "f",
+        type: "footer",
+        data: {
+          content: `${UNSUB_URL}\n${UNSUB_URL}`,
+          bg: "#f8fafc",
+          color: "#64748b",
+          align: "center",
+          fontSize: 12,
+        },
+      },
+    ];
+    const html = renderWithMerge(blocks);
+    const matches = html.match(/<a href=/g) ?? [];
+    expect(matches.length).toBe(2);
+  });
+});
