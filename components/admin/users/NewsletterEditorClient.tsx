@@ -27,6 +27,10 @@ import {
   type PreviewClientLite,
 } from "@/app/actions/admin/newsletter-templates";
 import {
+  getAdminSelfEmail,
+  sendTestNewsletterEmail,
+} from "@/app/actions/admin/send-newsletter";
+import {
   defaultDataFor,
   getFooterContent,
   type NewsletterBlock,
@@ -232,20 +236,32 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
   // Aperçu avec un vrai client (dropdown au-dessus de la zone aperçu).
   // Fallback : valeurs fictives (buildPreviewContext) tant que la liste n'est
   // pas encore chargée OU si aucun client APPROVED n'existe encore.
+  //
+  // La cible « Moi-même » (value = SELF_TARGET) envoie le mail de test sur le
+  // mail perso vérifié de l'admin (KEY_VERIFIED_EMAIL). Pour l'aperçu à
+  // l'écran on retombe sur les valeurs fictives — l'admin n'a pas de fiche
+  // client à interpoler.
   const [previewClients, setPreviewClients] = useState<PreviewClientLite[]>([]);
   const [previewClientId, setPreviewClientId] = useState<string | null>(null);
+  const [adminSelfEmail, setAdminSelfEmail] = useState<string | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    listPreviewClients().then((rows) => {
-      if (cancelled) return;
-      setPreviewClients(rows);
-      if (rows.length > 0) {
-        // Défaut : un client au hasard, permet à la cliente de voir
-        // instantanément ce que verra un vrai destinataire.
-        const random = rows[Math.floor(Math.random() * rows.length)];
-        setPreviewClientId(random.id);
-      }
-    }).catch(() => { /* silencieux : l'aperçu retombe sur valeurs fictives */ });
+    // En parallèle : liste des clients + mail perso admin. La cliente pourra
+    // choisir un vrai client OU s'envoyer le mail à elle-même pour tester.
+    Promise.all([listPreviewClients(), getAdminSelfEmail()])
+      .then(([rows, self]) => {
+        if (cancelled) return;
+        setPreviewClients(rows);
+        setAdminSelfEmail(self);
+        if (rows.length > 0) {
+          // Défaut : un client au hasard, permet à la cliente de voir
+          // instantanément ce que verra un vrai destinataire.
+          const random = rows[Math.floor(Math.random() * rows.length)];
+          setPreviewClientId(random.id);
+        }
+      })
+      .catch(() => { /* silencieux : l'aperçu retombe sur valeurs fictives */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -838,48 +854,65 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
         </aside>
 
         <main className="col-span-6 bg-bg-primary rounded-2xl border border-border overflow-hidden flex flex-col">
-          <div className="px-4 py-2.5 border-b border-border bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="px-4 py-2.5 border-b border-border bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <span className="text-[12px] text-text-muted">
               Aperçu — largeur 600 px. Glissez un bloc pour le réorganiser.
             </span>
-            {previewClients.length > 0 && (
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[11px] text-text-muted font-body font-semibold">Aperçu pour :</span>
-                <select
-                  value={previewClientId ?? ""}
-                  onChange={(e) => setPreviewClientId(e.target.value || null)}
-                  className="text-[12px] font-body px-2 py-1 rounded-md border border-border bg-bg-primary max-w-[220px] truncate focus:outline-none focus:border-slate-500"
-                  title="Choisissez un client pour voir le mail rendu avec ses vraies infos"
-                >
-                  {previewClients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.company || `${c.firstName} ${c.lastName}`.trim() || c.email}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const r = previewClients[Math.floor(Math.random() * previewClients.length)];
-                    setPreviewClientId(r.id);
-                  }}
-                  className="text-[11px] font-body font-semibold px-2 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                  title="Choisir un autre client au hasard"
-                >
-                  🎲
-                </button>
-              </div>
-            )}
+            <PreviewTargetBar
+              clients={previewClients}
+              selectedClientId={previewClientId}
+              onSelectClient={setPreviewClientId}
+              adminSelfEmail={adminSelfEmail}
+              scenarioKey={scenarioKey}
+              sending={sendingTest}
+              onSendTest={async (targetValue) => {
+                if (sendingTest) return;
+                setSendingTest(true);
+                try {
+                  // L'éditeur auto-ajoute header + footer en mémoire à
+                  // l'ouverture — sans sauvegarde préalable, la BDD peut ne
+                  // pas les contenir et le mail de test partirait sans
+                  // en-tête ni pied de page. On persiste d'abord (idempotent
+                  // si déjà propre), puis on envoie sur les blocs à jour.
+                  if (dirty) {
+                    const saved = await persist();
+                    if (!saved) return; // toast déjà affiché par persist()
+                  }
+                  const recipient =
+                    targetValue === SELF_TARGET
+                      ? { kind: "self" as const }
+                      : { kind: "client" as const, userId: targetValue };
+                  const res = await sendTestNewsletterEmail({
+                    templateId: template.id,
+                    recipient,
+                  });
+                  if (res.success) {
+                    toast.success(
+                      "Test envoyé",
+                      `Un aperçu du mail a été envoyé à ${res.sentTo}.`,
+                    );
+                  } else {
+                    toast.error("Envoi impossible", res.error);
+                  }
+                } finally {
+                  setSendingTest(false);
+                }
+              }}
+            />
           </div>
           <div className="flex-1 overflow-y-auto py-6 pl-6 pr-16 bg-slate-100">
-            {/* overflow-visible : permet aux boutons drag/delete de BlockCanvas
-                d'être positionnés à l'extérieur du bloc (right négatif). Les
-                coins arrondis du header/footer sont gérés par leur propre
-                overflow-hidden pour rester nets. */}
-            <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm overflow-hidden">
-              {/* overflow-hidden garde les coins arrondis nets ; la sélection
-                  de bloc utilise un `ring-inset` (à l'intérieur du bloc) et
-                  reste donc visible même sur le 1ᵉʳ et le dernier bloc. */}
+            {/* Wrapper overflow-visible : les boutons drag/corbeille de
+                BlockCanvas sont positionnés à `-right-11` (44 px hors du
+                bloc). Un overflow-hidden ici les rognerait — c'était le bug
+                de septembre 2026 où on ne voyait plus les 2 boutons sur les
+                blocs. La marge `pr-16` du conteneur de scroll leur réserve
+                déjà 64 px de place à droite. Coins arrondis : rétablis sur le
+                1ᵉʳ enfant (header) et l'avant-dernier (footer, avant la drop
+                zone `h-3`) via sélecteurs CSS. Buttons header/footer sont
+                verrouillés (grisés) → OK de les clipper. */}
+            <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm [&>*:first-child]:rounded-t-lg [&>*:first-child]:overflow-hidden [&>*:nth-last-child(2)]:rounded-b-lg [&>*:nth-last-child(2)]:overflow-hidden">
+              {/* Sélection : ring-inset (à l'intérieur du bloc) reste visible
+                  même sur le 1ᵉʳ et le dernier bloc. */}
               {blocks.length === 0 ? (
                 <div
                   className="p-16 text-center text-text-muted text-sm border-2 border-dashed border-slate-300 rounded-lg m-4"
@@ -2508,4 +2541,199 @@ function GlobalVariableButton({ scenario }: { scenario: ScenarioKey | null }) {
       )}
     </div>
   );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Barre « Aperçu pour : » + envoi d'un mail de test
+   ───────────────────────────────────────────────────────────── */
+
+/**
+ * Valeur spéciale du sélecteur qui désigne l'admin (envoi sur son mail perso
+ * vérifié). Choisie improbable pour ne pas entrer en collision avec un ID
+ * client réel.
+ */
+const SELF_TARGET = "__self__";
+
+/**
+ * Barre du bandeau d'aperçu : un CustomSelect qui liste « Moi-même » + tous
+ * les clients APPROVED, un bouton dé (tirage au sort d'un client) et un
+ * bouton d'envoi qui expédie le modèle courant en test à la cible choisie.
+ *
+ * La sélection ne modifie que le destinataire du bouton d'envoi : les tokens
+ * `{firstName}`, `{company}`… affichés dans l'aperçu à l'écran restent
+ * pilotés par `previewClientId` côté parent — l'option « Moi-même » ne
+ * change PAS le rendu à l'écran (l'admin n'a pas de fiche client), elle sert
+ * uniquement à l'envoi test.
+ */
+function PreviewTargetBar({
+  clients,
+  selectedClientId,
+  onSelectClient,
+  adminSelfEmail,
+  scenarioKey,
+  sending,
+  onSendTest,
+}: {
+  clients: PreviewClientLite[];
+  selectedClientId: string | null;
+  onSelectClient: (id: string | null) => void;
+  adminSelfEmail: string | null;
+  scenarioKey: ScenarioKey | null;
+  sending: boolean;
+  onSendTest: (targetValue: string) => Promise<void> | void;
+}) {
+  // Cible en cours pour le CustomSelect + l'envoi test. Par défaut on suit le
+  // client sélectionné dans l'aperçu, sauf si l'utilisateur bascule sur
+  // « Moi-même » — dans ce cas on garde la cible self jusqu'au prochain
+  // changement explicite.
+  const [target, setTarget] = useState<string>(
+    selectedClientId ?? (adminSelfEmail ? SELF_TARGET : ""),
+  );
+  useEffect(() => {
+    // Suit le client sélectionné dans l'aperçu tant qu'on n'est pas en mode
+    // "Moi-même". Utile après un tirage au dé.
+    if (target !== SELF_TARGET && selectedClientId && target !== selectedClientId) {
+      setTarget(selectedClientId);
+    }
+  }, [selectedClientId, target]);
+
+  const options = useMemo(() => {
+    const opts = [
+      {
+        value: SELF_TARGET,
+        label: adminSelfEmail
+          ? `Moi-même — ${adminSelfEmail}`
+          : "Moi-même (mail perso non vérifié)",
+        iconNode: (
+          <span
+            aria-hidden
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-white text-[10px] font-bold shadow-sm"
+          >
+            ★
+          </span>
+        ),
+        disabled: !adminSelfEmail,
+      },
+      ...clients.map((c) => {
+        const displayName =
+          c.company?.trim() ||
+          `${c.firstName} ${c.lastName}`.trim() ||
+          c.email;
+        const initials = getInitials(c);
+        return {
+          value: c.id,
+          label: `${displayName} — ${c.email}`,
+          iconNode: (
+            <span
+              aria-hidden
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-slate-700 text-[9.5px] font-bold"
+            >
+              {initials}
+            </span>
+          ),
+        };
+      }),
+    ];
+    return opts;
+  }, [clients, adminSelfEmail]);
+
+  const canSend = !!target && !sending;
+  const sendTitle = !target
+    ? "Choisissez un destinataire"
+    : target === SELF_TARGET
+      ? `M'envoyer ce mail en test${adminSelfEmail ? ` à ${adminSelfEmail}` : ""}`
+      : `Envoyer ce mail en test à ce client${scenarioKey === "ABANDONED_CART" ? " (avec son panier réel)" : ""}`;
+
+  const nothingToPick = clients.length === 0 && !adminSelfEmail;
+
+  if (nothingToPick) {
+    return (
+      <span className="text-[11px] font-body text-text-muted italic">
+        Aucun destinataire d'aperçu disponible — validez d'abord un client
+        APPROUVÉ ou vérifiez votre mail perso dans Paramètres → Messagerie.
+      </span>
+    );
+  }
+
+  function handleChange(v: string) {
+    setTarget(v);
+    // Aperçu à l'écran : on met à jour le client sélectionné pour que les
+    // tokens {firstName}… se rafraîchissent. « Moi-même » n'a pas de client
+    // à cibler pour l'aperçu — on laisse la sélection courante intacte.
+    if (v !== SELF_TARGET) onSelectClient(v);
+  }
+
+  function pickRandom() {
+    if (clients.length === 0) return;
+    const r = clients[Math.floor(Math.random() * clients.length)];
+    setTarget(r.id);
+    onSelectClient(r.id);
+  }
+
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <span className="text-[11px] text-text-muted font-body font-semibold whitespace-nowrap">
+        Aperçu pour :
+      </span>
+      <div className="min-w-[220px] max-w-[280px]">
+        <CustomSelect
+          value={target}
+          onChange={handleChange}
+          options={options}
+          size="sm"
+          searchable
+          aria-label="Destinataire de l'aperçu"
+          title="Aperçu pour"
+          emptyMessage="Aucun destinataire disponible."
+        />
+      </div>
+      <button
+        type="button"
+        onClick={pickRandom}
+        disabled={clients.length === 0}
+        className="text-[13px] leading-none px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+        title="Choisir un autre client au hasard"
+        aria-label="Choisir un client au hasard"
+      >
+        🎲
+      </button>
+      <button
+        type="button"
+        onClick={() => onSendTest(target)}
+        disabled={!canSend}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-body font-bold bg-gradient-to-br from-slate-800 to-slate-900 text-white shadow-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+        title={sendTitle}
+        aria-label="Envoyer un mail de test"
+      >
+        {sending ? (
+          <>
+            <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+              <path d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+            Envoi…
+          </>
+        ) : (
+          <>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 2L11 13" />
+              <path d="M22 2l-7 20-4-9-9-4z" />
+            </svg>
+            Envoyer un test
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function getInitials(c: PreviewClientLite): string {
+  const src =
+    c.company?.trim() ||
+    `${c.firstName} ${c.lastName}`.trim() ||
+    c.email;
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
