@@ -61,11 +61,11 @@ export async function bumpAbandonedCartTimer(
     });
     if (!user) return;
     if (user.role !== "CLIENT" || user.status !== "APPROVED") {
-      await cancelJobIfExists(userId, "USER_NOT_APPROVED");
+      await cancelJobIfExists(userId, tenantId, "USER_NOT_APPROVED");
       return;
     }
     if (user.abandonedCartOptOut) {
-      await cancelJobIfExists(userId, "OPT_OUT");
+      await cancelJobIfExists(userId, tenantId, "OPT_OUT");
       return;
     }
 
@@ -74,7 +74,7 @@ export async function bumpAbandonedCartTimer(
       where: { cart: { userId }, tenantId },
     });
     if (cartCount === 0) {
-      await cancelJobIfExists(userId, "CART_EMPTY");
+      await cancelJobIfExists(userId, tenantId, "CART_EMPTY");
       return;
     }
 
@@ -85,7 +85,7 @@ export async function bumpAbandonedCartTimer(
       select: { stageIndex: true, delaySeconds: true },
     });
     if (stages.length === 0) {
-      await cancelJobIfExists(userId, "NO_STAGES");
+      await cancelJobIfExists(userId, tenantId, "NO_STAGES");
       return;
     }
 
@@ -189,10 +189,11 @@ export async function cancelAbandonedCartJob(
 
 async function cancelJobIfExists(
   userId: string,
+  tenantId: string,
   reason: CancelReason,
 ): Promise<void> {
   await prisma.abandonedCartJob.updateMany({
-    where: { userId, status: "PENDING" },
+    where: { userId, tenantId, status: "PENDING" },
     data: { status: "CANCELLED", nextStageAt: null, cancelReason: reason },
   });
 }

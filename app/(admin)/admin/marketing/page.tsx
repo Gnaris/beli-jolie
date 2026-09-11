@@ -8,8 +8,7 @@ import { isOnline } from "@/lib/online-status";
 import { initialsOf, avatarGradientFor } from "@/lib/user-avatar";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import UsersTabs from "@/components/admin/users/UsersTabs";
-import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
-import UsersSortControl from "@/components/admin/users/UsersSortControl";
+import AdminCardsMailPane from "@/components/admin/users/AdminCardsMailPane";
 import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
 import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 import SendMailButton from "@/components/admin/users/SendMailButton";
@@ -17,6 +16,7 @@ import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
 import { MailSelectionProvider } from "@/components/admin/users/MailSelectionContext";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
 import NewsletterBulkBar from "@/components/admin/users/NewsletterBulkBar";
+import FicheNewsletterBulkBar from "@/components/admin/users/FicheNewsletterBulkBar";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import {
   loadAbandonedCartJobsFor,
@@ -180,6 +180,8 @@ export default async function MarketingPage({
     sort?: string;
     dir?: string;
     view?: string;
+    /** Fiches uniquement : n'afficher que celles ayant un email non vide. */
+    withEmail?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -294,15 +296,11 @@ export default async function MarketingPage({
     currentTab === "fiches" ? loadAdminCards(params, page, perPage) : Promise.resolve(null),
   ]);
 
-  // Vue Mails : charger le dernier envoi de chaque scénario pour les clients
-  // affichés + les modèles de newsletter disponibles pour l'envoi groupé.
-  const [mailsData, newsletterTemplates] =
-    view === "mails" && currentTab === "inscrits"
-      ? await Promise.all([
-          loadLastMailSendsFor(registeredData.clients.map((c) => c.id)),
-          listNewsletterTemplates(),
-        ])
-      : [new Map<string, MailLastSends>(), []];
+  // Modèles newsletter — nécessaires côté inscrits (Vue Mails) et côté fiches
+  // (envoi groupé aux fiches admin depuis la Vue Mails du tab « Fiches »).
+  const needsNewsletterTemplates =
+    (view === "mails" && currentTab === "inscrits") || currentTab === "fiches";
+  const newsletterTemplates = needsNewsletterTemplates ? await listNewsletterTemplates() : [];
 
   // Vue Infos : charger le panier en cours de chaque client affiché.
   const cartsData: Map<string, CartSummary> =
@@ -316,6 +314,18 @@ export default async function MarketingPage({
     currentTab === "inscrits"
       ? await loadAbandonedCartJobsFor(registeredData.clients.map((c) => c.id))
       : new Map();
+
+  // Vue Mails « Fiches » : dernier mail envoyé par fiche (indexé par ficheId).
+  const lastMailByFicheId: Record<string, string | null> =
+    currentTab === "fiches" && cardsData
+      ? await loadLastMailByFiche(
+          cardsData.cards.map((c) => ({
+            id: c.id,
+            email: c.email,
+            lastMessageSentAt: c.lastMessageSentAt,
+          })),
+        )
+      : {};
 
   return (
     <div className="space-y-6">
@@ -332,7 +342,7 @@ export default async function MarketingPage({
               </span>
               <h1 className="page-title mt-4">Envoyer des mails aux clients</h1>
               <p className="page-subtitle font-body max-w-2xl">
-                Choisissez un ou plusieurs clients pour leur envoyer une newsletter, une relance panier abandonné, un mail de retour en stock ou une relance d&apos;inactivité. Les dates du dernier envoi de chaque scénario sont affichées dans le tableau.
+                Choisissez un ou plusieurs clients pour leur envoyer une newsletter, une relance panier abandonné, un mail de retour en stock ou une relance d&apos;inactivité. Les colonnes indiquent, pour chaque scénario, si un envoi automatique est imminent (compte à rebours).
               </p>
             </div>
             <Link
@@ -349,7 +359,7 @@ export default async function MarketingPage({
         </div>
       </section>
 
-      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} />
+      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} basePath="/admin/marketing" />
 
       {currentTab === "inscrits" ? (
         <MailSelectionProvider>
@@ -365,7 +375,6 @@ export default async function MarketingPage({
             dir={dir}
             search={registeredSearch}
             view={view}
-            mails={mailsData}
             carts={cartsData}
             abandonedJobs={abandonedJobsData}
           />
@@ -373,21 +382,23 @@ export default async function MarketingPage({
         </MailSelectionProvider>
       ) : (
         cardsData && (
-          <AdminCardsPane
-            cards={cardsData.cards}
-            totalCount={cardsData.filteredCount}
-            filterCounts={cardsData.filterCounts}
-            currentFilter={cardsData.filter}
-            currentPage={page}
-            perPage={perPage}
-            search={cardsData.search}
-          />
+          <MailSelectionProvider>
+            <AdminCardsMailPane
+              cards={cardsData.cards}
+              totalCount={cardsData.filteredCount}
+              filterCounts={cardsData.filterCounts}
+              currentFilter={cardsData.filter}
+              currentPage={page}
+              perPage={perPage}
+              search={cardsData.search}
+              onlyWithEmail={cardsData.onlyWithEmail}
+              lastMailByFicheId={lastMailByFicheId}
+            />
+            <FicheNewsletterBulkBar templates={newsletterTemplates} />
+          </MailSelectionProvider>
         )
       )}
 
-      <p className="text-center text-[11px] text-text-muted font-body pt-2">
-        Actualisation automatique toutes les 10 secondes
-      </p>
     </div>
   );
 }
@@ -493,39 +504,9 @@ function toStatsMap(grouped: GroupedOrderStats): Map<string, ClientOrderStats> {
 /** Commandes annulées exclues : elles ne représentent ni un volume ni un CA réel. */
 const COUNTED_ORDERS: Prisma.OrderWhereInput = { status: { not: "CANCELLED" } };
 
-// ─── Vue Mails : dernier envoi de chaque scénario par client ────────────────
+// ─── Vue Mails : scénarios de mail affichés en colonnes ─────────────────────
 
 type MailScenario = "ABANDONED_CART" | "INACTIVE_CLIENT" | "NEWSLETTER" | "RESTOCK";
-
-export type MailLastSends = Partial<Record<MailScenario, Date>>;
-
-const MAIL_SCENARIOS: MailScenario[] = ["ABANDONED_CART", "INACTIVE_CLIENT", "NEWSLETTER", "RESTOCK"];
-
-/**
- * Charge, pour chaque userId passé, la date la plus récente d'envoi de chacun
- * des 4 scénarios de mail. Une seule requête groupBy — pas de N+1.
- */
-async function loadLastMailSendsFor(userIds: string[]): Promise<Map<string, MailLastSends>> {
-  const map = new Map<string, MailLastSends>();
-  if (userIds.length === 0) return map;
-
-  const grouped = await prisma.emailSend.groupBy({
-    by: ["userId", "scenarioKey"],
-    where: {
-      userId: { in: userIds },
-      scenarioKey: { in: MAIL_SCENARIOS },
-    },
-    _max: { sentAt: true },
-  });
-
-  for (const row of grouped) {
-    if (!row.userId) continue;
-    const existing = map.get(row.userId) ?? {};
-    existing[row.scenarioKey as MailScenario] = row._max.sentAt ?? undefined;
-    map.set(row.userId, existing);
-  }
-  return map;
-}
 
 async function loadOrderStatsFor(userIds: string[]): Promise<Map<string, ClientOrderStats>> {
   if (userIds.length === 0) return new Map();
@@ -609,7 +590,7 @@ function buildListHref(opts: {
   }
   if (opts.view === "mails") params.set("view", "mails");
   const qs = params.toString();
-  return qs ? `/admin/clients?${qs}` : "/admin/clients";
+  return qs ? `/admin/marketing?${qs}` : "/admin/marketing";
 }
 
 /** En-tête de colonne cliquable : re-trie sur ce critère, ou inverse le sens. */
@@ -688,14 +669,12 @@ function MailsView({
   totalFiltered,
   page,
   perPage,
-  mails,
   abandonedJobs,
 }: {
   clients: RegisteredClient[];
   totalFiltered: number;
   page: number;
   perPage: number;
-  mails: Map<string, MailLastSends>;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
 }) {
   const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
@@ -733,7 +712,6 @@ function MailsView({
             <tbody>
               {clients.map((c) => {
                 const gradient = avatarGradientFor(c.id);
-                const lastSends = mails.get(c.id) ?? {};
                 return (
                   <tr
                     key={c.id}
@@ -758,24 +736,11 @@ function MailsView({
                       </div>
                     </td>
                     {MAIL_COLUMNS.map((col) => {
-                      const date = lastSends[col.key];
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
                       return (
                         <td key={col.key} className="px-5 py-3.5 whitespace-nowrap">
-                          {date ? (
-                            <>
-                              <p className="text-[13px] font-body text-text-primary tabular-nums leading-none">
-                                {formatShortDate(date).date}
-                              </p>
-                              <p className="text-[11px] font-body text-text-muted mt-1">
-                                {formatTimeAgo(date)}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-[13px] font-body text-text-muted/50">—</p>
-                          )}
-                          {abandonedJob && (
-                            <div className="mt-2 space-y-1">
+                          {abandonedJob ? (
+                            <div className="space-y-1">
                               {abandonedJob.nextStageAt &&
                                 abandonedJob.nextStageIndex !== null && (
                                   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
@@ -786,20 +751,22 @@ function MailsView({
                                     />
                                   </div>
                                 )}
-                              {abandonedJob.lastSent && (
-                                <AbandonedCartLastSent
-                                  stageIndex={abandonedJob.lastSent.stageIndex}
-                                  atIso={abandonedJob.lastSent.at.toISOString()}
-                                  stillExists={abandonedJob.lastSent.stillExists}
-                                />
-                              )}
-                              <div>
+                              <div className="flex items-center gap-2">
+                                {abandonedJob.lastSent && (
+                                  <AbandonedCartLastSent
+                                    stageIndex={abandonedJob.lastSent.stageIndex}
+                                    atIso={abandonedJob.lastSent.at.toISOString()}
+                                    stillExists={abandonedJob.lastSent.stillExists}
+                                  />
+                                )}
                                 <AbandonedCartResetButton
                                   userId={c.id}
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                 />
                               </div>
                             </div>
+                          ) : (
+                            <p className="text-[13px] font-body text-text-muted/50">—</p>
                           )}
                         </td>
                       );
@@ -832,7 +799,6 @@ function MailsView({
       <div className="lg:hidden space-y-2.5">
         {clients.map((c) => {
           const gradient = avatarGradientFor(c.id);
-          const lastSends = mails.get(c.id) ?? {};
           return (
             <div
               key={c.id}
@@ -852,7 +818,6 @@ function MailsView({
                   <p className="text-[12px] font-body text-text-muted truncate">{c.email}</p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {MAIL_COLUMNS.map((col) => {
-                      const date = lastSends[col.key];
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
                       return (
                         <div
@@ -862,11 +827,8 @@ function MailsView({
                           <p className={`text-[10px] font-body font-bold uppercase tracking-[0.1em] ${abandonedJob ? "text-amber-800" : "text-text-muted"}`}>
                             {col.short}
                           </p>
-                          <p className={`text-[13px] font-body mt-0.5 ${date ? "text-text-primary font-semibold" : "text-text-muted/60"}`}>
-                            {date ? formatTimeAgo(date) : "—"}
-                          </p>
-                          {abandonedJob && (
-                            <div className="mt-1.5 space-y-0.5">
+                          {abandonedJob ? (
+                            <div className="mt-1.5 space-y-1">
                               {abandonedJob.nextStageAt &&
                                 abandonedJob.nextStageIndex !== null && (
                                   <AbandonedCartCountdown
@@ -874,20 +836,22 @@ function MailsView({
                                     nextAtIso={abandonedJob.nextStageAt.toISOString()}
                                   />
                                 )}
-                              {abandonedJob.lastSent && (
-                                <AbandonedCartLastSent
-                                  stageIndex={abandonedJob.lastSent.stageIndex}
-                                  atIso={abandonedJob.lastSent.at.toISOString()}
-                                  stillExists={abandonedJob.lastSent.stillExists}
-                                />
-                              )}
-                              <div className="mt-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {abandonedJob.lastSent && (
+                                  <AbandonedCartLastSent
+                                    stageIndex={abandonedJob.lastSent.stageIndex}
+                                    atIso={abandonedJob.lastSent.at.toISOString()}
+                                    stillExists={abandonedJob.lastSent.stillExists}
+                                  />
+                                )}
                                 <AbandonedCartResetButton
                                   userId={c.id}
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                 />
                               </div>
                             </div>
+                          ) : (
+                            <p className="text-[13px] font-body text-text-muted/60 mt-0.5">—</p>
                           )}
                         </div>
                       );
@@ -916,13 +880,6 @@ function MailsView({
         </div>
       </div>
 
-      {/* Note d'aide sous le tableau — la cliente sait que c'est vide pour l'instant */}
-      <div className="rounded-2xl border border-dashed border-border bg-bg-secondary/60 p-4 text-center">
-        <p className="text-xs font-body text-text-secondary">
-          Aucun envoi automatique pour l&apos;instant — les colonnes se rempliront quand
-          la fonctionnalité d&apos;envoi manuel groupé sera activée.
-        </p>
-      </div>
     </>
   );
 }
@@ -939,7 +896,6 @@ function RegisteredPane({
   dir,
   search,
   view,
-  mails,
   carts,
   abandonedJobs,
 }: {
@@ -954,7 +910,6 @@ function RegisteredPane({
   dir: SortDir;
   search: string;
   view: "infos" | "mails";
-  mails: Map<string, MailLastSends>;
   carts: Map<string, CartSummary>;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
 }) {
@@ -1013,7 +968,6 @@ function RegisteredPane({
         </div>
 
         <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-2 w-full xl:w-auto">
-          <UsersSortControl sort={sort} dir={dir} />
           <PerPageSelect value={perPage} />
         </div>
       </div>
@@ -1046,7 +1000,6 @@ function RegisteredPane({
           totalFiltered={totalFiltered}
           page={page}
           perPage={perPage}
-          mails={mails}
           abandonedJobs={abandonedJobs}
         />
       ) : (
@@ -1231,14 +1184,14 @@ function RegisteredPane({
                                   />
                                 </div>
                               ) : null}
-                              {abandonedJob.lastSent && (
-                                <AbandonedCartLastSent
-                                  stageIndex={abandonedJob.lastSent.stageIndex}
-                                  atIso={abandonedJob.lastSent.at.toISOString()}
-                                  stillExists={abandonedJob.lastSent.stillExists}
-                                />
-                              )}
-                              <div>
+                              <div className="flex items-center gap-2">
+                                {abandonedJob.lastSent && (
+                                  <AbandonedCartLastSent
+                                    stageIndex={abandonedJob.lastSent.stageIndex}
+                                    atIso={abandonedJob.lastSent.at.toISOString()}
+                                    stillExists={abandonedJob.lastSent.stillExists}
+                                  />
+                                )}
                                 <AbandonedCartResetButton
                                   userId={c.id}
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
@@ -1415,7 +1368,7 @@ function RegisteredPane({
 // ─── Admin cards data loader ────────────────────────────────────────────────
 
 async function loadAdminCards(
-  params: { mp?: string; q?: string },
+  params: { mp?: string; q?: string; withEmail?: string },
   page: number,
   perPage: number,
 ) {
@@ -1423,6 +1376,7 @@ async function loadAdminCards(
     ? (params.mp as "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE")
     : ("ALL" as const);
   const q = (params.q ?? "").trim();
+  const onlyWithEmail = params.withEmail === "1";
 
   const marketplaceFilter: Prisma.AdminClientCardWhereInput =
     filter === "PFS"
@@ -1451,7 +1405,14 @@ async function loadAdminCards(
       }
     : {};
 
-  const where: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter] };
+  // "Avec email" côté page marketing : email non-null ET non-vide.
+  // Prisma n'a pas de `not: ""` direct combinable, on utilise NOT is:null puis
+  // filtre côté résultat pour "" (edge case rare).
+  const emailFilter: Prisma.AdminClientCardWhereInput = onlyWithEmail
+    ? { email: { not: null } }
+    : {};
+
+  const where: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter, emailFilter] };
 
   const [
     cards,
@@ -1524,5 +1485,51 @@ async function loadAdminCards(
       PASSAGE: passage,
     },
     search: q,
+    onlyWithEmail,
   };
+}
+
+/**
+ * Charge le dernier mail envoyé (EmailSend) pour chaque fiche, indexé par ficheId.
+ * Priorité : dernier EmailSend dont `recipientEmail` matche l'email de la fiche
+ * (case-insensitive). Fallback sur `AdminClientCard.lastMessageSentAt` si aucun
+ * EmailSend correspondant. Retourne un objet plat `{ [ficheId]: ISOString | null }`.
+ */
+async function loadLastMailByFiche(
+  fiches: Array<{ id: string; email: string | null; lastMessageSentAt: string | null }>,
+): Promise<Record<string, string | null>> {
+  const result: Record<string, string | null> = {};
+  const emails = fiches
+    .map((f) => (f.email ?? "").trim().toLowerCase())
+    .filter((e) => e.length > 0);
+  if (emails.length === 0) {
+    for (const f of fiches) result[f.id] = f.lastMessageSentAt;
+    return result;
+  }
+
+  // Un seul groupBy sur recipientEmail (lower) — évite N+1.
+  const emailSends = await prisma.emailSend.groupBy({
+    by: ["recipientEmail"],
+    where: { status: "SENT", recipientEmail: { in: emails } },
+    _max: { sentAt: true },
+  });
+  const byEmail = new Map<string, Date | null>();
+  for (const row of emailSends) {
+    byEmail.set(row.recipientEmail.toLowerCase(), row._max.sentAt);
+  }
+
+  for (const f of fiches) {
+    const key = (f.email ?? "").trim().toLowerCase();
+    const fromEmailSend = key ? byEmail.get(key) : null;
+    const fallback = f.lastMessageSentAt ? new Date(f.lastMessageSentAt) : null;
+    // Prend la date la plus récente entre EmailSend et fallback historique
+    const winner =
+      fromEmailSend && fallback
+        ? fromEmailSend.getTime() >= fallback.getTime()
+          ? fromEmailSend
+          : fallback
+        : (fromEmailSend ?? fallback);
+    result[f.id] = winner ? winner.toISOString() : null;
+  }
+  return result;
 }

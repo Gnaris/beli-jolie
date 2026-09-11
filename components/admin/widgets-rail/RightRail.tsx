@@ -122,6 +122,20 @@ const ITEMS: RailItem[] = [
     ),
   },
   {
+    id: "bulk-mail",
+    label: "Envoi de mails",
+    gradient: "from-fuchsia-500 to-pink-600",
+    badgeText: "text-fuchsia-600",
+    ring: "ring-fuchsia-500",
+    icon: (
+      // Enveloppe — mail marketing
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+        <polyline strokeLinecap="round" strokeLinejoin="round" points="22,6 12,13 2,6" />
+      </svg>
+    ),
+  },
+  {
     id: "chat",
     label: "Messages clients",
     gradient: "from-rose-500 to-pink-600",

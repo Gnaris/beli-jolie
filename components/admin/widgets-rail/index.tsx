@@ -14,6 +14,7 @@ import { ShootingDrawer } from "./ShootingDrawer";
 import { OrdersImportDrawer } from "./OrdersImportDrawer";
 import { PfsAuditDrawer } from "./PfsAuditDrawer";
 import { MicrostoreUploadDrawer } from "./MicrostoreUploadDrawer";
+import { BulkMailDrawer } from "./BulkMailDrawer";
 
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
@@ -30,6 +31,7 @@ export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
       <OrdersImportDrawer />
       <PfsAuditDrawer />
       <MicrostoreUploadDrawer />
+      <BulkMailDrawer />
     </RightRailProvider>
   );
 }

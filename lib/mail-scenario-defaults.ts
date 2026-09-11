@@ -115,7 +115,7 @@ export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
         type: "button",
         data: {
           label: "Reprendre ma commande",
-          url: "/fr/panier",
+          url: "/panier",
           bg: "#0f172a",
           color: "#ffffff",
           align: "center",
@@ -161,7 +161,7 @@ export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
         type: "button",
         data: {
           label: "Découvrir les nouveautés",
-          url: "/fr/produits",
+          url: "/produits",
           bg: "#0f172a",
           color: "#ffffff",
           align: "center",
@@ -196,7 +196,7 @@ export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
         type: "button",
         data: {
           label: "Voir tous mes favoris",
-          url: "/fr/favoris",
+          url: "/favoris",
           bg: "#0f172a",
           color: "#ffffff",
           align: "center",

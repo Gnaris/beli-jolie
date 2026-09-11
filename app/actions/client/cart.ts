@@ -6,6 +6,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { bumpAbandonedCartTimer } from "@/lib/abandoned-cart-trigger";
+import {
+  findMissingAddressFields,
+  serializeMissingFields,
+} from "@/lib/shipping-address-validate";
 
 /**
  * Déclenche la mise à jour du timer de relance panier abandonné.
@@ -693,8 +697,32 @@ export async function saveShippingAddress(data: {
 }) {
   const userId = await requireClient();
 
+  // Garde-fou dur : refuse toute adresse avec un champ obligatoire vide.
+  // Sans ça, Easy-Express / Smarty365 rejettent le bordereau côté admin avec
+  // « please fill in the 'City' field again » (cas Slovaquie 27BVT7AF, 2026-09).
+  const missing = findMissingAddressFields(data);
+  if (missing.length > 0) {
+    throw new Error(serializeMissingFields(missing));
+  }
+
+  // Normalisation : trim de tous les champs pour éviter les " Paris  " parasites
+  // qui posent problème aux API transporteurs.
+  const normalized = {
+    label:     data.label.trim(),
+    firstName: data.firstName.trim(),
+    lastName:  data.lastName.trim(),
+    company:   data.company?.trim() || null,
+    address1:  data.address1.trim(),
+    address2:  data.address2?.trim() || null,
+    zipCode:   data.zipCode.trim(),
+    city:      data.city.trim(),
+    country:   data.country.trim(),
+    phone:     data.phone?.trim() || null,
+    isDefault: data.isDefault ?? false,
+  };
+
   // Si marquée comme défaut, retirer le défaut des autres
-  if (data.isDefault) {
+  if (normalized.isDefault) {
     await prisma.shippingAddress.updateMany({
       where: { userId },
       data: { isDefault: false },
@@ -710,19 +738,7 @@ export async function saveShippingAddress(data: {
 
     return prisma.shippingAddress.update({
       where: { id: data.id },
-      data: {
-        label:     data.label,
-        firstName: data.firstName,
-        lastName:  data.lastName,
-        company:   data.company ?? null,
-        address1:  data.address1,
-        address2:  data.address2 ?? null,
-        zipCode:   data.zipCode,
-        city:      data.city,
-        country:   data.country,
-        phone:     data.phone ?? null,
-        isDefault: data.isDefault ?? false,
-      },
+      data: normalized,
     });
   }
 
@@ -730,17 +746,7 @@ export async function saveShippingAddress(data: {
   return prisma.shippingAddress.create({
     data: {
       userId,
-      label:     data.label,
-      firstName: data.firstName,
-      lastName:  data.lastName,
-      company:   data.company ?? null,
-      address1:  data.address1,
-      address2:  data.address2 ?? null,
-      zipCode:   data.zipCode,
-      city:      data.city,
-      country:   data.country,
-      phone:     data.phone ?? null,
-      isDefault: data.isDefault ?? false,
+      ...normalized,
     },
   });
 }

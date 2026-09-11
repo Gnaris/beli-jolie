@@ -91,6 +91,8 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "ImageProcessingJob",
   "MicrostoreUploadJob",
   "TranslationJob",
+  "AbandonedCartJob",
+  "BulkMailJob",
   "StockMovement",
   "LegalDocument",
   "LegalDocumentVersion",

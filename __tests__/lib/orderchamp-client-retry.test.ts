@@ -113,6 +113,29 @@ describe("orderchampGraphQL — retry policy", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("401 (clé révoquée) N'EST PAS retryé — un seul fetch, remonte OrderchampGraphQLError", async () => {
+    // Bug pré-fix : parseGraphQLResponse throw dans le try, le catch traitait
+    // ça comme une erreur réseau → 5 tentatives (500ms → 4s) avant d'échouer.
+    fetchSpy.mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+
+    await expect(orderchampGraphQL("query Q", {}, "orders")).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof OrderchampGraphQLError &&
+        err.status === 401 &&
+        /invalide ou révoquée/i.test(err.message),
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("403 (clé sans droit) N'EST PAS retryé — un seul fetch", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("Forbidden", { status: 403 }));
+
+    await expect(orderchampGraphQL("query Q", {}, "orders")).rejects.toBeInstanceOf(
+      OrderchampGraphQLError,
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("disableRetry non fourni : 429 puis 5xx puis succès sont bien retryés", async () => {
     fetchSpy
       .mockResolvedValueOnce(rateLimitResponse(0))

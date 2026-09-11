@@ -122,7 +122,18 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
             disabled={pending || (!config.automationEnabled && (!config.allTemplatesLegal || config.stages.length === 0))}
             role="switch"
             aria-checked={config.automationEnabled}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-text-primary disabled:opacity-40 ${
+            title={
+              pending
+                ? "Enregistrement en cours…"
+                : !config.automationEnabled && config.stages.length === 0
+                  ? "Ajoutez au moins un stade de relance ci-dessous avant d'activer."
+                  : !config.automationEnabled && !config.allTemplatesLegal
+                    ? "Un stade a perdu son lien de désinscription — ouvrez « Modifier le mail » et réinsérez la variable {unsubscribeLink} dans le pied de page."
+                    : config.automationEnabled
+                      ? "Cliquez pour désactiver les relances automatiques."
+                      : "Cliquez pour activer les relances automatiques."
+            }
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-text-primary disabled:opacity-40 disabled:cursor-not-allowed ${
               config.automationEnabled
                 ? "bg-emerald-600"
                 : "bg-bg-tertiary border border-border-strong"
@@ -366,9 +377,14 @@ function StageRow({
       {/* Statut désinscription + actions */}
       <div className="flex items-center gap-2 flex-wrap justify-end shrink-0">
         {!stage.templateHasUnsubscribeLink && (
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-[10.5px] font-body font-semibold text-red-700">
-            ⚠ Lien désinscription manquant
-          </span>
+          <button
+            type="button"
+            onClick={onEditMail}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-[10.5px] font-body font-semibold text-red-700 hover:bg-red-100"
+            title="Ouvrir le mail pour insérer {unsubscribeLink} dans le pied de page"
+          >
+            ⚠ Lien désinscription manquant — corriger
+          </button>
         )}
         <button
           type="button"

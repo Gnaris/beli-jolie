@@ -487,17 +487,31 @@ function renderBlock(
       if (!hasTitle && !hasBody) return "";
       return wrapBg(block.data.bg, `<div style="padding:16px 20px;">${titleHtml}${bodyHtml}</div>`);
     }
-    case "callout":
+    case "callout": {
+      const rawCtaUrl = (block.data.ctaUrl ?? "").trim();
+      const ctaAbsolute = /^(https?:\/\/|mailto:)/i.test(rawCtaUrl)
+        ? rawCtaUrl
+        : rawCtaUrl
+          ? absoluteUrl(shared.baseUrl, rawCtaUrl)
+          : "";
       return contained(`<div style="margin:16px 0;">
 <div style="background:${block.data.bg}; color:${block.data.color}; padding:20px; border-radius:14px; text-align:center;">
 <div style="font-family:'Poppins', sans-serif; font-size:${block.data.titleSize || 16}px; font-weight:700; margin-bottom:6px; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title)}</div>
 <div style="font-size:${block.data.subtitleSize || 13}px; opacity:0.85; margin-bottom:14px; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.subtitle)}</div>
-${block.data.ctaUrl ? `<a href="${escapeHtml(block.data.ctaUrl)}" style="display:inline-block; background:white; color:${block.data.bg}; padding:10px 22px; border-radius:999px; font-weight:600; font-size:${block.data.ctaSize || 13}px; text-decoration:none; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.cta)}</a>` : ""}
+${ctaAbsolute ? `<a href="${escapeHtml(ctaAbsolute)}" style="display:inline-block; background:white; color:${block.data.bg}; padding:10px 22px; border-radius:999px; font-weight:600; font-size:${block.data.ctaSize || 13}px; text-decoration:none; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.cta)}</a>` : ""}
 </div>
 </div>`);
+    }
     case "button": {
       const align = block.data.align || "center";
-      const url = block.data.url || shared.baseUrl;
+      // URL toujours absolue dans un mail : un href relatif type "/panier"
+      // n'a pas de base côté client mail et casse le CTA. Fallback = home
+      // boutique. Ignore les liens déjà absolus (http/https) et les mailto:.
+      const rawUrl = (block.data.url ?? "").trim();
+      const isAbsolute = /^(https?:\/\/|mailto:)/i.test(rawUrl);
+      const url = rawUrl
+        ? (isAbsolute ? rawUrl : absoluteUrl(shared.baseUrl, rawUrl))
+        : shared.baseUrl;
       // ctaButton par défaut centre. Custom rendering si couleurs perso ou alignement autre.
       if (block.data.bg === "#0f172a" && block.data.color === "#ffffff" && align === "center") {
         return contained(ctaButton(block.data.label, url));

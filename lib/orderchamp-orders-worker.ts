@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { tenantALS } from "@/lib/tenant-als";
 import { syncRecentOrderchampOrders } from "@/lib/orderchamp-orders-sync";
+import { OrderchampGraphQLError } from "@/lib/orderchamp-client";
 import { isMarketplaceAutoSyncEnabled } from "@/lib/marketplace-auto-sync";
 
 const TICK_INTERVAL_MS = 5 * 60_000; // 5 minutes
@@ -67,6 +68,19 @@ async function tick(): Promise<void> {
           await persistLastSyncedAt(t.id);
         });
       } catch (err) {
+        // 401/403 = clé révoquée ou expirée. Inutile de dumper la stack et de
+        // spammer les logs toutes les 5 min — un seul warn compact suffit, la
+        // cliente sait déjà que ce tenant a un problème d'auth.
+        if (
+          err instanceof OrderchampGraphQLError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          logger.warn("[Orderchamp Orders] Sync ignorée (clé API invalide)", {
+            tenantId: t.id,
+            tenant: t.name,
+          });
+          continue;
+        }
         logger.warn("[Orderchamp Orders] Sync tenant échouée", {
           tenantId: t.id,
           error: err,

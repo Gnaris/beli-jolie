@@ -340,7 +340,7 @@ export default async function UtilisateursPage({
         </div>
       </section>
 
-      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} />
+      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} basePath="/admin/clients" />
 
       {currentTab === "inscrits" ? (
         <>

@@ -4,12 +4,18 @@ interface UsersTabsProps {
   currentTab: "inscrits" | "fiches";
   registeredCount: number;
   cardsCount: number;
+  /**
+   * Chemin de base des tabs (ex. "/admin/clients" ou "/admin/marketing").
+   * Sans ça, les tabs redirigeaient toujours vers /admin/clients — la cliente
+   * perdait le contexte quand elle naviguait depuis /admin/marketing.
+   */
+  basePath: string;
 }
 
-export default function UsersTabs({ currentTab, registeredCount, cardsCount }: UsersTabsProps) {
+export default function UsersTabs({ currentTab, registeredCount, cardsCount, basePath }: UsersTabsProps) {
   const tabs = [
-    { key: "inscrits" as const, label: "Clients inscrits", count: registeredCount, href: "/admin/clients", badge: "bg-bg-secondary text-text-secondary" },
-    { key: "fiches" as const, label: "Mes fiches clients", count: cardsCount, href: "/admin/clients?tab=fiches", badge: "bg-violet-100 text-violet-700" },
+    { key: "inscrits" as const, label: "Clients inscrits", count: registeredCount, href: basePath, badge: "bg-bg-secondary text-text-secondary" },
+    { key: "fiches" as const, label: "Mes fiches clients", count: cardsCount, href: `${basePath}?tab=fiches`, badge: "bg-violet-100 text-violet-700" },
   ];
 
   return (

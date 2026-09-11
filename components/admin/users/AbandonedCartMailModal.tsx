@@ -68,15 +68,11 @@ export default function AbandonedCartMailModal({
     };
   }, [activeStage]);
 
-  // Ferme la modale à l'ESC — l'éditeur intercepte lui-même les modifs non-
-  // sauvegardées (leaveWithoutSaving demande confirmation si dirty=true).
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // ESC désactivé volontairement : l'éditeur newsletter monte sa propre
+  // modale de garde-fou « quitter sans enregistrer » sur les boutons Retour
+  // et Fermer, mais pas sur l'événement clavier — laisser ESC fermer sans
+  // demander a déjà fait perdre des modifs. La cliente ferme via le bouton
+  // « Fermer » explicite, qui lui repose sur onLeave (garde-fou actif).
 
   return (
     <div className="fixed inset-0 z-[100] bg-bg-primary flex flex-col">
@@ -117,17 +113,12 @@ export default function AbandonedCartMailModal({
               );
             })}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-body font-semibold text-text-secondary hover:text-text-primary hover:bg-bg-secondary"
-            title="Fermer (Échap)"
+          <span
+            className="shrink-0 text-[11px] font-body italic text-text-muted"
+            title="Fermez via le bouton ← Retour ci-dessous — il vous alerte si vous avez des modifs non enregistrées."
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 6l12 12M6 18L18 6" />
-            </svg>
-            Fermer
-          </button>
+            ← Retour depuis l&apos;éditeur ci-dessous
+          </span>
         </div>
       </div>
 

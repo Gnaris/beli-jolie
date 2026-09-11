@@ -28,7 +28,7 @@ export default function AbandonedCartLastSent({
     month: "short",
   });
   return (
-    <p className="text-[10.5px] font-body text-text-muted mt-1 tabular-nums">
+    <p className="text-[10.5px] font-body text-text-muted tabular-nums">
       Dernier envoi : Stade {stageIndex}
       {!stillExists && (
         <span className="text-red-600"> (supprimé)</span>

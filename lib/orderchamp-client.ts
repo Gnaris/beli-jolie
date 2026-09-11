@@ -130,6 +130,11 @@ export async function orderchampGraphQL<T = unknown>(
       logger.warn("[Orderchamp] retry", { opName, status: res.status, attempt, wait });
       await new Promise((r) => setTimeout(r, wait));
     } catch (err) {
+      // Une OrderchampGraphQLError provient de parseGraphQLResponse (401/403,
+      // 4xx, erreurs GraphQL) — c'est une erreur applicative, pas réseau. La
+      // relancer avec un backoff ne changera rien et pollue les logs (5×
+      // "retry (network)" pour un token révoqué). On rethrow direct.
+      if (err instanceof OrderchampGraphQLError) throw err;
       lastNetworkError = err;
       const causeObj = (err as { cause?: unknown }).cause;
       const causeCode = causeObj instanceof Error

@@ -58,6 +58,7 @@ interface SendMailRecord {
   html: string;
   replyTo?: string;
   attachments?: Array<{ filename: string; content: Buffer }>;
+  headers?: Record<string, string>;
 }
 
 interface FakeTransporter {
@@ -303,6 +304,70 @@ describe("lib/email — SMTP via nodemailer", () => {
       expect(captured.sent?.replyTo).toBe("support@maboutique.com");
     });
 
+    it("pose les en-têtes List-Unsubscribe RFC 8058 quand une URL est fournie", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "x@y.com",
+        subject: "s",
+        html: "h",
+        listUnsubscribeUrl: "https://beliandjolie.com/api/newsletter/unsubscribe?t=abc",
+      });
+
+      expect(captured.sent?.headers).toEqual({
+        "List-Unsubscribe": "<https://beliandjolie.com/api/newsletter/unsubscribe?t=abc>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      });
+    });
+
+    it("ignore une URL de désinscription non-HTTPS (garde-fou)", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "x@y.com",
+        subject: "s",
+        html: "h",
+        listUnsubscribeUrl: "javascript:alert(1)",
+      });
+
+      expect(captured.sent?.headers).toBeUndefined();
+    });
+
+    it("accepte un mailto: (RFC 2369) mais sans List-Unsubscribe-Post", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({
+        to: "x@y.com",
+        subject: "s",
+        html: "h",
+        listUnsubscribeUrl: "mailto:contact@beliandjolie.com?subject=Désinscription",
+      });
+
+      expect(captured.sent?.headers).toEqual({
+        "List-Unsubscribe": "<mailto:contact@beliandjolie.com?subject=Désinscription>",
+      });
+    });
+
+    it("ne pose pas d'en-tête si listUnsubscribeUrl est absent (mails transactionnels)", async () => {
+      const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
+      __setTransporterFactoryForTests(
+        buildSuccessFactory("m1", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
+      );
+
+      await sendMail({ to: "x@y.com", subject: "s", html: "h" });
+
+      expect(captured.sent?.headers).toBeUndefined();
+    });
+
     it("port 465 active automatiquement secure=true par défaut", async () => {
       process.env.SMTP_PORT = "465";
       delete process.env.SMTP_SECURE;
@@ -454,7 +519,7 @@ describe("lib/email — SMTP via nodemailer", () => {
       tenantAlsMock.mockReturnValue("tenant-1");
     });
 
-    it("écrit un EmailSend SENT quand un envoi réussi porte un tracking", async () => {
+    it("écrit un EmailSend SENT SANS htmlBody (économie stockage : mail dans la boîte perso)", async () => {
       const captured: { config?: SmtpConnectionConfig; sent?: SendMailRecord } = {};
       __setTransporterFactoryForTests(
         buildSuccessFactory("msg_ok", captured) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
@@ -478,11 +543,12 @@ describe("lib/email — SMTP via nodemailer", () => {
       expect(arg.data.userId).toBe("user-42");
       expect(arg.data.recipientEmail).toBe("client@ex.com");
       expect(arg.data.tenantId).toBe("tenant-1");
-      expect(arg.data.htmlBody).toBe("<p>hi</p>");
+      // htmlBody null pour les envois réussis (contenu retrouvable via forward Gmail)
+      expect(arg.data.htmlBody).toBeNull();
       expect(arg.data.messageId).toBe("msg_ok");
     });
 
-    it("écrit un EmailSend FAILED quand SMTP refuse", async () => {
+    it("écrit un EmailSend FAILED avec htmlBody conservé (debug + renvoi manuel)", async () => {
       __setTransporterFactoryForTests(
         buildFailingFactory(new Error("connection refused")) as (cfg: SmtpConnectionConfig) => FakeTransporter as never
       );
@@ -499,6 +565,8 @@ describe("lib/email — SMTP via nodemailer", () => {
       const arg = emailSendCreateMock.mock.calls[0][0];
       expect(arg.data.status).toBe("FAILED");
       expect(arg.data.errorMessage).toBe("connection refused");
+      // htmlBody conservé sur FAILED pour permettre le bouton « Renvoyer ».
+      expect(arg.data.htmlBody).toBe("<p>hi</p>");
     });
 
     it("écrit un EmailSend FAILED quand la config SMTP est absente", async () => {

@@ -202,7 +202,7 @@
       "wizardTermsPrivacy": "Politique de confidentialité",
       "wizardTermsRequired": "Requis",
       "wizardTermsError": "Vous devez accepter les CGU pour continuer.",
-      "wizardNewsletterLabel": "Recevoir la newsletter",
+      "wizardNewsletterLabel": "Recevoir la newsletter et les rappels des articles laissés dans mon panier",
       "wizardStepIncomplete": "Merci de compléter les champs requis avant de continuer.",
       "wizardReassurance": "Données chiffrées · Aucun spam · RGPD",
       "wizardHeaderAlreadyClient": "Déjà client ?"
@@ -762,6 +762,9 @@
     "addressCity": "Ville",
     "addressCountry": "Pays",
     "addressPhone": "Téléphone",
+    "addressIncompleteTitle": "Adresse de livraison incomplète",
+    "addressIncompleteBody": "Merci de renseigner les champs manquants avant de continuer : {fields}. Sans une adresse complète, votre commande ne pourra pas être expédiée.",
+    "addressIncompleteSaveError": "Impossible d'enregistrer une adresse incomplète.",
     "addressLine1Placeholder": "12 rue des Fleurs",
     "addressLine2Placeholder": "Bât. A, porte 3",
     "phonePlaceholder": "0612345678",

@@ -445,3 +445,63 @@ export async function listPreviewClients(): Promise<PreviewClientLite[]> {
   });
   return rows;
 }
+
+/**
+ * Contenu du panier en cours d'un client, formaté pour l'aperçu du bloc
+ * « Panier du client » dans l'éditeur newsletter. Reflète ce que verra le
+ * client dans le mail (filtre stock/statut appliqué comme dans le worker
+ * de relance panier abandonné).
+ */
+export interface PreviewCartItem {
+  productName: string;
+  colorName: string | null;
+  quantity: number;
+  totalCents: number;
+  imagePath: string | null;
+}
+export interface PreviewCart {
+  items: PreviewCartItem[];
+  totalCents: number;
+}
+
+export async function getClientCartPreview(userId: string): Promise<PreviewCart> {
+  const { tenant } = await requireAdmin();
+  const cart = await prisma.cart.findFirst({
+    where: { userId, user: { tenantId: tenant.id } },
+    select: {
+      items: {
+        select: {
+          quantity: true,
+          variant: {
+            select: {
+              unitPrice: true,
+              stock: true,
+              saleType: true,
+              packQuantity: true,
+              color: { select: { name: true } },
+              product: { select: { name: true, status: true } },
+              images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  const validItems = (cart?.items ?? []).filter((it) => {
+    if (it.variant.product.status !== "ONLINE") return false;
+    const effective =
+      it.variant.saleType === "PACK" && it.variant.packQuantity
+        ? Math.floor(it.variant.stock / it.variant.packQuantity)
+        : it.variant.stock;
+    return effective > 0;
+  });
+  const items: PreviewCartItem[] = validItems.map((it) => ({
+    productName: it.variant.product.name,
+    colorName: it.variant.color?.name ?? null,
+    quantity: it.quantity,
+    totalCents: Math.round(Number(it.variant.unitPrice) * 100) * it.quantity,
+    imagePath: it.variant.images[0]?.path ?? null,
+  }));
+  const totalCents = items.reduce((s, i) => s + i.totalCents, 0);
+  return { items, totalCents };
+}

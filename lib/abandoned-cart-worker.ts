@@ -52,12 +52,47 @@ interface FiredEntry {
 
 let started = false;
 
+/**
+ * Balaie les jobs coincés au démarrage. Sur les autres workers (images,
+ * marketplaces) on force `PROCESSING → PENDING` ; ici on n'a pas d'état
+ * PROCESSING (le job reste `PENDING` pendant l'envoi), mais on peut avoir
+ * des jobs dont `nextStageAt` est plus vieux que quelques heures parce que
+ * PM2 a été arrêté longtemps ou parce que le worker a crashé au milieu
+ * d'un batch. On les reprogramme à `now + 1min` pour les traiter au prochain
+ * tick sans les rejouer tous en même temps.
+ */
+async function sweepStaleJobsAtBoot(): Promise<void> {
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 3600_000);
+  try {
+    const res = await prisma.abandonedCartJob.updateMany({
+      where: {
+        status: "PENDING",
+        nextStageAt: { lt: oneHourAgo, not: null },
+      },
+      data: {
+        // Étale sur 1 min : le worker les repêche au prochain tick.
+        nextStageAt: new Date(now.getTime() + 60_000),
+        lastEvaluatedAt: now,
+      },
+    });
+    if (res.count > 0) {
+      logger.info?.("[abandonedCart] boot sweep — jobs en retard reprogrammés", {
+        count: res.count,
+      });
+    }
+  } catch (err) {
+    logger.error("[abandonedCart] boot sweep failed", { error: err as Error });
+  }
+}
+
 export function startAbandonedCartWorker(): void {
   if (started) return;
   started = true;
   logger.info?.("[abandonedCart] worker démarré", {
     pollMs: WORKER_POLL_INTERVAL_MS,
   });
+  void sweepStaleJobsAtBoot();
   scheduleNextTick();
 }
 
@@ -333,16 +368,37 @@ async function processJob(
     imagePath: it.variant.images[0]?.path ?? null,
   }));
 
+  const shopAddress = companyInfo
+    ? [
+        companyInfo.address,
+        [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  // Filet RGPD/LCEN : sans nom de boutique ni adresse en base, le pied de
+  // page marketing part avec des mentions légales incomplètes ({shopName} /
+  // {shopAddress} laissés vides). On refuse d'envoyer + on retarde le job
+  // d'1 h pour que la cliente ait le temps de compléter ses infos entreprise.
+  if (!shopName.trim() || !shopAddress.trim()) {
+    logger.error("[abandonedCart] skip send: shop legal info missing", {
+      tenantId,
+      stageIndex: stage.stageIndex,
+      hasShopName: Boolean(shopName.trim()),
+      hasShopAddress: Boolean(shopAddress.trim()),
+    });
+    await prisma.abandonedCartJob.update({
+      where: { id: job.id },
+      data: {
+        nextStageAt: new Date(now.getTime() + 3600_000),
+        lastEvaluatedAt: now,
+      },
+    });
+    return;
+  }
   const shopContext: MailMergeContext = {
     shopName,
-    shopAddress: companyInfo
-      ? [
-          companyInfo.address,
-          [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" "),
-        ]
-          .filter(Boolean)
-          .join(", ")
-      : "",
+    shopAddress,
     shopEmail: companyInfo?.email ?? "",
     shopPhone: companyInfo?.phone ?? "",
     shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
@@ -405,6 +461,7 @@ async function processJob(
     subject: finalSubject,
     html,
     fromName: shopName,
+    listUnsubscribeUrl: userContext.unsubscribeLink,
     tracking: {
       scenarioKey: "ABANDONED_CART",
       userId: user.id,

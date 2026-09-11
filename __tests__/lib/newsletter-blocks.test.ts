@@ -506,3 +506,79 @@ describe("newsletter-blocks — linkification des URLs (unsubscribe/privacy)", (
     expect(matches.length).toBe(2);
   });
 });
+
+describe("newsletter-blocks — bloc button : URL absolue pour clients mail", () => {
+  it("URL relative (« /panier ») est préfixée par baseUrl dans le href", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "b1",
+        type: "button",
+        data: {
+          label: "Reprendre ma commande",
+          url: "/panier",
+          bg: "#0f172a",
+          color: "#ffffff",
+          align: "center",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain('href="https://beliandjolie.com/panier"');
+    expect(html).not.toMatch(/href="\/panier"/);
+  });
+
+  it("URL déjà absolue est laissée intacte", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "b2",
+        type: "button",
+        data: {
+          label: "Voir",
+          url: "https://autre-site.com/x",
+          bg: "#0f172a",
+          color: "#ffffff",
+          align: "center",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain('href="https://autre-site.com/x"');
+  });
+
+  it("URL vide retombe sur baseUrl (jamais de href relatif cassé)", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "b3",
+        type: "button",
+        data: {
+          label: "Découvrir",
+          url: "",
+          bg: "#0f172a",
+          color: "#ffffff",
+          align: "center",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain('href="https://beliandjolie.com"');
+  });
+
+  it("callout : ctaUrl relatif est préfixé aussi", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "c1",
+        type: "callout",
+        data: {
+          title: "Promo",
+          subtitle: "-20%",
+          cta: "En profiter",
+          ctaUrl: "/promotions",
+          bg: "#334155",
+          color: "#ffffff",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain('href="https://beliandjolie.com/promotions"');
+  });
+});

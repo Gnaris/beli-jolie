@@ -8,6 +8,10 @@ import {
 } from "@/app/actions/client/cart";
 import { updateBillingInfo } from "@/app/actions/client/billing";
 import { computeShippingCascade } from "@/lib/shipping-cascade";
+import {
+  findMissingAddressFields,
+  type ShippingAddressField,
+} from "@/lib/shipping-address-validate";
 import type {
   WizardAddress,
   WizardBillingInfo,
@@ -103,6 +107,7 @@ export default function Step2DeliveryContent({
   const [addressDraft, setAddressDraft] = useState<WizardAddress | null>(null);
   const [isSavingBilling, setIsSavingBilling] = useState(false);
   const [savingAddr, setSavingAddr] = useState(false);
+  const [addressSaveError, setAddressSaveError] = useState<string | null>(null);
 
   async function handleSaveBilling() {
     setIsSavingBilling(true);
@@ -126,6 +131,7 @@ export default function Step2DeliveryContent({
 
   async function handleSaveAddress(a: WizardAddress) {
     setSavingAddr(true);
+    setAddressSaveError(null);
     try {
       const saved = (await saveShippingAddress({
         label:     `${a.city} — ${a.address1}`.slice(0, 50),
@@ -144,6 +150,13 @@ export default function Step2DeliveryContent({
       onSelectedAddrChange(saved.id);
       setAddressFormOpen(false);
       setAddressDraft(null);
+    } catch (err) {
+      // Filet ultime : le serveur refuse une adresse incomplète malgré la
+      // validation client (utilisateur qui a bidouillé, race condition).
+      // On remonte le message tel quel pour informer sans bloquer l'app.
+      setAddressSaveError(
+        err instanceof Error ? err.message : t("addressIncompleteSaveError"),
+      );
     } finally {
       setSavingAddr(false);
     }
@@ -403,9 +416,19 @@ export default function Step2DeliveryContent({
                     onCancel={() => {
                       setAddressFormOpen(false);
                       setAddressDraft(null);
+                      setAddressSaveError(null);
                     }}
                     saving={savingAddr}
                   />
+                )}
+
+                {addressSaveError && (
+                  <div
+                    role="alert"
+                    className="rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3"
+                  >
+                    {addressSaveError}
+                  </div>
                 )}
 
                 {addresses.length === 0 && !addressFormOpen && (
@@ -683,6 +706,25 @@ function AddressEditForm({
 }) {
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
+  const [attempted, setAttempted] = useState(false);
+
+  const fieldLabels: Record<ShippingAddressField, string> = {
+    firstName: t("firstName"),
+    lastName:  t("lastName"),
+    address1:  t("address"),
+    zipCode:   t("zipCode"),
+    city:      t("city"),
+    country:   t("country"),
+  };
+  const missingFields = findMissingAddressFields(draft);
+  const showError = attempted && missingFields.length > 0;
+
+  function handleSave() {
+    setAttempted(true);
+    if (missingFields.length > 0) return;
+    onSave();
+  }
+
   return (
     <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -696,6 +738,19 @@ function AddressEditForm({
         <Field label={t("country")} value={draft.country} onChange={(v) => onDraftChange({ ...draft, country: v })} />
         <Field label={t("phone")} value={draft.phone ?? ""} onChange={(v) => onDraftChange({ ...draft, phone: v })} />
       </div>
+      {showError && (
+        <div
+          role="alert"
+          className="rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3"
+        >
+          <div className="font-semibold mb-0.5">{t("addressIncompleteTitle")}</div>
+          <div>
+            {t("addressIncompleteBody", {
+              fields: missingFields.map((k) => fieldLabels[k]).join(", "),
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -706,8 +761,8 @@ function AddressEditForm({
         </button>
         <button
           type="button"
-          onClick={onSave}
-          disabled={saving}
+          onClick={handleSave}
+          disabled={saving || missingFields.length > 0}
           className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
         >
           {saving ? tCommon("saving") : tCommon("save")}

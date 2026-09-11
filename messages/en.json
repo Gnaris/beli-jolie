@@ -202,7 +202,7 @@
       "wizardTermsPrivacy": "Privacy policy",
       "wizardTermsRequired": "Required",
       "wizardTermsError": "You must accept the terms to continue.",
-      "wizardNewsletterLabel": "Subscribe to the newsletter",
+      "wizardNewsletterLabel": "Subscribe to the newsletter and receive reminders about items left in my cart",
       "wizardStepIncomplete": "Please fill in the required fields before continuing.",
       "wizardReassurance": "Encrypted data · No spam · GDPR",
       "wizardHeaderAlreadyClient": "Already a customer?"
@@ -762,6 +762,9 @@
     "addressCity": "City",
     "addressCountry": "Country",
     "addressPhone": "Phone",
+    "addressIncompleteTitle": "Incomplete shipping address",
+    "addressIncompleteBody": "Please fill in the missing fields before continuing: {fields}. Without a complete address your order cannot be shipped.",
+    "addressIncompleteSaveError": "Cannot save an incomplete address.",
     "addressLine1Placeholder": "12 Flower Street",
     "addressLine2Placeholder": "Bldg A, Door 3",
     "phonePlaceholder": "5551234567",

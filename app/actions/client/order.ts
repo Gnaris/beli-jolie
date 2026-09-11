@@ -21,6 +21,7 @@ import { computeOrderPricing } from "@/lib/order-pricing";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId } from "@/lib/tenant";
+import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -280,6 +281,20 @@ export async function placeOrder(
       userId,
       "address_missing",
       "Adresse de livraison introuvable.",
+    );
+  }
+  // Garde-fou ultime : refuser toute commande dont l'adresse a un champ obligatoire
+  // vide (Ville, Code postal, Adresse, Nom, Prénom, Pays). Sans ça, Easy-Express /
+  // Smarty365 rejettent le bordereau côté admin (cas Slovaquie 27BVT7AF, 2026-09).
+  // Le retrait en boutique / transporteur privé / fusion ne passent PAS par une
+  // API transporteur, mais on garde le check pour cohérence des données facture.
+  const missingAddressFields = findMissingAddressFields(address);
+  if (missingAddressFields.length > 0) {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "address_incomplete",
+      `Adresse de livraison incomplète (${missingAddressFields.join(", ")}). Modifiez votre adresse dans le panier avant de repasser commande.`,
     );
   }
   // Re-vérif du statut d'approbation (audit §11) : si l'admin a retiré

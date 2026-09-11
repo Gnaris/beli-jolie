@@ -486,13 +486,26 @@ export async function sendManualMail(
       }),
     ]);
 
+    const computedShopAddress = companyInfo
+      ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    // Filet RGPD/LCEN : même règle que les envois automatiques et les
+    // newsletters de masse — refuse un mail marketing manuel si les mentions
+    // légales sortiraient vides. La cliente doit compléter ses coordonnées
+    // avant d'envoyer.
+    if (!shopName.trim() || !computedShopAddress.trim()) {
+      return {
+        success: false,
+        error:
+          "Nom de boutique ou adresse manquant dans les infos entreprise. " +
+          "Ouvre Paramètres → Boutique et complète tes coordonnées avant d'envoyer ce mail.",
+      };
+    }
     const shopContext: MailMergeContext = {
       shopName,
-      shopAddress: companyInfo
-        ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
-            .filter(Boolean)
-            .join(", ")
-        : "",
+      shopAddress: computedShopAddress,
       shopEmail: companyInfo?.email ?? "",
       shopPhone: companyInfo?.phone ?? "",
       shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
@@ -580,6 +593,7 @@ export async function sendManualMail(
       subject: rendered.subject,
       html: rendered.html,
       fromName: shopName,
+      listUnsubscribeUrl: userContext.unsubscribeLink,
       tracking: {
         scenarioKey: scenario,
         userId,

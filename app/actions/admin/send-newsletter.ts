@@ -177,13 +177,25 @@ export async function sendNewsletterToUsers({
       where: { tenantId: tenant.id },
       select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
     });
+    const computedShopAddress = companyInfo
+      ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    // Filet RGPD/LCEN : bloque l'envoi de masse si les mentions légales
+    // sortiraient vides. La cliente doit compléter ses infos entreprise
+    // (Paramètres → Boutique) avant de pouvoir envoyer une newsletter.
+    if (!shopName.trim() || !computedShopAddress.trim()) {
+      return {
+        success: false,
+        error:
+          "Nom de boutique ou adresse manquant dans les infos entreprise. " +
+          "Ouvre Paramètres → Boutique et complète tes coordonnées avant d'envoyer un mail marketing.",
+      };
+    }
     const shopContext: MailMergeContext = {
       shopName,
-      shopAddress: companyInfo
-        ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
-            .filter(Boolean)
-            .join(", ")
-        : "",
+      shopAddress: computedShopAddress,
       shopEmail: companyInfo?.email ?? "",
       shopPhone: companyInfo?.phone ?? "",
       shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
@@ -238,6 +250,7 @@ export async function sendNewsletterToUsers({
         subject: interpolatedSubject,
         html,
         fromName: shopName,
+        listUnsubscribeUrl: userContextWithLegal.unsubscribeLink,
         tracking: {
           scenarioKey: "NEWSLETTER",
           userId: user.id,
@@ -471,18 +484,30 @@ export async function sendTestNewsletterEmail({
         }),
       ]);
 
+    const computedShopAddressTest = companyInfo
+      ? [
+          companyInfo.address,
+          [companyInfo.postalCode, companyInfo.city]
+            .filter(Boolean)
+            .join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ")
+      : "";
+    // Même filet RGPD/LCEN qu'à l'envoi de masse : refuse le test si les
+    // mentions légales sortiraient vides — sinon l'aperçu ment sur le mail
+    // réel (qui serait lui aussi refusé côté worker).
+    if (!shopName.trim() || !computedShopAddressTest.trim()) {
+      return {
+        success: false,
+        error:
+          "Nom de boutique ou adresse manquant dans les infos entreprise. " +
+          "Ouvre Paramètres → Boutique et complète tes coordonnées avant d'envoyer un mail de test.",
+      };
+    }
     const shopContext: MailMergeContext = {
       shopName,
-      shopAddress: companyInfo
-        ? [
-            companyInfo.address,
-            [companyInfo.postalCode, companyInfo.city]
-              .filter(Boolean)
-              .join(" "),
-          ]
-            .filter(Boolean)
-            .join(", ")
-        : "",
+      shopAddress: computedShopAddressTest,
       shopEmail: companyInfo?.email ?? "",
       shopPhone: companyInfo?.phone ?? "",
       shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
@@ -549,6 +574,9 @@ export async function sendTestNewsletterEmail({
       subject: testSubject,
       html,
       fromName: shopName,
+      // Header List-Unsubscribe uniquement quand on envoie à un vrai client
+      // (l'admin en self-test ne doit pas pouvoir se désinscrire lui-même).
+      listUnsubscribeUrl: clientUser ? unsubscribeLink : undefined,
       tracking: {
         // On trace en NEWSLETTER (catégorie marketing) même pour les tests
         // panier abandonné — permet de retrouver dans le journal côté client

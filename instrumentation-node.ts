@@ -227,6 +227,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker d'envoi groupé de newsletter aux fiches (pilote BulkMailJob).
+  // Tick 1s. Envoi séquentiel avec 300ms de délai entre chaque mail.
+  // Kill switch : aucun (l'admin déclenche explicitement l'envoi).
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startBulkMailWorker } = await import("@/lib/bulk-mail-worker");
+        startBulkMailWorker();
+      } catch (err) {
+        logger.error("[BulkMail] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker de relance panier abandonné (pilote AbandonedCartJob).
   // Tick 10s pour rester précis sur des délais courts saisis en secondes/
   // minutes. Poll multi-tenant + wrap tenantALS.run par tenant côté worker.

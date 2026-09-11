@@ -3550,6 +3550,7 @@ model Tenant {
   newsletterTemplates NewsletterTemplate[]
   abandonedCartStages AbandonedCartStage[]
   abandonedCartJobs   AbandonedCartJob[]
+  bulkMailJobs        BulkMailJob[]
 
   @@index([isActive])
 }
@@ -3626,6 +3627,62 @@ model NewsletterTemplate {
 
   @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
+}
+
+// ─────────────────────────────────────────────
+// File d'envoi groupé d'une newsletter à des fiches clients (AdminClientCard).
+// Alimente le widget « Envoi de mails » du rail admin — chaque job affiche
+// ligne par ligne le statut d'envoi (attente/en cours/envoyé/échoué + msg).
+//
+// Flux :
+//   1. FicheNewsletterBulkBar POST /admin/marketing → server action crée le
+//      BulkMailJob PENDING avec `recipients` initialisé à l'état WAITING.
+//   2. Worker `lib/bulk-mail-worker.ts` prend le job, passe à RUNNING, envoie
+//      les mails un par un avec 300 ms de délai (anti-spam ISP), met à jour
+//      chaque recipient (SENDING → SENT/FAILED) au fil de l'eau.
+//   3. Widget poll `/api/admin/bulk-mail-jobs` toutes les 2 s pour l'UI live.
+//   4. Job COMPLETED (ou FAILED en cas d'erreur globale). Reste 5 min dans le
+//      widget après complétion, puis peut être dismiss (soft-hide).
+//
+// `recipients` = tableau JSON de BulkMailRecipient (voir types côté lib).
+// ─────────────────────────────────────────────
+enum BulkMailJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model BulkMailJob {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Snapshot du modèle utilisé — permet l'affichage même si le modèle a été
+  // renommé/supprimé après l'envoi. Le templateId reste pour le lien vers la
+  // fiche modèle (peut être null si le modèle a été supprimé).
+  templateId      String?
+  templateName    String  @db.VarChar(200)
+  templateSubject String  @db.VarChar(500)
+
+  // JSON [{ficheId, email, name, status: "WAITING"|"SENDING"|"SENT"|"FAILED", error?, sentAt?}]
+  recipients Json
+
+  totalCount  Int
+  sentCount   Int @default(0)
+  failedCount Int @default(0)
+
+  status       BulkMailJobStatus @default(PENDING)
+  errorMessage String?           @db.Text
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  // Timestamp pour cacher du widget sans supprimer (audit / retry).
+  dismissedAt DateTime?
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
 }
 
 // ─────────────────────────────────────────────

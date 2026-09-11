@@ -156,8 +156,17 @@ export async function applyPfsVerifyPullsOnly(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
+  // `checkReference` fait un match approximatif par nom et peut retomber sur
+  // une AUTRE fiche PFS partageant la même référence (fantôme ARCHIVED,
+  // doublon Salesforce historique — bug 2026-09-11 sur 13369ROBE Issyma :
+  // PFS renvoyait `a0AW…` alors que notre lien pointe sur `pro_4b8a…`).
+  // Les variantes DOIVENT être lues via notre lien local (source de vérité),
+  // sinon `findPfsVariant` ne retrouve pas la variante ciblée par un écart
+  // et lève « Variante PFS X/UNIT introuvable ». Même logique que
+  // `verifyPfsProduct` (cf. lib/pfs-verify.ts commentaire ~L1521).
+  const idMatches = checkRef.product.id === local.pfsProductId;
   await preferMobileComposition(checkRef.product, local.reference);
-  const variantsResp = await pfsGetVariants(checkRef.product.id);
+  const variantsResp = await pfsGetVariants(local.pfsProductId);
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
 
@@ -210,6 +219,14 @@ export async function applyPfsVerifyPullsOnly(
   const pullLocalPatch: LocalPatch = { product: {}, variants: new Map() };
   for (const a of productPullActions) {
     try {
+      if (!idMatches) {
+        // ctx.pfsProduct pointe sur une autre fiche PFS (doublon ref) — lire
+        // ses champs fiche corromprait notre produit. Verify n'émet pas
+        // d'écarts fiche dans ce cas ; garde-fou pour clés stales.
+        throw new Error(
+          `PFS a répondu avec une autre fiche pour la référence « ${local.reference} » — impossible de corriger le champ « ${a.field} » depuis PFS.`,
+        );
+      }
       await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {
@@ -257,8 +274,12 @@ export async function applyPfsVerifyActions(
   if (!checkRef?.exists || !checkRef.product) {
     throw new Error(`Référence ${local.reference} introuvable côté PFS`);
   }
+  // Variantes toujours lues via notre lien local — `checkRef` peut retomber
+  // sur une fiche fantôme (voir applyPfsVerifyPullsOnly + commentaire
+  // pfs-verify.ts ~L1521 : cas 13369ROBE / Issyma, bug 2026-09-11).
+  const idMatches = checkRef.product.id === local.pfsProductId;
   await preferMobileComposition(checkRef.product, local.reference);
-  const variantsResp = await pfsGetVariants(checkRef.product.id);
+  const variantsResp = await pfsGetVariants(local.pfsProductId);
 
   const markupConfigs = await loadMarketplaceMarkupConfigs();
 
@@ -324,6 +345,11 @@ export async function applyPfsVerifyActions(
 
   for (const a of productPullActions) {
     try {
+      if (!idMatches) {
+        throw new Error(
+          `PFS a répondu avec une autre fiche pour la référence « ${local.reference} » — impossible de corriger le champ « ${a.field} » depuis PFS.`,
+        );
+      }
       await buildProductPullPatch(a, ctx, pullLocalPatch);
       report.applied.push({ key: a.rawKey, direction: "pull" });
     } catch (err) {

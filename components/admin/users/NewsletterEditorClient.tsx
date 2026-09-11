@@ -23,8 +23,10 @@ import {
   updateNewsletterTemplate,
   searchProductsForNewsletter,
   listPreviewClients,
+  getClientCartPreview,
   type NewsletterTemplateFull,
   type PreviewClientLite,
+  type PreviewCart,
 } from "@/app/actions/admin/newsletter-templates";
 import {
   getAdminSelfEmail,
@@ -38,9 +40,7 @@ import {
   type ColumnData,
 } from "@/lib/newsletter-blocks";
 import {
-  SCENARIO_LABELS,
   allowedDynamicBlocksFor,
-  missingRequiredBlocks,
   requiredBlocksFor,
   type ScenarioKey,
   type RequiredBlockSpec,
@@ -245,6 +245,9 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
   const [previewClientId, setPreviewClientId] = useState<string | null>(null);
   const [adminSelfEmail, setAdminSelfEmail] = useState<string | null>(null);
   const [sendingTest, setSendingTest] = useState(false);
+  // Panier réel du client sélectionné — injecté dans l'aperçu du bloc
+  // « cartItems » à la place des lignes fictives.
+  const [previewCart, setPreviewCart] = useState<PreviewCart | null>(null);
   useEffect(() => {
     let cancelled = false;
     // En parallèle : liste des clients + mail perso admin. La cliente pourra
@@ -264,6 +267,25 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
       .catch(() => { /* silencieux : l'aperçu retombe sur valeurs fictives */ });
     return () => { cancelled = true; };
   }, []);
+
+  // À chaque changement de client sélectionné, on recharge son panier réel
+  // pour l'aperçu du bloc « Panier du client ». Skip si pas de client (mode
+  // « Moi-même » ou aucun client chargé).
+  useEffect(() => {
+    if (!previewClientId) {
+      setPreviewCart(null);
+      return;
+    }
+    let cancelled = false;
+    getClientCartPreview(previewClientId)
+      .then((cart) => {
+        if (!cancelled) setPreviewCart(cart);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewCart(null);
+      });
+    return () => { cancelled = true; };
+  }, [previewClientId]);
 
   // Context d'aperçu : soit vrai client sélectionné, soit valeurs fictives.
   // Rendu réel côté serveur au moment de l'envoi (chaque destinataire son propre context).
@@ -634,79 +656,6 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
           saving={saving}
         />
       )}
-      {scenarioKey && (
-        <div className={`border-b px-6 py-2.5 flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 ${
-          canSave
-            ? "bg-gradient-to-r from-violet-50 to-bg-primary border-violet-200"
-            : "bg-gradient-to-r from-red-50 to-bg-primary border-red-200"
-        }`}>
-          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider shrink-0 ${
-            canSave ? "bg-violet-100 text-violet-800" : "bg-red-100 text-red-800"
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${canSave ? "bg-violet-500" : "bg-red-500"}`} />
-            Mail automatique — {SCENARIO_LABELS[scenarioKey]}
-          </span>
-          <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
-            <span className="text-text-muted">Blocs obligatoires :</span>
-            {requiredBlocks.map((r) => {
-              const present = !missingBlocks.find((m) => m.type === r.type);
-              return (
-                <span
-                  key={r.type}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-body font-semibold ${
-                    present
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-red-100 text-red-800 border border-red-300"
-                  }`}
-                  title={present ? "Présent" : "Manquant — ajoutez-le depuis la palette"}
-                >
-                  {present ? "✓" : "✗"} {r.label}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {/* Bandeau mentions légales — TOUJOURS visible (obligation RGPD/LCEN
-          sur tous les mails marketing). Chip vert si présent, rouge si absent. */}
-      <div className={`border-b px-6 py-2.5 flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 ${
-        missingRequired.length === 0
-          ? "bg-gradient-to-r from-emerald-50 to-bg-primary border-emerald-200"
-          : "bg-gradient-to-r from-red-50 to-bg-primary border-red-200"
-      }`}>
-        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider shrink-0 ${
-          missingRequired.length === 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
-        }`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${missingRequired.length === 0 ? "bg-emerald-500" : "bg-red-500"}`} />
-          Mentions légales
-        </span>
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary flex-1 min-w-0">
-          <span className="text-text-muted shrink-0">Obligatoires dans le pied de page :</span>
-          {[
-            { token: "shopName", label: "Nom boutique" },
-            { token: "shopAddress", label: "Adresse" },
-            { token: "unsubscribeLink", label: "Désinscription" },
-            { token: "privacyLink", label: "Politique de confidentialité" },
-          ].map((v) => {
-            const present = !missingRequired.find((m) => m.token === v.token);
-            return (
-              <span
-                key={v.token}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-body font-semibold ${
-                  present
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-red-100 text-red-800 border border-red-300"
-                }`}
-                title={present
-                  ? `Variable {${v.token}} présente dans le pied de page`
-                  : `Variable {${v.token}} manquante — insérez-la dans le bloc « Pied de page »`}
-              >
-                {present ? "✓" : "✗"} {v.label}
-              </span>
-            );
-          })}
-        </div>
-      </div>
       <div className="bg-bg-primary border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4 min-w-0 flex-1">
           <button
@@ -939,6 +888,7 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
                       onPaletteDrop={(e) => handlePaletteDrop(e, i)}
                       onPaletteDragLeave={() => setPaletteHover(null)}
                       previewContext={previewContext}
+                      previewCart={previewCart}
                     />
                   ))}
                   {/* Zone de drop finale visible pendant un drag depuis palette */}
@@ -1066,6 +1016,7 @@ function BlockCanvas({
   onPaletteDrop,
   onPaletteDragLeave,
   previewContext,
+  previewCart,
 }: {
   block: NewsletterBlock;
   isSelected: boolean;
@@ -1079,6 +1030,7 @@ function BlockCanvas({
   onPaletteDrop: (e: React.DragEvent) => void;
   onPaletteDragLeave: () => void;
   previewContext: Record<string, string | undefined>;
+  previewCart: PreviewCart | null;
 }) {
   // On combine les handlers : palette (nouveau bloc) prioritaire sur reorder (bloc existant).
   const combinedOnDragOver = (e: React.DragEvent) => {
@@ -1108,7 +1060,7 @@ function BlockCanvas({
       onDragOver={combinedOnDragOver}
       onDragLeave={combinedOnDragLeave}
       onDrop={combinedOnDrop}
-      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator} ${isSelected ? "ring-2 ring-inset ring-slate-900" : "hover:ring-2 hover:ring-inset hover:ring-slate-300"}`}
+      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator} ${isSelected ? "shadow-[inset_0_0_0_2px_#ffffff,inset_0_0_0_4px_#7c3aed]" : "hover:ring-2 hover:ring-inset hover:ring-slate-300"}`}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -1176,7 +1128,7 @@ function BlockCanvas({
           </button>
         )}
       </div>
-      <BlockRender block={block} productsCache={productsCache} previewContext={previewContext} />
+      <BlockRender block={block} productsCache={productsCache} previewContext={previewContext} previewCart={previewCart} />
     </div>
   );
 }
@@ -1185,10 +1137,12 @@ function BlockRender({
   block,
   productsCache,
   previewContext,
+  previewCart,
 }: {
   block: NewsletterBlock;
   productsCache: Map<string, ProductLite>;
   previewContext: Record<string, string | undefined>;
+  previewCart: PreviewCart | null;
 }) {
   const t = (s: string | undefined | null) => interpolate(s ?? "", previewContext);
   // Rendu React qui préserve les retours à la ligne saisis dans les inputs :
@@ -1391,27 +1345,69 @@ function BlockRender({
       );
     }
     case "cartItems": {
-      // Aperçu illustratif : 2 lignes factices + total. En vrai envoi, le
-      // contenu vient du panier du client.
       const title = block.data.title?.trim();
+      const totalLabel = block.data.totalLabel || "Total";
+      const fmtEuro = (cents: number) =>
+        (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+      const hasCart = previewCart !== null;
+      const items = previewCart?.items ?? [];
+      const totalCents = previewCart?.totalCents ?? 0;
+
+      // Cas 1 : le client sélectionné a un panier vide (ou pas encore chargé).
+      if (hasCart && items.length === 0) {
+        const emptyMsg = (block.data.emptyMessage || "Votre panier est vide.").trim();
+        return (
+          <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
+            {title && <div style={{ fontFamily: "Poppins", fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{title}</div>}
+            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: 0 }}>{emptyMsg}</p>
+            <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
+              💡 Ce client n&apos;a rien dans son panier — c&apos;est ce texte qui apparaîtra dans le mail.
+            </div>
+          </div>
+        );
+      }
+
+      // Cas 2 : pas de client sélectionné (mode « Moi-même » ou chargement) —
+      // on retombe sur un aperçu illustratif.
+      const displayItems: Array<{ productName: string; colorName: string | null; quantity: number; totalCents: number; imagePath: string | null }> =
+        hasCart
+          ? items
+          : [
+              { productName: "Article exemple 1", colorName: null, quantity: 1, totalCents: 0, imagePath: null },
+              { productName: "Article exemple 2", colorName: null, quantity: 1, totalCents: 0, imagePath: null },
+            ];
+      const displayTotal = hasCart ? totalCents : null;
+
       return (
         <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
           {title && <div style={{ fontFamily: "Poppins", fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>{title}</div>}
           <div style={{ background: "#f8fafc", borderRadius: 10, padding: 12 }}>
-            {["Article exemple 1", "Article exemple 2"].map((n, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i === 0 ? "1px solid #e2e8f0" : "none", fontSize: 12 }}>
-                <span style={{ color: "#0f172a", fontWeight: 600 }}>{n}</span>
-                <span style={{ color: "#0f172a", fontWeight: 700 }}>—</span>
+            {displayItems.map((it, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < displayItems.length - 1 ? "1px solid #e2e8f0" : "none" }}>
+                {it.imagePath && (
+                  <img src={it.imagePath} alt="" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: "#0f172a", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.productName}</div>
+                  <div style={{ fontSize: 10.5, color: "#64748b" }}>
+                    {it.colorName ? `${it.colorName} · ` : ""}x{it.quantity}
+                  </div>
+                </div>
+                <span style={{ color: "#0f172a", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>
+                  {displayTotal === null ? "—" : fmtEuro(it.totalCents)}
+                </span>
               </div>
             ))}
             <div style={{ display: "flex", justifyContent: "space-between", borderTop: "2px solid #cbd5e1", paddingTop: 8, marginTop: 6, fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
-              <span>{block.data.totalLabel || "Total"}</span>
-              <span>—</span>
+              <span>{totalLabel}</span>
+              <span>{displayTotal === null ? "—" : fmtEuro(displayTotal)}</span>
             </div>
           </div>
-          <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
-            💡 Aperçu — le vrai panier du client sera injecté à l&apos;envoi.
-          </div>
+          {!hasCart && (
+            <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
+              💡 Sélectionnez un client dans « Aperçu pour » ci-dessus pour voir son vrai panier.
+            </div>
+          )}
         </div>
       );
     }
@@ -2349,6 +2345,9 @@ function renderPaletteBlock(
   alreadyPresent: boolean = false,
 ): React.ReactNode {
   const disabled = alreadyPresent;
+  // Priorité visuelle : si le bloc est sélectionné dans l'aperçu, on affiche
+  // l'état SÉLEC. même s'il est déjà présent (cas des blocs obligatoires
+  // toujours ajoutés).
   return (
     <div
       key={b.key}
@@ -2360,42 +2359,56 @@ function renderPaletteBlock(
       }}
       onDragEnd={onDragEnd}
       className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all ${
-        disabled
-          ? "border-emerald-200 bg-emerald-50/60 cursor-not-allowed"
-          : isActive
-            ? "border-slate-900 bg-slate-900 text-white shadow-md ring-2 ring-slate-900/20 cursor-grab active:cursor-grabbing"
+        isActive
+          ? "border-slate-900 bg-slate-900 text-white shadow-md ring-2 ring-slate-900/20"
+          : disabled
+            ? "border-emerald-200 bg-emerald-50/60 cursor-not-allowed"
             : "border-border bg-bg-primary hover:border-emerald-400 hover:bg-emerald-50/40 cursor-grab active:cursor-grabbing"
-      }`}
+      } ${isActive && !disabled ? "cursor-grab active:cursor-grabbing" : ""} ${isActive && disabled ? "cursor-default" : ""}`}
       title={
-        disabled
-          ? "Ce bloc obligatoire est déjà ajouté au modèle — un seul autorisé."
-          : isActive
-            ? "Bloc actuellement sélectionné dans l'aperçu"
+        isActive
+          ? "Bloc actuellement sélectionné dans l'aperçu"
+          : disabled
+            ? "Ce bloc obligatoire est déjà ajouté au modèle — un seul autorisé."
             : "Glissez à la position voulue, ou cliquez « + Ajouter »"
       }
     >
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-        disabled ? "bg-emerald-100 text-emerald-700" : isActive ? "bg-white/15 text-white" : "bg-slate-100 text-slate-700"
+        isActive ? "bg-white/15 text-white" : disabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"
       }`}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d={b.icon} />
         </svg>
       </div>
       <div className="min-w-0 flex-1">
-        <div className={`font-heading font-semibold text-[12.5px] ${
-          disabled ? "text-emerald-900" : isActive ? "text-white" : "text-text-primary"
-        }`}>{b.label}</div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className={`font-heading font-semibold text-[12.5px] ${
+            isActive ? "text-white" : disabled ? "text-emerald-900" : "text-text-primary"
+          }`}>{b.label}</span>
+          {(b.key === "cartItems" || b.key === "favoritesGrid" || b.key === "daysInactive") && (
+            <span
+              className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider font-bold ${
+                isActive
+                  ? "bg-white/15 text-white"
+                  : "bg-amber-100 text-amber-800 border border-amber-200"
+              }`}
+              title="Bloc automatique — le contenu vient des données réelles du client à l'envoi (mails automatiques uniquement)."
+            >
+              Auto
+            </span>
+          )}
+        </div>
         <div className={`text-[10.5px] truncate ${
-          disabled ? "text-emerald-700/80" : isActive ? "text-white/70" : "text-text-muted"
+          isActive ? "text-white/70" : disabled ? "text-emerald-700/80" : "text-text-muted"
         }`}>{b.desc}</div>
       </div>
-      {disabled ? (
-        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
-          ✓ Ajouté
-        </span>
-      ) : isActive ? (
+      {isActive ? (
         <span className="shrink-0 text-[10px] uppercase tracking-wider font-bold bg-white/15 text-white px-1.5 py-0.5 rounded">
           Sélec.
+        </span>
+      ) : disabled ? (
+        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-1.5 py-0.5 rounded">
+          ✓ Ajouté
         </span>
       ) : (
         <button

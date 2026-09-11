@@ -55,6 +55,13 @@ export interface SendMailParams {
   attachments?: MailAttachment[];
   /** Si fourni, log l'envoi dans EmailSend (succès ou échec). */
   tracking?: SendMailTracking;
+  /**
+   * URL de désinscription 1-clic. Si fournie, on pose les en-têtes
+   * `List-Unsubscribe` et `List-Unsubscribe-Post` (RFC 8058) — Gmail/Outlook
+   * exigent ces headers pour maintenir la réputation d'un expéditeur de mails
+   * marketing. Doit être une URL HTTPS absolue.
+   */
+  listUnsubscribeUrl?: string;
 }
 
 export type SendMailResult =
@@ -329,6 +336,13 @@ async function persistEmailLog(input: {
       return;
     }
 
+    // Le HTML d'un mail réussi n'est pas stocké : la cliente reçoit le mail
+    // sur sa boîte pro (forwardée sur son Gmail perso) et retrouve le
+    // contenu réel côté messagerie. On garde uniquement le HTML des envois
+    // FAILED — utile pour comprendre l'échec + permettre le bouton
+    // « Renvoyer » du journal admin. Gros gain de stockage : ~50 Ko par
+    // mail réussi × 1000 mails/mois × 2 ans = ~1,2 Go économisés par tenant.
+    const shouldKeepHtml = input.status === "FAILED";
     await prisma.emailSend.create({
       data: {
         tenantId,
@@ -338,7 +352,7 @@ async function persistEmailLog(input: {
         fromName: input.fromName?.slice(0, 200) ?? null,
         scenarioKey: input.tracking.scenarioKey,
         subject: input.subject.slice(0, 500),
-        htmlBody: input.html,
+        htmlBody: shouldKeepHtml ? input.html : null,
         status: input.status,
         errorMessage: input.errorMessage ?? null,
         messageId: input.messageId?.slice(0, 500) ?? null,
@@ -422,6 +436,22 @@ export async function sendMail(
   }
   const attachments = await buildAttachments(params.attachments);
 
+  const listUnsubscribeUrl = params.listUnsubscribeUrl?.trim();
+  const extraHeaders: Record<string, string> = {};
+  if (listUnsubscribeUrl) {
+    const isHttps = /^https?:\/\//i.test(listUnsubscribeUrl);
+    const isMailto = /^mailto:/i.test(listUnsubscribeUrl);
+    if (isHttps || isMailto) {
+      extraHeaders["List-Unsubscribe"] = `<${listUnsubscribeUrl}>`;
+      // List-Unsubscribe-Post (RFC 8058) n'a de sens qu'en HTTPS —
+      // Gmail/Outlook postent en 1 clic à l'URL avec ce header. Pour un
+      // mailto:, on ne pose que l'en-tête historique RFC 2369.
+      if (isHttps) {
+        extraHeaders["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+      }
+    }
+  }
+
   try {
     const transporter = buildTransporter(connection);
     const info = await transporter.sendMail({
@@ -431,6 +461,7 @@ export async function sendMail(
       html: params.html,
       replyTo: params.replyTo,
       attachments: attachments.length > 0 ? attachments : undefined,
+      headers: Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
     });
     if (params.tracking) {
       await persistEmailLog({

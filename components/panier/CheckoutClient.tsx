@@ -14,6 +14,11 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect from "@/components/ui/CustomSelect";
 import CardPreview3D, { type CardBrand, type NumberStatus } from "@/components/panier/CardPreview3D";
 import { isBillingComplete, findAddressMatchingBilling } from "@/lib/shipping-billing-match";
+import {
+  findMissingAddressFields,
+  parseMissingFieldsError,
+  type ShippingAddressField,
+} from "@/lib/shipping-address-validate";
 
 const COUNTRY_CODES = [
   "FR", "BE", "LU", "CH", "DE", "ES", "IT", "NL", "PT", "AT",
@@ -391,16 +396,30 @@ function AddressForm({
   const countryOptions = useCountryOptions();
   const [f, setF] = useState({ ...EMPTY_ADDR, ...initial });
   const [isDefault, setIsDefault] = useState(initialIsDefault);
+  const [attempted, setAttempted] = useState(false);
 
   const set = (k: keyof typeof EMPTY_ADDR) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
+  const fieldLabels: Record<ShippingAddressField, string> = {
+    firstName: t("addressFirstName"),
+    lastName:  t("addressLastName"),
+    address1:  t("addressLine1"),
+    zipCode:   t("addressZipCode"),
+    city:      t("addressCity"),
+    country:   t("addressCountry"),
+  };
+  const missingFields = findMissingAddressFields(f);
+  const showError = attempted && missingFields.length > 0;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setAttempted(true);
+    if (missingFields.length > 0) return;
     onSave({ ...f, isDefault });
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <FieldInput id="addr-fn" label={t("addressFirstName")} value={f.firstName} onChange={set("firstName")} required />
         <FieldInput id="addr-ln" label={t("addressLastName")} value={f.lastName} onChange={set("lastName")} required />
@@ -443,9 +462,25 @@ function AddressForm({
         </span>
         {t("defineAsDefault")}
       </button>
+      {showError && (
+        <div
+          role="alert"
+          className="rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3"
+        >
+          <div className="font-semibold mb-0.5">{t("addressIncompleteTitle")}</div>
+          <div>
+            {t("addressIncompleteBody", {
+              fields: missingFields.map((k) => fieldLabels[k]).join(", "),
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex gap-3 pt-1">
-        <button type="submit" disabled={isSaving}
-          className="btn-primary flex-1 justify-center disabled:opacity-60">
+        <button
+          type="submit"
+          disabled={isSaving || missingFields.length > 0}
+          className="btn-primary flex-1 justify-center disabled:opacity-60"
+        >
           {isSaving ? t("saving") : isEditing ? t("updateAddressBtn") : t("saveAddressBtn")}
         </button>
         <button type="button" onClick={onCancel}
