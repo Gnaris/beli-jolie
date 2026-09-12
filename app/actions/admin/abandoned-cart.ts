@@ -16,7 +16,10 @@ import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import type { NewsletterBlock } from "@/lib/newsletter-blocks";
-import { SCENARIO_DEFAULTS } from "@/lib/mail-scenario-defaults";
+import {
+  abandonedCartStageDefault,
+  SCENARIO_DEFAULTS,
+} from "@/lib/mail-scenario-defaults";
 import {
   extractLastSentFromFired,
   MAX_STAGES,
@@ -186,15 +189,25 @@ export async function addAbandonedCartStage(): Promise<
         )
       : 86400;
 
-    // Le nouveau template reprend les blocs du dernier stade comme base (comme
-    // ça la cliente n'a pas à tout recopier). scenarioKey=null : ce n'est pas
-    // le template « officiel » du scénario (le Stage 1 garde ce rôle).
-    const seedBlocks = lastStage
-      ? (Array.isArray(lastStage.template.blocks)
-          ? lastStage.template.blocks
-          : SCENARIO_DEFAULTS.ABANDONED_CART.blocks)
-      : SCENARIO_DEFAULTS.ABANDONED_CART.blocks;
-    const seedSubject = lastStage?.template.subject ?? SCENARIO_DEFAULTS.ABANDONED_CART.subject;
+    // Stades 2 et 3 : on utilise le design par défaut différencié (rappel
+    // rassurant / dernière chance). Stades 4+ : on clone le dernier stade —
+    // la cliente n'a pas à tout recopier. `scenarioKey=null` sur tous les
+    // stades >1 : le Stage 1 garde le rôle de template « officiel » du scénario.
+    let seedBlocks: unknown;
+    let seedSubject: string;
+    if (newStageIndex === 2 || newStageIndex === 3) {
+      const def = abandonedCartStageDefault(newStageIndex);
+      seedBlocks = def.blocks;
+      seedSubject = def.subject;
+    } else if (lastStage) {
+      seedBlocks = Array.isArray(lastStage.template.blocks)
+        ? lastStage.template.blocks
+        : SCENARIO_DEFAULTS.ABANDONED_CART.blocks;
+      seedSubject = lastStage.template.subject;
+    } else {
+      seedBlocks = SCENARIO_DEFAULTS.ABANDONED_CART.blocks;
+      seedSubject = SCENARIO_DEFAULTS.ABANDONED_CART.subject;
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const tpl = await tx.newsletterTemplate.create({

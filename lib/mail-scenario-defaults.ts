@@ -88,42 +88,7 @@ interface DefaultTemplate {
 }
 
 export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
-  ABANDONED_CART: {
-    name: SCENARIO_DEFAULT_NAMES.ABANDONED_CART,
-    subject: "Votre panier vous attend",
-    blocks: [
-      {
-        id: "abc-heading",
-        type: "heading",
-        data: {
-          title: "Votre panier vous attend 🛒",
-          body: "Bonjour {firstName}, vous avez laissé quelques articles dans votre panier. Ils vous attendent toujours !",
-          align: "left",
-        },
-      },
-      {
-        id: "abc-cart",
-        type: "cartItems",
-        data: {
-          title: "",
-          totalLabel: "Total",
-          emptyMessage: "Votre panier est vide — nos nouveautés vous attendent !",
-        },
-      },
-      {
-        id: "abc-btn",
-        type: "button",
-        data: {
-          label: "Reprendre ma commande",
-          url: "/panier",
-          bg: "#0f172a",
-          color: "#ffffff",
-          align: "center",
-        },
-      },
-      ...legalFooterBlocks("abc"),
-    ],
-  },
+  ABANDONED_CART: abandonedCartStageDefault(1),
   INACTIVE_CLIENT: {
     name: SCENARIO_DEFAULT_NAMES.INACTIVE_CLIENT,
     subject: "Nos nouveautés vous attendent",
@@ -208,11 +173,9 @@ export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
 };
 
 /**
- * Footer minimal RGPD/LCEN — inséré à la fin de chaque modèle par défaut.
- * Contient les 4 variables obligatoires (validées à la sauvegarde) :
- * `{shopName}` `{shopAddress}` `{unsubscribeLink}` `{privacyLink}`.
- * L'admin peut restyler ou déplacer ces blocs, mais s'il retire une variable,
- * la sauvegarde sera refusée.
+ * Footer historique (blocs `heading` maquillés en pied de page) — encore
+ * utilisé par INACTIVE_CLIENT et RESTOCK. Nouveau design panier abandonné :
+ * voir `legalFooterBlock` (bloc `footer` en dur).
  */
 function legalFooterBlocks(prefix: string): NewsletterBlock[] {
   return [
@@ -238,4 +201,247 @@ function legalFooterBlocks(prefix: string): NewsletterBlock[] {
       },
     },
   ];
+}
+
+/**
+ * Header commun aux 3 stades panier abandonné — logo texte + tagline.
+ * Titre et sous-titre restent en variables pour que la cliente puisse
+ * personnaliser ensuite (ex : mettre son logo à la place du texte).
+ */
+function brandHeaderBlock(prefix: string): NewsletterBlock {
+  return {
+    id: `${prefix}-header`,
+    type: "header",
+    data: {
+      logo: "",
+      logoMaxHeight: 60,
+      title: "{shopName}",
+      subtitle: "Grossiste bijoux",
+      bg: "#ffffff",
+      textColor: "#0f172a",
+      titleSize: 22,
+      subtitleSize: 11,
+      align: "center",
+    },
+  };
+}
+
+/**
+ * Footer légal — bloc de type `footer` (pas un heading maquillé). Contient
+ * les 4 variables obligatoires validées à la sauvegarde :
+ * `{shopName}` `{shopAddress}` `{unsubscribeLink}` `{privacyLink}`.
+ */
+function legalFooterBlock(prefix: string): NewsletterBlock {
+  return {
+    id: `${prefix}-footer`,
+    type: "footer",
+    data: {
+      content:
+        "{shopName} · {shopAddress}\nSe désinscrire : {unsubscribeLink}\nPolitique de confidentialité : {privacyLink}",
+      bg: "#f8fafc",
+      color: "#64748b",
+      align: "center",
+      fontSize: 11,
+    },
+  };
+}
+
+/**
+ * Retourne le modèle par défaut pour un stade panier abandonné donné.
+ * - Stade 1 : rappel doux, court, aucun rabais.
+ * - Stade 2 : relance rassurante, on ouvre la porte au dialogue.
+ * - Stade 3 : dernière chance, bandeau « Stock limité » + signature perso.
+ * Au-delà du stade 3, on retombe sur le design du stade 3 (les stades 4+
+ * sont libres d'être édités par la cliente).
+ */
+export function abandonedCartStageDefault(stageIndex: number): DefaultTemplate {
+  switch (stageIndex) {
+    case 1:
+      return {
+        name: SCENARIO_DEFAULT_NAMES.ABANDONED_CART,
+        subject: "Vous avez oublié quelque chose ?",
+        blocks: [
+          brandHeaderBlock("abc1"),
+          {
+            id: "abc1-title",
+            type: "heading",
+            data: {
+              title: "Votre panier vous attend, {firstName} 🛍️",
+              body: "Vous avez laissé quelques articles dans votre panier — pas de panique, nous les avons gardés au chaud pour vous. Reprenez votre commande là où vous l'aviez laissée, en un clic.",
+              align: "left",
+            },
+          },
+          {
+            id: "abc1-cart",
+            type: "cartItems",
+            data: {
+              title: "",
+              totalLabel: "Total HT",
+              emptyMessage:
+                "Votre panier est vide — nos nouveautés vous attendent !",
+            },
+          },
+          {
+            id: "abc1-btn",
+            type: "button",
+            data: {
+              label: "Reprendre ma commande",
+              url: "/panier",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          {
+            id: "abc1-subcta",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Votre panier reste actif tant que le stock le permet.",
+              align: "center",
+              bodyColor: "#64748b",
+              bodySize: 12,
+            },
+          },
+          {
+            id: "abc1-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "À très vite,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("abc1"),
+        ],
+      };
+
+    case 2:
+      return {
+        name: `${SCENARIO_LABELS.ABANDONED_CART} — Stade 2`,
+        subject: "Vos articles sont toujours là — on vous accompagne",
+        blocks: [
+          brandHeaderBlock("abc2"),
+          {
+            id: "abc2-title",
+            type: "heading",
+            data: {
+              title: "Une petite hésitation, {firstName} ?",
+              body: "Votre sélection est toujours dans votre panier. Si quelque chose vous retient — un doute sur les modèles, la livraison, ou une question sur votre compte — on est là pour vous répondre.",
+              align: "left",
+            },
+          },
+          {
+            id: "abc2-cart",
+            type: "cartItems",
+            data: {
+              title: "",
+              totalLabel: "Total HT",
+              emptyMessage:
+                "Votre panier est vide — nos nouveautés vous attendent !",
+            },
+          },
+          {
+            id: "abc2-btn",
+            type: "button",
+            data: {
+              label: "Retourner à mon panier",
+              url: "/panier",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          {
+            id: "abc2-subcta",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Ou contactez-nous — on répond en général sous 2 h ouvrées.",
+              align: "center",
+              bodyColor: "#64748b",
+              bodySize: 12,
+            },
+          },
+          {
+            id: "abc2-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Bonne journée,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("abc2"),
+        ],
+      };
+
+    case 3:
+    default:
+      return {
+        name: `${SCENARIO_LABELS.ABANDONED_CART} — Stade 3`,
+        subject: "Un dernier rappel — vos articles vous attendent",
+        blocks: [
+          brandHeaderBlock("abc3"),
+          {
+            id: "abc3-warn",
+            type: "heading",
+            data: {
+              title: "STOCK LIMITÉ",
+              body: "Certains articles de votre panier sont bientôt en rupture.",
+              align: "center",
+              bg: "#0f172a",
+              titleColor: "#cbd5e1",
+              bodyColor: "#ffffff",
+              titleSize: 11,
+              bodySize: 15,
+            },
+          },
+          {
+            id: "abc3-title",
+            type: "heading",
+            data: {
+              title: "Une dernière chance de finaliser 💫",
+              body: "{firstName}, votre panier est toujours là mais nos stocks bougent vite. Voici ce qui vous attend :",
+              align: "left",
+            },
+          },
+          {
+            id: "abc3-cart",
+            type: "cartItems",
+            data: {
+              title: "",
+              totalLabel: "Total HT",
+              emptyMessage:
+                "Votre panier est vide — nos nouveautés vous attendent !",
+            },
+          },
+          {
+            id: "abc3-btn",
+            type: "button",
+            data: {
+              label: "Finaliser ma commande",
+              url: "/panier",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          { id: "abc3-divider", type: "divider", data: {} },
+          {
+            id: "abc3-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Merci pour votre confiance,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("abc3"),
+        ],
+      };
+  }
 }
