@@ -35,10 +35,15 @@ export async function getCurrentTenantId(): Promise<string | null> {
     // les microtasks où next/headers throw ("headers was called outside a request scope").
     if (id) bindTenantId(id);
     return id;
-  } catch {
+  } catch (err) {
     // Fire-and-forget / worker / cron : pas de request scope, on retombe sur
     // l'ALS peuplée par le wrapper `tenantALS.run(tid, ...)` du caller.
-    return getCurrentTenantIdSync();
+    // IMPORTANT : si l'ALS n'a rien non plus, on relaie l'erreur — sinon
+    // Next.js prendrait la page pour statique et essaierait de la prerender
+    // au build (sans DATABASE_URL) → prerender error.
+    const alsId = getCurrentTenantIdSync();
+    if (alsId) return alsId;
+    throw err;
   }
 }
 
@@ -49,9 +54,9 @@ export async function getCurrentTenantSlug(): Promise<string | null> {
     const id = h.get(TENANT_ID_HEADER);
     if (id) bindTenantId(id);
     return slug;
-  } catch {
+  } catch (err) {
     const alsId = getCurrentTenantIdSync();
-    if (!alsId) return null;
+    if (!alsId) throw err;
     const t = await prisma.tenant.findUnique({ where: { id: alsId }, select: { slug: true } });
     return t?.slug ?? null;
   }
@@ -66,12 +71,14 @@ export async function getCurrentTenant(): Promise<CurrentTenant | null> {
     if (!id || !slug || !name) return null;
     bindTenantId(id);
     return { id, slug, name };
-  } catch {
+  } catch (err) {
     // Fire-and-forget : reconstitue le tenant complet depuis l'id ALS + BDD.
     // Un lookup direct (pas de cache tenant-scopé — sinon récursion via
     // l'extension Prisma qui rappellerait cette fonction).
+    // Si l'ALS est vide (contexte non-request, ex. prerender au build) on
+    // relaie l'erreur pour que Next.js marque la page comme dynamique.
     const alsId = getCurrentTenantIdSync();
-    if (!alsId) return null;
+    if (!alsId) throw err;
     const t = await prisma.tenant.findUnique({
       where: { id: alsId },
       select: { id: true, slug: true, name: true, isActive: true },

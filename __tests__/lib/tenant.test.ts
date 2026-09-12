@@ -181,14 +181,18 @@ describe("lib/tenant", () => {
       expect(await getCurrentTenantSlug()).toBe("issyma");
     });
 
-    it("renvoie null si ni ALS ni headers ne fournissent d'id (script CLI)", async () => {
+    it("relaie l'erreur headers() si ni ALS ni headers ne fournissent d'id", async () => {
+      // IMPORTANT : sans rethrow, Next.js prenait les pages qui appellent
+      // getCurrentTenantId pour statiques et essayait de les prerender au
+      // build (sans DATABASE_URL) → prerender error. Le rethrow force
+      // Next.js à marquer la page comme dynamique.
       mockHeaders.mockImplementation(() => {
         throw new Error("headers was called outside a request scope");
       });
       alsMock.current = null;
-      expect(await getCurrentTenantId()).toBeNull();
-      expect(await getCurrentTenant()).toBeNull();
-      expect(await getCurrentTenantSlug()).toBeNull();
+      await expect(getCurrentTenantId()).rejects.toThrow(/headers was called outside/);
+      await expect(getCurrentTenant()).rejects.toThrow(/headers was called outside/);
+      await expect(getCurrentTenantSlug()).rejects.toThrow(/headers was called outside/);
     });
   });
 
