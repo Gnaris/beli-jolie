@@ -12,6 +12,8 @@ interface Props {
   products: CarouselProduct[];
   clientDiscount?: ClientDiscountInfo | null;
   shopName: string;
+  /** Contrôle la visibilité des prix : false → CTA "créer un compte" à la place. */
+  canSeePrices: boolean;
 }
 
 function getProductImage(product: CarouselProduct): string | null {
@@ -26,7 +28,16 @@ function getBadge(product: CarouselProduct): { label: string; className: string 
   return null;
 }
 
-function ProductTile({ product, offsetTop = false }: { product: CarouselProduct; offsetTop?: boolean }) {
+function ProductTile({
+  product,
+  offsetTop = false,
+  canSeePrices,
+}: {
+  product: CarouselProduct;
+  offsetTop?: boolean;
+  canSeePrices: boolean;
+}) {
+  const t = useTranslations("home");
   const { tp, tc } = useProductTranslation();
   const image = getProductImage(product);
   const badge = getBadge(product);
@@ -66,16 +77,22 @@ function ProductTile({ product, offsetTop = false }: { product: CarouselProduct;
       <div className="mt-3">
         <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted">{tc(product.category)}</p>
         <p className="font-heading font-semibold text-text-primary mt-0.5 line-clamp-1">{tp(product.name)}</p>
-        <p className="text-text-primary mt-1">
-          <span className="font-bold">{price.toFixed(2).replace(".", ",")} €</span>
-          <span className="text-text-muted text-sm ml-1">/ unité</span>
-        </p>
+        {canSeePrices ? (
+          <p className="text-text-primary mt-1">
+            <span className="font-bold">{price.toFixed(2).replace(".", ",")} €</span>
+            <span className="text-text-muted text-sm ml-1">/ unité</span>
+          </p>
+        ) : (
+          <p className="text-text-muted text-sm mt-1 italic">
+            {t("featuredPriceHiddenTitle")}
+          </p>
+        )}
       </div>
     </Link>
   );
 }
 
-export default function FeaturedProduct({ products }: Props) {
+export default function FeaturedProduct({ products, canSeePrices }: Props) {
   const t = useTranslations("home");
   const sectionRef = useScrollReveal();
 
@@ -97,19 +114,31 @@ export default function FeaturedProduct({ products }: Props) {
           <p className="mt-5 text-text-secondary text-[15px] leading-relaxed">
             {t("featuredBody2")}
           </p>
-          <Link
-            href="/produits"
-            className="mt-6 inline-flex items-center gap-2 text-sm font-heading font-medium text-text-primary border-b border-text-primary pb-1 hover:gap-3 transition-all"
-          >
-            {t("featuredCta")} <span aria-hidden>→</span>
-          </Link>
+          {canSeePrices ? (
+            <Link
+              href="/produits"
+              className="mt-6 inline-flex items-center gap-2 text-sm font-heading font-medium text-text-primary border-b border-text-primary pb-1 hover:gap-3 transition-all"
+            >
+              {t("featuredCta")} <span aria-hidden>→</span>
+            </Link>
+          ) : (
+            <Link
+              href="/inscription"
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-text-primary text-text-inverse text-sm font-heading font-semibold px-5 py-2.5 hover:opacity-90 transition"
+            >
+              {t("featuredPriceHiddenCta")} <span aria-hidden>→</span>
+            </Link>
+          )}
+          <p className="mt-4 text-[12px] uppercase tracking-[0.18em] text-text-muted">
+            {t("featuredMinOrder")}
+          </p>
         </div>
 
         {/* 3 produits */}
         <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <ProductTile product={p1} />
-          <ProductTile product={p2} offsetTop />
-          <ProductTile product={p3} />
+          <ProductTile product={p1} canSeePrices={canSeePrices} />
+          <ProductTile product={p2} offsetTop canSeePrices={canSeePrices} />
+          <ProductTile product={p3} canSeePrices={canSeePrices} />
         </div>
       </div>
     </section>

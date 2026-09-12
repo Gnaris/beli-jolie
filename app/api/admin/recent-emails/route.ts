@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCurrentTenantId } from "@/lib/tenant";
 
 /**
  * GET /api/admin/recent-emails
@@ -13,6 +14,12 @@ import { prisma } from "@/lib/prisma";
  * Utilisé par le widget « Envoi de mails » du rail admin pour montrer aussi
  * les mails auto (panier abandonné, retour en stock, inactivité, …) et les
  * mails envoyés manuellement à un client inscrit via <SendMailModal>.
+ *
+ * Filtre `tenantId` explicite en plus de l'extension Prisma : ceinture +
+ * bretelles. Historique 2026-09-12 : `EmailSend` avait été oublié dans
+ * `TENANT_SCOPED_MODELS`, ce qui faisait fuiter les envois de l'autre
+ * boutique dans le widget rail. La liste est corrigée, on garde le filtre
+ * en dur ici pour verrouiller la surface en cas de future régression.
  */
 
 const WINDOW_MS = 60 * 60_000; // 60 min
@@ -30,12 +37,15 @@ export async function GET() {
   const guard = await guardAdmin();
   if (guard) return guard;
 
+  const tenantId = await getCurrentTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ emails: [] });
+  }
+
   const cutoff = new Date(Date.now() - WINDOW_MS);
 
-  // Charge les envois récents (scope tenant auto via extension Prisma) sans
-  // htmlBody/textBody — payloads potentiellement lourds pour un feed live.
   const emails = await prisma.emailSend.findMany({
-    where: { sentAt: { gte: cutoff } },
+    where: { tenantId, sentAt: { gte: cutoff } },
     orderBy: { sentAt: "desc" },
     take: MAX_ROWS,
     select: {

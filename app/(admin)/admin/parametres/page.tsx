@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled,
@@ -41,6 +42,8 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
+import HomeHeroConfig from "@/components/admin/settings/HomeHeroConfig";
+import AboutPageConfig from "@/components/admin/settings/AboutPageConfig";
 import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
 import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
@@ -770,7 +773,32 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildContenuTile(): Promise<DashboardTile> {
   const { getSiteUrl } = await import("@/lib/seo");
-  const [displayConfigRow, categories, dbSubCategories, dbCollections, dbTags, homeRow, produitsRow, taglineRow, shopName, siteUrl] = await Promise.all([
+  const [
+    displayConfigRow,
+    categories,
+    dbSubCategories,
+    dbCollections,
+    dbTags,
+    homeRow,
+    produitsRow,
+    produitsIntroRow,
+    taglineRow,
+    heroEyebrowRow,
+    heroTitle1Row,
+    heroTitle2Row,
+    heroDescRow,
+    heroCta2LabelRow,
+    heroCta2HrefRow,
+    aboutIntroRow,
+    aboutHistoryRow,
+    aboutShowroomRow,
+    aboutTeamRow,
+    aboutNewnessRow,
+    aboutDeliveryRow,
+    shopName,
+    siteUrl,
+    tAbout,
+  ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
     prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
     prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
@@ -778,9 +806,23 @@ async function buildContenuTile(): Promise<DashboardTile> {
     prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
+    prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro" } }),
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_eyebrow" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line1" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line2" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_description" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_label" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_href" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_intro" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_history_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
     getCachedShopName(),
     getSiteUrl(),
+    getTranslations("about"),
   ]);
 
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
@@ -809,6 +851,22 @@ async function buildContenuTile(): Promise<DashboardTile> {
       <CardsStack>
         <SettingCard
           icon={Ico.slides}
+          title="Bloc d'accueil (grand bandeau noir)"
+          description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
+          accent="dark"
+        >
+          <HomeHeroConfig
+            initialEyebrow={heroEyebrowRow?.value ?? ""}
+            initialTitleLine1={heroTitle1Row?.value ?? ""}
+            initialTitleLine2={heroTitle2Row?.value ?? ""}
+            initialDescription={heroDescRow?.value ?? ""}
+            initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
+            initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.slides}
           title="Carrousels d'accueil"
           description="Bandes de produits sur la page d'accueil — glissez-déposez pour réorganiser"
           accent="dark"
@@ -826,6 +884,30 @@ async function buildContenuTile(): Promise<DashboardTile> {
         </SettingCard>
 
         <SettingCard
+          icon={Ico.slides}
+          title="Page « Qui sommes-nous »"
+          description="6 sections éditables affichées sur /a-propos — laissez vide pour utiliser le texte par défaut."
+          accent="dark"
+        >
+          <AboutPageConfig
+            initialIntro={aboutIntroRow?.value ?? ""}
+            initialHistoryBody={aboutHistoryRow?.value ?? ""}
+            initialShowroomBody={aboutShowroomRow?.value ?? ""}
+            initialTeamBody={aboutTeamRow?.value ?? ""}
+            initialNewnessBody={aboutNewnessRow?.value ?? ""}
+            initialDeliveryBody={aboutDeliveryRow?.value ?? ""}
+            placeholders={{
+              intro: tAbout("intro"),
+              historyBody: tAbout("historyBody"),
+              showroomBody: tAbout("showroomBody"),
+              teamBody: tAbout("teamBody"),
+              newnessBody: tAbout("newnessBody"),
+              deliveryBody: tAbout("deliveryBody"),
+            }}
+          />
+        </SettingCard>
+
+        <SettingCard
           icon={Ico.search}
           title="Textes pour Google"
           description="Baseline courte + paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
@@ -834,6 +916,7 @@ async function buildContenuTile(): Promise<DashboardTile> {
           <SeoTextsConfig
             initialHomeText={homeRow?.value ?? ""}
             initialProduitsText={produitsRow?.value ?? ""}
+            initialProduitsIntroText={produitsIntroRow?.value ?? ""}
             initialTagline={taglineRow?.value ?? ""}
           />
         </SettingCard>

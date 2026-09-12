@@ -138,7 +138,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     getSiteUrl(),
     buildAlternates(`/produits/${canonicalHandle}`, locale),
   ]);
-  const title = `${product.name} — ${shopName}`;
+  const title = product.name;
   const description = product.description.slice(0, 160).replace(/\n/g, " ");
   const imageUrl = firstImage ? getImageSrc(firstImage.path, "large") : null;
 

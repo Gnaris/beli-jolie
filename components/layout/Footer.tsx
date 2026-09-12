@@ -25,6 +25,7 @@ export default function Footer({ shopName }: FooterProps) {
   ];
 
   const infoItems = [
+    { label: t("about"),   href: "/a-propos" },
     { label: t("contact"), href: "/nous-contacter" },
     { label: t("legal"),   href: "/mentions-legales" },
     { label: t("cgv"),     href: "/cgv" },

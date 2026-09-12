@@ -202,14 +202,21 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // les produits dont toutes les variantes sont a 0 sont desormais archives
   // automatiquement et donc deja masques par le filtre status. On garde
   // uniquement le filtre per-request hideOos (toggle utilisateur).
-  const [categories, collections, colors, tags, compositions, seoTextRow] = await Promise.all([
+  const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
     getCachedTags(),
     getCachedCompositions(),
     getCachedSiteConfig("produits_seo_text"),
+    getCachedSiteConfig("produits_seo_intro"),
   ]);
+  // Deux textes distincts :
+  //  - `produits_seo_intro` : phrase courte en haut de page (au-dessus des filtres)
+  //  - `produits_seo_text` : paragraphe long affiché en bas (utile pour Google)
+  // Les deux ne s'affichent qu'en l'absence de filtres, pour ne pas polluer les
+  // pages de résultats filtrées.
+  const produitsSeoIntro = !hasFilters ? (seoIntroRow?.value?.trim() ?? "") : "";
   const produitsSeoText = !hasFilters ? (seoTextRow?.value?.trim() ?? "") : "";
 
   // Le toggle "Masquer les ruptures" reste affiche cote UI catalogue.
@@ -345,9 +352,9 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
             <p className="mt-6 lg:mt-8 text-neutral-600 max-w-lg leading-relaxed text-[15px] font-body">
               {t("subtitle")}
             </p>
-            {produitsSeoText && (
+            {produitsSeoIntro && (
               <div className="mt-6 max-w-2xl text-[14px] font-body text-neutral-500 leading-relaxed whitespace-pre-line">
-                {produitsSeoText}
+                {produitsSeoIntro}
               </div>
             )}
           </div>
@@ -410,6 +417,17 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           </div>
         </div>
       </section>
+
+      {/* Texte SEO long — affiché sous la grille pour ne pas noyer les filtres */}
+      {produitsSeoText && (
+        <section className="border-t border-neutral-200 bg-neutral-50 py-12 lg:py-16">
+          <div className="max-w-[900px] mx-auto px-6 lg:px-10">
+            <div className="prose prose-sm sm:prose-base max-w-none font-body text-neutral-600 leading-relaxed whitespace-pre-line">
+              {produitsSeoText}
+            </div>
+          </div>
+        </section>
+      )}
 
       </main>
       <Footer shopName={shopName} />

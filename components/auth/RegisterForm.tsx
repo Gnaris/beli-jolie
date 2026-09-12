@@ -42,11 +42,9 @@ function flagClassForCountry(code: string): string {
 
 export default function RegisterForm({
   productCount,
-  todayHoursLabel,
   schedule,
 }: {
   productCount?: number;
-  todayHoursLabel?: string;
   schedule?: BusinessHoursSchedule;
 }) {
   const t = useTranslations("auth.register");
@@ -498,8 +496,8 @@ export default function RegisterForm({
                 />
               )}
               <TrustItem
-                value={todayHoursLabel ?? t("trustHoursDefault")}
-                label={t("wizardWhyValidation")}
+                value={t("wizardValidationFastTitle")}
+                label={t("wizardValidationFastCaption")}
                 icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.7} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />}
               />
               <TrustItem

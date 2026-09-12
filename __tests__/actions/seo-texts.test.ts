@@ -49,15 +49,16 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
-  it("upsert les trois clés SiteConfig pour un admin", async () => {
+  it("upsert les quatre clés SiteConfig pour un admin", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({
       homeText: "  Bienvenue chez nous  ",
       produitsText: "Notre catalogue.",
+      produitsIntroText: "  Accroche courte  ",
       tagline: "  Grossiste maroquinerie  ",
     });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(3);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(4);
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
       "home_seo_text",
       "Bienvenue chez nous",
@@ -65,6 +66,10 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
       "produits_seo_text",
       "Notre catalogue.",
+    );
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
+      "produits_seo_intro",
+      "Accroche courte",
     );
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
       "seo_tagline",
@@ -78,6 +83,26 @@ describe("updateSeoTexts", () => {
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline", "");
+  });
+
+  it("écrit produits_seo_intro vide quand l'accroche n'est pas fournie", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const result = await updateSeoTexts({ homeText: "", produitsText: "" });
+    expect(result.success).toBe(true);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro", "");
+  });
+
+  it("rejette une accroche trop longue (> 400 caractères)", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const long = "z".repeat(401);
+    const result = await updateSeoTexts({
+      homeText: "",
+      produitsText: "",
+      produitsIntroText: long,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/400/);
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
   it("rejette un texte trop long (> 5000 caractères)", async () => {
@@ -102,6 +127,6 @@ describe("updateSeoTexts", () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(3);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(4);
   });
 });

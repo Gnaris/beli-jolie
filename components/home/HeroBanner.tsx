@@ -8,10 +8,44 @@ interface HeroBannerProps {
   bannerImage: string | null;
   shopName: string;
   productCount: number;
+  /**
+   * Overrides SiteConfig (par tenant). Non fournis → fallback sur les messages
+   * i18n génériques (voir home.hero* dans messages/fr.json).
+   *
+   * Clés SiteConfig associées (posées dans Paramètres → Contenu accueil) :
+   *   home_hero_eyebrow, home_hero_title_line1, home_hero_title_line2,
+   *   home_hero_description, home_hero_cta_secondary_label,
+   *   home_hero_cta_secondary_href
+   */
+  heroEyebrow?: string;
+  heroTitleLine1?: string;
+  heroTitleLine2?: string;
+  heroDescription?: string;
+  heroCtaSecondaryLabel?: string;
+  heroCtaSecondaryHref?: string;
 }
 
-export default function HeroBanner({ bannerImage, shopName, productCount }: HeroBannerProps) {
+export default function HeroBanner({
+  bannerImage,
+  shopName,
+  productCount,
+  heroEyebrow,
+  heroTitleLine1,
+  heroTitleLine2,
+  heroDescription,
+  heroCtaSecondaryLabel,
+  heroCtaSecondaryHref,
+}: HeroBannerProps) {
   const t = useTranslations("home");
+
+  const eyebrow = heroEyebrow?.trim() || t("heroBadge");
+  const title1 = heroTitleLine1?.trim() || t("heroTitle1");
+  const title2 = heroTitleLine2?.trim() || t("heroTitle2");
+  // Si un texte custom est défini côté SiteConfig, on l'utilise tel quel (pas
+  // de placeholder {count}). Sinon fallback i18n qui affiche le compteur live.
+  const description = heroDescription?.trim() || t("heroDesc", { count: String(productCount) });
+  const cta2Label = heroCtaSecondaryLabel?.trim() || t("heroCtaSecondary");
+  const cta2Href = heroCtaSecondaryHref?.trim() || "/collections";
 
   return (
     <section
@@ -51,14 +85,14 @@ export default function HeroBanner({ bannerImage, shopName, productCount }: Hero
         <div className="lg:col-span-8">
           <div className="inline-flex items-center gap-2 mb-5 text-[11px] uppercase tracking-[0.3em] text-gold">
             <span className="w-1.5 h-1.5 rounded-full bg-gold" />
-            {t("heroBadge")}
+            {eyebrow}
           </div>
 
           <h1
             className="font-heading font-bold leading-[1] max-w-3xl"
             style={{ fontSize: "clamp(1.9rem, 4vw, 3.25rem)", letterSpacing: "-0.02em" }}
           >
-            {t("heroTitle1")}
+            {title1}
             <br />
             <span className="relative inline-block">
               <span
@@ -66,12 +100,12 @@ export default function HeroBanner({ bannerImage, shopName, productCount }: Hero
                 className="absolute left-0 right-0 bg-gold"
                 style={{ bottom: "0.08em", height: "0.28em", opacity: 0.85, zIndex: 0 }}
               />
-              <span className="relative">{t("heroTitle2")}</span>
+              <span className="relative">{title2}</span>
             </span>
           </h1>
 
           <p className="mt-4 max-w-lg text-white/70 text-sm sm:text-base leading-relaxed">
-            {t("heroDesc", { count: String(productCount) })}
+            {description}
           </p>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -83,10 +117,10 @@ export default function HeroBanner({ bannerImage, shopName, productCount }: Hero
               <span aria-hidden>→</span>
             </Link>
             <Link
-              href="/collections"
+              href={cta2Href}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/25 text-white font-heading text-sm hover:bg-white hover:text-bg-darker transition-colors"
             >
-              {t("heroCtaSecondary")}
+              {cta2Label}
             </Link>
           </div>
         </div>

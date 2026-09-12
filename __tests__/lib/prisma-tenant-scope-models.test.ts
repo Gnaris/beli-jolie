@@ -25,4 +25,15 @@ describe("TENANT_SCOPED_MODELS", () => {
     expect(TENANT_SCOPED_MODELS.has("EfashionShootingBatchItem")).toBe(true);
     expect(TENANT_SCOPED_MODELS.has("AnkorstoreOperation")).toBe(true);
   });
+
+  it("contient les modèles liés au flux mail (régression 2026-09-12)", () => {
+    // Fuite observée : le widget « Envoi de mails » d'Issyma affichait les
+    // envois de Beli & Jolie parce que EmailSend/NewsletterTemplate/
+    // AbandonedCartStage n'étaient pas scopés → findMany/groupBy cross-tenant.
+    expect(TENANT_SCOPED_MODELS.has("EmailSend")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("NewsletterTemplate")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("AbandonedCartStage")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("BulkMailJob")).toBe(true);
+    expect(TENANT_SCOPED_MODELS.has("AbandonedCartJob")).toBe(true);
+  });
 });

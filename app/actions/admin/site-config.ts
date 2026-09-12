@@ -128,23 +128,30 @@ export async function updateBusinessHours(schedule: {
  *  - `seo_tagline` : baseline courte (~80 car.) utilisée dans le <title> et
  *    l'aperçu Google. Vide → fallback « Grossiste B2B ».
  *  - `home_seo_text` : paragraphe long affiché en bas de la home.
- *  - `produits_seo_text` : paragraphe long en haut de la page /produits.
+ *  - `produits_seo_intro` : phrase courte en haut de la page /produits (au-dessus des filtres).
+ *  - `produits_seo_text` : paragraphe long affiché en bas de la page /produits.
  * Une chaîne vide supprime simplement le bloc / retombe sur le défaut.
  */
 export async function updateSeoTexts(input: {
   homeText: string;
   produitsText: string;
+  produitsIntroText?: string;
   tagline?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
     const home = input.homeText.trim();
     const produits = input.produitsText.trim();
+    const produitsIntro = (input.produitsIntroText ?? "").trim();
     const tagline = (input.tagline ?? "").trim();
     const MAX = 5000;
+    const INTRO_MAX = 400;
     const TAGLINE_MAX = 80;
     if (home.length > MAX || produits.length > MAX) {
       return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
+    }
+    if (produitsIntro.length > INTRO_MAX) {
+      return { success: false, error: `L'accroche ne doit pas dépasser ${INTRO_MAX} caractères.` };
     }
     if (tagline.length > TAGLINE_MAX) {
       return { success: false, error: `La baseline ne doit pas dépasser ${TAGLINE_MAX} caractères.` };
@@ -152,8 +159,127 @@ export async function updateSeoTexts(input: {
     await Promise.all([
       setSiteConfig("home_seo_text", home),
       setSiteConfig("produits_seo_text", produits),
+      setSiteConfig("produits_seo_intro", produitsIntro),
       setSiteConfig("seo_tagline", tagline),
     ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour les textes du bloc hero de la page d'accueil (SiteConfig, tenant-scopé).
+ *
+ * Chaque champ écrase la valeur générique i18n. Vide → retombe sur i18n.
+ * Clés :
+ *   home_hero_eyebrow, home_hero_title_line1, home_hero_title_line2,
+ *   home_hero_description, home_hero_cta_secondary_label,
+ *   home_hero_cta_secondary_href
+ */
+export async function updateHomeHero(input: {
+  eyebrow: string;
+  titleLine1: string;
+  titleLine2: string;
+  description: string;
+  ctaSecondaryLabel: string;
+  ctaSecondaryHref: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const eyebrow = input.eyebrow.trim();
+    const titleLine1 = input.titleLine1.trim();
+    const titleLine2 = input.titleLine2.trim();
+    const description = input.description.trim();
+    const ctaSecondaryLabel = input.ctaSecondaryLabel.trim();
+    const ctaSecondaryHref = input.ctaSecondaryHref.trim();
+
+    const EYEBROW_MAX = 120;
+    const TITLE_MAX = 60;
+    const DESC_MAX = 400;
+    const LABEL_MAX = 60;
+    const HREF_MAX = 200;
+
+    if (eyebrow.length > EYEBROW_MAX) {
+      return { success: false, error: `Le surtitre ne doit pas dépasser ${EYEBROW_MAX} caractères.` };
+    }
+    if (titleLine1.length > TITLE_MAX || titleLine2.length > TITLE_MAX) {
+      return { success: false, error: `Chaque ligne du titre ne doit pas dépasser ${TITLE_MAX} caractères.` };
+    }
+    if (description.length > DESC_MAX) {
+      return { success: false, error: `La description ne doit pas dépasser ${DESC_MAX} caractères.` };
+    }
+    if (ctaSecondaryLabel.length > LABEL_MAX) {
+      return { success: false, error: `Le libellé du bouton ne doit pas dépasser ${LABEL_MAX} caractères.` };
+    }
+    if (ctaSecondaryHref.length > HREF_MAX) {
+      return { success: false, error: `L'URL du bouton ne doit pas dépasser ${HREF_MAX} caractères.` };
+    }
+    // Le href doit être un chemin relatif OU une URL http(s) — pas de javascript: etc.
+    if (ctaSecondaryHref && !/^(https?:\/\/|\/)/.test(ctaSecondaryHref)) {
+      return { success: false, error: `L'URL doit commencer par « / » (page interne) ou « https:// ».` };
+    }
+
+    await Promise.all([
+      setSiteConfig("home_hero_eyebrow", eyebrow),
+      setSiteConfig("home_hero_title_line1", titleLine1),
+      setSiteConfig("home_hero_title_line2", titleLine2),
+      setSiteConfig("home_hero_description", description),
+      setSiteConfig("home_hero_cta_secondary_label", ctaSecondaryLabel),
+      setSiteConfig("home_hero_cta_secondary_href", ctaSecondaryHref),
+    ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour les 6 sections texte de la page « Qui sommes-nous » (SiteConfig,
+ * tenant-scopé). Chaque section garde son titre fixe côté page (structure SEO
+ * stable) — la cliente édite uniquement le corps de chaque section.
+ *
+ * Clés :
+ *   about_intro           — paragraphe sous le titre hero
+ *   about_history_body    — bloc « Notre histoire »
+ *   about_showroom_body   — bloc « Le showroom »
+ *   about_team_body       — bloc « L'équipe »
+ *   about_newness_body    — bloc « Nouveautés »
+ *   about_delivery_body   — section pleine largeur « Livraisons »
+ *
+ * Vide → retombe sur le texte générique i18n.
+ */
+export async function updateAboutPage(input: {
+  intro: string;
+  historyBody: string;
+  showroomBody: string;
+  teamBody: string;
+  newnessBody: string;
+  deliveryBody: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const SECTION_MAX = 2000;
+    const sections: Array<[string, string]> = [
+      ["about_intro", input.intro.trim()],
+      ["about_history_body", input.historyBody.trim()],
+      ["about_showroom_body", input.showroomBody.trim()],
+      ["about_team_body", input.teamBody.trim()],
+      ["about_newness_body", input.newnessBody.trim()],
+      ["about_delivery_body", input.deliveryBody.trim()],
+    ];
+    for (const [, value] of sections) {
+      if (value.length > SECTION_MAX) {
+        return { success: false, error: `Chaque section ne doit pas dépasser ${SECTION_MAX} caractères.` };
+      }
+    }
+    await Promise.all(sections.map(([key, value]) => setSiteConfig(key, value)));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/", "layout");

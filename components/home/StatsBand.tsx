@@ -23,10 +23,10 @@ export default function StatsBand({ productCount }: Props) {
         </div>
         <div className="text-center border-l border-r border-white/10 sm:px-8">
           <p className="font-heading font-bold text-5xl lg:text-6xl leading-none">
-            48<span className="text-gold">h</span>
+            24<span className="text-gold">–48h</span>
           </p>
           <p className="mt-2 text-[11px] uppercase tracking-[0.3em] text-white/50">
-            Expédition moyenne
+            Préparation des commandes
           </p>
         </div>
         <div className="text-center sm:text-right">

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from "@/lib/product-display";
 import { getCachedSiteConfig, getCachedBestsellerRefs, getCachedShopName } from "@/lib/cached-data";
-import { buildAlternates, buildWebsiteSchema, getSiteUrl } from "@/lib/seo";
+import { buildAlternates, buildWebsiteSchema, buildSiteNavigationSchema, getSiteUrl } from "@/lib/seo";
+import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
@@ -21,20 +22,25 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const [shopName, tMeta, siteUrl, alternates] = await Promise.all([
+  const [shopName, tMeta, siteUrl, alternates, taglineRow] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
     getSiteUrl(),
     buildAlternates("/", locale),
+    getCachedSiteConfig("seo_tagline"),
   ]);
+  // Le title de la home = tagline configurable par tenant (Paramètres SEO).
+  // Fallback = message i18n générique. Le template `%s | shopName` du layout
+  // racine ajoute automatiquement le suffixe — on ne le réécrit pas ici.
+  const homeTitle = taglineRow?.value?.trim() || tMeta("homeTitle");
   return {
-    title: tMeta("homeTitle", { shopName }),
+    title: homeTitle,
     description: tMeta("homeDescription", { shopName }),
     alternates,
     openGraph: {
       type: "website",
       siteName: shopName,
-      title: tMeta("homeTitle", { shopName }),
+      title: homeTitle,
       description: tMeta("homeOgDescription", { shopName }),
       url: `${siteUrl}/${locale}`,
     },
@@ -243,17 +249,44 @@ export default async function HomePage() {
   ]);
   const userId  = session?.user?.id;
 
-  // ── Load banner image + display config + shop name ─────────────────────────
-  const [bannerImageRow, configRow, bestsellerRefs, shopName, seoTextRow] = await Promise.all([
+  // ── Load banner image + display config + shop name + hero overrides ───────
+  const [
+    bannerImageRow,
+    configRow,
+    bestsellerRefs,
+    shopName,
+    seoTextRow,
+    heroEyebrowRow,
+    heroTitle1Row,
+    heroTitle2Row,
+    heroDescRow,
+    heroCta2LabelRow,
+    heroCta2HrefRow,
+  ] = await Promise.all([
     getCachedSiteConfig("banner_image"),
     getCachedSiteConfig("product_display_config"),
     getCachedBestsellerRefs(30),
     getCachedShopName(),
     getCachedSiteConfig("home_seo_text"),
+    getCachedSiteConfig("home_hero_eyebrow"),
+    getCachedSiteConfig("home_hero_title_line1"),
+    getCachedSiteConfig("home_hero_title_line2"),
+    getCachedSiteConfig("home_hero_description"),
+    getCachedSiteConfig("home_hero_cta_secondary_label"),
+    getCachedSiteConfig("home_hero_cta_secondary_href"),
   ]);
   const bannerImage = bannerImageRow?.value ?? null;
   const displayConfig = parseDisplayConfig(configRow?.value);
   const homeSeoText = seoTextRow?.value?.trim() ?? "";
+  const heroOverrides = {
+    heroEyebrow: heroEyebrowRow?.value ?? undefined,
+    heroTitleLine1: heroTitle1Row?.value ?? undefined,
+    heroTitleLine2: heroTitle2Row?.value ?? undefined,
+    heroDescription: heroDescRow?.value ?? undefined,
+    heroCtaSecondaryLabel: heroCta2LabelRow?.value ?? undefined,
+    heroCtaSecondaryHref: heroCta2HrefRow?.value ?? undefined,
+  } as const;
+  const priceVisible = canSeePrices(session);
 
   // ── Fetch client discount + favoris (pour cœurs déjà remplis au 1er rendu) ─
   const [clientDiscount, favoriteIds] = await Promise.all([
@@ -359,16 +392,37 @@ export default async function HomePage() {
   }
 
   // JSON-LD WebSite (avec SearchAction). Organization est rendu dans le layout racine, pas de doublon.
-  const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: await getSiteUrl() });
+  const siteUrl = await getSiteUrl();
+  const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: siteUrl });
+  // JSON-LD SiteNavigationElement — signal explicite à Google des pages
+  // principales, pour maximiser les chances d'affichage de sitelinks dans les
+  // résultats de recherche. Miroir de la nav du header.
+  const currentLocale = await getLocale();
+  const navJsonLd = buildSiteNavigationSchema({
+    baseUrl: siteUrl,
+    locale: currentLocale,
+    links: [
+      { name: t("newProducts"), path: "/produits" },
+      { name: t("collections"), path: "/collections" },
+      { name: t("categoriesTitle"), path: "/categories" },
+      { name: "À propos", path: "/a-propos" },
+      { name: "Nous contacter", path: "/nous-contacter" },
+    ],
+  });
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(webSiteJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify([webSiteJsonLd, navJsonLd]) }} />
       <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10 -mt-16">
           {/* 1. Hero compact noir + accent jaune */}
-          <HeroBanner bannerImage={bannerImage} shopName={shopName} productCount={productCount} />
+          <HeroBanner
+            bannerImage={bannerImage}
+            shopName={shopName}
+            productCount={productCount}
+            {...heroOverrides}
+          />
 
           {/* 2. Featured — split éditorial « Manifeste » */}
           {carouselList.length > 0 && carouselList[0].products.length >= 3 && (
@@ -376,6 +430,7 @@ export default async function HomePage() {
               products={carouselList[0].products.slice(0, 3)}
               clientDiscount={clientDiscount}
               shopName={shopName}
+              canSeePrices={priceVisible}
             />
           )}
 

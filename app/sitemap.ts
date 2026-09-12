@@ -10,6 +10,7 @@ const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "month
   { path: "/produits", changeFrequency: "daily", priority: 0.9 },
   { path: "/categories", changeFrequency: "weekly", priority: 0.8 },
   { path: "/collections", changeFrequency: "weekly", priority: 0.8 },
+  { path: "/a-propos", changeFrequency: "monthly", priority: 0.6 },
   { path: "/nous-contacter", changeFrequency: "monthly", priority: 0.5 },
   { path: "/cgu", changeFrequency: "yearly", priority: 0.3 },
   { path: "/cgv", changeFrequency: "yearly", priority: 0.3 },

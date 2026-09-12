@@ -81,6 +81,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
     { label: t("products"),    href: "/produits" },
     { label: t("categories"),  href: "/categories" },
     { label: t("collections"), href: "/collections" },
+    { label: t("about"),       href: "/a-propos" },
     { label: t("contact"),     href: "/nous-contacter" },
   ];
 

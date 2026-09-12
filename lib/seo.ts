@@ -157,6 +157,30 @@ export function buildWebsiteSchema(opts: { name: string; url: string }) {
   };
 }
 
+/**
+ * Liste explicite des liens principaux du site pour Google.
+ * Injecté en JSON-LD sur la page d'accueil. Google s'en sert (entre autres
+ * signaux) pour décider quels sitelinks afficher sous le résultat de recherche
+ * du site. Pas de garantie d'affichage — mais ça envoie un signal clair.
+ */
+export function buildSiteNavigationSchema(opts: {
+  baseUrl: string;
+  locale: string;
+  links: Array<{ name: string; path: string }>;
+}) {
+  const clean = opts.baseUrl.replace(/\/$/, "");
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    itemListElement: opts.links.map((link, i) => ({
+      "@type": "SiteNavigationElement",
+      position: i + 1,
+      name: link.name,
+      url: `${clean}/${opts.locale}${link.path === "/" ? "" : link.path}`,
+    })),
+  };
+}
+
 export const SUPPORTED_LOCALES: readonly Locale[] = VALID_LOCALES;
 
 /**
