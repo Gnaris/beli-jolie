@@ -103,5 +103,6 @@ describe("AdminProductsTable — pas de flash rouge entre op done et RSC refresh
     expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"ankorstore"\)/);
     expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"efashion"\)/);
     expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"faire"\)/);
+    expect(SRC).toMatch(/hasLinkJob\(product\.id,\s*"microstore"\)/);
   });
 });

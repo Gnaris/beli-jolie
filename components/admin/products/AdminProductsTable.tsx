@@ -3130,7 +3130,7 @@ function ProductRow({
     effectiveMicrostoreSyncRequired,
     undefined,
     getRecentClientSuccessAt(product.id, "microstore"),
-    false,
+    hasLinkJob(product.id, "microstore"),
   );
   const [pendingMicrostoreEnqueue, setPendingMicrostoreEnqueue] = useState(false);
   const isMicrostorePublishing =
