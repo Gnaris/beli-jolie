@@ -11,13 +11,23 @@ vi.mock("next/headers", () => ({
 
 const findUniqueMock = vi.fn();
 const findFirstMock = vi.fn();
+const tenantFindUniqueMock = vi.fn();
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     tenantDomain: {
       findUnique: (...a: unknown[]) => findUniqueMock(...a),
       findFirst: (...a: unknown[]) => findFirstMock(...a),
     },
+    tenant: {
+      findUnique: (...a: unknown[]) => tenantFindUniqueMock(...a),
+    },
   },
+}));
+
+const alsMock = { current: null as string | null };
+vi.mock("@/lib/tenant-als", () => ({
+  bindTenantId: vi.fn(),
+  getCurrentTenantIdSync: () => alsMock.current,
 }));
 
 import {
@@ -42,6 +52,8 @@ describe("lib/tenant", () => {
     mockHeaders.mockReset();
     findUniqueMock.mockReset();
     findFirstMock.mockReset();
+    tenantFindUniqueMock.mockReset();
+    alsMock.current = null;
   });
 
   describe("getCurrentTenantId", () => {
@@ -100,6 +112,83 @@ describe("lib/tenant", () => {
     it("throw quand le tenant n'est pas résolu", async () => {
       mockHeaders.mockReturnValue(fakeHeaders({}));
       await expect(requireCurrentTenant()).rejects.toThrow(/Aucun tenant/);
+    });
+  });
+
+  // Cas fire-and-forget (worker, audit auto) : headers() throw hors request scope.
+  // Sans le fallback ALS + BDD, l'audit PFS crashait avec « headers was called
+  // outside a request scope » quand il essayait d'importer une variante PFS
+  // orpheline via pullAddLocalVariantFromPfs → requireCurrentTenant.
+  describe("fallback hors request scope (fire-and-forget)", () => {
+    it("getCurrentTenantId retombe sur l'ALS quand headers() throw", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = "t-audit";
+      expect(await getCurrentTenantId()).toBe("t-audit");
+    });
+
+    it("getCurrentTenant reconstitue le tenant depuis l'ALS + BDD", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = "t-issyma";
+      tenantFindUniqueMock.mockResolvedValue({
+        id: "t-issyma",
+        slug: "issyma",
+        name: "FORCYMA",
+        isActive: true,
+      });
+      const t = await getCurrentTenant();
+      expect(t).toEqual({ id: "t-issyma", slug: "issyma", name: "FORCYMA" });
+    });
+
+    it("getCurrentTenant renvoie null si tenant BDD inactif", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = "t-off";
+      tenantFindUniqueMock.mockResolvedValue({
+        id: "t-off",
+        slug: "off",
+        name: "Off",
+        isActive: false,
+      });
+      expect(await getCurrentTenant()).toBeNull();
+    });
+
+    it("requireCurrentTenant marche depuis un fire-and-forget wrappé en tenantALS.run", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = "t-issyma";
+      tenantFindUniqueMock.mockResolvedValue({
+        id: "t-issyma",
+        slug: "issyma",
+        name: "FORCYMA",
+        isActive: true,
+      });
+      const t = await requireCurrentTenant();
+      expect(t.slug).toBe("issyma");
+    });
+
+    it("getCurrentTenantSlug retombe sur l'ALS + BDD quand headers() throw", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = "t-issyma";
+      tenantFindUniqueMock.mockResolvedValue({ slug: "issyma" });
+      expect(await getCurrentTenantSlug()).toBe("issyma");
+    });
+
+    it("renvoie null si ni ALS ni headers ne fournissent d'id (script CLI)", async () => {
+      mockHeaders.mockImplementation(() => {
+        throw new Error("headers was called outside a request scope");
+      });
+      alsMock.current = null;
+      expect(await getCurrentTenantId()).toBeNull();
+      expect(await getCurrentTenant()).toBeNull();
+      expect(await getCurrentTenantSlug()).toBeNull();
     });
   });
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
 import { getTranslations } from "next-intl/server";
+import Image from "next/image";
 import { getCachedShopName, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
@@ -46,6 +47,12 @@ export default async function AboutPage() {
     aboutTeamRow,
     aboutNewnessRow,
     aboutDeliveryRow,
+    aboutPhoto1Row,
+    aboutPhoto2Row,
+    aboutPhoto3Row,
+    aboutPhoto4Row,
+    aboutPhoto5Row,
+    aboutPhoto6Row,
   ] = await Promise.all([
     getCachedShopName(),
     getTranslations("about"),
@@ -55,6 +62,12 @@ export default async function AboutPage() {
     getCachedSiteConfig("about_team_body"),
     getCachedSiteConfig("about_newness_body"),
     getCachedSiteConfig("about_delivery_body"),
+    getCachedSiteConfig("about_photo_1_url"),
+    getCachedSiteConfig("about_photo_2_url"),
+    getCachedSiteConfig("about_photo_3_url"),
+    getCachedSiteConfig("about_photo_4_url"),
+    getCachedSiteConfig("about_photo_5_url"),
+    getCachedSiteConfig("about_photo_6_url"),
   ]);
 
   const intro = sectionText(aboutIntroRow?.value, t("intro"));
@@ -64,9 +77,16 @@ export default async function AboutPage() {
   const newnessBody = sectionText(aboutNewnessRow?.value, t("newnessBody"));
   const deliveryBody = sectionText(aboutDeliveryRow?.value, t("deliveryBody"));
 
-  // 6 emplacements photos — placeholders visuels jusqu'à ce que la cliente
-  // upload les vraies photos du showroom (à venir via un futur formulaire admin).
-  const photoSlots = Array.from({ length: 6 }, (_, i) => i);
+  // 6 emplacements photos : chaque slot affiche la vraie photo si la cliente
+  // en a chargé une dans Paramètres → Vitrine, sinon un placeholder visuel.
+  const aboutPhotos: (string | null)[] = [
+    aboutPhoto1Row?.value?.trim() || null,
+    aboutPhoto2Row?.value?.trim() || null,
+    aboutPhoto3Row?.value?.trim() || null,
+    aboutPhoto4Row?.value?.trim() || null,
+    aboutPhoto5Row?.value?.trim() || null,
+    aboutPhoto6Row?.value?.trim() || null,
+  ];
 
   return (
     <div className="min-h-screen bg-bg-primary relative">
@@ -124,20 +144,30 @@ export default async function AboutPage() {
             </p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-            {photoSlots.map((i) => (
+            {aboutPhotos.map((photo, i) => (
               <div
                 key={i}
-                className="aspect-[4/5] rounded-2xl bg-gradient-to-br from-bg-tertiary to-bg-secondary border border-border flex items-center justify-center"
+                className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gradient-to-br from-bg-tertiary to-bg-secondary border border-border"
               >
-                <div className="flex flex-col items-center gap-2 text-text-muted">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.3}
-                      d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                  </svg>
-                  <span className="text-[11px] uppercase tracking-[0.2em] font-body">
-                    {t("photoPlaceholder")}
-                  </span>
-                </div>
+                {photo ? (
+                  <Image
+                    src={photo}
+                    alt={t("photoAlt", { index: i + 1 })}
+                    fill
+                    sizes="(max-width: 768px) 50vw, 33vw"
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-muted">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.3}
+                        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                    </svg>
+                    <span className="text-[11px] uppercase tracking-[0.2em] font-body">
+                      {t("photoPlaceholder")}
+                    </span>
+                  </div>
+                )}
               </div>
             ))}
           </div>

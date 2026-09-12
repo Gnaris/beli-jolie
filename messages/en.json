@@ -1233,6 +1233,7 @@
     "photosTitle": "The showroom in pictures",
     "photosCaption": "Real photos from our showroom — updated regularly.",
     "photoPlaceholder": "Photo coming soon",
+    "photoAlt": "Showroom photo {index}",
     "ctaTitle": "Ready to explore the catalog?",
     "ctaBody": "Create your professional account in minutes and access wholesale pricing.",
     "ctaButton": "Create a professional account"

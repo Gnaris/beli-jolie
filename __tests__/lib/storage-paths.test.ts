@@ -24,6 +24,7 @@ import {
   invoiceDir,
   claimDir,
   bordereauDir,
+  aboutPhotoDir,
   renameProductFolder,
   substituteReferenceInPath,
   substituteReferenceInDestDir,
@@ -147,6 +148,12 @@ describe("lib/storage — path helpers", () => {
 
   it("bordereauDir uses client id", () => {
     expect(bordereauDir("client-42")).toBe("uploads/bordereaux/client-42");
+  });
+
+  it("aboutPhotoDir returns tenant-scoped uploads/a-propos", () => {
+    expect(aboutPhotoDir()).toBe("uploads/a-propos");
+    expect(aboutPhotoDir("beliandjolie")).toBe("uploads/beliandjolie/a-propos");
+    expect(aboutPhotoDir("issyma")).toBe("uploads/issyma/a-propos");
   });
 });
 

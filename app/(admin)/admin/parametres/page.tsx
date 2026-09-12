@@ -44,6 +44,7 @@ import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBa
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 import HomeHeroConfig from "@/components/admin/settings/HomeHeroConfig";
 import AboutPageConfig from "@/components/admin/settings/AboutPageConfig";
+import AboutPhotosConfig from "@/components/admin/settings/AboutPhotosConfig";
 import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
 import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
@@ -795,6 +796,12 @@ async function buildContenuTile(): Promise<DashboardTile> {
     aboutTeamRow,
     aboutNewnessRow,
     aboutDeliveryRow,
+    aboutPhoto1Row,
+    aboutPhoto2Row,
+    aboutPhoto3Row,
+    aboutPhoto4Row,
+    aboutPhoto5Row,
+    aboutPhoto6Row,
     shopName,
     siteUrl,
     tAbout,
@@ -820,10 +827,24 @@ async function buildContenuTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_1_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_2_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_3_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_4_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_5_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_6_url" } }),
     getCachedShopName(),
     getSiteUrl(),
     getTranslations("about"),
   ]);
+  const aboutPhotos: (string | null)[] = [
+    aboutPhoto1Row?.value ?? null,
+    aboutPhoto2Row?.value ?? null,
+    aboutPhoto3Row?.value ?? null,
+    aboutPhoto4Row?.value ?? null,
+    aboutPhoto5Row?.value ?? null,
+    aboutPhoto6Row?.value ?? null,
+  ];
 
   const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
   const activeCount = displayConfig.homepageCarousels.filter((c) => c.visible).length;
@@ -908,6 +929,18 @@ async function buildContenuTile(): Promise<DashboardTile> {
         </SettingCard>
 
         <SettingCard
+          icon={Ico.image}
+          title="Photos de la page « Qui sommes-nous »"
+          description="6 photos affichées en grille sur /a-propos. Format vertical recommandé (portrait 4:5)."
+          accent="dark"
+          status={aboutPhotos.some((p) => p)
+            ? { tone: "ok", label: `${aboutPhotos.filter(Boolean).length}/6` }
+            : { tone: "off", label: "Aucune" }}
+        >
+          <AboutPhotosConfig initialPhotos={aboutPhotos} />
+        </SettingCard>
+
+        <SettingCard
           icon={Ico.search}
           title="Textes pour Google"
           description="Baseline courte + paragraphes affichés en bas de la page d'accueil et de /produits — ils aident Google à mieux référencer le site."
@@ -926,7 +959,10 @@ async function buildContenuTile(): Promise<DashboardTile> {
           title="Aperçu Google"
           description="À quoi ressemblera votre site dans les résultats de recherche"
         >
-          <div className="rounded-2xl border border-border p-5 bg-bg-primary max-w-2xl">
+          <div
+            className="rounded-2xl p-5 max-w-2xl"
+            style={{ backgroundColor: "#ffffff", border: "1px solid #dadce0" }}
+          >
             <div className="flex items-center gap-2 mb-1">
               <div className="w-6 h-6 rounded-full bg-gradient-to-br from-zinc-800 to-black flex items-center justify-center">
                 <span className="font-heading text-white text-[10px] font-bold">

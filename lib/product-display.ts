@@ -216,6 +216,12 @@ type CarouselPrismaProduct = {
   }[];
 };
 
+// Exclut les produits dont toutes les couleurs actives sont a 0 (rupture totale).
+// Cohérent avec ProductCard.tsx qui affiche « Rupture » quand toutes visibleColors ont totalStock <= 0.
+const IN_STOCK_CLAUSE = {
+  colors: { some: { disabled: false, stock: { gt: 0 } } },
+} as const;
+
 export async function fetchCarouselProducts(
   carousel: HomepageCarousel,
   bestsellerRefs?: string[],
@@ -223,7 +229,7 @@ export async function fetchCarouselProducts(
   switch (carousel.type) {
     case "new":
       return prisma.product.findMany({
-        where: { status: "ONLINE" },
+        where: { status: "ONLINE", ...IN_STOCK_CLAUSE },
         orderBy: [
           { lastRefreshedAt: { sort: "desc", nulls: "last" } },
           { createdAt: "desc" },
@@ -233,16 +239,17 @@ export async function fetchCarouselProducts(
       });
 
     case "bestseller": {
+      // On elargit la fenetre de refs (quantity * 4) pour compenser ceux en rupture eliminés par le filtre.
       const refs = bestsellerRefs ?? (await prisma.orderItem.groupBy({
         by: ["productRef"],
         _sum: { quantity: true },
         orderBy: { _sum: { quantity: "desc" } },
-        take: carousel.quantity * 2,
+        take: carousel.quantity * 4,
       })).map(s => s.productRef);
 
       if (refs.length === 0) return [];
       const products = await prisma.product.findMany({
-        where: { reference: { in: refs }, status: "ONLINE" },
+        where: { reference: { in: refs }, status: "ONLINE", ...IN_STOCK_CLAUSE },
         select: CAROUSEL_SELECT,
       });
       const refOrder = new Map(refs.map((r, i) => [r, i]));
@@ -255,6 +262,7 @@ export async function fetchCarouselProducts(
         where: {
           status: "ONLINE",
           discountPercent: { gt: 0 },
+          ...IN_STOCK_CLAUSE,
         },
         orderBy: { updatedAt: "desc" },
         take: carousel.quantity,
@@ -263,7 +271,7 @@ export async function fetchCarouselProducts(
 
     case "category":
       return prisma.product.findMany({
-        where: { status: "ONLINE", categoryId: carousel.categoryId },
+        where: { status: "ONLINE", categoryId: carousel.categoryId, ...IN_STOCK_CLAUSE },
         orderBy: { createdAt: "desc" },
         take: carousel.quantity,
         select: CAROUSEL_SELECT,
@@ -274,6 +282,7 @@ export async function fetchCarouselProducts(
         where: {
           status: "ONLINE",
           subCategories: { some: { id: carousel.subCategoryId } },
+          ...IN_STOCK_CLAUSE,
         },
         orderBy: { createdAt: "desc" },
         take: carousel.quantity,
@@ -285,6 +294,7 @@ export async function fetchCarouselProducts(
         where: {
           status: "ONLINE",
           collections: { some: { collectionId: { in: carousel.collectionIds ?? [] } } },
+          ...IN_STOCK_CLAUSE,
         },
         take: carousel.quantity,
         select: CAROUSEL_SELECT,
@@ -295,6 +305,7 @@ export async function fetchCarouselProducts(
         where: {
           status: "ONLINE",
           tags: { some: { tagId: carousel.tagId } },
+          ...IN_STOCK_CLAUSE,
         },
         take: carousel.quantity,
         select: CAROUSEL_SELECT,
@@ -303,7 +314,7 @@ export async function fetchCarouselProducts(
     case "custom": {
       if (!carousel.productIds?.length) return [];
       const products = await prisma.product.findMany({
-        where: { id: { in: carousel.productIds }, status: "ONLINE" },
+        where: { id: { in: carousel.productIds }, status: "ONLINE", ...IN_STOCK_CLAUSE },
         select: CAROUSEL_SELECT,
       });
       // Preserve manual order

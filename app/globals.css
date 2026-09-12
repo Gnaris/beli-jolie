@@ -1660,34 +1660,51 @@ html.admin-dark .hover\:border-zinc-900:hover { border-color: #f4f4f5 !important
    Les gradients vifs (from-*-400/500/600/700 utilisés sur boutons,
    badges, initiales marketplaces) restent intacts car ils portent
    l'identité colorée du composant. */
+/* Note : pour les nuances -50, on ne peut pas utiliser [class*="from-X-50"]
+   car ce sélecteur match aussi `from-X-500` par substring — ce qui tuait
+   les gradients vifs 500 des boutons (bouton « Marketplaces » du bandeau
+   bulk sur /admin/produits, bouton « Publier brouillons », etc.).
+   → [class~="from-X-50"] fait un match mot-entier (standalone),
+     [class*="from-X-50/"] attrape la variante d'opacité `from-X-50/70`.
+   Les nuances -100 et -200 ne partagent aucun préfixe conflictuel,
+   on peut rester en [class*=…]. */
 html.admin-dark :is(
-  [class*="from-slate-50"],  [class*="from-slate-100"],  [class*="from-slate-200"],
-  [class*="from-zinc-50"],   [class*="from-zinc-100"],   [class*="from-zinc-200"],
-  [class*="from-neutral-50"],[class*="from-neutral-100"],
-  [class*="from-stone-50"],  [class*="from-stone-100"],
-  [class*="from-emerald-50"],[class*="from-emerald-100"],[class*="from-emerald-200"],
-  [class*="from-green-50"],  [class*="from-green-100"],
-  [class*="from-teal-50"],   [class*="from-teal-100"],
-  [class*="from-cyan-50"],   [class*="from-cyan-100"],
-  [class*="from-sky-50"],    [class*="from-sky-100"],    [class*="from-sky-200"],
-  [class*="from-blue-50"],   [class*="from-blue-100"],
-  [class*="from-indigo-50"], [class*="from-indigo-100"],
-  [class*="from-violet-50"], [class*="from-violet-100"], [class*="from-violet-200"],
-  [class*="from-purple-50"], [class*="from-purple-100"],
-  [class*="from-fuchsia-50"],[class*="from-fuchsia-100"],
-  [class*="from-pink-50"],   [class*="from-pink-100"],
-  [class*="from-rose-50"],   [class*="from-rose-100"],   [class*="from-rose-200"],
-  [class*="from-red-50"],    [class*="from-red-100"],
-  [class*="from-orange-50"], [class*="from-orange-100"],
-  [class*="from-amber-50"],  [class*="from-amber-100"],  [class*="from-amber-200"],
-  [class*="from-yellow-50"], [class*="from-yellow-100"],
-  [class*="from-lime-50"],   [class*="from-lime-100"]
+  [class~="from-slate-50"],  [class*="from-slate-50/"],  [class*="from-slate-100"],  [class*="from-slate-200"],
+  [class~="from-zinc-50"],   [class*="from-zinc-50/"],   [class*="from-zinc-100"],   [class*="from-zinc-200"],
+  [class~="from-neutral-50"],[class*="from-neutral-50/"],[class*="from-neutral-100"],
+  [class~="from-stone-50"],  [class*="from-stone-50/"],  [class*="from-stone-100"],
+  [class~="from-emerald-50"],[class*="from-emerald-50/"],[class*="from-emerald-100"],[class*="from-emerald-200"],
+  [class~="from-green-50"],  [class*="from-green-50/"],  [class*="from-green-100"],
+  [class~="from-teal-50"],   [class*="from-teal-50/"],   [class*="from-teal-100"],
+  [class~="from-cyan-50"],   [class*="from-cyan-50/"],   [class*="from-cyan-100"],
+  [class~="from-sky-50"],    [class*="from-sky-50/"],    [class*="from-sky-100"],    [class*="from-sky-200"],
+  [class~="from-blue-50"],   [class*="from-blue-50/"],   [class*="from-blue-100"],
+  [class~="from-indigo-50"], [class*="from-indigo-50/"], [class*="from-indigo-100"],
+  [class~="from-violet-50"], [class*="from-violet-50/"], [class*="from-violet-100"], [class*="from-violet-200"],
+  [class~="from-purple-50"], [class*="from-purple-50/"], [class*="from-purple-100"],
+  [class~="from-fuchsia-50"],[class*="from-fuchsia-50/"],[class*="from-fuchsia-100"],
+  [class~="from-pink-50"],   [class*="from-pink-50/"],   [class*="from-pink-100"],
+  [class~="from-rose-50"],   [class*="from-rose-50/"],   [class*="from-rose-100"],   [class*="from-rose-200"],
+  [class~="from-red-50"],    [class*="from-red-50/"],    [class*="from-red-100"],
+  [class~="from-orange-50"], [class*="from-orange-50/"], [class*="from-orange-100"],
+  [class~="from-amber-50"],  [class*="from-amber-50/"],  [class*="from-amber-100"],  [class*="from-amber-200"],
+  [class~="from-yellow-50"], [class*="from-yellow-50/"], [class*="from-yellow-100"],
+  [class~="from-lime-50"],   [class*="from-lime-50/"],   [class*="from-lime-100"]
 ):not([data-drawer-accent]):not(.admin-fab-preserve):not(.admin-fab-preserve *) {
   background-image: none !important;
 }
 
 /* Halos décoratifs blur-3xl → atténués */
 html.admin-dark .blur-3xl { opacity: 0.4; }
+
+/* Bouton « Marketplaces » de la barre bulk sur /admin/produits — état
+   disabled retravaillé en mode sombre pour rester lisible sur le fond
+   sombre de la barre (feedback cliente 2026-09-13). */
+html.admin-dark [data-bulk-mkt-btn="disabled"] {
+  background-color: #1e293b !important; /* slate-800 */
+  border-color: #475569 !important;     /* slate-600 */
+  color: #94a3b8 !important;            /* slate-400 */
+}
 
 /* ─── Champs (input/select/textarea) ─────────────────────────────────── */
 html.admin-dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),

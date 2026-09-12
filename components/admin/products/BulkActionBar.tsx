@@ -521,7 +521,7 @@ export default function BulkActionBar({
                   type="button"
                   onClick={onPublishDrafts}
                   disabled={isPending}
-                  className="shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50"
+                  className="shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm bg-indigo-500 bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50"
                   title="Vérifier si les brouillons sélectionnés peuvent être mis en ligne et les publier"
                 >
                   <svg className="w-[15px] h-[15px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>
@@ -546,10 +546,11 @@ export default function BulkActionBar({
                   setPlusOpen(false);
                 }}
                 disabled={isPending}
+                data-bulk-mkt-btn={hasAnyMarketplaceAction ? "active" : "disabled"}
                 className={`shrink-0 hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] text-[13px] font-medium whitespace-nowrap transition-all shadow-sm disabled:opacity-50 ${
                   hasAnyMarketplaceAction
-                    ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white hover:from-fuchsia-600 hover:to-violet-600"
-                    : "bg-slate-100 text-slate-500 cursor-not-allowed"
+                    ? "bg-fuchsia-700 text-white hover:bg-fuchsia-800"
+                    : "bg-slate-200 text-slate-500 border border-border-strong cursor-not-allowed"
                 }`}
                 aria-expanded={marketplacesOpen}
               >

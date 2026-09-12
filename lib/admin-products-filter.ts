@@ -81,59 +81,32 @@ export interface AdminProductsFilterParams {
   updatedTo?: string;
   stockBelow?: number | null;
   /**
-   * Filtre sur le lien Paris Fashion Shop — un produit est considéré « lié »
-   * seulement s'il est complètement lié (produit + toutes ses couleurs UNIT).
-   *   - "linked"   = `pfsProductId` renseigné ET aucune couleur UNIT sans `pfsVariantId`
-   *   - "unlinked" = `pfsProductId` vide OU au moins une couleur UNIT sans `pfsVariantId`
+   * Filtres « lien marketplace » — alignés sur le badge vert de la table admin,
+   * qui ne regarde que l'ID globale (produit) : un produit est « lié » dès que
+   * son identifiant marketplace est renseigné. Les couleurs partiellement liées
+   * (produit lié mais 1 variante UNIT sans `*VariantId`) sont signalées à part
+   * par le badge orange « Synchronisation nécessaire ».
+   *
+   * En mode `unlinked`, les produits verrouillés pour la marketplace concernée
+   * (`Product.*Enabled = false`) sont exclus des résultats : elles ne sont pas
+   * candidates à une publication (le verrou empêche tout push), inutile qu'elles
+   * polluent la liste des « à publier ».
+   *
+   * Colonnes utilisées :
+   *  - PFS         : `pfsProductId`             + `pfsEnabled`
+   *  - Ankorstore  : `ankorsProductId`          + `ankorsEnabled`
+   *  - eFashion    : `efashionReferenceBase`    + `efashionEnabled`
+   *  - Faire       : `faireProductId`           + `faireEnabled`
+   *  - Orderchamp  : `orderchampProductId`      + `orderchampEnabled`
+   *  - Microstore  : `microstoreLastPushedAt`   + `microstoreEnabled`
+   *    (Microstore n'a pas d'ID fiable — la CSV historique ne le renseignait
+   *    pas — donc le badge et le filtre utilisent le timestamp de dernier push.)
    */
   pfsLink?: string;
-  /**
-   * Filtre sur le lien Ankorstore — aligné sur le badge vert de la table admin
-   * qui ne regarde que `ankorsProductId`. Un produit est « lié » dès que la fiche
-   * globale a son `ankorsProductId` ; les couleurs partiellement liées sont
-   * signalées à part par le badge orange « Synchronisation nécessaire ».
-   *   - "linked"   = `ankorsProductId` renseigné
-   *   - "unlinked" = `ankorsProductId` vide
-   */
   ankorsLink?: string;
-  /**
-   * Filtre sur le lien eFashion Paris — eFashion ne synchronise que les variantes
-   * UNIT (1 ligne eFashion par couleur). Un produit est considéré « lié » seulement
-   * s'il a sa `efashionReferenceBase` ET que toutes ses couleurs UNIT portent leur
-   * `efashionProductId`.
-   *   - "linked"   = `efashionReferenceBase` renseigné ET aucune couleur UNIT sans `efashionProductId`
-   *   - "unlinked" = `efashionReferenceBase` vide OU au moins une couleur UNIT sans `efashionProductId`
-   */
   efashionLink?: string;
-  /**
-   * Filtre sur le lien Faire — Faire ne synchronise que les variantes UNIT
-   * (1 SKU Faire par couleur). Un produit est considéré « lié » seulement s'il
-   * a son `faireProductId` ET que toutes ses couleurs UNIT portent leur
-   * `faireVariantId`.
-   *   - "linked"   = `faireProductId` renseigné ET aucune couleur UNIT sans `faireVariantId`
-   *   - "unlinked" = `faireProductId` vide OU au moins une couleur UNIT sans `faireVariantId`
-   */
   faireLink?: string;
-  /**
-   * Filtre sur le lien Orderchamp — Orderchamp attend une variante par couleur
-   * UNIT (option1=Color + option2=Size). Un produit est considéré « lié »
-   * seulement s'il a son `orderchampProductId` ET que toutes ses couleurs
-   * UNIT portent leur `orderchampVariantId`.
-   *   - "linked"   = `orderchampProductId` renseigné ET aucune couleur UNIT sans `orderchampVariantId`
-   *   - "unlinked" = `orderchampProductId` vide OU au moins une couleur UNIT sans `orderchampVariantId`
-   */
   orderchampLink?: string;
-  /**
-   * Filtre sur le lien Microstore — Microstore reçoit une fiche + une variante
-   * par couleur (API `/goods/add` + `/goods/update`). Contrairement aux 5 autres
-   * marketplaces, l'identité côté site est portée par `microstoreLastPushedAt`
-   * (posé à chaque push) plutôt que par `microstoreProductId` seul, car ce
-   * dernier n'est renseigné qu'à partir du 1ᵉʳ succès de l'API native (les
-   * fiches poussées en CSV historique ne l'ont pas). Le badge vert de la table
-   * admin utilise la même règle : `microstoreLastPushedAt != null`.
-   *   - "linked"   = `microstoreLastPushedAt` renseigné
-   *   - "unlinked" = `microstoreLastPushedAt` vide
-   */
   microstoreLink?: string;
   /**
    * Filtre « Synchronisation marketplace nécessaire » : ne retient que les
@@ -383,88 +356,50 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     };
   }
 
+  // Filtres « lien marketplace » (voir docstring `pfsLink`) — alignés sur les
+  // badges verts (ID global uniquement, jamais la vérif des variantes UNIT) et
+  // en mode `unlinked` on retire les produits verrouillés (`*Enabled = false`)
+  // qui ne sont pas candidats à publication.
   if (params.pfsLink === "linked") {
     where.pfsProductId = { not: null };
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-    ];
   } else if (params.pfsLink === "unlinked") {
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      {
-        OR: [
-          { pfsProductId: null },
-          { colors: { some: { saleType: "UNIT", pfsVariantId: null } } },
-        ],
-      },
-    ];
+    where.pfsProductId = null;
+    where.pfsEnabled = true;
   }
 
   if (params.ankorsLink === "linked") {
     where.ankorsProductId = { not: null };
   } else if (params.ankorsLink === "unlinked") {
     where.ankorsProductId = null;
+    where.ankorsEnabled = true;
   }
 
   if (params.efashionLink === "linked") {
     where.efashionReferenceBase = { not: null };
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { NOT: { colors: { some: { saleType: "UNIT", efashionProductId: null } } } },
-    ];
   } else if (params.efashionLink === "unlinked") {
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      {
-        OR: [
-          { efashionReferenceBase: null },
-          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
-        ],
-      },
-    ];
+    where.efashionReferenceBase = null;
+    where.efashionEnabled = true;
   }
 
   if (params.faireLink === "linked") {
     where.faireProductId = { not: null };
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { NOT: { colors: { some: { saleType: "UNIT", faireVariantId: null } } } },
-    ];
   } else if (params.faireLink === "unlinked") {
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      {
-        OR: [
-          { faireProductId: null },
-          { colors: { some: { saleType: "UNIT", faireVariantId: null } } },
-        ],
-      },
-    ];
+    where.faireProductId = null;
+    where.faireEnabled = true;
   }
 
   if (params.orderchampLink === "linked") {
     where.orderchampProductId = { not: null };
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      { NOT: { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } } },
-    ];
   } else if (params.orderchampLink === "unlinked") {
-    where.AND = [
-      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
-      {
-        OR: [
-          { orderchampProductId: null },
-          { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } },
-        ],
-      },
-    ];
+    where.orderchampProductId = null;
+    where.orderchampEnabled = true;
   }
 
   if (params.microstoreLink === "linked") {
     where.microstoreLastPushedAt = { not: null };
   } else if (params.microstoreLink === "unlinked") {
     where.microstoreLastPushedAt = null;
+    where.microstoreEnabled = true;
   }
 
   if (params.syncRequired === "1") {

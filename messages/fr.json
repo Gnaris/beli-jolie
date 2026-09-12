@@ -1233,6 +1233,7 @@
     "photosTitle": "Le showroom en photos",
     "photosCaption": "Photos réelles du showroom — mises à jour régulièrement.",
     "photoPlaceholder": "Photo à venir",
+    "photoAlt": "Photo {index} du showroom",
     "ctaTitle": "Prêt à découvrir le catalogue ?",
     "ctaBody": "Créez votre compte professionnel en quelques minutes et accédez à nos tarifs grossiste.",
     "ctaButton": "Créer un compte professionnel"

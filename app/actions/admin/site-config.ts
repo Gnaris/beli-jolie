@@ -12,6 +12,7 @@ import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { setSiteConfig } from "@/lib/site-config-write";
+import { aboutPhotoKey } from "@/lib/about-photo";
 import type { MinOrderMode } from "@/lib/min-order";
 import { isMinOrderMode } from "@/lib/min-order";
 
@@ -280,6 +281,57 @@ export async function updateAboutPage(input: {
       }
     }
     await Promise.all(sections.map(([key, value]) => setSiteConfig(key, value)));
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour l'une des 6 photos de la page « À propos ».
+ *
+ * `imagePath = null` supprime le clé + purge le fichier large et sa version -md.
+ */
+export async function updateAboutPhoto(
+  slot: number,
+  imagePath: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    let key: string;
+    try {
+      key = aboutPhotoKey(slot);
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : "Emplacement invalide." };
+    }
+
+    const previousRow = await prisma.siteConfig.findFirst({
+      where: { key },
+      select: { value: true },
+    });
+    const previousPath = previousRow?.value ?? null;
+
+    if (imagePath) {
+      await setSiteConfig(key, imagePath);
+    } else {
+      await prisma.siteConfig.deleteMany({ where: { key } });
+    }
+
+    if (previousPath && previousPath !== imagePath) {
+      const mediumPath = previousPath.replace(/\.webp$/i, "-md.webp");
+      for (const dbPath of [previousPath, mediumPath]) {
+        try {
+          await deleteFile(keyFromDbPath(dbPath));
+        } catch (err) {
+          logger.warn("[updateAboutPhoto] Failed to delete old file", { path: dbPath, error: err });
+        }
+      }
+    }
+
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/", "layout");

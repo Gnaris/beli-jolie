@@ -28,30 +28,57 @@ const TENANT_SLUG_HEADER = "x-tenant-slug";
 const TENANT_NAME_HEADER = "x-tenant-name";
 
 export async function getCurrentTenantId(): Promise<string | null> {
-  const h = await headers();
-  const id = h.get(TENANT_ID_HEADER) ?? null;
-  // Propage dans l'ALS pour que l'extension Prisma puisse le lire, même dans
-  // les microtasks où next/headers throw ("headers was called outside a request scope").
-  if (id) bindTenantId(id);
-  return id;
+  try {
+    const h = await headers();
+    const id = h.get(TENANT_ID_HEADER) ?? null;
+    // Propage dans l'ALS pour que l'extension Prisma puisse le lire, même dans
+    // les microtasks où next/headers throw ("headers was called outside a request scope").
+    if (id) bindTenantId(id);
+    return id;
+  } catch {
+    // Fire-and-forget / worker / cron : pas de request scope, on retombe sur
+    // l'ALS peuplée par le wrapper `tenantALS.run(tid, ...)` du caller.
+    return getCurrentTenantIdSync();
+  }
 }
 
 export async function getCurrentTenantSlug(): Promise<string | null> {
-  const h = await headers();
-  const slug = h.get(TENANT_SLUG_HEADER) ?? null;
-  const id = h.get(TENANT_ID_HEADER);
-  if (id) bindTenantId(id);
-  return slug;
+  try {
+    const h = await headers();
+    const slug = h.get(TENANT_SLUG_HEADER) ?? null;
+    const id = h.get(TENANT_ID_HEADER);
+    if (id) bindTenantId(id);
+    return slug;
+  } catch {
+    const alsId = getCurrentTenantIdSync();
+    if (!alsId) return null;
+    const t = await prisma.tenant.findUnique({ where: { id: alsId }, select: { slug: true } });
+    return t?.slug ?? null;
+  }
 }
 
 export async function getCurrentTenant(): Promise<CurrentTenant | null> {
-  const h = await headers();
-  const id = h.get(TENANT_ID_HEADER);
-  const slug = h.get(TENANT_SLUG_HEADER);
-  const name = h.get(TENANT_NAME_HEADER);
-  if (!id || !slug || !name) return null;
-  bindTenantId(id);
-  return { id, slug, name };
+  try {
+    const h = await headers();
+    const id = h.get(TENANT_ID_HEADER);
+    const slug = h.get(TENANT_SLUG_HEADER);
+    const name = h.get(TENANT_NAME_HEADER);
+    if (!id || !slug || !name) return null;
+    bindTenantId(id);
+    return { id, slug, name };
+  } catch {
+    // Fire-and-forget : reconstitue le tenant complet depuis l'id ALS + BDD.
+    // Un lookup direct (pas de cache tenant-scopé — sinon récursion via
+    // l'extension Prisma qui rappellerait cette fonction).
+    const alsId = getCurrentTenantIdSync();
+    if (!alsId) return null;
+    const t = await prisma.tenant.findUnique({
+      where: { id: alsId },
+      select: { id: true, slug: true, name: true, isActive: true },
+    });
+    if (!t || !t.isActive) return null;
+    return { id: t.id, slug: t.slug, name: t.name };
+  }
 }
 
 /**

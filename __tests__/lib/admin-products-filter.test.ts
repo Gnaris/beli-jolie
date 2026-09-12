@@ -306,25 +306,27 @@ describe("buildAdminProductsWhere", () => {
     expect(where.id).toEqual({ in: ["p1", "p2"], notIn: ["p3"] });
   });
 
-  it("requires both product and all UNIT colors to be linked when pfsLink=linked", () => {
+  // Filtres « lien marketplace » : alignés sur le badge vert de la table admin.
+  //  - "linked"   = ID marketplace posé (peu importe l'état des couleurs UNIT).
+  //                 Les couleurs partiellement liées restent visibles via le
+  //                 badge orange « Synchro nécessaire » (filtre séparé).
+  //  - "unlinked" = ID marketplace vide ET produit non verrouillé pour la
+  //                 marketplace (`Product.*Enabled = true`) — la cliente ne
+  //                 veut pas voir les produits qu'elle a bloqués côté verrou
+  //                 dans la liste des « à publier ».
+
+  it("pfsLink=linked : pfsProductId non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked" });
     expect(where.pfsProductId).toEqual({ not: null });
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-    ]);
+    expect(where.pfsEnabled).toBeUndefined();
+    expect(where.AND).toBeUndefined();
   });
 
-  it("matches products that are unlinked OR have at least one unlinked UNIT color when pfsLink=unlinked", () => {
+  it("pfsLink=unlinked : pfsProductId null ET pfsEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ pfsLink: "unlinked" });
-    expect(where.pfsProductId).toBeUndefined();
-    expect(where.AND).toEqual([
-      {
-        OR: [
-          { pfsProductId: null },
-          { colors: { some: { saleType: "UNIT", pfsVariantId: null } } },
-        ],
-      },
-    ]);
+    expect(where.pfsProductId).toBeNull();
+    expect(where.pfsEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 
   it("ignores pfsLink when value is empty or unknown", () => {
@@ -332,15 +334,17 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ pfsLink: "lol" }).pfsProductId).toBeUndefined();
   });
 
-  it("filtre ankorsLink=linked : ankorsProductId non nul, aligné sur le badge vert", () => {
+  it("ankorsLink=linked : ankorsProductId non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ ankorsLink: "linked" });
     expect(where.ankorsProductId).toEqual({ not: null });
+    expect(where.ankorsEnabled).toBeUndefined();
     expect(where.AND).toBeUndefined();
   });
 
-  it("filtre ankorsLink=unlinked : ankorsProductId null uniquement (aligné sur le badge)", () => {
+  it("ankorsLink=unlinked : ankorsProductId null ET ankorsEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ ankorsLink: "unlinked" });
     expect(where.ankorsProductId).toBeNull();
+    expect(where.ankorsEnabled).toBe(true);
     expect(where.AND).toBeUndefined();
   });
 
@@ -353,30 +357,22 @@ describe("buildAdminProductsWhere", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked", ankorsLink: "unlinked" });
     expect(where.pfsProductId).toEqual({ not: null });
     expect(where.ankorsProductId).toBeNull();
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-    ]);
+    expect(where.ankorsEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 
-  it("requires reference base set and all UNIT colors linked when efashionLink=linked", () => {
+  it("efashionLink=linked : efashionReferenceBase non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ efashionLink: "linked" });
     expect(where.efashionReferenceBase).toEqual({ not: null });
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", efashionProductId: null } } } },
-    ]);
+    expect(where.efashionEnabled).toBeUndefined();
+    expect(where.AND).toBeUndefined();
   });
 
-  it("matches products without reference base OR with at least one unlinked UNIT color when efashionLink=unlinked", () => {
+  it("efashionLink=unlinked : efashionReferenceBase null ET efashionEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ efashionLink: "unlinked" });
-    expect(where.efashionReferenceBase).toBeUndefined();
-    expect(where.AND).toEqual([
-      {
-        OR: [
-          { efashionReferenceBase: null },
-          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
-        ],
-      },
-    ]);
+    expect(where.efashionReferenceBase).toBeNull();
+    expect(where.efashionEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 
   it("ignores efashionLink when value is empty or unknown", () => {
@@ -384,25 +380,18 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ efashionLink: "nope" }).efashionReferenceBase).toBeUndefined();
   });
 
-  it("requires both product and all UNIT colors to be linked when faireLink=linked", () => {
+  it("faireLink=linked : faireProductId non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ faireLink: "linked" });
     expect(where.faireProductId).toEqual({ not: null });
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", faireVariantId: null } } } },
-    ]);
+    expect(where.faireEnabled).toBeUndefined();
+    expect(where.AND).toBeUndefined();
   });
 
-  it("matches products without faireProductId OR with at least one unlinked UNIT color when faireLink=unlinked", () => {
+  it("faireLink=unlinked : faireProductId null ET faireEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ faireLink: "unlinked" });
-    expect(where.faireProductId).toBeUndefined();
-    expect(where.AND).toEqual([
-      {
-        OR: [
-          { faireProductId: null },
-          { colors: { some: { saleType: "UNIT", faireVariantId: null } } },
-        ],
-      },
-    ]);
+    expect(where.faireProductId).toBeNull();
+    expect(where.faireEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 
   it("ignores faireLink when value is empty or unknown", () => {
@@ -410,25 +399,18 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ faireLink: "nope" }).faireProductId).toBeUndefined();
   });
 
-  it("requires both product and all UNIT colors to be linked when orderchampLink=linked", () => {
+  it("orderchampLink=linked : orderchampProductId non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ orderchampLink: "linked" });
     expect(where.orderchampProductId).toEqual({ not: null });
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } } },
-    ]);
+    expect(where.orderchampEnabled).toBeUndefined();
+    expect(where.AND).toBeUndefined();
   });
 
-  it("matches products without orderchampProductId OR with at least one unlinked UNIT color when orderchampLink=unlinked", () => {
+  it("orderchampLink=unlinked : orderchampProductId null ET orderchampEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ orderchampLink: "unlinked" });
-    expect(where.orderchampProductId).toBeUndefined();
-    expect(where.AND).toEqual([
-      {
-        OR: [
-          { orderchampProductId: null },
-          { colors: { some: { saleType: "UNIT", orderchampVariantId: null } } },
-        ],
-      },
-    ]);
+    expect(where.orderchampProductId).toBeNull();
+    expect(where.orderchampEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 
   it("ignores orderchampLink when value is empty or unknown", () => {
@@ -436,18 +418,18 @@ describe("buildAdminProductsWhere", () => {
     expect(buildAdminProductsWhere({ orderchampLink: "nope" }).orderchampProductId).toBeUndefined();
   });
 
-  // Microstore : le lien est porté par `microstoreLastPushedAt` et non par
-  // `microstoreProductId` seul — les fiches poussées en CSV historique n'ont
-  // pas d'ID mais ont bien un timestamp de push. Miroir du badge vert de la
-  // table admin qui utilise la même règle.
-  it("filtre par lien Microstore : microstoreLink=linked → microstoreLastPushedAt non null", () => {
+  // Microstore : identité portée par `microstoreLastPushedAt` — le CSV historique
+  // ne posait pas d'ID mais bien un timestamp de push. Miroir du badge vert.
+  it("microstoreLink=linked : microstoreLastPushedAt non nul, aligné sur le badge vert", () => {
     const where = buildAdminProductsWhere({ microstoreLink: "linked" });
     expect(where.microstoreLastPushedAt).toEqual({ not: null });
+    expect(where.microstoreEnabled).toBeUndefined();
   });
 
-  it("filtre par lien Microstore : microstoreLink=unlinked → microstoreLastPushedAt null", () => {
+  it("microstoreLink=unlinked : microstoreLastPushedAt null ET microstoreEnabled=true (verrouillés exclus)", () => {
     const where = buildAdminProductsWhere({ microstoreLink: "unlinked" });
     expect(where.microstoreLastPushedAt).toBeNull();
+    expect(where.microstoreEnabled).toBe(true);
   });
 
   it("ignore microstoreLink quand la valeur est vide ou inconnue", () => {
@@ -479,7 +461,6 @@ describe("buildAdminProductsWhere", () => {
     const where = buildAdminProductsWhere({ pfsLink: "linked", syncRequired: "1" });
     expect(where.pfsProductId).toEqual({ not: null });
     expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
       {
         OR: [
           { pfsSyncRequired: true,      pfsProductId:          { not: null } },
@@ -662,7 +643,6 @@ describe("buildAdminProductsWhere", () => {
         now: NOW,
       });
       expect(where.AND).toEqual([
-        { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
         {
           OR: [
             { pfsSyncRequired: true,      pfsProductId:          { not: null } },
@@ -684,16 +664,9 @@ describe("buildAdminProductsWhere", () => {
     });
     expect(where.pfsProductId).toEqual({ not: null });
     expect(where.ankorsProductId).toEqual({ not: null });
-    expect(where.efashionReferenceBase).toBeUndefined();
-    expect(where.AND).toEqual([
-      { NOT: { colors: { some: { saleType: "UNIT", pfsVariantId: null } } } },
-      {
-        OR: [
-          { efashionReferenceBase: null },
-          { colors: { some: { saleType: "UNIT", efashionProductId: null } } },
-        ],
-      },
-    ]);
+    expect(where.efashionReferenceBase).toBeNull();
+    expect(where.efashionEnabled).toBe(true);
+    expect(where.AND).toBeUndefined();
   });
 });
 

@@ -231,7 +231,11 @@ async function fetchReassortProducts(userId: string, quantity: number) {
     .map(([ref]) => ref);
   if (refs.length === 0) return [];
   const products = await prisma.product.findMany({
-    where:  { reference: { in: refs }, status: "ONLINE" },
+    where:  {
+      reference: { in: refs },
+      status: "ONLINE",
+      colors: { some: { disabled: false, stock: { gt: 0 } } },
+    },
     select: PRODUCT_SELECT,
   });
   const map = new Map(products.map((p) => [p.reference, p]));
