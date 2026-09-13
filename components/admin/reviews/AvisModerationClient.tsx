@@ -104,7 +104,7 @@ function ReviewCard({ review }: { review: AdminReviewRow }) {
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectNote, setRejectNote] = useState(review.moderationNote ?? "");
   const { toast } = useToast();
-  const confirm = useConfirm();
+  const { confirm } = useConfirm();
   const style = STATUS_STYLE[review.status];
 
   function handleApprove() {
@@ -135,7 +135,7 @@ function ReviewCard({ review }: { review: AdminReviewRow }) {
       title: "Supprimer définitivement cet avis ?",
       message: "L'avis sera retiré de la base et le client pourra en poster un nouveau.",
       confirmLabel: "Supprimer",
-      variant: "danger",
+      type: "danger",
     });
     if (!ok) return;
     startTransition(async () => {

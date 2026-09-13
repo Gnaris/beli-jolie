@@ -47,7 +47,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
   const [text, setText] = useState<string>(initialReview?.text ?? "");
   const [pending, startTransition] = useTransition();
   const { toast } = useToast();
-  const confirm = useConfirm();
+  const { confirm } = useConfirm();
 
   const canEdit = review?.status === "PENDING";
   const isFrozen = review && review.status !== "PENDING";
@@ -93,7 +93,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
       title: "Supprimer votre avis ?",
       message: "Cette action est définitive.",
       confirmLabel: "Supprimer",
-      variant: "danger",
+      type: "danger",
     });
     if (!ok) return;
     startTransition(async () => {
