@@ -27,8 +27,8 @@ interface PageProps {
 
 const getProduct = cache(async (handle: string, locale: string) => {
   const categorySelect = locale === "fr"
-    ? { name: true }
-    : { name: true, translations: { where: { locale }, select: { name: true }, take: 1 } };
+    ? { name: true, slug: true }
+    : { name: true, slug: true, translations: { where: { locale }, select: { name: true }, take: 1 } };
   const parsed = parseProductHandle(handle);
   const where = parsed.legacyCuid
     ? { id: parsed.legacyCuid }
@@ -400,7 +400,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Produits", item: `${siteUrl}/produits` },
-      { "@type": "ListItem", position: 2, name: translatedCategoryName, item: `${siteUrl}/produits?cat=${product.categoryId}` },
+      { "@type": "ListItem", position: 2, name: translatedCategoryName, item: `${siteUrl}/${locale}/categories/${product.category.slug}` },
       { "@type": "ListItem", position: 3, name: translated.name },
     ],
   };
@@ -420,7 +420,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
                 {tProducts("breadcrumb")}
               </Link>
               <span className="text-border">/</span>
-              <Link href={`/produits?cat=${product.categoryId}`} className="hover:text-text-primary transition-colors">
+              <Link href={`/categories/${product.category.slug}`} className="hover:text-text-primary transition-colors">
                 {translatedCategoryName}
               </Link>
               <span className="text-border">/</span>

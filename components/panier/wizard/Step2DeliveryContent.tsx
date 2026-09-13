@@ -803,14 +803,17 @@ function PickupPanel({ pickupInfo }: { pickupInfo: WizardPickupInfo | null }) {
                   {t("pickupOpeningHours")}
                 </p>
                 <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  {schedule.map((d) => (
-                    <li key={d.day} className="flex justify-between gap-3">
-                      <span className="text-slate-500">{d.day}</span>
-                      <span className={`font-medium ${d.hours === "Fermé" ? "text-slate-400" : "text-slate-900"}`}>
-                        {d.hours}
-                      </span>
-                    </li>
-                  ))}
+                  {schedule.map((d) => {
+                    const isClosedRow = d.hours === "Fermé" || d.hours === "Closed";
+                    return (
+                      <li key={d.day} className="flex justify-between gap-3">
+                        <span className="text-slate-500">{d.day}</span>
+                        <span className={`font-medium ${isClosedRow ? "text-slate-400" : "text-slate-900"}`}>
+                          {d.hours}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}

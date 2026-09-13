@@ -4,8 +4,10 @@ import { getServerSession } from "next-auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { autoTranslateCategory, autoTranslateSubCategory } from "@/lib/auto-translate";
-import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { translateText } from "@/lib/translate";
+import { NON_DEFAULT_LOCALES, type Locale } from "@/i18n/locales";
 import {
   buildMappingImpactSummary,
   type MappingChangeSummary,
@@ -546,6 +548,182 @@ export async function updateSubCategory(id: string, formData: FormData) {
 
   revalidatePath("/admin/produits");
   revalidateTag("categories", "default");
+}
+
+// ─────────────────────────────────────────────
+// SEO éditorial page publique /categories/[slug]
+// ─────────────────────────────────────────────
+
+export interface CategorySeoFaqItem {
+  q: string;
+  a: string;
+}
+
+export interface CategorySeoPayload {
+  seoTitle: string | null;
+  seoIntro: string | null;
+  seoSecondary: string | null;
+  seoFaq: CategorySeoFaqItem[];
+}
+
+function normalizePayload(input: CategorySeoPayload): CategorySeoPayload {
+  const cleanFaq: CategorySeoFaqItem[] = [];
+  for (const raw of input.seoFaq ?? []) {
+    const q = String(raw?.q ?? "").trim();
+    const a = String(raw?.a ?? "").trim();
+    if (q && a) cleanFaq.push({ q, a });
+  }
+  return {
+    seoTitle: input.seoTitle?.trim() || null,
+    seoIntro: input.seoIntro?.trim() || null,
+    seoSecondary: input.seoSecondary?.trim() || null,
+    seoFaq: cleanFaq,
+  };
+}
+
+function toFaqValue(faq: CategorySeoFaqItem[]): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+  // Prisma exige `Prisma.JsonNull` (pas `null` JS) pour vider un Json?. Le
+  // tableau passe par un cast car les interfaces avec propriétés typées ne
+  // sont pas directement assignables à `InputJsonArray` (typage strict Prisma).
+  return faq.length > 0
+    ? (faq as unknown as Prisma.InputJsonValue)
+    : Prisma.JsonNull;
+}
+
+/**
+ * Met à jour le contenu SEO éditorial d'une catégorie (FR) et régénère
+ * automatiquement la version anglaise via l'API PFS de traduction. La page
+ * anglaise n'est pas configurable manuellement — elle suit toujours la FR.
+ *
+ * Renvoie un flag `translated: false` si l'API PFS a échoué (le FR est bien
+ * sauvegardé, l'EN sera juste absent de CategoryTranslation → fallback
+ * public sur la trame par défaut EN).
+ */
+export async function updateCategorySeo(
+  categoryId: string,
+  payload: CategorySeoPayload,
+): Promise<
+  | { success: true; translated: boolean }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+  const clean = normalizePayload(payload);
+
+  const category = await prisma.category.findFirst({
+    where: { id: categoryId },
+    select: { id: true, name: true },
+  });
+  if (!category) return { success: false, error: "Catégorie introuvable." };
+
+  // 1) Sauvegarde FR sur Category.
+  await prisma.category.update({
+    where: { id: categoryId },
+    data: {
+      seoTitle: clean.seoTitle,
+      seoIntro: clean.seoIntro,
+      seoSecondary: clean.seoSecondary,
+      seoFaq: toFaqValue(clean.seoFaq),
+    },
+  });
+
+  // 2) Auto-traduction FR → EN via l'API PFS et sauvegarde dans
+  //    CategoryTranslation. En cas d'échec API (rate-limit, réseau…), on
+  //    retourne success:true / translated:false — la page publique EN
+  //    retombera sur la trame par défaut anglaise.
+  let translated = false;
+  try {
+    const [seoTitleEn, seoIntroEn, seoSecondaryEn] = await Promise.all([
+      clean.seoTitle ? translateText(clean.seoTitle, "fr" as Locale, "en" as Locale) : Promise.resolve(null),
+      clean.seoIntro ? translateText(clean.seoIntro, "fr" as Locale, "en" as Locale) : Promise.resolve(null),
+      clean.seoSecondary ? translateText(clean.seoSecondary, "fr" as Locale, "en" as Locale) : Promise.resolve(null),
+    ]);
+
+    const seoFaqEn: CategorySeoFaqItem[] = [];
+    for (const item of clean.seoFaq) {
+      const [q, a] = await Promise.all([
+        translateText(item.q, "fr" as Locale, "en" as Locale),
+        translateText(item.a, "fr" as Locale, "en" as Locale),
+      ]);
+      seoFaqEn.push({ q, a });
+    }
+
+    const existing = await prisma.categoryTranslation.findFirst({
+      where: { categoryId, locale: "en" },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.categoryTranslation.update({
+        where: { id: existing.id },
+        data: {
+          seoTitle: seoTitleEn,
+          seoIntro: seoIntroEn,
+          seoSecondary: seoSecondaryEn,
+          seoFaq: toFaqValue(seoFaqEn),
+        },
+      });
+    } else {
+      await prisma.categoryTranslation.create({
+        data: {
+          categoryId,
+          locale: "en",
+          name: category.name,
+          seoTitle: seoTitleEn,
+          seoIntro: seoIntroEn,
+          seoSecondary: seoSecondaryEn,
+          seoFaq: toFaqValue(seoFaqEn),
+        },
+      });
+    }
+    translated = true;
+  } catch {
+    // Silencieux : la sauvegarde FR est déjà persistée.
+  }
+
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  return { success: true, translated };
+}
+
+/**
+ * Charge le contenu SEO FR actuellement enregistré pour une catégorie —
+ * utilisé par le drawer admin pour pré-remplir les champs. L'anglais n'est
+ * pas remonté : il est auto-généré à chaque sauvegarde et non éditable
+ * manuellement (cf. `updateCategorySeo`).
+ */
+export async function getCategorySeo(categoryId: string): Promise<
+  | { success: true; data: CategorySeoPayload }
+  | { success: false; error: string }
+> {
+  await requireAdmin();
+  const category = await prisma.category.findFirst({
+    where: { id: categoryId },
+    select: {
+      seoTitle: true,
+      seoIntro: true,
+      seoSecondary: true,
+      seoFaq: true,
+    },
+  });
+  if (!category) return { success: false, error: "Catégorie introuvable." };
+
+  const faq: CategorySeoFaqItem[] = [];
+  if (Array.isArray(category.seoFaq)) {
+    for (const entry of category.seoFaq) {
+      const q = String((entry as { q?: unknown })?.q ?? "").trim();
+      const a = String((entry as { a?: unknown })?.a ?? "").trim();
+      if (q && a) faq.push({ q, a });
+    }
+  }
+
+  return {
+    success: true,
+    data: {
+      seoTitle: category.seoTitle,
+      seoIntro: category.seoIntro,
+      seoSecondary: category.seoSecondary,
+      seoFaq: faq,
+    },
+  };
 }
 
 /** Reorder categories by providing an ordered array of ids */

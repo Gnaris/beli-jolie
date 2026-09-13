@@ -56,6 +56,8 @@ interface Props {
   viewMoreLabel?: string;
   variant?: "white" | "gray";
   size?: "premium" | "standard";
+  /** "carousel" = scroll horizontal (défaut) · "grid" = grille 4×2 responsive. */
+  layout?: "carousel" | "grid";
   clientDiscount?: ClientDiscountInfo | null;
   showPromoBadge?: boolean;
   favoriteIds?: string[];
@@ -69,6 +71,7 @@ export default function ProductCarousel({
   viewMoreLabel = "Voir plus",
   variant = "white",
   size = "standard",
+  layout = "carousel",
   clientDiscount,
   favoriteIds,
 }: Props) {
@@ -118,52 +121,86 @@ export default function ProductCarousel({
           </Link>
         </div>
 
-        <div className="relative">
-          <button
-            onClick={() => scroll("left")}
-            className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-gold hover:text-bg-darker transition-colors absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 shadow-md"
-            aria-label={tCommon("previous")}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
-
-          <button
-            onClick={() => scroll("right")}
-            className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-gold hover:text-bg-darker transition-colors absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-10 shadow-md"
-            aria-label={tCommon("next")}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-
-          <div
-            ref={scrollRef}
-            className="flex items-stretch gap-5 overflow-x-auto px-4 pb-10 scroll-smooth no-scrollbar snap-x snap-mandatory scroll-pl-4"
-          >
+        {layout === "grid" ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6">
             {products.map((p) => (
-              <div key={p.id} className={`snap-start h-full shrink-0 ${cardWidth}`}>
-                <ProductCard
-                  id={p.id}
-                  name={p.name}
-                  reference={p.reference}
-                  category={p.category}
-                  subCategory={p.subCategory}
-                  colors={p.colors}
-                  tags={p.tags}
-                  isBestSeller={p.isBestSeller}
-                  isNew={p.isNew}
-                  discountPercent={p.discountPercent}
-                  hasAutoPromotion={p.hasAutoPromotion ?? false}
-                  clientDiscount={clientDiscount}
-                  isFavorite={favSet?.has(p.id) ?? false}
-                  hideStatusBadges
-                />
-              </div>
+              <ProductCard
+                key={p.id}
+                id={p.id}
+                name={p.name}
+                reference={p.reference}
+                category={p.category}
+                subCategory={p.subCategory}
+                colors={p.colors}
+                tags={p.tags}
+                isBestSeller={p.isBestSeller}
+                isNew={p.isNew}
+                discountPercent={p.discountPercent}
+                hasAutoPromotion={p.hasAutoPromotion ?? false}
+                clientDiscount={clientDiscount}
+                isFavorite={favSet?.has(p.id) ?? false}
+                hideStatusBadges
+              />
             ))}
           </div>
+        ) : (
+          <div className="relative">
+            <button
+              onClick={() => scroll("left")}
+              className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-white hover:text-bg-darker transition-colors absolute left-0 top-[35%] -translate-y-1/2 -translate-x-1/2 z-10 shadow-md"
+              aria-label={tCommon("previous")}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+
+            <button
+              onClick={() => scroll("right")}
+              className="hidden sm:flex items-center justify-center rounded-full w-9 h-9 bg-bg-darker text-white hover:bg-white hover:text-bg-darker transition-colors absolute right-0 top-[35%] -translate-y-1/2 translate-x-1/2 z-10 shadow-md"
+              aria-label={tCommon("next")}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+
+            <div
+              ref={scrollRef}
+              className="flex items-stretch gap-5 overflow-x-auto px-4 pb-10 scroll-smooth no-scrollbar snap-x snap-mandatory scroll-pl-4"
+            >
+              {products.map((p) => (
+                <div key={p.id} className={`snap-start h-full shrink-0 ${cardWidth}`}>
+                  <ProductCard
+                    id={p.id}
+                    name={p.name}
+                    reference={p.reference}
+                    category={p.category}
+                    subCategory={p.subCategory}
+                    colors={p.colors}
+                    tags={p.tags}
+                    isBestSeller={p.isBestSeller}
+                    isNew={p.isNew}
+                    discountPercent={p.discountPercent}
+                    hasAutoPromotion={p.hasAutoPromotion ?? false}
+                    clientDiscount={clientDiscount}
+                    isFavorite={favSet?.has(p.id) ?? false}
+                    hideStatusBadges
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* CTA mobile centré */}
+        <div className="mt-8 flex sm:hidden justify-center">
+          <Link
+            href={viewMoreHref}
+            className="inline-flex items-center gap-2 text-sm font-heading font-medium text-text-primary border-b border-text-primary pb-1 hover:gap-3 transition-all"
+          >
+            {viewMoreLabel} <span aria-hidden>→</span>
+          </Link>
         </div>
       </div>
     </section>

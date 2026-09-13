@@ -83,6 +83,7 @@ export default async function EditCollectionPage({ params }: Props) {
     JSON.stringify(
       {
         id: collection.id,
+        slug: collection.slug,
         name: collection.name,
         image: collection.image,
         translations: translationsMap,

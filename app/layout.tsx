@@ -129,12 +129,24 @@ export default async function RootLayout({
     address: seoConfig.address,
   });
 
-  let announcement: { messages: string[]; bgColor: string; textColor: string; speed?: number } | null = null;
+  let announcement: {
+    messages: string[];
+    bgColor: string;
+    textColor: string;
+    speed?: number;
+    mode?: "scroll" | "static";
+  } | null = null;
   if (announcementRow?.value) {
     try {
       const parsed = JSON.parse(announcementRow.value);
       if (parsed.messages?.length > 0) {
-        announcement = parsed;
+        announcement = {
+          messages: parsed.messages,
+          bgColor: parsed.bgColor,
+          textColor: parsed.textColor,
+          speed: parsed.speed,
+          mode: parsed.mode === "static" ? "static" : "scroll",
+        };
       }
     } catch { /* ignore invalid JSON */ }
   }
@@ -163,6 +175,7 @@ export default async function RootLayout({
             bgColor={announcement.bgColor}
             textColor={announcement.textColor}
             speed={announcement.speed}
+            mode={announcement.mode}
           />
         )}
         <NextIntlClientProvider messages={messages}>

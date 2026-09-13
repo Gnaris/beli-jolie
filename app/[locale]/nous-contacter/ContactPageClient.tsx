@@ -277,14 +277,17 @@ export default function ContactPageClient({
             </h2>
           </div>
           <div className="space-y-2">
-            {schedule.map((s) => (
-              <div key={s.day} className="flex items-center justify-between text-sm font-body">
-                <span className="text-text-secondary">{s.day}</span>
-                <span className={s.hours === "Fermé" ? "text-text-muted" : "text-text-primary font-medium"}>
-                  {s.hours}
-                </span>
-              </div>
-            ))}
+            {schedule.map((s) => {
+              const isClosedRow = s.hours === "Fermé" || s.hours === "Closed";
+              return (
+                <div key={s.day} className="flex items-center justify-between text-sm font-body">
+                  <span className="text-text-secondary">{s.day}</span>
+                  <span className={isClosedRow ? "text-text-muted" : "text-text-primary font-medium"}>
+                    {s.hours}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 

@@ -69,6 +69,7 @@ interface RuleData {
 
 interface CollectionData {
   id: string;
+  slug: string | null;
   name: string;
   image: string | null;
   translations: Record<string, string>;
@@ -420,7 +421,7 @@ export default function CollectionEditor({ collection, categories, filterOptions
           <div className="flex items-center gap-2 shrink-0">
             {/* View on site */}
             <a
-              href={`/collections/${collection.id}`}
+              href={`/collections/${collection.slug ?? collection.id}`}
               target="_blank"
               rel="noopener noreferrer"
               title="Voir la collection en vitrine"

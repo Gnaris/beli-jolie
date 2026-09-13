@@ -123,6 +123,8 @@ model User {
   microstoreOrders           MicrostoreOrder[]
   emailSends                 EmailSend[]
   abandonedCartJob           AbandonedCartJob?
+  customerReview             CustomerReview?                  @relation("CustomerReviewAuthor")
+  customerReviewsModerated   CustomerReview[]                 @relation("CustomerReviewModerator")
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -1124,6 +1126,12 @@ model Category {
   // → monogramme (première lettre majuscule) affiché en fallback.
   image                      String?
   position                   Int                   @default(0)
+  // Contenu éditable de la page publique `/fr/categories/[slug]`. Tous facultatifs :
+  // si vide, une trame par défaut est générée à partir du nom de la catégorie.
+  seoTitle                   String?               @db.VarChar(255) // H1 + <title> (ex : "Grossiste blouses femme")
+  seoIntro                   String?               @db.Text          // Paragraphe d'intro (positionnement, minimum, livraison)
+  seoSecondary               String?               @db.Text          // Paragraphe secondaire (fabricants, tailles, saisons)
+  seoFaq                     Json?                 // Tableau [{ q: string, a: string }, …]
   subCategories              SubCategory[]
   products                   Product[]
   translations               CategoryTranslation[]
@@ -1140,12 +1148,18 @@ model Category {
 }
 
 model CategoryTranslation {
-  id         String   @id @default(cuid())
-  categoryId String
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  locale     String
-  name       String
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  categoryId   String
+  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  locale       String
+  name         String
+  // Traductions des champs SEO de la page publique. Facultatif : si vide,
+  // fallback trame par défaut (générée dans la locale demandée).
+  seoTitle     String?  @db.VarChar(255)
+  seoIntro     String?  @db.Text
+  seoSecondary String?  @db.Text
+  seoFaq       Json?
+  createdAt    DateTime @default(now())
 
   @@unique([categoryId, locale])
 }
@@ -1937,6 +1951,12 @@ model ProductTranslation {
   locale      String // "en" | "ar"
   name        String
   description String   @db.Text
+  // Flag posé quand la cliente a saisi elle-même le nom OU la description dans
+  // l'admin (onglet EN de la ProductForm). L'auto-traduction PFS ne doit plus
+  // écraser cette entrée : le mot-à-mot était trop souvent bancal (ex. « Robe
+  // sans manches » traduite « Dress without sleeves » au lieu de « Sleeveless
+  // dress »).
+  manualEdit  Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -2269,6 +2289,14 @@ enum OrderStatus {
   CANCELLED // Annulée
 }
 
+// Avis clients homepage : PENDING → APPROVED/REJECTED via modération admin.
+// APPROVED = affiché sur la home. REJECTED = invisible, motif dans moderationNote.
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum OrderModificationReason {
   OUT_OF_STOCK // Rupture de stock
   CLIENT_REQUEST // À la demande du client
@@ -2563,6 +2591,10 @@ model OrderItemModification {
 model Collection {
   id           String                  @id @default(cuid())
   name         String
+  // Slug URL-friendly dérivé du nom (ex : "eclat-automne-2026"). Sert d'URL
+  // publique `/collections/[slug]` — plus lisible que le cuid pour SEO et
+  // partage. Nullable pendant migration progressive puis backfillé.
+  slug         String?
   image        String? // Chemin relatif depuis /public
   products     CollectionProduct[]
   translations CollectionTranslation[]
@@ -2576,6 +2608,7 @@ model Collection {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, slug])
   @@index([tenantId])
 }
 
@@ -3551,8 +3584,42 @@ model Tenant {
   abandonedCartStages AbandonedCartStage[]
   abandonedCartJobs   AbandonedCartJob[]
   bulkMailJobs        BulkMailJob[]
+  customerReviews     CustomerReview[]
 
   @@index([isActive])
+}
+
+// ─────────────────────────────────────────────
+// CustomerReview — avis clients affichés sur la homepage.
+// 1 seul avis par client (userId @unique) — note 1-5 + paragraphe libre.
+// Nouveau brouillon = PENDING (invisible). Admin approuve → APPROVED
+// (publié) ou rejette → REJECTED (invisible, motif dans moderationNote).
+// Un mail pro (SiteConfig[smtp_from_email]) est envoyé à l'admin dès qu'un
+// nouvel avis PENDING est déposé.
+// Éligibilité côté serveur : le client doit avoir ≥ 1 Order avec status
+// SHIPPED dans le tenant courant (vérif dans `assertCanSubmitReview`).
+// ─────────────────────────────────────────────
+model CustomerReview {
+  id             String       @id @default(cuid())
+  // 1 seul avis par client. Un User appartient à 1 seul tenant (@@unique(tenantId, email))
+  // donc @unique sur userId est équivalent à @@unique([tenantId, userId]).
+  userId         String       @unique
+  user           User         @relation("CustomerReviewAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  rating         Int // 1..5 (validation applicative — pas de check contrainte MySQL)
+  text           String       @db.Text // paragraphe libre (max 1200 char côté validation applicative)
+  status         ReviewStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  moderatedAt    DateTime?
+  moderatedById  String?
+  moderatedBy    User?        @relation("CustomerReviewModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  moderationNote String? // Motif interne visible admin uniquement (ex : "hors sujet", "propos inappropriés")
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, status, createdAt])
+  @@index([moderatedById])
 }
 
 // ─────────────────────────────────────────────

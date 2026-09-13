@@ -1,11 +1,12 @@
 import { Suspense } from "react";
+import { permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import { getTranslations, getLocale } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions } from "@/lib/cached-data";
+import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions, getCachedProductCount } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
@@ -195,6 +196,24 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const exactRef    = exactRefParam === "1";
 
+  // Redirection SEO : ancien lien /produits?cat=X (sans autre filtre) →
+  // /categories/{slug}. Préserve le référencement Google acquis sur les
+  // anciennes URLs pendant que les liens internes migrent vers la nouvelle
+  // page catégorie. Ne redirige que si `cat` est le SEUL filtre : combiné
+  // à un color/composition/etc., on garde le filtre catalogue.
+  const onlyCatFilter =
+    !!cat &&
+    !q && !subcat && !collection && colorIds.length === 0 && !tagId && !compositionId &&
+    !bestseller_ && !isNew_ && !promo_ && !ordered_ && !notOrdered_ && !hideOos_ &&
+    minPrice === null && maxPrice === null && !exactRef;
+  if (onlyCatFilter) {
+    const target = await prisma.category.findFirst({
+      where: { id: cat },
+      select: { slug: true },
+    });
+    if (target?.slug) permanentRedirect(`/${locale}/categories/${target.slug}`);
+  }
+
   const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
   // ─── Fetch filter options + site config (cached — revalidate every hour) ───
@@ -309,6 +328,10 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       ...(ordered_ && userOrderedRefs.length === 0 && { id: "___none___" }), // no results if never ordered anything
     };
 
+    // Compteur : sans filtre on partage le cache "product-count" pour rester
+    // aligné avec le hero et la page inscription (sinon les 3 pages affichent
+    // des nombres qui divergent selon la fraîcheur de leur cache respectif).
+    // Avec filtres, on re-compte à chaque requête (résultat filtré uniquement).
     const [rawProducts, count] = await Promise.all([
       prisma.product.findMany({
         where,
@@ -318,7 +341,9 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         take: PER_PAGE,
         include: productInclude,
       }),
-      prisma.product.count({ where }),
+      hasFilters
+        ? prisma.product.count({ where })
+        : getCachedProductCount(),
     ]);
 
     const imageMap = await fetchImages(rawProducts.map(p => p.id));

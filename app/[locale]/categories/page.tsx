@@ -30,6 +30,7 @@ export default async function CategoriesPage() {
     orderBy: [{ position: "asc" }, { name: "asc" }],
     select: {
       id: true,
+      slug: true,
       name: true,
       image: true,
       subCategories: {
@@ -45,6 +46,7 @@ export default async function CategoriesPage() {
     .filter((c) => c._count.products > 0)
     .map((c) => ({
       id: c.id,
+      slug: c.slug,
       name: c.name,
       image: c.image,
       productCount: c._count.products,

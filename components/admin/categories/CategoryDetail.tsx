@@ -16,6 +16,7 @@ type Sub = {
 };
 export type CategoryDetailData = {
   id: string;
+  slug: string;
   name: string;
   image: string | null;
   translations: Record<string, string>;
@@ -42,6 +43,7 @@ type Props = {
   onSubMicrostore: (sub: Sub) => void;
   onEditMapping: (mp: "pfs" | "efashion" | "faire" | "orderchamp" | "microstore") => void;
   onImageChange: (nextImage: string | null) => void;
+  onEditSeo: () => void;
 };
 
 export default function CategoryDetail({
@@ -57,6 +59,7 @@ export default function CategoryDetail({
   onSubMicrostore,
   onEditMapping,
   onImageChange,
+  onEditSeo,
 }: Props) {
   return (
     <div className="flex flex-col gap-3 md:gap-4 p-3 md:p-7 bg-bg-primary overflow-y-auto md:h-full">
@@ -170,6 +173,40 @@ export default function CategoryDetail({
           onOrderchamp={onSubOrderchamp}
           onMicrostore={onSubMicrostore}
         />
+      </section>
+
+      {/* Page publique — SEO */}
+      <section className="bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)]">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary">
+              Page publique — SEO
+            </h3>
+            <p className="text-[12px] text-text-muted mt-1">
+              Personnalisez le titre H1, l'intro, le paragraphe secondaire et la FAQ affichés sur <code className="px-1 py-0.5 rounded bg-bg-secondary text-[11px]">/fr/categories/{category.slug}</code>.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={onEditSeo}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-border bg-bg-primary text-text-secondary hover:text-text-primary hover:border-border-dark text-[13px] font-semibold"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Personnaliser le SEO
+          </button>
+          <a
+            href={`/fr/categories/${category.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-text-secondary hover:text-text-primary text-[13px] font-semibold"
+          >
+            Voir la page <span aria-hidden>↗</span>
+          </a>
+        </div>
       </section>
 
       {/* Marketplaces */}

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { clearAutoMaintenance } from "@/lib/health";
 import type { ProductDisplayConfig } from "@/lib/product-display";
 import { parseDisplayConfig } from "@/lib/product-display-shared";
-import type { DisplaySection, HomepageCarousel } from "@/lib/product-display-shared";
+import type { DisplaySection } from "@/lib/product-display-shared";
 import { encryptIfSensitive } from "@/lib/encryption";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
@@ -232,6 +232,110 @@ export async function updateHomeHero(input: {
       setSiteConfig("home_hero_cta_secondary_label", ctaSecondaryLabel),
       setSiteConfig("home_hero_cta_secondary_href", ctaSecondaryHref),
     ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+export type HeroOverlayType = "solid" | "linear" | "radial";
+export type HeroOverlayDirection = "left" | "right" | "top" | "bottom" | "diagonal";
+
+/**
+ * Voile posé sur la bannière d'accueil pour garder le texte lisible par-dessus
+ * l'image. Clés SiteConfig (tenant-scopé) :
+ *   home_hero_overlay_type       — "solid" | "linear" | "radial"
+ *   home_hero_overlay_direction  — utile seulement en "linear"
+ *   home_hero_overlay_color      — hex 6 chiffres (#0F0F0F par défaut)
+ *   home_hero_overlay_opacity    — 0..100
+ */
+export async function updateHeroOverlay(input: {
+  type: HeroOverlayType;
+  direction: HeroOverlayDirection;
+  color: string;
+  opacity: number;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!["solid", "linear", "radial"].includes(input.type)) {
+      return { success: false, error: "Type de voile invalide." };
+    }
+    if (!["left", "right", "top", "bottom", "diagonal"].includes(input.direction)) {
+      return { success: false, error: "Direction de dégradé invalide." };
+    }
+    const color = input.color.trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+      return { success: false, error: "La couleur doit être un code hex à 6 chiffres (ex. #0F0F0F)." };
+    }
+    const opacity = Math.round(Number(input.opacity));
+    if (!Number.isFinite(opacity) || opacity < 0 || opacity > 100) {
+      return { success: false, error: "L'intensité doit être un pourcentage entre 0 et 100." };
+    }
+    await Promise.all([
+      setSiteConfig("home_hero_overlay_type", input.type),
+      setSiteConfig("home_hero_overlay_direction", input.direction),
+      setSiteConfig("home_hero_overlay_color", color.toLowerCase()),
+      setSiteConfig("home_hero_overlay_opacity", String(opacity)),
+    ]);
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour la liste des questions FAQ affichées en bas de la page d'accueil.
+ *
+ * Stocké en JSON sérialisé dans `home_faq` (SiteConfig, tenant-scopé).
+ * Liste vide = section « Questions fréquentes » masquée sur la homepage.
+ * Max 8 items (au-delà, la section devient trop verbeuse et Google réduit
+ * la valeur SEO d'une FAQPage trop longue).
+ */
+export async function updateHomeFaq(input: {
+  items: Array<{
+    question: string;
+    answer: string;
+  }>;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const QUESTION_MAX = 200;
+    const ANSWER_MAX = 800;
+    const MAX_ITEMS = 8;
+
+    if (!Array.isArray(input.items)) {
+      return { success: false, error: "Format des questions invalide." };
+    }
+    if (input.items.length > MAX_ITEMS) {
+      return { success: false, error: `Vous ne pouvez pas dépasser ${MAX_ITEMS} questions.` };
+    }
+
+    const cleaned: Array<{ id: string; question: string; answer: string }> = [];
+    for (const [i, it] of input.items.entries()) {
+      const question = String(it?.question ?? "").trim();
+      const answer = String(it?.answer ?? "").trim();
+      if (!question) {
+        return { success: false, error: `Question n°${i + 1} : le libellé est obligatoire.` };
+      }
+      if (!answer) {
+        return { success: false, error: `Question n°${i + 1} : la réponse est obligatoire.` };
+      }
+      if (question.length > QUESTION_MAX) {
+        return { success: false, error: `Question n°${i + 1} : la question ne doit pas dépasser ${QUESTION_MAX} caractères.` };
+      }
+      if (answer.length > ANSWER_MAX) {
+        return { success: false, error: `Question n°${i + 1} : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
+      }
+      cleaned.push({ id: `faq-${i}`, question, answer });
+    }
+
+    await setSiteConfig("home_faq", JSON.stringify(cleaned));
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/", "layout");
@@ -1190,25 +1294,6 @@ export async function updateCatalogDisplayConfig(
   }
 }
 
-export async function updateHomepageCarouselsConfig(
-  carousels: HomepageCarousel[]
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const row = await prisma.siteConfig.findFirst({ where: { key: "product_display_config" } });
-    const current = parseDisplayConfig(row?.value ?? null);
-    const updated: ProductDisplayConfig = { ...current, homepageCarousels: carousels };
-    await setSiteConfig("product_display_config", JSON.stringify(updated));
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    revalidatePath("/");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-
 // ─── Marketplace Markup Configuration ────────────────────────────────────────
 
 type MarkupState = { type: MarkupType; value: number; rounding: RoundingMode };
@@ -1356,7 +1441,8 @@ export interface AnnouncementBannerData {
   messages: string[];
   bgColor: string;
   textColor: string;
-  speed: number; // seconds per message
+  speed: number; // seconds per message (utilisé uniquement en mode "scroll")
+  mode: "scroll" | "static";
 }
 
 export async function updateAnnouncementBanner(
@@ -1366,11 +1452,18 @@ export async function updateAnnouncementBanner(
     await requireAdmin();
 
     const messages = data.messages.map((m) => m.trim()).filter((m) => m.length > 0);
+    const mode: "scroll" | "static" = data.mode === "static" ? "static" : "scroll";
 
     if (messages.length === 0) {
       await prisma.siteConfig.deleteMany({ where: { key: "announcement_banner" } });
     } else {
-      const payload = { messages, bgColor: data.bgColor, textColor: data.textColor, speed: data.speed || 8 };
+      const payload = {
+        messages,
+        bgColor: data.bgColor,
+        textColor: data.textColor,
+        speed: data.speed || 8,
+        mode,
+      };
       await setSiteConfig("announcement_banner", JSON.stringify(payload));
     }
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -25,7 +26,8 @@ import MaintenanceModeToggle from "@/components/admin/settings/MaintenanceModeTo
 import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConfig";
 import RefreshWarningConfig from "@/components/admin/settings/RefreshWarningConfig";
 import BrandedReferenceBadgeConfig from "@/components/admin/settings/BrandedReferenceBadgeConfig";
-import HomepageCarouselsConfig from "@/components/admin/settings/HomepageCarouselsConfig";
+import HomeFaqConfig from "@/components/admin/settings/HomeFaqConfig";
+import SettingsTabs from "@/components/admin/settings/SettingsTabs";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
@@ -43,6 +45,10 @@ import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 import HomeHeroConfig from "@/components/admin/settings/HomeHeroConfig";
+import HeroOverlayConfig from "@/components/admin/settings/HeroOverlayConfig";
+import { parseHeroOverlay } from "@/lib/hero-overlay";
+import { parseHomeFaq } from "@/lib/home-faq";
+import { getPendingReviewsCount } from "@/app/actions/admin/customer-reviews";
 import AboutPageConfig from "@/components/admin/settings/AboutPageConfig";
 import AboutPhotosConfig from "@/components/admin/settings/AboutPhotosConfig";
 import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
@@ -124,11 +130,80 @@ export default async function ParametresPage({
    TUILE 1 — Vitrine : bandeau annonces + bannière + favicon
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildVitrineTile(): Promise<DashboardTile> {
-  const [bannerImageConfig, announcementConfig, faviconConfig] = await Promise.all([
+  const [
+    bannerImageConfig,
+    announcementConfig,
+    faviconConfig,
+    heroEyebrowRow,
+    heroTitle1Row,
+    heroTitle2Row,
+    heroDescRow,
+    heroCta2LabelRow,
+    heroCta2HrefRow,
+    homeFaqRow,
+    aboutIntroRow,
+    aboutHistoryRow,
+    aboutShowroomRow,
+    aboutTeamRow,
+    aboutNewnessRow,
+    aboutDeliveryRow,
+    aboutPhoto1Row,
+    aboutPhoto2Row,
+    aboutPhoto3Row,
+    aboutPhoto4Row,
+    aboutPhoto5Row,
+    aboutPhoto6Row,
+    tAbout,
+    pendingReviewsCount,
+    heroOverlayTypeRow,
+    heroOverlayDirectionRow,
+    heroOverlayColorRow,
+    heroOverlayOpacityRow,
+  ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
     prisma.siteConfig.findFirst({ where: { key: "announcement_banner" } }),
     prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_eyebrow" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line1" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line2" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_description" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_label" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_href" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_faq" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_intro" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_history_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_1_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_2_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_3_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_4_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_5_url" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_photo_6_url" } }),
+    getTranslations("about"),
+    getPendingReviewsCount().catch(() => 0),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_type" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_direction" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_color" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_opacity" } }),
   ]);
+  const heroOverlay = parseHeroOverlay({
+    type: heroOverlayTypeRow?.value ?? null,
+    direction: heroOverlayDirectionRow?.value ?? null,
+    color: heroOverlayColorRow?.value ?? null,
+    opacity: heroOverlayOpacityRow?.value ?? null,
+  });
+  const faqItems = parseHomeFaq(homeFaqRow?.value);
+  const aboutPhotos: (string | null)[] = [
+    aboutPhoto1Row?.value ?? null,
+    aboutPhoto2Row?.value ?? null,
+    aboutPhoto3Row?.value ?? null,
+    aboutPhoto4Row?.value ?? null,
+    aboutPhoto5Row?.value ?? null,
+    aboutPhoto6Row?.value ?? null,
+  ];
 
   let currentFavicon: { icon: string; appleIcon: string } | null = null;
   if (faviconConfig?.value) {
@@ -144,6 +219,7 @@ async function buildVitrineTile(): Promise<DashboardTile> {
   let announcementBgColor = "#0F0F0F";
   let announcementTextColor = "#F5F1EA";
   let announcementSpeed = 8;
+  let announcementMode: "scroll" | "static" = "scroll";
   if (announcementConfig?.value) {
     try {
       const parsed = JSON.parse(announcementConfig.value);
@@ -151,6 +227,7 @@ async function buildVitrineTile(): Promise<DashboardTile> {
       announcementBgColor = parsed.bgColor || "#0F0F0F";
       announcementTextColor = parsed.textColor || "#F5F1EA";
       announcementSpeed = parsed.speed || 8;
+      announcementMode = parsed.mode === "static" ? "static" : "scroll";
     } catch { /* ignore */ }
   }
 
@@ -169,40 +246,167 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     status,
     summary: bits.join(" · ") || "Aucun élément personnalisé pour l'instant",
     content: (
-      <CardsStack>
-        <SettingCard
-          icon={Ico.megaphone}
-          title="Bandeau d'annonces"
-          description="Messages défilants en haut du site (soldes, livraison offerte, promo du moment…)"
-          accent="dark"
-          status={announcementMessages.length > 0
-            ? { tone: "ok", label: `${announcementMessages.length} message${announcementMessages.length > 1 ? "s" : ""}` }
-            : { tone: "off", label: "Aucun" }}
-        >
-          <AnnouncementBannerConfig
-            initialMessages={announcementMessages}
-            initialBgColor={announcementBgColor}
-            initialTextColor={announcementTextColor}
-            initialSpeed={announcementSpeed}
-          />
-        </SettingCard>
+      <SettingsTabs
+        tabs={[
+          {
+            key: "general",
+            label: "Général",
+            content: (
+              <CardsStack>
+                <SettingCard
+                  icon={Ico.favicon}
+                  title="Icône du site (favicon)"
+                  description="Petite image affichée dans l'onglet du navigateur et à côté du site dans les résultats Google"
+                >
+                  <FaviconConfig currentFavicon={currentFavicon} />
+                </SettingCard>
+              </CardsStack>
+            ),
+          },
+          {
+            key: "accueil",
+            label: "Accueil",
+            content: (
+              <CardsStack>
+                <SettingCard
+                  icon={Ico.megaphone}
+                  title="Bandeau d'annonces"
+                  description="Messages défilants en haut du site (soldes, livraison offerte, promo du moment…)"
+                  accent="dark"
+                  status={announcementMessages.length > 0
+                    ? { tone: "ok", label: `${announcementMessages.length} message${announcementMessages.length > 1 ? "s" : ""}` }
+                    : { tone: "off", label: "Aucun" }}
+                >
+                  <AnnouncementBannerConfig
+                    initialMessages={announcementMessages}
+                    initialBgColor={announcementBgColor}
+                    initialTextColor={announcementTextColor}
+                    initialSpeed={announcementSpeed}
+                    initialMode={announcementMode}
+                  />
+                </SettingCard>
 
-        <SettingCard
-          icon={Ico.image}
-          title="Bannière d'accueil"
-          description="Grande image en haut de la page d'accueil du site"
-        >
-          <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
-        </SettingCard>
+                <SettingCard
+                  icon={Ico.slides}
+                  title="Bloc d'accueil (grand bandeau noir)"
+                  description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
+                  accent="dark"
+                >
+                  <HomeHeroConfig
+                    initialEyebrow={heroEyebrowRow?.value ?? ""}
+                    initialTitleLine1={heroTitle1Row?.value ?? ""}
+                    initialTitleLine2={heroTitle2Row?.value ?? ""}
+                    initialDescription={heroDescRow?.value ?? ""}
+                    initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
+                    initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
+                  />
+                </SettingCard>
 
-        <SettingCard
-          icon={Ico.favicon}
-          title="Icône du site (favicon)"
-          description="Petite image affichée dans l'onglet du navigateur et à côté du site dans les résultats Google"
-        >
-          <FaviconConfig currentFavicon={currentFavicon} />
-        </SettingCard>
-      </CardsStack>
+                <SettingCard
+                  icon={Ico.image}
+                  title="Bannière d'accueil"
+                  description="Grande image en haut de la page d'accueil du site, avec un voile pour garder les textes lisibles."
+                >
+                  <div className="space-y-6">
+                    <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
+                    <div className="border-t border-border pt-6">
+                      <p className="text-sm font-heading font-semibold text-text-primary mb-1">
+                        Voile posé sur la bannière
+                      </p>
+                      <p className="text-xs text-text-secondary font-body mb-4">
+                        Réglez la couleur, le type d'ombre et l'intensité pour que vos titres restent bien lisibles par-dessus l'image.
+                      </p>
+                      <HeroOverlayConfig
+                        initial={heroOverlay}
+                        bannerImage={bannerImageConfig?.value ?? null}
+                      />
+                    </div>
+                  </div>
+                </SettingCard>
+
+                <SettingCard
+                  icon={Ico.slides}
+                  title="Questions fréquentes (FAQ)"
+                  description="Section « FAQ » en bas de la page d'accueil — jusqu'à 8 questions. Aussi injectée en JSON-LD (schema.org FAQPage) pour les rich results Google. Vide = section masquée."
+                  accent="dark"
+                  status={faqItems.length > 0
+                    ? { tone: "ok", label: `${faqItems.length} question${faqItems.length > 1 ? "s" : ""}` }
+                    : { tone: "off", label: "Aucune" }}
+                >
+                  <HomeFaqConfig initialItems={faqItems} />
+                </SettingCard>
+
+                <SettingCard
+                  icon={Ico.slides}
+                  title="Avis clients"
+                  description="Les clients qui ont déjà commandé peuvent déposer un avis depuis leur espace pro. Vous les validez avant qu'ils apparaissent sur la page d'accueil."
+                  accent="dark"
+                  status={pendingReviewsCount > 0
+                    ? { tone: "warn", label: `${pendingReviewsCount} à modérer` }
+                    : { tone: "ok", label: "Tout est modéré" }}
+                >
+                  <div className="space-y-4">
+                    <p className="text-sm font-body text-text-secondary leading-relaxed">
+                      La modération se fait sur la page dédiée. Vous recevez également un mail sur votre boîte pro à chaque nouvel avis déposé.
+                    </p>
+                    <Link
+                      href="/admin/avis"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-bg-dark text-white text-sm font-heading font-semibold hover:bg-bg-darker transition"
+                    >
+                      Ouvrir la modération des avis
+                      {pendingReviewsCount > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-amber-400 text-slate-900 text-[10px] font-bold tabular-nums">
+                          {pendingReviewsCount}
+                        </span>
+                      )}
+                    </Link>
+                  </div>
+                </SettingCard>
+              </CardsStack>
+            ),
+          },
+          {
+            key: "about",
+            label: "Qui sommes-nous",
+            content: (
+              <CardsStack>
+                <SettingCard
+                  icon={Ico.slides}
+                  title="Textes de la page « Qui sommes-nous »"
+                  description="6 sections éditables affichées sur /a-propos — laissez vide pour utiliser le texte par défaut."
+                  accent="dark"
+                >
+                  <AboutPageConfig
+                    initialIntro={aboutIntroRow?.value ?? ""}
+                    initialHistoryBody={aboutHistoryRow?.value ?? ""}
+                    initialShowroomBody={aboutShowroomRow?.value ?? ""}
+                    initialTeamBody={aboutTeamRow?.value ?? ""}
+                    initialNewnessBody={aboutNewnessRow?.value ?? ""}
+                    initialDeliveryBody={aboutDeliveryRow?.value ?? ""}
+                    placeholders={{
+                      intro: tAbout("intro"),
+                      historyBody: tAbout("historyBody"),
+                      showroomBody: tAbout("showroomBody"),
+                      teamBody: tAbout("teamBody"),
+                      newnessBody: tAbout("newnessBody"),
+                      deliveryBody: tAbout("deliveryBody"),
+                    }}
+                  />
+                </SettingCard>
+
+                <SettingCard
+                  icon={Ico.image}
+                  title="Photos de la page « Qui sommes-nous »"
+                  description="Jusqu'à 6 photos — largeur idéale 1200 px, format 4/5 conseillé."
+                  accent="dark"
+                >
+                  <AboutPhotosConfig initialPhotos={aboutPhotos} />
+                </SettingCard>
+              </CardsStack>
+            ),
+          },
+        ]}
+      />
     ),
   };
 }
@@ -775,79 +979,21 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
 async function buildContenuTile(): Promise<DashboardTile> {
   const { getSiteUrl } = await import("@/lib/seo");
   const [
-    displayConfigRow,
-    categories,
-    dbSubCategories,
-    dbCollections,
-    dbTags,
     homeRow,
     produitsRow,
     produitsIntroRow,
     taglineRow,
-    heroEyebrowRow,
-    heroTitle1Row,
-    heroTitle2Row,
-    heroDescRow,
-    heroCta2LabelRow,
-    heroCta2HrefRow,
-    aboutIntroRow,
-    aboutHistoryRow,
-    aboutShowroomRow,
-    aboutTeamRow,
-    aboutNewnessRow,
-    aboutDeliveryRow,
-    aboutPhoto1Row,
-    aboutPhoto2Row,
-    aboutPhoto3Row,
-    aboutPhoto4Row,
-    aboutPhoto5Row,
-    aboutPhoto6Row,
     shopName,
     siteUrl,
-    tAbout,
   ] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "product_display_config" } }),
-    prisma.category.findMany({ orderBy: [{ position: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
-    prisma.subCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, category: { select: { name: true } } } }),
-    prisma.collection.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.tag.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro" } }),
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_eyebrow" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line1" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line2" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_description" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_label" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_href" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_intro" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_history_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_1_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_2_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_3_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_4_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_5_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_6_url" } }),
     getCachedShopName(),
     getSiteUrl(),
-    getTranslations("about"),
   ]);
-  const aboutPhotos: (string | null)[] = [
-    aboutPhoto1Row?.value ?? null,
-    aboutPhoto2Row?.value ?? null,
-    aboutPhoto3Row?.value ?? null,
-    aboutPhoto4Row?.value ?? null,
-    aboutPhoto5Row?.value ?? null,
-    aboutPhoto6Row?.value ?? null,
-  ];
 
-  const displayConfig = parseDisplayConfig(displayConfigRow?.value ?? null);
-  const activeCount = displayConfig.homepageCarousels.filter((c) => c.visible).length;
   const homeText = homeRow?.value?.trim() ?? "";
   const tagline = taglineRow?.value?.trim() || "Grossiste B2B";
   const previewSnippet = homeText
@@ -857,10 +1003,9 @@ async function buildContenuTile(): Promise<DashboardTile> {
 
   const seoConfigured = !!(homeText || produitsRow?.value?.trim());
   const summaryBits: string[] = [];
-  summaryBits.push(`${activeCount} carrousel${activeCount > 1 ? "s" : ""} actif${activeCount > 1 ? "s" : ""}`);
   summaryBits.push(seoConfigured ? "SEO en place" : "SEO vide");
 
-  const status: TileStatus = activeCount > 0 && seoConfigured
+  const status: TileStatus = seoConfigured
     ? { tone: "ok", label: "Configurés" }
     : { tone: "warn", label: "À compléter" };
 
@@ -870,76 +1015,6 @@ async function buildContenuTile(): Promise<DashboardTile> {
     summary: summaryBits.join(" · "),
     content: (
       <CardsStack>
-        <SettingCard
-          icon={Ico.slides}
-          title="Bloc d'accueil (grand bandeau noir)"
-          description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
-          accent="dark"
-        >
-          <HomeHeroConfig
-            initialEyebrow={heroEyebrowRow?.value ?? ""}
-            initialTitleLine1={heroTitle1Row?.value ?? ""}
-            initialTitleLine2={heroTitle2Row?.value ?? ""}
-            initialDescription={heroDescRow?.value ?? ""}
-            initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
-            initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
-          />
-        </SettingCard>
-
-        <SettingCard
-          icon={Ico.slides}
-          title="Carrousels d'accueil"
-          description="Bandes de produits sur la page d'accueil — glissez-déposez pour réorganiser"
-          accent="dark"
-          status={activeCount > 0
-            ? { tone: "ok", label: `${activeCount} actif${activeCount > 1 ? "s" : ""}` }
-            : { tone: "off", label: "Aucun" }}
-        >
-          <HomepageCarouselsConfig
-            initialCarousels={displayConfig.homepageCarousels}
-            categories={categories}
-            subCategories={dbSubCategories.map(s => ({ id: s.id, name: s.name, categoryName: s.category.name }))}
-            collections={dbCollections}
-            tags={dbTags}
-          />
-        </SettingCard>
-
-        <SettingCard
-          icon={Ico.slides}
-          title="Page « Qui sommes-nous »"
-          description="6 sections éditables affichées sur /a-propos — laissez vide pour utiliser le texte par défaut."
-          accent="dark"
-        >
-          <AboutPageConfig
-            initialIntro={aboutIntroRow?.value ?? ""}
-            initialHistoryBody={aboutHistoryRow?.value ?? ""}
-            initialShowroomBody={aboutShowroomRow?.value ?? ""}
-            initialTeamBody={aboutTeamRow?.value ?? ""}
-            initialNewnessBody={aboutNewnessRow?.value ?? ""}
-            initialDeliveryBody={aboutDeliveryRow?.value ?? ""}
-            placeholders={{
-              intro: tAbout("intro"),
-              historyBody: tAbout("historyBody"),
-              showroomBody: tAbout("showroomBody"),
-              teamBody: tAbout("teamBody"),
-              newnessBody: tAbout("newnessBody"),
-              deliveryBody: tAbout("deliveryBody"),
-            }}
-          />
-        </SettingCard>
-
-        <SettingCard
-          icon={Ico.image}
-          title="Photos de la page « Qui sommes-nous »"
-          description="6 photos affichées en grille sur /a-propos. Format vertical recommandé (portrait 4:5)."
-          accent="dark"
-          status={aboutPhotos.some((p) => p)
-            ? { tone: "ok", label: `${aboutPhotos.filter(Boolean).length}/6` }
-            : { tone: "off", label: "Aucune" }}
-        >
-          <AboutPhotosConfig initialPhotos={aboutPhotos} />
-        </SettingCard>
-
         <SettingCard
           icon={Ico.search}
           title="Textes pour Google"

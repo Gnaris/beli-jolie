@@ -8,6 +8,7 @@ import CategoryCircle from "@/components/ui/CategoryCircle";
 
 interface CategoryItem {
   id: string;
+  slug: string;
   name: string;
   image?: string | null;
   _count: { products: number };
@@ -41,7 +42,7 @@ export default function CategoryGrid({ categories }: Props) {
           {categories.map((cat) => (
             <Link
               key={cat.id}
-              href={`/produits?cat=${cat.id}`}
+              href={`/categories/${cat.slug}`}
               className="group flex flex-col items-center text-center"
             >
               <CategoryCircle name={cat.name} image={cat.image} size="md" />

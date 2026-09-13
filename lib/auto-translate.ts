@@ -170,7 +170,19 @@ async function _autoTranslateProduct(
     const enabled = await isAutoTranslateEnabled();
     if (!enabled) return;
 
-    const localesToTranslate = TARGET_LOCALES.filter((l) => !existingLocales.includes(l));
+    // Locales verrouillées par une édition manuelle admin : on NE doit pas les
+    // écraser par le mot-à-mot PFS (souvent bancal, ex. "Robe sans manches"
+    // → "Dress without sleeves" au lieu de "Sleeveless dress"). Le flag
+    // `manualEdit` est posé par `updateProductTranslation` (onglet EN du form).
+    const manuallyEditedRows = await prisma.productTranslation.findMany({
+      where: { productId, manualEdit: true },
+      select: { locale: true },
+    });
+    const manuallyEdited = new Set(manuallyEditedRows.map((r) => r.locale));
+
+    const localesToTranslate = TARGET_LOCALES.filter(
+      (l) => !existingLocales.includes(l) && !manuallyEdited.has(l),
+    );
     if (localesToTranslate.length === 0) return;
 
     for (const locale of localesToTranslate) {

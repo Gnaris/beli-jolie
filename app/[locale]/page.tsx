@@ -3,21 +3,22 @@ import { getServerSession } from "next-auth";
 import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseDisplayConfig, fetchCarouselProducts, type HomepageCarousel } from "@/lib/product-display";
-import { getCachedSiteConfig, getCachedBestsellerRefs, getCachedShopName } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
 import { buildAlternates, buildWebsiteSchema, buildSiteNavigationSchema, getSiteUrl } from "@/lib/seo";
-import { canSeePrices } from "@/lib/price-visibility";
+import { getPublishedCustomerReviews } from "@/lib/customer-reviews";
+import { parseHomeFaq, buildFaqJsonLd } from "@/lib/home-faq";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import HeroBanner from "@/components/home/HeroBanner";
-import FeaturedProduct from "@/components/home/FeaturedProduct";
-import StatsBand from "@/components/home/StatsBand";
+import { parseHeroOverlay } from "@/lib/hero-overlay";
 import TrustBand from "@/components/home/TrustBand";
 import CategoryGrid from "@/components/home/CategoryGrid";
 import CtaBanner from "@/components/home/CtaBanner";
+import ReviewsSection from "@/components/home/ReviewsSection";
+import FaqSection from "@/components/home/FaqSection";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
@@ -212,36 +213,12 @@ const PRODUCT_SELECT = {
   },
 } as const;
 
-// ─────────────────────────────────────────────
-// Reassort fetcher (needs userId)
-// ─────────────────────────────────────────────
-async function fetchReassortProducts(userId: string, quantity: number) {
-  const items = await prisma.orderItem.findMany({
-    where:   { order: { userId } },
-    select:  { productRef: true, quantity: true },
-    orderBy: { createdAt: "desc" },
-  });
-  const refCounts = new Map<string, number>();
-  for (const item of items) {
-    refCounts.set(item.productRef, (refCounts.get(item.productRef) ?? 0) + item.quantity);
-  }
-  const refs = [...refCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, quantity)
-    .map(([ref]) => ref);
-  if (refs.length === 0) return [];
-  const products = await prisma.product.findMany({
-    where:  {
-      reference: { in: refs },
-      status: "ONLINE",
-      colors: { some: { disabled: false, stock: { gt: 0 } } },
-    },
-    select: PRODUCT_SELECT,
-  });
-  const map = new Map(products.map((p) => [p.reference, p]));
-  const ordered = refs.map((r) => map.get(r)).filter(Boolean);
-  return serializeProducts(ordered as Array<Record<string, unknown>>);
-}
+// Nombre d'items affichés sur la homepage — le catalogue complet reste
+// accessible via les CTA « Voir toutes les nouveautés → » et « Voir tous les
+// best sellers → ». Choix commercial : page plus courte, feeling premium.
+const HOME_PRODUCTS_LIMIT = 8;
+const HOME_COLLECTIONS_LIMIT = 3;
+const HOME_CATEGORIES_LIMIT = 6;
 
 // ─────────────────────────────────────────────
 // Page
@@ -253,35 +230,45 @@ export default async function HomePage() {
   ]);
   const userId  = session?.user?.id;
 
-  // ── Load banner image + display config + shop name + hero overrides ───────
+  // ── Load site config (bannière + hero éditable + FAQ) + avis clients DB ──
   const [
     bannerImageRow,
-    configRow,
-    bestsellerRefs,
     shopName,
-    seoTextRow,
     heroEyebrowRow,
     heroTitle1Row,
     heroTitle2Row,
     heroDescRow,
     heroCta2LabelRow,
     heroCta2HrefRow,
+    homeFaqRow,
+    reviews,
+    overlayTypeRow,
+    overlayDirectionRow,
+    overlayColorRow,
+    overlayOpacityRow,
   ] = await Promise.all([
     getCachedSiteConfig("banner_image"),
-    getCachedSiteConfig("product_display_config"),
-    getCachedBestsellerRefs(30),
     getCachedShopName(),
-    getCachedSiteConfig("home_seo_text"),
     getCachedSiteConfig("home_hero_eyebrow"),
     getCachedSiteConfig("home_hero_title_line1"),
     getCachedSiteConfig("home_hero_title_line2"),
     getCachedSiteConfig("home_hero_description"),
     getCachedSiteConfig("home_hero_cta_secondary_label"),
     getCachedSiteConfig("home_hero_cta_secondary_href"),
+    getCachedSiteConfig("home_faq"),
+    getPublishedCustomerReviews(6),
+    getCachedSiteConfig("home_hero_overlay_type"),
+    getCachedSiteConfig("home_hero_overlay_direction"),
+    getCachedSiteConfig("home_hero_overlay_color"),
+    getCachedSiteConfig("home_hero_overlay_opacity"),
   ]);
   const bannerImage = bannerImageRow?.value ?? null;
-  const displayConfig = parseDisplayConfig(configRow?.value);
-  const homeSeoText = seoTextRow?.value?.trim() ?? "";
+  const heroOverlay = parseHeroOverlay({
+    type: overlayTypeRow?.value ?? null,
+    direction: overlayDirectionRow?.value ?? null,
+    color: overlayColorRow?.value ?? null,
+    opacity: overlayOpacityRow?.value ?? null,
+  });
   const heroOverrides = {
     heroEyebrow: heroEyebrowRow?.value ?? undefined,
     heroTitleLine1: heroTitle1Row?.value ?? undefined,
@@ -289,8 +276,9 @@ export default async function HomePage() {
     heroDescription: heroDescRow?.value ?? undefined,
     heroCtaSecondaryLabel: heroCta2LabelRow?.value ?? undefined,
     heroCtaSecondaryHref: heroCta2HrefRow?.value ?? undefined,
+    overlay: heroOverlay,
   } as const;
-  const priceVisible = canSeePrices(session);
+  const faqItems = parseHomeFaq(homeFaqRow?.value);
 
   // ── Fetch client discount + favoris (pour cœurs déjà remplis au 1er rendu) ─
   const [clientDiscount, favoriteIds] = await Promise.all([
@@ -312,42 +300,66 @@ export default async function HomePage() {
       : Promise.resolve([] as string[]),
   ]);
 
-  // ── Fetch collections + counts ─────────────────────────────────────────────
+  // ── Fetch collections + counts + catégories ────────────────────────────────
+  // Le compteur produits partage le CACHE avec la page inscription et le hero :
+  // `getCachedProductCount()` (5min, tag "products", scopé tenant). Sans ça,
+  // le nombre affiché divergeait entre home (frais) et /inscription (caché).
   const [allCollections, productCount, allCategories] = await Promise.all([
     prisma.collection.findMany({
       orderBy: { createdAt: "desc" },
-      select:  { id: true, name: true, image: true, _count: { select: { products: { where: { product: { status: "ONLINE" } } } } } },
+      select:  { id: true, slug: true, name: true, image: true, _count: { select: { products: { where: { product: { status: "ONLINE" } } } } } },
     }),
-    prisma.product.count({ where: { status: "ONLINE" } }),
+    getCachedProductCount(),
     prisma.category.findMany({
-      orderBy: { name: "asc" },
-      select:  { id: true, name: true, image: true, _count: { select: { products: { where: { status: "ONLINE" } } } } },
+      // Ordre pilotable par le drag & drop de /admin/categories. `name` en
+      // second critère pour rester déterministe quand plusieurs positions
+      // valent 0 (catégories jamais réordonnées).
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      select:  { id: true, slug: true, name: true, image: true, _count: { select: { products: { where: { status: "ONLINE" } } } } },
     }),
   ]);
 
-  // Only keep categories & collections that have at least 1 ONLINE product
-  const categories = allCategories.filter(c => c._count.products > 0);
-  const collections = allCollections.filter(c => c._count.products > 0).slice(0, 4);
+  // Ne garder que catégories & collections avec ≥ 1 produit ONLINE ; on limite
+  // catégories à 6 et collections à 3 pour rester dans l'esprit « sélections du
+  // moment » (page plus courte + plus premium). Les listes complètes restent
+  // accessibles depuis /categories et /collections.
+  const categories = allCategories
+    .filter(c => c._count.products > 0)
+    .slice(0, HOME_CATEGORIES_LIMIT);
+  const collections = allCollections
+    .filter(c => c._count.products > 0)
+    .slice(0, HOME_COLLECTIONS_LIMIT);
 
-  // ── Build carousel data from config ───────────────────────────────────────
-  const visibleCarousels = displayConfig.homepageCarousels.filter(c => c.visible);
+  // ── Fetch produits homepage : 8 nouveautés + 8 best sellers ────────────────
+  // Ces 2 listes sont figées (plus de mécanisme configurable). Le catalogue
+  // complet reste accessible via les CTA « Voir toutes… → ».
+  const commonProductWhere = {
+    status: "ONLINE" as const,
+    colors: { some: { disabled: false } },
+  };
 
-  // Fetch products for each visible carousel in parallel
-  const carouselProducts = await Promise.all(
-    visibleCarousels.map(async (carousel): Promise<{ carousel: HomepageCarousel; products: PrismaProduct[] }> => {
-      if (carousel.type === "reassort") {
-        // Reassort needs userId — skip if not logged in
-        if (!userId) return { carousel, products: [] };
-        const products = await fetchReassortProducts(userId, carousel.quantity);
-        return { carousel, products };
-      }
-      const products = await fetchCarouselProducts(carousel, bestsellerRefs);
-      return { carousel, products: serializeProducts(products as Array<Record<string, unknown>>) };
-    })
-  );
+  const [newProductsRaw, bestSellerProductsRaw] = await Promise.all([
+    prisma.product.findMany({
+      where:   commonProductWhere,
+      orderBy: { createdAt: "desc" },
+      take:    HOME_PRODUCTS_LIMIT,
+      select:  PRODUCT_SELECT,
+    }),
+    prisma.product.findMany({
+      // « Les plus récents ajoutés en best-seller » — tri par date de bascule
+      // en best-seller si dispo, sinon par createdAt (choix cliente).
+      where:   { ...commonProductWhere, isBestSeller: true },
+      orderBy: { createdAt: "desc" },
+      take:    HOME_PRODUCTS_LIMIT,
+      select:  PRODUCT_SELECT,
+    }),
+  ]);
 
-  // Collect all product IDs for image fetching
-  const allIds = [...new Set(carouselProducts.flatMap(cp => cp.products.map(p => p.id)))];
+  const newProducts = serializeProducts(newProductsRaw as Array<Record<string, unknown>>);
+  const bestSellerProducts = serializeProducts(bestSellerProductsRaw as Array<Record<string, unknown>>);
+
+  // Images de tous les produits chargés en une seule requête
+  const allIds = [...new Set([...newProducts, ...bestSellerProducts].map(p => p.id))];
   const imgRows = allIds.length > 0
     ? await prisma.productColorImage.findMany({ where: { productId: { in: allIds } }, orderBy: { order: "asc" } })
     : [];
@@ -358,49 +370,21 @@ export default async function HomePage() {
     if (!cm.has(img.colorId)) cm.set(img.colorId, img.path);
   }
 
-  // Build final carousel list
-  type CarouselData = { id: string; title: string; products: CarouselProduct[]; isPromo: boolean; viewMoreHref: string };
-
-  function buildViewMoreHref(c: HomepageCarousel): string {
-    switch (c.type) {
-      case "new":         return "/produits?new=1";
-      case "bestseller":  return "/produits?bestseller=1";
-      case "promo":       return "/produits?promo=1";
-      case "category":    return c.categoryId ? `/produits?cat=${c.categoryId}` : "/produits";
-      case "subcategory": return c.subCategoryId ? `/produits?subcat=${c.subCategoryId}` : "/produits";
-      case "collection":  return c.collectionIds?.[0] ? `/collections/${c.collectionIds[0]}` : "/collections";
-      case "tag":         return c.tagId ? `/produits?tag=${c.tagId}` : "/produits";
-      default:            return "/produits";
-    }
-  }
-
-  // Enrichit chaque produit avec le meilleur % promo AUTO applicable — override
-  // du discountPercent manuel. Fait une seule fois pour tous les carousels.
-  const allProductsFlat = carouselProducts.flatMap((cp) => cp.products);
-  const enrichedFlat = await enrichProductsWithBestPromoPercent(allProductsFlat);
+  // Enrichit chaque produit avec le meilleur % promo AUTO applicable (override
+  // du discountPercent manuel). Une seule passe sur les 2 listes.
+  const enrichedFlat = await enrichProductsWithBestPromoPercent([...newProducts, ...bestSellerProducts]);
   const enrichedById = new Map(enrichedFlat.map((p) => [p.id, p]));
+  const applyEnrichment = (list: PrismaProduct[]) => list.map((p) => enrichedById.get(p.id) ?? p);
 
-  const carouselList: CarouselData[] = [];
-  for (const { carousel, products } of carouselProducts) {
-    if (products.length === 0) continue;
-    // Skip reassort for guests
-    if (carousel.type === "reassort" && !session) continue;
-    const productsWithPromo = products.map((p) => enrichedById.get(p.id) ?? p);
-    carouselList.push({
-      id: carousel.id,
-      title: carousel.title,
-      products: toCarousel(productsWithPromo, imageMap),
-      isPromo: carousel.type === "promo",
-      viewMoreHref: buildViewMoreHref(carousel),
-    });
-  }
+  const newCards = toCarousel(applyEnrichment(newProducts), imageMap);
+  const bestSellerCards = toCarousel(applyEnrichment(bestSellerProducts), imageMap);
 
-  // JSON-LD WebSite (avec SearchAction). Organization est rendu dans le layout racine, pas de doublon.
+  // JSON-LD WebSite (avec SearchAction). Organization est rendu dans le layout
+  // racine, pas de doublon. SiteNavigationElement = signal explicite à Google
+  // des pages principales, pour maximiser les chances d'affichage de
+  // sitelinks. Miroir de la nav du header.
   const siteUrl = await getSiteUrl();
   const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: siteUrl });
-  // JSON-LD SiteNavigationElement — signal explicite à Google des pages
-  // principales, pour maximiser les chances d'affichage de sitelinks dans les
-  // résultats de recherche. Miroir de la nav du header.
   const currentLocale = await getLocale();
   const navJsonLd = buildSiteNavigationSchema({
     baseUrl: siteUrl,
@@ -413,75 +397,91 @@ export default async function HomePage() {
       { name: "Nous contacter", path: "/nous-contacter" },
     ],
   });
+  // JSON-LD FAQPage — donne à Google le contexte pour afficher les Q&R en
+  // rich results directement dans la SERP. Omis si aucune FAQ saisie.
+  const jsonLdBlocks: object[] = [webSiteJsonLd, navJsonLd];
+  if (faqItems.length > 0) jsonLdBlocks.push(buildFaqJsonLd(faqItems));
 
   return (
     <div className="min-h-screen bg-bg-secondary relative">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify([webSiteJsonLd, navJsonLd]) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdBlocks) }} />
       <PublicSidebar shopName={shopName} />
 
       <main className="relative z-10 -mt-16">
-          {/* 1. Hero compact noir + accent jaune */}
-          <HeroBanner
-            bannerImage={bannerImage}
-            shopName={shopName}
-            productCount={productCount}
-            {...heroOverrides}
+        {/* 1. Hero éditable */}
+        <HeroBanner
+          bannerImage={bannerImage}
+          shopName={shopName}
+          productCount={productCount}
+          {...heroOverrides}
+        />
+
+        {/* 2. Nouveautés — 8 max + CTA « Voir toutes les nouveautés → » */}
+        {newCards.length > 0 && (
+          <ProductCarousel
+            title={t("newProducts")}
+            eyebrow={t("newProductsEyebrow")}
+            products={newCards}
+            viewMoreHref="/produits?new=1"
+            viewMoreLabel={t("newProductsMore")}
+            variant="white"
+            clientDiscount={clientDiscount}
+            favoriteIds={favoriteIds}
           />
+        )}
 
-          {/* 2. Featured — split éditorial « Manifeste » */}
-          {carouselList.length > 0 && carouselList[0].products.length >= 3 && (
-            <FeaturedProduct
-              products={carouselList[0].products.slice(0, 3)}
-              clientDiscount={clientDiscount}
-              shopName={shopName}
-              canSeePrices={priceVisible}
-            />
-          )}
+        {/* 3. Catégories */}
+        {categories.length > 0 && (
+          <CategoryGrid categories={categories} />
+        )}
 
-          {/* 4. Carrousels produits */}
-          {carouselList.map((carousel, i) => (
-            <ProductCarousel
-              key={carousel.id}
-              title={carousel.title}
-              eyebrow={i === 0 ? t("newProductsEyebrow") : undefined}
-              products={carousel.products}
-              viewMoreHref={carousel.viewMoreHref}
-              viewMoreLabel={t("newProductsMore")}
-              variant={i % 2 === 0 ? "gray" : "white"}
-              size={i === 0 ? "premium" : "standard"}
-              clientDiscount={clientDiscount}
-              showPromoBadge={carousel.isPromo}
-              favoriteIds={favoriteIds}
-            />
-          ))}
-
-          {/* 5. Bande chiffres clés noir */}
-          <StatsBand productCount={productCount} />
-
-          {/* 6. Collections mosaïque */}
+        {/* 4. Collections du moment (3 max) */}
+        {collections.length > 0 && (
           <CollectionsGrid collections={collections} />
+        )}
 
-          {/* 6. Catégories rondes éditoriales */}
-          {categories.length > 0 && (
-            <CategoryGrid categories={categories} />
-          )}
+        {/* 5. Best Sellers — 8 max + CTA « Voir tous les best sellers → » */}
+        {bestSellerCards.length > 0 && (
+          <ProductCarousel
+            title={t("bestsellers")}
+            eyebrow={t("bestsellersEyebrow")}
+            products={bestSellerCards}
+            viewMoreHref="/produits?bestseller=1"
+            viewMoreLabel={t("bestsellersMore")}
+            variant="gray"
+            clientDiscount={clientDiscount}
+            favoriteIds={favoriteIds}
+          />
+        )}
 
-          {/* 7. Réassurance numérotée 01-04 */}
-          <TrustBand />
+        {/* 6. Pourquoi ISSYMA — réassurance numérotée 01-04 */}
+        <TrustBand />
 
-          {/* 8. CTA final slate-900 */}
-          <CtaBanner />
+        {/* 7. Avis clients (3-5, éditables depuis l'admin, masqué si vide) */}
+        {reviews.length > 0 && (
+          <ReviewsSection
+            reviews={reviews}
+            eyebrow={t("reviewsEyebrow")}
+            title={t("reviewsTitle")}
+          />
+        )}
 
-          {/* 8. SEO text — affiché en bas de page pour Google */}
-          {homeSeoText && (
-            <section className="bg-bg-primary py-12 lg:py-16 border-t border-border">
-              <div className="container-site max-w-[900px] px-4">
-                <div className="prose prose-sm sm:prose-base max-w-none font-body text-text-secondary leading-relaxed whitespace-pre-line">
-                  {homeSeoText}
-                </div>
-              </div>
-            </section>
-          )}
+        {/* 8. FAQ (jusqu'à 8, éditables depuis l'admin + JSON-LD FAQPage
+             injecté ci-dessus pour les rich results Google). Masquée si vide. */}
+        {faqItems.length > 0 && (
+          <FaqSection
+            items={faqItems}
+            eyebrow={t("faqEyebrow")}
+            title={t("faqTitle")}
+            contactTitle={t("faqContactTitle")}
+            contactDesc={t("faqContactDesc")}
+            contactCta={t("faqContactCta")}
+            contactHref="/nous-contacter"
+          />
+        )}
+
+        {/* 9. CTA final « Inscription pro » */}
+        <CtaBanner />
       </main>
 
       <Footer shopName={shopName} />

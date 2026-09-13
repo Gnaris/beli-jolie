@@ -10,6 +10,8 @@ import { buildProductHandle } from "@/lib/product-url";
 import AccountEditor from "@/components/client/AccountEditor";
 import NewsletterToggle from "@/components/client/NewsletterToggle";
 import AbandonedCartOptOutToggle from "@/components/client/AbandonedCartOptOutToggle";
+import MyReviewCard, { type MyReviewInitial } from "@/components/client/MyReviewCard";
+import { userHasEligibleOrder, findMyReview } from "@/lib/customer-reviews";
 import LogoutButton from "@/components/client/LogoutButton";
 import { getTranslations, getLocale } from "next-intl/server";
 
@@ -144,7 +146,7 @@ export default async function DashboardPage() {
   ]);
   const dateLocale = locale === "fr" ? "fr-FR" : "en-US";
 
-  const [user, orders, favorites, cart, credits, availableCredit, ordersWithCreditNote] = await Promise.all([
+  const [user, orders, favorites, cart, credits, availableCredit, ordersWithCreditNote, hasEligibleReviewOrder, myReview] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.order.findMany({
       where: { userId },
@@ -187,9 +189,23 @@ export default async function DashboardPage() {
       select: { id: true, orderNumber: true, createdAt: true, creditNotePath: true },
       orderBy: { createdAt: "desc" },
     }),
+    userHasEligibleOrder(userId),
+    findMyReview(userId),
   ]);
 
   if (!user) return redirect({href: "/connexion", locale});
+
+  const initialReview: MyReviewInitial | null = myReview
+    ? {
+        id: myReview.id,
+        rating: myReview.rating,
+        text: myReview.text,
+        status: myReview.status,
+        createdAt: myReview.createdAt.toISOString(),
+        moderatedAt: myReview.moderatedAt?.toISOString() ?? null,
+        moderationNote: myReview.moderationNote,
+      }
+    : null;
 
   // Fetch first image for favorited products
   const favProductIds = favorites.map((f) => f.product.id);
@@ -779,6 +795,9 @@ export default async function DashboardPage() {
 
           {/* -- Préférences relances panier abandonné -- */}
           <AbandonedCartOptOutToggle optOut={user.abandonedCartOptOut} />
+
+          {/* -- Déposer un avis (visible aux clients ayant ≥ 1 commande SHIPPED) -- */}
+          <MyReviewCard hasEligibleOrder={hasEligibleReviewOrder} initialReview={initialReview} />
         </div>
 
         {/* -- Colonne droite : Historique des produits commandes -- */}

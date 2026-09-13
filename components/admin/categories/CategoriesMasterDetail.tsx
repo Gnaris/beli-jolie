@@ -9,6 +9,7 @@ import CategoryEditorModal from "./CategoryEditorModal";
 import OrderchampMappingDrawer, {
   type OrderchampMappingTarget,
 } from "./OrderchampMappingDrawer";
+import CategorySeoDrawer from "./CategorySeoDrawer";
 import PfsCategoryMappingModal from "@/components/admin/shared/mapping-modals/PfsCategoryMappingModal";
 import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
 import FaireCategoryMappingModal from "@/components/admin/shared/mapping-modals/FaireCategoryMappingModal";
@@ -39,6 +40,7 @@ type Sub = {
 
 export type CategoryRow = {
   id: string;
+  slug: string;
   name: string;
   image: string | null;
   position: number;
@@ -107,6 +109,9 @@ export default function CategoriesMasterDetail({
   // Sous-catégorie ciblée par la modale Microstore (badge « M » sur les chips).
   // null tant que l'utilisatrice n'a pas cliqué le badge.
   const [microstoreSubTarget, setMicrostoreSubTarget] = useState<Sub | null>(null);
+  // Drawer d'édition SEO (page publique /categories/[slug]) — ouvert par la
+  // carte "Page publique — SEO" du panneau détail.
+  const [seoDrawerOpen, setSeoDrawerOpen] = useState(false);
   // ID d'une catégorie tout juste créée dont on veut la sélection différée :
   // items n'inclut la nouvelle cat qu'après router.refresh(), on sélectionne
   // au bon moment (voir useEffect ci-dessous). Sans ce délai, la sélection
@@ -235,6 +240,7 @@ export default function CategoriesMasterDetail({
   const selectedDetail: CategoryDetailData | null = selectedCat
     ? {
         id: selectedCat.id,
+        slug: selectedCat.slug,
         name: selectedCat.name,
         image: selectedCat.image,
         translations: selectedCat.translations,
@@ -329,6 +335,7 @@ export default function CategoriesMasterDetail({
                   ),
                 );
               }}
+              onEditSeo={() => setSeoDrawerOpen(true)}
             />
           ) : (
             <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
@@ -352,6 +359,7 @@ export default function CategoriesMasterDetail({
             if (prev.some((c) => c.id === created.id)) return prev;
             const optimistic: CategoryRow = {
               id: created.id,
+              slug: "",
               name: created.name,
               image: null,
               position: prev.length,
@@ -528,6 +536,17 @@ export default function CategoriesMasterDetail({
         currentPath={orderchampTarget?.currentPath ?? null}
         leaves={orderchampTaxonomy}
       />
+
+      {/* Drawer SEO éditorial de la page publique catégorie */}
+      {selectedCat && (
+        <CategorySeoDrawer
+          open={seoDrawerOpen}
+          onClose={() => setSeoDrawerOpen(false)}
+          categoryId={selectedCat.id}
+          categoryName={selectedCat.name}
+          categorySlug={selectedCat.slug}
+        />
+      )}
 
       {/* Modale mapping Microstore — sous-catégorie ciblée */}
       {microstoreSubTarget && (

@@ -1088,6 +1088,7 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       pendingOrdersCount,
       pendingUsersCount,
       openClaimsCount,
+      pendingReviewsCount,
     ] = await Promise.all([
       prisma.product.count({ where: scoped }),
       prisma.product.count({
@@ -1104,6 +1105,7 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       prisma.order.count({ where: { ...scoped, status: "PENDING" } }),
       prisma.user.count({ where: { ...scoped, role: "CLIENT", status: "PENDING" } }),
       prisma.claim.count({ where: { ...scoped, status: "OPEN" } }),
+      prisma.customerReview.count({ where: { ...scoped, status: "PENDING" } }),
     ]);
 
     const untranslatedCount = totalProducts - fullyTranslatedProducts;
@@ -1118,10 +1120,11 @@ export const getCachedAdminWarnings = tenantScopedCacheWithTid(
       pendingOrdersCount,
       pendingUsersCount,
       openClaimsCount,
+      pendingReviewsCount,
     };
   },
   ["admin-warnings"],
-  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders", "users", "claims"] }
+  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders", "users", "claims", "customer-reviews-admin"] }
 );
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────

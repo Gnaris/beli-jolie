@@ -77,19 +77,42 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   });
 
   // ── Collections ──────────────────────────────────────────────────────────
+  // URL slugifiée depuis 2026-09-13 (ex : /collections/eclat-automne-2026 au
+  // lieu du cuid brut). Les collections sans slug (edge case — création juste
+  // avant le backfill) sont exclues du sitemap.
   const collections = await prisma.collection.findMany({
-    select: { id: true, updatedAt: true },
+    where: { slug: { not: null } },
+    select: { slug: true, updatedAt: true },
   });
 
   const collectionPages: MetadataRoute.Sitemap = collections.flatMap((c) =>
     VALID_LOCALES.map((locale) => ({
-      url: `${baseUrl}/${locale}/collections/${c.id}`,
+      url: `${baseUrl}/${locale}/collections/${c.slug}`,
       lastModified: c.updatedAt,
       changeFrequency: "weekly" as const,
       priority: 0.6,
-      alternates: { languages: buildLanguageMap(baseUrl, `/collections/${c.id}`) },
+      alternates: { languages: buildLanguageMap(baseUrl, `/collections/${c.slug}`) },
     }))
   );
 
-  return [...staticPages, ...productPages, ...collectionPages];
+  // ── Pages catégories SEO ─────────────────────────────────────────────────
+  // Chaque catégorie ayant au moins 1 produit ONLINE se voit ajoutée avec un
+  // hreflang par locale, comme les pages produits. Sans produit ONLINE, on
+  // exclut : le crawler éviterait la 404 douce (page vide).
+  const categoriesWithProducts = await prisma.category.findMany({
+    where: { products: { some: { status: "ONLINE" } } },
+    select: { slug: true, createdAt: true },
+  });
+
+  const categoryPages: MetadataRoute.Sitemap = categoriesWithProducts.flatMap((c) =>
+    VALID_LOCALES.map((locale) => ({
+      url: `${baseUrl}/${locale}/categories/${c.slug}`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
+      alternates: { languages: buildLanguageMap(baseUrl, `/categories/${c.slug}`) },
+    }))
+  );
+
+  return [...staticPages, ...productPages, ...collectionPages, ...categoryPages];
 }

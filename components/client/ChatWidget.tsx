@@ -56,8 +56,8 @@ export default function ChatWidget({ businessHours }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isOnline = businessHours ? isWithinBusinessHours(businessHours) : true;
-  const nextSlot = businessHours ? getNextOpenSlot(businessHours) : null;
-  const scheduleRows = businessHours ? formatScheduleForDisplay(businessHours) : [];
+  const nextSlot = businessHours ? getNextOpenSlot(businessHours, locale) : null;
+  const scheduleRows = businessHours ? formatScheduleForDisplay(businessHours, locale) : [];
 
   // ── Cross-tab: only one chat open at a time ──
   const channelRef = useRef<BroadcastChannel | null>(null);

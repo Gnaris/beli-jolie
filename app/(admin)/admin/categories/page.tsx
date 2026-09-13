@@ -95,6 +95,7 @@ export default async function CategoriesPage() {
 
   const rows: CategoryRow[] = categories.map((c) => ({
     id: c.id,
+    slug: c.slug,
     name: c.name,
     image: c.image,
     position: c.position,

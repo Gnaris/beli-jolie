@@ -1313,7 +1313,10 @@ export default function ProductForm({
           const toSave = Object.entries(newTranslations)
             .filter(([, t]) => t.name.trim() || t.description.trim())
             .map(([locale, t]) => ({ locale, name: t.name, description: t.description }));
-          await saveProductTranslations(productId, toSave);
+          // `source: "auto"` → n'active pas le verrou manualEdit (le mot-à-mot
+          // PFS pourra être ré-écrasé au prochain updateProduct si la cliente
+          // ne le corrige pas manuellement).
+          await saveProductTranslations(productId, toSave, { source: "auto" });
           setTranslateSuccess("Traductions générées et enregistrées !");
         } catch {
           setTranslateSuccess("Traductions générées (erreur lors de la sauvegarde automatique).");

@@ -140,7 +140,7 @@ export const DEFAULT_TEMPLATES = {
 </ul>
 
 <h2>Article 3 — Accès et inscription</h2>
-<p>L'accès au catalogue et la passation de commandes sont réservés aux professionnels disposant d'un compte approuvé. L'inscription nécessite la fourniture d'un numéro SIRET valide et peut être soumise à validation.</p>
+<p>L'accès au catalogue et la passation de commandes sont réservés aux professionnels disposant d'un compte approuvé. L'inscription nécessite la fourniture d'un numéro SIRET valide pour les entreprises françaises, ou d'un numéro d'immatriculation professionnelle et/ou d'un numéro de TVA intracommunautaire équivalent pour les sociétés étrangères. Le compte peut être soumis à validation par nos équipes.</p>
 
 <h2>Article 4 — Prix</h2>
 <p>Les prix sont indiqués en euros hors taxes (HT). La TVA applicable est calculée selon les règles en vigueur (20% France métropole, exonération intracommunautaire sur présentation d'un numéro de TVA valide, 0% DOM-TOM et hors UE).</p>

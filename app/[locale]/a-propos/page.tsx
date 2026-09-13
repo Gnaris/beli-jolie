@@ -77,16 +77,17 @@ export default async function AboutPage() {
   const newnessBody = sectionText(aboutNewnessRow?.value, t("newnessBody"));
   const deliveryBody = sectionText(aboutDeliveryRow?.value, t("deliveryBody"));
 
-  // 6 emplacements photos : chaque slot affiche la vraie photo si la cliente
-  // en a chargé une dans Paramètres → Vitrine, sinon un placeholder visuel.
-  const aboutPhotos: (string | null)[] = [
-    aboutPhoto1Row?.value?.trim() || null,
-    aboutPhoto2Row?.value?.trim() || null,
-    aboutPhoto3Row?.value?.trim() || null,
-    aboutPhoto4Row?.value?.trim() || null,
-    aboutPhoto5Row?.value?.trim() || null,
-    aboutPhoto6Row?.value?.trim() || null,
-  ];
+  // 6 emplacements photos : on n'affiche QUE les slots réellement chargés
+  // par la cliente dans Paramètres → Vitrine. Si aucune photo n'a été
+  // chargée, la section entière est masquée (pas de placeholders vides).
+  const aboutPhotos: string[] = [
+    aboutPhoto1Row?.value?.trim(),
+    aboutPhoto2Row?.value?.trim(),
+    aboutPhoto3Row?.value?.trim(),
+    aboutPhoto4Row?.value?.trim(),
+    aboutPhoto5Row?.value?.trim(),
+    aboutPhoto6Row?.value?.trim(),
+  ].filter((url): url is string => Boolean(url && url.length > 0));
 
   return (
     <div className="min-h-screen bg-bg-primary relative">
@@ -133,23 +134,23 @@ export default async function AboutPage() {
           </div>
         </section>
 
-        {/* Grille photos placeholders ── */}
-        <section className="max-w-[1200px] mx-auto px-6 lg:px-10 py-16 lg:py-20">
-          <div className="text-center mb-10">
-            <h2 className="font-heading text-2xl md:text-3xl font-bold text-text-primary tracking-tight">
-              {t("photosTitle")}
-            </h2>
-            <p className="mt-2 text-text-muted text-sm font-body">
-              {t("photosCaption")}
-            </p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-            {aboutPhotos.map((photo, i) => (
-              <div
-                key={i}
-                className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gradient-to-br from-bg-tertiary to-bg-secondary border border-border"
-              >
-                {photo ? (
+        {/* Grille photos ── masquée si aucune photo chargée */}
+        {aboutPhotos.length > 0 && (
+          <section className="max-w-[1200px] mx-auto px-6 lg:px-10 py-16 lg:py-20">
+            <div className="text-center mb-10">
+              <h2 className="font-heading text-2xl md:text-3xl font-bold text-text-primary tracking-tight">
+                {t("photosTitle")}
+              </h2>
+              <p className="mt-2 text-text-muted text-sm font-body">
+                {t("photosCaption")}
+              </p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-3 md:gap-4">
+              {aboutPhotos.map((photo, i) => (
+                <div
+                  key={i}
+                  className="relative aspect-[4/5] w-[calc(50%-0.375rem)] md:w-[calc(33.333%-0.667rem)] rounded-2xl overflow-hidden bg-gradient-to-br from-bg-tertiary to-bg-secondary border border-border"
+                >
                   <Image
                     src={photo}
                     alt={t("photoAlt", { index: i + 1 })}
@@ -157,21 +158,11 @@ export default async function AboutPage() {
                     sizes="(max-width: 768px) 50vw, 33vw"
                     className="object-cover"
                   />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-muted">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.3}
-                        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                    </svg>
-                    <span className="text-[11px] uppercase tracking-[0.2em] font-body">
-                      {t("photoPlaceholder")}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* CTA final ── */}
         <section className="bg-bg-dark text-text-inverse">

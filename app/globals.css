@@ -2159,8 +2159,8 @@ html.admin-dark [style*="rgba(24,24,27,0.03)"] {
 }
 
 /* ─── Fonds pastels hex figés (composants Paramètres/Carrousels) ──────
-   Beaucoup de sous-composants (CatalogDisplayConfig, HomepageCarouselsConfig,
-   StockDisplayConfig, PromotionForm, etc.) utilisent des hex figés
+   Beaucoup de sous-composants (CatalogDisplayConfig, StockDisplayConfig,
+   PromotionForm, etc.) utilisent des hex figés
    `#FAFAFA`, `#F3F4F6`, `#F9FAFB`, `#E5E7EB`, `#D1D5DB` pour les fonds
    secondaires et bordures. En dark mode ces couleurs restent blanches
    et illisibles. On les remappe vers la palette sombre. */

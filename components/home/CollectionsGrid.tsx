@@ -8,6 +8,7 @@ import { useProductTranslation } from "@/hooks/useProductTranslation";
 
 interface CollectionItem {
   id: string;
+  slug: string | null;
   name: string;
   image: string | null;
   _count?: { products: number };
@@ -31,7 +32,7 @@ function CollectionCard({
   const productCount = collection._count?.products ?? 0;
 
   return (
-    <Link href={`/collections/${collection.id}`} className="group block h-full">
+    <Link href={`/collections/${collection.slug ?? collection.id}`} className="group block h-full">
       <div className="relative w-full h-full rounded-3xl overflow-hidden bg-bg-darker">
         {collection.image ? (
           <Image

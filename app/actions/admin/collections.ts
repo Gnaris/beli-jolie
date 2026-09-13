@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { autoTranslateCollection } from "@/lib/auto-translate";
-import { renameCollectionFolder, deleteDirectory, collectionImageDir, deleteFile, keyFromDbPath } from "@/lib/storage";
+import { renameCollectionFolder, deleteDirectory, collectionImageDir, deleteFile, keyFromDbPath, slugify } from "@/lib/storage";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -69,9 +69,11 @@ export async function createCollection(formData: FormData) {
     return { error: parsed.error.issues[0].message };
   }
 
+  const slug = await ensureUniqueCollectionSlug(parsed.data.name, null);
   const collection = await prisma.collection.create({
     data: {
       name:  parsed.data.name,
+      slug,
       image: parsed.data.image || null,
     },
   });
@@ -81,6 +83,35 @@ export async function createCollection(formData: FormData) {
   revalidateTag("collections", "default");
   revalidatePath("/collections");
   return { success: true, id: collection.id };
+}
+
+/**
+ * Génère un slug unique par tenant à partir du nom. Si le slug de base est
+ * déjà pris (par une autre collection), on suffixe `-2`, `-3`, etc.
+ * `excludeCollectionId` permet à un update de conserver son propre slug sans
+ * collision avec lui-même.
+ */
+async function ensureUniqueCollectionSlug(
+  name: string,
+  excludeCollectionId: string | null,
+): Promise<string> {
+  const base = slugify(name) || "collection";
+  let candidate = base;
+  let n = 2;
+  // Boucle bornée à ~50 tentatives pour éviter tout emballement pathologique.
+  for (let i = 0; i < 50; i++) {
+    const existing = await prisma.collection.findFirst({
+      where: {
+        slug: candidate,
+        ...(excludeCollectionId ? { NOT: { id: excludeCollectionId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+    candidate = `${base}-${n}`;
+    n++;
+  }
+  return `${base}-${Date.now()}`;
 }
 
 // ─────────────────────────────────────────────
@@ -107,8 +138,17 @@ export async function updateCollection(id: string, formData: FormData) {
   // garder le lecteur réseau lisible. On dérive le slug du nom.
   const previous = await prisma.collection.findUnique({
     where: { id },
-    select: { name: true, image: true },
+    select: { name: true, image: true, slug: true },
   });
+
+  // Le slug URL suit le nom : recalculé s'il a changé, on garde l'existant
+  // sinon. Sur ancienne collection sans slug (edge case backfill), on en
+  // génère un maintenant. La contrainte d'unicité par tenant est gérée par
+  // `ensureUniqueCollectionSlug` qui suffixe `-2`, `-3` si collision.
+  const nextSlug =
+    !previous?.slug || previous.name !== parsed.data.name
+      ? await ensureUniqueCollectionSlug(parsed.data.name, id)
+      : previous.slug;
 
   let newImagePath = parsed.data.image || null;
   let folderRenamed = false;
@@ -144,6 +184,7 @@ export async function updateCollection(id: string, formData: FormData) {
       where: { id },
       data: {
         name:  parsed.data.name,
+        slug:  nextSlug,
         image: newImagePath,
       },
     });

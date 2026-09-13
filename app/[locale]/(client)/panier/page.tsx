@@ -181,7 +181,7 @@ export default async function PanierPage() {
           country: companyInfo.country ?? "",
           phone: companyInfo.phone ?? "",
         },
-        schedule: formatScheduleForDisplay(businessHours),
+        schedule: formatScheduleForDisplay(businessHours, locale),
       }
     : null;
 

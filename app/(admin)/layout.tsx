@@ -84,6 +84,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     pendingOrdersCount,
     pendingUsersCount,
     openClaimsCount,
+    pendingReviewsCount,
   } = warnings;
 
   const translationEnabled = !!(pfsCreds.email && pfsCreds.password);
@@ -131,6 +132,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         pendingOrdersCount={pendingOrdersCount}
         pendingUsersCount={pendingUsersCount}
         openClaimsCount={openClaimsCount}
+        pendingReviewsCount={pendingReviewsCount}
       >
         <AdminMobileNav
           userName={session.user.name ?? "Admin"}
@@ -144,6 +146,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             "/admin/commandes": pendingOrdersCount,
             "/admin/clients": pendingUsersCount,
             "/admin/reclamations": openClaimsCount,
+            "/admin/avis": pendingReviewsCount,
           }}
           shopName={shopName}
         />

@@ -13,6 +13,7 @@ interface SubCategory {
 
 interface CategoryItem {
   id: string;
+  slug: string;
   name: string;
   image: string | null;
   productCount: number;
@@ -63,7 +64,7 @@ function CategoryCell({ cat, tp, t }: CellProps) {
   return (
     <div className="flex flex-col items-center text-center">
       <Link
-        href={`/produits?cat=${cat.id}`}
+        href={`/categories/${cat.slug}`}
         className="group flex flex-col items-center"
       >
         <CategoryCircle name={cat.name} image={cat.image} size="lg" />

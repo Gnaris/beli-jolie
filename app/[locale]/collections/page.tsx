@@ -69,7 +69,7 @@ export default async function CollectionsPage() {
               {collections.map((col) => (
                 <Link
                   key={col.id}
-                  href={`/collections/${col.id}`}
+                  href={`/collections/${col.slug ?? col.id}`}
                   className="group card overflow-hidden transition-all duration-300 hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:-translate-y-1 hover:border-accent/30"
                 >
                   {/* Image */}

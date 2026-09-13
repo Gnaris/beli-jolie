@@ -775,7 +775,8 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
     });
   }
 
-  // Traductions manuelles
+  // Traductions manuelles : marquées `manualEdit: true` pour ne pas être
+  // écrasées par un futur job d'auto-traduction (cf. `_autoTranslateProduct`).
   const existingLocales: string[] = [];
   if (input.translations && input.translations.length > 0) {
     const validTranslations = input.translations.filter((t) => t.name.trim() || t.description.trim());
@@ -786,6 +787,7 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
           locale:      t.locale,
           name:        t.name,
           description: t.description,
+          manualEdit:  true,
         })),
         skipDuplicates: true,
       });
@@ -1563,7 +1565,11 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
   }
 
-  // Traductions : remplacer toutes les traductions existantes
+  // Traductions : remplacer toutes les traductions existantes. Les entrées
+  // proviennent de la ProductForm (onglet EN saisi manuellement) → on pose
+  // `manualEdit: true` pour les protéger d'un futur écrasement par l'auto-
+  // traduction PFS. Les autres locales (sans saisie) restent auto-traduites
+  // en fond après `autoTranslateProduct(...)`.
   if (input.translations !== undefined) {
     await prisma.productTranslation.deleteMany({ where: { productId: id } });
     const validTranslations = input.translations.filter((t) => t.name.trim() || t.description.trim());
@@ -1574,6 +1580,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
           locale:      t.locale,
           name:        t.name,
           description: t.description,
+          manualEdit:  true,
         })),
         skipDuplicates: true,
       });
@@ -3117,12 +3124,18 @@ export async function updateTag(id: string, formData: FormData) {
 
 export async function saveProductTranslations(
   productId: string,
-  translations: { locale: string; name: string; description: string }[]
+  translations: { locale: string; name: string; description: string }[],
+  options: { source?: "manual" | "auto" } = {},
 ) {
   await requireAdmin();
 
   const product = await prisma.product.findUnique({ where: { id: productId } });
   if (!product) throw new Error("Produit introuvable.");
+
+  // `source` distingue une saisie admin (onglet EN du form → verrouille contre
+  // toute future auto-traduction) d'un batch auto-translate (le mot-à-mot PFS
+  // ne doit PAS poser le verrou).
+  const isManual = options.source !== "auto";
 
   await prisma.productTranslation.deleteMany({ where: { productId } });
 
@@ -3134,6 +3147,7 @@ export async function saveProductTranslations(
         locale: t.locale,
         name: t.name,
         description: t.description,
+        manualEdit: isManual,
       })),
       skipDuplicates: true,
     });

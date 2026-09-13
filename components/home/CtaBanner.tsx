@@ -31,14 +31,7 @@ export default function CtaBanner() {
           className="font-heading font-bold leading-[1.05] mx-auto max-w-3xl"
           style={{ fontSize: "clamp(2rem, 5vw, 4rem)", letterSpacing: "-0.02em" }}
         >
-          <span className="relative inline-block">
-            <span
-              aria-hidden
-              className="absolute left-0 right-0 bg-gold"
-              style={{ bottom: "0.08em", height: "0.28em", opacity: 0.85, zIndex: 0 }}
-            />
-            <span className="relative">{t("ctaTitle")}</span>
-          </span>
+          {t("ctaTitle")}
         </h2>
         <p className="mt-6 max-w-lg mx-auto text-white/70 leading-relaxed">{t("ctaDesc")}</p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">

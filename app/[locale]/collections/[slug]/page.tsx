@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { getTranslations } from "next-intl/server";
 import Image from "@/components/ui/SmartImage";
@@ -12,20 +12,48 @@ import ProductCard from "@/components/produits/ProductCard";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 
 interface PageProps {
-  params: Promise<{ id: string; locale: string }>;
+  params: Promise<{ slug: string; locale: string }>;
+}
+
+/**
+ * Résout une collection à partir du segment URL. Priorité au slug (URL propre
+ * `/collections/eclat-automne-2026`) ; fallback sur l'ancien cuid → 301 vers
+ * la version slug (préserve le SEO acquis + backlinks).
+ */
+async function resolveCollectionHandle(handle: string) {
+  const bySlug = await prisma.collection.findFirst({
+    where: { slug: handle },
+    select: { id: true, slug: true },
+  });
+  if (bySlug) return { kind: "slug" as const, id: bySlug.id, slug: bySlug.slug };
+
+  // Cuids : `cm...` — on tente une résolution par id uniquement si l'aspect
+  // colle, pour éviter un findFirst inutile sur des slugs random.
+  if (/^c[a-z0-9]{20,}$/i.test(handle)) {
+    const byId = await prisma.collection.findFirst({
+      where: { id: handle },
+      select: { id: true, slug: true },
+    });
+    if (byId?.slug) return { kind: "legacyId" as const, id: byId.id, slug: byId.slug };
+  }
+  return null;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { id, locale } = await params;
-  const col = await prisma.collection.findUnique({
-    where: { id },
-    select: { name: true, image: true },
+  const { slug, locale } = await params;
+
+  const resolved = await resolveCollectionHandle(slug);
+  if (!resolved) return {};
+
+  const col = await prisma.collection.findFirst({
+    where: { id: resolved.id },
+    select: { name: true, image: true, slug: true },
   });
-  if (!col) return {};
+  if (!col || !col.slug) return {};
   const [shopName, siteUrl, alternates] = await Promise.all([
     getCachedShopName(),
     getSiteUrl(),
-    buildAlternates(`/collections/${id}`, locale),
+    buildAlternates(`/collections/${col.slug}`, locale),
   ]);
   const title = `${col.name} — Collections ${shopName}`;
   const description = `Découvrez la collection ${col.name} sur ${shopName}. Sélection grossiste pour professionnels.`;
@@ -39,7 +67,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       type: "website",
       siteName: shopName,
-      url: `${siteUrl}/${locale}/collections/${id}`,
+      url: `${siteUrl}/${locale}/collections/${col.slug}`,
       ...(imageUrl && { images: [{ url: imageUrl, alt: col.name }] }),
     },
     twitter: {
@@ -53,14 +81,23 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function CollectionDetailPage({ params }: PageProps) {
-  const [t, shopName] = await Promise.all([
+  const [t, shopName, resolvedParams] = await Promise.all([
     getTranslations("collectionDetail"),
     getCachedShopName(),
+    params,
   ]);
-  const { id } = await params;
+  const { slug, locale } = resolvedParams;
 
-  const collection = await prisma.collection.findUnique({
-    where:   { id },
+  const resolved = await resolveCollectionHandle(slug);
+  if (!resolved) notFound();
+
+  // Ancien lien basé sur le cuid : on redirige vers l'URL slug canonique.
+  if (resolved.kind === "legacyId") {
+    permanentRedirect(`/${locale}/collections/${resolved.slug}`);
+  }
+
+  const collection = await prisma.collection.findFirst({
+    where:   { id: resolved.id },
     include: {
       products: {
         where: { product: { status: "ONLINE" } },
@@ -154,14 +191,12 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 md:gap-5">
               {collection.products.map((cp) => {
                 const p = cp.product;
-                // Couleur principale du produit (override par la collection si fourni)
                 const productPrimaryColorId = getProductPrimaryColorId({
                   primaryColorId: p.primaryColorId,
                   colors: p.colors,
                 });
                 const effectivePrimaryColorId = cp.colorId ?? productPrimaryColorId;
 
-                // Group variants by color group key (colorId)
                 const colorMap = new Map<string, {
                   groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
                   firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
@@ -173,7 +208,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   const isPrimaryColor = effectivePrimaryColorId != null && v.colorId === effectivePrimaryColorId;
                   if (!colorMap.has(gk)) {
                     colorMap.set(gk, {
-                      groupKey: gk, colorId: v.colorId, name: v.color?.name ?? "", hex: v.color?.hex ?? null, patternImage: (v.color as any)?.patternImage,
+                      groupKey: gk, colorId: v.colorId, name: v.color?.name ?? "", hex: v.color?.hex ?? null, patternImage: (v.color as { patternImage?: string | null } | null)?.patternImage,
                       firstImage: colImageMap.get(p.id)?.get(v.id) ?? colImageMap.get(p.id)?.get(v.colorId) ?? null,
                       unitPrice: Number(v.unitPrice),
                       isPrimary: isPrimaryColor,
@@ -186,10 +221,8 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
                   cd.totalStock += v.stock ?? 0;
                   if (isPrimaryColor) cd.isPrimary = true;
-                  cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: ((v as any).variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
+                  cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
                 }
-                // Masque les couleurs sans aucune image (cohérent avec la
-                // fiche produit et les push marketplaces).
                 const colors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
 
                 return (

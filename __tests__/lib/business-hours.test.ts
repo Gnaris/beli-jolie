@@ -75,21 +75,27 @@ describe("business-hours", () => {
   });
 
   describe("getNextOpenSlot", () => {
-    it("returns today if before opening time", () => {
+    it("returns today (FR by default) if before opening time", () => {
       // Monday 2026-04-06 at 07:00 UTC
       vi.setSystemTime(new Date("2026-04-06T07:00:00Z"));
       const result = getNextOpenSlot(SCHEDULE);
       expect(result).toEqual({ day: "Lundi", time: "09:00" });
     });
 
-    it("returns next weekday when on a closed day", () => {
+    it("returns English day name when locale=en", () => {
+      vi.setSystemTime(new Date("2026-04-06T07:00:00Z"));
+      const result = getNextOpenSlot(SCHEDULE, "en");
+      expect(result).toEqual({ day: "Monday", time: "09:00" });
+    });
+
+    it("returns next weekday when on a closed day (Sat → Mon)", () => {
       // Saturday 2026-04-04 at 12:00 UTC -> next open = Sunday? No, Sunday closed too -> Monday
       vi.setSystemTime(new Date("2026-04-04T12:00:00Z"));
       const result = getNextOpenSlot(SCHEDULE);
       expect(result).toEqual({ day: "Lundi", time: "09:00" });
     });
 
-    it("returns next day when after closing time", () => {
+    it("returns next day when after closing time (Mon → Tue)", () => {
       // Monday 2026-04-06 at 20:00 UTC -> next = Tuesday
       vi.setSystemTime(new Date("2026-04-06T20:00:00Z"));
       const result = getNextOpenSlot(SCHEDULE);
@@ -115,17 +121,29 @@ describe("business-hours", () => {
   });
 
   describe("formatScheduleForDisplay", () => {
-    it("returns 7 days in Mon-Sun order", () => {
+    it("returns 7 days in Mon-Sun order (FR by default)", () => {
       const rows = formatScheduleForDisplay(SCHEDULE);
       expect(rows).toHaveLength(7);
       expect(rows[0].day).toBe("Lundi");
       expect(rows[6].day).toBe("Dimanche");
     });
 
-    it("shows 'Fermé' for closed days", () => {
+    it("returns English day names when locale=en", () => {
+      const rows = formatScheduleForDisplay(SCHEDULE, "en");
+      expect(rows[0].day).toBe("Monday");
+      expect(rows[6].day).toBe("Sunday");
+    });
+
+    it("shows 'Fermé' for closed days (FR)", () => {
       const rows = formatScheduleForDisplay(SCHEDULE);
-      expect(rows[5].hours).toBe("Fermé"); // Saturday (index 5 = key "6")
-      expect(rows[6].hours).toBe("Fermé"); // Sunday (index 6 = key "0")
+      expect(rows[5].hours).toBe("Fermé"); // Saturday
+      expect(rows[6].hours).toBe("Fermé"); // Sunday
+    });
+
+    it("shows 'Closed' for closed days when locale=en", () => {
+      const rows = formatScheduleForDisplay(SCHEDULE, "en");
+      expect(rows[5].hours).toBe("Closed");
+      expect(rows[6].hours).toBe("Closed");
     });
 
     it("shows time range for open days", () => {
@@ -135,19 +153,27 @@ describe("business-hours", () => {
   });
 
   describe("getTodayHoursLabel", () => {
-    it("returns short-form range on an open weekday", () => {
-      // Wednesday 2026-04-08 at 10:00 UTC
+    it("returns short-form range on an open weekday (FR)", () => {
       vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
       expect(getTodayHoursLabel(SCHEDULE)).toBe("9h — 18h");
     });
 
-    it("returns 'Fermé' on a closed day", () => {
-      // Saturday 2026-04-04 at 12:00 UTC
+    it("returns AM/PM short-form when locale=en", () => {
+      vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
+      expect(getTodayHoursLabel(SCHEDULE, "en")).toBe("9 AM — 6 PM");
+    });
+
+    it("returns 'Fermé' on a closed day (FR)", () => {
       vi.setSystemTime(new Date("2026-04-04T12:00:00Z"));
       expect(getTodayHoursLabel(SCHEDULE)).toBe("Fermé");
     });
 
-    it("formats non-zero minutes as e.g. '9h30'", () => {
+    it("returns 'Closed' on a closed day when locale=en", () => {
+      vi.setSystemTime(new Date("2026-04-04T12:00:00Z"));
+      expect(getTodayHoursLabel(SCHEDULE, "en")).toBe("Closed");
+    });
+
+    it("formats non-zero minutes as e.g. '9h30' (FR)", () => {
       const scheduleWithMinutes: BusinessHoursSchedule = {
         timezone: "UTC",
         days: {
@@ -155,7 +181,6 @@ describe("business-hours", () => {
           "3": { open: "09:30", close: "18:15" }, // Wednesday
         },
       };
-      // Wednesday 2026-04-08 at 10:00 UTC
       vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
       expect(getTodayHoursLabel(scheduleWithMinutes)).toBe("9h30 — 18h15");
     });
@@ -165,7 +190,6 @@ describe("business-hours", () => {
         timezone: "UTC",
         days: { "1": { open: "09:00", close: "18:00" } },
       };
-      // Wednesday (day "3") at 10:00 UTC - day "3" is absent
       vi.setSystemTime(new Date("2026-04-08T10:00:00Z"));
       expect(getTodayHoursLabel(partial)).toBe("Fermé");
     });

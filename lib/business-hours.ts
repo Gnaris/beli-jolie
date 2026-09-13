@@ -1,6 +1,10 @@
 /**
  * Business hours utilities.
  * Schedule stored in SiteConfig as JSON with key "business_hours".
+ *
+ * Localisation : les helpers d'affichage acceptent un paramètre `locale`
+ * facultatif (défaut "fr"). Toute page publique sous `/en/…` doit passer "en"
+ * pour éviter que "Lundi" ou "Fermé" fuient sur la version anglaise.
  */
 
 export interface DaySchedule {
@@ -14,7 +18,21 @@ export interface BusinessHoursSchedule {
   days: Record<string, DaySchedule>; // keys "0"-"6" (0=Sunday, matches JS getDay())
 }
 
-const DAY_NAMES_FR = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+type SupportedLocale = "fr" | "en";
+
+const DAY_NAMES: Record<SupportedLocale, string[]> = {
+  fr: ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"],
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+};
+
+const CLOSED_LABEL: Record<SupportedLocale, string> = {
+  fr: "Fermé",
+  en: "Closed",
+};
+
+function normalizeLocale(input: string | undefined): SupportedLocale {
+  return input === "en" ? "en" : "fr";
+}
 
 /** Monday-Friday 9-18, Saturday-Sunday closed, Europe/Paris */
 export const DEFAULT_BUSINESS_HOURS: BusinessHoursSchedule = {
@@ -76,15 +94,23 @@ export function isWithinBusinessHours(schedule: BusinessHoursSchedule): boolean 
   return nowMinutes >= parseTime(day.open) && nowMinutes < parseTime(day.close);
 }
 
-/** Get next opening slot (day name + time) */
-export function getNextOpenSlot(schedule: BusinessHoursSchedule): { day: string; time: string } | null {
+/**
+ * Get next opening slot (day name + time). Le libellé du jour est localisé
+ * via `locale` (défaut "fr"), pour ne pas fuir "Lundi" sur les pages EN.
+ */
+export function getNextOpenSlot(
+  schedule: BusinessHoursSchedule,
+  locale?: string,
+): { day: string; time: string } | null {
+  const loc = normalizeLocale(locale);
+  const dayNames = DAY_NAMES[loc];
   const { dayOfWeek, hours, minutes } = getNowInTimezone(schedule.timezone);
   const nowMinutes = hours * 60 + minutes;
 
   // Check remaining of today first
   const today = schedule.days[String(dayOfWeek)];
   if (today && !today.closed && nowMinutes < parseTime(today.open)) {
-    return { day: DAY_NAMES_FR[dayOfWeek], time: today.open };
+    return { day: dayNames[dayOfWeek], time: today.open };
   }
 
   // Check next 7 days
@@ -92,36 +118,52 @@ export function getNextOpenSlot(schedule: BusinessHoursSchedule): { day: string;
     const d = (dayOfWeek + i) % 7;
     const slot = schedule.days[String(d)];
     if (slot && !slot.closed) {
-      return { day: DAY_NAMES_FR[d], time: slot.open };
+      return { day: dayNames[d], time: slot.open };
     }
   }
 
   return null;
 }
 
-/** Format schedule for display: array of { day, hours } */
-export function formatScheduleForDisplay(schedule: BusinessHoursSchedule): { day: string; hours: string }[] {
+/** Format schedule for display : array of { day, hours }. `locale` localise le nom de jour et "Fermé". */
+export function formatScheduleForDisplay(
+  schedule: BusinessHoursSchedule,
+  locale?: string,
+): { day: string; hours: string }[] {
+  const loc = normalizeLocale(locale);
+  const dayNames = DAY_NAMES[loc];
+  const closedLabel = CLOSED_LABEL[loc];
   // Display Mon-Sun order (1,2,3,4,5,6,0)
   const order = [1, 2, 3, 4, 5, 6, 0];
   return order.map((d) => {
     const slot = schedule.days[String(d)];
     return {
-      day: DAY_NAMES_FR[d],
-      hours: !slot || slot.closed ? "Fermé" : `${slot.open} - ${slot.close}`,
+      day: dayNames[d],
+      hours: !slot || slot.closed ? closedLabel : `${slot.open} - ${slot.close}`,
     };
   });
 }
 
 /** Format "09:00" as "9h", "09:30" as "9h30" (French short form) */
-function formatHourShort(t: string): string {
+function formatHourShortFr(t: string): string {
   const [h, m] = t.split(":").map(Number);
   return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
 }
 
-/** Label for today's hours in the schedule timezone: "9h — 18h" or "Fermé" */
-export function getTodayHoursLabel(schedule: BusinessHoursSchedule): string {
+/** Format "09:00" as "9 AM", "09:30" as "9:30 AM" (English short form) */
+function formatHourShortEn(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12} ${suffix}` : `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/** Label for today's hours in the schedule timezone: "9h — 18h" or "Fermé" (FR) / "9 AM — 6 PM" or "Closed" (EN) */
+export function getTodayHoursLabel(schedule: BusinessHoursSchedule, locale?: string): string {
+  const loc = normalizeLocale(locale);
   const { dayOfWeek } = getNowInTimezone(schedule.timezone);
   const day = schedule.days[String(dayOfWeek)];
-  if (!day || day.closed) return "Fermé";
-  return `${formatHourShort(day.open)} — ${formatHourShort(day.close)}`;
+  if (!day || day.closed) return CLOSED_LABEL[loc];
+  const fmt = loc === "en" ? formatHourShortEn : formatHourShortFr;
+  return `${fmt(day.open)} — ${fmt(day.close)}`;
 }

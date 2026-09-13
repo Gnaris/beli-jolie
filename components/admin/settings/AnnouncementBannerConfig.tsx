@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { updateAnnouncementBanner } from "@/app/actions/admin/site-config";
 import { useToast } from "@/components/ui/Toast";
-import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
+import AnnouncementBanner, { type AnnouncementBannerMode } from "@/components/layout/AnnouncementBanner";
 
 interface AnnouncementBannerConfigProps {
   initialMessages: string[];
   initialBgColor: string;
   initialTextColor: string;
   initialSpeed: number;
+  initialMode: AnnouncementBannerMode;
 }
 
 export default function AnnouncementBannerConfig({
@@ -17,6 +18,7 @@ export default function AnnouncementBannerConfig({
   initialBgColor,
   initialTextColor,
   initialSpeed,
+  initialMode,
 }: AnnouncementBannerConfigProps) {
   const [messages, setMessages] = useState<string[]>(
     initialMessages.length > 0 ? initialMessages : [""]
@@ -24,6 +26,7 @@ export default function AnnouncementBannerConfig({
   const [bgColor, setBgColor] = useState(initialBgColor);
   const [textColor, setTextColor] = useState(initialTextColor);
   const [speed, setSpeed] = useState(initialSpeed);
+  const [mode, setMode] = useState<AnnouncementBannerMode>(initialMode);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
@@ -47,6 +50,7 @@ export default function AnnouncementBannerConfig({
         bgColor,
         textColor,
         speed,
+        mode,
       });
       if (result.success) {
         toast({ type: "success", title: "Succes", message: "Bandeau mis a jour." });
@@ -64,6 +68,57 @@ export default function AnnouncementBannerConfig({
 
   return (
     <div className="space-y-5">
+      {/* Mode d'affichage */}
+      <div className="space-y-2">
+        <p className="text-sm font-body text-text-secondary">Mode d&apos;affichage</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <label
+            className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+              mode === "scroll"
+                ? "border-primary bg-primary/5"
+                : "border-border bg-bg-secondary hover:border-border-strong"
+            }`}
+          >
+            <input
+              type="radio"
+              name="banner-mode"
+              value="scroll"
+              checked={mode === "scroll"}
+              onChange={() => setMode("scroll")}
+              className="mt-1 accent-primary"
+            />
+            <span className="flex-1">
+              <span className="block text-sm font-semibold text-text-primary">Défilement</span>
+              <span className="block text-xs text-text-secondary mt-0.5">
+                Les messages défilent l&apos;un après l&apos;autre.
+              </span>
+            </span>
+          </label>
+          <label
+            className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+              mode === "static"
+                ? "border-primary bg-primary/5"
+                : "border-border bg-bg-secondary hover:border-border-strong"
+            }`}
+          >
+            <input
+              type="radio"
+              name="banner-mode"
+              value="static"
+              checked={mode === "static"}
+              onChange={() => setMode("static")}
+              className="mt-1 accent-primary"
+            />
+            <span className="flex-1">
+              <span className="block text-sm font-semibold text-text-primary">Statique</span>
+              <span className="block text-xs text-text-secondary mt-0.5">
+                Tous les messages visibles en même temps, séparés par un point.
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
+
       {/* Messages list */}
       <div className="space-y-3">
         {messages.map((msg, i) => (
@@ -127,20 +182,22 @@ export default function AnnouncementBannerConfig({
         </div>
       </div>
 
-      {/* Speed slider */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-body text-text-secondary whitespace-nowrap">Vitesse :</label>
-        <input
-          type="range"
-          min={3}
-          max={15}
-          step={1}
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-          className="flex-1 max-w-48 accent-primary"
-        />
-        <span className="text-xs font-mono text-text-secondary w-12">{speed}s</span>
-      </div>
+      {/* Speed slider (mode scroll uniquement) */}
+      {mode === "scroll" && (
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-body text-text-secondary whitespace-nowrap">Vitesse :</label>
+          <input
+            type="range"
+            min={3}
+            max={15}
+            step={1}
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+            className="flex-1 max-w-48 accent-primary"
+          />
+          <span className="text-xs font-mono text-text-secondary w-12">{speed}s</span>
+        </div>
+      )}
 
       {/* Live preview */}
       {activeMessages.length > 0 && (
@@ -152,6 +209,7 @@ export default function AnnouncementBannerConfig({
               bgColor={bgColor}
               textColor={textColor}
               speed={speed}
+              mode={mode}
               preview
             />
           </div>
