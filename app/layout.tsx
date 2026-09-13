@@ -1,6 +1,6 @@
 import "@/lib/env";
 import type { Metadata } from "next";
-import { Poppins, Roboto } from "next/font/google";
+import { Poppins, Roboto, Cormorant_Garamond } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { getServerSession } from "next-auth";
@@ -39,6 +39,18 @@ const roboto = Roboto({
   subsets: ["latin"],
   display: "swap",
   weight: ["300", "400", "500", "700"],
+});
+
+// Cormorant Garamond : titres serif utilisés uniquement par la home Issyma
+// (`HomeIssymaLayout`). Chargement au niveau root pour partager le cache
+// entre tous les tenants — la variable CSS `--font-cormorant` est disponible
+// mais aucun autre layout ne s'en sert.
+const cormorant = Cormorant_Garamond({
+  variable: "--font-cormorant",
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
 /* ─────────────────────────────────────────────
@@ -157,7 +169,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={isRTL ? "rtl" : "ltr"}
-      className={`${poppins.variable} ${roboto.variable} ${htmlThemeClass}`.trim()}
+      className={`${poppins.variable} ${roboto.variable} ${cormorant.variable} ${htmlThemeClass}`.trim()}
       style={announcement ? ({ "--announcement-height": `${ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX}px` } as React.CSSProperties) : undefined}
       suppressHydrationWarning
     >

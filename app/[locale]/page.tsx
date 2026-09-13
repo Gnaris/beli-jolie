@@ -7,19 +7,16 @@ import { getCachedSiteConfig, getCachedShopName, getCachedProductCount } from "@
 import { buildAlternates, buildWebsiteSchema, buildSiteNavigationSchema, getSiteUrl } from "@/lib/seo";
 import { getPublishedCustomerReviews } from "@/lib/customer-reviews";
 import { parseHomeFaq, buildFaqJsonLd } from "@/lib/home-faq";
-import PublicSidebar from "@/components/layout/PublicSidebar";
-import Footer from "@/components/layout/Footer";
-import CollectionsGrid from "@/components/home/CollectionsGrid";
-import ProductCarousel, { CarouselProduct } from "@/components/home/ProductCarousel";
+import { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
-import HeroBanner from "@/components/home/HeroBanner";
 import { parseHeroOverlay } from "@/lib/hero-overlay";
-import TrustBand from "@/components/home/TrustBand";
-import CategoryGrid from "@/components/home/CategoryGrid";
-import CtaBanner from "@/components/home/CtaBanner";
-import ReviewsSection from "@/components/home/ReviewsSection";
-import FaqSection from "@/components/home/FaqSection";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { getCurrentTenantSlug } from "@/lib/tenant";
+import { cookies } from "next/headers";
+import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
+import HomeIssymaLayout from "@/components/home/layouts/HomeIssymaLayout";
+import HomeLayoutDevSwitcher from "@/components/home/layouts/HomeLayoutDevSwitcher";
+import type { HomeLayoutProps } from "@/components/home/layouts/HomeLayoutProps";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -402,89 +399,48 @@ export default async function HomePage() {
   const jsonLdBlocks: object[] = [webSiteJsonLd, navJsonLd];
   if (faqItems.length > 0) jsonLdBlocks.push(buildFaqJsonLd(faqItems));
 
+  // ── Dispatch vers le layout du tenant courant ──────────────────────────────
+  // Chaque boutique a son propre fichier dans `components/home/layouts/`.
+  // Fallback = layout Beliandjolie (design d'origine) pour tout tenant inconnu.
+  const layoutProps: HomeLayoutProps = {
+    shopName,
+    bannerImage,
+    heroOverrides,
+    productCount,
+    clientDiscount,
+    favoriteIds,
+    newCards,
+    bestSellerCards,
+    categories,
+    collections,
+    reviews,
+    faqItems,
+    jsonLdBlocks,
+  };
+
+  const tenantSlug = await getCurrentTenantSlug();
+
+  // Override dev-only : cookie `bj_home_preview` posé par HomeLayoutDevSwitcher.
+  // Permet de basculer en local entre les 2 layouts sans changer de domaine.
+  // Jamais actif en prod (garde `NODE_ENV`).
+  const isDev = process.env.NODE_ENV !== "production";
+  const cookieStore = await cookies();
+  const previewOverride = cookieStore.get("bj_home_preview")?.value;
+
+  let layoutChoice: "beliandjolie" | "issyma" =
+    tenantSlug === "issyma" ? "issyma" : "beliandjolie";
+  if (isDev && (previewOverride === "beliandjolie" || previewOverride === "issyma")) {
+    layoutChoice = previewOverride;
+  }
+
   return (
-    <div className="min-h-screen bg-bg-secondary relative">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdBlocks) }} />
-      <PublicSidebar shopName={shopName} />
-
-      <main className="relative z-10 -mt-16">
-        {/* 1. Hero éditable */}
-        <HeroBanner
-          bannerImage={bannerImage}
-          shopName={shopName}
-          productCount={productCount}
-          {...heroOverrides}
-        />
-
-        {/* 2. Nouveautés — 8 max + CTA « Voir toutes les nouveautés → » */}
-        {newCards.length > 0 && (
-          <ProductCarousel
-            title={t("newProducts")}
-            eyebrow={t("newProductsEyebrow")}
-            products={newCards}
-            viewMoreHref="/produits?new=1"
-            viewMoreLabel={t("newProductsMore")}
-            variant="white"
-            clientDiscount={clientDiscount}
-            favoriteIds={favoriteIds}
-          />
-        )}
-
-        {/* 3. Catégories */}
-        {categories.length > 0 && (
-          <CategoryGrid categories={categories} />
-        )}
-
-        {/* 4. Collections du moment (3 max) */}
-        {collections.length > 0 && (
-          <CollectionsGrid collections={collections} />
-        )}
-
-        {/* 5. Best Sellers — 8 max + CTA « Voir tous les best sellers → » */}
-        {bestSellerCards.length > 0 && (
-          <ProductCarousel
-            title={t("bestsellers")}
-            eyebrow={t("bestsellersEyebrow")}
-            products={bestSellerCards}
-            viewMoreHref="/produits?bestseller=1"
-            viewMoreLabel={t("bestsellersMore")}
-            variant="gray"
-            clientDiscount={clientDiscount}
-            favoriteIds={favoriteIds}
-          />
-        )}
-
-        {/* 6. Pourquoi ISSYMA — réassurance numérotée 01-04 */}
-        <TrustBand />
-
-        {/* 7. Avis clients (3-5, éditables depuis l'admin, masqué si vide) */}
-        {reviews.length > 0 && (
-          <ReviewsSection
-            reviews={reviews}
-            eyebrow={t("reviewsEyebrow")}
-            title={t("reviewsTitle")}
-          />
-        )}
-
-        {/* 8. FAQ (jusqu'à 8, éditables depuis l'admin + JSON-LD FAQPage
-             injecté ci-dessus pour les rich results Google). Masquée si vide. */}
-        {faqItems.length > 0 && (
-          <FaqSection
-            items={faqItems}
-            eyebrow={t("faqEyebrow")}
-            title={t("faqTitle")}
-            contactTitle={t("faqContactTitle")}
-            contactDesc={t("faqContactDesc")}
-            contactCta={t("faqContactCta")}
-            contactHref="/nous-contacter"
-          />
-        )}
-
-        {/* 9. CTA final « Inscription pro » */}
-        <CtaBanner />
-      </main>
-
-      <Footer shopName={shopName} />
-    </div>
+    <>
+      {layoutChoice === "issyma" ? (
+        <HomeIssymaLayout {...layoutProps} />
+      ) : (
+        <HomeBeliandjolieLayout {...layoutProps} />
+      )}
+      {isDev && <HomeLayoutDevSwitcher current={layoutChoice} />}
+    </>
   );
 }
