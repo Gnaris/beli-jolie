@@ -44,6 +44,8 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
+import BrandBrandingConfig from "@/components/admin/settings/BrandBrandingConfig";
+import { SEO_CONFIG_KEYS } from "@/lib/seo";
 import HomeHeroConfig from "@/components/admin/settings/HomeHeroConfig";
 import HeroOverlayConfig from "@/components/admin/settings/HeroOverlayConfig";
 import { parseHeroOverlay } from "@/lib/hero-overlay";
@@ -978,6 +980,7 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildContenuTile(): Promise<DashboardTile> {
   const { getSiteUrl } = await import("@/lib/seo");
+  const brandingKeys = [SEO_CONFIG_KEYS.logo, SEO_CONFIG_KEYS.ogImage, ...SEO_CONFIG_KEYS.socials];
   const [
     homeRow,
     produitsRow,
@@ -985,6 +988,7 @@ async function buildContenuTile(): Promise<DashboardTile> {
     taglineRow,
     shopName,
     siteUrl,
+    brandingRows,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
@@ -992,7 +996,17 @@ async function buildContenuTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
     getCachedShopName(),
     getSiteUrl(),
+    prisma.siteConfig.findMany({
+      where: { key: { in: brandingKeys } },
+      select: { key: true, value: true },
+    }),
   ]);
+  const brandingMap = new Map(brandingRows.map((r) => [r.key, r.value ?? ""]));
+  const initialSocials: Record<string, string> = {};
+  for (const k of SEO_CONFIG_KEYS.socials) {
+    const v = brandingMap.get(k);
+    if (v) initialSocials[k] = v;
+  }
 
   const homeText = homeRow?.value?.trim() ?? "";
   const tagline = taglineRow?.value?.trim() || "Grossiste B2B";
@@ -1026,6 +1040,18 @@ async function buildContenuTile(): Promise<DashboardTile> {
             initialProduitsText={produitsRow?.value ?? ""}
             initialProduitsIntroText={produitsIntroRow?.value ?? ""}
             initialTagline={taglineRow?.value ?? ""}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.image}
+          title="Logo & réseaux sociaux"
+          description="Logo de marque envoyé à Google (vignette dans les résultats) + comptes officiels affichés sous votre fiche marque."
+        >
+          <BrandBrandingConfig
+            initialLogoUrl={brandingMap.get(SEO_CONFIG_KEYS.logo) ?? ""}
+            initialOgImageUrl={brandingMap.get(SEO_CONFIG_KEYS.ogImage) ?? ""}
+            initialSocials={initialSocials}
           />
         </SettingCard>
 

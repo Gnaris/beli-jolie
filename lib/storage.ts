@@ -349,6 +349,15 @@ export function faviconDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/favicon", tenantSlug) : "uploads/favicon";
 }
 
+/**
+ * Directory key for the brand logo (JSON-LD Organization, Open Graph fallback).
+ * Distinct from the favicon : le logo est un carré 512×512 haute qualité pour
+ * Google + réseaux sociaux, alors que le favicon est optimisé pour 32×32.
+ */
+export function brandLogoDir(tenantSlug?: string): string {
+  return tenantSlug ? withTenantSlug("uploads/logo", tenantSlug) : "uploads/logo";
+}
+
 /** Directory key for the shared mail header logo (marketing mails). */
 export function mailBrandingDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/mail-branding", tenantSlug) : "uploads/mail-branding";

@@ -11,7 +11,8 @@ import { encryptIfSensitive } from "@/lib/encryption";
 import type { MarkupType, RoundingMode } from "@/lib/marketplace-pricing";
 import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
-import { setSiteConfig } from "@/lib/site-config-write";
+import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
+import { SEO_CONFIG_KEYS, type SocialPlatform } from "@/lib/seo";
 import { aboutPhotoKey } from "@/lib/about-photo";
 import type { MinOrderMode } from "@/lib/min-order";
 import { isMinOrderMode } from "@/lib/min-order";
@@ -238,6 +239,80 @@ export async function updateHomeHero(input: {
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Met à jour l'image de logo et les liens de réseaux sociaux exposés à Google
+ * dans le JSON-LD Organization + utilisés comme fallback pour l'image OG.
+ *
+ * - `logoUrl` : chemin relatif (`/uploads/{tenant}/logo/…`) ou URL absolue.
+ *   Vide → retire la clé (Google retombe sur le favicon).
+ * - `socials` : chaque URL doit commencer par https://. Vide = clé effacée.
+ *
+ * Résultat immédiat côté SEO (revalidateTag `site-config` + `company-info`).
+ */
+export async function updateBrandBranding(input: {
+  logoUrl: string;
+  ogImageUrl: string;
+  socials: Partial<Record<SocialPlatform, string>>;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const logoUrl = input.logoUrl.trim();
+    const ogImageUrl = input.ogImageUrl.trim();
+
+    if (logoUrl && !/^(https?:\/\/|\/)/.test(logoUrl)) {
+      return { success: false, error: "Le lien du logo doit commencer par « / » ou « https:// »." };
+    }
+    if (ogImageUrl && !/^(https?:\/\/|\/)/.test(ogImageUrl)) {
+      return { success: false, error: "Le lien de l'image de partage doit commencer par « / » ou « https:// »." };
+    }
+
+    const socialOps: Promise<unknown>[] = [];
+    for (const key of SEO_CONFIG_KEYS.socials) {
+      const raw = (input.socials[key] ?? "").trim();
+      if (!raw) {
+        socialOps.push(unsetSiteConfig(key));
+        continue;
+      }
+      if (!/^https:\/\//i.test(raw)) {
+        return {
+          success: false,
+          error: `Le lien ${labelForSocial(key)} doit commencer par « https:// ».`,
+        };
+      }
+      if (raw.length > 300) {
+        return { success: false, error: `Le lien ${labelForSocial(key)} est trop long (max 300 caractères).` };
+      }
+      socialOps.push(setSiteConfig(key, raw));
+    }
+
+    await Promise.all([
+      logoUrl ? setSiteConfig(SEO_CONFIG_KEYS.logo, logoUrl) : unsetSiteConfig(SEO_CONFIG_KEYS.logo),
+      ogImageUrl ? setSiteConfig(SEO_CONFIG_KEYS.ogImage, ogImageUrl) : unsetSiteConfig(SEO_CONFIG_KEYS.ogImage),
+      ...socialOps,
+    ]);
+
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    revalidateTag("company-info", "default");
+    revalidatePath("/", "layout");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+function labelForSocial(key: SocialPlatform): string {
+  switch (key) {
+    case "social_facebook_url": return "Facebook";
+    case "social_instagram_url": return "Instagram";
+    case "social_pinterest_url": return "Pinterest";
+    case "social_tiktok_url": return "TikTok";
+    case "social_youtube_url": return "YouTube";
+    case "social_linkedin_url": return "LinkedIn";
+    case "social_twitter_url": return "X / Twitter";
   }
 }
 

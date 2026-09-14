@@ -132,13 +132,21 @@ export default async function RootLayout({
   const adminTheme = parseAdminTheme(cookieStore.get(ADMIN_THEME_COOKIE)?.value ?? null);
   const htmlThemeClass = isAdminRoute && adminTheme === "dark" ? "admin-dark" : "";
 
+  const siteUrl = await getSiteUrl();
+  // Logo : accepte un chemin relatif (upload local) ou une URL absolue.
+  const absoluteLogoUrl = seoConfig.logoUrl
+    ? (seoConfig.logoUrl.startsWith("http") ? seoConfig.logoUrl : `${siteUrl}${seoConfig.logoUrl}`)
+    : null;
   const organizationJsonLd = buildOrganizationSchema({
     name: shopName,
-    url: await getSiteUrl(),
+    url: siteUrl,
     description: `${shopName} — plateforme grossiste B2B pour professionnels.`,
     email: seoConfig.email,
     phone: seoConfig.phone,
     address: seoConfig.address,
+    logoUrl: absoluteLogoUrl,
+    sameAs: seoConfig.socials,
+    aggregateRating: seoConfig.reviews,
   });
 
   let announcement: {
