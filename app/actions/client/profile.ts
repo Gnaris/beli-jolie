@@ -67,19 +67,41 @@ export async function updateProfile(data: {
 
 /**
  * Bascule la préférence newsletter du client authentifié.
- * Une case unique couvre newsletter + relances panier abandonné (cf. mémoire
- * projet & wizard d'inscription). Si `false`, aucun email marketing ne doit
- * partir vers ce client.
+ * Une case unique couvre newsletter + relances panier abandonné (RGPD + choix
+ * cliente). Se désinscrire coupe donc AUSSI toute relance panier oublié :
+ * on force `abandonedCartOptOut = true` et on annule les jobs en attente.
+ * Se réinscrire remet `abandonedCartOptOut = false` — un nouveau job sera
+ * créé à la prochaine mutation panier.
  */
 export async function setNewsletterPreference(accept: boolean) {
   const session = await getServerSession(authOptions);
   if (!session) throw new Error("Non autorise");
 
+  const userId = session.user.id;
+  const accepts = Boolean(accept);
+
   await prisma.user.update({
-    where: { id: session.user.id },
-    data: { acceptsNewsletter: Boolean(accept) },
+    where: { id: userId },
+    data: {
+      acceptsNewsletter: accepts,
+      abandonedCartOptOut: !accepts,
+    },
   });
 
+  if (!accepts) {
+    // Annule les jobs de relance panier en attente pour ce user
+    // (le worker n'enverra pas de toute façon, mais on cache le timer
+    // côté admin et on trace `cancelReason` pour le debug).
+    await prisma.abandonedCartJob.updateMany({
+      where: { userId, status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        nextStageAt: null,
+        cancelReason: "OPT_OUT",
+      },
+    });
+  }
+
   revalidatePath("/espace-pro");
-  return { success: true, acceptsNewsletter: Boolean(accept) };
+  return { success: true, acceptsNewsletter: accepts };
 }

@@ -57,6 +57,7 @@ export async function bumpAbandonedCartTimer(
         role: true,
         status: true,
         abandonedCartOptOut: true,
+        acceptsNewsletter: true,
       },
     });
     if (!user) return;
@@ -64,7 +65,10 @@ export async function bumpAbandonedCartTimer(
       await cancelJobIfExists(userId, tenantId, "USER_NOT_APPROVED");
       return;
     }
-    if (user.abandonedCartOptOut) {
+    // Désinscrit newsletter = désinscrit relances panier (case unique côté
+    // client & admin). Le flag `abandonedCartOptOut` est synchronisé mais on
+    // vérifie les deux en défense (import legacy, backfill, script CLI…).
+    if (user.abandonedCartOptOut || !user.acceptsNewsletter) {
       await cancelJobIfExists(userId, tenantId, "OPT_OUT");
       return;
     }

@@ -9,7 +9,6 @@ import { getAvailableCredit } from "@/lib/credits";
 import { buildProductHandle } from "@/lib/product-url";
 import AccountEditor from "@/components/client/AccountEditor";
 import NewsletterToggle from "@/components/client/NewsletterToggle";
-import AbandonedCartOptOutToggle from "@/components/client/AbandonedCartOptOutToggle";
 import MyReviewCard, { type MyReviewInitial } from "@/components/client/MyReviewCard";
 import { userHasEligibleOrder, findMyReview } from "@/lib/customer-reviews";
 import LogoutButton from "@/components/client/LogoutButton";
@@ -790,11 +789,10 @@ export default async function DashboardPage() {
             vatNumber: user.vatNumber,
           }} />
 
-          {/* -- Préférences newsletter (opt-in / opt-out en 1 clic) -- */}
+          {/* -- Préférences newsletter (opt-in / opt-out en 1 clic) --
+              Couvre à la fois les nouveautés/promos et les rappels de panier
+              oublié : refuser coupe tout email marketing. */}
           <NewsletterToggle acceptsNewsletter={user.acceptsNewsletter} />
-
-          {/* -- Préférences relances panier abandonné -- */}
-          <AbandonedCartOptOutToggle optOut={user.abandonedCartOptOut} />
 
           {/* -- Déposer un avis (visible aux clients ayant ≥ 1 commande SHIPPED) -- */}
           <MyReviewCard hasEligibleOrder={hasEligibleReviewOrder} initialReview={initialReview} />

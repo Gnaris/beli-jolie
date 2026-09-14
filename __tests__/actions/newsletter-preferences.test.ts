@@ -14,6 +14,9 @@ const mockPrisma = vi.hoisted(() => ({
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
   },
+  abandonedCartJob: {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  },
 }));
 
 const mockGetServerSession = vi.hoisted(() => vi.fn());
@@ -39,22 +42,31 @@ describe("setNewsletterPreference (client)", () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
-  it("active la newsletter pour l'utilisateur connecte", async () => {
+  it("active la newsletter + reactive les relances panier", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { id: "client-1", role: "CLIENT" } });
     const res = await setNewsletterPreference(true);
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: "client-1" },
-      data: { acceptsNewsletter: true },
+      data: { acceptsNewsletter: true, abandonedCartOptOut: false },
     });
+    expect(mockPrisma.abandonedCartJob.updateMany).not.toHaveBeenCalled();
     expect(res).toEqual({ success: true, acceptsNewsletter: true });
   });
 
-  it("desactive la newsletter en 1 clic", async () => {
+  it("desactive la newsletter en 1 clic + cancel les jobs de relance", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { id: "client-2", role: "CLIENT" } });
     const res = await setNewsletterPreference(false);
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: "client-2" },
-      data: { acceptsNewsletter: false },
+      data: { acceptsNewsletter: false, abandonedCartOptOut: true },
+    });
+    expect(mockPrisma.abandonedCartJob.updateMany).toHaveBeenCalledWith({
+      where: { userId: "client-2", status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        nextStageAt: null,
+        cancelReason: "OPT_OUT",
+      },
     });
     expect(res).toEqual({ success: true, acceptsNewsletter: false });
   });
@@ -65,7 +77,7 @@ describe("setNewsletterPreference (client)", () => {
     await setNewsletterPreference("yes" as unknown as boolean);
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: "client-3" },
-      data: { acceptsNewsletter: true },
+      data: { acceptsNewsletter: true, abandonedCartOptOut: false },
     });
   });
 });
@@ -99,25 +111,34 @@ describe("setUserNewsletter (admin)", () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
-  it("desinscrit un client à la demande verbale", async () => {
+  it("desinscrit un client à la demande verbale + cancel relances panier", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { id: "admin-1", role: "ADMIN" } });
     mockPrisma.user.findUnique.mockResolvedValueOnce({ id: "client-1", role: "CLIENT" });
     const res = await setUserNewsletter("client-1", false);
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: "client-1" },
-      data: { acceptsNewsletter: false },
+      data: { acceptsNewsletter: false, abandonedCartOptOut: true },
+    });
+    expect(mockPrisma.abandonedCartJob.updateMany).toHaveBeenCalledWith({
+      where: { userId: "client-1", status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        nextStageAt: null,
+        cancelReason: "OPT_OUT",
+      },
     });
     expect(res).toEqual({ success: true, acceptsNewsletter: false });
   });
 
-  it("réinscrit un client depuis l'admin", async () => {
+  it("réinscrit un client depuis l'admin + reactive relances panier", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { id: "admin-1", role: "ADMIN" } });
     mockPrisma.user.findUnique.mockResolvedValueOnce({ id: "client-2", role: "CLIENT" });
     const res = await setUserNewsletter("client-2", true);
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: "client-2" },
-      data: { acceptsNewsletter: true },
+      data: { acceptsNewsletter: true, abandonedCartOptOut: false },
     });
+    expect(mockPrisma.abandonedCartJob.updateMany).not.toHaveBeenCalled();
     expect(res.acceptsNewsletter).toBe(true);
   });
 });

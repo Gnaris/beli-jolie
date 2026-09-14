@@ -476,6 +476,28 @@ export async function notifyClientNewReply(params: {
 
   const userId = await resolveUserIdByEmail(clientEmail);
 
+  // Anti-spam : si un email « réponse au message » a déjà été envoyé à ce
+  // client il y a moins de 10 min, on ne le renvoie pas. Une salve de réponses
+  // rapprochées côté admin ne doit pas déclencher un email par message —
+  // le premier email suffit à ramener le client sur le site pour lire la suite.
+  if (userId) {
+    const recent = await prisma.emailSend.findFirst({
+      where: {
+        userId,
+        scenarioKey: "SUPPORT_REPLY",
+        status: "SENT",
+        sentAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (recent) {
+      logger.info(
+        `[Notifications] Client ${clientEmail} déjà notifié récemment [${ref}] — email skip (anti-spam 10 min)`,
+      );
+      return;
+    }
+  }
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,

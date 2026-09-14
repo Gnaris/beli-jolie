@@ -25,12 +25,30 @@ export async function setUserNewsletter(userId: string, accept: boolean) {
   if (!user) throw new Error("Utilisateur introuvable.");
   if (user.role === "ADMIN") throw new Error("Impossible de modifier un administrateur.");
 
+  const accepts = Boolean(accept);
   await prisma.user.update({
     where: { id: userId },
-    data: { acceptsNewsletter: Boolean(accept) },
+    data: {
+      acceptsNewsletter: accepts,
+      abandonedCartOptOut: !accepts,
+    },
   });
+
+  if (!accepts) {
+    // Une seule case = newsletter + relances panier. Désabonner coupe les
+    // jobs de relance en attente pour ne pas laisser de timer fantôme
+    // dans l'admin.
+    await prisma.abandonedCartJob.updateMany({
+      where: { userId, status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        nextStageAt: null,
+        cancelReason: "OPT_OUT",
+      },
+    });
+  }
 
   revalidatePath(`/admin/clients/${userId}`);
   revalidatePath("/admin/clients");
-  return { success: true, acceptsNewsletter: Boolean(accept) };
+  return { success: true, acceptsNewsletter: accepts };
 }
