@@ -49,11 +49,17 @@ interface LiveState {
   id_vendeur_marque: number | null;
 }
 
-function generateRandomRef(): string {
+// Construit une référence temporaire en incluant la VRAIE référence BJ du
+// produit dans le nom. Filet de sécurité : si un refresh se plante à mi-chemin
+// et laisse des fiches `DEL…` orphelines côté eFashion, on peut identifier
+// visuellement à quel produit BJ elles appartenaient sans devoir croiser la
+// BDD. Format : `DEL-{ref_bj}-{random4}`.
+function generateRandomRef(bjReference: string): string {
+  const safe = bjReference.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20);
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let s = "";
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return `DEL${s}`;
+  let rnd = "";
+  for (let i = 0; i < 4; i++) rnd += chars[Math.floor(Math.random() * chars.length)];
+  return `DEL-${safe}-${rnd}`;
 }
 
 function colorSuffix(name: string | null | undefined): string {
@@ -83,6 +89,7 @@ async function renameProduit(
 
 interface RefreshContext {
   productId: string;
+  bjReference: string;
   oldReferenceBase: string;
   oldEfIds: number[];
   oldBjMapping: Array<{ colorId: string; efashionProductId: number }>;
@@ -221,6 +228,7 @@ export async function efashionRefreshProductsBatch(
 
     contexts.push({
       productId,
+      bjReference: product.reference,
       oldReferenceBase: product.efashionReferenceBase,
       oldEfIds,
       oldBjMapping: linkedColors.map((c) => ({
@@ -240,9 +248,10 @@ export async function efashionRefreshProductsBatch(
     };
   }
 
-  // 2. Renomme toutes les anciennes fiches en DEL…
+  // 2. Renomme toutes les anciennes fiches en DEL-{ref_bj}-{random4} —
+  //    la ref BJ est incluse pour tracer visuellement toute fiche orpheline.
   for (const ctx of contexts) {
-    const randomBase = generateRandomRef();
+    const randomBase = generateRandomRef(ctx.bjReference);
     const product = await prisma.product.findUnique({
       where: { id: ctx.productId },
       select: { colors: { select: { id: true, color: { select: { name: true } } } } },

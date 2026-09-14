@@ -65,13 +65,19 @@ export type PfsRefreshResult =
 
 type ProgressCallback = (progress: PfsRefreshProgress) => void;
 
-function generateRandomRef(): string {
+// Construit une référence temporaire en incluant la VRAIE référence BJ du
+// produit. Filet de sécurité : si un refresh se plante à mi-chemin et laisse
+// une fiche TMP orpheline côté PFS, on peut identifier visuellement à quel
+// produit BJ elle appartenait sans devoir croiser la BDD. Format :
+// `TMP-{ref_bj}-{random6}`.
+function generateRandomRef(bjReference: string): string {
+  const safe = bjReference.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20);
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let ref = "";
-  for (let i = 0; i < 10; i++) {
-    ref += chars[Math.floor(Math.random() * chars.length)];
+  let rnd = "";
+  for (let i = 0; i < 6; i++) {
+    rnd += chars[Math.floor(Math.random() * chars.length)];
   }
-  return ref;
+  return `TMP-${safe}-${rnd}`;
 }
 
 async function convertToJpeg(imagePath: string, brandedReference?: string): Promise<Buffer> {
@@ -412,7 +418,7 @@ export async function pfsRefreshProduct(
 
   try {
     // ── Step 2: Create new product with TEMP reference ──
-    const tempRef = generateRandomRef();
+    const tempRef = generateRandomRef(product.reference);
     report(`Création du nouveau produit (${tempRef})...`);
 
     const descriptionWithDims = product.description + buildDimensionsSuffix(product);
@@ -750,7 +756,7 @@ export async function pfsRefreshProduct(
 
     // ── Step 5: Swap references (soft-delete old, promote new) ──
     report("Permutation des références...");
-    const deleteRef = generateRandomRef();
+    const deleteRef = generateRandomRef(product.reference);
     await pfsUpdateProduct(oldPfsProductId, { reference_code: deleteRef });
     oldProductRenamed = true;
     await pfsUpdateStatus([{ id: oldPfsProductId, status: "DELETED" }]);
@@ -934,7 +940,7 @@ export async function pfsRefreshProduct(
 
     if (newPfsProductId) {
       try {
-        const cleanupRef = generateRandomRef();
+        const cleanupRef = generateRandomRef(product.reference);
         await pfsUpdateProduct(newPfsProductId, { reference_code: cleanupRef });
         await pfsUpdateStatus([{ id: newPfsProductId, status: "DELETED" }]);
       } catch (cleanupErr) {

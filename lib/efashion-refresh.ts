@@ -68,13 +68,19 @@ interface LiveState {
   id_vendeur_marque: number | null;
 }
 
-function generateRandomRef(): string {
+// Construit une référence temporaire en incluant la VRAIE référence BJ du
+// produit dans le nom. Filet de sécurité : si un refresh se plante à mi-chemin
+// et laisse des fiches `DEL…` orphelines côté eFashion, on peut identifier
+// visuellement à quel produit BJ elles appartenaient sans devoir croiser la
+// BDD. Format : `DEL-{ref_bj}-{random4}`.
+function generateRandomRef(bjReference: string): string {
+  const safe = bjReference.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20);
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let s = "";
-  for (let i = 0; i < 8; i++) {
-    s += chars[Math.floor(Math.random() * chars.length)];
+  let rnd = "";
+  for (let i = 0; i < 4; i++) {
+    rnd += chars[Math.floor(Math.random() * chars.length)];
   }
-  return `DEL${s}`;
+  return `DEL-${safe}-${rnd}`;
 }
 
 function colorSuffix(name: string | null | undefined): string {
@@ -198,8 +204,9 @@ export async function efashionRefreshProduct(
     };
   }
 
-  // 3. Référence temporaire « DEL… »
-  const randomBase = generateRandomRef();
+  // 3. Référence temporaire « DEL-{ref}-{random4} » — préfixe DEL, ref BJ
+  //    inclue pour tracer visuellement une éventuelle fiche orpheline.
+  const randomBase = generateRandomRef(product.reference);
 
   // 4. Renomme chaque ancienne fiche
   const renamedIds: number[] = [];

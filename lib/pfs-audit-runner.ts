@@ -900,10 +900,16 @@ async function runAutoPostAudit(args: {
 }
 
 /**
- * Enqueue des jobs marketplace REFRESH pour tous les produits corrigés, sur
+ * Enqueue des jobs marketplace RESYNC pour tous les produits corrigés, sur
  * chaque marketplace éligible (Ankor, eFashion, Faire, Orderchamp, Microstore).
  * Traités par le marketplace-queue-worker. Erreurs remontent dans le widget
  * Marketplaces (widget en bas à droite), pas dans l'audit lui-même.
+ *
+ * ⚠️ RESYNC (pas REFRESH) — l'audit auto ne doit **jamais** recréer une fiche
+ * marketplace. Sur eFashion et Faire, le mode `REFRESH` fait un delete + recreate
+ * qui casse les URLs, favoris et stats acheteuses. RESYNC = update in place avec
+ * `forceFullSync: true` : renvoie la fiche complète sur le même ID marketplace.
+ * Le bouton « Rafraîchir » manuel de l'admin reste en `REFRESH` (choix humain).
  */
 type PropagateMkt = "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
 
@@ -1038,7 +1044,7 @@ async function enqueueMarketplacePropagation(
   };
 
   // Dédoublonnage — un audit auto qui re-tourne toutes les X minutes peut
-  // ré-enfiler les mêmes REFRESH que le run précédent tant qu'ils n'ont pas
+  // ré-enfiler les mêmes RESYNC que le run précédent tant qu'ils n'ont pas
   // fini. Le helper filtre contre les QUEUED existants (mais pas les
   // IN_PROGRESS, qui doivent laisser un nouveau job s'empiler derrière pour
   // capturer les modifs récentes).
@@ -1046,7 +1052,7 @@ async function enqueueMarketplacePropagation(
     drafts.map((d) => ({
       productId: d.productId,
       marketplace: mpDb[d.marketplace],
-      mode: "REFRESH" as const,
+      mode: "RESYNC" as const,
       _draft: d,
     })),
   );
@@ -1063,7 +1069,7 @@ async function enqueueMarketplacePropagation(
     toCreate.map((d) => ({
       productId: d._draft.productId,
       marketplace: d._draft.marketplace,
-      mode: "refresh" as const,
+      mode: "resync" as const,
       scheduled: false,
     })),
   );
@@ -1083,7 +1089,7 @@ async function enqueueMarketplacePropagation(
           productId: d._draft.productId,
           tenantId,
           marketplace: d.marketplace,
-          mode: "REFRESH",
+          mode: "RESYNC",
           intent: intents[i],
           payload: {
             reference: d._draft.reference,

@@ -56,10 +56,14 @@ async function loadMeta(productId: string): Promise<ProductRefreshMeta | null> {
  * Génère un nom temporaire unique. Faire n'a pas de contrainte d'unicité sur
  * `name`, mais on veut éviter qu'un humain qui scrute le portail brand pense
  * que c'est un doublon involontaire. Le suffixe est retiré juste après.
+ *
+ * Filet de sécurité : la référence BJ est incluse dans le nom temporaire pour
+ * qu'une fiche orpheline restée en `[REFRESH_…]` côté Faire soit identifiable
+ * visuellement sans devoir croiser la BDD.
  */
-export function buildTempName(originalName: string): string {
+export function buildTempName(originalName: string, bjReference: string): string {
   const ts = Date.now().toString(36);
-  return `${originalName} [REFRESH_${ts}]`;
+  return `${originalName} [REFRESH_${bjReference}_${ts}]`;
 }
 
 export async function faireRefreshProduct(
@@ -75,7 +79,7 @@ export async function faireRefreshProduct(
   // Étape 1 : temporairement renommer le produit BDD pour que la création
   // Faire passe avec un nom non-conflictuel (Faire accepterait quand même mais
   // on évite de voir 2 produits avec le même nom dans le portail brand).
-  const tempName = buildTempName(meta.name);
+  const tempName = buildTempName(meta.name, meta.reference);
 
   // On garde le nom et l'ID Faire originaux côté BDD pendant le POST : on
   // ne touche à rien avant d'avoir reçu un nouvel ID confirmé.
