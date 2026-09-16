@@ -7,8 +7,10 @@ import { requireCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 const MAX_FILES = 5;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 Mo
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 Mo
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_DOC_TYPES = ["application/pdf"];
+const ALLOWED_TYPES = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES];
 
 /**
  * POST /api/chat/upload
@@ -37,13 +39,13 @@ export async function POST(request: NextRequest) {
   for (const file of files) {
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: `Format non supporté : ${file.name}. Accepté : JPG, PNG, WEBP.` },
+        { error: `Format non supporté : ${file.name}. Accepté : JPG, PNG, WEBP, PDF.` },
         { status: 400 },
       );
     }
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: `${file.name} dépasse 5 Mo.` },
+        { error: `${file.name} dépasse 10 Mo.` },
         { status: 400 },
       );
     }
@@ -59,6 +61,18 @@ export async function POST(request: NextRequest) {
       const rand = Math.random().toString(36).slice(2, 8);
       const original = slugify(file.name.replace(/\.[^.]+$/, "")).slice(0, 40) || "chat";
       const filename = `${original}-${stamp}-${rand}`;
+
+      if (ALLOWED_DOC_TYPES.includes(file.type)) {
+        const key = `${dir}/${filename}.pdf`;
+        await uploadFile(key, buffer);
+        attachments.push({
+          fileName: file.name,
+          filePath: `/${key}`,
+          fileSize: buffer.length,
+          mimeType: file.type,
+        });
+        continue;
+      }
 
       const webpBuffer = await sharp(buffer)
         .rotate()
@@ -82,6 +96,6 @@ export async function POST(request: NextRequest) {
     logger.error("[chat/upload] Processing error", {
       error: err,
     });
-    return NextResponse.json({ error: "Erreur de traitement des images." }, { status: 500 });
+    return NextResponse.json({ error: "Erreur de traitement du fichier." }, { status: 500 });
   }
 }

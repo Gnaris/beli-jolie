@@ -141,14 +141,14 @@ export default function ClaimForm() {
           <div>
             <p className="text-sm font-semibold text-text-primary">Pièces jointes (optionnel)</p>
             <p className="text-[11px] text-text-muted mt-0.5">
-              Images JPG/PNG/WEBP, 5 Mo max, {MAX_ATTACHMENTS} fichiers max.
+              Images JPG/PNG/WEBP ou PDF, 10 Mo max, {MAX_ATTACHMENTS} fichiers max.
             </p>
           </div>
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
             className="hidden"
             onChange={(e) => {
               if (e.target.files) addFiles(e.target.files);

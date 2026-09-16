@@ -122,7 +122,7 @@ export default function MessageInput({ onSend, placeholder, disabled, onTyping }
           onClick={() => fileInputRef.current?.click()}
           disabled={isPending || disabled || files.length >= MAX_FILES}
           className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-xl border border-border text-text-muted hover:text-text-primary hover:border-[#1A1A1A]/30 disabled:opacity-40 transition-colors"
-          title="Joindre une image"
+          title="Joindre une image ou un PDF"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
@@ -132,7 +132,7 @@ export default function MessageInput({ onSend, placeholder, disabled, onTyping }
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
           multiple
           onChange={handleFileSelect}
           className="hidden"

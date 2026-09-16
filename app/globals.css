@@ -1844,6 +1844,18 @@ html.admin-dark [data-admin-tooltip-arrow] {
   background-color: #18181b !important;
 }
 
+/* ─── Conversation service client admin (`data-admin-chat`) ───────────
+   Les bulles admin et les CTA principaux (Clôturer, Envoyer, Envoyer
+   maintenant, avatar admin) utilisent `bg-zinc-900 text-white`. En dark
+   les règles génériques inversent `bg-zinc-900` en clair (#ececee) ET
+   `text-white` en gris clair (#e4e4e7) : bulles et boutons deviennent
+   totalement invisibles (clair sur clair). On force ici un texte foncé
+   sur ces surfaces spécifiques pour restaurer un contraste lisible. */
+html.admin-dark [data-admin-chat] .bg-zinc-900,
+html.admin-dark [data-admin-chat] .bg-zinc-900 .text-white {
+  color: #18181b !important;
+}
+
 /* ─── Textes pastel Tailwind (amber/rose/emerald/sky/violet 700-800) ───
    Les AlertPill et « Action requise » posent du texte foncé pastel
    (text-amber-800, text-rose-700…) prévu pour un fond crème clair. En

@@ -134,6 +134,12 @@ export default async function ParametresPage({
    TUILE 1 — Vitrine : bandeau annonces + bannière + favicon
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildVitrineTile(): Promise<DashboardTile> {
+  // Issyma a un hero 100 % hardcodé (bordeaux showroom, cf. HomeIssymaLayout.tsx).
+  // On masque les cartes « Bloc d'accueil » et « Bannière d'accueil » pour ce
+  // tenant : ni les textes ni l'image ne sont modifiables depuis l'admin.
+  const tenant = await requireCurrentTenant();
+  const isIssyma = tenant.slug === "issyma";
+
   const [
     bannerImageConfig,
     announcementConfig,
@@ -290,43 +296,47 @@ async function buildVitrineTile(): Promise<DashboardTile> {
                   />
                 </SettingCard>
 
-                <SettingCard
-                  icon={Ico.slides}
-                  title="Bloc d'accueil (grand bandeau noir)"
-                  description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
-                  accent="dark"
-                >
-                  <HomeHeroConfig
-                    initialEyebrow={heroEyebrowRow?.value ?? ""}
-                    initialTitleLine1={heroTitle1Row?.value ?? ""}
-                    initialTitleLine2={heroTitle2Row?.value ?? ""}
-                    initialDescription={heroDescRow?.value ?? ""}
-                    initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
-                    initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
-                  />
-                </SettingCard>
+                {!isIssyma && (
+                  <SettingCard
+                    icon={Ico.slides}
+                    title="Bloc d'accueil (grand bandeau noir)"
+                    description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
+                    accent="dark"
+                  >
+                    <HomeHeroConfig
+                      initialEyebrow={heroEyebrowRow?.value ?? ""}
+                      initialTitleLine1={heroTitle1Row?.value ?? ""}
+                      initialTitleLine2={heroTitle2Row?.value ?? ""}
+                      initialDescription={heroDescRow?.value ?? ""}
+                      initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
+                      initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
+                    />
+                  </SettingCard>
+                )}
 
-                <SettingCard
-                  icon={Ico.image}
-                  title="Bannière d'accueil"
-                  description="Grande image en haut de la page d'accueil du site, avec un voile pour garder les textes lisibles."
-                >
-                  <div className="space-y-6">
-                    <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
-                    <div className="border-t border-border pt-6">
-                      <p className="text-sm font-heading font-semibold text-text-primary mb-1">
-                        Voile posé sur la bannière
-                      </p>
-                      <p className="text-xs text-text-secondary font-body mb-4">
-                        Réglez la couleur, le type d'ombre et l'intensité pour que vos titres restent bien lisibles par-dessus l'image.
-                      </p>
-                      <HeroOverlayConfig
-                        initial={heroOverlay}
-                        bannerImage={bannerImageConfig?.value ?? null}
-                      />
+                {!isIssyma && (
+                  <SettingCard
+                    icon={Ico.image}
+                    title="Bannière d'accueil"
+                    description="Grande image en haut de la page d'accueil du site, avec un voile pour garder les textes lisibles."
+                  >
+                    <div className="space-y-6">
+                      <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
+                      <div className="border-t border-border pt-6">
+                        <p className="text-sm font-heading font-semibold text-text-primary mb-1">
+                          Voile posé sur la bannière
+                        </p>
+                        <p className="text-xs text-text-secondary font-body mb-4">
+                          Réglez la couleur, le type d'ombre et l'intensité pour que vos titres restent bien lisibles par-dessus l'image.
+                        </p>
+                        <HeroOverlayConfig
+                          initial={heroOverlay}
+                          bannerImage={bannerImageConfig?.value ?? null}
+                        />
+                      </div>
                     </div>
-                  </div>
-                </SettingCard>
+                  </SettingCard>
+                )}
 
                 <SettingCard
                   icon={Ico.slides}

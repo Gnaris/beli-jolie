@@ -334,6 +334,11 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
           {/* Right actions */}
           <div className="flex items-center gap-3 ml-auto text-neutral-700">
 
+            {/* Sélecteur de langue — extrait du dropdown profil */}
+            <div className="hidden lg:block shrink-0">
+              <LanguageSwitcher currentLocale={locale} />
+            </div>
+
             {/* Search — icône qui ouvre un panneau */}
             <button
               data-search-toggle
@@ -471,14 +476,6 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                         </button>
                       </div>
                     )}
-
-                    {/* Language switcher */}
-                    <div className="border-t border-border-light px-4 py-3">
-                      <p className="text-[10px] text-neutral-400 uppercase tracking-[0.24em] font-body pb-2">
-                        {t("language")}
-                      </p>
-                      <LanguageSwitcher currentLocale={locale} />
-                    </div>
 
                     {/* Logout */}
                     <div className="border-t border-border-light py-1.5">
