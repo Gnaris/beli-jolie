@@ -7,8 +7,8 @@
  *    est remis à `false`.
  *  - un produit réellement incomplet (description trop courte, etc.) reste en
  *    brouillon avec les vraies raisons.
- *  - un produit dont toutes les couleurs ont stock=0 est rejeté avec
- *    "aucun stock".
+ *  - un produit dont toutes les couleurs ont stock=0 est accepté (la rupture
+ *    totale ne bloque plus la mise en ligne — c'est à l'admin de décider).
  *  - un produit `OFFLINE` complet et `isIncomplete=false` passe en ONLINE sans
  *    toucher au drapeau.
  */
@@ -41,6 +41,7 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T) => fn,
 }));
 
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: vi.fn() }));
@@ -187,16 +188,19 @@ describe("bulkUpdateProductStatus (ONLINE)", () => {
     expect(updateManyMock).not.toHaveBeenCalled();
   });
 
-  it("refuse un produit dont toutes les couleurs ont stock=0", async () => {
+  it("accepte un produit dont toutes les couleurs ont stock=0 (rupture totale non bloquante)", async () => {
     findManyMock.mockResolvedValueOnce([
       makeCompleteProduct({ id: "p1", stock: 0 }),
     ]);
 
     const res = await bulkUpdateProductStatus(["p1"], "ONLINE");
 
-    expect(res.success).toEqual([]);
-    expect(res.errors).toHaveLength(1);
-    expect(res.errors[0].reason).toBe("aucun stock");
+    expect(res.success).toEqual(["p1"]);
+    expect(res.errors).toEqual([]);
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ["p1"] } },
+      data: { status: "ONLINE" },
+    });
   });
 
   it("traite plusieurs produits indépendamment : met en ligne les bons et liste les mauvais", async () => {

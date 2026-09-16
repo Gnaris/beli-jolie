@@ -16,10 +16,8 @@ function StatusToggle({ mode }: { mode: "create" | "edit" }) {
       toast.error("Produit incomplet", `Impossible de mettre en ligne : ${preview}${suffix}`);
       return;
     }
-    if (statusToggle.isOutOfStock()) {
-      toast.error("Rupture de stock", "Toutes les variantes sont en rupture — impossible de mettre en ligne.");
-      return;
-    }
+    // La rupture totale ne bloque plus la mise en ligne : c'est à l'admin
+    // de décider. Le produit peut rester ONLINE avec 0 stock partout.
     statusToggle.setOnlineErrors([]);
     statusToggle.setError("");
     statusToggle.setProductStatus("ONLINE");

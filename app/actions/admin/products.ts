@@ -2263,17 +2263,9 @@ export async function bulkUpdateProductStatus(
         continue;
       }
 
-      // Garde-fou "aucun stock du tout" : on n'affiche pas un produit
-      // vendable=0 sur la boutique (différent de "stock partiel" qui reste OK).
-      if (p.colors.length > 0 && p.colors.every((c) => c.stock === 0)) {
-        errors.push({
-          id: p.id,
-          reference: p.reference,
-          reason: "aucun stock",
-        });
-        continue;
-      }
-
+      // La rupture totale (toutes les couleurs à stock=0) ne bloque plus la
+      // mise en ligne : c'est à l'admin de décider. La cliente peut mettre en
+      // ligne un produit en attendant du restock.
       success.push(p.id);
       if (p.isIncomplete) staleIncompleteIds.push(p.id);
     }

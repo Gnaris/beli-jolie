@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SmartImage from "@/components/ui/SmartImage";
 import { updateCategoryImage } from "@/app/actions/admin/categories";
 import { useToast } from "@/components/ui/Toast";
@@ -30,6 +30,15 @@ export default function CategoryImageUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const { confirm } = useConfirm();
+
+  // Le parent (CategoriesMasterDetail) réutilise ce composant en changeant
+  // simplement les props quand la cliente passe d'une catégorie à l'autre —
+  // useState(initialImage) ne relit pas la prop, donc sans ce sync l'aperçu
+  // reste figé sur l'image de la catégorie précédente jusqu'au refresh.
+  useEffect(() => {
+    setImage(initialImage);
+    setError("");
+  }, [initialImage, categoryId]);
 
   const monogram = categoryName.trim().charAt(0).toUpperCase() || "•";
 
