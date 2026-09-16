@@ -7,8 +7,10 @@ import { prisma } from "@/lib/prisma";
 import OrderStatusActions from "@/components/admin/orders/OrderStatusActions";
 import OrderContent from "@/components/admin/orders/OrderContent";
 import OrderQuickActions from "@/components/admin/orders/OrderQuickActions";
+import BankTransferConfirmButton from "@/components/admin/orders/BankTransferConfirmButton";
 import { EU_COUNTRIES } from "@/lib/vat";
 import { roundCent } from "@/lib/money";
+import { getBankTransferConfigFresh, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -55,6 +57,16 @@ export default async function AdminCommandeDetailPage({
   }
 
   const status = STATUS_CFG[order.status] ?? STATUS_CFG.PENDING;
+
+  // Virement bancaire : afficher un bloc dédié + bouton « Marquer virement reçu »
+  // uniquement si la commande est un virement encore en attente.
+  const isBankTransferPending =
+    order.paymentMode === "BANK_TRANSFER" && order.paymentStatus !== "paid" && order.status !== "CANCELLED";
+  const isBankTransferPaid =
+    order.paymentMode === "BANK_TRANSFER" && order.paymentStatus === "paid";
+  const btConfig = order.paymentMode === "BANK_TRANSFER"
+    ? await getBankTransferConfigFresh()
+    : null;
 
   const shipCountryCode = (order.shipCountry ?? "").toUpperCase();
   const isOutsideEu = !!shipCountryCode && !EU_COUNTRIES.has(shipCountryCode);
@@ -108,9 +120,21 @@ export default async function AdminCommandeDetailPage({
                 <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
                 {status.label}
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
-                Stripe · {order.paymentStatus === "paid" ? "encaissé" : order.paymentStatus}
-              </span>
+              {isBankTransferPending ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Virement en attente
+                </span>
+              ) : isBankTransferPaid ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Virement reçu
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                  Stripe · {order.paymentStatus === "paid" ? "encaissé" : order.paymentStatus}
+                </span>
+              )}
               {order.carrierName && (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
                   🚚 {order.carrierName}
@@ -119,12 +143,58 @@ export default async function AdminCommandeDetailPage({
             </div>
           </div>
 
-          <OrderStatusActions
-            orderId={order.id}
-            currentStatus={order.status}
-          />
+          <div className="flex flex-wrap gap-2 items-center">
+            {isBankTransferPending && (
+              <BankTransferConfirmButton
+                orderId={order.id}
+                totalTTC={Number(order.totalTTC)}
+              />
+            )}
+            <OrderStatusActions
+              orderId={order.id}
+              currentStatus={order.status}
+            />
+          </div>
         </div>
       </section>
+
+      {/* Encart virement en attente (rappel des infos à vérifier sur la banque) */}
+      {isBankTransferPending && btConfig && (
+        <section className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
+            <span className="w-1 h-6 bg-amber-500 rounded-full" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+              À vérifier sur votre banque
+            </p>
+          </div>
+          <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Montant attendu</p>
+              <p className="text-lg font-semibold text-slate-900">{Number(order.totalTTC).toFixed(2)} €</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Libellé à repérer</p>
+              <p className="text-slate-900 font-mono font-semibold">{order.orderNumber}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Émetteur probable</p>
+              <p className="text-slate-900 font-medium">{order.shipFirstName} {order.shipLastName}</p>
+              {order.clientCompany && <p className="text-xs text-slate-500">{order.clientCompany}</p>}
+            </div>
+          </div>
+          {btConfig.iban && (
+            <div className="px-5 py-3 border-t border-amber-100 bg-slate-50">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Compte destinataire</p>
+              <p className="text-xs text-slate-700 font-mono tracking-widest">{formatIbanForDisplay(btConfig.iban)}</p>
+            </div>
+          )}
+          <div className="px-5 py-3 border-t border-amber-100 bg-white">
+            <p className="text-xs text-slate-500">
+              💡 Ouvrez votre banque, vérifiez que le virement est bien crédité, puis cliquez sur « Marquer virement reçu » en haut.
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* ─────────── INFORMATIONS DE LA COMMANDE (bloc unique : Facturation + Livraison) ─────────── */}
       <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">

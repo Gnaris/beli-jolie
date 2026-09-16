@@ -226,6 +226,22 @@ const STATUS_CONFIG: Record<string, {
     color: "#DC2626",
     icon: "❌",
   },
+  BANK_TRANSFER_PENDING: {
+    subject: (num, shop) => `${shop} — Commande ${num} en attente de votre virement`,
+    heading: "Merci pour votre commande",
+    message: (num) =>
+      `Nous avons bien enregistré votre commande <strong>${escapeHtml(num)}</strong>. Pour finaliser, il vous reste à effectuer votre virement bancaire aux coordonnées ci-dessous. La commande sera préparée et expédiée dès réception du virement.`,
+    color: "#D97706",
+    icon: "🏦",
+  },
+  BANK_TRANSFER_CONFIRMED: {
+    subject: (num, shop) => `${shop} — Virement reçu, commande ${num} en préparation`,
+    heading: "Nous avons bien reçu votre virement",
+    message: (num) =>
+      `Votre virement pour la commande <strong>${escapeHtml(num)}</strong> a bien été reçu. Elle est désormais en cours de préparation et sera expédiée sous peu — vous recevrez un email dès qu'elle sera en route.`,
+    color: "#059669",
+    icon: "✅",
+  },
 };
 
 /**
@@ -257,6 +273,44 @@ export async function notifyOrderStatusChange(
     }
 
     const baseUrl = await getCurrentTenantBaseUrl();
+
+    // Bloc coordonnées bancaires (uniquement email « virement en attente »).
+    // Chargé ici pour rester tenant-scopé (ALS actif dans notifyOrderStatusChange).
+    let bankTransferHtml = "";
+    if (data.newStatus === "BANK_TRANSFER_PENDING") {
+      try {
+        const { getCachedBankTransferConfig, formatIbanForDisplay } = await import(
+          "@/lib/bank-transfer-config"
+        );
+        const btConfig = await getCachedBankTransferConfig();
+        if (btConfig.enabled && btConfig.holder && btConfig.iban) {
+          const displayIban = formatIbanForDisplay(btConfig.iban);
+          const totalTTC = Number(order.totalTTC).toFixed(2);
+          bankTransferHtml = `
+            <div style="background:#0F172A;color:#fff;border-radius:12px;padding:22px;margin:20px 0;">
+              <div style="text-transform:uppercase;letter-spacing:2px;font-size:11px;opacity:0.7;margin-bottom:14px;">Coordonnées bancaires</div>
+              <div style="margin-bottom:14px;">
+                <div style="opacity:0.6;font-size:11px;margin-bottom:4px;">Titulaire du compte</div>
+                <div style="font-size:15px;font-weight:bold;">${escapeHtml(btConfig.holder)}</div>
+              </div>
+              <div style="margin-bottom:14px;">
+                <div style="opacity:0.6;font-size:11px;margin-bottom:4px;">IBAN</div>
+                <div style="font-size:14px;letter-spacing:2px;font-family:monospace;">${escapeHtml(displayIban)}</div>
+              </div>
+              <div style="padding-top:14px;border-top:1px solid rgba(255,255,255,0.1);">
+                <div style="opacity:0.6;font-size:11px;margin-bottom:4px;">Montant à virer</div>
+                <div style="font-size:22px;font-weight:bold;">${totalTTC} €</div>
+              </div>
+            </div>
+            <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:14px 18px;margin:16px 0;">
+              <strong style="color:#78350F;">⚠️ Important — libellé du virement</strong><br/>
+              <span style="color:#78350F;font-size:13px;">Indiquez impérativement <strong style="font-family:monospace;background:#fff;padding:2px 6px;border-radius:4px;">${escapeHtml(order.orderNumber)}</strong> dans le libellé de votre virement, sans quoi l'identification pourra prendre plusieurs jours.</span>
+            </div>`;
+        }
+      } catch (err) {
+        logger.error("[order-status-email] Chargement config virement", { error: err });
+      }
+    }
 
     // Tracking info (for SHIPPED status)
     const trackingHtml =
@@ -308,6 +362,8 @@ export async function notifyOrderStatusChange(
                 </div>`
               : ""
           }
+
+          ${bankTransferHtml}
 
           ${trackingHtml}
 
@@ -391,6 +447,8 @@ export async function notifyOrderStatusChange(
       : data.newStatus === "VALIDATED" ? "ORDER_VALIDATED"
       : data.newStatus === "SHIPPED" ? "ORDER_SHIPPED"
       : data.newStatus === "CANCELLED" ? "ORDER_CANCELLED"
+      : data.newStatus === "BANK_TRANSFER_PENDING" ? "ORDER_CREATED"
+      : data.newStatus === "BANK_TRANSFER_CONFIRMED" ? "ORDER_VALIDATED"
       : null;
 
     const userId = await resolveUserIdByEmail(order.clientEmail);

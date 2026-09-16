@@ -318,7 +318,15 @@ export async function togglePromotion(id: string) {
 
 export async function deletePromotion(id: string) {
   await requireAdmin();
-  await prisma.promotion.delete({ where: { id } });
+  try {
+    await prisma.promotion.delete({ where: { id } });
+  } catch (err) {
+    const message =
+      err instanceof Error && "code" in err && (err as { code?: string }).code === "P2025"
+        ? "Cette promotion n'existe plus."
+        : "Impossible de supprimer cette promotion.";
+    return { success: false, error: message };
+  }
   revalidateTag("promotions", "default");
   return { success: true };
 }

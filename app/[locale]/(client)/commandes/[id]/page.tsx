@@ -11,7 +11,10 @@ import { getOrderStatusVisual } from "@/lib/order-status-visual";
 import OrderContent from "@/components/admin/orders/OrderContent";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ReorderButton from "@/components/client/orders/ReorderButton";
+import PayOrderByCardButton from "@/components/client/orders/PayOrderByCardButton";
 import { getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
+import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
+import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -65,6 +68,19 @@ export default async function CommandeDetailPage({
   const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName ?? "", order.eeTrackingId) : null;
   const statusVisual = getOrderStatusVisual(order.status);
 
+  // Virement bancaire en attente : on affiche un bandeau + les coordonnées.
+  const isBankTransferPending =
+    order.paymentMode === "BANK_TRANSFER" &&
+    order.paymentStatus !== "paid" &&
+    order.status !== "CANCELLED";
+  const [bankTransferConfig, stripeReady, stripePublishableKey] = isBankTransferPending
+    ? await Promise.all([
+        getCachedBankTransferConfig(),
+        isStripeConfigured(),
+        getStripePublishableKey(),
+      ])
+    : [null, false, null];
+
   // Reconstruction du TTC payé — arrondi Sage (roundCent). Cf. lib/money.ts.
   const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
   const carrier = Number(order.carrierPrice);
@@ -106,10 +122,17 @@ export default async function CommandeDetailPage({
               {t("placedOn", { date: dateFmt })} · {totalArticles} {totalArticles > 1 ? t("items_plural") : t("items")}
             </p>
             <div className="flex flex-wrap gap-2.5 mt-4">
-              <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${statusVisual.pill}`}>
-                <span className={`w-2 h-2 rounded-full ${statusVisual.dot}`} />
-                {t(`statuses.${order.status}`)}
-              </span>
+              {isBankTransferPending ? (
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold bg-amber-100 text-amber-800">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  {t("bankTransferPending")}
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${statusVisual.pill}`}>
+                  <span className={`w-2 h-2 rounded-full ${statusVisual.dot}`} />
+                  {t(`statuses.${order.status}`)}
+                </span>
+              )}
               {order.carrierName && (
                 <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold bg-slate-100 text-slate-700">
                   🚚 {order.carrierName}
@@ -139,6 +162,71 @@ export default async function CommandeDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Encart virement en attente — placé juste après le hero pour être vu immédiatement */}
+      {isBankTransferPending && bankTransferConfig && bankTransferConfig.enabled && (
+        <section className="bg-white border border-amber-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-7 sm:px-8 py-5 border-b border-amber-100 bg-amber-50 flex items-center gap-4">
+            <div className="w-1.5 h-10 bg-amber-500 rounded-full" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                {t("bankTransferPending")}
+              </p>
+              <h2 className="font-heading text-xl sm:text-2xl font-semibold text-slate-900 mt-1">
+                {t("bankTransferPendingDesc")}
+              </h2>
+            </div>
+          </div>
+          <div className="p-7 sm:p-8 space-y-5">
+            <div className="rounded-2xl bg-slate-900 text-white p-6">
+              <p className="text-[10px] uppercase tracking-widest opacity-60 font-semibold mb-4">
+                {t("bankTransferTitle")}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="opacity-60 text-xs mb-1">{t("bankTransferHolder")}</p>
+                  <p className="font-semibold">{bankTransferConfig.holder}</p>
+                </div>
+                <div>
+                  <p className="opacity-60 text-xs mb-1">{t("bankTransferAmount")}</p>
+                  <p className="font-heading text-xl font-bold">{Number(order.totalTTC).toFixed(2)} €</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="opacity-60 text-xs mb-1">IBAN</p>
+                  <p className="font-mono tracking-widest text-sm">{formatIbanForDisplay(bankTransferConfig.iban)}</p>
+                </div>
+                <div className="sm:col-span-2 pt-3 border-t border-white/10">
+                  <p className="opacity-60 text-xs mb-1">{t("bankTransferReferenceLabel")}</p>
+                  <p className="font-mono font-semibold">{order.orderNumber}</p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-5 py-3 text-sm text-amber-900">
+              {t("bankTransferReferenceHint")}
+            </div>
+
+            {/* Alternative : payer par carte immédiatement plutôt que d'attendre
+                de faire le virement. Bascule paymentMode → CARD après paiement. */}
+            {stripeReady && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {t("bankTransferSwitchToCardTitle")}
+                  </p>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {t("bankTransferSwitchToCardDesc")}
+                  </p>
+                </div>
+                <PayOrderByCardButton
+                  orderId={order.id}
+                  totalTTC={Number(order.totalTTC)}
+                  publishableKey={stripePublishableKey}
+                />
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Informations de la commande (identique admin, agrandi) */}
       <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">

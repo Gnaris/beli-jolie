@@ -2444,6 +2444,17 @@ model Order {
   stripePaymentIntentId String? @unique // pi_xxx
   paymentStatus         String  @default("pending") // pending | paid | failed
 
+  // Mode de paiement choisi par le client au checkout.
+  // "CARD" = paiement Stripe immédiat, "BANK_TRANSFER" = virement (paiement différé,
+  // validation manuelle par l'admin via `bankTransferConfirmedAt`).
+  // Nullable pour compat commandes historiques (traitées comme CARD par défaut à l'affichage).
+  paymentMode String? // "CARD" | "BANK_TRANSFER"
+
+  // Horodatage + admin qui a marqué le virement comme reçu (paymentMode=BANK_TRANSFER).
+  // Utilisé pour l'audit / historique + pour l'email de confirmation.
+  bankTransferConfirmedAt DateTime?
+  bankTransferConfirmedBy String?   // User.id de l'admin qui a confirmé
+
   // Easy-Express
   eeTrackingId String? // Numéro de suivi
   eeLabelUrl   String? // URL du bordereau PDF @db.Text
@@ -3386,7 +3397,7 @@ model PromotionProduct {
 model PromotionUsage {
   id              String    @id @default(cuid())
   promotionId     String
-  promotion       Promotion @relation(fields: [promotionId], references: [id])
+  promotion       Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
   userId          String
   user            User      @relation(fields: [userId], references: [id])
   orderId         String

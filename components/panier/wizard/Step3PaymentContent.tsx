@@ -12,6 +12,7 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { validatePromoCodeForCart } from "@/app/actions/client/promo-code";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { WizardCart, WizardCarrier, DeliveryMode, WizardMergeCandidate } from "./types";
 
 /**
@@ -46,6 +47,10 @@ export default function Step3PaymentContent({
   selectedMergeOrder,
   subtotalHT,
   shippingHT,
+  paymentMode,
+  onPaymentModeChange,
+  bankTransfer,
+  onBankTransferSubmit,
 }: {
   cart: WizardCart;
   clientSecret: string | null;
@@ -73,11 +78,28 @@ export default function Step3PaymentContent({
   selectedMergeOrder: WizardMergeCandidate | null;
   subtotalHT: number;
   shippingHT: number;
+  paymentMode: "card" | "bank_transfer";
+  onPaymentModeChange: (mode: "card" | "bank_transfer") => void;
+  bankTransfer: { enabled: boolean; holder: string; ibanDisplay: string };
+  onBankTransferSubmit: () => void;
 }) {
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
+  const { confirm } = useConfirm();
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoError, setPromoError] = useState("");
+
+  // Ouvre la modale d'engagement avant de créer la commande virement. Précise
+  // à la cliente qu'elle recevra les coordonnées immédiatement après.
+  async function handleBankTransferClick() {
+    const ok = await confirm({
+      title: t("bankTransferConfirmTitle"),
+      message: t("bankTransferConfirmMessage", { amount: totalTTC.toFixed(2) }),
+      confirmLabel: t("bankTransferConfirmYes"),
+      cancelLabel: tCommon("cancel"),
+    });
+    if (ok) onBankTransferSubmit();
+  }
 
   const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
   useEffect(() => {
@@ -198,67 +220,174 @@ export default function Step3PaymentContent({
         )}
       </section>
 
-      {/* Carte bancaire */}
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
-        <div className="mb-5">
-          <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
-            {t("securePayment")}
+      {/* Choix mode de paiement — visible uniquement si le virement est activé côté tenant */}
+      {bankTransfer.enabled && (
+        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
+            {t("paymentTitle")}
           </div>
-          <h2 className="font-heading text-lg md:text-xl font-semibold text-slate-900">
-            {t("securePayment")}
-          </h2>
-          <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-            🔒 {t("stripeInfo")}
-          </p>
-        </div>
-
-        {stripeLoading && (
-          <p className="text-sm text-slate-500 text-center py-8">{t("preparingPayment")}</p>
-        )}
-
-        {stripeError && (
-          <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
-            {stripeError}
+          <div className="space-y-2.5">
+            <label
+              className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                paymentMode === "card"
+                  ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
+                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="payment-mode"
+                value="card"
+                checked={paymentMode === "card"}
+                onChange={() => onPaymentModeChange("card")}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-slate-900">{t("paymentCard")}</div>
+                <p className="text-xs text-slate-500 mt-0.5">{t("paymentCardInfo")}</p>
+              </div>
+            </label>
+            <label
+              className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                paymentMode === "bank_transfer"
+                  ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
+                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="payment-mode"
+                value="bank_transfer"
+                checked={paymentMode === "bank_transfer"}
+                onChange={() => onPaymentModeChange("bank_transfer")}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <div className="font-semibold text-sm text-slate-900">{t("paymentTransfer")}</div>
+                <p className="text-xs text-slate-500 mt-0.5">{t("paymentTransferInfo")}</p>
+              </div>
+            </label>
           </div>
-        )}
+        </section>
+      )}
 
-        {clientSecret && stripePromise && !stripeError && (
-          <Elements
-            stripe={stripePromise}
-            options={{ clientSecret, appearance: { theme: "stripe" } }}
-          >
-            <StripeCardForm
-              clientSecret={clientSecret}
-              onSuccess={onPaymentSuccess}
-              onError={onPaymentError}
-              disabled={!cgvAccepted || isCreatingOrder}
-              totalAmountCents={totalAmountCents}
+      {/* Bloc paiement : carte OU virement selon le mode */}
+      {paymentMode === "card" ? (
+        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="mb-5">
+            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
+              {t("securePayment")}
+            </div>
+            <h2 className="font-heading text-lg md:text-xl font-semibold text-slate-900">
+              {t("securePayment")}
+            </h2>
+            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+              🔒 {t("stripeInfo")}
+            </p>
+          </div>
+
+          {stripeLoading && (
+            <p className="text-sm text-slate-500 text-center py-8">{t("preparingPayment")}</p>
+          )}
+
+          {stripeError && (
+            <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
+              {stripeError}
+            </div>
+          )}
+
+          {clientSecret && stripePromise && !stripeError && (
+            <Elements
+              stripe={stripePromise}
+              options={{ clientSecret, appearance: { theme: "stripe" } }}
+            >
+              <StripeCardForm
+                clientSecret={clientSecret}
+                onSuccess={onPaymentSuccess}
+                onError={onPaymentError}
+                disabled={!cgvAccepted || isCreatingOrder}
+                totalAmountCents={totalAmountCents}
+              />
+            </Elements>
+          )}
+
+          <label className="flex items-start gap-3 mt-6 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cgvAccepted}
+              onChange={(e) => onCgvChange(e.target.checked)}
+              className="mt-1"
             />
-          </Elements>
-        )}
+            <span className="text-sm text-slate-600">
+              {t("cgvAccept")}{" "}
+              <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
+                {t("cgvLink")}
+              </a>
+              .
+            </span>
+          </label>
 
-        <label className="flex items-start gap-3 mt-6 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={cgvAccepted}
-            onChange={(e) => onCgvChange(e.target.checked)}
-            className="mt-1"
-          />
-          <span className="text-sm text-slate-600">
-            {t("cgvAccept")}{" "}
-            <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
-              {t("cgvLink")}
-            </a>
-            .
-          </span>
-        </label>
-
-        {orderError && (
-          <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
-            {orderError}
+          {orderError && (
+            <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
+              {orderError}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="mb-5">
+            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
+              {t("paymentTransfer")}
+            </div>
+            <h2 className="font-heading text-lg md:text-xl font-semibold text-slate-900">
+              {t("bankTransferChosenTitle")}
+            </h2>
+            <p className="text-sm text-slate-600 mt-2">
+              {t("bankTransferChosenDesc")}
+            </p>
           </div>
-        )}
-      </section>
+
+          <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 flex items-start gap-3">
+            <svg className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {t("bankTransferDetailsAfter")}
+            </p>
+          </div>
+
+          <label className="flex items-start gap-3 mt-6 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cgvAccepted}
+              onChange={(e) => onCgvChange(e.target.checked)}
+              className="mt-1"
+            />
+            <span className="text-sm text-slate-600">
+              {t("cgvAccept")}{" "}
+              <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
+                {t("cgvLink")}
+              </a>
+              .
+            </span>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleBankTransferClick}
+            disabled={!cgvAccepted || isCreatingOrder}
+            className="w-full mt-5 h-12 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isCreatingOrder ? t("preparingPayment") : t("confirmBankTransferOrder")}
+          </button>
+
+          {orderError && (
+            <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
+              {orderError}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

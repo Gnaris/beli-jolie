@@ -32,6 +32,7 @@ export const SENSITIVE_KEYS = new Set([
   "stripe_secret_key",
   "stripe_webhook_secret",
   "smtp_password",
+  "bank_transfer_iban",
 ]);
 
 function getEncryptionKey(): Buffer {

@@ -38,6 +38,8 @@ import ActiveShippingProviderSelect from "@/components/admin/settings/ActiveShip
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
 import StripeSettingsForm from "@/components/admin/settings/StripeSettingsForm";
 import StripeAccountStatusCard from "@/components/admin/onboarding/StripeAccountStatusCard";
+import BankTransferSettingsForm from "@/components/admin/settings/BankTransferSettingsForm";
+import { getBankTransferConfigFresh } from "@/lib/bank-transfer-config";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
@@ -510,10 +512,11 @@ async function buildHorairesTile(): Promise<DashboardTile> {
    TUILE 4 — Paiement Stripe
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildPaiementTile(): Promise<DashboardTile> {
-  const [status, publishableRow, accountInfo] = await Promise.all([
+  const [status, publishableRow, accountInfo, bankTransfer] = await Promise.all([
     getStripeConfigStatus(),
     prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
     getStripeAccountInfo(),
+    getBankTransferConfigFresh(),
   ]);
   const publishable = publishableRow?.value?.trim() || "";
 
@@ -521,8 +524,11 @@ async function buildPaiementTile(): Promise<DashboardTile> {
     ? { tone: "ok", label: status.testMode ? "Mode TEST" : "Mode LIVE" }
     : { tone: "off", label: "Non configuré" };
 
-  const summary = status.ready
-    ? `${status.testMode ? "Mode TEST" : "Mode LIVE"} · 3 clés en place`
+  const paymentModesLabel: string[] = [];
+  if (status.ready) paymentModesLabel.push(status.testMode ? "Carte (TEST)" : "Carte");
+  if (bankTransfer.enabled) paymentModesLabel.push("Virement");
+  const summary = paymentModesLabel.length > 0
+    ? paymentModesLabel.join(" · ")
     : "Renseignez les 3 clés Stripe pour encaisser";
 
   return {
@@ -545,6 +551,21 @@ async function buildPaiementTile(): Promise<DashboardTile> {
             initialHasSecret={status.hasSecret}
             initialHasWebhook={status.hasWebhook}
             initialPublishable={publishable}
+          />
+        </SettingCard>
+        <SettingCard
+          icon={Ico.card}
+          title="Virement bancaire"
+          description="Proposez le virement comme alternative à la carte au checkout. Vous recevrez chaque commande en « En attente de paiement » — cliquez « Marquer virement reçu » depuis la fiche commande une fois le virement crédité sur votre banque."
+          accent="dark"
+          status={bankTransfer.enabled
+            ? { tone: "ok", label: "Activé" }
+            : { tone: "off", label: "Désactivé" }}
+        >
+          <BankTransferSettingsForm
+            initialEnabled={bankTransfer.enabled}
+            initialHolder={bankTransfer.holder}
+            initialIban={bankTransfer.iban}
           />
         </SettingCard>
       </CardsStack>

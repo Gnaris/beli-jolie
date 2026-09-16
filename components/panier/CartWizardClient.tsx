@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { placeOrder } from "@/app/actions/client/order";
+import { placeBankTransferOrder } from "@/app/actions/client/bank-transfer-order";
 import { getSerializedCartForWizard } from "@/app/actions/client/cart";
 import { computeCartCheckoutPricing } from "@/app/actions/client/cart-pricing";
 import { resolveVatRate } from "@/lib/vat";
@@ -58,6 +59,13 @@ interface Props {
   minOrderHT: number;
   stripeReady: boolean;
   stripePublishableKey: string | null;
+  /** Config virement bancaire du tenant. `enabled=false` → option cachée au checkout. */
+  bankTransfer: {
+    enabled: boolean;
+    holder: string;
+    /** IBAN déjà formatté "FR76 3000 …" pour affichage direct. */
+    ibanDisplay: string;
+  };
 }
 
 /**
@@ -79,6 +87,7 @@ export default function CartWizardClient({
   minOrderHT,
   stripeReady,
   stripePublishableKey,
+  bankTransfer,
 }: Props) {
   const router = useRouter();
   const t = useTranslations("checkout");
@@ -386,8 +395,15 @@ export default function CartWizardClient({
   const [stripeError, setStripeError] = useState("");
   const paymentIntentAmountRef = useRef<number>(0);
 
+  // ── Mode de paiement (déclaré avant le useEffect Stripe qui en dépend).
+  // "card" par défaut, "bank_transfer" bypasse toute la logique Stripe.
+  const [paymentMode, setPaymentMode] = useState<"card" | "bank_transfer">("card");
+
   useEffect(() => {
-    if (currentStep !== 3 || !stripeReady || !selectedCarrier) return;
+    // En mode virement bancaire on ne crée AUCUN PaymentIntent Stripe — inutile
+    // et polluant (PI orphelins). Le placeBankTransferOrder gère directement
+    // la création de commande à la soumission.
+    if (currentStep !== 3 || !stripeReady || !selectedCarrier || paymentMode === "bank_transfer") return;
     const amountCents = Math.round(totalTTC * 100);
     if (amountCents <= 0) return;
     // Ne pas re-créer si le montant n'a pas changé (évite les re-fetches en cascade)
@@ -441,12 +457,74 @@ export default function CartWizardClient({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep, stripeReady, selectedCarrier?.id, effectiveCarrierPrice, promoApplied?.code]);
+  }, [currentStep, stripeReady, selectedCarrier?.id, effectiveCarrierPrice, promoApplied?.code, paymentMode]);
 
   // ── CGV + placeOrder
   const [cgvAccepted, setCgvAccepted] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
+  // Si la cliente change de mode de paiement, on repart d'un clientSecret propre :
+  // le PaymentIntent actuel n'est plus pertinent (virement) ou doit être recréé (carte).
+  useEffect(() => {
+    setOrderError("");
+    if (paymentMode === "bank_transfer") {
+      setClientSecret(null);
+      setPaymentIntentId(null);
+      setStripeError("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMode]);
+
+  async function handleBankTransferSubmit() {
+    setOrderError("");
+    setIsCreatingOrder(true);
+    try {
+      const effectiveAddr = deliveryMode === "merge"
+        ? (selectedAddr ?? addresses[0] ?? null)
+        : selectedAddr;
+      if (!effectiveAddr) {
+        setOrderError(t("noAddress"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      if (!selectedCarrier) {
+        setOrderError(t("noCarriersAvailable"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      const result = await placeBankTransferOrder({
+        addressId:    effectiveAddr.id,
+        carrierId:    selectedCarrier.id,
+        transactionId,
+        carrierSig:   selectedCarrier.sig ?? "",
+        carrierName:  selectedCarrier.name,
+        carrierPrice: rawCarrierPrice,
+        cgvAcceptedAt: new Date().toISOString(),
+        ...(deliveryMode === "private"
+          ? privateMode === "contact"
+            ? {
+                privateCarrierEmail: privateCarrierEmail.trim(),
+                privateCarrierPhone: privateCarrierPhone.trim(),
+              }
+            : { privateCarrierBordereau: bordereauPath ?? undefined }
+          : {}),
+        ...(deliveryMode === "merge" && selectedMergeOrderId
+          ? { mergeIntoOrderId: selectedMergeOrderId }
+          : {}),
+        ...(promoApplied ? { promoCode: promoApplied.code } : {}),
+      });
+      if (result.success) {
+        router.replace(`/commandes/${result.orderId}`);
+      } else {
+        setOrderError(result.error);
+        setIsCreatingOrder(false);
+      }
+    } catch (err) {
+      setOrderError((err as Error).message);
+      setIsCreatingOrder(false);
+    }
+  }
 
   async function handlePaymentSuccess(piId: string) {
     setOrderError("");
@@ -727,6 +805,10 @@ export default function CartWizardClient({
                 onPaymentSuccess={handlePaymentSuccess}
                 onPaymentError={setStripeError}
                 onBackToStep2={() => goToStep(2)}
+                paymentMode={paymentMode}
+                onPaymentModeChange={setPaymentMode}
+                bankTransfer={bankTransfer}
+                onBankTransferSubmit={handleBankTransferSubmit}
                 billingSummary={{
                   name:    `${billingInfo.company || `${billingInfo.firstName} ${billingInfo.lastName}`}`,
                   address: [
@@ -779,19 +861,25 @@ export default function CartWizardClient({
                 ? t("proceedToPayment")
                 : currentStep === 2
                   ? t("proceedToPayment")
-                  : t("payAmount", { amount: totalTTC.toFixed(2) })
+                  : paymentMode === "bank_transfer"
+                    ? t("confirmBankTransferOrder")
+                    : t("payAmount", { amount: totalTTC.toFixed(2) })
             }
             ctaDisabled={
               currentStep === 1
                 ? !canGoToStep2
                 : currentStep === 2
                   ? !canGoToStep3 || isValidating
-                  : !cgvAccepted || !clientSecret || isCreatingOrder
+                  : paymentMode === "bank_transfer"
+                    ? !cgvAccepted || isCreatingOrder
+                    : !cgvAccepted || !clientSecret || isCreatingOrder
             }
             onCta={() => {
               if (currentStep === 1) goToStep(2);
               else if (currentStep === 2) void handleValidateAndGoToPayment();
-              else {
+              else if (paymentMode === "bank_transfer") {
+                void handleBankTransferSubmit();
+              } else {
                 // L'étape 3 déclenche le paiement Stripe via son propre bouton
                 // (voir StripeCardForm). Le CTA du récap est là comme rappel.
                 const submitBtn = document.querySelector<HTMLButtonElement>(

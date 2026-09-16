@@ -2,8 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { togglePromotion } from "@/app/actions/admin/promotions";
+import { useRouter } from "next/navigation";
+import { togglePromotion, deletePromotion } from "@/app/actions/admin/promotions";
 import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   effectivePromotionStatus,
   usageProgress,
@@ -157,6 +159,8 @@ export default function PromotionsList({
   const [query, setQuery] = useState("");
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
+  const { confirm } = useConfirm();
+  const router = useRouter();
 
   const now = useMemo(() => new Date(), []);
   const filtered = useMemo(() => {
@@ -176,6 +180,29 @@ export default function PromotionsList({
       const result = await togglePromotion(id);
       if (result.success) toast.success("Statut mis à jour");
       else toast.error(result.error || "Erreur");
+    });
+  }
+
+  async function handleDelete(promo: SerializedPromotion) {
+    const used = promo.usageCount > 0;
+    const ok = await confirm({
+      type: "danger",
+      title: `Supprimer « ${promo.name} » ?`,
+      message: used
+        ? `Cette promotion a été utilisée ${promo.usageCount} fois. Les commandes concernées gardent leur remise, mais la trace de la promo dans leur historique sera effacée. Cette action est définitive.`
+        : "Cette promotion sera définitivement supprimée. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const result = await deletePromotion(promo.id);
+      if (result.success) {
+        toast.success("Promotion supprimée");
+        router.refresh();
+      } else {
+        toast.error(result.error || "Erreur");
+      }
     });
   }
 
@@ -353,8 +380,20 @@ export default function PromotionsList({
                 </Link>
 
                 {/* Actions à droite */}
-                <div className="flex items-center gap-3 px-4 sm:pr-5 sm:pl-0 pb-4 sm:pb-0 sm:pr-5">
+                <div className="flex items-center gap-3 px-4 sm:pr-5 sm:pl-0 pb-4 sm:pb-0">
                   <Toggle on={promo.isActive} disabled={isPending} onClick={() => handleToggle(promo.id)} />
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(promo)}
+                    disabled={isPending}
+                    aria-label="Supprimer cette promotion"
+                    title="Supprimer"
+                    className="inline-flex items-center justify-center h-9 w-9 rounded-xl border border-border text-text-muted hover:border-red-300 hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             );

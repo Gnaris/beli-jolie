@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/client/cart";
 import CartWizardClient from "@/components/panier/CartWizardClient";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
+import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { loadActivePromotions } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { resolveBestItemDiscount } from "@/lib/promotion-engine";
@@ -89,6 +90,7 @@ export default async function PanierPage() {
     minOrderHT,
     stripeReady,
     stripePublishableKey,
+    bankTransferConfig,
     companyInfo,
     businessHoursRow,
     mergeCandidates,
@@ -125,6 +127,7 @@ export default async function PanierPage() {
     getEffectiveMinOrderHT(session.user.id),
     isStripeConfigured(),
     getStripePublishableKey(),
+    getCachedBankTransferConfig(),
     prisma.companyInfo.findFirst({
       select: {
         name: true,
@@ -335,6 +338,11 @@ export default async function PanierPage() {
       minOrderHT={minOrderHT}
       stripeReady={stripeReady}
       stripePublishableKey={stripePublishableKey}
+      bankTransfer={{
+        enabled: bankTransferConfig.enabled,
+        holder: bankTransferConfig.holder,
+        ibanDisplay: bankTransferConfig.iban ? formatIbanForDisplay(bankTransferConfig.iban) : "",
+      }}
     />
   );
 }
