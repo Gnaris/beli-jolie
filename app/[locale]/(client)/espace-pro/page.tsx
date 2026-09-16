@@ -780,13 +780,12 @@ export default async function DashboardPage() {
             company: user.company,
             phone: user.phone,
             siret: user.siret,
-            fullAddress: [
-              user.addressStreet,
-              user.addressComplement,
-              [user.addressZip, user.addressCity].filter(Boolean).join(" "),
-              user.addressCountry,
-            ].filter(Boolean).join(" — ") || null,
             vatNumber: user.vatNumber,
+            addressStreet: user.addressStreet,
+            addressComplement: user.addressComplement,
+            addressZip: user.addressZip,
+            addressCity: user.addressCity,
+            addressCountry: user.addressCountry,
           }} />
 
           {/* -- Préférences newsletter (opt-in / opt-out en 1 clic) --

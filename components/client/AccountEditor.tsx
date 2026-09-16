@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { updateProfile } from "@/app/actions/client/profile";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
+import { COUNTRIES } from "@/lib/vat";
 
 interface AccountEditorProps {
   user: {
@@ -13,8 +15,12 @@ interface AccountEditorProps {
     company: string;
     phone: string;
     siret: string | null;
-    fullAddress: string | null;
     vatNumber: string | null;
+    addressStreet: string | null;
+    addressComplement: string | null;
+    addressZip: string | null;
+    addressCity: string | null;
+    addressCountry: string | null;
   };
 }
 
@@ -30,7 +36,20 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   const [lastName, setLastName] = useState(user.lastName);
   const [company, setCompany] = useState(user.company);
   const [phone, setPhone] = useState(user.phone);
+  const [siret, setSiret] = useState(user.siret ?? "");
   const [vatNumber, setVatNumber] = useState(user.vatNumber ?? "");
+  const [addressStreet, setAddressStreet] = useState(user.addressStreet ?? "");
+  const [addressComplement, setAddressComplement] = useState(user.addressComplement ?? "");
+  const [addressZip, setAddressZip] = useState(user.addressZip ?? "");
+  const [addressCity, setAddressCity] = useState(user.addressCity ?? "");
+  const [addressCountry, setAddressCountry] = useState(user.addressCountry ?? "");
+
+  const countryOptions: SelectOption[] = useMemo(
+    () => COUNTRIES.map((c) => ({ value: c.code, label: c.name })),
+    [],
+  );
+
+  const vatChanged = (vatNumber.trim().toUpperCase() || null) !== (user.vatNumber?.toUpperCase() || null);
 
   function handleSave() {
     if (!firstName.trim() || !lastName.trim() || !company.trim() || !phone.trim()) {
@@ -41,10 +60,26 @@ export default function AccountEditor({ user }: AccountEditorProps) {
     showLoading();
     startTransition(async () => {
       try {
-        await updateProfile({ firstName, lastName, company, phone, vatNumber });
-        setEditing(false);
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 3000);
+        const res = await updateProfile({
+          firstName,
+          lastName,
+          company,
+          phone,
+          siret,
+          vatNumber,
+          addressStreet,
+          addressComplement,
+          addressZip,
+          addressCity,
+          addressCountry,
+        });
+        if (!res.success) {
+          setError(res.error);
+        } else {
+          setEditing(false);
+          setSuccess(true);
+          setTimeout(() => setSuccess(false), 3000);
+        }
       } catch {
         setError(t("updateError"));
       } finally {
@@ -58,18 +93,25 @@ export default function AccountEditor({ user }: AccountEditorProps) {
     setLastName(user.lastName);
     setCompany(user.company);
     setPhone(user.phone);
+    setSiret(user.siret ?? "");
     setVatNumber(user.vatNumber ?? "");
+    setAddressStreet(user.addressStreet ?? "");
+    setAddressComplement(user.addressComplement ?? "");
+    setAddressZip(user.addressZip ?? "");
+    setAddressCity(user.addressCity ?? "");
+    setAddressCountry(user.addressCountry ?? "");
     setEditing(false);
     setError("");
   }
 
-  const fields = [
-    { label: t("firstName"), value: firstName, setter: setFirstName, required: true },
-    { label: t("lastName"), value: lastName, setter: setLastName, required: true },
-    { label: t("company"), value: company, setter: setCompany, required: true },
-    { label: t("phone"), value: phone, setter: setPhone, required: true },
-    { label: t("vatNumber"), value: vatNumber, setter: setVatNumber, required: false, mono: true },
-  ];
+  const readOnlyAddress = [
+    user.addressStreet,
+    user.addressComplement,
+    [user.addressZip, user.addressCity].filter(Boolean).join(" "),
+    COUNTRIES.find((c) => c.code === user.addressCountry)?.name ?? user.addressCountry,
+  ]
+    .filter(Boolean)
+    .join(" — ");
 
   return (
     <div className="bg-bg-primary rounded-xl border border-border overflow-hidden">
@@ -125,45 +167,109 @@ export default function AccountEditor({ user }: AccountEditorProps) {
         </div>
       )}
 
-      <div className="divide-y divide-border-light">
-        {/* Email + SIRET + Adresse (non editable) */}
-        {[
-          { label: t("email"), value: user.email },
-          { label: t("siret"), value: user.siret || t("notProvided"), mono: true },
-          { label: t("address"), value: user.fullAddress || t("notProvided") },
-        ].map(({ label, value, mono }) => (
-          <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
-            <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-24 shrink-0">
-              {label}
-            </span>
-            <span className={`text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
-              {value}
-            </span>
-          </div>
-        ))}
+      {editing && vatChanged && vatNumber.trim() !== "" && (
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-100">
+          <p className="text-xs text-amber-800 font-body">{t("vatResetNotice")}</p>
+        </div>
+      )}
 
-        {/* Champs editables */}
-        {fields.map(({ label, value, setter, required, mono }) => (
-          <div key={label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
-            <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-24 shrink-0">
-              {label}{required && !editing ? "" : ""}
-            </span>
-            {editing ? (
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => setter(e.target.value)}
-                className={`flex-1 text-sm text-text-primary ${mono ? "font-mono" : "font-body"} border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:border-bg-dark transition-colors`}
-                placeholder={label}
-              />
-            ) : (
-              <span className={`text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
-                {value || <span className="text-text-muted italic">{t("notProvided")}</span>}
-              </span>
+      <div className="divide-y divide-border-light">
+        {/* Email — non éditable côté client */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
+          <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-32 shrink-0">
+            {t("email")}
+          </span>
+          <div className="flex-1">
+            <span className="text-sm text-text-primary font-body">{user.email}</span>
+            {editing && (
+              <p className="text-[11px] text-text-muted mt-0.5 font-body italic">
+                {t("emailNotEditable")}
+              </p>
             )}
           </div>
-        ))}
+        </div>
+
+        {/* Contact */}
+        <ProfileRow label={t("firstName")} value={firstName} onChange={setFirstName} editing={editing} required />
+        <ProfileRow label={t("lastName")} value={lastName} onChange={setLastName} editing={editing} required />
+        <ProfileRow label={t("company")} value={company} onChange={setCompany} editing={editing} required />
+        <ProfileRow label={t("phone")} value={phone} onChange={setPhone} editing={editing} required />
+
+        {/* Entreprise */}
+        <ProfileRow label={t("siret")} value={siret} onChange={setSiret} editing={editing} mono />
+        <ProfileRow label={t("vatNumber")} value={vatNumber} onChange={setVatNumber} editing={editing} mono />
+
+        {/* Adresse — 1 ligne read-only, 5 champs en édition */}
+        {!editing ? (
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-6 px-5 py-3">
+            <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-32 shrink-0">
+              {t("address")}
+            </span>
+            <span className="text-sm text-text-primary font-body">
+              {readOnlyAddress || <span className="text-text-muted italic">{t("notProvided")}</span>}
+            </span>
+          </div>
+        ) : (
+          <>
+            <ProfileRow label={t("addressStreet")} value={addressStreet} onChange={setAddressStreet} editing />
+            <ProfileRow label={t("addressComplement")} value={addressComplement} onChange={setAddressComplement} editing />
+            <ProfileRow label={t("addressZip")} value={addressZip} onChange={setAddressZip} editing />
+            <ProfileRow label={t("addressCity")} value={addressCity} onChange={setAddressCity} editing />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
+              <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-32 shrink-0">
+                {t("addressCountry")}
+              </span>
+              <div className="flex-1 min-w-0">
+                <CustomSelect
+                  value={addressCountry}
+                  onChange={setAddressCountry}
+                  options={countryOptions}
+                  placeholder={t("selectCountry")}
+                  searchable
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+function ProfileRow({
+  label,
+  value,
+  onChange,
+  editing,
+  required = false,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  editing: boolean;
+  required?: boolean;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
+      <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-32 shrink-0">
+        {label}
+      </span>
+      {editing ? (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          className={`flex-1 min-w-0 text-sm text-text-primary ${mono ? "font-mono" : "font-body"} border border-border rounded-lg px-3 py-1.5 focus:outline-none focus:border-bg-dark transition-colors`}
+          placeholder={label}
+        />
+      ) : (
+        <span className={`text-sm text-text-primary ${mono ? "font-mono" : "font-body"}`}>
+          {value || <span className="text-text-muted italic font-body">—</span>}
+        </span>
+      )}
     </div>
   );
 }

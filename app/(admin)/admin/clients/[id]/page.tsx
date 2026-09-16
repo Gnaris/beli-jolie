@@ -14,6 +14,7 @@ import ClientOrdersPanel from "@/components/admin/users/ClientOrdersPanel";
 import ClientDetailTabs from "@/components/admin/users/ClientDetailTabs";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import AdminNewsletterToggle from "@/components/admin/users/AdminNewsletterToggle";
+import ClientProfileEditor from "@/components/admin/users/ClientProfileEditor";
 import { getCountry } from "@/lib/vat";
 import { isOnline } from "@/lib/online-status";
 import type { UserStatus } from "@prisma/client";
@@ -246,6 +247,23 @@ export default async function ClientDetailPage({
         <div className="card p-6 lg:col-span-2">
           <div className="flex items-center justify-between mb-6">
             <h2 className="font-heading text-lg font-bold text-text-primary">Coordonnées</h2>
+            <ClientProfileEditor
+              clientId={user.id}
+              initial={{
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                company: user.company,
+                phone: user.phone,
+                siret: user.siret,
+                vatNumber: user.vatNumber,
+                addressStreet: user.addressStreet,
+                addressComplement: user.addressComplement,
+                addressZip: user.addressZip,
+                addressCity: user.addressCity,
+                addressCountry: user.addressCountry,
+              }}
+            />
           </div>
 
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted mb-3">Contact</p>
