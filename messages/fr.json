@@ -363,7 +363,7 @@
     "filterByType": "Filtrer par type",
     "productsHeading": "Nos {name} en gros",
     "productsCount": "{count} produits",
-    "seeAllInCatalog": "Voir les {count} références au catalogue →",
+    "paginationItemLabel": "produits",
     "empty": "Aucun produit disponible dans cette catégorie pour l'instant.",
     "faqEyebrow": "Questions fréquentes",
     "faqHeading": "Achat en gros de {name} — vos questions",

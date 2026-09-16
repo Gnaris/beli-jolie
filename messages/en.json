@@ -363,7 +363,7 @@
     "filterByType": "Filter by type",
     "productsHeading": "Our wholesale {name}",
     "productsCount": "{count} products",
-    "seeAllInCatalog": "See all {count} references in catalog →",
+    "paginationItemLabel": "products",
     "empty": "No products available in this category yet.",
     "faqEyebrow": "Frequently asked questions",
     "faqHeading": "Buying {name} wholesale — your questions",

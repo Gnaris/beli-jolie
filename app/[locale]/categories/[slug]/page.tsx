@@ -9,6 +9,7 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
+import Pagination from "@/components/ui/Pagination";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import {
   resolveCategorySeo,
@@ -16,11 +17,13 @@ import {
   buildBreadcrumbJsonLd,
 } from "@/lib/category-seo";
 import CategoryFaq from "@/components/categories/CategoryFaq";
+import { parsePageParam, paginate } from "@/lib/paginate";
 
-const MAX_PRODUCTS_ON_PAGE = 40;
+const PRODUCTS_PER_PAGE = 40;
 
 interface PageProps {
   params: Promise<{ slug: string; locale: string }>;
+  searchParams: Promise<{ page?: string }>;
 }
 
 async function loadCategoryBySlug(slug: string, locale: string) {
@@ -63,9 +66,11 @@ async function loadCategoryBySlug(slug: string, locale: string) {
   });
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   await getCurrentTenantId();
   const { slug, locale } = await params;
+  const { page: pageParam } = await searchParams;
+  const currentPage = parsePageParam(pageParam);
 
   const [category, shopName, tMeta, alternates] = await Promise.all([
     loadCategoryBySlug(slug, locale),
@@ -109,12 +114,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       siteName: shopName,
     },
     alternates,
+    // Empêche Google d'indexer les pages paginées (page 2+) : le canonical
+    // consolide déjà tout sur la page 1, on évite les doublons Search Console.
+    ...(currentPage > 1 && { robots: { index: false, follow: true } }),
   };
 }
 
-export default async function CategoryDetailPage({ params }: PageProps) {
+export default async function CategoryDetailPage({ params, searchParams }: PageProps) {
   await getCurrentTenantId();
   const { slug, locale } = await params;
+  const { page: pageParam } = await searchParams;
 
   const [t, tCommon, shopName, siteUrl, category] = await Promise.all([
     getTranslations({ locale, namespace: "categoryDetail" }),
@@ -126,6 +135,14 @@ export default async function CategoryDetailPage({ params }: PageProps) {
 
   if (!category) notFound();
 
+  // ── Pagination ─────────────────────────────────────────────────────────
+  const totalProducts = category._count.products;
+  const { totalPages, currentPage, skip } = paginate(
+    totalProducts,
+    PRODUCTS_PER_PAGE,
+    parsePageParam(pageParam),
+  );
+
   // ── Produits de la catégorie ──────────────────────────────────────────
   const rawProducts = await prisma.product.findMany({
     where: { status: "ONLINE", categoryId: category.id },
@@ -133,7 +150,8 @@ export default async function CategoryDetailPage({ params }: PageProps) {
       { lastRefreshedAt: { sort: "desc", nulls: "last" } },
       { createdAt: "desc" },
     ],
-    take: MAX_PRODUCTS_ON_PAGE,
+    skip,
+    take: PRODUCTS_PER_PAGE,
     select: {
       id: true,
       name: true,
@@ -421,7 +439,7 @@ export default async function CategoryDetailPage({ params }: PageProps) {
           {products.length === 0 ? (
             <div className="text-center py-16 text-text-muted font-body">{t("empty")}</div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 md:gap-5">
+            <div id="category-products-grid" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 md:gap-5">
               {products.map((p) => (
                 <ProductCard
                   key={p.id}
@@ -435,14 +453,14 @@ export default async function CategoryDetailPage({ params }: PageProps) {
               ))}
             </div>
           )}
-          {category._count.products > products.length && (
-            <div className="mt-8 text-center">
-              <Link
-                href={`/produits?cat=${category.id}`}
-                className="inline-flex items-center gap-2 text-sm font-medium text-text-primary border-b border-text-primary hover:opacity-70 transition-opacity font-body"
-              >
-                {t("seeAllInCatalog", { count: category._count.products })}
-              </Link>
+          {totalPages > 1 && (
+            <div className="mt-8 rounded-2xl border border-border bg-bg-primary overflow-hidden">
+              <Pagination
+                totalItems={totalProducts}
+                perPage={PRODUCTS_PER_PAGE}
+                currentPage={currentPage}
+                itemLabel={t("paginationItemLabel")}
+              />
             </div>
           )}
         </section>
