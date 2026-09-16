@@ -11,6 +11,7 @@ import { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { cookies } from "next/headers";
 import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
 import HomeIssymaLayout from "@/components/home/layouts/HomeIssymaLayout";
@@ -417,18 +418,17 @@ export default async function HomePage() {
     jsonLdBlocks,
   };
 
-  // Layout par défaut = Beliandjolie pour TOUS les tenants (Issyma inclus).
-  // Le design éditorial sombre Issyma est encore en chantier — code conservé
-  // dans `HomeIssymaLayout.tsx` + branche `wip/issyma-home-design`, et
-  // toujours prévisualisable en dev via le switcher (`bj_home_preview`).
-  // Pour réactiver Issyma en prod, remplacer par :
-  //   const tenantSlug = await getCurrentTenantSlug();
-  //   let layoutChoice = tenantSlug === "issyma" ? "issyma" : "beliandjolie";
+  const tenantSlug = await getCurrentTenantSlug();
+
+  // Override dev-only : cookie `bj_home_preview` posé par HomeLayoutDevSwitcher.
+  // Permet de basculer en local entre les 2 layouts sans changer de domaine.
+  // Jamais actif en prod (garde `NODE_ENV`).
   const isDev = process.env.NODE_ENV !== "production";
   const cookieStore = await cookies();
   const previewOverride = cookieStore.get("bj_home_preview")?.value;
 
-  let layoutChoice: "beliandjolie" | "issyma" = "beliandjolie";
+  let layoutChoice: "beliandjolie" | "issyma" =
+    tenantSlug === "issyma" ? "issyma" : "beliandjolie";
   if (isDev && (previewOverride === "beliandjolie" || previewOverride === "issyma")) {
     layoutChoice = previewOverride;
   }
