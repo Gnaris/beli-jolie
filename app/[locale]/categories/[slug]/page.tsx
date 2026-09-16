@@ -20,6 +20,7 @@ import CategoryFaq from "@/components/categories/CategoryFaq";
 import { parsePageParam, paginate } from "@/lib/paginate";
 
 const PRODUCTS_PER_PAGE = 40;
+const PREFETCH_RANGE = 5;
 
 interface PageProps {
   params: Promise<{ slug: string; locale: string }>;
@@ -182,15 +183,60 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
     },
   });
 
+  // ── Preload voisines : premières images des produits des pages ±N ──────
+  // Objectif : quand la cliente clique sur une page suivante, les vignettes
+  // sont déjà dans le cache navigateur (prefetch en priorité basse en tâche
+  // de fond). Une image par produit suffit pour rendre la grille visible.
+  const surroundingStart = Math.max(1, currentPage - PREFETCH_RANGE);
+  const surroundingEnd = Math.min(totalPages, currentPage + PREFETCH_RANGE);
+  const surroundingSkip = (surroundingStart - 1) * PRODUCTS_PER_PAGE;
+  const surroundingTake = (surroundingEnd - surroundingStart + 1) * PRODUCTS_PER_PAGE;
+  const surroundingProductsPromise =
+    surroundingTake > PRODUCTS_PER_PAGE
+      ? prisma.product.findMany({
+          where: { status: "ONLINE", categoryId: category.id },
+          orderBy: [
+            { lastRefreshedAt: { sort: "desc", nulls: "last" } },
+            { createdAt: "desc" },
+          ],
+          skip: surroundingSkip,
+          take: surroundingTake,
+          select: { id: true },
+        })
+      : Promise.resolve([] as { id: string }[]);
+
   // ── Images des produits ────────────────────────────────────────────────
   const productIds = rawProducts.map((p) => p.id);
-  const colorImages =
+  const currentPageIds = new Set(productIds);
+  const [colorImages, surroundingProducts] = await Promise.all([
     productIds.length > 0
-      ? await prisma.productColorImage.findMany({
+      ? prisma.productColorImage.findMany({
           where: { productId: { in: productIds } },
           orderBy: { order: "asc" },
         })
+      : Promise.resolve([]),
+    surroundingProductsPromise,
+  ]);
+
+  const surroundingIds = surroundingProducts
+    .map((p) => p.id)
+    .filter((id) => !currentPageIds.has(id));
+  const surroundingImages =
+    surroundingIds.length > 0
+      ? await prisma.productColorImage.findMany({
+          where: { productId: { in: surroundingIds } },
+          orderBy: { order: "asc" },
+          select: { productId: true, path: true },
+        })
       : [];
+  const prefetchImageUrls: string[] = [];
+  const seenSurrounding = new Set<string>();
+  for (const img of surroundingImages) {
+    if (!seenSurrounding.has(img.productId)) {
+      seenSurrounding.add(img.productId);
+      prefetchImageUrls.push(img.path);
+    }
+  }
   const imageMap = new Map<string, Map<string, string>>();
   for (const img of colorImages) {
     if (!imageMap.has(img.productId)) imageMap.set(img.productId, new Map());
@@ -460,6 +506,9 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
                 perPage={PRODUCTS_PER_PAGE}
                 currentPage={currentPage}
                 itemLabel={t("paginationItemLabel")}
+                showLoadingOverlay
+                prefetchRange={PREFETCH_RANGE}
+                prefetchImageUrls={prefetchImageUrls}
               />
             </div>
           )}
