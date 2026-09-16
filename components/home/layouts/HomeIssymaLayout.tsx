@@ -336,7 +336,7 @@ export default async function HomeIssymaLayout({
               {/* ── Colonne gauche : texte à même le fond bordeaux ── */}
               <div className="p-2 sm:p-4 lg:p-6 flex flex-col min-h-[520px] lg:min-h-[600px]">
                 <p className="eyebrow" style={{ color: `${PALETTE.cream2}cc` }}>
-                  Grossiste en prêt-à-porter féminin B2B · CIFA Aubervilliers
+                  {t("issyma.eyebrow")}
                 </p>
 
                 <h1 className="serif mt-8"
@@ -345,15 +345,13 @@ export default async function HomeIssymaLayout({
                       fontSize: "clamp(2.4rem, 5.4vw, 4.6rem)",
                       lineHeight: 1.05,
                     }}>
-                  Des produits tendance<br />
-                  pour votre boutique
+                  {t("issyma.title1")}<br />
+                  {t("issyma.title2")}
                 </h1>
 
                 <p className="mt-8 max-w-lg text-[15px] leading-[1.7] font-light"
                    style={{ color: `${PALETTE.cream}cc` }}>
-                  Plus de 600 références disponibles pour les boutiques et
-                  revendeurs professionnels. Vente à l&apos;unité, nouveautés
-                  régulières et livraison en France et en Europe.
+                  {t("issyma.desc")}
                 </p>
 
                 <div className="mt-10 flex flex-wrap gap-3">
@@ -361,14 +359,14 @@ export default async function HomeIssymaLayout({
                     href="/produits"
                     className="btn-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
                   >
-                    Découvrir le catalogue
+                    {t("issyma.ctaCatalog")}
                     <span aria-hidden="true">→</span>
                   </Link>
                   <Link
                     href="/inscription"
                     className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
                   >
-                    Créer un compte pro
+                    {t("issyma.ctaAccount")}
                     <span aria-hidden="true">→</span>
                   </Link>
                 </div>
@@ -384,9 +382,9 @@ export default async function HomeIssymaLayout({
                       </svg>
                     </span>
                     <div className="flex flex-col leading-tight">
-                      <span className="eyebrow" style={{ color: `${PALETTE.cream2}b3` }}>Showroom</span>
+                      <span className="eyebrow" style={{ color: `${PALETTE.cream2}b3` }}>{t("issyma.showroomLabel")}</span>
                       <span className="text-[15px] mt-1 font-medium" style={{ color: PALETTE.cream }}>
-                        Marché CIFA · lot 165 · Aubervilliers
+                        {t("issyma.showroomAddress")}
                       </span>
                     </div>
                   </div>
@@ -401,34 +399,33 @@ export default async function HomeIssymaLayout({
                       fontSize: "clamp(1.5rem, 2.2vw, 1.9rem)",
                       letterSpacing: "0.02em",
                     }}>
-                  Comment commander ?
+                  {t("issyma.howToTitle")}
                 </h2>
                 <p className="mt-2 text-sm" style={{ color: "#8a7460" }}>
-                  Un parcours simple, réservé aux professionnels.
+                  {t("issyma.howToSubtitle")}
                 </p>
 
                 <div className="mt-6 flex flex-wrap gap-3">
-                  <span className="pill btn-wine">Vente à l&apos;unité</span>
-                  <span className="pill btn-outline-wine">Minimum 100 € HT</span>
+                  <span className="pill btn-wine">{t("issyma.chipUnit")}</span>
+                  <span className="pill btn-outline-wine">{t("issyma.chipMin")}</span>
                 </div>
 
                 <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
-                  {[
-                    { n: "1", title: "Créez votre compte pro", desc: "Inscription gratuite" },
-                    { n: "2", title: "Choisissez vos articles", desc: "À l'unité, sans lot ni pack" },
-                    { n: "3", title: "Validez dès 100 € HT",   desc: "Paiement sécurisé par carte" },
-                    { n: "4", title: "Recevez ou retirez",     desc: "Livraison France et Europe" },
-                  ].map((s) => (
-                    <div key={s.n} className="flex gap-4">
+                  {([1, 2, 3, 4] as const).map((n) => (
+                    <div key={n} className="flex gap-4">
                       <span className="step-circle w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0">
-                        {s.n}
+                        {n}
                       </span>
                       <div>
-                        {/* Hardcode : PALETTE.ink/muted pointent sur cream/rose
+                        {/* Hardcode couleurs : PALETTE.ink/muted pointent sur cream/rose
                             (thème dark de la page). Ici on est sur la carte
                             blanche, il faut du texte sombre. */}
-                        <p className="text-[15px] font-semibold leading-tight" style={{ color: "#2a1418" }}>{s.title}</p>
-                        <p className="text-[13px] mt-1 leading-relaxed" style={{ color: "#8a7460" }}>{s.desc}</p>
+                        <p className="text-[15px] font-semibold leading-tight" style={{ color: "#2a1418" }}>
+                          {t(`issyma.step${n}Title` as "issyma.step1Title")}
+                        </p>
+                        <p className="text-[13px] mt-1 leading-relaxed" style={{ color: "#8a7460" }}>
+                          {t(`issyma.step${n}Desc` as "issyma.step1Desc")}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -438,20 +435,20 @@ export default async function HomeIssymaLayout({
 
                 <div className="mt-8">
                   <div className="info-row">
-                    <span className="label">Au showroom</span>
-                    <span className="value">Retrait immédiat, sans commande préalable</span>
+                    <span className="label">{t("issyma.tableShowroomLabel")}</span>
+                    <span className="value">{t("issyma.tableShowroomValue")}</span>
                   </div>
                   <div className="info-row">
-                    <span className="label">Commande web</span>
-                    <span className="value">Préparation sous 24-48 h ouvrées</span>
+                    <span className="label">{t("issyma.tableWebLabel")}</span>
+                    <span className="value">{t("issyma.tableWebValue")}</span>
                   </div>
                   <div className="info-row">
-                    <span className="label">Paiement</span>
-                    <span className="value">Carte bancaire</span>
+                    <span className="label">{t("issyma.tablePayLabel")}</span>
+                    <span className="value">{t("issyma.tablePayValue")}</span>
                   </div>
                   <div className="info-row">
-                    <span className="label">Livraison</span>
-                    <span className="value">GLS · DPD · Chronopost · Colissimo · UPS</span>
+                    <span className="label">{t("issyma.tableDeliveryLabel")}</span>
+                    <span className="value">{t("issyma.tableDeliveryValue")}</span>
                   </div>
                 </div>
               </div>
@@ -468,7 +465,7 @@ export default async function HomeIssymaLayout({
                 <div>
                   <p className="eyebrow mb-4"><span className="wine-underline" />{t("newProductsEyebrow")}</p>
                   <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    Les dernières <span className="italic" style={{ color: PALETTE.wine700 }}>nouveautés</span>.
+                    {t("issyma.newTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.newTitleAccent")}</span>.
                   </h2>
                 </div>
                 <Link href="/produits?new=1" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
@@ -487,24 +484,23 @@ export default async function HomeIssymaLayout({
         <section style={{ background: PALETTE.page }}>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-32">
             <div className="max-w-3xl mb-16 sm:mb-20">
-              <p className="eyebrow mb-5"><span className="wine-underline" />Notre engagement</p>
+              <p className="eyebrow mb-5"><span className="wine-underline" />{t("issyma.engagementEyebrow")}</p>
               <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                Pourquoi les boutiques <br className="hidden md:block" />
-                nous <span className="italic" style={{ color: PALETTE.wine700 }}>choisissent</span>.
+                {t("issyma.engagementTitleStart")} <br className="hidden md:block" />
+                {t("issyma.engagementTitleMid")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.engagementTitleAccent")}</span>.
               </h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-12 gap-y-14">
-              {[
-                { n: "01", title: "Préparation rapide", desc: "24-48 h ouvrées entre la commande et l'expédition." },
-                { n: "02", title: "Vente à l'unité",    desc: "Sans lot ni pack imposé — composez librement votre sélection." },
-                { n: "03", title: "Paiement sécurisé",  desc: "Carte bancaire via Stripe, protection professionnelle." },
-                { n: "04", title: "Service client",     desc: "Une équipe réactive et dédiée aux professionnels." },
-              ].map((it) => (
-                <div key={it.n}>
-                  <p className="serif text-5xl sm:text-6xl font-medium leading-none" style={{ color: PALETTE.wine700 }}>{it.n}</p>
+              {([1, 2, 3, 4] as const).map((n) => (
+                <div key={n}>
+                  <p className="serif text-5xl sm:text-6xl font-medium leading-none" style={{ color: PALETTE.wine700 }}>{`0${n}`}</p>
                   <span className="block w-8 h-[1px] mt-5" style={{ background: PALETTE.wine700 }} />
-                  <h3 className="serif text-2xl mt-6" style={{ color: PALETTE.ink }}>{it.title}</h3>
-                  <p className="text-[15px] mt-3 font-light leading-relaxed" style={{ color: PALETTE.inkSoft }}>{it.desc}</p>
+                  <h3 className="serif text-2xl mt-6" style={{ color: PALETTE.ink }}>
+                    {t(`issyma.eng${n}Title` as "issyma.eng1Title")}
+                  </h3>
+                  <p className="text-[15px] mt-3 font-light leading-relaxed" style={{ color: PALETTE.inkSoft }}>
+                    {t(`issyma.eng${n}Desc` as "issyma.eng1Desc")}
+                  </p>
                 </div>
               ))}
             </div>
@@ -517,9 +513,9 @@ export default async function HomeIssymaLayout({
           <section style={{ background: PALETTE.wine900 }}>
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
               <div className="text-center max-w-2xl mx-auto mb-16">
-                <p className="eyebrow mb-4">Explorer</p>
+                <p className="eyebrow mb-4">{t("issyma.catEyebrow")}</p>
                 <h2 className="serif text-4xl sm:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
-                  Nos <span className="italic" style={{ color: PALETTE.wine700 }}>catégories</span>.
+                  {t("issyma.catTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.catTitleAccent")}</span>.
                 </h2>
               </div>
               <div className="grid grid-cols-3 md:grid-cols-6 gap-6 sm:gap-8">
@@ -548,13 +544,13 @@ export default async function HomeIssymaLayout({
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
               <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-14 sm:mb-16">
                 <div>
-                  <p className="eyebrow mb-4"><span className="wine-underline" />À la une</p>
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.colEyebrow")}</p>
                   <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    Nos <span className="italic" style={{ color: PALETTE.wine700 }}>collections</span>.
+                    {t("issyma.colTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.colTitleAccent")}</span>.
                   </h2>
                 </div>
                 <Link href="/collections" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
-                  Toutes les collections →
+                  {t("issyma.colViewAll")} →
                 </Link>
               </div>
 
@@ -570,9 +566,9 @@ export default async function HomeIssymaLayout({
                     )}
                     <div className="overlay absolute inset-0" style={{ background: `linear-gradient(to top, ${PALETTE.wine950}f2, ${PALETTE.wine900}66, transparent)` }} />
                     <div className="absolute inset-0 flex flex-col justify-end p-8 sm:p-10">
-                      <p className="eyebrow mb-3" style={{ color: `${PALETTE.cream2}cc` }}>Collection</p>
+                      <p className="eyebrow mb-3" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.colLabel")}</p>
                       <h3 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.cream }}>{collections[0].name}</h3>
-                      <p className="text-sm mt-3 font-light" style={{ color: `${PALETTE.cream}b3` }}>{collections[0]._count.products} pièces</p>
+                      <p className="text-sm mt-3 font-light" style={{ color: `${PALETTE.cream}b3` }}>{t("issyma.colPieces", { count: String(collections[0]._count.products) })}</p>
                     </div>
                   </Link>
                 )}
@@ -590,7 +586,7 @@ export default async function HomeIssymaLayout({
                       )}
                       <div className="overlay absolute inset-0" style={{ background: `linear-gradient(to top, ${PALETTE.wine950}f2, ${PALETTE.wine900}66, transparent)` }} />
                       <div className="absolute inset-0 flex flex-col justify-end p-8">
-                        <p className="eyebrow mb-2" style={{ color: `${PALETTE.cream2}cc` }}>Collection</p>
+                        <p className="eyebrow mb-2" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.colLabel")}</p>
                         <h3 className="serif text-3xl sm:text-4xl" style={{ color: PALETTE.cream }}>{col.name}</h3>
                       </div>
                     </Link>
@@ -610,7 +606,7 @@ export default async function HomeIssymaLayout({
                 <div>
                   <p className="eyebrow mb-4"><span className="wine-underline" />{t("bestsellersEyebrow")}</p>
                   <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    Nos <span className="italic" style={{ color: PALETTE.wine700 }}>best sellers</span>.
+                    {t("issyma.bsTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.bsTitleAccent")}</span>.
                   </h2>
                 </div>
                 <Link href="/produits?bestseller=1" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
@@ -618,7 +614,7 @@ export default async function HomeIssymaLayout({
                 </Link>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-                {bestSellerCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} badge="★ Best seller" />)}
+                {bestSellerCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} badge={t("issyma.bsBadge")} />)}
               </div>
             </div>
             <div className="hairline" />
@@ -632,7 +628,7 @@ export default async function HomeIssymaLayout({
               <div className="max-w-2xl mb-14 sm:mb-16">
                 <p className="eyebrow mb-4"><span className="wine-underline" />{t("reviewsEyebrow")}</p>
                 <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                  Paroles de <span className="italic" style={{ color: PALETTE.wine700 }}>boutiques</span>.
+                  {t("issyma.rvTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.rvTitleAccent")}</span>.
                 </h2>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
@@ -670,11 +666,10 @@ export default async function HomeIssymaLayout({
                 <div>
                   <p className="eyebrow mb-5"><span className="wine-underline" />{t("faqEyebrow")}</p>
                   <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    Avant de <span className="italic" style={{ color: PALETTE.wine700 }}>commander</span>.
+                    {t("issyma.fqTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.fqTitleAccent")}</span>.
                   </h2>
                   <p className="mt-6 max-w-lg font-light text-[15px] leading-relaxed" style={{ color: PALETTE.inkSoft }}>
-                    Nous avons rassemblé les questions les plus courantes des professionnels.
-                    Prenez le temps de les parcourir — vous y trouverez sans doute votre réponse.
+                    {t("issyma.fqIntro")}
                   </p>
 
                   <div className="mt-10 rounded-2xl p-8" style={{ background: PALETTE.page, border: `1px solid ${PALETTE.border}` }}>
@@ -722,17 +717,17 @@ export default async function HomeIssymaLayout({
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20 flex flex-col md:flex-row md:items-center md:justify-between gap-10 relative z-10">
             <div className="max-w-2xl">
               <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.cream }}>
-                Prêt à enrichir votre boutique ?
+                {t("issyma.ctaTitle")}
               </h2>
               <p className="mt-4 text-lg font-light" style={{ color: `${PALETTE.cream}d9` }}>
-                Rejoignez les boutiques qui ont choisi {shopName} pour leur sélection professionnelle.
+                {t("issyma.ctaDesc", { shopName })}
               </p>
             </div>
             <Link
               href="/inscription"
               className="btn-cream inline-flex items-center gap-3 px-10 py-5 rounded-full text-[13px] tracking-[0.22em] uppercase font-semibold self-start md:self-auto"
             >
-              Créer un compte professionnel <span aria-hidden="true">→</span>
+              {t("issyma.ctaButton")} <span aria-hidden="true">→</span>
             </Link>
           </div>
         </section>
@@ -744,31 +739,31 @@ export default async function HomeIssymaLayout({
               <div>
                 <p className="serif text-2xl tracking-[0.18em]" style={{ color: PALETTE.cream }}>{shopName.toUpperCase()}</p>
                 <p className="mt-5 text-sm font-light leading-relaxed max-w-xs" style={{ color: `${PALETTE.cream}99` }}>
-                  Grossiste prêt-à-porter féminin pour les boutiques exigeantes. Vente à l&apos;unité, expédition rapide, service dédié.
+                  {t("issyma.footerAbout")}
                 </p>
               </div>
               <div>
-                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>La maison</p>
+                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.footerHouse")}</p>
                 <ul className="space-y-3 text-sm font-light" style={{ color: `${PALETTE.cream}99` }}>
-                  <li><Link href="/a-propos"      className="hover:opacity-80 transition">À propos</Link></li>
-                  <li><Link href="/nous-contacter" className="hover:opacity-80 transition">Contact</Link></li>
+                  <li><Link href="/a-propos"      className="hover:opacity-80 transition">{t("issyma.footerAboutLink")}</Link></li>
+                  <li><Link href="/nous-contacter" className="hover:opacity-80 transition">{t("issyma.footerContact")}</Link></li>
                 </ul>
               </div>
               <div>
-                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>Boutique</p>
+                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.footerShop")}</p>
                 <ul className="space-y-3 text-sm font-light" style={{ color: `${PALETTE.cream}99` }}>
-                  <li><Link href="/produits?new=1"        className="hover:opacity-80 transition">Nouveautés</Link></li>
-                  <li><Link href="/categories"            className="hover:opacity-80 transition">Catégories</Link></li>
-                  <li><Link href="/collections"           className="hover:opacity-80 transition">Collections</Link></li>
-                  <li><Link href="/produits?bestseller=1" className="hover:opacity-80 transition">Best sellers</Link></li>
+                  <li><Link href="/produits?new=1"        className="hover:opacity-80 transition">{t("issyma.footerNew")}</Link></li>
+                  <li><Link href="/categories"            className="hover:opacity-80 transition">{t("issyma.footerCategories")}</Link></li>
+                  <li><Link href="/collections"           className="hover:opacity-80 transition">{t("issyma.footerCollections")}</Link></li>
+                  <li><Link href="/produits?bestseller=1" className="hover:opacity-80 transition">{t("issyma.footerBest")}</Link></li>
                 </ul>
               </div>
               <div>
-                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>Aide</p>
+                <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.footerHelp")}</p>
                 <ul className="space-y-3 text-sm font-light" style={{ color: `${PALETTE.cream}99` }}>
-                  <li><Link href="/cgv"                className="hover:opacity-80 transition">CGV</Link></li>
-                  <li><Link href="/mentions-legales"   className="hover:opacity-80 transition">Mentions légales</Link></li>
-                  <li><Link href="/confidentialite"    className="hover:opacity-80 transition">Confidentialité</Link></li>
+                  <li><Link href="/cgv"                className="hover:opacity-80 transition">{t("issyma.footerCgv")}</Link></li>
+                  <li><Link href="/mentions-legales"   className="hover:opacity-80 transition">{t("issyma.footerLegal")}</Link></li>
+                  <li><Link href="/confidentialite"    className="hover:opacity-80 transition">{t("issyma.footerPrivacy")}</Link></li>
                 </ul>
               </div>
             </div>
@@ -776,10 +771,10 @@ export default async function HomeIssymaLayout({
             <div className="mt-16 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-center"
                  style={{ borderTop: `1px solid ${PALETTE.wine800}` }}>
               <p className="text-xs tracking-[0.2em] uppercase" style={{ color: `${PALETTE.cream}80` }}>
-                © {new Date().getFullYear()} {shopName} · Tous droits réservés
+                © {new Date().getFullYear()} {shopName} · {t("issyma.footerRights")}
               </p>
               <p className="text-xs tracking-[0.2em] uppercase" style={{ color: `${PALETTE.cream}80` }}>
-                Marché CIFA · Aubervilliers
+                {t("issyma.footerLocation")}
               </p>
             </div>
           </div>

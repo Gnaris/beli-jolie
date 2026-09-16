@@ -320,7 +320,7 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                 key={link.href}
                 href={link.href}
                 data-nav-active={isActive(link.href) ? "true" : undefined}
-                className={`py-1 text-[13px] font-body transition-colors duration-200 ${
+                className={`py-1 text-[13px] font-body whitespace-nowrap transition-colors duration-200 ${
                   isActive(link.href)
                     ? "text-black font-medium"
                     : "text-neutral-600 hover:text-black"
