@@ -51,7 +51,10 @@ export default async function CollectionsPage() {
             <h1 className="font-heading text-2xl font-semibold text-text-primary">
               {t("title")}
             </h1>
-            <p className="mt-1 text-sm text-text-muted font-body">
+            <p className="mt-3 max-w-3xl text-sm text-text-secondary font-body leading-relaxed">
+              {t("intro", { shopName })}
+            </p>
+            <p className="mt-3 text-xs text-text-muted font-body">
               {collections.length <= 1
                 ? t("available", { count: collections.length })
                 : t("available_plural", { count: collections.length })}

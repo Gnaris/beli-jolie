@@ -450,16 +450,20 @@ export default async function ClientDetailPage({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <span className={statusCfg.className}>{statusCfg.label}</span>
-          <VatExemptionHeaderToggle
-            userId={user.id}
-            initialExempt={user.vatExempt}
-            validatedAt={user.vatValidatedAt}
-            validatedByLabel={validatedByLabel}
-            countryCode={user.addressCountry}
-          />
-          <UserStatusActions userId={user.id} status={user.status} />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-2 w-full sm:w-auto sm:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={statusCfg.className}>{statusCfg.label}</span>
+            <VatExemptionHeaderToggle
+              userId={user.id}
+              initialExempt={user.vatExempt}
+              validatedAt={user.vatValidatedAt}
+              validatedByLabel={validatedByLabel}
+              countryCode={user.addressCountry}
+            />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <UserStatusActions userId={user.id} status={user.status} />
+          </div>
         </div>
       </div>
 

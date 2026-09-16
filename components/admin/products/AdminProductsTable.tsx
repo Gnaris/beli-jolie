@@ -60,6 +60,10 @@ import { buildProductHandle } from "@/lib/product-url";
 import { MarketplacePushModal } from "@/components/admin/products/MarketplacePushModal";
 import BulkActionBar, { type MarketplaceKey } from "@/components/admin/products/BulkActionBar";
 import PfsVerifyBadge, { type PfsVerifyIssue } from "@/components/admin/products/PfsVerifyBadge";
+import AdminProductsGrid from "@/components/admin/products/AdminProductsGrid";
+
+type ProductsViewMode = "list" | "grid";
+const PRODUCTS_VIEW_STORAGE_KEY = "bj_admin_products_view";
 
 const MARKETPLACE_LABEL: Record<MarketplaceKey, string> = {
   pfs: "Paris Fashion Shop",
@@ -1187,7 +1191,7 @@ interface ProductTranslation {
   locale: string;
 }
 
-interface AdminProduct {
+export interface AdminProduct {
   id: string;
   reference: string;
   name: string;
@@ -1258,6 +1262,13 @@ interface AdminProduct {
   /** Couleur principale du produit (source de vérité pour le badge « Couleur principale »
    *  affiché dans le tiroir de variantes). Peut être null si aucune n'est encore désignée. */
   primaryColorId: string | null;
+  /** Marque PFS assignée à la fiche (pour le brand picker dans le popover
+   *  marketplaces de la vue grille). null = pas encore choisie. */
+  pfsBrandName?: string | null;
+  /** ID Microstore du produit (Product.microstoreProductId). null tant que
+   *  pas publié. Sert au popover marketplaces de la vue grille pour piloter
+   *  update/delete ciblés côté Microstore. */
+  microstoreProductId?: number | null;
   colors: ColorVariant[];
   translations: ProductTranslation[];
 }
@@ -4819,6 +4830,22 @@ export default function AdminProductsTable({
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // ─── Mode d'affichage (liste par défaut, grille en option) ────────────
+  // Persisté dans localStorage sous `bj_admin_products_view`. On démarre
+  // toujours en "list" côté SSR pour éviter le mismatch d'hydratation ;
+  // l'effet ci-dessous applique la préférence sauvegardée dès le montage.
+  const [viewMode, setViewMode] = useState<ProductsViewMode>("list");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(PRODUCTS_VIEW_STORAGE_KEY);
+    if (saved === "grid" || saved === "list") setViewMode(saved);
+  }, []);
+  const handleChangeViewMode = useCallback((mode: ProductsViewMode) => {
+    setViewMode(mode);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PRODUCTS_VIEW_STORAGE_KEY, mode);
+    }
+  }, []);
   // ─── Édition inline des variantes ──────────────────────────────────────
   // Le state vit ici (top-level) pour qu'un seul bandeau flottant global
   // affiche le total des modifications, même après avoir édité plusieurs
@@ -6701,6 +6728,12 @@ export default function AdminProductsTable({
 
   return (
     <div>
+      {/* Toggle vue liste ↔ grille — icônes uniquement, mémorisé
+          dans localStorage. Placé au-dessus de la barre d'actions bulk. */}
+      <div className="flex items-center justify-end mb-3">
+        <ProductsViewToggle mode={viewMode} onChange={handleChangeViewMode} />
+      </div>
+
       {/* Barre d'actions en masse — nouveau composant flottant (Variante A).
           Le rendu, le compteur intelligent, le panneau Marketplaces contextuel
           et le menu « Plus » vivent dans BulkActionBar. Ici on se contente de
@@ -6771,9 +6804,32 @@ export default function AdminProductsTable({
         </div>
       )}
 
-      {/* Tableau avec double scrollbar (haut + bas) */}
+      {/* Tableau (vue liste) ou grille — même state (sélection, statuts en
+          attente, etc.), seul le rendu change. */}
       <div className="relative">
-        <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={handleQueueStatus} pendingStatuses={pendingStatuses} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        {viewMode === "grid" ? (
+          <AdminProductsGrid
+            products={allProducts}
+            hasPfsConfig={hasPfsConfig}
+            pfsGloballyEnabled={pfsGloballyEnabled}
+            hasAnkorstoreConfig={hasAnkorstoreConfig}
+            ankorstoreEnabled={ankorstoreEnabled}
+            hasEfashionConfig={hasEfashionConfig}
+            efashionEnabled={efashionEnabled}
+            hasFaireConfig={hasFaireConfig}
+            faireEnabled={faireEnabled}
+            hasOrderchampConfig={hasOrderchampConfig}
+            orderchampEnabled={orderchampEnabled}
+            hasMicrostoreConfig={hasMicrostoreConfig}
+            microstoreEnabled={microstoreEnabled}
+            selectedIds={selectedIds}
+            toggleSelect={toggleSelect}
+            pendingStatuses={pendingStatuses}
+            deletingIds={deletingIds}
+          />
+        ) : (
+          <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={handleQueueStatus} pendingStatuses={pendingStatuses} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+        )}
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />
       </div>
@@ -7179,5 +7235,56 @@ function MpDot({
       )}
       <span className="whitespace-nowrap">{label}</span>
     </button>
+  );
+}
+
+/**
+ * Toggle vue liste ↔ grille — deux boutons icônes, choix mémorisé
+ * dans localStorage par le composant parent.
+ */
+function ProductsViewToggle({
+  mode,
+  onChange,
+}: {
+  mode: ProductsViewMode;
+  onChange: (mode: ProductsViewMode) => void;
+}) {
+  const buttonClass = (active: boolean) =>
+    `inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors ${
+      active
+        ? "bg-bg-primary text-text-primary shadow-sm"
+        : "text-text-muted hover:text-text-primary"
+    }`;
+  return (
+    <div
+      role="group"
+      aria-label="Mode d'affichage"
+      className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-bg-secondary p-0.5"
+    >
+      <button
+        type="button"
+        onClick={() => onChange("list")}
+        className={buttonClass(mode === "list")}
+        aria-pressed={mode === "list"}
+        aria-label="Vue liste"
+        title="Vue liste"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("grid")}
+        className={buttonClass(mode === "grid")}
+        aria-pressed={mode === "grid"}
+        aria-label="Vue grille"
+        title="Vue grille"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h6v6H4V6zm10 0h6v6h-6V6zM4 16h6v6H4v-6zm10 0h6v6h-6v-6z" />
+        </svg>
+      </button>
+    </div>
   );
 }

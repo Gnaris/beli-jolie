@@ -594,6 +594,9 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     pfsCheckStatus: (p.pfsCheckStatus as "ok" | "diff" | null) ?? null,
     pfsCheckIssues: (p.pfsCheckIssues as unknown) ?? null,
     primaryColorId: p.primaryColorId ?? null,
+    // Alimentent le popover marketplaces de la vue grille (MarketplaceStatusButtons).
+    pfsBrandName:        (p as { pfsBrandName?: string | null }).pfsBrandName ?? null,
+    microstoreProductId: (p as { microstoreProductId?: number | null }).microstoreProductId ?? null,
     pfsLastExportedAt:        p.pfsLastExportedAt        ? p.pfsLastExportedAt.toISOString()        : null,
     efashionLastExportedAt:   p.efashionLastExportedAt   ? p.efashionLastExportedAt.toISOString()   : null,
     microstoreLastExportedAt: p.microstoreLastExportedAt ? p.microstoreLastExportedAt.toISOString() : null,
