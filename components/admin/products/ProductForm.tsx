@@ -2748,32 +2748,52 @@ export default function ProductForm({
                   ? "La référence est figée à la création — elle sert d'identifiant pour toutes les marketplaces."
                   : "Ex: BJ-COL-001"}
               >
-                <input
-                  type="text"
-                  value={reference}
-                  onChange={(e) => {
-                    if (mode === "edit") return;
-                    const next = e.target.value.replace(/\s/g, "").toUpperCase();
-                    setReference(next);
-                    if (pfsRefCheckedValueRef.current !== next) {
-                      setPfsRefStatus("idle");
-                      setPfsRefMessage(null);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (mode === "edit") return;
-                    markTouched("reference");
-                    void runPfsRefCheck(reference);
-                  }}
-                  placeholder="BJ-COL-001"
-                  readOnly={mode === "edit"}
-                  className={`field-input${
-                    (touchedFields.has("reference") && !reference.trim()) || pfsRefStatus === "exists"
-                      ? " field-error"
-                      : ""
-                  }${mode === "edit" ? " bg-bg-secondary/60 text-text-muted cursor-not-allowed" : ""}`}
-                  required
-                />
+                {mode === "edit" ? (
+                  <div className="w-full flex items-center gap-2 rounded-md border border-border bg-zinc-200 px-3.5 py-[0.5625rem] text-sm font-body text-text-primary select-text">
+                    <span className="flex-1 truncate">{reference}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!reference) return;
+                        navigator.clipboard.writeText(reference)
+                          .then(() => toast.success("Référence copiée"))
+                          .catch(() => toast.error("Copie impossible", "Réessayez ou copiez manuellement."));
+                      }}
+                      className="shrink-0 p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-primary transition-colors"
+                      aria-label="Copier la référence"
+                      title="Copier la référence"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={reference}
+                    onChange={(e) => {
+                      const next = e.target.value.replace(/\s/g, "").toUpperCase();
+                      setReference(next);
+                      if (pfsRefCheckedValueRef.current !== next) {
+                        setPfsRefStatus("idle");
+                        setPfsRefMessage(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      markTouched("reference");
+                      void runPfsRefCheck(reference);
+                    }}
+                    placeholder="BJ-COL-001"
+                    className={`field-input${
+                      (touchedFields.has("reference") && !reference.trim()) || pfsRefStatus === "exists"
+                        ? " field-error"
+                        : ""
+                    }`}
+                    required
+                  />
+                )}
                 {touchedFields.has("reference") && !reference.trim() && (
                   <p className="text-[11px] text-[#EF4444] mt-1 font-body">La référence est requise.</p>
                 )}
