@@ -791,6 +791,7 @@
     "zipCode": "Zip code",
     "city": "City",
     "country": "Country",
+    "selectCountry": "Select your country",
     "phone": "Phone",
     "addressLabel": "Label (e.g.: Paris Shop)",
     "shippingTitle": "Shipping",

@@ -791,6 +791,7 @@
     "zipCode": "Code postal",
     "city": "Ville",
     "country": "Pays",
+    "selectCountry": "Sélectionnez votre pays",
     "phone": "Téléphone",
     "addressLabel": "Libellé (ex: Boutique Paris)",
     "shippingTitle": "Livraison",

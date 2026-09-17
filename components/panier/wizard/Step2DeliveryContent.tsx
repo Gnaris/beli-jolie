@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import {
   saveShippingAddress,
   deleteShippingAddress,
@@ -12,6 +12,8 @@ import {
   findMissingAddressFields,
   type ShippingAddressField,
 } from "@/lib/shipping-address-validate";
+import CustomSelect from "@/components/ui/CustomSelect";
+import { COUNTRIES, countryFlagUrl, resolveCountryCode } from "@/lib/countries";
 import type {
   WizardAddress,
   WizardBillingInfo,
@@ -285,11 +287,12 @@ export default function Step2DeliveryContent({
             value={billingInfo.city}
             onChange={(v) => onBillingChange({ ...billingInfo, city: v })}
           />
-          <Field
+          <CountryField
             className="sm:col-span-2"
             label={t("country")}
             value={billingInfo.country}
             onChange={(v) => onBillingChange({ ...billingInfo, country: v })}
+            placeholder={t("selectCountry")}
           />
         </div>
       </section>
@@ -611,6 +614,54 @@ function Field({
   );
 }
 
+/**
+ * Sélecteur de pays avec drapeau et recherche. Renvoie toujours un code ISO
+ * alpha-2 (ou "" quand rien n'est sélectionné) — le champ texte libre
+ * historique laissait passer « France » et cassait /api/carriers qui exige
+ * un code ISO 2 lettres (incident Marion Cousin, Issyma, 17/09/2026).
+ * Tolère la valeur initiale sous forme de nom (« France ») via
+ * resolveCountryCode → utile si l'adresse en base date de l'ancien format.
+ */
+function CountryField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  const locale = useLocale();
+  const isEn = locale === "en";
+  const normalizedValue = resolveCountryCode(value) ?? "";
+  const options = useMemo(
+    () =>
+      COUNTRIES.map((c) => ({
+        value: c.code,
+        label: isEn ? (c.nameEn ?? c.name) : c.name,
+        iconUrl: countryFlagUrl(c.code, 40),
+      })),
+    [isEn],
+  );
+  return (
+    <div className={className}>
+      <label className="block text-xs font-semibold text-slate-600 mb-1.5">{label}</label>
+      <CustomSelect
+        value={normalizedValue}
+        onChange={onChange}
+        options={options}
+        placeholder={placeholder}
+        searchable
+        title={label}
+      />
+    </div>
+  );
+}
+
 function ModeTile({
   active,
   onClick,
@@ -735,7 +786,7 @@ function AddressEditForm({
         <Field className="sm:col-span-2" label={t("addressComplement")} value={draft.address2 ?? ""} onChange={(v) => onDraftChange({ ...draft, address2: v })} />
         <Field label={t("zipCode")} value={draft.zipCode} onChange={(v) => onDraftChange({ ...draft, zipCode: v })} />
         <Field label={t("city")} value={draft.city} onChange={(v) => onDraftChange({ ...draft, city: v })} />
-        <Field label={t("country")} value={draft.country} onChange={(v) => onDraftChange({ ...draft, country: v })} />
+        <CountryField label={t("country")} value={draft.country} onChange={(v) => onDraftChange({ ...draft, country: v })} placeholder={t("selectCountry")} />
         <Field label={t("phone")} value={draft.phone ?? ""} onChange={(v) => onDraftChange({ ...draft, phone: v })} />
       </div>
       {showError && (

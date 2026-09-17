@@ -10,6 +10,7 @@ import {
   findMissingAddressFields,
   serializeMissingFields,
 } from "@/lib/shipping-address-validate";
+import { resolveCountryCode } from "@/lib/countries";
 
 /**
  * Déclenche la mise à jour du timer de relance panier abandonné.
@@ -705,6 +706,15 @@ export async function saveShippingAddress(data: {
     throw new Error(serializeMissingFields(missing));
   }
 
+  // Pays : force un code ISO alpha-2. Tolère un libellé texte hérité
+  // (« France » → « FR ») pour rétrocompat. Sans ça, /api/carriers refuse
+  // ensuite avec « Paramètres invalides. » (cas Marion Cousin, Issyma,
+  // 17/09/2026 : 6 échecs 400 avant qu'elle finisse par taper « FR »).
+  const resolvedCountry = resolveCountryCode(data.country);
+  if (!resolvedCountry) {
+    throw new Error("Pays inconnu ou format invalide.");
+  }
+
   // Normalisation : trim de tous les champs pour éviter les " Paris  " parasites
   // qui posent problème aux API transporteurs.
   const normalized = {
@@ -716,7 +726,7 @@ export async function saveShippingAddress(data: {
     address2:  data.address2?.trim() || null,
     zipCode:   data.zipCode.trim(),
     city:      data.city.trim(),
-    country:   data.country.trim(),
+    country:   resolvedCountry,
     phone:     data.phone?.trim() || null,
     isDefault: data.isDefault ?? false,
   };
