@@ -8,11 +8,10 @@ import type { HomeLayoutProps } from "./HomeLayoutProps";
 
 /* ─────────────────────────────────────────────────────────────────────────
    Home Issyma — variante « Bordeaux Showroom »
-   Palette bordeaux + crème + papier, inspirée de la capture validée par la
-   cliente le 2026-09-16. Hero à 2 colonnes : panneau bordeaux avec silk +
-   carte blanche « Comment commander ? ». Le reste de la page reprend la
-   même palette pour cohérence (fond crème, cartes papier, accents wine).
-   Modifier ici n'a AUCUN impact sur la home Beliandjolie
+   Le hero reste 100 % bordeaux (identité maison, validée le 2026-09-16).
+   Toutes les sections en dessous ont été rééquilibrées le 2026-09-17 sur
+   du blanc / crème / rose poudré selon les 3 maquettes ChatGPT validées
+   par Issyma. Modifier ici n'a AUCUN impact sur la home Beliandjolie
    (`HomeBeliandjolieLayout.tsx`).
    ───────────────────────────────────────────────────────────────────────── */
 
@@ -23,27 +22,18 @@ const PALETTE = {
   wine700: "#5f2231",
   wine600: "#7a2a3c",
   wine500: "#8b3446",
-  rose:    "#c98090", // accent chaud lisible sur fond bordeaux
+  rose:    "#c98090",
   cream:   "#f4ead9",
   cream2:  "#e8d9c1",
-  // paper reste blanc : uniquement pour la carte flottante "Comment
-  // commander ?" du hero (seule surface claire de la page).
-  paper:   "#ffffff",
-  // Fond page = bordeaux profond. Toute la home Issyma vit dans cette
-  // atmosphère wine, en alternance wine950 / wine900 section par section.
-  page:    "#2a0f15",
-  // Anciens "ink" / "inkSoft" / "border" gardés en clé pour compat mais
-  // pointent maintenant vers la palette dark-wine (texte cream sur wine).
-  ink:     "#f4ead9",
-  inkSoft: "#e8d9c1",
-  muted:   "#a89489",
-  border:  "#4d1b28",
+  paper:     "#ffffff",
+  blush50:   "#fbf1ee",
+  blush100:  "#f5e0da",
+  ink:       "#2a1418",
+  inkSoft:   "#6b5d5d",
+  muted:     "#8a7460",
+  borderSoft:"#e9dcd6",
 } as const;
 
-// ── Texture soie SVG ────────────────────────────────────────────────────
-// Utilisée dans le panneau bordeaux du hero + le bandeau CTA final. On la
-// dessine en SVG (pas en CSS) pour obtenir des vraies vagues fluides comme
-// sur la capture — les gradients CSS restaient trop plats/rectilignes.
 function SilkTexture() {
   return (
     <svg
@@ -75,11 +65,7 @@ function SilkTexture() {
 }
 
 const ISSYMA_STYLES = `
-  .issyma-home { background: ${PALETTE.page}; color: ${PALETTE.ink}; font-family: var(--font-roboto), 'Inter', system-ui, sans-serif; font-weight: 400; }
-  /* .serif (nom historique — hérité de l'ancien design éditorial) désigne
-     désormais le style d'affichage validé sur la capture 2026-09-16 :
-     sans-serif bold Poppins avec tracking serré. On garde le nom pour
-     limiter le diff, mais le rendu est bien sans-serif. */
+  .issyma-home { background: ${PALETTE.paper}; color: ${PALETTE.ink}; font-family: var(--font-roboto), 'Inter', system-ui, sans-serif; font-weight: 400; }
   .issyma-home .serif { font-family: var(--font-poppins), 'Inter', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.02em; }
   .issyma-home .eyebrow {
     font-family: var(--font-roboto), Inter, system-ui, sans-serif;
@@ -95,7 +81,6 @@ const ISSYMA_STYLES = `
     display: inline-block; width: 32px; height: 1px;
     background: ${PALETTE.wine700}; vertical-align: middle; margin-right: 12px;
   }
-  .issyma-home .hairline { border-top: 1px solid ${PALETTE.border}; }
   .issyma-home details > summary { list-style: none; cursor: pointer; }
   .issyma-home details > summary::-webkit-details-marker { display: none; }
   .issyma-home details .plus::before { content: "+"; }
@@ -103,7 +88,6 @@ const ISSYMA_STYLES = `
   .issyma-home .link-wine { color: ${PALETTE.wine700}; transition: color 200ms ease; }
   .issyma-home .link-wine:hover { color: ${PALETTE.wine500}; }
 
-  /* ── Boutons ─────────────────────────────────────────────────────── */
   .issyma-home .btn-cream {
     background: ${PALETTE.cream}; color: ${PALETTE.wine900};
     transition: transform 200ms ease, background 200ms ease;
@@ -111,10 +95,10 @@ const ISSYMA_STYLES = `
   }
   .issyma-home .btn-cream:hover { background: #fff3dd; transform: translateY(-1px); }
   .issyma-home .btn-outline-cream {
-    border: 1px solid rgba(244, 234, 217, 0.4); color: ${PALETTE.cream};
+    border: 1px solid rgba(244, 234, 217, 0.55); color: ${PALETTE.cream};
     transition: background 200ms ease, border-color 200ms ease;
   }
-  .issyma-home .btn-outline-cream:hover { background: rgba(244, 234, 217, 0.08); border-color: rgba(244, 234, 217, 0.65); }
+  .issyma-home .btn-outline-cream:hover { background: rgba(244, 234, 217, 0.08); border-color: rgba(244, 234, 217, 0.85); }
   .issyma-home .btn-wine {
     background: ${PALETTE.wine700}; color: #fff;
     transition: background 200ms ease;
@@ -126,17 +110,12 @@ const ISSYMA_STYLES = `
   }
   .issyma-home .btn-outline-wine:hover { background: rgba(122, 42, 60, 0.06); }
 
-  /* ── Panneau bordeaux ─────────────────────────────────────────────
-     Fond wine plein (fallback). Le hero pose par-dessus l'image
-     /issyma-hero-bg.png via Image fill. Le CTA final utilise a la place
-     la texture SVG SilkTexture. */
   .issyma-home .wine-panel {
     background: linear-gradient(135deg, ${PALETTE.wine900} 0%, ${PALETTE.wine700} 55%, ${PALETTE.wine600} 100%);
     position: relative;
     overflow: hidden;
   }
 
-  /* ── Carte papier « Comment commander ? » ────────────────────────── */
   .issyma-home .paper-card {
     background: ${PALETTE.paper};
     border-radius: 20px;
@@ -147,8 +126,6 @@ const ISSYMA_STYLES = `
   .issyma-home .step-circle {
     background: ${PALETTE.wine700};
     color: ${PALETTE.cream};
-    /* Sans-serif tabulaire + line-height 1 : sinon les chiffres héritent
-       du serif Cormorant et se décalent dans le cercle (bug capture 22h55). */
     font-family: var(--font-poppins), 'Inter', system-ui, sans-serif;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
@@ -159,13 +136,10 @@ const ISSYMA_STYLES = `
     grid-template-columns: 148px 1fr;
     gap: 20px;
     padding: 14px 0;
-    border-top: 1px solid ${PALETTE.border};
+    border-top: 1px solid ${PALETTE.borderSoft};
     align-items: center;
   }
-  .issyma-home .info-row:last-child { border-bottom: 1px solid ${PALETTE.border}; }
-  /* Couleurs hardcodées : la carte papier "Comment commander ?" est la
-     SEULE surface claire de la page. PALETTE.muted/inkSoft pointent sur
-     du crème (pour le thème dark global) donc invisibles ici sur blanc. */
+  .issyma-home .info-row:last-child { border-bottom: 1px solid ${PALETTE.borderSoft}; }
   .issyma-home .info-row .label {
     font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
     color: #8a7460; font-weight: 500;
@@ -194,20 +168,60 @@ const ISSYMA_STYLES = `
     color: ${PALETTE.cream};
   }
 
-  /* ── Interactions cartes ─────────────────────────────────────────── */
-  .issyma-home .cat-circle { transition: border-color 300ms ease, transform 400ms ease; }
-  .issyma-home .cat-circle:hover { border-color: ${PALETTE.wine700}; transform: translateY(-2px); }
+  .issyma-home .reassurance-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .issyma-home .reassurance-row > div {
+    border-left: 1px solid ${PALETTE.borderSoft};
+  }
+  .issyma-home .reassurance-row > div:first-child { border-left: none; }
+  @media (max-width: 768px) {
+    .issyma-home .reassurance-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .issyma-home .reassurance-row > div:nth-child(3) { border-left: none; border-top: 1px solid ${PALETTE.borderSoft}; }
+    .issyma-home .reassurance-row > div:nth-child(4) { border-top: 1px solid ${PALETTE.borderSoft}; }
+  }
+
+  .issyma-home .cat-chip {
+    background: ${PALETTE.paper};
+    border: 1px solid ${PALETTE.borderSoft};
+    border-radius: 20px;
+    transition: transform 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
+  }
+  .issyma-home .cat-chip:hover {
+    transform: translateY(-2px);
+    border-color: #e2b8ae;
+    box-shadow: 0 20px 40px -30px rgba(95, 34, 49, 0.35);
+  }
+  .issyma-home .cat-icon {
+    background: linear-gradient(135deg, ${PALETTE.blush50}, #f2d9d3);
+    color: ${PALETTE.wine700};
+    border: 1px solid #efd6cf;
+  }
+
+  .issyma-home .pill-new {
+    background: linear-gradient(135deg, ${PALETTE.wine700}, ${PALETTE.wine600});
+    color: ${PALETTE.cream};
+    padding: 6px 14px;
+    border-radius: 9999px;
+    font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
+    box-shadow: 0 8px 22px -12px rgba(95, 34, 49, 0.55);
+  }
+
+  .issyma-home .thumb-placeholder {
+    background:
+      radial-gradient(120% 90% at 100% 0%, rgba(197, 140, 140, 0.35), transparent 55%),
+      radial-gradient(90% 80% at 0% 100%, rgba(244, 234, 217, 0.55), transparent 55%),
+      linear-gradient(180deg, #f6ecea 0%, #eddad6 100%);
+    display: flex; align-items: center; justify-content: center;
+  }
+
   .issyma-home .product-card img { transition: transform 700ms ease; }
   .issyma-home .product-card:hover img { transform: scale(1.04); }
-  .issyma-home .collection-tile .overlay { transition: opacity 400ms ease; }
-  .issyma-home .collection-tile:hover .overlay { opacity: 0.85; }
 
-  /* ── Header PublicSidebar — thème bordeaux Issyma ────────────────── */
-  /* Scopé à .issyma-home > header : n'affecte QUE la home Issyma. Fond
-     wine950 semi-transparent pour s'intégrer au hero full-bleed bordeaux
-     et rester lisible en dessous (nouveautés cream, etc). */
+  /* Header Issyma bordeaux scopé strict */
   .issyma-home > header {
-    background-color: rgba(42, 15, 21, 0.92) !important;
+    background-color: rgba(42, 15, 21, 0.96) !important;
     border-color: rgba(244, 234, 217, 0.12) !important;
     backdrop-filter: blur(10px);
   }
@@ -215,31 +229,75 @@ const ISSYMA_STYLES = `
   .issyma-home > header .border-neutral-200 {
     border-color: rgba(244, 234, 217, 0.12) !important;
   }
-  /* Cible par classe uniquement — le Link next-intl transforme href="/"
-     en /fr, donc un sélecteur [href="/"] ne match plus. Les 3 nœuds de
-     shop name (mobile top, desktop, drawer) portent tous .font-heading. */
   .issyma-home > header a.font-heading {
     color: #ffffff !important;
     letter-spacing: 0.14em;
     font-weight: 700 !important;
   }
-  .issyma-home > header nav a {
-    color: ${PALETTE.cream2} !important;
-  }
+  .issyma-home > header nav a { color: ${PALETTE.cream2} !important; }
   .issyma-home > header nav a:hover,
-  .issyma-home > header nav a[data-nav-active="true"] {
-    color: ${PALETTE.cream} !important;
-  }
-  .issyma-home > header button {
-    color: ${PALETTE.cream} !important;
-  }
-  .issyma-home > header button:hover {
-    color: ${PALETTE.cream2} !important;
-  }
+  .issyma-home > header nav a[data-nav-active="true"] { color: ${PALETTE.cream} !important; }
+
+  /* Icônes du header (favoris, panier, user, connexion) : PublicSidebar les
+     rend avec la classe .text-neutral-700 pensée pour un fond blanc — sur
+     notre bandeau bordeaux elles disparaissent. On force le cream, hover
+     blanc pur, pour rester lisible. */
+  .issyma-home > header .text-neutral-700 { color: ${PALETTE.cream} !important; }
+  .issyma-home > header a.text-neutral-700:hover,
+  .issyma-home > header button.text-neutral-700:hover { color: #ffffff !important; }
   .issyma-home > header .cart-count { background-color: ${PALETTE.wine600} !important; color: ${PALETTE.cream} !important; }
+
+  /* Dropdown utilisateur (déclenché par l'icône user) : fond clair posé
+     par PublicSidebar (bg-bg-primary/95). Sans surcharge, les textes
+     "Retour admin" et "Déconnexion" hériteraient du cream du header et
+     deviendraient illisibles. On restaure du texte sombre à l'intérieur. */
+  .issyma-home > header [class*="bg-bg-primary"] {
+    color: ${PALETTE.ink} !important;
+  }
+  .issyma-home > header [class*="bg-bg-primary"] a,
+  .issyma-home > header [class*="bg-bg-primary"] button,
+  .issyma-home > header [class*="bg-bg-primary"] p,
+  .issyma-home > header [class*="bg-bg-primary"] span {
+    color: ${PALETTE.ink} !important;
+  }
+  .issyma-home > header [class*="bg-bg-primary"] .text-text-muted,
+  .issyma-home > header [class*="bg-bg-primary"] .text-text-secondary {
+    color: ${PALETTE.inkSoft} !important;
+  }
+  /* "Retour admin" utilise text-warning (ambre) — on garde le signal
+     coloré mais avec un ton foncé qui reste lisible sur fond blanc. */
+  .issyma-home > header [class*="bg-bg-primary"] .text-warning {
+    color: #b45309 !important;
+  }
 `;
 
-// ── Card produit (utilisée par Nouveautés + Best sellers) ────────────────
+// Icônes — encapsulées pour ne pas encombrer le rendu
+function IconTruck() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+  );
+}
+function IconBox() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="12" rx="1"/><path d="M8 8V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><path d="M3 13h18"/></svg>
+  );
+}
+function IconCard() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+  );
+}
+function IconStore() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3v3h12V3"/><path d="M6 6l-2 3v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9l-2-3"/><path d="M9 12h6"/></svg>
+  );
+}
+function IconGarment() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7l4-3h8l4 3-3 3-2-1v11H9V9l-2 1z"/></svg>
+  );
+}
+
 function ProductCardIssyma({ p, badge }: { p: CarouselProduct; badge?: string }) {
   const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
   const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
@@ -248,24 +306,40 @@ function ProductCardIssyma({ p, badge }: { p: CarouselProduct; badge?: string })
 
   return (
     <Link href={href} className="product-card group block">
-      <div className="relative aspect-square overflow-hidden rounded-2xl" style={{ background: PALETTE.wine800 }}>
+      <div className="relative aspect-square overflow-hidden rounded-2xl">
         {image ? (
           <Image src={image} alt={p.name} width={800} height={800} className="w-full h-full object-cover" />
-        ) : null}
+        ) : (
+          <div className="absolute inset-0 thumb-placeholder">
+            <div
+              className="rounded-full flex items-center justify-center"
+              style={{
+                width: "38%", aspectRatio: "1/1",
+                background: "radial-gradient(60% 60% at 50% 40%, #f6ede8 0%, #e6d1cb 70%, #dcc4be 100%)",
+                boxShadow: "inset 0 -6px 20px rgba(122, 42, 60, 0.08)",
+                color: "#c98a8a",
+                opacity: 0.6,
+              }}
+            >
+              <div style={{ width: "36%" }}>
+                <IconGarment />
+              </div>
+            </div>
+          </div>
+        )}
         {badge && (
-          <span
-            className="absolute top-4 left-4 text-[10px] tracking-[0.24em] uppercase px-3 py-1 rounded-full backdrop-blur"
-            style={{ color: PALETTE.wine800, background: `${PALETTE.paper}e6`, border: `1px solid ${PALETTE.border}` }}
-          >
+          <span className="pill-new absolute top-4 left-4">
             {badge}
           </span>
         )}
       </div>
-      <div className="mt-5">
-        <h3 className="serif text-xl" style={{ color: PALETTE.ink }}>{p.name}</h3>
-        {primary?.name && (
-          <p className="text-sm mt-1 font-light" style={{ color: PALETTE.muted }}>{primary.name}</p>
-        )}
+      <div className="mt-4">
+        <p className="text-[10px] tracking-[0.24em] uppercase font-semibold" style={{ color: PALETTE.muted }}>
+          {p.reference} · {p.category}
+        </p>
+        <h3 className="serif text-base mt-1.5 font-semibold" style={{ color: PALETTE.ink }}>
+          {p.name}
+        </h3>
         {price != null && (
           <p className="text-sm mt-2 tracking-wide" style={{ color: PALETTE.wine700 }}>
             {price.toFixed(2).replace(".", ",")} €
@@ -288,11 +362,10 @@ export default async function HomeIssymaLayout({
 }: HomeLayoutProps) {
   const t = await getTranslations("home");
 
-  // ⚠️ Hero Issyma = 100 % hardcodé (cliente 2026-09-16, capture bordeaux).
-  // On ignore volontairement `heroOverrides` / `bannerImage` : la config admin
-  // de la section « Contenu accueil » est masquée pour le tenant Issyma —
-  // le hero fait partie intégrante de la charte visuelle et ne doit pas être
-  // modifiable par erreur depuis Paramètres.
+  // Tile bordeaux « Nouvelle collection » = 1re collection dispo. Si aucune,
+  // la tile disparait et on montre une categorie de plus a la place.
+  const featureCollection = collections[0] ?? null;
+  const featureCatSlots = featureCollection ? 3 : 4;
 
   return (
     <>
@@ -301,15 +374,9 @@ export default async function HomeIssymaLayout({
 
       <div className="issyma-home min-h-screen antialiased">
 
-        {/* ─── HEADER PUBLIC ────────────────────────────────────────────── */}
         <PublicSidebar shopName={shopName} />
 
-        {/* ─── HERO ─────────────────────────────────────────────────────── */}
-        {/* Panneau bordeaux FULL-BLEED (edge-to-edge, aucun crème visible) :
-            image `public/issyma-hero-bg.png` (silk bordeaux à gauche → cream
-            rosé à droite) posée en fond via <Image fill>. La carte papier
-            « Comment commander ? » flotte à l'intérieur sur la droite, elle
-            se pose naturellement sur la zone cream de l'image. */}
+        {/* HERO — inchange */}
         <section className="wine-panel relative overflow-hidden">
           <Image
             src="/issyma-hero-bg.png"
@@ -319,10 +386,6 @@ export default async function HomeIssymaLayout({
             sizes="100vw"
             className="object-cover object-left lg:object-center"
           />
-          {/* Voile bordeaux dégradé sur la gauche : garantit la lisibilité
-              du titre / description / boutons quelle que soit la teinte
-              exacte de la soie sous le texte. Transparent sur la droite
-              pour préserver la zone cream où se pose la carte papier. */}
           <div
             aria-hidden
             className="absolute inset-0 z-[1] pointer-events-none"
@@ -332,13 +395,10 @@ export default async function HomeIssymaLayout({
           />
           <div className="relative z-10 max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10">
             <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-6 lg:gap-8 items-stretch py-10 sm:py-12 lg:py-14">
-
-              {/* ── Colonne gauche : texte à même le fond bordeaux ── */}
               <div className="p-2 sm:p-4 lg:p-6 flex flex-col min-h-[520px] lg:min-h-[600px]">
                 <p className="eyebrow" style={{ color: `${PALETTE.cream2}cc` }}>
                   {t("issyma.eyebrow")}
                 </p>
-
                 <h1 className="serif mt-8"
                     style={{
                       color: PALETTE.cream,
@@ -348,12 +408,10 @@ export default async function HomeIssymaLayout({
                   {t("issyma.title1")}<br />
                   {t("issyma.title2")}
                 </h1>
-
                 <p className="mt-8 max-w-lg text-[15px] leading-[1.7] font-light"
                    style={{ color: `${PALETTE.cream}cc` }}>
                   {t("issyma.desc")}
                 </p>
-
                 <div className="mt-10 flex flex-wrap gap-3">
                   <Link
                     href="/produits"
@@ -370,9 +428,7 @@ export default async function HomeIssymaLayout({
                     <span aria-hidden="true">→</span>
                   </Link>
                 </div>
-
                 <div className="flex-1" />
-
                 <div className="mt-12">
                   <div className="showroom-badge">
                     <span className="pin">
@@ -391,7 +447,6 @@ export default async function HomeIssymaLayout({
                 </div>
               </div>
 
-              {/* ── Carte papier « Comment commander ? » ── */}
               <div className="paper-card p-8 sm:p-10 lg:p-11 flex flex-col">
                 <h2 className="serif uppercase"
                     style={{
@@ -417,9 +472,6 @@ export default async function HomeIssymaLayout({
                         {n}
                       </span>
                       <div>
-                        {/* Hardcode couleurs : PALETTE.ink/muted pointent sur cream/rose
-                            (thème dark de la page). Ici on est sur la carte
-                            blanche, il faut du texte sombre. */}
                         <p className="text-[15px] font-semibold leading-tight" style={{ color: "#2a1418" }}>
                           {t(`issyma.step${n}Title` as "issyma.step1Title")}
                         </p>
@@ -452,201 +504,216 @@ export default async function HomeIssymaLayout({
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
         </section>
 
-        {/* ─── NOUVEAUTÉS ───────────────────────────────────────────────── */}
-        {newCards.length > 0 && (
-          <section style={{ background: PALETTE.wine900 }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-14 sm:mb-16">
-                <div>
-                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("newProductsEyebrow")}</p>
-                  <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    {t("issyma.newTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.newTitleAccent")}</span>.
-                  </h2>
+        {/* 1) BANDEAU REASSURANCE */}
+        <section
+          style={{ background: PALETTE.paper, borderTop: `1px solid ${PALETTE.borderSoft}`, borderBottom: `1px solid ${PALETTE.borderSoft}` }}
+        >
+          <div className="max-w-[1440px] mx-auto reassurance-row">
+            {([
+              { key: 1, Icon: IconStore },
+              { key: 2, Icon: IconBox },
+              { key: 3, Icon: IconCard },
+              { key: 4, Icon: IconTruck },
+            ] as const).map(({ key, Icon }) => (
+              <div key={key} className="flex items-center gap-4 px-6 py-8">
+                <div className="w-11 h-11 rounded-full cat-icon flex items-center justify-center shrink-0">
+                  <Icon />
                 </div>
-                <Link href="/produits?new=1" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
-                  {t("newProductsMore")} →
-                </Link>
-              </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-                {newCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} />)}
-              </div>
-            </div>
-            <div className="hairline" />
-          </section>
-        )}
-
-        {/* ─── NOTRE ENGAGEMENT ─────────────────────────────────────────── */}
-        <section style={{ background: PALETTE.page }}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-32">
-            <div className="max-w-3xl mb-16 sm:mb-20">
-              <p className="eyebrow mb-5"><span className="wine-underline" />{t("issyma.engagementEyebrow")}</p>
-              <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                {t("issyma.engagementTitleStart")} <br className="hidden md:block" />
-                {t("issyma.engagementTitleMid")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.engagementTitleAccent")}</span>.
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-12 gap-y-14">
-              {([1, 2, 3, 4] as const).map((n) => (
-                <div key={n}>
-                  <p className="serif text-5xl sm:text-6xl font-medium leading-none" style={{ color: PALETTE.wine700 }}>{`0${n}`}</p>
-                  <span className="block w-8 h-[1px] mt-5" style={{ background: PALETTE.wine700 }} />
-                  <h3 className="serif text-2xl mt-6" style={{ color: PALETTE.ink }}>
-                    {t(`issyma.eng${n}Title` as "issyma.eng1Title")}
-                  </h3>
-                  <p className="text-[15px] mt-3 font-light leading-relaxed" style={{ color: PALETTE.inkSoft }}>
-                    {t(`issyma.eng${n}Desc` as "issyma.eng1Desc")}
+                <div>
+                  <p className="text-[13px] font-semibold" style={{ color: PALETTE.ink }}>
+                    {t(`issyma.stat${key}Title` as "issyma.stat1Title")}
+                  </p>
+                  <p className="text-[12px] mt-0.5" style={{ color: PALETTE.inkSoft }}>
+                    {t(`issyma.stat${key}Desc` as "issyma.stat1Desc")}
                   </p>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-          <div className="hairline" />
         </section>
 
-        {/* ─── CATÉGORIES ───────────────────────────────────────────────── */}
-        {categories.length > 0 && (
-          <section style={{ background: PALETTE.wine900 }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
-              <div className="text-center max-w-2xl mx-auto mb-16">
-                <p className="eyebrow mb-4">{t("issyma.catEyebrow")}</p>
-                <h2 className="serif text-4xl sm:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
-                  {t("issyma.catTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.catTitleAccent")}</span>.
-                </h2>
+        {/* 2) NOUVEAUTES */}
+        {newCards.length > 0 && (
+          <section style={{ background: PALETTE.paper }}>
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20 lg:py-24">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-12">
+                <div>
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("newProductsEyebrow")}</p>
+                  <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
+                    {t("issyma.newSimpleTitle")}
+                  </h2>
+                </div>
+                <Link href="/produits?new=1" className="link-wine text-[12px] tracking-[0.24em] uppercase font-semibold self-start sm:self-end">
+                  {t("issyma.newSeeAll")} →
+                </Link>
               </div>
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-6 sm:gap-8">
-                {categories.map((c) => (
-                  <Link key={c.id} href={`/categories/${c.slug}`} className="flex flex-col items-center gap-4 group">
-                    <div
-                      className="cat-circle w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden"
-                      style={{ border: `1px solid ${PALETTE.border}`, background: PALETTE.wine800 }}
-                    >
-                      {c.image ? (
-                        <Image src={c.image} alt={c.name} width={200} height={200} className="w-full h-full object-cover" />
-                      ) : null}
-                    </div>
-                    <span className="serif text-lg text-center leading-tight" style={{ color: PALETTE.ink }}>{c.name}</span>
-                  </Link>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                {newCards.slice(0, 4).map((p, i) => (
+                  <ProductCardIssyma
+                    key={p.id}
+                    p={p}
+                    badge={i < 2 ? t("issyma.badgeNew") : undefined}
+                  />
                 ))}
               </div>
             </div>
-            <div className="hairline" />
           </section>
         )}
 
-        {/* ─── COLLECTIONS ──────────────────────────────────────────────── */}
-        {collections.length > 0 && (
-          <section style={{ background: PALETTE.page }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-14 sm:mb-16">
+        {/* 3) A EXPLORER — CATEGORIES + TILE COLLECTION */}
+        {categories.length > 0 && (
+          <section style={{ background: PALETTE.blush50 }}>
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20 lg:py-24">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-12">
                 <div>
-                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.colEyebrow")}</p>
-                  <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    {t("issyma.colTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.colTitleAccent")}</span>.
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.catEyebrow")}</p>
+                  <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
+                    {t("issyma.catSimpleTitle")}
                   </h2>
                 </div>
-                <Link href="/collections" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
-                  {t("issyma.colViewAll")} →
+                <Link href="/categories" className="link-wine text-[12px] tracking-[0.24em] uppercase font-semibold self-start sm:self-end">
+                  {t("issyma.catSeeAll")} →
                 </Link>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
-                {collections[0] && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+                {categories.slice(0, featureCatSlots).map((c) => (
                   <Link
-                    href={collections[0].slug ? `/collections/${collections[0].slug}` : "/collections"}
-                    className="collection-tile relative rounded-2xl overflow-hidden aspect-[4/5] lg:aspect-auto lg:h-[560px] block group"
-                    style={{ background: PALETTE.wine800 }}
+                    key={c.id}
+                    href={`/categories/${c.slug}`}
+                    className="cat-chip p-6 flex flex-col items-start gap-5 min-h-[220px] group"
                   >
-                    {collections[0].image && (
-                      <Image src={collections[0].image} alt={collections[0].name} fill className="object-cover" />
-                    )}
-                    <div className="overlay absolute inset-0" style={{ background: `linear-gradient(to top, ${PALETTE.wine950}f2, ${PALETTE.wine900}66, transparent)` }} />
-                    <div className="absolute inset-0 flex flex-col justify-end p-8 sm:p-10">
-                      <p className="eyebrow mb-3" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.colLabel")}</p>
-                      <h3 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.cream }}>{collections[0].name}</h3>
-                      <p className="text-sm mt-3 font-light" style={{ color: `${PALETTE.cream}b3` }}>{t("issyma.colPieces", { count: String(collections[0]._count.products) })}</p>
+                    <div className="cat-icon w-24 h-24 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                      {c.image ? (
+                        <Image
+                          src={c.image}
+                          alt={c.name}
+                          width={192}
+                          height={192}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span
+                          className="serif font-bold"
+                          style={{ color: PALETTE.wine700, fontSize: "2rem", lineHeight: 1 }}
+                          aria-hidden="true"
+                        >
+                          {c.name.trim().charAt(0).toUpperCase() || "?"}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-auto">
+                      <p className="serif text-lg font-semibold" style={{ color: PALETTE.ink }}>{c.name}</p>
+                      <p className="text-[12px] mt-1" style={{ color: PALETTE.inkSoft }}>
+                        {t("issyma.catProductsCount", { count: String(c._count.products) })}
+                      </p>
                     </div>
                   </Link>
-                )}
+                ))}
 
-                <div className="grid grid-cols-1 gap-6 lg:gap-8">
-                  {collections.slice(1, 3).map((col) => (
-                    <Link
-                      key={col.id}
-                      href={col.slug ? `/collections/${col.slug}` : "/collections"}
-                      className="collection-tile relative rounded-2xl overflow-hidden aspect-[16/10] lg:h-[268px] block group"
-                      style={{ background: PALETTE.wine800 }}
-                    >
-                      {col.image && (
-                        <Image src={col.image} alt={col.name} fill className="object-cover" />
-                      )}
-                      <div className="overlay absolute inset-0" style={{ background: `linear-gradient(to top, ${PALETTE.wine950}f2, ${PALETTE.wine900}66, transparent)` }} />
-                      <div className="absolute inset-0 flex flex-col justify-end p-8">
-                        <p className="eyebrow mb-2" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.colLabel")}</p>
-                        <h3 className="serif text-3xl sm:text-4xl" style={{ color: PALETTE.cream }}>{col.name}</h3>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
+                {featureCollection && (
+                  <Link
+                    href={featureCollection.slug ? `/collections/${featureCollection.slug}` : "/collections"}
+                    className="rounded-2xl p-6 flex flex-col justify-between min-h-[220px] relative overflow-hidden"
+                    style={{
+                      background: `linear-gradient(135deg, ${PALETTE.wine900} 0%, ${PALETTE.wine700} 60%, ${PALETTE.wine600} 100%)`,
+                      color: PALETTE.cream,
+                    }}
+                  >
+                    {featureCollection.image && (
+                      <Image
+                        src={featureCollection.image}
+                        alt=""
+                        fill
+                        sizes="(max-width: 768px) 50vw, 25vw"
+                        className="object-cover opacity-25"
+                      />
+                    )}
+                    <div className="relative z-10">
+                      <p className="eyebrow" style={{ color: `${PALETTE.cream2}cc` }}>
+                        {t("issyma.catFeatureEyebrow")}
+                      </p>
+                    </div>
+                    <div className="relative z-10">
+                      <p className="serif text-2xl leading-tight font-semibold" style={{ color: PALETTE.cream }}>
+                        {featureCollection.name}
+                      </p>
+                      <p className="text-[12px] mt-2 font-light" style={{ color: `${PALETTE.cream2}cc` }}>
+                        {t("issyma.catFeatureDesc")}
+                      </p>
+                    </div>
+                    <div
+                      aria-hidden
+                      className="absolute -top-6 -right-6 w-28 h-28 rounded-full opacity-30 pointer-events-none"
+                      style={{ background: "radial-gradient(circle, #f4d4c4 0%, transparent 70%)" }}
+                    />
+                  </Link>
+                )}
               </div>
             </div>
-            <div className="hairline" />
           </section>
         )}
 
-        {/* ─── BEST SELLERS ─────────────────────────────────────────────── */}
+        {/* 4) BEST SELLERS */}
         {bestSellerCards.length > 0 && (
-          <section style={{ background: PALETTE.wine900 }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
-              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-14 sm:mb-16">
+          <section style={{ background: PALETTE.blush100 }}>
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20 lg:py-24">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-12">
                 <div>
-                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("bestsellersEyebrow")}</p>
-                  <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    {t("issyma.bsTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.bsTitleAccent")}</span>.
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.bsSimpleEyebrow")}</p>
+                  <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
+                    {t("issyma.bsSimpleTitle")}
                   </h2>
                 </div>
-                <Link href="/produits?bestseller=1" className="link-wine text-[12px] tracking-[0.24em] uppercase self-start sm:self-end font-semibold">
-                  {t("bestsellersMore")} →
+                <Link href="/produits?bestseller=1" className="link-wine text-[12px] tracking-[0.24em] uppercase font-semibold self-start sm:self-end">
+                  {t("issyma.bsSeeAll")} →
                 </Link>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-                {bestSellerCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} badge={t("issyma.bsBadge")} />)}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                {bestSellerCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} />)}
               </div>
             </div>
-            <div className="hairline" />
           </section>
         )}
 
-        {/* ─── AVIS CLIENTS ─────────────────────────────────────────────── */}
+        {/* 5) AVIS CLIENTS */}
         {reviews.length > 0 && (
-          <section style={{ background: PALETTE.page }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-28">
-              <div className="max-w-2xl mb-14 sm:mb-16">
-                <p className="eyebrow mb-4"><span className="wine-underline" />{t("reviewsEyebrow")}</p>
-                <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                  {t("issyma.rvTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.rvTitleAccent")}</span>.
-                </h2>
+          <section style={{ background: PALETTE.paper }}>
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20 lg:py-24">
+              <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-12">
+                <div>
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.reviewsSimpleEyebrow")}</p>
+                  <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
+                    {t("issyma.reviewsSimpleTitle")}
+                  </h2>
+                </div>
+                {reviews.length > 3 && (
+                  <Link href="/avis" className="link-wine text-[12px] tracking-[0.24em] uppercase font-semibold self-start sm:self-end">
+                    {t("issyma.reviewsSeeAll")} →
+                  </Link>
+                )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                 {reviews.slice(0, 3).map((r) => (
                   <blockquote
                     key={r.id}
-                    className="rounded-2xl p-8 sm:p-10"
-                    style={{ background: PALETTE.wine800, border: `1px solid ${PALETTE.wine700}` }}
+                    className="rounded-2xl p-8 flex flex-col h-full"
+                    style={{ background: PALETTE.blush50, border: `1px solid ${PALETTE.borderSoft}` }}
                   >
-                    <span className="serif text-6xl leading-none block -mb-4" style={{ color: PALETTE.wine700 }}>&ldquo;</span>
+                    <span className="serif text-6xl leading-none block -mb-4" style={{ color: PALETTE.wine700 }} aria-hidden="true">&ldquo;</span>
                     <p className="serif italic text-lg leading-relaxed" style={{ color: PALETTE.ink }}>
                       {r.text}
                     </p>
+                    <div className="flex-1 min-h-[16px]" />
                     <footer className="mt-8 flex items-center justify-between">
-                      <div className="text-xs tracking-[0.2em] uppercase" style={{ color: PALETTE.muted }}>
+                      <div className="text-xs tracking-[0.2em] uppercase font-semibold" style={{ color: PALETTE.muted }}>
                         {r.name}
                       </div>
-                      <div className="text-sm tracking-widest" style={{ color: PALETTE.wine700 }}>
+                      <div className="text-sm tracking-widest" style={{ color: PALETTE.wine700 }} aria-label={`${r.rating} / 5`}>
                         {"★".repeat(Math.max(0, Math.min(5, r.rating)))}
                       </div>
                     </footer>
@@ -654,87 +721,76 @@ export default async function HomeIssymaLayout({
                 ))}
               </div>
             </div>
-            <div className="hairline" />
           </section>
         )}
 
-        {/* ─── FAQ ÉDITORIALE ───────────────────────────────────────────── */}
+        {/* 6) FAQ */}
         {faqItems.length > 0 && (
-          <section style={{ background: PALETTE.wine900 }}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-24 sm:py-32">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-24">
+          <section style={{ background: PALETTE.blush50 }}>
+            <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20 lg:py-24">
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_1fr] gap-10 lg:gap-16">
                 <div>
-                  <p className="eyebrow mb-5"><span className="wine-underline" />{t("faqEyebrow")}</p>
-                  <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.ink }}>
-                    {t("issyma.fqTitleStart")} <span className="italic" style={{ color: PALETTE.wine700 }}>{t("issyma.fqTitleAccent")}</span>.
+                  <p className="eyebrow mb-4"><span className="wine-underline" />{t("issyma.faqSimpleEyebrow")}</p>
+                  <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.ink }}>
+                    {t("issyma.faqSimpleTitle")}
                   </h2>
-                  <p className="mt-6 max-w-lg font-light text-[15px] leading-relaxed" style={{ color: PALETTE.inkSoft }}>
-                    {t("issyma.fqIntro")}
-                  </p>
-
-                  <div className="mt-10 rounded-2xl p-8" style={{ background: PALETTE.page, border: `1px solid ${PALETTE.border}` }}>
-                    <p className="serif text-2xl leading-snug" style={{ color: PALETTE.ink }}>
-                      {t("faqContactTitle")}
-                    </p>
-                    <p className="mt-3 text-[15px] font-light" style={{ color: PALETTE.inkSoft }}>
-                      {t("faqContactDesc")}
-                    </p>
-                    <Link
-                      href="/nous-contacter"
-                      className="mt-6 inline-flex items-center gap-3 px-6 py-3 rounded-full text-[12px] tracking-[0.24em] uppercase font-medium transition hover:opacity-90"
-                      style={{ background: PALETTE.wine700, color: PALETTE.cream }}
-                    >
-                      {t("faqContactCta")} →
-                    </Link>
-                  </div>
                 </div>
 
-                <div className="lg:pt-10">
-                  <div style={{ borderTop: `1px solid ${PALETTE.border}` }}>
-                    {faqItems.map((item, idx) => (
-                      <details key={item.id} open={idx < 2} style={{ borderBottom: `1px solid ${PALETTE.border}` }}>
-                        <summary className="flex items-start justify-between gap-6 py-6">
-                          <span className="serif text-xl sm:text-2xl leading-snug" style={{ color: PALETTE.ink }}>
-                            {item.question}
-                          </span>
-                          <span className="plus text-2xl font-light shrink-0 leading-none mt-1" style={{ color: PALETTE.wine700 }} />
-                        </summary>
-                        <p className="pb-6 pr-10 font-light text-[15px] leading-relaxed" style={{ color: PALETTE.inkSoft }}>
-                          {item.answer}
-                        </p>
-                      </details>
-                    ))}
-                  </div>
+                <div style={{ borderTop: `1px solid ${PALETTE.borderSoft}`, borderBottom: `1px solid ${PALETTE.borderSoft}` }}>
+                  {faqItems.map((item, idx) => (
+                    <details
+                      key={item.id}
+                      open={idx === 0}
+                      className="py-5"
+                      style={{ borderTop: idx === 0 ? "none" : `1px solid ${PALETTE.borderSoft}` }}
+                    >
+                      <summary className="flex items-start justify-between gap-6">
+                        <span className="serif text-lg sm:text-xl font-semibold" style={{ color: PALETTE.ink }}>
+                          {item.question}
+                        </span>
+                        <span className="plus text-2xl font-light shrink-0 leading-none" style={{ color: PALETTE.wine700 }} />
+                      </summary>
+                      <p className="pt-3 pr-10 text-[14px] leading-relaxed" style={{ color: PALETTE.inkSoft }}>
+                        {item.answer}
+                      </p>
+                    </details>
+                  ))}
                 </div>
               </div>
             </div>
           </section>
         )}
 
-        {/* ─── CTA BANDEAU BORDEAUX ─────────────────────────────────────── */}
+        {/* 7) CTA BORDEAUX */}
         <section className="wine-panel" style={{ borderRadius: 0 }}>
           <SilkTexture />
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20 flex flex-col md:flex-row md:items-center md:justify-between gap-10 relative z-10">
-            <div className="max-w-2xl">
-              <h2 className="serif text-4xl sm:text-5xl lg:text-6xl leading-tight" style={{ color: PALETTE.cream }}>
-                {t("issyma.ctaTitle")}
-              </h2>
-              <p className="mt-4 text-lg font-light" style={{ color: `${PALETTE.cream}d9` }}>
-                {t("issyma.ctaDesc", { shopName })}
-              </p>
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20 text-center relative z-10">
+            <h2 className="serif text-3xl sm:text-4xl lg:text-5xl leading-tight" style={{ color: PALETTE.cream }}>
+              {t("issyma.ctaTitle")}
+            </h2>
+            <p className="mt-4 text-[15px] leading-relaxed max-w-2xl mx-auto" style={{ color: `${PALETTE.cream2}cc` }}>
+              {t("issyma.ctaSimpleDesc", { shopName })}
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3 justify-center">
+              <Link
+                href="/produits"
+                className="btn-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
+              >
+                {t("issyma.ctaSimpleBtn1")} <span aria-hidden="true">→</span>
+              </Link>
+              <Link
+                href="/inscription"
+                className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
+              >
+                {t("issyma.ctaSimpleBtn2")} <span aria-hidden="true">→</span>
+              </Link>
             </div>
-            <Link
-              href="/inscription"
-              className="btn-cream inline-flex items-center gap-3 px-10 py-5 rounded-full text-[13px] tracking-[0.22em] uppercase font-semibold self-start md:self-auto"
-            >
-              {t("issyma.ctaButton")} <span aria-hidden="true">→</span>
-            </Link>
           </div>
         </section>
 
-        {/* ─── FOOTER ───────────────────────────────────────────────────── */}
+        {/* FOOTER */}
         <footer style={{ background: PALETTE.wine950 }}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-20">
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-20">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
               <div>
                 <p className="serif text-2xl tracking-[0.18em]" style={{ color: PALETTE.cream }}>{shopName.toUpperCase()}</p>
