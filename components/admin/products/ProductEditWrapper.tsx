@@ -16,8 +16,17 @@ function StatusToggle({ mode }: { mode: "create" | "edit" }) {
       toast.error("Produit incomplet", `Impossible de mettre en ligne : ${preview}${suffix}`);
       return;
     }
-    // La rupture totale ne bloque plus la mise en ligne : c'est à l'admin
-    // de décider. Le produit peut rester ONLINE avec 0 stock partout.
+    // Règle 2026-09-17 : on refuse la mise en ligne si toutes les variantes
+    // sont en rupture (stock=0) ou désactivées. En revanche un produit déjà
+    // ONLINE devenu indisponible reste en ligne (aucune bascule automatique
+    // vers Hors ligne) — la cliente veut garder la main.
+    if (statusToggle.isOutOfStock()) {
+      toast.error(
+        "Aucune variante disponible",
+        "Toutes les couleurs sont en rupture ou désactivées : impossible de mettre en ligne.",
+      );
+      return;
+    }
     statusToggle.setOnlineErrors([]);
     statusToggle.setError("");
     statusToggle.setProductStatus("ONLINE");

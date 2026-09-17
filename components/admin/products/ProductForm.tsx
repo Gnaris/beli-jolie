@@ -1574,8 +1574,20 @@ export default function ProductForm({
   }
 
   function isOutOfStock(): boolean {
-    const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
-    return withStock.length > 0 && withStock.every(v => parseInt(v.stock) === 0);
+    // Une variante est "disponible à la vente" si elle est active (non
+    // désactivée) ET a du stock renseigné > 0. Le produit est en rupture
+    // globale quand AUCUNE variante ne remplit ces deux conditions.
+    // Utilisé pour bloquer la mise en ligne (règle métier cliente
+    // 2026-09-17). Note : un produit déjà ONLINE devenu en rupture reste
+    // en ligne — voir StatusToggle et action serveur updateProduct.
+    if (variants.length === 0) return false;
+    const anyAvailable = variants.some((v) => {
+      if (v.disabled) return false;
+      if (v.stock === "" || v.stock === undefined || v.stock === null) return false;
+      const n = parseInt(v.stock);
+      return Number.isFinite(n) && n > 0;
+    });
+    return !anyAvailable;
   }
 
   // ── Register toggle callbacks for header toggle ──────────────────────

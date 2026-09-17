@@ -33,6 +33,10 @@ import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { normalizePrimaryFlag } from "@/lib/normalize-primary-flag";
 import { getCountryByIso, listManufacturingCountries } from "@/lib/countries";
 import { anyVariantHasImage } from "@/lib/variant-image-coverage";
+import {
+  hasAvailableVariant,
+  NO_AVAILABLE_VARIANT_REASON,
+} from "@/lib/product-availability";
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import {
@@ -754,6 +758,18 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       effectiveStatus = "OFFLINE";
       await prisma.product.update({ where: { id: product.id }, data: { status: "OFFLINE" } });
     }
+  }
+
+  // Blocage passage ONLINE si toutes les variantes sont indisponibles
+  // (stock=0 ou désactivées). L'inverse — retirer un produit ONLINE devenu
+  // indispo — reste manuel : la cliente veut garder la main. Cf. décision
+  // 2026-09-17.
+  if (effectiveStatus === "ONLINE" && !hasAvailableVariant(input.colors)) {
+    effectiveStatus = "OFFLINE";
+    await prisma.product.update({
+      where: { id: product.id },
+      data: { status: "OFFLINE" },
+    });
   }
 
   // Produits similaires — bidirectionnel (A→B et B→A)
@@ -1619,8 +1635,21 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
   }
 
+  // Blocage passage OFFLINE/ARCHIVED → ONLINE si toutes les variantes sont
+  // indisponibles (stock=0 ou désactivées). On ne bloque PAS un produit déjà
+  // ONLINE dont les variantes deviennent OOS/désactivées : il reste en ligne.
+  // Décision cliente 2026-09-17.
+  if (
+    effectiveStatus === "ONLINE" &&
+    oldProduct?.status !== "ONLINE" &&
+    !hasAvailableVariant(input.colors)
+  ) {
+    effectiveStatus = "OFFLINE";
+    await prisma.product.update({ where: { id }, data: { status: "OFFLINE" } });
+  }
+
   // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale. L'admin
-  // garde le contrôle du statut ; un produit peut être ONLINE avec 0 en stock.
+  // garde le contrôle du statut ; un produit peut RESTER ONLINE avec 0 en stock.
 
   revalidatePath("/admin/produits");
   // ── Drapeaux « Synchronisation nécessaire » ────────────────────────
@@ -2035,6 +2064,7 @@ export async function previewBulkPublishDrafts(
           color: { select: { name: true } },
           unitPrice: true,
           stock: true,
+          disabled: true,
           weight: true,
           saleType: true,
           packQuantity: true,
@@ -2107,13 +2137,23 @@ export async function previewBulkPublishDrafts(
       })),
     });
 
+    // Blocage supplémentaire pour la mise en ligne (règle métier hors du
+    // check de complétude générique — un produit ONLINE devenu OOS doit
+    // pouvoir sync ses marketplaces pour propager stock=0, donc on ne
+    // touche pas à `evaluateProductPublishability`).
+    const availableEligible = hasAvailableVariant(p.colors);
+    const eligible = result.eligible && availableEligible;
+    const reasons = availableEligible
+      ? result.reasons
+      : [...result.reasons, NO_AVAILABLE_VARIANT_REASON];
+
     return {
       id: p.id,
       reference: p.reference,
       name: p.name,
       status: p.status,
-      eligible: result.eligible,
-      reasons: result.reasons,
+      eligible,
+      reasons,
       pfsAlreadyPublished: !!p.pfsProductId,
       ankorsAlreadyPublished: !!p.ankorsProductId,
       efashionAlreadyPublished: p.colors.some((c) => c.efashionProductId != null),
@@ -2182,6 +2222,7 @@ export async function bulkUpdateProductStatus(
             color: { select: { name: true } },
             unitPrice: true,
             stock: true,
+            disabled: true,
             weight: true,
             saleType: true,
             packQuantity: true,
@@ -2254,18 +2295,24 @@ export async function bulkUpdateProductStatus(
         })),
       });
 
-      if (!result.eligible) {
+      // Blocage supplémentaire : au moins une variante disponible pour la
+      // vente (stock > 0 ET non désactivée). On garde ce check séparé de
+      // `evaluateProductPublishability` — un produit ONLINE devenu OOS doit
+      // pouvoir sync les marketplaces pour propager stock=0. Cf. décision
+      // 2026-09-17.
+      const availableEligible = hasAvailableVariant(p.colors);
+
+      if (!result.eligible || !availableEligible) {
+        const reasons = [...result.reasons];
+        if (!availableEligible) reasons.push(NO_AVAILABLE_VARIANT_REASON);
         errors.push({
           id: p.id,
           reference: p.reference,
-          reason: result.reasons.join(", "),
+          reason: reasons.join(", "),
         });
         continue;
       }
 
-      // La rupture totale (toutes les couleurs à stock=0) ne bloque plus la
-      // mise en ligne : c'est à l'admin de décider. La cliente peut mettre en
-      // ligne un produit en attendant du restock.
       success.push(p.id);
       if (p.isIncomplete) staleIncompleteIds.push(p.id);
     }

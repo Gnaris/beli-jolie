@@ -82,7 +82,16 @@ const groupImagesMock = prisma.productColorImage.groupBy as unknown as ReturnTyp
  * evaluateProductPublishability sont OK. À surcharger via Object.assign si
  * besoin d'invalider une règle particulière.
  */
-function makeCompleteProduct(overrides: Partial<{ id: string; reference: string; isIncomplete: boolean; description: string; stock: number }> = {}) {
+function makeCompleteProduct(
+  overrides: Partial<{
+    id: string;
+    reference: string;
+    isIncomplete: boolean;
+    description: string;
+    stock: number;
+    disabled: boolean;
+  }> = {},
+) {
   const id = overrides.id ?? "p1";
   return {
     id,
@@ -100,6 +109,7 @@ function makeCompleteProduct(overrides: Partial<{ id: string; reference: string;
         color: { name: "Or" },
         unitPrice: 12.5,
         stock: overrides.stock ?? 5,
+        disabled: overrides.disabled ?? false,
         weight: 0.3,
         saleType: "UNIT" as const,
         packQuantity: null,
@@ -188,19 +198,35 @@ describe("bulkUpdateProductStatus (ONLINE)", () => {
     expect(updateManyMock).not.toHaveBeenCalled();
   });
 
-  it("accepte un produit dont toutes les couleurs ont stock=0 (rupture totale non bloquante)", async () => {
+  it("refuse un produit dont toutes les variantes sont en rupture (stock=0)", async () => {
+    // Règle métier 2026-09-17 : impossible de passer ONLINE si aucune
+    // variante n'est disponible à la vente. (À l'inverse, un produit déjà
+    // ONLINE devenu en rupture est laissé en ligne — testé côté action
+    // updateProduct.)
     findManyMock.mockResolvedValueOnce([
       makeCompleteProduct({ id: "p1", stock: 0 }),
     ]);
 
     const res = await bulkUpdateProductStatus(["p1"], "ONLINE");
 
-    expect(res.success).toEqual(["p1"]);
-    expect(res.errors).toEqual([]);
-    expect(updateManyMock).toHaveBeenCalledWith({
-      where: { id: { in: ["p1"] } },
-      data: { status: "ONLINE" },
-    });
+    expect(res.success).toEqual([]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].reference).toBe("REF-1");
+    expect(res.errors[0].reason).toMatch(/rupture ou désactivées/);
+    expect(updateManyMock).not.toHaveBeenCalled();
+  });
+
+  it("refuse un produit dont toutes les variantes sont désactivées", async () => {
+    findManyMock.mockResolvedValueOnce([
+      makeCompleteProduct({ id: "p1", disabled: true }),
+    ]);
+
+    const res = await bulkUpdateProductStatus(["p1"], "ONLINE");
+
+    expect(res.success).toEqual([]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].reason).toMatch(/rupture ou désactivées/);
+    expect(updateManyMock).not.toHaveBeenCalled();
   });
 
   it("traite plusieurs produits indépendamment : met en ligne les bons et liste les mauvais", async () => {
