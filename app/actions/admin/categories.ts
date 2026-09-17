@@ -113,9 +113,26 @@ export async function updateCategoryPfsTaxonomy(
 
   const before = await prisma.category.findUnique({
     where: { id },
-    select: { name: true, pfsGender: true, pfsFamilyName: true, pfsCategoryName: true },
+    select: {
+      name: true,
+      pfsGender: true,
+      pfsFamilyName: true,
+      pfsCategoryName: true,
+      pfsFamilyId: true,
+      pfsCategoryId: true,
+    },
   });
   if (!before) throw new Error("Catégorie introuvable.");
+
+  // Genre/famille/catégorie changés → les IDs Salesforce précédemment résolus
+  // (pfsFamilyId, pfsCategoryId) sont périmés. Sans reset ici, resolvePfsCategoryIds
+  // sort en early return (ids déjà remplis) et renvoie à PFS des IDs qui ne
+  // correspondent plus aux nouveaux noms → « Famille non valide » au push.
+  const genderChanged = before.pfsGender !== newGender;
+  const familyChanged = before.pfsFamilyName !== newFamily;
+  const categoryChanged = before.pfsCategoryName !== newCategory;
+  const clearFamilyId = genderChanged || familyChanged;
+  const clearCategoryId = genderChanged || familyChanged || categoryChanged;
 
   await prisma.category.update({
     where: { id },
@@ -123,6 +140,8 @@ export async function updateCategoryPfsTaxonomy(
       pfsGender: newGender,
       pfsFamilyName: newFamily,
       pfsCategoryName: newCategory,
+      ...(clearFamilyId ? { pfsFamilyId: null } : {}),
+      ...(clearCategoryId ? { pfsCategoryId: null } : {}),
     },
   });
   revalidatePath("/admin/produits");
@@ -145,6 +164,8 @@ export async function updateCategoryPfsTaxonomy(
       pfsGender: before.pfsGender,
       pfsFamilyName: before.pfsFamilyName,
       pfsCategoryName: before.pfsCategoryName,
+      ...(clearFamilyId ? { pfsFamilyId: before.pfsFamilyId } : {}),
+      ...(clearCategoryId ? { pfsCategoryId: before.pfsCategoryId } : {}),
     },
   });
   return { success: true, impact };
