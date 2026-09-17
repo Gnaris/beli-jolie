@@ -120,7 +120,7 @@ Depuis 2026-08-25, Microstore utilise l'API native `/goods/add` + `/goods/update
   - **Anti-doublon** : `createLocalVariantFrom{Mkt}Variant()` vérifie si produit BJ a déjà ProductColor UNIT sur cette Color. Oui + non-liée → RELIE. Oui + déjà liée AUTRE mkt → erreur. Sinon crée. UI hint 💡 étape 4 quand détecté.
   - **Validation dure UI** : chaque variante mkt non-mappée DOIT être dans `orphansToDelete` ou `orphansToImport`. Bouton « Valider » bloqué sinon.
   - Serveur : `link{Mkt}ProductManually` accepte `intents?` en dernier arg. Ordre : (1) delete orphelines, (2) transaction link, (3) import orphelines (nécessite `{mkt}ProductId` posé), (4) sync `updateProductInPlace({forceFullSync:true})`.
-  - Suppression variante isolée : PFS `pfsDeleteVariant()`, eFashion `efashionDeleteShootingProduct()` (hard), Faire `DELETE /products/{id}/variants/{vid}`, Ankor = pas d'endpoint → kickoff overwrite.
+  - Suppression variante isolée : PFS `pfsDeleteVariant()`, eFashion `efashionDeleteShootingProduct()` (soft — délègue à la mutation GraphQL `softDeleteProduits`, l'ancien endpoint REST `/shootings/product/{id}/delete` répondait 200 sans rien supprimer, corrigé 2026-09-17), Faire `DELETE /products/{id}/variants/{vid}`, Ankor = pas d'endpoint → kickoff overwrite.
   - Auto-création côté mkt : réutilise forceFullSync (PFS `variantsToCreate`, eFashion `duplicateWithNewColor`, Faire `variantsAdded diff`, Ankor = write state override).
   - Garde-fou UI : refus si `orphansToDelete` couvre TOUTES variantes mkt ET aucune couleur BJ mappée.
   - Retour `LinkResult` étendu : `autoCreatedOnMarketplace` + `deletedOnMarketplace` + `importedFromMarketplace`, affichés dans widget Marketplaces.

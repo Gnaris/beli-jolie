@@ -236,8 +236,8 @@ describe("deleteProductsOnAnkorstore — kill switch", () => {
   });
 });
 
-describe("deleteProductsOnEfashion — kill switch", () => {
-  it("eFashion désactivé : aucune suppression envoyée", async () => {
+describe("deleteProductsOnEfashion", () => {
+  it("eFashion désactivé (kill switch) : aucune suppression envoyée", async () => {
     efashionEnabledSpy.mockResolvedValue(false);
 
     const results = await deleteProductsOnEfashion([
@@ -253,16 +253,59 @@ describe("deleteProductsOnEfashion — kill switch", () => {
     }
   });
 
-  it("eFashion activé : comportement normal", async () => {
+  it("softDeleteProduits=true → status ok", async () => {
     efashionEnabledSpy.mockResolvedValue(true);
-    efashionDeleteShootingProductSpy.mockResolvedValue(undefined);
+    efashionDeleteShootingProductSpy.mockResolvedValue({ success: true });
 
     const results = await deleteProductsOnEfashion([
       { efashionProductId: 100, reference: "REF-1" },
     ]);
 
     expect(efashionDeleteShootingProductSpy).toHaveBeenCalledOnce();
+    expect(efashionDeleteShootingProductSpy).toHaveBeenCalledWith(100);
     expect(results[0].status).toBe("ok");
+  });
+
+  // Anti-régression PC6 (2026-09-17) : eFashion peut répondre HTTP 200 avec
+  // `success:false` (produit encore lié à un shooting, ID périmé, etc.).
+  // L'ancien code faisait juste `await` sans lire ce booléen et marquait la
+  // suppression comme réussie — la fiche restait en ligne côté eFashion sans
+  // aucune alerte à la cliente. Maintenant on doit remonter l'erreur pour
+  // que la modale affiche le toast rouge "Suppression eFashion partielle".
+  it("softDeleteProduits=false → status error avec le message reçu", async () => {
+    efashionEnabledSpy.mockResolvedValue(true);
+    efashionDeleteShootingProductSpy.mockResolvedValue({
+      success: false,
+      message: "eFashion a refusé la suppression (softDeleteProduits=false).",
+    });
+
+    const results = await deleteProductsOnEfashion([
+      { efashionProductId: 100, reference: "REF-1" },
+    ]);
+
+    expect(results[0]).toEqual({
+      efashionProductId: 100,
+      reference: "REF-1",
+      status: "error",
+      message: "eFashion a refusé la suppression (softDeleteProduits=false).",
+    });
+  });
+
+  it("throw réseau → status error, batch continue", async () => {
+    efashionEnabledSpy.mockResolvedValue(true);
+    efashionDeleteShootingProductSpy
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce({ success: true });
+
+    const results = await deleteProductsOnEfashion([
+      { efashionProductId: 100, reference: "REF-1" },
+      { efashionProductId: 101, reference: "REF-2" },
+    ]);
+
+    expect(results).toEqual([
+      { efashionProductId: 100, reference: "REF-1", status: "error", message: "network down" },
+      { efashionProductId: 101, reference: "REF-2", status: "ok" },
+    ]);
   });
 });
 

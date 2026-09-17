@@ -8,6 +8,7 @@
 
 import { ensureEfashionSession } from "@/lib/efashion-auth";
 import { efashionFetch } from "@/lib/efashion-client";
+import { efashionSoftDeleteProduits } from "@/lib/efashion-api-write";
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   await ensureEfashionSession();
@@ -189,11 +190,31 @@ export async function efashionPutShootingProduct(
 }
 
 // ─── Suppression d'un produit (Lot 5) ───────────────────────────────────────
-
+//
+// Ancienne route REST `POST /shootings/product/{id}/delete` supprimée : elle
+// répond « 200 OK » sans rien supprimer sur les produits déjà publiés (bug
+// remonté par la cliente le 2026-09-17 sur PC6). On délègue à la mutation
+// GraphQL `softDeleteProduits` qu'utilise leur propre back-office (HAR fourni
+// par la cliente). Signature `{ success, message }` conservée pour les
+// callers existants (`marketplace-delete.ts` et `efashion.ts` link intents).
 export async function efashionDeleteShootingProduct(
   idProduit: number,
 ): Promise<{ success: boolean; message?: string }> {
-  return postJson(`/shootings/product/${idProduit}/delete`, {});
+  try {
+    const ok = await efashionSoftDeleteProduits([idProduit]);
+    if (!ok) {
+      return {
+        success: false,
+        message: "eFashion a refusé la suppression (softDeleteProduits=false).",
+      };
+    }
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 // ─── Mes shootings (lecture seule, utile pour debug) ───────────────────────

@@ -208,12 +208,26 @@ export async function deleteProductsOnEfashion(
   const results: EfashionDeleteOutcome[] = [];
   for (const item of items) {
     try {
-      await efashionDeleteShootingProduct(item.efashionProductId);
-      results.push({
-        efashionProductId: item.efashionProductId,
-        reference: item.reference,
-        status: "ok",
-      });
+      const res = await efashionDeleteShootingProduct(item.efashionProductId);
+      if (res.success) {
+        results.push({
+          efashionProductId: item.efashionProductId,
+          reference: item.reference,
+          status: "ok",
+        });
+      } else {
+        logger.warn("[Marketplace Delete] eFashion delete refused", {
+          efashionProductId: item.efashionProductId,
+          reference: item.reference,
+          message: res.message,
+        });
+        results.push({
+          efashionProductId: item.efashionProductId,
+          reference: item.reference,
+          status: "error",
+          message: res.message ?? "eFashion a refusé la suppression.",
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error("[Marketplace Delete] eFashion delete failed", {
