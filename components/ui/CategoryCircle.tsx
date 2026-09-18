@@ -25,9 +25,12 @@ const MONOGRAM_CLASS: Record<NonNullable<Props["size"]>, string> = {
 };
 
 /**
- * Cercle catégorie — deux rendus :
- *   - avec image : cercle blanc bordé fin, image détourée centrée (style réf
- *     boutique). Hover assombrit doucement la bordure.
+ * Cercle catégorie — trois rendus :
+ *   - avec image raster (WebP/JPG) : cercle blanc bordé fin, image détourée
+ *     à 78 % (photos BJ centrées, marge visuelle autour).
+ *   - avec image SVG : image affichée à 100 % sans cadre — les icônes
+ *     Issyma portent déjà leur propre disque de fond, un cadre blanc
+ *     créerait un liseré parasite.
  *   - sans image : cercle plein noir, première lettre majuscule blanche
  *     (monogramme). Fallback stable, jamais moche.
  */
@@ -36,16 +39,21 @@ export default function CategoryCircle({ name, image, size = "md" }: Props) {
   const monogram = name.trim().charAt(0).toUpperCase() || "•";
 
   if (image) {
+    const isSvg = image.toLowerCase().endsWith(".svg");
     return (
       <div
-        className={`${SIZE_CLASS[size]} rounded-full bg-white border border-slate-200 grid place-items-center overflow-hidden shadow-[var(--shadow-sm)] transition-colors duration-200 group-hover:border-slate-900`}
+        className={`${SIZE_CLASS[size]} rounded-full grid place-items-center overflow-hidden transition-colors duration-200 ${
+          isSvg
+            ? ""
+            : "bg-white border border-slate-200 shadow-[var(--shadow-sm)] group-hover:border-slate-900"
+        }`}
       >
         <SmartImage
           src={image}
           alt={name}
           width={dim}
           height={dim}
-          className="w-[78%] h-[78%] object-contain"
+          className={isSvg ? "w-full h-full object-cover" : "w-[78%] h-[78%] object-contain"}
           loading="lazy"
         />
       </div>
