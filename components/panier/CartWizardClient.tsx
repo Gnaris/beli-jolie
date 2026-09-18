@@ -416,7 +416,11 @@ export default function CartWizardClient({
     const addrForIntent = deliveryMode === "merge"
       ? (selectedAddr ?? addresses[0])
       : selectedAddr;
-    if (!addrForIntent) {
+    // Retrait boutique / transporteur privé : pas d'adresse de livraison
+    // requise. Le serveur retombera sur l'adresse société du User. En livraison
+    // classique / merge, une adresse reste obligatoire.
+    const canSkipAddress = deliveryMode === "pickup" || deliveryMode === "private";
+    if (!addrForIntent && !canSkipAddress) {
       setStripeError(t("noAddress"));
       setStripeLoading(false);
       return;
@@ -427,7 +431,8 @@ export default function CartWizardClient({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        addressId:            addrForIntent.id,
+        addressId:            addrForIntent?.id,
+        deliveryMode,
         carrierId:            selectedCarrier.id,
         transactionId:        transactionId || undefined,
         carrierName:          selectedCarrier.name,
@@ -483,7 +488,10 @@ export default function CartWizardClient({
       const effectiveAddr = deliveryMode === "merge"
         ? (selectedAddr ?? addresses[0] ?? null)
         : selectedAddr;
-      if (!effectiveAddr) {
+      // En retrait/privé, addressId est facultatif : le serveur retombera sur
+      // l'adresse société. Les autres modes exigent une adresse enregistrée.
+      const canSkipAddress = deliveryMode === "pickup" || deliveryMode === "private";
+      if (!effectiveAddr && !canSkipAddress) {
         setOrderError(t("noAddress"));
         setIsCreatingOrder(false);
         return;
@@ -494,7 +502,8 @@ export default function CartWizardClient({
         return;
       }
       const result = await placeBankTransferOrder({
-        addressId:    effectiveAddr.id,
+        addressId:    effectiveAddr?.id,
+        deliveryMode,
         carrierId:    selectedCarrier.id,
         transactionId,
         carrierSig:   selectedCarrier.sig ?? "",
@@ -534,7 +543,10 @@ export default function CartWizardClient({
       const effectiveAddr = deliveryMode === "merge"
         ? (selectedAddr ?? addresses[0] ?? null)
         : selectedAddr;
-      if (!effectiveAddr) {
+      // Retrait/privé : le serveur retombera sur l'adresse société si aucune
+      // adresse enregistrée. Livraison / merge : reste obligatoire.
+      const canSkipAddress = deliveryMode === "pickup" || deliveryMode === "private";
+      if (!effectiveAddr && !canSkipAddress) {
         setOrderError(t("noAddress"));
         setIsCreatingOrder(false);
         return;
@@ -545,7 +557,8 @@ export default function CartWizardClient({
         return;
       }
       const result = await placeOrder({
-        addressId:             effectiveAddr.id,
+        addressId:             effectiveAddr?.id,
+        deliveryMode,
         carrierId:             selectedCarrier.id,
         transactionId,
         carrierName:           selectedCarrier.name,

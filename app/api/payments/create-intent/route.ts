@@ -13,9 +13,15 @@ import { computeOrderPricing } from "@/lib/order-pricing";
 import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { verifyCarrierSignature } from "@/lib/carrier-signature";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
+import { buildFallbackAddressFromUser, isFallbackAddressAllowed } from "@/lib/order-address-fallback";
 
 const CreateIntentSchema = z.object({
-  addressId: z.string().min(1),
+  // addressId optionnel : en retrait boutique ou transporteur privé, la cliente
+  // n'a pas forcément d'adresse dans son carnet. On retombe alors sur l'adresse
+  // de facturation de sa société (champs `address*` sur User). Refusé en mode
+  // livraison classique (delivery) — check plus bas.
+  addressId: z.string().optional(),
+  deliveryMode: z.enum(["delivery", "pickup", "private", "merge"]).optional(),
   carrierId: z.string().min(1),
   carrierName: z.string().min(1),
   carrierPrice: z.number().min(0),
@@ -46,11 +52,12 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { addressId, carrierId, carrierName, carrierPrice, transactionId, carrierSig, promoCode } = parsed.data;
+  const { addressId, deliveryMode, carrierId, carrierName, carrierPrice, transactionId, carrierSig, promoCode } = parsed.data;
 
   const userId = session.user.id;
+  const allowMissingAddress = isFallbackAddressAllowed(deliveryMode);
 
-  const [cart, address, user] = await Promise.all([
+  const [cart, shippingAddress, user] = await Promise.all([
     prisma.cart.findUnique({
       where: { userId },
       include: {
@@ -78,12 +85,18 @@ export async function POST(req: Request) {
         },
       },
     }),
-    prisma.shippingAddress.findFirst({ where: { id: addressId, userId } }),
+    addressId
+      ? prisma.shippingAddress.findFirst({ where: { id: addressId, userId } })
+      : Promise.resolve(null),
     prisma.user.findUnique({
       where: { id: userId },
       select: {
         status: true,
-        company: true, email: true, vatExempt: true,
+        firstName: true, lastName: true, company: true, phone: true,
+        email: true, vatExempt: true,
+        // Champs adresse société — fallback quand pas d'adresse de livraison
+        // (mode retrait boutique ou transporteur privé).
+        addressStreet: true, addressComplement: true, addressZip: true, addressCity: true, addressCountry: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
         freeShipping: true, freeShippingMaxPrice: true,
         shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
@@ -95,7 +108,16 @@ export async function POST(req: Request) {
   if (!cart || cart.items.length === 0) {
     return NextResponse.json({ error: "Panier vide." }, { status: 400 });
   }
+  // Résolution adresse : shippingAddress prioritaire ; sinon (retrait/privé)
+  // on synthétise depuis l'adresse société du User pour que Stripe ait un pays
+  // et que le pricing puisse trancher UE/hors-UE.
+  let address: { country: string } | null = shippingAddress;
+  if (!address && allowMissingAddress && user) {
+    const fallback = buildFallbackAddressFromUser(user);
+    if (fallback) address = { country: fallback.country };
+  }
   if (!address) {
+    // Livraison sans addressId, ou pickup/privé sans adresse société complète.
     return NextResponse.json({ error: "Adresse introuvable." }, { status: 400 });
   }
   // Re-vérif du statut d'approbation (audit §11) : le middleware bloque les
@@ -276,10 +298,14 @@ export async function POST(req: Request) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: pricing.totalTTCCents,
       currency: "eur",
+      // Uniquement `card` : Apple Pay et Google Pay sont des variantes wallet
+      // de la méthode `card` et apparaissent quand même dans PaymentElement.
+      // On exclut ainsi MB Way, Bancontact, iDEAL et autres exotiques
+      // qu'`automatic_payment_methods` activait par défaut.
       payment_method_types: ["card"],
       metadata: {
         userId,
-        addressId,
+        addressId: addressId ?? "",
         carrierId,
         carrierName,
         carrierPrice: String(carrierPrice),

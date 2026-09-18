@@ -5,9 +5,7 @@ import { useTranslations } from "next-intl";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
-  CardNumberElement,
-  CardExpiryElement,
-  CardCvcElement,
+  PaymentElement,
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
@@ -393,10 +391,10 @@ export default function Step3PaymentContent({
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Formulaire Stripe (light) — utilise CardNumberElement / Expiry / Cvc
+   Formulaire Stripe unifié — PaymentElement expose carte + Apple Pay
+   + Google Pay dans un même bloc (selon device/navigateur).
    ───────────────────────────────────────────────────────────── */
 function StripeCardForm({
-  clientSecret,
   onSuccess,
   onError,
   disabled,
@@ -412,22 +410,19 @@ function StripeCardForm({
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
-  const [ready, setReady] = useState({ n: false, e: false, c: false });
-  const allReady = ready.n && ready.e && ready.c;
+  const [ready, setReady] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!stripe || !elements || processing || disabled) return;
     setProcessing(true);
     onError("");
-    const cardEl = elements.getElement(CardNumberElement);
-    if (!cardEl) {
-      onError(t("paymentInitError"));
-      setProcessing(false);
-      return;
-    }
-    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: { card: cardEl },
+    // redirect:"if_required" évite le round-trip navigateur pour carte/Apple/Google
+    // Pay (aucun n'a besoin de rediriger) ; on garde la porte ouverte pour 3DS
+    // si la banque le demande.
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
     });
     if (error) {
       onError(error.message ?? t("paymentError"));
@@ -440,52 +435,20 @@ function StripeCardForm({
     }
   }
 
-  const fieldClass =
-    "px-3 py-3 border border-slate-200 rounded-xl bg-white focus-within:border-slate-900 focus-within:ring-2 focus-within:ring-slate-900/10 transition-all";
-
-  const elementOpts = {
-    style: {
-      base: {
-        fontSize: "15px",
-        color: "#0f172a",
-        fontFamily: "Inter, system-ui, sans-serif",
-        "::placeholder": { color: "#94a3b8" },
-      },
-      invalid: { color: "#dc2626" },
-    },
-  };
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-          {t("cardNumber")}
-        </label>
-        <div className={fieldClass}>
-          <CardNumberElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, n: true }))} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-            {t("cardExpiry")}
-          </label>
-          <div className={fieldClass}>
-            <CardExpiryElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, e: true }))} />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-            {t("cardCvc")}
-          </label>
-          <div className={fieldClass}>
-            <CardCvcElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, c: true }))} />
-          </div>
-        </div>
-      </div>
+      <PaymentElement
+        onReady={() => setReady(true)}
+        options={{
+          layout: "tabs",
+          // Masque Link (compte 1-clic Stripe) — Apple Pay et Google Pay
+          // restent affichés (wallets natifs).
+          wallets: { applePay: "auto", googlePay: "auto", link: "never" },
+        }}
+      />
       <button
         type="submit"
-        disabled={disabled || !allReady || processing}
+        disabled={disabled || !ready || processing}
         className="w-full h-12 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {processing ? (

@@ -106,13 +106,21 @@ import type { OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import { getStripeInstance } from "@/lib/stripe";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
+import {
+  buildFallbackAddressFromUser,
+  isFallbackAddressAllowed,
+  type OrderAddressLike,
+} from "@/lib/order-address-fallback";
 
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
 
 export interface PlaceOrderInput {
-  addressId:     string;
+  // addressId optionnel : en retrait boutique / transporteur privé, on retombe
+  // sur l'adresse société du User (voir lib/order-address-fallback).
+  addressId?:    string;
+  deliveryMode?: "delivery" | "pickup" | "private" | "merge";
   carrierId:     string;   // base64 carrierId Easy-Express (ou "fallback_*", "pickup_store", "private_carrier", "merge_into_order")
   transactionId: string;   // transactionId retourné par /api/carriers
   carrierName:   string;
@@ -214,14 +222,18 @@ export async function placeOrder(
 
   // ── 1. Récupérer toutes les données nécessaires ──────────────────────────
 
-  const [user, cart, address] = await Promise.all([
+  const [user, cart, shippingAddress] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
         status: true,
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
-        vatExempt: true, addressCountry: true,
+        vatExempt: true,
+        // Adresse société : fallback quand la cliente commande en retrait ou
+        // transporteur privé sans adresse de livraison enregistrée.
+        addressStreet: true, addressComplement: true, addressZip: true,
+        addressCity: true, addressCountry: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
         freeShipping: true, freeShippingMaxPrice: true,
         shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
@@ -251,7 +263,9 @@ export async function placeOrder(
         },
       },
     }),
-    prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } }),
+    input.addressId
+      ? prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } })
+      : Promise.resolve(null),
   ]);
 
   // À partir d'ici, placeOrder est appelé après que le client a confirmé sa CB
@@ -274,6 +288,12 @@ export async function placeOrder(
       "cart_empty",
       "Votre panier est vide.",
     );
+  }
+  // Résolution adresse. En retrait/privé sans adresse enregistrée : on retombe
+  // sur l'adresse société stockée sur User (buildFallbackAddressFromUser).
+  let address: OrderAddressLike | null = shippingAddress;
+  if (!address && isFallbackAddressAllowed(input.deliveryMode)) {
+    address = buildFallbackAddressFromUser(user);
   }
   if (!address) {
     return refundAndAbort(

@@ -6,8 +6,10 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encryptIfSensitive } from "@/lib/encryption";
-import { invalidateStripeCache } from "@/lib/stripe";
+import { getStripeInstance, invalidateStripeCache } from "@/lib/stripe";
 import { setSiteConfig } from "@/lib/site-config-write";
+import { getCurrentTenantId } from "@/lib/tenant";
+import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -56,9 +58,53 @@ export async function updateStripeConfig(
     revalidateTag("site-config", "default");
     revalidatePath("/admin/bienvenue/stripe");
     revalidatePath("/admin/parametres");
+
+    // Fire-and-forget : enregistre les domaines du tenant chez Apple Pay via
+    // Stripe (une fois par domaine par compte Stripe). Idempotent — Stripe
+    // renvoie l'entrée existante si le domaine est déjà enregistré.
+    registerApplePayDomainsForCurrentTenant().catch((err) =>
+      logger.error("[updateStripeConfig] Apple Pay register KO", { error: err }),
+    );
+
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Déclare chaque domaine `TenantDomain` du tenant courant auprès de Stripe
+ * pour activer Apple Pay. Sans ça, le bouton Apple Pay n'apparaît pas dans
+ * `PaymentElement` même si l'appareil le supporte.
+ *
+ * Prérequis Apple : le fichier `/.well-known/apple-developer-merchantid-domain-association`
+ * doit être servi sur le domaine (route Next.js dédiée). Stripe fait le check
+ * HTTPS avant de valider l'enregistrement.
+ */
+async function registerApplePayDomainsForCurrentTenant(): Promise<void> {
+  const tenantId = await getCurrentTenantId();
+  if (!tenantId) return;
+  const domains = await prisma.tenantDomain.findMany({
+    where: { tenantId },
+    select: { host: true },
+  });
+  if (domains.length === 0) return;
+
+  const stripe = await getStripeInstance();
+  for (const { host } of domains) {
+    // On skip les hosts locaux : Stripe refuse localhost/IP privée pour Apple Pay.
+    if (host === "localhost" || host.endsWith(".local") || host.startsWith("127.")) {
+      continue;
+    }
+    try {
+      await stripe.applePayDomains.create({ domain_name: host });
+      logger.info("[apple-pay-domain] enregistré", { host });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // « already exists » = idempotence OK, on continue silencieusement.
+      if (msg.toLowerCase().includes("already")) continue;
+      logger.error("[apple-pay-domain] échec enregistrement", { host, error: msg });
+    }
   }
 }
 

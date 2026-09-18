@@ -5,9 +5,7 @@ import { useRouter } from "next/navigation";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
-  CardNumberElement,
-  CardExpiryElement,
-  CardCvcElement,
+  PaymentElement,
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
@@ -141,7 +139,6 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
                   options={{ clientSecret, appearance: { theme: "stripe" } }}
                 >
                   <CardForm
-                    clientSecret={clientSecret}
                     totalAmountCents={Math.round(totalTTC * 100)}
                     onSuccess={handleSuccess}
                     onError={setError}
@@ -162,12 +159,10 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
 
 /* ─────────────────────── Formulaire Stripe ─────────────────────── */
 function CardForm({
-  clientSecret,
   totalAmountCents,
   onSuccess,
   onError,
 }: {
-  clientSecret: string;
   totalAmountCents: number;
   onSuccess: () => void;
   onError: (msg: string) => void;
@@ -175,8 +170,7 @@ function CardForm({
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
-  const [ready, setReady] = useState({ n: false, e: false, c: false });
-  const allReady = ready.n && ready.e && ready.c;
+  const [ready, setReady] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -184,14 +178,9 @@ function CardForm({
     if (!stripe || !elements || processing) return;
     setProcessing(true);
     onError("");
-    const cardEl = elements.getElement(CardNumberElement);
-    if (!cardEl) {
-      onError("Erreur lors de la préparation du paiement.");
-      setProcessing(false);
-      return;
-    }
-    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: { card: cardEl },
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: "if_required",
     });
     if (error) {
       onError(error.message ?? "Erreur lors du paiement.");
@@ -204,45 +193,18 @@ function CardForm({
     }
   }
 
-  const fieldClass =
-    "px-3 py-3 border border-slate-200 rounded-xl bg-white focus-within:border-slate-900 focus-within:ring-2 focus-within:ring-slate-900/10 transition-all";
-  const elementOpts = {
-    style: {
-      base: {
-        fontSize: "15px",
-        color: "#0f172a",
-        fontFamily: "Inter, system-ui, sans-serif",
-        "::placeholder": { color: "#94a3b8" },
-      },
-      invalid: { color: "#dc2626" },
-    },
-  };
-
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Numéro de carte</label>
-        <div className={fieldClass}>
-          <CardNumberElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, n: true }))} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Expiration</label>
-          <div className={fieldClass}>
-            <CardExpiryElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, e: true }))} />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1.5">CVC</label>
-          <div className={fieldClass}>
-            <CardCvcElement options={elementOpts} onReady={() => setReady((r) => ({ ...r, c: true }))} />
-          </div>
-        </div>
-      </div>
+      <PaymentElement
+        onReady={() => setReady(true)}
+        options={{
+          layout: "tabs",
+          wallets: { applePay: "auto", googlePay: "auto", link: "never" },
+        }}
+      />
       <button
         type="submit"
-        disabled={!allReady || processing || isPending}
+        disabled={!ready || processing || isPending}
         className="w-full h-12 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-3"
       >
         {processing || isPending ? "Traitement…" : `🔒 Payer ${(totalAmountCents / 100).toFixed(2)} €`}

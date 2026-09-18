@@ -21,6 +21,11 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 import { getCachedBankTransferConfig } from "@/lib/bank-transfer-config";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
+import {
+  buildFallbackAddressFromUser,
+  isFallbackAddressAllowed,
+  type OrderAddressLike,
+} from "@/lib/order-address-fallback";
 import type { OrderItemPDF } from "@/lib/pdf-order";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
@@ -32,7 +37,9 @@ class StockError extends Error {
 }
 
 export interface BankTransferOrderInput {
-  addressId: string;
+  // addressId optionnel : en retrait/privé, on retombe sur l'adresse société.
+  addressId?: string;
+  deliveryMode?: "delivery" | "pickup" | "private" | "merge";
   carrierId: string;
   transactionId: string; // reste requis pour vérifier la signature carrier
   carrierSig: string;
@@ -114,14 +121,16 @@ export async function placeBankTransferOrder(
   }
 
   // ── Charger les données ────────────────────────────────────────────────
-  const [user, cart, address] = await Promise.all([
+  const [user, cart, shippingAddress] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
         status: true,
         firstName: true, lastName: true, company: true,
         email: true, phone: true, siret: true, vatNumber: true,
-        vatExempt: true, addressCountry: true,
+        vatExempt: true,
+        addressStreet: true, addressComplement: true, addressZip: true,
+        addressCity: true, addressCountry: true,
         discountType: true, discountValue: true, discountMode: true, discountMinAmount: true, discountMinQuantity: true,
         freeShipping: true, freeShippingMaxPrice: true,
         shippingDiscountType: true, shippingDiscountValue: true, shippingDiscountMode: true,
@@ -151,7 +160,9 @@ export async function placeBankTransferOrder(
         },
       },
     }),
-    prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } }),
+    input.addressId
+      ? prisma.shippingAddress.findFirst({ where: { id: input.addressId, userId } })
+      : Promise.resolve(null),
   ]);
 
   if (!user) return { success: false, error: "Votre compte est introuvable." };
@@ -159,6 +170,12 @@ export async function placeBankTransferOrder(
     return { success: false, error: "Votre compte n'est plus approuvé pour passer commande." };
   }
   if (!cart || cart.items.length === 0) return { success: false, error: "Votre panier est vide." };
+
+  // Résolution adresse avec fallback société pour retrait/privé.
+  let address: OrderAddressLike | null = shippingAddress;
+  if (!address && isFallbackAddressAllowed(input.deliveryMode)) {
+    address = buildFallbackAddressFromUser(user);
+  }
   if (!address) return { success: false, error: "Adresse de livraison introuvable." };
 
   const missingAddressFields = findMissingAddressFields(address);

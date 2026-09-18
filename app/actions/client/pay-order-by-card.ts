@@ -77,6 +77,8 @@ export async function createOrderCardPaymentIntent(
     const pi = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "eur",
+      // Card uniquement (Apple/Google Pay sont des wallets card et restent
+      // affichés par PaymentElement).
       payment_method_types: ["card"],
       metadata: {
         orderId: order.id,
