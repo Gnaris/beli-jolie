@@ -80,6 +80,11 @@ export function useRefreshMarketplaceDialog(opts?: UseRefreshMarketplaceDialogOp
       _options: MarketplaceRefreshOptions,
     ): Promise<boolean> => {
       const productIds = products.map((p) => p.productId);
+      // Bypass local (dev) : pas de code par mail à saisir pour tester le
+      // refresh en boucle. Prod (NODE_ENV=production) exige toujours l'OTP.
+      if (process.env.NODE_ENV !== "production") {
+        return true;
+      }
       const otpRes = await otpConfirm({
         action: "refresh",
         title:

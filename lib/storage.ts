@@ -379,6 +379,17 @@ export function chatAttachmentDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
+/**
+ * Directory key for per-order image copies (public, servi via <img src>).
+ * Chaque commande a son propre dossier ; on y copie une miniature par ligne
+ * pour que la commande reste illustrée même si la variante d'origine est
+ * supprimée plus tard.
+ */
+export function orderImageDir(orderNumber: string, tenantSlug?: string): string {
+  const base = `uploads/commandes/${slugify(orderNumber)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
+}
+
 /** Directory key for a client's bordereaux (public, lien direct). */
 export function bordereauDir(clientId: string, tenantSlug?: string): string {
   const base = `uploads/bordereaux/${slugify(clientId)}`;

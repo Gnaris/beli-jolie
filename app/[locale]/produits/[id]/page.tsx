@@ -182,11 +182,103 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     getCurrentTenantSlug(),
   ]);
 
-  if (!product) notFound();
+  // Produit introuvable ou définitivement supprimé (ARCHIVED). On tente un
+  // dernier lookup dans l'historique OrderItem : si un client a acheté ce
+  // produit avant sa suppression, on lui affiche un layout dédié « n'est
+  // plus disponible » (avec les infos snapshot copiées lors de la commande)
+  // au lieu d'un 404 sec. La page reste noindex (cf. generateMetadata) pour
+  // ne pas polluer Google.
+  if (!product || product.status === "ARCHIVED") {
+    const refCandidates = product
+      ? [product.reference]
+      : parseProductHandle(handle).referenceCandidates;
 
-  // ARCHIVED = supprimé définitivement → vraie 404 (sinon Google classe la page
-  // en "Soft 404" : HTML rendu OK avec message "indisponible" = signal négatif).
-  if (product.status === "ARCHIVED") notFound();
+    const historicItem = refCandidates.length > 0
+      ? await prisma.orderItem.findFirst({
+          where: { productRef: { in: refCandidates } },
+          orderBy: { createdAt: "desc" },
+          select: {
+            productName: true,
+            productRef: true,
+            imagePath: true,
+            colorName: true,
+          },
+        })
+      : null;
+
+    if (!historicItem) notFound();
+
+    const tProducts = await getTranslations("products");
+    return (
+      <div className="min-h-screen relative">
+        <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
+        <div className="min-w-0 relative z-10">
+          <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
+            <div className="container-site py-10">
+              <nav className="flex items-center gap-2 text-sm font-body text-text-muted mb-8">
+                <Link href="/produits" className="hover:text-text-primary transition-colors">
+                  {tProducts("breadcrumb")}
+                </Link>
+                <span className="text-border">/</span>
+                <span className="text-text-secondary truncate">{historicItem.productName}</span>
+              </nav>
+              <div className="max-w-2xl mx-auto py-16">
+                <div className="bg-bg-primary border border-border rounded-3xl shadow-sm p-8 sm:p-10">
+                  <div className="flex flex-col sm:flex-row items-start gap-6">
+                    {historicItem.imagePath ? (
+                      // Miniature copiée dans le dossier de la commande —
+                      // survit à la suppression de la fiche produit.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={historicItem.imagePath}
+                        alt={historicItem.productName}
+                        className="w-32 h-32 rounded-2xl object-cover border border-border shrink-0"
+                      />
+                    ) : (
+                      <div className="w-32 h-32 rounded-2xl bg-bg-tertiary border border-border flex items-center justify-center text-text-muted text-xs shrink-0">
+                        —
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted mb-2">
+                        Produit archivé
+                      </p>
+                      <h1 className="text-2xl font-heading font-semibold text-text-primary mb-1">
+                        {historicItem.productName}
+                      </h1>
+                      <p className="text-xs font-mono text-text-muted mb-4">
+                        Référence : {historicItem.productRef}
+                      </p>
+                      <p className="text-sm text-text-secondary mb-6">
+                        Ce produit a été retiré du catalogue et n'est plus
+                        disponible à la vente. Les informations restent
+                        conservées pour vos commandes passées.
+                      </p>
+                      <div className="flex flex-wrap gap-3">
+                        <Link
+                          href="/produits"
+                          className="btn-primary px-5 py-2.5 rounded-xl font-medium text-sm"
+                        >
+                          {tProducts("backToProducts")}
+                        </Link>
+                        <Link
+                          href="/commandes"
+                          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border border-border text-text-primary hover:bg-bg-secondary transition-colors"
+                        >
+                          Mes commandes
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+          <Footer shopName={shopName} />
+        </div>
+      </div>
+    );
+  }
 
   // Meilleur % de remise applicable au produit (manuel vs promos AUTO ciblantes)
   const [activePromos, productCollections] = await Promise.all([

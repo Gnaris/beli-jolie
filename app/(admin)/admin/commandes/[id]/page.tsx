@@ -79,6 +79,17 @@ export default async function AdminCommandeDetailPage({
   const paidTvaAmount = roundCent((paidHT + carrier) * order.tvaRate);
   const paidTotalTTC = roundCent(paidHT + carrier + paidTvaAmount);
 
+  // Mapping ref → route admin. `/admin/produits/ref/{ref}` fait le lookup et
+  // redirige vers la fiche produit si elle existe, sinon affiche un layout
+  // « produit supprimé » avec les infos snapshot. On garde ainsi une URL
+  // unique côté commande, indépendamment de la présence du produit en base.
+  const productLinks: Record<string, string> = {};
+  for (const it of order.items) {
+    if (it.productRef && !productLinks[it.productRef]) {
+      productLinks[it.productRef] = `/admin/produits/ref/${encodeURIComponent(it.productRef)}`;
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Retour */}
@@ -366,6 +377,7 @@ export default async function AdminCommandeDetailPage({
           paidTotalTTC,
           paymentStatus: order.paymentStatus,
         }}
+        productLinks={productLinks}
       />
     </div>
   );

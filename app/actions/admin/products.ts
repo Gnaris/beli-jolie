@@ -1915,7 +1915,7 @@ export async function toggleProductImportant(
 // sinon archivage (obligation légale 10 ans + historique commandes)
 // ─────────────────────────────────────────────
 
-export async function deleteProduct(id: string): Promise<{ action: "deleted" | "archived"; orderCount: number }> {
+export async function deleteProduct(id: string): Promise<{ action: "deleted"; orderCount: number }> {
   await requireAdmin();
   const tenant = await requireCurrentTenant();
 
@@ -1925,22 +1925,13 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
   });
   if (!product) throw new Error("Produit introuvable.");
 
+  // orderCount reste calculé (retourné pour info) mais ne bloque plus la
+  // suppression : chaque OrderItem porte un snapshot complet (nom, ref,
+  // couleur, prix, image copiée dans le dossier commande), et les pages
+  // « produit supprimé » côté client + admin gèrent le cas d'un clic sur la
+  // ref d'un produit disparu.
   const orderCount = await prisma.orderItem.count({ where: { productRef: product.reference } });
 
-  // Product has been ordered → archive only (retention obligation + history integrity)
-  if (orderCount > 0) {
-    await prisma.product.update({
-      where: { id },
-      data: { status: "ARCHIVED" },
-    });
-    revalidatePath("/admin/produits");
-    revalidatePath("/produits");
-    revalidateTag("products", "default");
-    emitProductEvent({ type: "PRODUCT_OFFLINE", productId: id });
-    return { action: "archived", orderCount };
-  }
-
-  // Never ordered → full permanent deletion
   const variantIds = await prisma.productColor.findMany({
     where: { productId: id },
     select: { id: true },
@@ -1982,8 +1973,9 @@ export async function deleteProduct(id: string): Promise<{ action: "deleted" | "
 
   await prisma.product.delete({ where: { id } });
   revalidatePath("/admin/produits");
+  revalidatePath("/produits");
   revalidateTag("products", "default");
-  return { action: "deleted", orderCount: 0 };
+  return { action: "deleted", orderCount };
 }
 
 // ─────────────────────────────────────────────
@@ -2649,17 +2641,18 @@ export async function bulkUpdateProductAttributes(
 // ─────────────────────────────────────────────
 
 export async function previewProductDeletion(productIds: string[]): Promise<{
-  willDelete: { id: string; reference: string }[];
-  willArchive: { id: string; reference: string; orderCount: number }[];
+  willDelete: { id: string; reference: string; orderCount: number }[];
+  /** Sous-ensemble de willDelete pour lequel orderCount > 0 — affichage UI. */
+  soldReferences: { id: string; reference: string; orderCount: number }[];
 }> {
   await requireAdmin();
-  if (productIds.length === 0) return { willDelete: [], willArchive: [] };
+  if (productIds.length === 0) return { willDelete: [], soldReferences: [] };
 
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
     select: { id: true, reference: true },
   });
-  if (products.length === 0) return { willDelete: [], willArchive: [] };
+  if (products.length === 0) return { willDelete: [], soldReferences: [] };
 
   const refs = products.map((p) => p.reference);
   const orderCounts = await prisma.orderItem.groupBy({
@@ -2669,14 +2662,14 @@ export async function previewProductDeletion(productIds: string[]): Promise<{
   });
 
   const countByRef = new Map(orderCounts.map((oc) => [oc.productRef, oc._count.id]));
-  const willArchive = products
-    .filter((p) => (countByRef.get(p.reference) ?? 0) > 0)
-    .map((p) => ({ id: p.id, reference: p.reference, orderCount: countByRef.get(p.reference) ?? 0 }));
-  const willDelete = products
-    .filter((p) => (countByRef.get(p.reference) ?? 0) === 0)
-    .map((p) => ({ id: p.id, reference: p.reference }));
+  const willDelete = products.map((p) => ({
+    id: p.id,
+    reference: p.reference,
+    orderCount: countByRef.get(p.reference) ?? 0,
+  }));
+  const soldReferences = willDelete.filter((p) => p.orderCount > 0);
 
-  return { willDelete, willArchive };
+  return { willDelete, soldReferences };
 }
 
 export async function bulkDeleteProducts(
@@ -2688,7 +2681,8 @@ export async function bulkDeleteProducts(
   } | null,
 ): Promise<{
   deleted: number;
-  archived: { id: string; reference: string; orderCount: number }[];
+  /** Refs déjà vendues qui viennent d'être supprimées quand même — pour info UI. */
+  sold: { id: string; reference: string; orderCount: number }[];
 }> {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") {
@@ -2717,36 +2711,23 @@ export async function bulkDeleteProducts(
   const refToId = new Map(products.map((p) => [p.reference, p.id]));
   const refs = products.map((p) => p.reference);
 
+  // Décompte des commandes historiques par ref — informatif seulement, ne
+  // bloque plus la suppression depuis 2026-09-18 (chaque OrderItem porte un
+  // snapshot complet + image copiée dans le dossier commande).
   const orderCounts = await prisma.orderItem.groupBy({
     by: ["productRef"],
     where: { productRef: { in: refs } },
     _count: { id: true },
   });
-
-  // Products with existing orders → archive (retention + history)
-  const orderedRefs = new Set(orderCounts.map((oc) => oc.productRef));
-  const archivedProducts = orderCounts.map((oc) => ({
+  const sold = orderCounts.map((oc) => ({
     id: refToId.get(oc.productRef) ?? "",
     reference: oc.productRef,
     orderCount: oc._count.id,
   }));
-  const archivedIds = archivedProducts.map((p) => p.id).filter(Boolean);
 
-  if (archivedIds.length > 0) {
-    await prisma.product.updateMany({
-      where: { id: { in: archivedIds } },
-      data: { status: "ARCHIVED" },
-    });
-    for (const pid of archivedIds) {
-      emitProductEvent({ type: "PRODUCT_OFFLINE", productId: pid });
-    }
-  }
-
-  // Products never ordered → full permanent deletion
-  const deletableIds = productIds.filter((pid) => {
-    const prod = products.find((p) => p.id === pid);
-    return prod && !orderedRefs.has(prod.reference);
-  });
+  // Tous les IDs demandés sont maintenant supprimables — plus de fallback
+  // vers archivage automatique.
+  const deletableIds = productIds;
 
   let deleted = 0;
   if (deletableIds.length > 0) {
@@ -2802,7 +2783,7 @@ export async function bulkDeleteProducts(
   revalidatePath("/admin/produits");
   revalidatePath("/produits");
   revalidateTag("products", "default");
-  return { deleted, archived: archivedProducts };
+  return { deleted, sold };
 }
 
 // ─────────────────────────────────────────────

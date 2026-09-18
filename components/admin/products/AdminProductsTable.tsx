@@ -5267,8 +5267,9 @@ export default function AdminProductsTable({
     if (!confirmed) return;
 
     // OTP unique pour tous les archivages en une seule fois.
+    // Bypass local (dev) : pas de code par mail à saisir. Prod exige toujours l'OTP.
     let otpForServer: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null = null;
-    if (groups.ARCHIVED.length > 0) {
+    if (groups.ARCHIVED.length > 0 && process.env.NODE_ENV === "production") {
       const otpLabels = groups.ARCHIVED
         .map((id) => {
           const p = allProducts.find((x) => x.id === id);
@@ -5611,8 +5612,9 @@ export default function AdminProductsTable({
     if (!confirmed) return;
 
     // ─── Vérification par code OTP uniquement pour l'archivage ───
+    // Bypass local (dev) : pas de code par mail à saisir. Prod exige toujours l'OTP.
     let otpForServer: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null = null;
-    if (status === "ARCHIVED") {
+    if (status === "ARCHIVED" && process.env.NODE_ENV === "production") {
       const otpLabels = ids
         .map((id) => {
           const p = allProducts.find((x) => x.id === id);
@@ -5897,8 +5899,8 @@ export default function AdminProductsTable({
     if (count === 0) return;
     const fromBulk = idsOverride === undefined;
 
-    // Ask the server which products will be deleted vs archived so we can show
-    // the admin exactly what the action will do before they confirm.
+    // Ask the server how many products have already been sold — informative
+    // only, on ne bloque plus la suppression même sur les vendus (2026-09-18).
     let preview: Awaited<ReturnType<typeof previewProductDeletion>>;
     try {
       preview = await previewProductDeletion(ids);
@@ -5908,37 +5910,25 @@ export default function AdminProductsTable({
     }
 
     const deleteCount = preview.willDelete.length;
-    const archiveCount = preview.willArchive.length;
+    const soldCount = preview.soldReferences.length;
 
-    let title: string;
+    const title = `Supprimer définitivement ${deleteCount} produit${deleteCount > 1 ? "s" : ""} ?`;
     let message: string;
-    let confirmLabel: string;
-
-    if (archiveCount === 0) {
-      // Pure permanent delete path — never-sold products only.
-      title = `Supprimer définitivement ${deleteCount} produit${deleteCount > 1 ? "s" : ""} ?`;
+    if (soldCount === 0) {
       message = deleteCount === 1
-        ? "Ce produit n'a jamais été vendu. Il sera supprimé définitivement (action irréversible)."
-        : "Ces produits n'ont jamais été vendus. Ils seront supprimés définitivement (action irréversible).";
-      confirmLabel = "Supprimer définitivement";
-    } else if (deleteCount === 0) {
-      // Pure archive path — every selected product already has orders.
-      const refs = preview.willArchive.map((p) => p.reference).join(", ");
-      title = `Archiver ${archiveCount} produit${archiveCount > 1 ? "s" : ""} ?`;
-      message = archiveCount === 1
-        ? `Ce produit (${refs}) a déjà été vendu. Il ne peut pas être supprimé définitivement : il sera archivé pour conserver l'historique des commandes et les factures.`
-        : `Ces produits ont déjà été vendus (${refs}). Ils ne peuvent pas être supprimés définitivement : ils seront archivés pour conserver l'historique des commandes et les factures.`;
-      confirmLabel = "Archiver";
+        ? "Ce produit sera supprimé définitivement (action irréversible)."
+        : "Ces produits seront supprimés définitivement (action irréversible).";
     } else {
-      // Mixed path — some will be deleted, some archived.
-      const deleteRefs = preview.willDelete.map((p) => p.reference).join(", ");
-      const archiveRefs = preview.willArchive.map((p) => p.reference).join(", ");
-      title = `Traiter ${count} produit${count > 1 ? "s" : ""} ?`;
+      const soldRefs = preview.soldReferences.map((p) => p.reference).join(", ");
+      const soldLabel =
+        soldCount === 1
+          ? `1 produit a déjà été vendu (${soldRefs})`
+          : `${soldCount} produits ont déjà été vendus (${soldRefs})`;
       message =
-        `${deleteCount} produit${deleteCount > 1 ? "s" : ""} jamais vendu${deleteCount > 1 ? "s" : ""} sera supprimé${deleteCount > 1 ? "s" : ""} définitivement : ${deleteRefs}.\n\n` +
-        `${archiveCount} produit${archiveCount > 1 ? "s" : ""} déjà vendu${archiveCount > 1 ? "s" : ""} sera archivé${archiveCount > 1 ? "s" : ""} (historique conservé) : ${archiveRefs}.`;
-      confirmLabel = "Supprimer et archiver";
+        `${soldLabel}. Les commandes concernées garderont leur historique complet (nom, référence, couleur, prix, image), ` +
+        `mais la fiche produit disparaîtra définitivement. Action irréversible.`;
     }
+    const confirmLabel = "Supprimer définitivement";
 
     // Capture les ID marketplace AVANT suppression locale (sinon perdus en BDD)
     const pfsCandidates = hasPfsConfig
@@ -6062,11 +6052,11 @@ export default function AdminProductsTable({
         return p ? { reference: p.reference, name: p.name } : null;
       })
       .filter((x): x is { reference: string; name: string } => x !== null);
-    const otpAction = archiveCount === 0 ? "delete" : archiveCount > 0 && deleteCount === 0 ? "archive" : "delete";
-    // Bypass local (dev) pour "delete" — évite l'envoi du code par mail pendant
-    // les tests de suppression. Prod (NODE_ENV=production) passe toujours par la modale.
-    const skipOtpLocally =
-      process.env.NODE_ENV !== "production" && otpAction === "delete";
+    const otpAction = "delete" as const;
+    // Bypass local (dev) pour toutes les actions destructives — évite l'envoi
+    // du code par mail pendant les tests. Prod (NODE_ENV=production) passe
+    // toujours par la modale.
+    const skipOtpLocally = process.env.NODE_ENV !== "production";
     const otpRes: { confirmed: boolean; otp?: { otpId: string; code: string; pauseChoice?: "15min" | "1h" | "24h" | null } | null } = skipOtpLocally
       ? { confirmed: true, otp: null }
       : await otpConfirm({
@@ -6087,13 +6077,7 @@ export default function AdminProductsTable({
 
     setBulkMessage(null);
     setDeletingIds(new Set(ids));
-    setBulkActionLabel(
-      archiveCount === 0
-        ? `Suppression de ${deleteCount} produit${deleteCount > 1 ? "s" : ""}…`
-        : deleteCount === 0
-          ? `Archivage de ${archiveCount} produit${archiveCount > 1 ? "s" : ""}…`
-          : `Suppression de ${count} produit${count > 1 ? "s" : ""}…`,
-    );
+    setBulkActionLabel(`Suppression de ${deleteCount} produit${deleteCount > 1 ? "s" : ""}…`);
     startTransition(async () => {
       try {
         // 1. Kickoff Ankorstore delete BEFORE local delete (the AnkorstoreOperation
@@ -6123,9 +6107,8 @@ export default function AdminProductsTable({
 
         const msgs: string[] = [];
         if (result.deleted > 0) msgs.push(`${result.deleted} produit${result.deleted > 1 ? "s" : ""} supprimé${result.deleted > 1 ? "s" : ""} définitivement`);
-        if (result.archived.length > 0) {
-          const refs = result.archived.map((p) => p.reference).join(", ");
-          msgs.push(`${result.archived.length} archivé${result.archived.length > 1 ? "s" : ""} (commandes existantes) : ${refs}`);
+        if (result.sold.length > 0) {
+          msgs.push(`${result.sold.length} avait${result.sold.length > 1 ? "ent" : ""} des commandes historiques (préservées)`);
         }
         setBulkMessage({
           type: "success",

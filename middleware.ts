@@ -277,6 +277,7 @@ export async function middleware(request: NextRequest) {
     pathname === "/manifest.webmanifest" ||
     pathname === "/icon" ||
     pathname === "/apple-icon" ||
+    pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_next");
 
   // ── 2. Si la route DOIT être localisée, on passe TOUJOURS par next-intl

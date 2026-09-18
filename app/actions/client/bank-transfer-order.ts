@@ -17,8 +17,9 @@ import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
+import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
 import { getCachedBankTransferConfig } from "@/lib/bank-transfer-config";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
 import {
@@ -603,6 +604,39 @@ export async function placeBankTransferOrder(
 
       return created;
     });
+
+    // Copie des miniatures dans un dossier propre à la commande (cf.
+    // placeOrder pour la justification — commande autonome des fiches produit).
+    try {
+      const tenantSlug = await getCurrentTenantSlug();
+      if (tenantSlug) {
+        const createdItems = await prisma.orderItem.findMany({
+          where: { orderId: order.id },
+          select: { id: true, imagePath: true },
+        });
+        await Promise.all(
+          createdItems.map(async (it) => {
+            const newPath = await copyOrderItemImageToOrderDir({
+              sourceDbPath: it.imagePath,
+              orderNumber,
+              orderItemId: it.id,
+              tenantSlug,
+            });
+            if (newPath) {
+              await prisma.orderItem.update({
+                where: { id: it.id },
+                data:  { imagePath: newPath },
+              });
+            }
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error("[placeBankTransferOrder] copie miniatures commande échouée", {
+        orderId: order.id,
+        error: err as Error,
+      });
+    }
 
     try {
       const tenantId = await getCurrentTenantId();

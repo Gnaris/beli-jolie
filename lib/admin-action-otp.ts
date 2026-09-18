@@ -278,13 +278,12 @@ export async function guardAdminActionOtp(params: {
   tenantId: string;
   otp?: { otpId: string; code: string } | null;
 }): Promise<void> {
-  // Bypass local (dev/test) pour l'action "delete" — facilite les tests de
-  // suppression sans devoir attendre un code par mail. Prod (NODE_ENV=production)
-  // reste protégée.
-  if (
-    process.env.NODE_ENV !== "production" &&
-    params.action === "delete"
-  ) {
+  // Bypass local (dev) pour toutes les actions destructives — facilite le
+  // travail au quotidien (suppression / archivage / rafraîchissement) sans
+  // devoir attendre un code par mail. Prod (NODE_ENV=production) reste
+  // protégée. On garde le check actif en tests (NODE_ENV=test) pour que la
+  // suite Vitest continue de couvrir la logique OTP réelle.
+  if (process.env.NODE_ENV === "development") {
     return;
   }
 

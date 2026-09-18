@@ -98,6 +98,12 @@ interface Props {
   modifications: OrderModification[];
   totals: OrderTotals;
   colorMap: Record<string, ColorInfo>;
+  /**
+   * Mapping ref → URL cliquable de la fiche produit. Fourni par la page
+   * (client → /{locale}/produits/{handle}, admin → /admin/produits/ref/{ref}).
+   * Si absent, la ref reste affichée en texte simple.
+   */
+  productLinks?: Record<string, string>;
 }
 
 /* ================================================================== */
@@ -106,6 +112,35 @@ interface Props {
 
 const fmt = (n: number) => n.toFixed(2).replace(".", ",") + " €";
 
+
+/**
+ * Rend la référence produit — cliquable (lien vers la fiche produit ou vers
+ * la page « supprimé » selon le contexte) quand `productLinks[ref]` est
+ * fourni par la page parent, sinon en texte simple.
+ */
+function ProductRefLabel({
+  refValue,
+  productLinks,
+  className,
+}: {
+  refValue: string;
+  productLinks: Record<string, string> | undefined;
+  className: string;
+}) {
+  const href = productLinks?.[refValue];
+  if (href) {
+    return (
+      <a
+        href={href}
+        className={`${className} hover:text-sky-600 hover:underline underline-offset-2 transition-colors`}
+        title="Voir la fiche produit"
+      >
+        {refValue}
+      </a>
+    );
+  }
+  return <span className={className}>{refValue}</span>;
+}
 
 function parseSizes(sizesJson: string | null): Array<{ name: string; quantity: number }> | null {
   if (!sizesJson) return null;
@@ -157,6 +192,7 @@ export default function OrderContent({
   modifications,
   totals,
   colorMap,
+  productLinks,
 }: Props) {
   const toast = useToast();
   const { confirm } = useConfirm();
@@ -553,6 +589,7 @@ export default function OrderContent({
                   tvaRate={totals.tvaRate}
                   colorMap={colorMap}
                   onZoomImage={setZoomImage}
+                  productLinks={productLinks}
                 />
               ))}
             </tbody>
@@ -567,7 +604,9 @@ export default function OrderContent({
             <div key={g.ref + "-m-" + gi} className="border-b border-slate-100 last:border-b-0">
               <div className="px-4 py-2 bg-gradient-to-r from-sky-50/70 to-transparent border-l-4 border-sky-400">
                 <p className="text-sm font-semibold text-slate-900">{g.name}</p>
-                <p className="text-[11px] text-slate-500 font-mono">{g.ref}</p>
+                <p className="text-[11px] text-slate-500 font-mono">
+                  <ProductRefLabel refValue={g.ref} productLinks={productLinks} className="text-slate-500" />
+                </p>
               </div>
               {g.colorGroups.map((cg, ci) =>
                 cg.items.map((item) => (
@@ -860,6 +899,7 @@ function ProductGroupRows({
   tvaRate,
   colorMap,
   onZoomImage,
+  productLinks,
 }: {
   orderId: string;
   group: {
@@ -878,6 +918,7 @@ function ProductGroupRows({
   tvaRate: number;
   colorMap: Record<string, ColorInfo>;
   onZoomImage: (img: { src: string; alt: string }) => void;
+  productLinks: Record<string, string> | undefined;
 }) {
   const colspan = !readOnly && mode === "edit" ? 12 : 11;
   const totalVariants = group.colorGroups.reduce((s, cg) => s + cg.items.length, 0);
@@ -891,7 +932,7 @@ function ProductGroupRows({
         >
           <div className="flex items-center gap-3 pl-2 border-l-4 border-sky-400 -ml-2">
             <span className="font-heading text-sm font-semibold text-slate-900">{group.name}</span>
-            <span className="text-[11px] text-slate-500 font-mono">{group.ref}</span>
+            <ProductRefLabel refValue={group.ref} productLinks={productLinks} className="text-[11px] text-slate-500 font-mono" />
             <span className="text-[11px] text-slate-400">
               · {totalVariants} variante{totalVariants > 1 ? "s" : ""}
             </span>
@@ -918,6 +959,7 @@ function ProductGroupRows({
             zebra={ci % 2 === 1}
             productRef={group.ref}
             onZoomImage={onZoomImage}
+            productLinks={productLinks}
           />
         )),
       )}
@@ -944,6 +986,7 @@ function VariantRow({
   zebra,
   productRef,
   onZoomImage,
+  productLinks,
 }: {
   orderId: string;
   item: OrderItemView;
@@ -959,6 +1002,7 @@ function VariantRow({
   zebra: boolean;
   productRef: string;
   onZoomImage: (img: { src: string; alt: string }) => void;
+  productLinks: Record<string, string> | undefined;
 }) {
   const qty = mode === "edit" ? edit?.qty ?? item.quantity : item.quantity;
   const price = mode === "edit" ? edit?.price ?? item.unitPrice : item.unitPrice;
@@ -1017,7 +1061,7 @@ function VariantRow({
 
       {/* Référence produit */}
       <td className="px-2 py-3">
-        <span className="text-xs font-mono text-slate-600">{productRef}</span>
+        <ProductRefLabel refValue={productRef} productLinks={productLinks} className="text-xs font-mono text-slate-600" />
       </td>
 
       {/* Couleur : pastille + nom + badge Ajouté (compensation) */}

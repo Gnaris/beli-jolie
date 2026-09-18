@@ -36,7 +36,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("next-auth", () => ({
-  getServerSession: vi.fn().mockResolvedValue({ user: { role: "ADMIN" } }),
+  getServerSession: vi.fn().mockResolvedValue({ user: { id: "admin-1", role: "ADMIN" } }),
 }));
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next/cache", () => ({
@@ -52,8 +52,28 @@ const { emitProductEventSpy } = vi.hoisted(() => ({ emitProductEventSpy: vi.fn()
 vi.mock("@/lib/product-events", () => ({ emitProductEvent: emitProductEventSpy }));
 vi.mock("@/lib/auto-translate", () => ({ autoTranslateProduct: vi.fn(), autoTranslateTag: vi.fn() }));
 vi.mock("@/lib/sku", () => ({ generateSku: vi.fn() }));
-vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn(), keyFromDbPath: vi.fn((s: string) => s) }));
+vi.mock("@/lib/storage", () => ({
+  deleteFiles: vi.fn(),
+  keyFromDbPath: vi.fn((s: string) => s),
+  productImageDir: vi.fn(() => "uploads/tid/produits/ref"),
+  deleteDirectory: vi.fn(),
+}));
 vi.mock("@/lib/image-utils", () => ({ getImagePaths: vi.fn(() => ({ large: "l", medium: "m", thumb: "t" })) }));
+
+// Tenant courant : évite la levée dans requireCurrentTenant sans HTTP context.
+vi.mock("@/lib/tenant", () => ({
+  requireCurrentTenant: vi.fn().mockResolvedValue({ id: "tid", slug: "boutique", name: "Boutique" }),
+  getCurrentTenantId: vi.fn().mockResolvedValue("tid"),
+  getCurrentTenantSlug: vi.fn().mockResolvedValue("boutique"),
+}));
+
+// bulkDeleteProducts appelle guardAdminActionOtp. En test on veut bypass total
+// pour se concentrer sur la logique de suppression.
+vi.mock("@/lib/admin-action-otp", () => ({
+  guardAdminActionOtp: vi.fn().mockResolvedValue(undefined),
+  applyPauseChoice: vi.fn().mockResolvedValue(undefined),
+  isOtpPauseActive: vi.fn().mockResolvedValue(false),
+}));
 
 // Spy-mock the marketplace API modules so we can detect any accidental call.
 const {
@@ -130,12 +150,12 @@ describe("product deletion does not touch marketplaces", () => {
     expect(pfsDeleteProductSpy).not.toHaveBeenCalled();
     expect(ankorstoreDeleteProductSpy).not.toHaveBeenCalled();
     expect(result.deleted).toBe(2);
-    expect(result.archived).toEqual([]);
+    expect(result.sold).toEqual([]);
   });
 });
 
-describe("deleteProduct — archive vs permanent delete", () => {
-  it("permanently deletes a product that has never been ordered", async () => {
+describe("deleteProduct — suppression toujours définitive (2026-09-18)", () => {
+  it("supprime un produit jamais vendu", async () => {
     mockProductFindUnique.mockResolvedValue({ reference: "REF-NEW" });
     mockOrderItemCount.mockResolvedValue(0);
     mockProductColorFindMany.mockResolvedValue([]);
@@ -149,24 +169,19 @@ describe("deleteProduct — archive vs permanent delete", () => {
     expect(mockProductUpdate).not.toHaveBeenCalled();
   });
 
-  it("archives (status=ARCHIVED) a product that has already been ordered", async () => {
+  it("supprime AUSSI un produit déjà vendu (fallback archivage retiré)", async () => {
     mockProductFindUnique.mockResolvedValue({ reference: "REF-SOLD" });
     mockOrderItemCount.mockResolvedValue(3);
-    mockProductUpdate.mockResolvedValue({});
+    mockProductColorFindMany.mockResolvedValue([]);
+    mockProductColorImageFindMany.mockResolvedValue([]);
+    mockProductDelete.mockResolvedValue({});
 
     const result = await deleteProduct("p-sold");
 
-    expect(result).toEqual({ action: "archived", orderCount: 3 });
-    expect(mockProductUpdate).toHaveBeenCalledWith({
-      where: { id: "p-sold" },
-      data: { status: "ARCHIVED" },
-    });
-    expect(mockProductDelete).not.toHaveBeenCalled();
-    expect(mockCartItemDeleteMany).not.toHaveBeenCalled();
-    expect(emitProductEventSpy).toHaveBeenCalledWith({
-      type: "PRODUCT_OFFLINE",
-      productId: "p-sold",
-    });
+    expect(result).toEqual({ action: "deleted", orderCount: 3 });
+    expect(mockProductDelete).toHaveBeenCalledWith({ where: { id: "p-sold" } });
+    // Plus jamais d'update vers ARCHIVED — la fiche disparaît complètement.
+    expect(mockProductUpdate).not.toHaveBeenCalled();
   });
 
   it("throws when the product does not exist", async () => {
@@ -178,42 +193,34 @@ describe("deleteProduct — archive vs permanent delete", () => {
   });
 });
 
-describe("bulkDeleteProducts — archive sold, delete never-sold", () => {
-  it("archives only products with existing orders and deletes the rest permanently", async () => {
+describe("bulkDeleteProducts — supprime tout, remonte les refs vendues pour info", () => {
+  it("supprime tous les produits sélectionnés (même ceux déjà vendus) et remonte la liste des refs vendues", async () => {
     mockProductFindMany.mockResolvedValue([
-      { id: "p-1", reference: "REF-1" }, // sold → archived
-      { id: "p-2", reference: "REF-2" }, // never sold → deleted
-      { id: "p-3", reference: "REF-3" }, // never sold → deleted
+      { id: "p-1", reference: "REF-1" }, // sold
+      { id: "p-2", reference: "REF-2" }, // never sold
+      { id: "p-3", reference: "REF-3" }, // never sold
     ]);
     mockOrderItemGroupBy.mockResolvedValue([
       { productRef: "REF-1", _count: { id: 7 } },
     ]);
-    mockProductUpdateMany.mockResolvedValue({ count: 1 });
     mockProductColorFindMany.mockResolvedValue([]);
     mockProductColorImageFindMany.mockResolvedValue([]);
-    mockProductDeleteMany.mockResolvedValue({ count: 2 });
+    mockProductDeleteMany.mockResolvedValue({ count: 3 });
 
     const result = await bulkDeleteProducts(["p-1", "p-2", "p-3"]);
 
-    expect(result.deleted).toBe(2);
-    expect(result.archived).toEqual([
+    expect(result.deleted).toBe(3);
+    expect(result.sold).toEqual([
       { id: "p-1", reference: "REF-1", orderCount: 7 },
     ]);
-
-    expect(mockProductUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["p-1"] } },
-      data: { status: "ARCHIVED" },
-    });
+    // Aucun updateMany (plus de fallback ARCHIVED).
+    expect(mockProductUpdateMany).not.toHaveBeenCalled();
     expect(mockProductDeleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ["p-2", "p-3"] } },
-    });
-    expect(emitProductEventSpy).toHaveBeenCalledWith({
-      type: "PRODUCT_OFFLINE",
-      productId: "p-1",
+      where: { id: { in: ["p-1", "p-2", "p-3"] } },
     });
   });
 
-  it("archives every product when they have all been ordered", async () => {
+  it("supprime aussi quand tous les produits ont été vendus", async () => {
     mockProductFindMany.mockResolvedValue([
       { id: "p-1", reference: "REF-1" },
       { id: "p-2", reference: "REF-2" },
@@ -222,18 +229,18 @@ describe("bulkDeleteProducts — archive sold, delete never-sold", () => {
       { productRef: "REF-1", _count: { id: 2 } },
       { productRef: "REF-2", _count: { id: 5 } },
     ]);
-    mockProductUpdateMany.mockResolvedValue({ count: 2 });
     mockProductColorFindMany.mockResolvedValue([]);
     mockProductColorImageFindMany.mockResolvedValue([]);
+    mockProductDeleteMany.mockResolvedValue({ count: 2 });
 
     const result = await bulkDeleteProducts(["p-1", "p-2"]);
 
-    expect(result.deleted).toBe(0);
-    expect(result.archived).toEqual([
+    expect(result.deleted).toBe(2);
+    expect(result.sold).toEqual([
       { id: "p-1", reference: "REF-1", orderCount: 2 },
       { id: "p-2", reference: "REF-2", orderCount: 5 },
     ]);
-    expect(mockProductDeleteMany).not.toHaveBeenCalled();
+    expect(mockProductUpdateMany).not.toHaveBeenCalled();
   });
 
   it("deletes every product when none have been ordered", async () => {
@@ -249,7 +256,7 @@ describe("bulkDeleteProducts — archive sold, delete never-sold", () => {
     const result = await bulkDeleteProducts(["p-1", "p-2"]);
 
     expect(result.deleted).toBe(2);
-    expect(result.archived).toEqual([]);
+    expect(result.sold).toEqual([]);
     expect(mockProductUpdateMany).not.toHaveBeenCalled();
   });
 
@@ -258,8 +265,8 @@ describe("bulkDeleteProducts — archive sold, delete never-sold", () => {
   });
 });
 
-describe("previewProductDeletion — classify ids into delete vs archive", () => {
-  it("splits products into willDelete (never sold) and willArchive (sold)", async () => {
+describe("previewProductDeletion — remonte willDelete + soldReferences", () => {
+  it("classe TOUS les ids dans willDelete et met à part les refs vendues", async () => {
     mockProductFindMany.mockResolvedValue([
       { id: "p-1", reference: "REF-1" }, // sold
       { id: "p-2", reference: "REF-2" }, // never sold
@@ -272,8 +279,12 @@ describe("previewProductDeletion — classify ids into delete vs archive", () =>
 
     const result = await previewProductDeletion(["p-1", "p-2", "p-3"]);
 
-    expect(result.willDelete).toEqual([{ id: "p-2", reference: "REF-2" }]);
-    expect(result.willArchive).toEqual([
+    expect(result.willDelete).toEqual([
+      { id: "p-1", reference: "REF-1", orderCount: 4 },
+      { id: "p-2", reference: "REF-2", orderCount: 0 },
+      { id: "p-3", reference: "REF-3", orderCount: 1 },
+    ]);
+    expect(result.soldReferences).toEqual([
       { id: "p-1", reference: "REF-1", orderCount: 4 },
       { id: "p-3", reference: "REF-3", orderCount: 1 },
     ]);
@@ -281,11 +292,11 @@ describe("previewProductDeletion — classify ids into delete vs archive", () =>
 
   it("returns empty result when ids list is empty (no DB call)", async () => {
     const result = await previewProductDeletion([]);
-    expect(result).toEqual({ willDelete: [], willArchive: [] });
+    expect(result).toEqual({ willDelete: [], soldReferences: [] });
     expect(mockProductFindMany).not.toHaveBeenCalled();
   });
 
-  it("returns everything in willDelete when no product has orders", async () => {
+  it("soldReferences vide quand aucun produit vendu", async () => {
     mockProductFindMany.mockResolvedValue([
       { id: "p-1", reference: "REF-1" },
       { id: "p-2", reference: "REF-2" },
@@ -294,10 +305,10 @@ describe("previewProductDeletion — classify ids into delete vs archive", () =>
 
     const result = await previewProductDeletion(["p-1", "p-2"]);
 
-    expect(result.willArchive).toEqual([]);
+    expect(result.soldReferences).toEqual([]);
     expect(result.willDelete).toEqual([
-      { id: "p-1", reference: "REF-1" },
-      { id: "p-2", reference: "REF-2" },
+      { id: "p-1", reference: "REF-1", orderCount: 0 },
+      { id: "p-2", reference: "REF-2", orderCount: 0 },
     ]);
   });
 });

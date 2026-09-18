@@ -749,9 +749,9 @@ export default function CartWizardClient({
           />
         </div>
 
-        <div className="grid gap-6 md:gap-8 lg:grid-cols-[1fr_380px] items-start">
+        <div className="grid gap-6 md:gap-8 lg:grid-cols-[minmax(0,1fr)_380px] items-start">
           {/* Colonne gauche — contenu de l'étape */}
-          <div>
+          <div className="min-w-0">
             {currentStep === 1 && (
               <Step1CartContent
                 cart={cart}

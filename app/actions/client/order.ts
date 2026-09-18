@@ -20,8 +20,9 @@ import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
+import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -843,6 +844,44 @@ export async function placeOrder(
 
       return created;
     });
+
+    // Copie des miniatures dans un dossier propre à la commande. La commande
+    // devient ainsi autonome des fiches produit : si une variante est
+    // supprimée plus tard, la vignette dans « Mes commandes » et sur le PDF
+    // de facture reste affichable. Best-effort : un échec de copie n'annule
+    // pas la commande (la ligne conserve son ancien chemin, seule la vignette
+    // pourrait afficher un placeholder). À faire AVANT les mails de
+    // confirmation pour que le PDF pointe déjà vers le nouveau chemin.
+    try {
+      const tenantSlug = await getCurrentTenantSlug();
+      if (tenantSlug) {
+        const createdItems = await prisma.orderItem.findMany({
+          where: { orderId: order.id },
+          select: { id: true, imagePath: true },
+        });
+        await Promise.all(
+          createdItems.map(async (it) => {
+            const newPath = await copyOrderItemImageToOrderDir({
+              sourceDbPath: it.imagePath,
+              orderNumber,
+              orderItemId: it.id,
+              tenantSlug,
+            });
+            if (newPath) {
+              await prisma.orderItem.update({
+                where: { id: it.id },
+                data:  { imagePath: newPath },
+              });
+            }
+          }),
+        );
+      }
+    } catch (err) {
+      logger.error("[placeOrder] copie miniatures commande échouée", {
+        orderId: order.id,
+        error: err as Error,
+      });
+    }
 
     // Annule le job de relance panier abandonné (s'il existait) : commande
     // passée = plus aucun rappel à envoyer. Fire-and-forget, hors transaction.

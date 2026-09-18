@@ -113,7 +113,7 @@ export default function SummaryPanel({
     (selectedCarrier != null && effectiveCarrierPrice === 0);
 
   return (
-    <aside className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 lg:sticky lg:top-24">
+    <aside className="min-w-0 bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6 lg:sticky lg:top-24">
       <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
         {t("summaryEyebrow")}
       </div>

@@ -190,7 +190,7 @@ Depuis le 2026-09-01, tout l'arrondi monétaire (checkout, snapshot commande, re
 NextAuth v4, Credentials + JWT (30d). New users `PENDING`. Token : `id`, `role`, `status`, `company`.
 
 ### i18n
-next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. Auto-translation API PFS (gratuit). Toggle `auto_translate_enabled`. Hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`. Liens admin → public : hardcoder `/fr/…`. Sitemap : 7× chaque URL + `alternates.languages`. Sélecteur : `router.replace(pathname, { locale })`. Mapping PFS pays/compo : libellé FR. Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
+next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. Auto-translation API PFS (gratuit). Toggle `auto_translate_enabled`. Hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/.well-known/*` (indispensable pour que Stripe vérifie le fichier Apple Pay `apple-developer-merchantid-domain-association` en `text/plain` — sinon i18n redirige et l'enregistrement du domaine échoue). Liens admin → public : hardcoder `/fr/…`. Sitemap : 7× chaque URL + `alternates.languages`. Sélecteur : `router.replace(pathname, { locale })`. Mapping PFS pays/compo : libellé FR. Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
 
 ### Styling
 **Tailwind v4** — theme dans `app/globals.css @theme {}`, pas de config JS. **Pas de dark mode public** (boutique toujours claire). **Mode sombre admin uniquement**. Flat design + ombres subtiles. Détails complets dans `docs/styling.md`.
@@ -280,7 +280,7 @@ Prod sert 2 boutiques depuis 1 Next.js/PM2/DB : **beliandjolie.com** (tenant `be
 - Touch min 44px, `prefers-reduced-motion` respecté.
 
 ### Produits / Variantes
-- **Jamais supprimer** un `ARCHIVED`.
+- Suppression = définitive (2026-09-18) : `deleteProduct` / `bulkDeleteProducts` suppriment complètement même si le produit a des commandes historiques. Les OrderItems gardent leur snapshot (nom, ref, couleur, prix) + une miniature copiée dans `/uploads/{tenant}/commandes/{orderNumber}/`. Le clic sur une ref d'un produit disparu mène à la page « produit supprimé » (route publique `/produits/{handle}` OU `/admin/produits/ref/{ref}`).
 - `Color.patternImage` > `Color.hex`.
 - 1 variante = 1 couleur. `groupKey` = `colorId` (helper `variantGroupKeyFromState()`).
 - **PACK mono-couleur** : `colorId` + `VariantSize`. `unitPrice` = `computeTotalPrice(v)` (total BDD).

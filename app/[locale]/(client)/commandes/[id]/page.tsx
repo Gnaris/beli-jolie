@@ -15,6 +15,7 @@ import PayOrderByCardButton from "@/components/client/orders/PayOrderByCardButto
 import { getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
+import { buildProductHandle } from "@/lib/product-url";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -62,6 +63,19 @@ export default async function CommandeDetailPage({
   const colorMap: Record<string, { hex: string | null; patternImage: string | null }> = {};
   for (const c of colorRows) {
     if (!colorMap[c.name]) colorMap[c.name] = { hex: c.hex, patternImage: c.patternImage };
+  }
+
+  // Mapping ref → URL fiche produit publique. On construit un handle à partir
+  // du nom snapshot (buildProductHandle est tolérant : la page produit
+  // recherche par référence, pas par nom). Si le produit a été supprimé, la
+  // page produit détecte la ref dans l'historique et affiche un layout dédié.
+  const productLinks: Record<string, string> = {};
+  const seenRefs = new Set<string>();
+  for (const it of order.items) {
+    if (!it.productRef || seenRefs.has(it.productRef)) continue;
+    seenRefs.add(it.productRef);
+    const handle = buildProductHandle(it.productName, it.productRef);
+    if (handle) productLinks[it.productRef] = `/${locale}/produits/${handle}`;
   }
 
   const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
@@ -402,6 +416,7 @@ export default async function CommandeDetailPage({
           paidTotalTTC,
           paymentStatus: order.paymentStatus,
         }}
+        productLinks={productLinks}
       />
     </div>
   );

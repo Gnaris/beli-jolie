@@ -519,6 +519,25 @@ describe("admin-action-otp", () => {
       ).rejects.toBeInstanceOf(AdminActionOtpError);
     });
 
+    it("bypass silencieux en dev (NODE_ENV=development) pour delete/refresh/archive", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      try {
+        for (const action of ["delete", "refresh", "archive"] as const) {
+          await expect(
+            guardAdminActionOtp({
+              action,
+              productIds: ["p1"],
+              adminId: ADMIN_ID,
+              tenantId: TENANT_ID,
+              otp: null,
+            }),
+          ).resolves.toBeUndefined();
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("passe si OTP valide", async () => {
       const { hashOtpCode } = await import("@/lib/admin-action-otp");
       const otp: OtpRow = {
