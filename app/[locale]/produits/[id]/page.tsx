@@ -8,7 +8,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getProductTranslation } from "@/lib/translate";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
 import { buildAlternates, buildMerchantOfferExtras, getSiteUrl } from "@/lib/seo";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
@@ -173,12 +173,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   const { id: handle, locale: routeLocale } = await params;
 
   // Fetch product, session, config, and locale in parallel
-  const [product, session, stockVariantsConfig, locale, shopName] = await Promise.all([
+  const [product, session, stockVariantsConfig, locale, shopName, tenantSlug] = await Promise.all([
     getProduct(handle, routeLocale),
     getServerSession(authOptions),
     getCachedSiteConfig("show_out_of_stock_variants"),
     getLocale(),
     getCachedShopName(),
+    getCurrentTenantSlug(),
   ]);
 
   if (!product) notFound();
@@ -220,7 +221,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     const tProducts = await getTranslations("products");
     return (
       <div className="min-h-screen relative">
-        <PublicSidebar shopName={shopName} />
+        <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
         <div className="min-w-0 relative z-10">
           <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
             <div className="container-site py-10">
@@ -409,7 +410,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     <div className="min-h-screen relative">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
       <div className="min-w-0 relative z-10">
         <main className="min-h-screen bg-bg-secondary relative overflow-hidden">
           <div className="container-site py-10 relative">

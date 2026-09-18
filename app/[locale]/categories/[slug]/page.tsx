@@ -5,7 +5,7 @@ import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { buildAlternates, getSiteUrl } from "@/lib/seo";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
@@ -126,12 +126,13 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
   const { slug, locale } = await params;
   const { page: pageParam } = await searchParams;
 
-  const [t, tCommon, shopName, siteUrl, category] = await Promise.all([
+  const [t, tCommon, shopName, siteUrl, category, tenantSlug] = await Promise.all([
     getTranslations({ locale, namespace: "categoryDetail" }),
     getTranslations({ locale, namespace: "nav" }),
     getCachedShopName(),
     getSiteUrl(),
     loadCategoryBySlug(slug, locale),
+    getCurrentTenantSlug(),
   ]);
 
   if (!category) notFound();
@@ -386,7 +387,7 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
 
   return (
     <div className="min-h-screen">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
 
       <div className="min-w-0">
         {/* Fil d'ariane */}

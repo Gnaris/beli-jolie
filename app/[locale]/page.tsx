@@ -11,6 +11,7 @@ import { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { canSeePrices } from "@/lib/price-visibility";
 import { getCurrentTenantSlug } from "@/lib/tenant";
 import { cookies } from "next/headers";
 import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
@@ -416,6 +417,7 @@ export default async function HomePage() {
     reviews,
     faqItems,
     jsonLdBlocks,
+    canSeePrices: canSeePrices(session),
   };
 
   const tenantSlug = await getCurrentTenantSlug();

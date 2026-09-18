@@ -55,9 +55,13 @@ interface SearchResult {
 
 interface PublicSidebarProps {
   shopName: string;
+  /** Slug du tenant courant, résolu côté serveur (fiable en dev + prod +
+   *  preview cookie). Sert notamment à afficher le CTA « Créer mon compte
+   *  pro » uniquement sur Issyma. Optionnel pour ne pas casser l'existant. */
+  tenantSlug?: string;
 }
 
-export default function PublicSidebar({ shopName }: PublicSidebarProps) {
+export default function PublicSidebar({ shopName, tenantSlug }: PublicSidebarProps) {
   const t      = useTranslations("nav");
   const locale = useLocale();
 
@@ -98,6 +102,20 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
   // Profile dropdown state
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Détection tenant Issyma. Priorité 1 : prop `tenantSlug` (résolu serveur,
+  // fiable en dev + prod + cookie preview). Fallback : hostname si le prop
+  // n'est pas fourni (compat callers non migrés). Sert à afficher le bouton
+  // « Créer mon compte pro » dans le header UNIQUEMENT sur Issyma.
+  const [isIssyma, setIsIssyma] = useState(tenantSlug === "issyma");
+  useEffect(() => {
+    if (tenantSlug) {
+      setIsIssyma(tenantSlug === "issyma");
+      return;
+    }
+    if (typeof window === "undefined") return;
+    setIsIssyma(/(^|\.)issyma\./i.test(window.location.hostname));
+  }, [tenantSlug]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -494,17 +512,27 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                 )}
               </div>
             ) : (
-              <Link
-                href="/connexion"
-                className="hidden lg:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
-                aria-label={t("login")}
-                title={t("login")}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
-                </svg>
-              </Link>
+              <>
+                {isIssyma && (
+                  <Link
+                    href="/inscription"
+                    className="hidden lg:inline-flex items-center px-3 h-9 rounded-full bg-black text-white text-[11px] tracking-[0.18em] uppercase font-semibold hover:bg-neutral-800 transition-colors"
+                  >
+                    {t("register")}
+                  </Link>
+                )}
+                <Link
+                  href="/connexion"
+                  className="hidden lg:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
+                  aria-label={t("login")}
+                  title={t("login")}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+                  </svg>
+                </Link>
+              </>
             )}
 
             {/* Favoris — icône (clientes connectées uniquement) */}
@@ -823,13 +851,28 @@ export default function PublicSidebar({ shopName }: PublicSidebarProps) {
                   </button>
                 </>
               ) : (
-                <Link
-                  href="/connexion"
-                  onClick={() => setMobileOpen(false)}
-                  className="w-full flex items-center justify-center py-3 bg-black text-white text-[11px] tracking-[0.24em] uppercase font-medium"
-                >
-                  {t("login")}
-                </Link>
+                <>
+                  {isIssyma && (
+                    <Link
+                      href="/inscription"
+                      onClick={() => setMobileOpen(false)}
+                      className="w-full flex items-center justify-center py-3 bg-black text-white text-[11px] tracking-[0.24em] uppercase font-medium"
+                    >
+                      {t("register")}
+                    </Link>
+                  )}
+                  <Link
+                    href="/connexion"
+                    onClick={() => setMobileOpen(false)}
+                    className={`w-full flex items-center justify-center py-3 text-[11px] tracking-[0.24em] uppercase font-medium ${
+                      isIssyma
+                        ? "border border-neutral-300 text-text-primary hover:bg-black hover:text-white hover:border-black transition-all duration-300"
+                        : "bg-black text-white"
+                    }`}
+                  >
+                    {t("login")}
+                  </Link>
+                </>
               )}
             </div>
           </div>

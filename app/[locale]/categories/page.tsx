@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -22,9 +23,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function CategoriesPage() {
-  const [t, shopName] = await Promise.all([
+  const [t, shopName, tenantSlug] = await Promise.all([
     getTranslations("categoriesPage"),
     getCachedShopName(),
+    getCurrentTenantSlug(),
   ]);
   const allCategories = await prisma.category.findMany({
     orderBy: [{ position: "asc" }, { name: "asc" }],
@@ -55,7 +57,7 @@ export default async function CategoriesPage() {
 
   return (
     <div className="min-h-screen relative">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
 
       <div className="min-w-0 relative z-10">
         {/* Page header */}

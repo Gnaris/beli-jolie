@@ -4,6 +4,7 @@ import Image from "@/components/ui/SmartImage";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -25,9 +26,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function CollectionsPage() {
-  const [t, shopName] = await Promise.all([
+  const [t, shopName, tenantSlug] = await Promise.all([
     getTranslations("collectionsPage"),
     getCachedShopName(),
+    getCurrentTenantSlug(),
   ]);
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
@@ -42,7 +44,7 @@ export default async function CollectionsPage() {
 
   return (
     <div className="min-h-screen relative">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
 
       <div className="min-w-0 relative z-10">
         {/* Header */}

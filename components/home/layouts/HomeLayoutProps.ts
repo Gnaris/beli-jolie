@@ -49,4 +49,7 @@ export interface HomeLayoutProps {
   reviews: HomeReview[];
   faqItems: HomeFaqItem[];
   jsonLdBlocks: object[];
+  /** Session autorisée à voir les prix (ADMIN ou CLIENT APPROVED). Utilisé
+   *  pour masquer les prix aux visiteurs anonymes sur la home Issyma. */
+  canSeePrices: boolean;
 }

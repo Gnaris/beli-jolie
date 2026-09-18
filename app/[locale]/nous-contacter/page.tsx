@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, getLocale } from "next-intl/server";
 import { getCachedShopName, getCachedCompanyInfo, getCachedBusinessHours } from "@/lib/cached-data";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import { DEFAULT_BUSINESS_HOURS } from "@/lib/business-hours";
@@ -21,11 +22,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 export default async function NousContacterPage() {
-  const [companyInfo, businessHoursRaw, shopName, locale] = await Promise.all([
+  const [companyInfo, businessHoursRaw, shopName, locale, tenantSlug] = await Promise.all([
     getCachedCompanyInfo(),
     getCachedBusinessHours(),
     getCachedShopName(),
     getLocale(),
+    getCurrentTenantSlug(),
   ]);
 
   const schedule: BusinessHoursSchedule = businessHoursRaw ?? DEFAULT_BUSINESS_HOURS;
@@ -35,7 +37,7 @@ export default async function NousContacterPage() {
 
   return (
     <>
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
       <ContactPageClient
         shopName={shopName}
         phone={companyInfo?.phone ?? null}

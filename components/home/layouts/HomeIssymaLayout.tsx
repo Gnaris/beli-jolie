@@ -298,7 +298,19 @@ function IconGarment() {
   );
 }
 
-function ProductCardIssyma({ p, badge }: { p: CarouselProduct; badge?: string }) {
+export function ProductCardIssyma({
+  p,
+  badge,
+  canSeePrices,
+  pricePromptLabel,
+  pricePromptHint,
+}: {
+  p: CarouselProduct;
+  badge?: string;
+  canSeePrices: boolean;
+  pricePromptLabel: string;
+  pricePromptHint: string;
+}) {
   const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
   const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
   const image = primary?.firstImage ?? null;
@@ -340,10 +352,25 @@ function ProductCardIssyma({ p, badge }: { p: CarouselProduct; badge?: string })
         <h3 className="serif text-base mt-1.5 font-semibold" style={{ color: PALETTE.ink }}>
           {p.name}
         </h3>
-        {price != null && (
-          <p className="text-sm mt-2 tracking-wide" style={{ color: PALETTE.wine700 }}>
-            {price.toFixed(2).replace(".", ",")} €
-          </p>
+        {canSeePrices ? (
+          price != null && (
+            <p className="text-sm mt-2 tracking-wide" style={{ color: PALETTE.wine700 }}>
+              {price.toFixed(2).replace(".", ",")} €
+            </p>
+          )
+        ) : (
+          <div className="mt-2">
+            <span
+              className="inline-flex items-center gap-1.5 text-[11px] tracking-[0.14em] uppercase font-semibold"
+              style={{ color: PALETTE.wine700 }}
+            >
+              {pricePromptLabel}
+              <span aria-hidden="true">→</span>
+            </span>
+            <p className="text-[11px] mt-0.5" style={{ color: PALETTE.muted }}>
+              {pricePromptHint}
+            </p>
+          </div>
         )}
       </div>
     </Link>
@@ -359,8 +386,11 @@ export default async function HomeIssymaLayout({
   reviews,
   faqItems,
   jsonLdBlocks,
+  canSeePrices,
 }: HomeLayoutProps) {
   const t = await getTranslations("home");
+  const pricePromptLabel = t("issyma.cardPricePro");
+  const pricePromptHint = t("issyma.cardPriceHint");
 
   // Tile bordeaux « Nouvelle collection » = 1re collection dispo. Si aucune,
   // la tile disparait et on montre une categorie de plus a la place.
@@ -374,7 +404,7 @@ export default async function HomeIssymaLayout({
 
       <div className="issyma-home min-h-screen antialiased">
 
-        <PublicSidebar shopName={shopName} />
+        <PublicSidebar shopName={shopName} tenantSlug="issyma" />
 
         {/* HERO — inchange */}
         <section className="wine-panel relative overflow-hidden">
@@ -414,20 +444,26 @@ export default async function HomeIssymaLayout({
                 </p>
                 <div className="mt-10 flex flex-wrap gap-3">
                   <Link
-                    href="/produits"
+                    href="/inscription"
                     className="btn-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
+                  >
+                    {t("issyma.ctaPrices")}
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                  <Link
+                    href="/produits"
+                    className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
                   >
                     {t("issyma.ctaCatalog")}
                     <span aria-hidden="true">→</span>
                   </Link>
-                  <Link
-                    href="/inscription"
-                    className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
-                  >
-                    {t("issyma.ctaAccount")}
-                    <span aria-hidden="true">→</span>
-                  </Link>
                 </div>
+                <p
+                  className="mt-3 text-[11px] tracking-[0.18em] uppercase font-medium"
+                  style={{ color: `${PALETTE.cream2}b3` }}
+                >
+                  {t("issyma.heroHint")}
+                </p>
                 <div className="flex-1" />
                 <div className="mt-12">
                   <div className="showroom-badge">
@@ -557,6 +593,9 @@ export default async function HomeIssymaLayout({
                     key={p.id}
                     p={p}
                     badge={i < 2 ? t("issyma.badgeNew") : undefined}
+                    canSeePrices={canSeePrices}
+                    pricePromptLabel={pricePromptLabel}
+                    pricePromptHint={pricePromptHint}
                   />
                 ))}
               </div>
@@ -674,7 +713,15 @@ export default async function HomeIssymaLayout({
                 </Link>
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                {bestSellerCards.slice(0, 4).map((p) => <ProductCardIssyma key={p.id} p={p} />)}
+                {bestSellerCards.slice(0, 4).map((p) => (
+                  <ProductCardIssyma
+                    key={p.id}
+                    p={p}
+                    canSeePrices={canSeePrices}
+                    pricePromptLabel={pricePromptLabel}
+                    pricePromptHint={pricePromptHint}
+                  />
+                ))}
               </div>
             </div>
           </section>
@@ -773,18 +820,24 @@ export default async function HomeIssymaLayout({
             </p>
             <div className="mt-8 flex flex-wrap gap-3 justify-center">
               <Link
-                href="/produits"
-                className="btn-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
-              >
-                {t("issyma.ctaSimpleBtn1")} <span aria-hidden="true">→</span>
-              </Link>
-              <Link
                 href="/inscription"
-                className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
+                className="btn-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
               >
                 {t("issyma.ctaSimpleBtn2")} <span aria-hidden="true">→</span>
               </Link>
+              <Link
+                href="/produits"
+                className="btn-outline-cream inline-flex items-center gap-3 px-7 py-3.5 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold"
+              >
+                {t("issyma.ctaSimpleBtn1")} <span aria-hidden="true">→</span>
+              </Link>
             </div>
+            <p
+              className="mt-4 text-[11px] tracking-[0.18em] uppercase font-medium"
+              style={{ color: `${PALETTE.cream2}b3` }}
+            >
+              {t("issyma.heroHint")}
+            </p>
           </div>
         </section>
 

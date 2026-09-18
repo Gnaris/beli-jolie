@@ -7,7 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
 import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions, getCachedProductCount } from "@/lib/cached-data";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -144,11 +144,12 @@ async function fetchImages(productIds: string[]) {
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
   await getCurrentTenantId(); // bind ALS avant Prisma + caches tenant-scopés
-  const [t, session, shopName, locale] = await Promise.all([
+  const [t, session, shopName, locale, tenantSlug] = await Promise.all([
     getTranslations("products"),
     getServerSession(authOptions),
     getCachedShopName(),
     getLocale(),
+    getCurrentTenantSlug(),
   ]);
   const productInclude = buildProductInclude(locale);
 
@@ -358,7 +359,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen bg-white relative">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
       <main className="relative z-10">
 
       {/* Hero éditorial */}

@@ -3,7 +3,7 @@ import { Link } from "@/i18n/navigation";
 import { getTranslations } from "next-intl/server";
 import Image from "next/image";
 import { getCachedShopName, getCachedSiteConfig } from "@/lib/cached-data";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -38,6 +38,7 @@ function sectionText(override: string | null | undefined, fallback: string): str
 
 export default async function AboutPage() {
   await getCurrentTenantId();
+  const tenantSlug = await getCurrentTenantSlug();
   const [
     shopName,
     t,
@@ -91,7 +92,7 @@ export default async function AboutPage() {
 
   return (
     <div className="min-h-screen bg-bg-primary relative">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
 
       <main className="relative z-10">
         {/* Hero éditorial ── */}

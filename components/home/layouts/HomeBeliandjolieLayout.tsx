@@ -31,7 +31,7 @@ export default async function HomeBeliandjolieLayout({
   return (
     <div className="min-h-screen bg-bg-secondary relative">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdBlocks) }} />
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug="beliandjolie" />
 
       <main className="relative z-10 -mt-16">
         {/* 1. Hero éditable */}

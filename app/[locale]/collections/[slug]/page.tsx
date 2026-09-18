@@ -5,6 +5,7 @@ import { getTranslations } from "next-intl/server";
 import Image from "@/components/ui/SmartImage";
 import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
+import { getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates, getSiteUrl } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
@@ -81,9 +82,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function CollectionDetailPage({ params }: PageProps) {
-  const [t, shopName, resolvedParams] = await Promise.all([
+  const [t, shopName, tenantSlug, resolvedParams] = await Promise.all([
     getTranslations("collectionDetail"),
     getCachedShopName(),
+    getCurrentTenantSlug(),
     params,
   ]);
   const { slug, locale } = resolvedParams;
@@ -145,7 +147,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen">
-      <PublicSidebar shopName={shopName} />
+      <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
 
       <div className="min-w-0">
         {/* Header */}
