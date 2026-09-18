@@ -15,6 +15,7 @@ import SearchFilters from "@/components/produits/SearchFilters";
 import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant les caches tenant-scopés
@@ -241,7 +242,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   // Le toggle "Masquer les ruptures" reste affiche cote UI catalogue.
   const showOosToggle = true;
-  const shouldHideOos = hideOos_;
 
   // Fetch ordered product references for the current user (for ordered/notOrdered filters)
   let userOrderedRefs: string[] = [];
@@ -272,7 +272,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
       if (pageIds.length > 0) {
         const rawProducts = await prisma.product.findMany({
-          where: { id: { in: pageIds } },
+          where: {
+            id: { in: pageIds },
+            status: "ONLINE",
+            colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+          },
           include: productInclude,
         });
         // Re-sort to match ordered IDs
@@ -289,8 +293,9 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // ─── Default / filtered ordering (fallback) ────────────────────────────────
   if (!usedCustom) {
     // Use AND array to avoid key collisions (colors, NOT, etc.)
+    // `shouldHideOos` reste accepté (URL param) mais est désormais couvert par
+    // le filtre visibilité publique posé dans le `where` racine.
     const andConditions: Record<string, unknown>[] = [];
-    if (shouldHideOos) andConditions.push({ NOT: { colors: { every: { stock: { equals: 0 } } } } });
     if (notOrdered_ && userOrderedRefs.length > 0) andConditions.push({ NOT: { reference: { in: userOrderedRefs } } });
     if (colorIds.length === 1) andConditions.push({ colors: { some: { colorId: colorIds[0] } } });
     else if (colorIds.length > 1) andConditions.push({ colors: { some: { colorId: { in: colorIds } } } });
@@ -301,6 +306,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
     const where: Record<string, unknown> = {
       status: "ONLINE",
+      colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
       ...(andConditions.length > 0 && { AND: andConditions }),
       ...(q && exactRef
         ? { reference: { equals: q.toUpperCase() } }

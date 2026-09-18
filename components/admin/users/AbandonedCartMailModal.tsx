@@ -142,6 +142,7 @@ export default function AbandonedCartMailModal({
             key={template.id}
             template={template}
             onLeave={onClose}
+            enforceScenario="ABANDONED_CART"
           />
         ) : null}
       </div>

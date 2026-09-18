@@ -14,6 +14,8 @@ import { stockUnitsForCartLine } from "@/lib/stock-units";
 import { verifyCarrierSignature } from "@/lib/carrier-signature";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { buildFallbackAddressFromUser, isFallbackAddressAllowed } from "@/lib/order-address-fallback";
+import { createPaymentIntentWithFallback } from "@/lib/stripe-pmt-fallback";
+import { getEnabledStripePaymentMethods } from "@/lib/stripe-payment-methods-enabled";
 
 const CreateIntentSchema = z.object({
   // addressId optionnel : en retrait boutique ou transporteur privé, la cliente
@@ -31,6 +33,14 @@ const CreateIntentSchema = z.object({
   transactionId: z.string().optional(),
   carrierSig: z.string().optional(),
   promoCode: z.string().optional(),
+  // Champs stockés en metadata pour permettre à `finalizeOrderFromPaymentIntent`
+  // de reconstruire l'input de `placeOrder` au retour d'un paiement redirigé
+  // (PayPal). Pour la carte, ces champs peuvent rester vides — le client les
+  // repasse à `placeOrder` via `handlePaymentSuccess`.
+  privateCarrierEmail: z.string().optional(),
+  privateCarrierPhone: z.string().optional(),
+  privateCarrierBordereau: z.string().optional(),
+  mergeIntoOrderId: z.string().optional(),
 });
 
 /**
@@ -52,7 +62,20 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { addressId, deliveryMode, carrierId, carrierName, carrierPrice, transactionId, carrierSig, promoCode } = parsed.data;
+  const {
+    addressId,
+    deliveryMode,
+    carrierId,
+    carrierName,
+    carrierPrice,
+    transactionId,
+    carrierSig,
+    promoCode,
+    privateCarrierEmail,
+    privateCarrierPhone,
+    privateCarrierBordereau,
+    mergeIntoOrderId,
+  } = parsed.data;
 
   const userId = session.user.id;
   const allowMissingAddress = isFallbackAddressAllowed(deliveryMode);
@@ -295,27 +318,40 @@ export async function POST(req: Request) {
   try {
     const statementDescriptor = buildStatementDescriptor(shopName);
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const piBase = {
       amount: pricing.totalTTCCents,
       currency: "eur",
-      // Uniquement `card` : Apple Pay et Google Pay sont des variantes wallet
-      // de la méthode `card` et apparaissent quand même dans PaymentElement.
-      // On exclut ainsi MB Way, Bancontact, iDEAL et autres exotiques
-      // qu'`automatic_payment_methods` activait par défaut.
-      payment_method_types: ["card"],
       metadata: {
         userId,
         addressId: addressId ?? "",
+        deliveryMode: deliveryMode ?? "",
         carrierId,
         carrierName,
         carrierPrice: String(carrierPrice),
         tvaRate: String(pricing.tvaRate),
         promoCode: appliedCodePromo?.code ?? "",
+        transactionId: transactionId ?? "",
+        carrierSig: carrierSig ?? "",
+        privateCarrierEmail: privateCarrierEmail ?? "",
+        privateCarrierPhone: privateCarrierPhone ?? "",
+        privateCarrierBordereau: privateCarrierBordereau ?? "",
+        mergeIntoOrderId: mergeIntoOrderId ?? "",
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${pricing.totalTTC.toFixed(2)} € TTC`,
       ...(statementDescriptor ? { statement_descriptor_suffix: statementDescriptor } : {}),
-    });
+    };
+
+    // Liste des méthodes = card (socle) + optionnelles cochées dans
+    // /admin/parametres → Moyens de paiement. Le fallback reste en filet de
+    // sécurité au cas où la cliente aurait coché une méthode côté toggle sans
+    // l'avoir activée côté dashboard Stripe.
+    const enabledMethods = await getEnabledStripePaymentMethods();
+    const paymentIntent = await createPaymentIntentWithFallback(
+      stripe,
+      piBase,
+      enabledMethods,
+    );
 
     return NextResponse.json({
       clientSecret: paymentIntent.client_secret,

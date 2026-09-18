@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -76,7 +76,7 @@ export default function Step3PaymentContent({
   selectedMergeOrder: WizardMergeCandidate | null;
   subtotalHT: number;
   shippingHT: number;
-  paymentMode: "card" | "bank_transfer";
+  paymentMode: "card" | "bank_transfer" | null;
   onPaymentModeChange: (mode: "card" | "bank_transfer") => void;
   bankTransfer: { enabled: boolean; holder: string; ibanDisplay: string };
   onBankTransferSubmit: () => void;
@@ -132,6 +132,27 @@ export default function Step3PaymentContent({
       setPromoBusy(false);
     }
   }
+
+  // CGV — bloc partagé entre Carte (rendu dans StripeCardForm juste avant le
+  // bouton Payer) et Virement (rendu dans le bloc virement juste avant le
+  // bouton Confirmer). Une seule source de vérité pour cgvAccepted.
+  const cgvNode = (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={cgvAccepted}
+        onChange={(e) => onCgvChange(e.target.checked)}
+        className="mt-1"
+      />
+      <span className="text-sm text-slate-600">
+        {t("cgvAccept")}{" "}
+        <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
+          {t("cgvLink")}
+        </a>
+        .
+      </span>
+    </label>
+  );
 
   return (
     <div className="space-y-5">
@@ -218,33 +239,33 @@ export default function Step3PaymentContent({
         )}
       </section>
 
-      {/* Choix mode de paiement — visible uniquement si le virement est activé côté tenant */}
-      {bankTransfer.enabled && (
-        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
-          <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
-            {t("paymentTitle")}
-          </div>
-          <div className="space-y-2.5">
-            <label
-              className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
-                paymentMode === "card"
-                  ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
-                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
-              }`}
-            >
-              <input
-                type="radio"
-                name="payment-mode"
-                value="card"
-                checked={paymentMode === "card"}
-                onChange={() => onPaymentModeChange("card")}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-sm text-slate-900">{t("paymentCard")}</div>
-                <p className="text-xs text-slate-500 mt-0.5">{t("paymentCardInfo")}</p>
-              </div>
-            </label>
+      {/* Choix carte / virement — 2 gros radios exposés d'entrée */}
+      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
+          {t("paymentTitle")}
+        </div>
+        <div className={`grid gap-2.5 ${bankTransfer.enabled ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+          <label
+            className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+              paymentMode === "card"
+                ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
+                : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+            }`}
+          >
+            <input
+              type="radio"
+              name="payment-mode"
+              value="card"
+              checked={paymentMode === "card"}
+              onChange={() => onPaymentModeChange("card")}
+              className="mt-1"
+            />
+            <div className="flex-1">
+              <div className="font-semibold text-sm text-slate-900">{t("paymentCard")}</div>
+              <p className="text-xs text-slate-500 mt-0.5">{t("paymentCardInfo")}</p>
+            </div>
+          </label>
+          {bankTransfer.enabled && (
             <label
               className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
                 paymentMode === "bank_transfer"
@@ -265,12 +286,12 @@ export default function Step3PaymentContent({
                 <p className="text-xs text-slate-500 mt-0.5">{t("paymentTransferInfo")}</p>
               </div>
             </label>
-          </div>
-        </section>
-      )}
+          )}
+        </div>
+      </section>
 
-      {/* Bloc paiement : carte OU virement selon le mode */}
-      {paymentMode === "card" ? (
+      {/* Bloc Carte : Stripe PaymentElement (accordéon interne des méthodes Stripe) */}
+      {paymentMode === "card" && (
         <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
           <div className="mb-5">
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
@@ -305,25 +326,10 @@ export default function Step3PaymentContent({
                 onError={onPaymentError}
                 disabled={!cgvAccepted || isCreatingOrder}
                 totalAmountCents={totalAmountCents}
+                cgvBlock={cgvNode}
               />
             </Elements>
           )}
-
-          <label className="flex items-start gap-3 mt-6 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cgvAccepted}
-              onChange={(e) => onCgvChange(e.target.checked)}
-              className="mt-1"
-            />
-            <span className="text-sm text-slate-600">
-              {t("cgvAccept")}{" "}
-              <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
-                {t("cgvLink")}
-              </a>
-              .
-            </span>
-          </label>
 
           {orderError && (
             <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
@@ -331,7 +337,10 @@ export default function Step3PaymentContent({
             </div>
           )}
         </section>
-      ) : (
+      )}
+
+      {/* Bloc Virement bancaire */}
+      {paymentMode === "bank_transfer" && bankTransfer.enabled && (
         <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
           <div className="mb-5">
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
@@ -354,27 +363,13 @@ export default function Step3PaymentContent({
             </p>
           </div>
 
-          <label className="flex items-start gap-3 mt-6 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={cgvAccepted}
-              onChange={(e) => onCgvChange(e.target.checked)}
-              className="mt-1"
-            />
-            <span className="text-sm text-slate-600">
-              {t("cgvAccept")}{" "}
-              <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
-                {t("cgvLink")}
-              </a>
-              .
-            </span>
-          </label>
+          <div className="mt-5">{cgvNode}</div>
 
           <button
             type="button"
             onClick={handleBankTransferClick}
             disabled={!cgvAccepted || isCreatingOrder}
-            className="w-full mt-5 h-12 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full mt-4 h-12 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isCreatingOrder ? t("preparingPayment") : t("confirmBankTransferOrder")}
           </button>
@@ -399,14 +394,17 @@ function StripeCardForm({
   onError,
   disabled,
   totalAmountCents,
+  cgvBlock,
 }: {
   clientSecret: string;
   onSuccess: (piId: string) => void;
   onError: (msg: string) => void;
   disabled: boolean;
   totalAmountCents: number;
+  cgvBlock: React.ReactNode;
 }) {
   const t = useTranslations("checkout");
+  const locale = useLocale();
   const stripe = useStripe();
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
@@ -417,12 +415,17 @@ function StripeCardForm({
     if (!stripe || !elements || processing || disabled) return;
     setProcessing(true);
     onError("");
-    // redirect:"if_required" évite le round-trip navigateur pour carte/Apple/Google
-    // Pay (aucun n'a besoin de rediriger) ; on garde la porte ouverte pour 3DS
-    // si la banque le demande.
+    // return_url : nécessaire pour PayPal (redirect vers paypal.com puis retour).
+    // Pour la carte, redirect:"if_required" court-circuite et on n'y va jamais
+    // (sauf 3DS). La page /panier/retour-paiement appelle
+    // finalizeOrderFromPaymentIntent qui recrée la commande depuis metadata.
+    const returnUrl = `${window.location.origin}/${locale}/panier/retour-paiement`;
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: "if_required",
+      confirmParams: {
+        return_url: returnUrl,
+      },
     });
     if (error) {
       onError(error.message ?? t("paymentError"));
@@ -440,12 +443,15 @@ function StripeCardForm({
       <PaymentElement
         onReady={() => setReady(true)}
         options={{
-          layout: "tabs",
+          // Accordion : mieux qu'onglets quand on a 4-5 méthodes visibles à la
+          // fois (carte + PayPal + Billie + Bancontact + iDEAL selon toggles).
+          layout: { type: "accordion", defaultCollapsed: false, radios: true, spacedAccordionItems: true },
           // Masque Link (compte 1-clic Stripe) — Apple Pay et Google Pay
           // restent affichés (wallets natifs).
           wallets: { applePay: "auto", googlePay: "auto", link: "never" },
         }}
       />
+      {cgvBlock}
       <button
         type="submit"
         disabled={disabled || !ready || processing}

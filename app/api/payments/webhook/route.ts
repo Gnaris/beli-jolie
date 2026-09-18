@@ -80,6 +80,20 @@ export async function POST(req: Request) {
       break;
     }
 
+    // PayPal / Billie : le PI peut passer par `processing` avant `succeeded`
+    // (~30s le temps que la charge se fixe). On log seulement — la page
+    // /panier/retour-paiement retente `finalizeOrderFromPaymentIntent` de son
+    // côté, et `payment_intent.succeeded` finira par tomber ici pour poser
+    // paymentStatus=paid si la page retour l'a raté.
+    case "payment_intent.processing": {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      logger.info("[Stripe Webhook] Paiement en cours de traitement", {
+        paymentIntentId: pi.id,
+        methodTypes: pi.payment_method_types,
+      });
+      break;
+    }
+
     // P2-04 — Paiement annulé (avant capture). Marque la commande comme
     // payment_failed. La logique métier d'annulation reste manuelle côté admin.
     case "payment_intent.canceled": {

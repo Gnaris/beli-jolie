@@ -8,6 +8,7 @@ import { getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 export const revalidate = 7200; // ISR: revalidate every 2 hours
 
@@ -36,7 +37,14 @@ export default async function CollectionsPage() {
     include: {
       _count: {
         select: {
-          products: { where: { product: { status: "ONLINE" } } },
+          products: {
+            where: {
+              product: {
+                status: "ONLINE",
+                colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+              },
+            },
+          },
         },
       },
     },

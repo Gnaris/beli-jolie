@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useLocale } from "next-intl";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   Elements,
@@ -34,6 +35,8 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
   const [error, setError] = useState("");
   const toast = useToast();
   const router = useRouter();
+  const locale = useLocale();
+  const searchParams = useSearchParams();
   const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
 
   useEffect(() => {
@@ -41,6 +44,29 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
       setStripePromise(loadStripe(publishableKey));
     }
   }, [publishableKey, stripePromise]);
+
+  // Retour de redirect PayPal : Stripe pose ?payment_intent=…&redirect_status=…
+  // sur l'URL. On confirme la commande côté serveur puis on nettoie l'URL.
+  useEffect(() => {
+    const piFromUrl = searchParams.get("payment_intent");
+    const redirectStatus = searchParams.get("redirect_status");
+    if (!piFromUrl || redirectStatus !== "succeeded") return;
+    let cancelled = false;
+    (async () => {
+      const res = await confirmOrderCardPayment(orderId, piFromUrl);
+      if (cancelled) return;
+      if (res.success) {
+        toast.success("Paiement reçu", "Votre commande passe en préparation.");
+        router.replace(`/commandes/${orderId}`);
+      } else {
+        toast.error("Paiement", res.error ?? "Impossible de confirmer.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, orderId]);
 
   async function handleOpen() {
     setError("");
@@ -140,6 +166,7 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
                 >
                   <CardForm
                     totalAmountCents={Math.round(totalTTC * 100)}
+                    returnUrl={`${typeof window !== "undefined" ? window.location.origin : ""}/${locale}/commandes/${orderId}`}
                     onSuccess={handleSuccess}
                     onError={setError}
                   />
@@ -160,10 +187,12 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
 /* ─────────────────────── Formulaire Stripe ─────────────────────── */
 function CardForm({
   totalAmountCents,
+  returnUrl,
   onSuccess,
   onError,
 }: {
   totalAmountCents: number;
+  returnUrl: string;
   onSuccess: () => void;
   onError: (msg: string) => void;
 }) {
@@ -178,9 +207,13 @@ function CardForm({
     if (!stripe || !elements || processing) return;
     setProcessing(true);
     onError("");
+    // return_url utilisé uniquement si PayPal (redirect) ; la carte reste dans
+    // l'onglet grâce à redirect:"if_required". Au retour PayPal, le useEffect
+    // de PayOrderByCardButton détecte les query params et confirme.
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: "if_required",
+      confirmParams: { return_url: returnUrl },
     });
     if (error) {
       onError(error.message ?? "Erreur lors du paiement.");

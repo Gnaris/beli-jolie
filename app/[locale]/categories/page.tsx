@@ -7,6 +7,7 @@ import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CategoriesGrid from "@/components/produits/CategoriesGrid";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -39,7 +40,13 @@ export default async function CategoriesPage() {
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       },
-      _count: { select: { products: { where: { status: "ONLINE" } } } },
+      _count: {
+        select: {
+          products: {
+            where: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE },
+          },
+        },
+      },
     },
   });
 

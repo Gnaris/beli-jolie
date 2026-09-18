@@ -18,6 +18,7 @@ import {
 } from "@/lib/category-seo";
 import CategoryFaq from "@/components/categories/CategoryFaq";
 import { parsePageParam, paginate } from "@/lib/paginate";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 const PRODUCTS_PER_PAGE = 40;
 const PREFETCH_RANGE = 5;
@@ -62,7 +63,13 @@ async function loadCategoryBySlug(slug: string, locale: string) {
           },
         },
       },
-      _count: { select: { products: { where: { status: "ONLINE" } } } },
+      _count: {
+        select: {
+          products: {
+            where: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE },
+          },
+        },
+      },
     },
   });
 }
@@ -147,7 +154,11 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
 
   // ── Produits de la catégorie ──────────────────────────────────────────
   const rawProducts = await prisma.product.findMany({
-    where: { status: "ONLINE", categoryId: category.id },
+    where: {
+      status: "ONLINE",
+      colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+      categoryId: category.id,
+    },
     orderBy: [
       { lastRefreshedAt: { sort: "desc", nulls: "last" } },
       { createdAt: "desc" },
@@ -195,7 +206,11 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
   const surroundingProductsPromise =
     surroundingTake > PRODUCTS_PER_PAGE
       ? prisma.product.findMany({
-          where: { status: "ONLINE", categoryId: category.id },
+          where: {
+            status: "ONLINE",
+            colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+            categoryId: category.id,
+          },
           orderBy: [
             { lastRefreshedAt: { sort: "desc", nulls: "last" } },
             { createdAt: "desc" },
@@ -343,7 +358,13 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
         select: { name: true },
         take: 1,
       },
-      _count: { select: { products: { where: { status: "ONLINE" } } } },
+      _count: {
+        select: {
+          products: {
+            where: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE },
+          },
+        },
+      },
     },
   });
   const relatedWithProducts = relatedCategories.filter((r) => r._count.products > 0).slice(0, 4);

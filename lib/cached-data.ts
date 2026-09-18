@@ -7,6 +7,7 @@ import { hexForPfsColor } from "@/lib/marketplace-excel/pfs-color-hex";
 import { logger } from "@/lib/logger";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import { getCurrentTenantIdSync, tenantALS } from "@/lib/tenant-als";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 /**
  * Résout le tenant courant sans dépendre du cache :
@@ -959,9 +960,14 @@ export const getCachedMicrostoreEnabled = tenantScopedCacheWithTid(
 // retombe en passthrough (fuite cross-tenant).
 export const getCachedProductCount = tenantScopedCacheWithTid(
   "product-count",
-  async (tid) => prisma.product.count({
-    where: tid === "global" ? { status: "ONLINE" } : { status: "ONLINE", tenantId: tid },
-  }),
+  async (tid) => {
+    // Aligné avec le filtre visibilité publique — le hero, la page inscription
+    // et le catalogue affichent le même nombre : produits visibles vitrine.
+    const baseWhere = { status: "ONLINE" as const, colors: PUBLIC_SELLABLE_COLORS_CLAUSE };
+    return prisma.product.count({
+      where: tid === "global" ? baseWhere : { ...baseWhere, tenantId: tid },
+    });
+  },
   ["product-count"],
   { revalidate: 300, tags: ["products"] }
 );

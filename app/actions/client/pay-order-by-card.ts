@@ -13,6 +13,8 @@ import {
 } from "@/lib/stripe";
 import { getCachedShopName } from "@/lib/cached-data";
 import { notifyOrderStatusChange } from "@/lib/notifications";
+import { createPaymentIntentWithFallback } from "@/lib/stripe-pmt-fallback";
+import { getEnabledStripePaymentMethods } from "@/lib/stripe-payment-methods-enabled";
 
 /**
  * Crée un PaymentIntent Stripe pour régler par carte une commande initialement
@@ -74,12 +76,9 @@ export async function createOrderCardPaymentIntent(
     const shopName = await getCachedShopName();
     const statementDescriptor = buildStatementDescriptor(shopName);
 
-    const pi = await stripe.paymentIntents.create({
+    const piBase = {
       amount: amountCents,
       currency: "eur",
-      // Card uniquement (Apple/Google Pay sont des wallets card et restent
-      // affichés par PaymentElement).
-      payment_method_types: ["card"],
       metadata: {
         orderId: order.id,
         orderNumber: order.orderNumber,
@@ -89,7 +88,13 @@ export async function createOrderCardPaymentIntent(
       receipt_email: order.clientEmail,
       description: `${shopName} — ${order.clientCompany} — Commande ${order.orderNumber} (bascule virement → carte)`,
       ...(statementDescriptor ? { statement_descriptor_suffix: statementDescriptor } : {}),
-    });
+    };
+
+    // Méthodes activées côté admin (toggles Paramètres → Moyens de paiement)
+    // + fallback filet de sécurité si une méthode cochée n'est pas activée
+    // côté dashboard Stripe.
+    const enabledMethods = await getEnabledStripePaymentMethods();
+    const pi = await createPaymentIntentWithFallback(stripe, piBase, enabledMethods);
 
     // On enregistre l'ID PI sur la commande : le webhook Stripe pourra la
     // rattacher automatiquement en cas de succès (double filet avec

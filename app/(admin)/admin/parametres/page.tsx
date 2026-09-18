@@ -40,6 +40,8 @@ import StripeSettingsForm from "@/components/admin/settings/StripeSettingsForm";
 import StripeAccountStatusCard from "@/components/admin/onboarding/StripeAccountStatusCard";
 import BankTransferSettingsForm from "@/components/admin/settings/BankTransferSettingsForm";
 import { getBankTransferConfigFresh } from "@/lib/bank-transfer-config";
+import OnlinePaymentMethodsForm from "@/components/admin/settings/OnlinePaymentMethodsForm";
+import { getStripeMethodsEnabledFresh } from "@/lib/stripe-payment-methods-enabled";
 import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
@@ -520,14 +522,15 @@ async function buildHorairesTile(): Promise<DashboardTile> {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   TUILE 4 — Paiement Stripe
+   TUILE 4 — Paiement (Stripe + méthodes optionnelles + virement)
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildPaiementTile(): Promise<DashboardTile> {
-  const [status, publishableRow, accountInfo, bankTransfer] = await Promise.all([
+  const [status, publishableRow, accountInfo, bankTransfer, stripeMethods] = await Promise.all([
     getStripeConfigStatus(),
     prisma.siteConfig.findFirst({ where: { key: "stripe_publishable_key" } }),
     getStripeAccountInfo(),
     getBankTransferConfigFresh(),
+    getStripeMethodsEnabledFresh(),
   ]);
   const publishable = publishableRow?.value?.trim() || "";
 
@@ -537,6 +540,10 @@ async function buildPaiementTile(): Promise<DashboardTile> {
 
   const paymentModesLabel: string[] = [];
   if (status.ready) paymentModesLabel.push(status.testMode ? "Carte (TEST)" : "Carte");
+  if (stripeMethods.paypal) paymentModesLabel.push("PayPal");
+  if (stripeMethods.billie) paymentModesLabel.push("Billie");
+  if (stripeMethods.bancontact) paymentModesLabel.push("Bancontact");
+  if (stripeMethods.ideal) paymentModesLabel.push("iDEAL");
   if (bankTransfer.enabled) paymentModesLabel.push("Virement");
   const summary = paymentModesLabel.length > 0
     ? paymentModesLabel.join(" · ")
@@ -563,6 +570,24 @@ async function buildPaiementTile(): Promise<DashboardTile> {
             initialHasWebhook={status.hasWebhook}
             initialPublishable={publishable}
           />
+        </SettingCard>
+        <SettingCard
+          icon={Ico.card}
+          title="Moyens de paiement en ligne"
+          description="Choisissez quelles méthodes proposer au checkout en plus de la carte : PayPal, Billie (B2B 30j), Bancontact (Belgique), iDEAL (Pays-Bas). Chaque méthode doit d'abord être activée dans votre dashboard Stripe."
+          accent="dark"
+          status={(() => {
+            const count =
+              (stripeMethods.paypal ? 1 : 0) +
+              (stripeMethods.billie ? 1 : 0) +
+              (stripeMethods.bancontact ? 1 : 0) +
+              (stripeMethods.ideal ? 1 : 0);
+            return count > 0
+              ? { tone: "ok", label: `${count} méthode${count > 1 ? "s" : ""} en plus de la carte` }
+              : { tone: "off", label: "Carte uniquement" };
+          })()}
+        >
+          <OnlinePaymentMethodsForm initial={stripeMethods} />
         </SettingCard>
         <SettingCard
           icon={Ico.card}

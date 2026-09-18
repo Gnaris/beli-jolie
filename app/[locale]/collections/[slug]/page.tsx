@@ -11,6 +11,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 interface PageProps {
   params: Promise<{ slug: string; locale: string }>;
@@ -102,7 +103,12 @@ export default async function CollectionDetailPage({ params }: PageProps) {
     where:   { id: resolved.id },
     include: {
       products: {
-        where: { product: { status: "ONLINE" } },
+        where: {
+          product: {
+            status: "ONLINE",
+            colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+          },
+        },
         orderBy: { position: "asc" },
         include: {
           product: {

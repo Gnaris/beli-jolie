@@ -7,6 +7,7 @@ import { getCachedSiteConfig } from "@/lib/cached-data";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 import { VALID_LOCALES } from "@/i18n/locales";
 
@@ -130,13 +131,14 @@ export async function GET(request: NextRequest) {
   const productInclude = buildProductInclude(locale);
 
   // Stock display config
-  // Note : l'ancien reglage global "show_out_of_stock_products" a ete retire —
-  // les produits dont toutes les variantes sont a 0 sont desormais archives
-  // automatiquement et donc deja masques par le filtre status. On garde
-  // uniquement le filtre per-request hideOos pour les usages UI ponctuels.
+  // Depuis 2026-09-18, tous les listings publics filtrent automatiquement les
+  // produits « morts » (toutes variantes disabled OU toutes à stock 0) via
+  // `publicVisibleProductWhere` — plus besoin de flag global. Le paramètre
+  // `hideOos` reste accepté mais devient un no-op côté produit (redondant) ;
+  // `show_out_of_stock_variants` continue de piloter l'affichage variante par
+  // variante à l'intérieur d'un produit encore visible.
   const stockVariantsRow = await getCachedSiteConfig("show_out_of_stock_variants");
   const showOosVariants = stockVariantsRow?.value !== "false"; // default true
-  const shouldHideOos = hideOos;
 
   // Session : on en a besoin pour ordered/notOrdered ET pour le gating prix.
   const session = await getServerSession(authOptions);
@@ -197,8 +199,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ products: [], hasMore: false });
       }
 
+      // `getOrderedProductIds` filtre déjà sur la visibilité publique — on
+      // re-pose le filtre ici pour rester safe si un produit tombe entre-temps
+      // (course entre le cache 10 min et une variante remise à zéro).
       const products = await prisma.product.findMany({
-        where: { id: { in: pageIds } },
+        where: {
+          id: { in: pageIds },
+          status: "ONLINE",
+          colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+        },
         include: productInclude,
       });
 
@@ -209,7 +218,9 @@ export async function GET(request: NextRequest) {
       const imageMap = await fetchImages(pageIds);
       let shaped = shapeProducts(products, imageMap);
 
-      // Filter out OOS variants/colors if config says so
+      // `showOosVariants=false` : masque les variantes stock=0 dans le payload
+      // (filtre esthétique interne). Le filtre visibilité produit tourne déjà
+      // au niveau DB, donc `shouldHideOos` n'a plus rien à faire ici.
       if (!showOosVariants) {
         shaped = shaped.map((p: any) => ({
           ...p,
@@ -217,9 +228,6 @@ export async function GET(request: NextRequest) {
             .map((c: any) => ({ ...c, variants: c.variants.filter((v: any) => v.stock > 0) }))
             .filter((c: any) => c.variants.length > 0),
         })).filter((p: any) => p.colors.length > 0);
-      }
-      if (shouldHideOos) {
-        shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
       }
 
       shaped = await enrichProductsWithBestPromoPercent(shaped);
@@ -232,8 +240,9 @@ export async function GET(request: NextRequest) {
 
   // ─── Default / filtered ordering ──────────────────────────────────────────
   // Use AND array to avoid key collisions (colors, NOT, etc.)
+  // `shouldHideOos` reste accepté pour compat ascendante mais est désormais
+  // couvert par le filtre visibilité publique posé dans le `where` racine.
   const andConditions: Record<string, unknown>[] = [];
-  if (shouldHideOos) andConditions.push({ NOT: { colors: { every: { stock: { equals: 0 } } } } });
   if (notOrdered && userOrderedRefs.length > 0) andConditions.push({ NOT: { reference: { in: userOrderedRefs } } });
   if (colorIds.length === 1) andConditions.push({ colors: { some: { colorId: colorIds[0] } } });
   else if (colorIds.length > 1) andConditions.push({ colors: { some: { colorId: { in: colorIds } } } });
@@ -244,6 +253,7 @@ export async function GET(request: NextRequest) {
 
   const where: Record<string, unknown> = {
     status: "ONLINE",
+    colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
     ...(andConditions.length > 0 && { AND: andConditions }),
     ...(q && exactRef
       ? { reference: { equals: q.toUpperCase() } }
@@ -286,7 +296,9 @@ export async function GET(request: NextRequest) {
   const imageMap = await fetchImages(productIds);
   let shaped = shapeProducts(products, imageMap);
 
-  // Filter out OOS variants/colors if config says so
+  // `showOosVariants=false` : masque les variantes stock=0 dans le payload
+  // (filtre esthétique interne). Le filtre visibilité produit tourne au niveau
+  // DB (voir `where` ci-dessus), donc `shouldHideOos` n'a plus rien à faire.
   if (!showOosVariants) {
     shaped = shaped.map((p: any) => ({
       ...p,
@@ -294,9 +306,6 @@ export async function GET(request: NextRequest) {
         .map((c: any) => ({ ...c, variants: c.variants.filter((v: any) => v.stock > 0) }))
         .filter((c: any) => c.variants.length > 0),
     })).filter((p: any) => p.colors.length > 0);
-  }
-  if (shouldHideOos) {
-    shaped = shaped.filter((p: any) => p.colors.some((c: any) => c.totalStock > 0));
   }
 
   shaped = await enrichProductsWithBestPromoPercent(shaped);

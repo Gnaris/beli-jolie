@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { buildProductHandle } from "@/lib/product-url";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "monthly" | "yearly"; priority: number }[] = [
   { path: "", changeFrequency: "daily", priority: 1 },
@@ -59,7 +60,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // chaque produit compte pour 2 entrées. Limite à ~24 000 produits pour
   // laisser un peu de marge aux pages statiques et collections.
   const products = await prisma.product.findMany({
-    where: { status: "ONLINE" },
+    where: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE },
     select: { id: true, name: true, reference: true, updatedAt: true },
     orderBy: { updatedAt: "desc" },
     take: 24000,
@@ -100,7 +101,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // hreflang par locale, comme les pages produits. Sans produit ONLINE, on
   // exclut : le crawler éviterait la 404 douce (page vide).
   const categoriesWithProducts = await prisma.category.findMany({
-    where: { products: { some: { status: "ONLINE" } } },
+    where: {
+      products: {
+        some: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE },
+      },
+    },
     select: { slug: true, createdAt: true },
   });
 

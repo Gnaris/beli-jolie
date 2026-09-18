@@ -12,6 +12,7 @@ import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos
 import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 import { getCurrentTenantSlug } from "@/lib/tenant";
 import { cookies } from "next/headers";
 import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
@@ -333,7 +334,7 @@ export default async function HomePage() {
   // complet reste accessible via les CTA « Voir toutes… → ».
   const commonProductWhere = {
     status: "ONLINE" as const,
-    colors: { some: { disabled: false } },
+    colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
   };
 
   const [newProductsRaw, bestSellerProductsRaw] = await Promise.all([

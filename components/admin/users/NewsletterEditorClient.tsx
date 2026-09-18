@@ -138,6 +138,15 @@ interface Props {
    * modale, pas naviguer). Reçoit un `save` flag pour info si besoin.
    */
   onLeave?: () => void;
+  /**
+   * Force le scénario appliqué aux règles d'obligation (blocs obligatoires
+   * + blocs dynamiques autorisés), indépendamment du `template.scenarioKey`.
+   * Utilisé par la modale panier abandonné : les templates des Stades 2+
+   * ont `scenarioKey=null` (contrainte @@unique côté DB) mais doivent quand
+   * même contenir le bloc « Panier du client » — obligatoire pour
+   * ABANDONED_CART.
+   */
+  enforceScenario?: ScenarioKey;
 }
 
 interface BlockMeta {
@@ -174,10 +183,14 @@ interface ProductLite {
   priceCents: number | null;
 }
 
-export default function NewsletterEditorClient({ template, backUrl = "/admin/marketing/mails", onLeave }: Props) {
+export default function NewsletterEditorClient({ template, backUrl = "/admin/marketing/mails", onLeave, enforceScenario }: Props) {
   const toast = useToast();
   const router = useRouter();
-  const scenarioKey: ScenarioKey | null = template.scenarioKey;
+  // `enforceScenario` a priorité sur le scenarioKey du template : les Stades
+  // 2+ panier abandonné n'ont pas de scenarioKey (contrainte @@unique) mais
+  // doivent hériter des règles ABANDONED_CART (bloc « Panier du client »
+  // obligatoire).
+  const scenarioKey: ScenarioKey | null = enforceScenario ?? template.scenarioKey;
   const [name, setName] = useState(template.name);
   const [subject, setSubject] = useState(template.subject);
   // À l'ouverture, on complète automatiquement le modèle avec les 2 blocs

@@ -183,7 +183,7 @@ async function createAndVerifyPaymentIntent(stripe: Stripe, amountCents: number,
   const pi = await stripe.paymentIntents.create({
     amount: amountCents,
     currency: "eur",
-    payment_method_types: ["card"],
+    payment_method_types: ["card", "paypal", "billie", "bancontact", "ideal"],
     metadata: meta,
     description: `TEST scenario — ${meta.scenario}`,
   });

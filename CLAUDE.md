@@ -80,6 +80,8 @@ B2B SaaS e-commerce générique (vente en gros). **Next.js 16 · MySQL/Prisma ·
 
 Protection : `middleware.ts` (edge) + `layout.tsx`. Maintenance cache 60s **on success only**. **Prix visibles** via `lib/price-visibility.ts::canSeePrices()` : API remet `unitPrice`/`discountPercent` à 0/null si non autorisé ; filtres `minPrice/maxPrice` ignorés.
 
+**Visibilité produit vitrine (2026-09-18)** — un produit apparaît sur les listings publics uniquement si `status === "ONLINE"` **ET** au moins une `ProductColor` non désactivée avec `stock > 0`. Toutes variantes `disabled` OU toutes à `stock 0` → produit masqué (mais pas archivé — il revient dès qu'un stock rentre). S'applique sans exception (admin connecté navigant sur `/produits` ne voit rien non plus). Fiche produit `/produits/[slug]` reste accessible en direct pour préserver le SEO + les backlinks Google. Admin `/admin/produits` non concerné. Filtre centralisé : `PUBLIC_SELLABLE_COLORS_CLAUSE` (`lib/public-product-visibility.ts`) — à réutiliser sur tout nouveau listing public (page, API, sitemap, compteur). Callers actuels : `app/api/products` (+ search), pages `/produits`, home, `/categories/[slug]`, `/collections/[slug]`, index catégories/collections, `sitemap.ts`, `getCachedProductCount`, `computeOrderedProductIds`, `fetchCarouselProducts`.
+
 ### Layers
 - **Server actions** (`app/actions/`) : mutations. `requireAdmin()`/`requireAuth()` obligatoire.
 - **API routes** (`app/api/`) : webhooks, SSE, file-serving.

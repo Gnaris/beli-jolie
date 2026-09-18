@@ -1083,6 +1083,112 @@ export async function placeOrder(
 }
 
 // ─────────────────────────────────────────────
-// Email notification admin
+// Reprise post-redirect (PayPal / Billie / ...)
 // ─────────────────────────────────────────────
+
+/**
+ * Reconstruit l'appel `placeOrder` à partir des metadata du PaymentIntent, pour
+ * les moyens de paiement qui redirigent hors du site (PayPal aujourd'hui, Billie
+ * demain). La page `/panier/retour-paiement` appelle cette action au retour.
+ *
+ * - Idempotent : si une commande existe déjà pour ce PI, `placeOrder` renvoie
+ *   simplement l'ID existant (check via `stripePaymentIntentId`).
+ * - Sécurité : le `userId` en metadata doit matcher la session courante.
+ * - Statut PI : refuse si autre chose que `succeeded` (ex: `processing` sur
+ *   PayPal transitoire → la page retour peut retenter).
+ */
+export async function finalizeOrderFromPaymentIntent(
+  paymentIntentId: string,
+): Promise<
+  | { success: true; orderId: string; orderNumber: string }
+  | { success: false; error: string; retryable?: boolean }
+> {
+  const session = await getServerSession(authOptions);
+  if (!session) return { success: false, error: "Non authentifié." };
+  const userId = session.user.id;
+
+  if (!paymentIntentId || !paymentIntentId.startsWith("pi_")) {
+    return { success: false, error: "PaymentIntent invalide." };
+  }
+
+  // ── 1. Vérifier statut PI côté Stripe ────────────────────────────────────
+  let pi;
+  try {
+    const stripe = await getStripeInstance();
+    pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  } catch (err) {
+    logger.error("[finalizeOrderFromPaymentIntent] Retrieve PI échoué", {
+      error: err,
+      paymentIntentId,
+    });
+    return { success: false, error: "Paiement introuvable." };
+  }
+
+  // Sécurité : la metadata userId doit matcher la session. Empêche un client
+  // curieux de finaliser un PI d'un autre compte via son propre browser.
+  if (pi.metadata?.userId && pi.metadata.userId !== userId) {
+    logger.warn("[finalizeOrderFromPaymentIntent] userId mismatch", {
+      paymentIntentId,
+      piUserId: pi.metadata.userId,
+      sessionUserId: userId,
+    });
+    return { success: false, error: "Ce paiement ne vous appartient pas." };
+  }
+
+  // PayPal peut rester ~30s en `processing` le temps que la charge se fixe.
+  // La page retour rappelle cette action après un court délai.
+  if (pi.status === "processing") {
+    return { success: false, error: "Paiement en cours de traitement.", retryable: true };
+  }
+  if (pi.status !== "succeeded") {
+    return {
+      success: false,
+      error:
+        pi.status === "canceled"
+          ? "Paiement annulé."
+          : pi.status === "requires_payment_method"
+            ? "Paiement échoué. Merci de réessayer."
+            : `Paiement incomplet (${pi.status}).`,
+    };
+  }
+
+  // ── 2. Reconstruire l'input placeOrder depuis metadata ───────────────────
+  const md = pi.metadata ?? {};
+  const deliveryMode = md.deliveryMode as
+    | "delivery"
+    | "pickup"
+    | "private"
+    | "merge"
+    | ""
+    | undefined;
+
+  const input: PlaceOrderInput = {
+    addressId: md.addressId || undefined,
+    deliveryMode: deliveryMode && deliveryMode.length > 0 ? deliveryMode : undefined,
+    carrierId: md.carrierId ?? "",
+    transactionId: md.transactionId ?? "",
+    carrierName: md.carrierName ?? "",
+    carrierPrice: Number(md.carrierPrice ?? "0"),
+    stripePaymentIntentId: pi.id,
+    // Si le client n'a pas renseigné cgvAcceptedAt dans metadata (ex: PI créé
+    // avant CGV coché), on retombe sur la date de succès du PI — le paiement
+    // ayant été validé, les CGV l'étaient nécessairement à ce moment-là.
+    cgvAcceptedAt: md.cgvAcceptedAt || new Date().toISOString(),
+    privateCarrierEmail: md.privateCarrierEmail || undefined,
+    privateCarrierPhone: md.privateCarrierPhone || undefined,
+    privateCarrierBordereau: md.privateCarrierBordereau || undefined,
+    mergeIntoOrderId: md.mergeIntoOrderId || undefined,
+    promoCode: md.promoCode || undefined,
+  };
+
+  if (!input.carrierId) {
+    logger.error("[finalizeOrderFromPaymentIntent] Metadata incomplète", {
+      paymentIntentId,
+      hasCarrierId: !!md.carrierId,
+    });
+    return { success: false, error: "Impossible de retrouver les infos de commande." };
+  }
+
+  return placeOrder(input);
+}
 

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canSeePrices } from "@/lib/price-visibility";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 /**
  * GET /api/products/search?q=xxx
@@ -19,6 +20,7 @@ export async function GET(request: NextRequest) {
   const products = await prisma.product.findMany({
     where: {
       status: "ONLINE",
+      colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
       ...(exactRef
         ? { reference: { equals: q.toUpperCase() } }
         : {

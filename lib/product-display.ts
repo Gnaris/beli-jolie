@@ -2,6 +2,7 @@ import type { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/prisma";
 import { getCachedSiteConfig } from "@/lib/cached-data";
 import { unstable_cache } from "next/cache";
+import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
 // Re-export shared types & constants (safe for client imports via product-display-shared.ts)
 export type { DisplaySectionType, DisplaySection, CarouselType, HomepageCarousel, ProductDisplayConfig } from "@/lib/product-display-shared";
@@ -71,12 +72,14 @@ async function computeOrderedProductIds(): Promise<string[]> {
   const configRow = await getCachedSiteConfig("product_display_config");
   const config = parseDisplayConfig(configRow?.value);
 
-  // Note : l'ancien reglage "show_out_of_stock_products" a ete retire — les
-  // produits en rupture totale sont desormais ARCHIVED, donc deja filtres par
-  // le where status="ONLINE".
+  // Depuis 2026-09-18 : filtre visibilité publique appliqué ici aussi (au moins
+  // une variante active en stock) pour rester aligné avec toutes les listes
+  // publiques. Sans ça, la home custom-ordering pouvait ordonner puis pousser
+  // des IDs de produits invisibles ailleurs.
   const allProducts: ProductMinimal[] = await prisma.product.findMany({
     where: {
       status: "ONLINE",
+      colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
     },
     select: {
       id: true,
@@ -218,8 +221,10 @@ type CarouselPrismaProduct = {
 
 // Exclut les produits dont toutes les couleurs actives sont a 0 (rupture totale).
 // Cohérent avec ProductCard.tsx qui affiche « Rupture » quand toutes visibleColors ont totalStock <= 0.
+// Alias local vers le helper de visibilité publique — on garde la constante pour
+// éviter de casser des références internes au fichier.
 const IN_STOCK_CLAUSE = {
-  colors: { some: { disabled: false, stock: { gt: 0 } } },
+  colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
 } as const;
 
 export async function fetchCarouselProducts(

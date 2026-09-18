@@ -20,7 +20,18 @@ interface Row {
   lastSentAt: Date | null;
 }
 
-const store: { rows: Row[]; nextId: number } = { rows: [], nextId: 1 };
+interface StageRow {
+  id: string;
+  tenantId: string;
+  stageIndex: number;
+  templateId: string;
+}
+
+const store: { rows: Row[]; stages: StageRow[]; nextId: number } = {
+  rows: [],
+  stages: [],
+  nextId: 1,
+};
 
 function makeRow(data: Partial<Row>): Row {
   const now = new Date();
@@ -40,6 +51,24 @@ function makeRow(data: Partial<Row>): Row {
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    abandonedCartStage: {
+      findMany: vi.fn(async ({ where }: any) => {
+        return store.stages.filter((s) => {
+          if (where?.tenantId && s.tenantId !== where.tenantId) return false;
+          if (where?.stageIndex?.gte !== undefined && s.stageIndex < where.stageIndex.gte) return false;
+          return true;
+        });
+      }),
+      findFirst: vi.fn(async ({ where }: any) => {
+        return (
+          store.stages.find((s) => {
+            if (where?.templateId && s.templateId !== where.templateId) return false;
+            if (where?.tenantId && s.tenantId !== where.tenantId) return false;
+            return true;
+          }) ?? null
+        );
+      }),
+    },
     newsletterTemplate: {
       findFirst: vi.fn(async ({ where }: any) => {
         return (
@@ -55,6 +84,7 @@ vi.mock("@/lib/prisma", () => ({
         return store.rows.filter((r) => {
           if (where?.tenantId && r.tenantId !== where.tenantId) return false;
           if (where?.scenarioKey?.in && !where.scenarioKey.in.includes(r.scenarioKey)) return false;
+          if (where?.id?.notIn && where.id.notIn.includes(r.id)) return false;
           return true;
         });
       }),
@@ -144,6 +174,7 @@ import { SCENARIO_DEFAULTS } from "@/lib/mail-scenario-defaults";
 
 beforeEach(() => {
   store.rows = [];
+  store.stages = [];
   store.nextId = 1;
 });
 
@@ -235,6 +266,64 @@ describe("deleteNewsletterTemplate", () => {
     const res = await deleteNewsletterTemplate(free.id);
     expect(res.success).toBe(true);
     expect(store.rows.find((r) => r.id === free.id)).toBeUndefined();
+  });
+
+  it("refuse la suppression d'un modèle lié à un stade panier abandonné", async () => {
+    const stageTemplate = makeRow({ name: "Panier abandonné — Stade 2" });
+    store.rows.push(stageTemplate);
+    store.stages.push({
+      id: "stage_2",
+      tenantId: TENANT_ID,
+      stageIndex: 2,
+      templateId: stageTemplate.id,
+    });
+    const res = await deleteNewsletterTemplate(stageTemplate.id);
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error).toMatch(/Stade 2/i);
+      expect(res.error).toMatch(/panier abandonn/i);
+    }
+    // Template bien préservé
+    expect(store.rows.find((r) => r.id === stageTemplate.id)).toBeDefined();
+  });
+});
+
+describe("listNewsletterTemplates : cache les templates de stades panier abandonné", () => {
+  it("exclut les templates liés à un AbandonedCartStage stageIndex ≥ 2", async () => {
+    // Seed : 3 scénarios officiels + 1 modèle libre + 1 template Stade 2 + 1 template Stade 3
+    const stage2Template = makeRow({ name: "Panier abandonné — Stade 2" });
+    const stage3Template = makeRow({ name: "Panier abandonné — Stade 3" });
+    const freeTemplate = makeRow({ name: "Ma newsletter promo" });
+    store.rows.push(stage2Template, stage3Template, freeTemplate);
+    store.stages.push(
+      { id: "s2", tenantId: TENANT_ID, stageIndex: 2, templateId: stage2Template.id },
+      { id: "s3", tenantId: TENANT_ID, stageIndex: 3, templateId: stage3Template.id },
+    );
+
+    const list = await listNewsletterTemplates();
+    const returnedIds = list.map((t) => t.id);
+    expect(returnedIds).toContain(freeTemplate.id);
+    expect(returnedIds).not.toContain(stage2Template.id);
+    expect(returnedIds).not.toContain(stage3Template.id);
+    // Le template ABANDONED_CART officiel (scenarioKey défini) reste visible
+    const scenarioTemplates = list.filter((t) => t.scenarioKey === "ABANDONED_CART");
+    expect(scenarioTemplates.length).toBe(1);
+  });
+
+  it("garde le template du Stade 1 (scenarioKey ABANDONED_CART) même si un stade y pointe", async () => {
+    // Après seed lazy, un template ABANDONED_CART existe. Un Stade 1 pourrait
+    // pointer dessus sans être exclu (stageIndex=1 < 2).
+    await listNewsletterTemplates();
+    const stage1Template = store.rows.find((r) => r.scenarioKey === "ABANDONED_CART")!;
+    store.stages.push({
+      id: "s1",
+      tenantId: TENANT_ID,
+      stageIndex: 1,
+      templateId: stage1Template.id,
+    });
+
+    const list = await listNewsletterTemplates();
+    expect(list.find((t) => t.id === stage1Template.id)).toBeDefined();
   });
 });
 

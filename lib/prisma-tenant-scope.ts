@@ -121,6 +121,30 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "Season",
   "ManufacturingCountry",
   "Tag",
+  // Fiches clients admin + achats liés
+  "AdminClientCard",
+  "AdminClientCardProductPurchase",
+  // OTP actions destructives
+  "AdminActionOtp",
+  // Avis clients
+  "CustomerReview",
+  // Commandes marketplaces (lecture seule, copie locale)
+  "PfsOrder",
+  "PfsOrderItem",
+  "AnkorstoreOrder",
+  "AnkorstoreOrderItem",
+  "EfashionOrder",
+  "EfashionOrderItem",
+  "FaireOrder",
+  "FaireOrderItem",
+  "MicrostoreOrder",
+  "MicrostoreOrderItem",
+  "OrderchampOrder",
+  "OrderchampOrderItem",
+  // Audit PFS
+  "PfsAuditRun",
+  "PfsAuditResult",
+  "PfsAuditRunChange",
 ]);
 
 /**

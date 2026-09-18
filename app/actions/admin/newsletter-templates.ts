@@ -40,8 +40,22 @@ export interface NewsletterTemplateFull extends NewsletterTemplateSummary {
 export async function listNewsletterTemplates(): Promise<NewsletterTemplateSummary[]> {
   const { tenant } = await requireAdmin();
   await ensureDefaultScenarioTemplatesFor(tenant.id);
+  // Les templates rattachés à un Stade ≥ 2 de la relance panier abandonné ne
+  // s'éditent QUE depuis /admin/marketing/mails/panier-abandonne. On les
+  // exclut de cette liste pour éviter que la cliente les supprime par erreur
+  // (la suppression du template casserait le stade par cascade FK). Le
+  // Stade 1 (scenarioKey=ABANDONED_CART) reste visible dans la section
+  // « Mails automatiques » comme les autres scénarios.
+  const abandonedStageTemplates = await prisma.abandonedCartStage.findMany({
+    where: { tenantId: tenant.id, stageIndex: { gte: 2 } },
+    select: { templateId: true },
+  });
+  const hiddenIds = abandonedStageTemplates.map((s) => s.templateId);
   const rows = await prisma.newsletterTemplate.findMany({
-    where: { tenantId: tenant.id },
+    where: {
+      tenantId: tenant.id,
+      ...(hiddenIds.length > 0 ? { id: { notIn: hiddenIds } } : {}),
+    },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true, name: true, subject: true, blocks: true, updatedAt: true, createdAt: true, lastSentAt: true, scenarioKey: true,
@@ -314,6 +328,20 @@ export async function deleteNewsletterTemplate(
       return {
         success: false,
         error: "Ce modèle est utilisé pour un mail automatique. Assignez d'abord un autre modèle à ce type de mail pour le libérer.",
+      };
+    }
+    // Défense en profondeur : les templates rattachés à un Stade ≥ 2 de la
+    // relance panier abandonné ne doivent pas être supprimables ici — la
+    // cascade FK effacerait le stade en silence. Passage obligatoire par
+    // la page dédiée qui supprime stade + template ensemble proprement.
+    const linkedStage = await prisma.abandonedCartStage.findFirst({
+      where: { templateId: id, tenantId: tenant.id },
+      select: { stageIndex: true },
+    });
+    if (linkedStage) {
+      return {
+        success: false,
+        error: `Ce modèle est le Stade ${linkedStage.stageIndex} de la relance panier abandonné. Pour le retirer, ouvre « Relances panier abandonné » et clique sur la poubelle du Stade ${linkedStage.stageIndex}.`,
       };
     }
     await prisma.newsletterTemplate.delete({ where: { id } });
