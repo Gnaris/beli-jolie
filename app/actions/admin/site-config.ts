@@ -1512,8 +1512,18 @@ export async function updateShippingMargin(
 
 // ─── Announcement Banner ──────────────────────────────────────────────────────
 
+export interface AnnouncementBannerMessageInput {
+  fr: string;
+  en?: string;
+}
+
 export interface AnnouncementBannerData {
-  messages: string[];
+  /**
+   * Chaque message peut avoir sa traduction anglaise. Si `en` est vide ET que
+   * `auto_translate_enabled` est actif, on remplit automatiquement via PFS
+   * (comme pour les catégories/produits).
+   */
+  messages: AnnouncementBannerMessageInput[];
   bgColor: string;
   textColor: string;
   speed: number; // seconds per message (utilisé uniquement en mode "scroll")
@@ -1526,12 +1536,39 @@ export async function updateAnnouncementBanner(
   try {
     await requireAdmin();
 
-    const messages = data.messages.map((m) => m.trim()).filter((m) => m.length > 0);
+    const cleaned = data.messages
+      .map((m) => ({
+        fr: (m?.fr ?? "").trim(),
+        en: (m?.en ?? "").trim(),
+      }))
+      .filter((m) => m.fr.length > 0);
     const mode: "scroll" | "static" = data.mode === "static" ? "static" : "scroll";
 
-    if (messages.length === 0) {
+    if (cleaned.length === 0) {
       await prisma.siteConfig.deleteMany({ where: { key: "announcement_banner" } });
     } else {
+      // Auto-traduction FR → EN pour les cases laissées vides quand le toggle
+      // « traduction auto » est actif. On respecte les valeurs saisies à la
+      // main : elles ne sont jamais écrasées.
+      const { isAutoTranslateEnabled } = await import("@/lib/auto-translate");
+      const { translateTextStrict } = await import("@/lib/translate");
+      if (await isAutoTranslateEnabled()) {
+        await Promise.all(
+          cleaned.map(async (m) => {
+            if (m.en) return;
+            try {
+              const translated = await translateTextStrict(m.fr, "fr", "en");
+              if (translated && translated.trim() && translated.trim() !== m.fr) {
+                m.en = translated.trim();
+              }
+            } catch {
+              // silencieux — la locale EN retombera sur le FR au rendu
+            }
+          }),
+        );
+      }
+
+      const messages = cleaned.map((m) => (m.en ? { fr: m.fr, en: m.en } : { fr: m.fr }));
       const payload = {
         messages,
         bgColor: data.bgColor,

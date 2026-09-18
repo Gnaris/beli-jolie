@@ -225,7 +225,7 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     } catch { /* ignore */ }
   }
 
-  let announcementMessages: string[] = [];
+  let announcementMessages: Array<{ fr: string; en?: string }> = [];
   let announcementBgColor = "#0F0F0F";
   let announcementTextColor = "#F5F1EA";
   let announcementSpeed = 8;
@@ -233,7 +233,8 @@ async function buildVitrineTile(): Promise<DashboardTile> {
   if (announcementConfig?.value) {
     try {
       const parsed = JSON.parse(announcementConfig.value);
-      announcementMessages = parsed.messages || [];
+      const { normalizeAnnouncementMessages } = await import("@/lib/announcement-banner");
+      announcementMessages = normalizeAnnouncementMessages(parsed.messages);
       announcementBgColor = parsed.bgColor || "#0F0F0F";
       announcementTextColor = parsed.textColor || "#F5F1EA";
       announcementSpeed = parsed.speed || 8;

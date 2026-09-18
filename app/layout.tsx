@@ -18,6 +18,11 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { ADMIN_THEME_COOKIE, parseAdminTheme } from "@/lib/admin-theme";
 import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
 import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
+import {
+  normalizeAnnouncementMessages,
+  resolveLocalizedMessages,
+} from "@/lib/announcement-banner";
+import type { Locale } from "@/i18n/locales";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import HeartbeatLoader from "@/components/client/HeartbeatLoader";
 import "./globals.css";
@@ -159,9 +164,15 @@ export default async function RootLayout({
   if (announcementRow?.value) {
     try {
       const parsed = JSON.parse(announcementRow.value);
-      if (parsed.messages?.length > 0) {
+      // `messages` peut être `string[]` (ancien format) ou `Array<{fr, en?}>`
+      // (nouveau format multilingue). `normalizeAnnouncementMessages` uniformise
+      // les 2 puis `resolveLocalizedMessages` choisit la variante correspondant
+      // à la locale demandée avec fallback FR.
+      const normalized = normalizeAnnouncementMessages(parsed.messages);
+      const localizedMessages = resolveLocalizedMessages(normalized, locale as Locale);
+      if (localizedMessages.length > 0) {
         announcement = {
-          messages: parsed.messages,
+          messages: localizedMessages,
           bgColor: parsed.bgColor,
           textColor: parsed.textColor,
           speed: parsed.speed,
