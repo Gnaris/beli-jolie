@@ -24,6 +24,7 @@ export type NewsletterBlockType =
   | "empty"
   | "columns"
   | "footer"
+  | "featuresRow"
   // ─── Blocs dynamiques (mails transactionnels uniquement) ───
   | "cartItems"
   | "favoritesGrid"
@@ -44,6 +45,16 @@ export interface HeaderData {
   titleSize?: number;
   subtitleSize?: number;
   align?: "left" | "center" | "right";
+  /** Famille de police du titre : sans-serif (défaut, Poppins) ou serif (élégance, Cormorant/Georgia). */
+  titleFontFamily?: "sans" | "serif";
+  /** Rend le sous-titre en MAJUSCULES avec letter-spacing (style eyebrow chic). */
+  subtitleUppercase?: boolean;
+  /** Letter-spacing du sous-titre en centièmes d'em (ex : 24 = 0.24em). */
+  subtitleLetterSpacing?: number;
+  /** Trait horizontal fin décoratif entre le titre et le sous-titre. */
+  decorativeRule?: boolean;
+  /** Couleur du trait décoratif (défaut = textColor à opacité réduite). */
+  ruleColor?: string;
 }
 export interface HeadingData { title: string; body: string; align: "left" | "center" | "right"; bg?: string; titleColor?: string; bodyColor?: string; titleSize?: number; bodySize?: number; titleAlign?: "left" | "center" | "right"; bodyAlign?: "left" | "center" | "right" }
 export interface CalloutData { title: string; subtitle: string; cta: string; ctaUrl: string; bg: string; color: string; titleSize?: number; subtitleSize?: number; ctaSize?: number }
@@ -64,6 +75,31 @@ export interface FooterData {
   color?: string;
   align?: "left" | "center" | "right";
   fontSize?: number;
+}
+
+export interface FeatureItem {
+  /** Icône (emoji, caractère Unicode ou chaîne courte). Rendue centrée dans un cercle. */
+  icon: string;
+  /** Libellé sous l'icône (multi-lignes autorisées via \n). */
+  label: string;
+}
+export interface FeaturesRowData {
+  /** 2 à 4 features, chacune : icône (emoji) + label. */
+  items: FeatureItem[];
+  /** Fond global du bloc. */
+  bg?: string;
+  /** Fond de chaque cercle d'icône. */
+  circleBg?: string;
+  /** Couleur de l'icône elle-même (ne s'applique pas aux emojis en couleur naturelle). */
+  iconColor?: string;
+  /** Couleur du label. */
+  labelColor?: string;
+  /** Taille du cercle d'icône en px (défaut 56). */
+  circleSize?: number;
+  /** Taille de l'icône dans le cercle (défaut 22). */
+  iconSize?: number;
+  /** Taille du label (défaut 12). */
+  labelSize?: number;
 }
 
 // ─── Blocs dynamiques (mails transactionnels) ───
@@ -107,6 +143,7 @@ export type NewsletterBlock =
   | { id: number | string; type: "columns"; data: ColumnsData }
   | { id: number | string; type: "divider"; data: Record<string, never> }
   | { id: number | string; type: "footer"; data: FooterData }
+  | { id: number | string; type: "featuresRow"; data: FeaturesRowData }
   | { id: number | string; type: "cartItems"; data: CartItemsData }
   | { id: number | string; type: "favoritesGrid"; data: FavoritesGridData }
   | { id: number | string; type: "daysInactive"; data: DaysInactiveData };
@@ -156,6 +193,11 @@ export function collectBlocksText(blocks: NewsletterBlock[]): string {
         break;
       case "footer":
         if (b.data.content) parts.push(b.data.content);
+        break;
+      case "featuresRow":
+        for (const it of b.data.items) {
+          if (it.label) parts.push(it.label);
+        }
         break;
       case "cartItems":
         if (b.data.title) parts.push(b.data.title);
@@ -223,6 +265,19 @@ export function defaultDataFor(type: NewsletterBlockType): NewsletterBlockData {
       color: "#64748b",
       align: "center" as const,
       fontSize: 12,
+    };
+    case "featuresRow": return {
+      items: [
+        { icon: "🚚", label: "Livraison suivie" },
+        { icon: "💬", label: "Conseil dédié" },
+        { icon: "🔒", label: "Paiement sécurisé" },
+      ],
+      circleBg: "#fbf1ee",
+      iconColor: "#5f2231",
+      labelColor: "#2a1418",
+      circleSize: 56,
+      iconSize: 22,
+      labelSize: 12,
     };
     case "cartItems": return { title: "Votre panier", totalLabel: "Total", emptyMessage: "Votre panier est vide — venez découvrir nos nouveautés !" };
     case "favoritesGrid": return { cols: 2 as const, emptyMessage: "Aucun produit sélectionné." };
@@ -320,6 +375,17 @@ function applySubToBlock(
       };
     case "daysInactive":
       return { ...b, data: { ...b.data, template: sub(b.data.template) ?? "", neverVisitedTemplate: sub(b.data.neverVisitedTemplate) ?? "" } };
+    case "featuresRow":
+      return {
+        ...b,
+        data: {
+          ...b.data,
+          items: b.data.items.map((it) => ({
+            ...it,
+            label: sub(it.label) ?? "",
+          })),
+        },
+      };
     case "cartItems":
       return { ...b, data: { ...b.data, title: sub(b.data.title), totalLabel: sub(b.data.totalLabel), emptyMessage: sub(b.data.emptyMessage) } };
     case "favoritesGrid":
@@ -451,14 +517,28 @@ function renderBlock(
         : "";
       const hasTitle = !!(block.data.title || "").trim();
       const hasSubtitle = !!(block.data.subtitle || "").trim();
+      const titleFontFamily = block.data.titleFontFamily === "serif"
+        ? "'Cormorant Garamond', Georgia, 'Times New Roman', serif"
+        : "'Poppins', sans-serif";
       const titleHtml = hasTitle
-        ? `<h1 style="font-family:'Poppins', sans-serif; font-size:${block.data.titleSize || 22}px; font-weight:700; margin:0; color:${color}; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title || "")}</h1>`
+        ? `<h1 style="font-family:${titleFontFamily}; font-size:${block.data.titleSize || 22}px; font-weight:700; margin:0; color:${color}; letter-spacing:0.02em; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title || "")}</h1>`
         : "";
+      // Ligne décorative fine sous le titre (style Issyma). Rendue via table+td
+      // pour compat mail (les <hr> stylés ne passent pas sur Outlook).
+      const ruleColor = block.data.ruleColor || color;
+      const ruleHtml = hasTitle && block.data.decorativeRule
+        ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${align}" style="margin:${hasSubtitle ? "12px auto 12px" : "12px auto 0"}; border-collapse:collapse;"><tr><td width="48" height="1" style="background:${ruleColor}; line-height:1px; font-size:1px;">&nbsp;</td></tr></table>`
+        : "";
+      const letterSpacing = block.data.subtitleLetterSpacing
+        ? `letter-spacing:${block.data.subtitleLetterSpacing / 100}em;`
+        : "";
+      const upper = block.data.subtitleUppercase ? "text-transform:uppercase;" : "";
+      const subtitleMargin = hasTitle && !ruleHtml ? "margin-top:8px;" : "margin-top:0;";
       const subtitleHtml = hasSubtitle
-        ? `<div style="font-size:${block.data.subtitleSize || 13}px; margin-top:${hasTitle ? "8px" : "0"}; color:${color}; opacity:0.85; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.subtitle || "")}</div>`
+        ? `<div style="font-size:${block.data.subtitleSize || 13}px; ${subtitleMargin} color:${color}; opacity:0.85; ${letterSpacing} ${upper} word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.subtitle || "")}</div>`
         : "";
       if (!logoHtml && !titleHtml && !subtitleHtml) return "";
-      return `<div style="background:${bg}; padding:36px 24px; text-align:${align};">${logoHtml}${titleHtml}${subtitleHtml}</div>`;
+      return `<div style="background:${bg}; padding:36px 24px; text-align:${align};">${logoHtml}${titleHtml}${ruleHtml}${subtitleHtml}</div>`;
     }
     case "footer": {
       const bg = block.data.bg || "#f8fafc";
@@ -602,6 +682,25 @@ ${block.data.items.map((item) => `<li style="padding:8px 0; font-size:${block.da
     }
     case "divider":
       return contained(`<hr style="border:none; border-top:1px solid #e2e8f0; margin:16px 0;">`);
+    case "featuresRow": {
+      const items = block.data.items || [];
+      if (items.length === 0) return "";
+      const circleSize = Math.max(24, Math.min(120, Number(block.data.circleSize) || 56));
+      const iconSize = Math.max(12, Math.min(60, Number(block.data.iconSize) || 22));
+      const labelSize = Math.max(9, Math.min(20, Number(block.data.labelSize) || 12));
+      const circleBg = block.data.circleBg || "#fbf1ee";
+      const iconColor = block.data.iconColor || "#5f2231";
+      const labelColor = block.data.labelColor || "#2a1418";
+      const width = `${Math.floor(100 / items.length)}%`;
+      let cells = "";
+      for (const it of items) {
+        cells += `<td width="${width}" align="center" valign="top" style="padding:0 6px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td align="center" width="${circleSize}" height="${circleSize}" style="background:${circleBg}; border-radius:${circleSize}px; width:${circleSize}px; height:${circleSize}px; text-align:center; vertical-align:middle; font-size:${iconSize}px; line-height:${circleSize}px; color:${iconColor};">${escapeHtml(it.icon || "")}</td></tr></table>
+<div style="margin-top:10px; font-family:'Poppins', sans-serif; font-size:${labelSize}px; color:${labelColor}; line-height:1.45; white-space:pre-line; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(it.label || "")}</div>
+</td>`;
+      }
+      return wrapBg(block.data.bg, contained(`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:18px 0;"><tr>${cells}</tr></table>`));
+    }
     case "cartItems": {
       const items = dynamic?.cart?.items ?? [];
       const totalCents = dynamic?.cart?.totalCents ?? 0;

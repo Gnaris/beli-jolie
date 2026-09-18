@@ -582,3 +582,112 @@ describe("newsletter-blocks — bloc button : URL absolue pour clients mail", ()
     expect(html).toContain('href="https://beliandjolie.com/promotions"');
   });
 });
+
+describe("newsletter-blocks — bloc featuresRow", () => {
+  it("defaultDataFor(featuresRow) : 3 items par défaut", () => {
+    const d = defaultDataFor("featuresRow") as { items: Array<{ icon: string; label: string }> };
+    expect(d.items).toHaveLength(3);
+    expect(d.items[0].icon).toBeTruthy();
+    expect(d.items[0].label).toBeTruthy();
+  });
+
+  it("bloc featuresRow rend 1 cellule par item avec icône + label", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "fr1",
+        type: "featuresRow",
+        data: {
+          items: [
+            { icon: "🚚", label: "Livraison" },
+            { icon: "🔒", label: "Paiement" },
+          ],
+          circleBg: "#fbf1ee",
+          iconColor: "#5f2231",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain("🚚");
+    expect(html).toContain("Livraison");
+    expect(html).toContain("🔒");
+    expect(html).toContain("Paiement");
+    expect(html).toMatch(/background:#fbf1ee/);
+    expect(html).toMatch(/color:#5f2231/);
+  });
+
+  it("bloc featuresRow substitue les variables dans les labels", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "fr2",
+        type: "featuresRow",
+        data: {
+          items: [{ icon: "★", label: "Bonjour {firstName}" }],
+        },
+      },
+    ];
+    const subs = substituteFirstName(blocks, "Sophie");
+    const html = render(subs);
+    expect(html).toContain("Bonjour Sophie");
+  });
+
+  it("bloc featuresRow vide (0 item) est skippé (aucun cercle rendu)", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "fr3",
+        type: "featuresRow",
+        data: { items: [], circleBg: "#e2b8ae" },
+      },
+    ];
+    const html = render(blocks);
+    // Le fond de cercle spécifique ne doit apparaître nulle part si 0 items.
+    expect(html).not.toContain("#e2b8ae");
+  });
+
+  it("bloc header decorativeRule affiche un trait horizontal fin", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h1",
+        type: "header",
+        data: {
+          title: "ISSYMA",
+          subtitle: "Tagline",
+          decorativeRule: true,
+          ruleColor: "#5f2231",
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toMatch(/background:#5f2231/);
+    expect(html).toMatch(/height="1"|height:1px/);
+  });
+
+  it("bloc header subtitleUppercase applique text-transform:uppercase", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h2",
+        type: "header",
+        data: {
+          title: "T",
+          subtitle: "tagline en minuscules",
+          subtitleUppercase: true,
+          subtitleLetterSpacing: 24,
+        },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain("text-transform:uppercase");
+    expect(html).toContain("letter-spacing:0.24em");
+  });
+
+  it("bloc header titleFontFamily=serif utilise Cormorant", () => {
+    const blocks: NewsletterBlock[] = [
+      {
+        id: "h3",
+        type: "header",
+        data: { title: "ISSYMA", titleFontFamily: "serif" },
+      },
+    ];
+    const html = render(blocks);
+    expect(html).toContain("Cormorant");
+  });
+});

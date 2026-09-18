@@ -168,6 +168,7 @@ const BLOCKS_META: BlockMeta[] = [
   { key: "list", label: "Liste emojis", desc: "Puces stylisées", icon: "M5 6h14M5 12h14M5 18h14" },
   { key: "divider", label: "Séparateur", desc: "Ligne décorative", icon: "M4 12h16" },
   { key: "empty", label: "Bloc vide", desc: "Espace pour aérer", icon: "M4 4h16v16H4z" },
+  { key: "featuresRow", label: "Ligne de features", desc: "3 icônes rondes + libellé (livraison, paiement…)", icon: "M6 8a3 3 0 106 0 3 3 0 00-6 0zM6 16a3 3 0 106 0 3 3 0 00-6 0zM14 12a3 3 0 106 0 3 3 0 00-6 0z" },
   { key: "footer", label: "Pied de page", desc: "Mentions légales — toujours en bas", icon: "M3 5h18v14H3z M7 9h10 M7 13h10 M7 17h6" },
   // ─── Blocs dynamiques (mails automatiques uniquement) ───
   { key: "cartItems", label: "Panier du client", desc: "Liste réelle des articles du panier", icon: "M6 6h15l-1.5 9h-12z M6 6L5 3H2 M9 20a1 1 0 100-2 1 1 0 000 2zm9 0a1 1 0 100-2 1 1 0 000 2z" },
@@ -1204,6 +1205,15 @@ function BlockRender({
       const hasSubtitle = (block.data.subtitle || "").trim().length > 0;
       const hasLogo = !!block.data.logo;
       const isEmpty = !hasLogo && !hasTitle && !hasSubtitle;
+      const titleFontFamily = block.data.titleFontFamily === "serif"
+        ? "'Cormorant Garamond', Georgia, 'Times New Roman', serif"
+        : "Poppins";
+      const hasRule = hasTitle && !!block.data.decorativeRule;
+      const ruleColor = block.data.ruleColor || color;
+      const letterSpacing = block.data.subtitleLetterSpacing
+        ? `${block.data.subtitleLetterSpacing / 100}em`
+        : undefined;
+      const textTransform: React.CSSProperties["textTransform"] = block.data.subtitleUppercase ? "uppercase" : undefined;
       return (
         <div style={{ ...s, background: hBg, padding: "36px 24px", textAlign: align, color }}>
           {hasLogo && (
@@ -1212,10 +1222,15 @@ function BlockRender({
             </div>
           )}
           {hasTitle && (
-            <h1 style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 22, fontWeight: 700, margin: 0, color, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</h1>
+            <h1 style={{ fontFamily: titleFontFamily, fontSize: block.data.titleSize || 22, fontWeight: 700, margin: 0, color, letterSpacing: "0.02em", wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</h1>
+          )}
+          {hasRule && (
+            <div style={{ display: "flex", justifyContent: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center", margin: hasSubtitle ? "12px 0" : "12px 0 0" }}>
+              <div style={{ width: 48, height: 1, background: ruleColor }} />
+            </div>
           )}
           {hasSubtitle && (
-            <div style={{ fontSize: block.data.subtitleSize || 13, marginTop: hasTitle ? 8 : 0, color, opacity: 0.85, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
+            <div style={{ fontSize: block.data.subtitleSize || 13, marginTop: hasTitle && !hasRule ? 8 : 0, color, opacity: 0.85, letterSpacing, textTransform, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
           )}
           {isEmpty && (
             <div style={{ color, opacity: 0.55, fontSize: 12 }}>En-tête vide — renseigne logo, titre ou sous-titre dans les réglages.</div>
@@ -1338,6 +1353,33 @@ function BlockRender({
               )}
             </div>
           ))}
+        </div>
+      );
+    }
+    case "featuresRow": {
+      const items = block.data.items || [];
+      const circleSize = Math.max(24, Math.min(120, block.data.circleSize || 56));
+      const iconSize = Math.max(12, Math.min(60, block.data.iconSize || 22));
+      const labelSize = Math.max(9, Math.min(20, block.data.labelSize || 12));
+      const circleBg = block.data.circleBg || "#fbf1ee";
+      const iconColor = block.data.iconColor || "#5f2231";
+      const labelColor = block.data.labelColor || "#2a1418";
+      return (
+        <div style={{ ...s, padding: "18px 20px", background: block.data.bg || "transparent" }}>
+          {items.length === 0 ? (
+            <div style={{ color: "#cbd5e1", fontSize: 12, textAlign: "center" }}>Aucune feature — ajoute-en dans les réglages.</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: 8 }}>
+              {items.map((it, i) => (
+                <div key={i} style={{ textAlign: "center" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: circleSize, height: circleSize, borderRadius: "50%", background: circleBg, color: iconColor, fontSize: iconSize }}>
+                    {it.icon || "★"}
+                  </div>
+                  <div style={{ marginTop: 8, fontFamily: "Poppins", fontSize: labelSize, color: labelColor, lineHeight: 1.45, whiteSpace: "pre-line" }}>{tBr(it.label)}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
@@ -1795,13 +1837,60 @@ function BlockSettings({
             <Field label="Texte">
               <WrappingTextInput value={block.data.title || ""} onChange={(v) => onUpdate("title", v)} {...fieldProps(block.data.title || "", "title")} />
             </Field>
-            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={22} min={14} max={40} />
+            <SizeField label="Taille" value={block.data.titleSize} onChange={(v) => onUpdate("titleSize", v)} defaultSize={22} min={14} max={64} />
+            <Field label="Police">
+              <CustomSelect
+                value={block.data.titleFontFamily || "sans"}
+                onChange={(v) => onUpdate("titleFontFamily", v)}
+                options={[
+                  { value: "sans", label: "Sans-serif (Poppins)" },
+                  { value: "serif", label: "Serif élégant (Cormorant)" },
+                ]}
+                size="sm"
+              />
+            </Field>
+            <Field label="Trait décoratif sous le titre">
+              <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={!!block.data.decorativeRule}
+                  onChange={(e) => onUpdate("decorativeRule", e.target.checked)}
+                />
+                <span>Afficher une fine ligne horizontale</span>
+              </label>
+            </Field>
+            {block.data.decorativeRule && (
+              <Field label="Couleur du trait">
+                <ColorPicker value={block.data.ruleColor || block.data.textColor || "#ffffff"} onChange={(c) => onUpdate("ruleColor", c)} />
+              </Field>
+            )}
           </FieldGroup>
           <FieldGroup title="Sous-titre (facultatif)">
             <Field label="Texte">
               <WrappingTextInput value={block.data.subtitle || ""} onChange={(v) => onUpdate("subtitle", v)} {...fieldProps(block.data.subtitle || "", "subtitle")} />
             </Field>
             <SizeField label="Taille" value={block.data.subtitleSize} onChange={(v) => onUpdate("subtitleSize", v)} defaultSize={13} />
+            <Field label="Style tagline">
+              <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={!!block.data.subtitleUppercase}
+                  onChange={(e) => onUpdate("subtitleUppercase", e.target.checked)}
+                />
+                <span>MAJUSCULES</span>
+              </label>
+            </Field>
+            <Field label={`Espacement des lettres (${block.data.subtitleLetterSpacing || 0} / 100)`}>
+              <input
+                type="range"
+                min={0}
+                max={50}
+                step={1}
+                value={block.data.subtitleLetterSpacing || 0}
+                onChange={(e) => onUpdate("subtitleLetterSpacing", Number(e.target.value))}
+                className="w-full"
+              />
+            </Field>
           </FieldGroup>
           <FieldGroup title="Général">
             <Field label="Alignement">
@@ -1821,6 +1910,91 @@ function BlockSettings({
             </Field>
             <Field label="Fond du bloc">
               <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
+            </Field>
+          </FieldGroup>
+        </div>
+      );
+    case "featuresRow":
+      return (
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted bg-slate-50 border border-slate-200 rounded-lg p-3">
+            💎 Ligne de <strong>2 à 4 features</strong> avec une icône ronde et un libellé (« Livraison suivie », « Paiement sécurisé »…). Astuce : utilise « \n » ou passe une ligne pour couper le libellé sur 2 lignes.
+          </div>
+          <FieldGroup title="Features">
+            {block.data.items.map((it, i) => (
+              <div key={i} className="rounded-lg border border-border bg-bg-secondary/40 p-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-text-primary">Feature {i + 1}</span>
+                  {block.data.items.length > 1 && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-red-600 hover:underline"
+                      onClick={() => {
+                        const next = block.data.items.filter((_, j) => j !== i);
+                        onUpdate("items", next);
+                      }}
+                    >
+                      Supprimer
+                    </button>
+                  )}
+                </div>
+                <Field label="Icône (emoji)">
+                  <input
+                    type="text"
+                    className="prop-input"
+                    value={it.icon}
+                    maxLength={4}
+                    onChange={(e) => {
+                      const next = [...block.data.items];
+                      next[i] = { ...it, icon: e.target.value };
+                      onUpdate("items", next);
+                    }}
+                    placeholder="🚚"
+                  />
+                </Field>
+                <Field label="Libellé (2 lignes possibles)">
+                  <textarea
+                    rows={2}
+                    className="prop-input"
+                    value={it.label}
+                    onChange={(e) => {
+                      const next = [...block.data.items];
+                      next[i] = { ...it, label: e.target.value };
+                      onUpdate("items", next);
+                    }}
+                    placeholder="Livraison suivie\nsous 48 h"
+                  />
+                </Field>
+              </div>
+            ))}
+            {block.data.items.length < 4 && (
+              <button
+                type="button"
+                className="w-full text-[12px] text-text-secondary border border-dashed border-border rounded-lg py-2 hover:bg-bg-secondary"
+                onClick={() => {
+                  const next = [...block.data.items, { icon: "★", label: "Nouvelle feature" }];
+                  onUpdate("items", next);
+                }}
+              >
+                + Ajouter une feature (max 4)
+              </button>
+            )}
+          </FieldGroup>
+          <FieldGroup title="Style">
+            <Field label="Fond du cercle">
+              <ColorPicker value={block.data.circleBg || "#fbf1ee"} onChange={(c) => onUpdate("circleBg", c)} />
+            </Field>
+            <Field label="Couleur de l'icône">
+              <ColorPicker value={block.data.iconColor || "#5f2231"} onChange={(c) => onUpdate("iconColor", c)} />
+            </Field>
+            <Field label="Couleur du libellé">
+              <ColorPicker value={block.data.labelColor || "#2a1418"} onChange={(c) => onUpdate("labelColor", c)} />
+            </Field>
+            <SizeField label="Taille du cercle" value={block.data.circleSize} onChange={(v) => onUpdate("circleSize", v)} defaultSize={56} min={24} max={120} />
+            <SizeField label="Taille de l'icône" value={block.data.iconSize} onChange={(v) => onUpdate("iconSize", v)} defaultSize={22} min={12} max={60} />
+            <SizeField label="Taille du libellé" value={block.data.labelSize} onChange={(v) => onUpdate("labelSize", v)} defaultSize={12} min={9} max={20} />
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "")} />
             </Field>
           </FieldGroup>
         </div>
