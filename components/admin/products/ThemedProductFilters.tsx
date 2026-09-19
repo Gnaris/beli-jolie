@@ -322,6 +322,10 @@ export default function ThemedProductFilters({
     const subCats = categories.find((c) => c.id === cat)?.subCategories ?? [];
 
     if (theme === "catalogue") {
+      // On expose une entrée « Sans <attribut> » sur chaque select du panneau
+      // Catalogue pour retrouver d'un coup les produits à compléter. La
+      // catégorie principale reste obligatoire côté schéma — l'option reste
+      // utile en cas de donnée incohérente en base.
       return (
         <div className="flex flex-col gap-5">
           <div>
@@ -329,31 +333,49 @@ export default function ThemedProductFilters({
             <CustomSelect
               value={cat}
               onChange={(val) => setParam({ cat: val, subCat: null })}
-              options={[{ value: "", label: "Toutes les catégories" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+              options={[
+                { value: "", label: "Toutes les catégories" },
+                { value: "__none__", label: "Sans catégorie" },
+                ...categories.map((c) => ({ value: c.id, label: c.name })),
+              ]}
               size="md"
               searchable
               title="Catégorie"
             />
           </div>
-          {cat && subCats.length > 0 && (
-            <div>
-              <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Sous-catégorie</div>
-              <CustomSelect
-                value={subCat}
-                onChange={(val) => setParam({ subCat: val })}
-                options={[{ value: "", label: "Toutes les sous-catégories" }, ...subCats.map((s) => ({ value: s.id, label: s.name }))]}
-                size="md"
-                searchable
-                title="Sous-catégorie"
-              />
-            </div>
-          )}
+          <div>
+            <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Sous-catégorie</div>
+            <CustomSelect
+              value={subCat}
+              onChange={(val) => setParam({ subCat: val })}
+              options={[
+                { value: "", label: "Toutes les sous-catégories" },
+                { value: "__none__", label: "Sans sous-catégorie" },
+                ...(cat && subCats.length > 0
+                  ? subCats.map((s) => ({ value: s.id, label: s.name }))
+                  : []),
+              ]}
+              size="md"
+              searchable
+              title="Sous-catégorie"
+              disabled={!cat && subCat !== "__none__"}
+            />
+            {!cat && subCat !== "__none__" && (
+              <p className="text-[11px] text-text-muted mt-1.5">
+                Choisissez d'abord une catégorie pour lister ses sous-catégories.
+              </p>
+            )}
+          </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Composition</div>
             <CustomSelect
               value={composition}
               onChange={(val) => setParam({ composition: val })}
-              options={[{ value: "", label: "Toutes les compositions" }, ...compositions.map((c) => ({ value: c.id, label: c.name }))]}
+              options={[
+                { value: "", label: "Toutes les compositions" },
+                { value: "__none__", label: "Sans composition" },
+                ...compositions.map((c) => ({ value: c.id, label: c.name })),
+              ]}
               size="md"
               searchable
               title="Composition"
@@ -364,7 +386,11 @@ export default function ThemedProductFilters({
             <CustomSelect
               value={tag}
               onChange={(val) => setParam({ tag: val })}
-              options={[{ value: "", label: "Tous les mots-clés" }, ...tags.map((t) => ({ value: t.id, label: t.name }))]}
+              options={[
+                { value: "", label: "Tous les mots-clés" },
+                { value: "__none__", label: "Sans mot-clé" },
+                ...tags.map((t) => ({ value: t.id, label: t.name })),
+              ]}
               size="md"
               searchable
               title="Mot-clé"
@@ -375,7 +401,11 @@ export default function ThemedProductFilters({
             <CustomSelect
               value={hsCodeId}
               onChange={(val) => setParam({ hsCodeId: val })}
-              options={[{ value: "", label: "Tous les codes SH" }, ...hsCodes.map((h) => ({ value: h.id, label: `${h.code} · ${h.label}` }))]}
+              options={[
+                { value: "", label: "Tous les codes SH" },
+                { value: "__none__", label: "Sans code SH" },
+                ...hsCodes.map((h) => ({ value: h.id, label: `${h.code} · ${h.label}` })),
+              ]}
               size="md"
               searchable
               title="Code SH"

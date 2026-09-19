@@ -771,8 +771,11 @@ export default function BulkActionBar({
                 </div>
               )}
 
-              {/* Panneau Marketplaces */}
-              {marketplacesOpen && (
+              {/* Panneau Marketplaces — rendu via createPortal(document.body)
+                  pour échapper au stacking context de BulkActionBar (md:z-40).
+                  Sans le portal, le bouton « replier sidebar » (z-50, hors
+                  contexte parent) restait devant le voile noir. */}
+              {marketplacesOpen && typeof document !== "undefined" && createPortal(
                 <MarketplacePanel
                   counts={mpCounts}
                   marketplaces={marketplaces}
@@ -786,7 +789,8 @@ export default function BulkActionBar({
                     onMarketplaceSync(k, products.map((p) => p.id));
                   }}
                   onClose={() => setMarketplacesOpen(false)}
-                />
+                />,
+                document.body,
               )}
             </div>
 
@@ -1154,8 +1158,27 @@ function MarketplacePanel({
     return acc + counts[k].publish.length + counts[k].sync.length;
   }, 0);
 
+  // Modal centré (au lieu d'un popover ancré) : la liste des sections
+  // marketplaces dépassait le viewport côté desktop et les dernières lignes
+  // (Faire, Orderchamp, Microstore) étaient inaccessibles. On rend maintenant
+  // un vrai overlay centré avec voile noir + max-h + scroll interne.
   return (
-    <div className="fixed inset-0 z-[9010] flex flex-col bg-white md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-[720px] md:max-w-[calc(100vw-1.5rem)] md:bg-white/98 md:backdrop-blur-xl md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden md:flex-none">
+    <div
+      className="fixed inset-0 z-[9010] flex flex-col bg-white md:items-center md:justify-center md:p-4 md:bg-transparent"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Actions marketplaces"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {/* Voile noir — desktop only ; mobile reste plein écran blanc */}
+      <button
+        type="button"
+        aria-label="Fermer"
+        tabIndex={-1}
+        onClick={onClose}
+        className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
+      />
+      <div className="relative w-full h-full flex flex-col bg-white md:w-[min(92vw,720px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3.5 border-b border-border-light shrink-0 pt-[max(env(safe-area-inset-top),12px)] md:pt-3.5">
         <div>
           <div className="text-[10px] uppercase tracking-wider font-semibold text-fuchsia-700 mb-0.5">
@@ -1179,7 +1202,7 @@ function MarketplacePanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto md:flex-none md:overflow-visible pb-[max(env(safe-area-inset-bottom),12px)] md:pb-0">
+      <div className="flex-1 overflow-y-auto pb-[max(env(safe-area-inset-bottom),12px)] md:pb-0">
       {order.filter((k) => {
         if (!isMarketplaceAvailable(k, marketplaces)) return false;
         // Ligne visible si on peut publier OU si au moins un produit sélectionné
@@ -1297,6 +1320,7 @@ function MarketplacePanel({
           );
         })
       )}
+      </div>
       </div>
     </div>
   );

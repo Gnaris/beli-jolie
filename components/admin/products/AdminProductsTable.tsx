@@ -1213,6 +1213,10 @@ export interface AdminProduct {
   important: boolean;
   categoryName: string;
   subCategoryName: string | null;
+  /** Nom de chaque sous-catégorie attribuée au produit, dans l'ordre alpha.
+   *  Alimente la colonne « Catégorie » du tableau admin (nom de catégorie
+   *  principale + liste des sous-catégories en plus petit dessous). */
+  subCategoryNames: string[];
   createdAt: string;
   updatedAt: string;
   lastRefreshedAt: string | null;
@@ -3684,6 +3688,23 @@ function ProductRow({
                   )}
                 </button>
               </div>
+              {/* Catégorie + sous-catégories — visible < lg uniquement.
+                  Sur desktop, l'info est dans la colonne « Catégorie » à part.
+                  Sur mobile/tablette on la remonte sous la référence pour ne
+                  pas perdre cette info importante. */}
+              <div className="lg:hidden mt-1 min-w-0">
+                <div className="text-[11.5px] font-medium text-text-primary break-words" title={product.categoryName}>
+                  {product.categoryName}
+                </div>
+                {product.subCategoryNames.length > 0 && (
+                  <div
+                    className="text-[10.5px] text-text-muted leading-snug break-words"
+                    title={product.subCategoryNames.join(" · ")}
+                  >
+                    {product.subCategoryNames.join(" · ")}
+                  </div>
+                )}
+              </div>
               {/* Prix + icônes Important/Verrouiller sous la référence.
                   Toujours visibles pour libérer la largeur du tableau.
                   stopPropagation sur les toggles pour éviter de toggle la
@@ -3830,6 +3851,25 @@ function ProductRow({
               </div>
               )}
             </div>
+          </div>
+        </td>
+
+        {/* Catégorie — nom principal + sous-catégories en plus petit dessous.
+            Contenu centré verticalement + horizontalement dans la cellule.
+            Visible ≥ lg, masquée sur mobile/tablette pour libérer la largeur. */}
+        <td className="hidden lg:table-cell px-3 py-3.5 text-center align-middle">
+          <div className="min-w-0 mx-auto">
+            <div className="text-[12.5px] font-semibold text-text-primary break-words" title={product.categoryName}>
+              {product.categoryName}
+            </div>
+            {product.subCategoryNames.length > 0 && (
+              <div
+                className="text-[11px] text-text-muted leading-snug mt-0.5 break-words"
+                title={product.subCategoryNames.join(" · ")}
+              >
+                {product.subCategoryNames.join(" · ")}
+              </div>
+            )}
           </div>
         </td>
 
@@ -4762,6 +4802,7 @@ function TableWithTopScroll({
               </th>
               <th className="hidden sm:table-cell px-2 py-3.5 w-10 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">#</th>
               <th className="px-3 md:px-5 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Produit</th>
+              <th className="hidden lg:table-cell px-3 py-3.5 text-center text-[10px] font-bold text-text-muted uppercase tracking-widest">Catégorie</th>
               <th className="hidden lg:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Marketplaces</th>
               <th className="hidden md:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">État</th>
               <th className="hidden xl:table-cell px-3 py-3.5 text-left text-[10px] font-bold text-text-muted uppercase tracking-widest">Dates</th>

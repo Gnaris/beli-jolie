@@ -68,23 +68,33 @@ export default function CompactFiltersHeader({
       out.push({ key: "q", label: `Recherche · ${q.length > 24 ? q.slice(0, 24) + "…" : q}`, remove: ["q", "exactRef"] });
     }
     const cat = p.get("cat") ?? "";
-    if (cat) {
+    if (cat === "__none__") {
+      out.push({ key: "cat-none", label: "Sans catégorie", remove: ["cat", "subCat"] });
+    } else if (cat) {
       out.push({ key: `cat-${cat}`, label: `Catégorie · ${catLabels[cat] ?? cat}`, remove: ["cat", "subCat"] });
     }
     const subCat = p.get("subCat") ?? "";
-    if (subCat) {
+    if (subCat === "__none__") {
+      out.push({ key: "subCat-none", label: "Sans sous-catégorie", remove: ["subCat"] });
+    } else if (subCat) {
       out.push({ key: `subCat-${subCat}`, label: `Sous-cat. · ${catLabels[subCat] ?? subCat}`, remove: ["subCat"] });
     }
     const tag = p.get("tag") ?? "";
-    if (tag) {
+    if (tag === "__none__") {
+      out.push({ key: "tag-none", label: "Sans mot-clé", remove: ["tag"] });
+    } else if (tag) {
       out.push({ key: `tag-${tag}`, label: `Mot-clé · ${tagLabels[tag] ?? tag}`, remove: ["tag"] });
     }
     const composition = p.get("composition") ?? "";
-    if (composition) {
+    if (composition === "__none__") {
+      out.push({ key: "comp-none", label: "Sans composition", remove: ["composition"] });
+    } else if (composition) {
       out.push({ key: `comp-${composition}`, label: `Composition · ${compositionLabels[composition] ?? composition}`, remove: ["composition"] });
     }
     const hsCodeId = p.get("hsCodeId") ?? "";
-    if (hsCodeId) {
+    if (hsCodeId === "__none__") {
+      out.push({ key: "hs-none", label: "Sans code SH", remove: ["hsCodeId"] });
+    } else if (hsCodeId) {
       out.push({ key: `hs-${hsCodeId}`, label: `Code SH · ${hsLabels[hsCodeId] ?? hsCodeId}`, remove: ["hsCodeId"] });
     }
     const minPrice = p.get("minPrice") ?? "";

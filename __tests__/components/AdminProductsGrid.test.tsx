@@ -30,6 +30,7 @@ const baseProduct: AdminProduct = {
   important: false,
   categoryName: "Robes",
   subCategoryName: null,
+  subCategoryNames: [],
   createdAt: "2026-01-01",
   updatedAt: "2026-01-01",
   lastRefreshedAt: null,

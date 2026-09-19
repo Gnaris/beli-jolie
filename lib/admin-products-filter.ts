@@ -254,17 +254,32 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     }
   }
 
-  if (params.cat) where.categoryId = params.cat;
+  // La cliente veut pouvoir filtrer « Sans catégorie » même si `categoryId`
+  // est obligatoire au schéma (contrainte FK). En pratique aucun produit ne
+  // devrait matcher — mais si un import ou une migration a laissé une donnée
+  // incohérente en base, le filtre le remonte. On force un id impossible ;
+  // Prisma refuse `null` sur un champ obligatoire en TypeScript strict.
+  if (params.cat === "__none__") {
+    where.categoryId = "__no_category__";
+  } else if (params.cat) {
+    where.categoryId = params.cat;
+  }
 
-  if (params.subCat) {
+  if (params.subCat === "__none__") {
+    where.subCategories = { none: {} };
+  } else if (params.subCat) {
     where.subCategories = { some: { id: params.subCat } };
   }
 
-  if (params.tag) {
+  if (params.tag === "__none__") {
+    where.tags = { none: {} };
+  } else if (params.tag) {
     where.tags = { some: { tagId: params.tag } };
   }
 
-  if (params.composition) {
+  if (params.composition === "__none__") {
+    where.compositions = { none: {} };
+  } else if (params.composition) {
     where.compositions = { some: { compositionId: params.composition } };
   }
 

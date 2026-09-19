@@ -442,7 +442,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
       take:    perPage,
       include: {
         category:      { select: { name: true } },
-        subCategories: { select: { name: true }, take: 1 },
+        // On charge toutes les sous-catégories attribuées (et plus seulement
+        // la 1ʳᵉ) pour alimenter la colonne « Catégorie » du tableau admin —
+        // qui liste sous-catégories sous le nom de la catégorie principale.
+        subCategories: { select: { name: true }, orderBy: { name: "asc" } },
         colors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           select: {
@@ -566,6 +569,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     important:       p.important,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
+    subCategoryNames: p.subCategories.map((s) => s.name),
     createdAt:       p.createdAt.toISOString(),
     updatedAt:       p.updatedAt.toISOString(),
     lastRefreshedAt: p.lastRefreshedAt ? p.lastRefreshedAt.toISOString() : null,
