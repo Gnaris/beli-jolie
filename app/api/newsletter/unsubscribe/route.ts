@@ -113,32 +113,48 @@ export async function GET(req: Request) {
       );
     }
 
-    // 1 clic = désinscription globale (newsletter + relances panier). Sinon
-    // le client resterait relancé sur son panier abandonné même après avoir
-    // cliqué sur "se désinscrire" — non-conforme RGPD.
+    // 1 clic = désinscription globale (newsletter + relances panier + relances
+    // inactivité). Sinon le client resterait relancé après avoir cliqué sur
+    // "se désinscrire" — non-conforme RGPD.
     await prisma.user.update({
       where: { id: user.id },
       data: {
         acceptsNewsletter: false,
         abandonedCartOptOut: true,
+        inactiveClientOptOut: true,
       },
     });
     // Annule tout job de relance en cours (fire-and-forget, tenant scope via
     // le predicate userId qui reste unique).
-    await prisma.abandonedCartJob
-      .updateMany({
-        where: {
-          userId: user.id,
-          tenantId: check.tenantId,
-          status: "PENDING",
-        },
-        data: {
-          status: "CANCELLED",
-          nextStageAt: null,
-          cancelReason: "OPT_OUT",
-        },
-      })
-      .catch(() => undefined);
+    await Promise.all([
+      prisma.abandonedCartJob
+        .updateMany({
+          where: {
+            userId: user.id,
+            tenantId: check.tenantId,
+            status: "PENDING",
+          },
+          data: {
+            status: "CANCELLED",
+            nextStageAt: null,
+            cancelReason: "OPT_OUT",
+          },
+        })
+        .catch(() => undefined),
+      prisma.inactiveClientJob
+        .updateMany({
+          where: {
+            userId: user.id,
+            tenantId: check.tenantId,
+            status: "PENDING",
+          },
+          data: {
+            status: "CANCELLED",
+            cancelReason: "OPT_OUT",
+          },
+        })
+        .catch(() => undefined),
+    ]);
     logger.info?.("[newsletter/unsubscribe] user unsubscribed", {
       userId: user.id,
       tenantId: check.tenantId,

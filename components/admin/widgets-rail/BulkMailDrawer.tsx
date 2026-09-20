@@ -154,6 +154,29 @@ export function BulkMailDrawer() {
     }
   }
 
+  async function onDeleteRecent(id: string) {
+    try {
+      await fetch(`/api/admin/recent-emails?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      await refresh();
+    } catch {
+      // ignoré
+    }
+  }
+
+  async function onClearAllRecent() {
+    if (!window.confirm("Vider tous les envois récents (dernière heure) ? Cette action est irréversible.")) {
+      return;
+    }
+    try {
+      await fetch("/api/admin/recent-emails", { method: "DELETE" });
+      await refresh();
+    } catch {
+      // ignoré
+    }
+  }
+
   const totalPlanned = active.reduce((n, j) => n + j.totalCount, 0);
   const totalProcessed = active.reduce((n, j) => n + j.sentCount + j.failedCount, 0);
   const pct = totalPlanned > 0 ? Math.round((totalProcessed / totalPlanned) * 100) : 0;
@@ -235,9 +258,23 @@ export function BulkMailDrawer() {
 
           {recent.length > 0 && (
             <>
-              <SectionHeader>Autres envois récents (1 h)</SectionHeader>
+              <div className="px-4 py-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-fuchsia-700 font-semibold bg-fuchsia-50/40 border-b border-slate-100">
+                <span>Autres envois récents (1 h)</span>
+                <button
+                  type="button"
+                  onClick={onClearAllRecent}
+                  className="text-[10px] normal-case tracking-normal font-medium text-slate-500 hover:text-rose-600 underline"
+                  title="Supprimer tous les envois récents de la liste"
+                >
+                  Vider tout
+                </button>
+              </div>
               {recent.map((e) => (
-                <RecentEmailRow key={e.id} email={e} />
+                <RecentEmailRow
+                  key={e.id}
+                  email={e}
+                  onDelete={() => onDeleteRecent(e.id)}
+                />
               ))}
             </>
           )}
@@ -361,7 +398,13 @@ function RecipientRow({ recipient }: { recipient: Recipient }) {
   );
 }
 
-function RecentEmailRow({ email }: { email: RecentEmail }) {
+function RecentEmailRow({
+  email,
+  onDelete,
+}: {
+  email: RecentEmail;
+  onDelete: () => void;
+}) {
   const failed = email.status === "FAILED";
   const bg = failed ? "bg-rose-50/40" : "";
   return (
@@ -381,6 +424,17 @@ function RecentEmailRow({ email }: { email: RecentEmail }) {
         )}
       </div>
       <EmailStatusBadge status={email.status} sentAt={email.sentAt} />
+      <button
+        type="button"
+        onClick={onDelete}
+        title="Supprimer cet envoi de la liste"
+        aria-label="Supprimer cet envoi"
+        className="text-slate-400 hover:text-rose-600 shrink-0 mt-0.5"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 }

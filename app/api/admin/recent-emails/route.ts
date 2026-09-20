@@ -83,3 +83,48 @@ export async function GET() {
     })),
   });
 }
+
+/**
+ * DELETE /api/admin/recent-emails
+ *   ?id=<emailId>  → supprime UN envoi précis
+ *   (sans param)   → vide toute la fenêtre visible (60 min, hors bulk)
+ *
+ * Sert au bouton « corbeille » de chaque ligne + au bouton « Vider tout »
+ * du widget. Suppression scopée au tenant (defense en profondeur).
+ */
+export async function DELETE(req: Request) {
+  const guard = await guardAdmin();
+  if (guard) return guard;
+
+  const tenantId = await getCurrentTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ ok: true, deleted: 0 });
+  }
+
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
+
+  if (id) {
+    const res = await prisma.emailSend.deleteMany({
+      where: { id, tenantId },
+    });
+    return NextResponse.json({ ok: true, deleted: res.count });
+  }
+
+  // Sinon : vide tous les mails visibles dans le widget (60 min, hors bulk).
+  const cutoff = new Date(Date.now() - WINDOW_MS);
+  const visible = await prisma.emailSend.findMany({
+    where: { tenantId, sentAt: { gte: cutoff } },
+    select: { id: true, metadata: true },
+  });
+  const idsToDelete = visible
+    .filter((e) => {
+      const meta = (e.metadata ?? null) as { bulkMailJobId?: unknown } | null;
+      return !meta || typeof meta.bulkMailJobId !== "string";
+    })
+    .map((e) => e.id);
+  const res = await prisma.emailSend.deleteMany({
+    where: { id: { in: idsToDelete }, tenantId },
+  });
+  return NextResponse.json({ ok: true, deleted: res.count });
+}

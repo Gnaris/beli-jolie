@@ -322,6 +322,10 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
       postalCode: c.addressZip ?? "",
       city: c.addressCity ?? "",
       country: c.addressCountry ?? "",
+      // {days} : vrai nombre de jours d'inactivité du client sélectionné.
+      // null (jamais visité) → chaîne vide (le gabarit basculera sur
+      // neverVisitedTemplate côté rendu final).
+      days: c.daysInactive === null ? "" : String(c.daysInactive),
     };
   }, [scenarioKey, previewClientId, previewClients]);
 
@@ -1508,14 +1512,22 @@ function BlockRender({
       );
     }
     case "daysInactive": {
-      const sampleText = (block.data.template || "").replace(/\{days\}/g, "12");
+      // Vrai nombre de jours du client sélectionné (via previewContext.days
+      // alimenté depuis c.daysInactive = floor((now - lastSeenAt) / 1 jour)).
+      // Si vide → jamais visité → gabarit neverVisitedTemplate.
+      const daysStr = previewContext.days ?? "";
+      const hasDays = daysStr !== "";
+      const template = hasDays
+        ? (block.data.template || "")
+        : (block.data.neverVisitedTemplate || "");
+      const rendered = hasDays ? template.replace(/\{days\}/g, daysStr) : template;
       return (
         <div style={{ ...s, padding: "12px 20px", background: block.data.bg || "transparent" }}>
           <p style={{ fontSize: 13, color: block.data.color || "#475569", lineHeight: 1.6, margin: 0 }}>
-            {sampleText || <span style={{ color: "#cbd5e1" }}>Message vide — renseigne le gabarit dans les réglages.</span>}
+            {rendered || <span style={{ color: "#cbd5e1" }}>Message vide — renseigne le gabarit dans les réglages.</span>}
           </p>
           <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6, fontStyle: "italic" }}>
-            💡 Aperçu (12 jours) — le vrai nombre sera injecté à l&apos;envoi.
+            💡 Aperçu {hasDays ? `(${daysStr} jour${daysStr === "1" ? "" : "s"} d'inactivité du client)` : "(jamais visité)"}.
           </div>
         </div>
       );

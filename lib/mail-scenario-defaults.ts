@@ -89,52 +89,7 @@ interface DefaultTemplate {
 
 export const SCENARIO_DEFAULTS: Record<ScenarioKey, DefaultTemplate> = {
   ABANDONED_CART: abandonedCartStageDefault(1),
-  INACTIVE_CLIENT: {
-    name: SCENARIO_DEFAULT_NAMES.INACTIVE_CLIENT,
-    subject: "Nos nouveautés vous attendent",
-    blocks: [
-      {
-        id: "inac-heading",
-        type: "heading",
-        data: {
-          title: "On vous a pas vu depuis un moment 😴",
-          body: "Bonjour {firstName},",
-          align: "left",
-        },
-      },
-      {
-        id: "inac-days",
-        type: "daysInactive",
-        data: {
-          template: "Cela fait {days} jour(s) qu'on ne vous a pas vu sur notre boutique. Nous avons plein de nouveautés à vous montrer !",
-          neverVisitedTemplate: "Vous n'avez encore jamais visité notre boutique en ligne. Nos nouveautés vous attendent !",
-        },
-      },
-      {
-        id: "inac-list",
-        type: "list",
-        data: {
-          items: [
-            "✨ Nouvelle collection en ligne",
-            "💎 Nouveaux modèles en stock",
-            "🎁 Livraison offerte dès 200 € HT",
-          ],
-        },
-      },
-      {
-        id: "inac-btn",
-        type: "button",
-        data: {
-          label: "Découvrir les nouveautés",
-          url: "/produits",
-          bg: "#0f172a",
-          color: "#ffffff",
-          align: "center",
-        },
-      },
-      ...legalFooterBlocks("inac"),
-    ],
-  },
+  INACTIVE_CLIENT: inactiveClientStageDefault(1),
   RESTOCK: {
     name: SCENARIO_DEFAULT_NAMES.RESTOCK,
     subject: "Vos favoris sont de retour",
@@ -441,6 +396,205 @@ export function abandonedCartStageDefault(stageIndex: number): DefaultTemplate {
             },
           },
           legalFooterBlock("abc3"),
+        ],
+      };
+  }
+}
+
+/**
+ * Retourne le modèle par défaut pour un stade relance inactivité donné.
+ * - Stade 1 : rappel doux « on ne vous a pas vu depuis un moment ».
+ * - Stade 2 : rappel personnalisé avec bénéfices.
+ * - Stade 3 : dernière relance chaleureuse avant silence.
+ * Au-delà du stade 3 → design du stade 3 (édité par la cliente).
+ */
+export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate {
+  switch (stageIndex) {
+    case 1:
+      return {
+        name: SCENARIO_DEFAULT_NAMES.INACTIVE_CLIENT,
+        subject: "Nos nouveautés vous attendent",
+        blocks: [
+          brandHeaderBlock("inac1"),
+          {
+            id: "inac1-title",
+            type: "heading",
+            data: {
+              title: "On vous a pas vu depuis un moment 😴",
+              body: "Bonjour {firstName},",
+              align: "left",
+            },
+          },
+          {
+            id: "inac1-days",
+            type: "daysInactive",
+            data: {
+              template:
+                "Cela fait {days} jour(s) qu'on ne vous a pas vu sur notre boutique. Nous avons plein de nouveautés à vous montrer !",
+              neverVisitedTemplate:
+                "Vous n'avez encore jamais visité notre boutique en ligne. Nos nouveautés vous attendent !",
+            },
+          },
+          {
+            id: "inac1-list",
+            type: "list",
+            data: {
+              items: [
+                "✨ Nouvelle collection en ligne",
+                "💎 Nouveaux modèles en stock",
+                "🎁 Livraison offerte dès 200 € HT",
+              ],
+            },
+          },
+          {
+            id: "inac1-btn",
+            type: "button",
+            data: {
+              label: "Découvrir les nouveautés",
+              url: "/produits",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          {
+            id: "inac1-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "À très vite,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("inac1"),
+        ],
+      };
+
+    case 2:
+      return {
+        name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade 2`,
+        subject: "Un petit clin d'œil pour vous {firstName}",
+        blocks: [
+          brandHeaderBlock("inac2"),
+          {
+            id: "inac2-title",
+            type: "heading",
+            data: {
+              title: "Vous nous manquez",
+              body: "Bonjour {firstName}, on tenait à reprendre contact.",
+              align: "left",
+            },
+          },
+          {
+            id: "inac2-days",
+            type: "daysInactive",
+            data: {
+              template:
+                "Il s'est écoulé {days} jour(s) depuis votre dernière visite. Notre équipe reste disponible si vous avez la moindre question — sur un modèle, la livraison, votre compte.",
+              neverVisitedTemplate:
+                "Nous n'avons pas encore eu le plaisir de vous accueillir sur notre boutique en ligne. On serait ravi de vous montrer ce qu'on a préparé.",
+            },
+          },
+          {
+            id: "inac2-btn",
+            type: "button",
+            data: {
+              label: "Revenir sur la boutique",
+              url: "/produits",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          {
+            id: "inac2-subcta",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Ou contactez-nous — on répond en général sous 2 h ouvrées.",
+              align: "center",
+              bodyColor: "#64748b",
+              bodySize: 12,
+            },
+          },
+          {
+            id: "inac2-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Bonne journée,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("inac2"),
+        ],
+      };
+
+    case 3:
+    default:
+      return {
+        name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade 3`,
+        subject: "Un dernier bonjour de notre part",
+        blocks: [
+          brandHeaderBlock("inac3"),
+          {
+            id: "inac3-warn",
+            type: "heading",
+            data: {
+              title: "NOUVEAUTÉS DU MOMENT",
+              body: "On vous a préparé les dernières arrivées à découvrir.",
+              align: "center",
+              bg: "#0f172a",
+              titleColor: "#cbd5e1",
+              bodyColor: "#ffffff",
+              titleSize: 11,
+              bodySize: 15,
+            },
+          },
+          {
+            id: "inac3-title",
+            type: "heading",
+            data: {
+              title: "{firstName}, ce sera notre dernière relance",
+              body: "On ne veut pas encombrer votre boîte mail. Voici la dernière invitation à passer nous voir — après, promis, on vous laisse tranquille.",
+              align: "left",
+            },
+          },
+          {
+            id: "inac3-days",
+            type: "daysInactive",
+            data: {
+              template:
+                "Cela fait {days} jour(s) qu'on ne vous a pas croisé sur la boutique.",
+              neverVisitedTemplate:
+                "Vous n'avez encore jamais franchi les portes de notre boutique en ligne.",
+            },
+          },
+          {
+            id: "inac3-btn",
+            type: "button",
+            data: {
+              label: "Voir les nouveautés",
+              url: "/produits",
+              bg: "#0f172a",
+              color: "#ffffff",
+              align: "center",
+            },
+          },
+          { id: "inac3-divider", type: "divider", data: {} },
+          {
+            id: "inac3-sign",
+            type: "heading",
+            data: {
+              title: "",
+              body: "Merci pour votre confiance,\nL'équipe {shopName}",
+              align: "left",
+              bodyColor: "#475569",
+            },
+          },
+          legalFooterBlock("inac3"),
         ],
       };
   }

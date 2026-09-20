@@ -22,9 +22,16 @@ import {
   loadAbandonedCartJobsFor,
   type AbandonedCartJobInfo,
 } from "@/app/actions/admin/abandoned-cart";
+import {
+  loadInactiveClientJobsFor,
+  type InactiveClientJobInfo,
+} from "@/app/actions/admin/inactive-client";
 import AbandonedCartCountdown from "@/components/admin/users/AbandonedCartCountdown";
 import AbandonedCartLastSent from "@/components/admin/users/AbandonedCartLastSent";
 import AbandonedCartResetButton from "@/components/admin/users/AbandonedCartResetButton";
+import InactiveClientCountdown from "@/components/admin/users/InactiveClientCountdown";
+import InactiveClientLastSent from "@/components/admin/users/InactiveClientLastSent";
+import InactiveClientResetButton from "@/components/admin/users/InactiveClientResetButton";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import {
@@ -315,6 +322,13 @@ export default async function MarketingPage({
       ? await loadAbandonedCartJobsFor(registeredData.clients.map((c) => c.id))
       : new Map();
 
+  // Prochaine relance inactivité — miroir de la ligne ci-dessus, affichée
+  // dans la colonne « Inactivité » de la vue Mails.
+  const inactiveJobsData: Map<string, InactiveClientJobInfo> =
+    currentTab === "inscrits"
+      ? await loadInactiveClientJobsFor(registeredData.clients.map((c) => c.id))
+      : new Map();
+
   // Vue Mails « Fiches » : dernier mail envoyé par fiche (indexé par ficheId).
   const lastMailByFicheId: Record<string, string | null> =
     currentTab === "fiches" && cardsData
@@ -377,6 +391,7 @@ export default async function MarketingPage({
             view={view}
             carts={cartsData}
             abandonedJobs={abandonedJobsData}
+            inactiveJobs={inactiveJobsData}
           />
           {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
         </MailSelectionProvider>
@@ -670,12 +685,14 @@ function MailsView({
   page,
   perPage,
   abandonedJobs,
+  inactiveJobs,
 }: {
   clients: RegisteredClient[];
   totalFiltered: number;
   page: number;
   perPage: number;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
+  inactiveJobs: Map<string, InactiveClientJobInfo>;
 }) {
   const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
     { key: "ABANDONED_CART", label: "Panier abandonné", short: "Panier" },
@@ -737,6 +754,7 @@ function MailsView({
                     </td>
                     {MAIL_COLUMNS.map((col) => {
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
+                      const inactiveJob = col.key === "INACTIVE_CLIENT" ? inactiveJobs.get(c.id) : null;
                       return (
                         <td key={col.key} className="px-5 py-3.5 whitespace-nowrap">
                           {abandonedJob ? (
@@ -760,6 +778,32 @@ function MailsView({
                                   />
                                 )}
                                 <AbandonedCartResetButton
+                                  userId={c.id}
+                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                                />
+                              </div>
+                            </div>
+                          ) : inactiveJob ? (
+                            <div className="space-y-1">
+                              {inactiveJob.nextStageAt &&
+                                inactiveJob.nextStageIndex !== null && (
+                                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-50 border border-violet-200 text-violet-800">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                                    <InactiveClientCountdown
+                                      stageIndex={inactiveJob.nextStageIndex}
+                                      nextAtIso={inactiveJob.nextStageAt.toISOString()}
+                                    />
+                                  </div>
+                                )}
+                              <div className="flex items-center gap-2">
+                                {inactiveJob.lastSent && (
+                                  <InactiveClientLastSent
+                                    stageIndex={inactiveJob.lastSent.stageIndex}
+                                    atIso={inactiveJob.lastSent.at.toISOString()}
+                                    stillExists={inactiveJob.lastSent.stillExists}
+                                  />
+                                )}
+                                <InactiveClientResetButton
                                   userId={c.id}
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                 />
@@ -819,12 +863,18 @@ function MailsView({
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {MAIL_COLUMNS.map((col) => {
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
+                      const inactiveJob = col.key === "INACTIVE_CLIENT" ? inactiveJobs.get(c.id) : null;
+                      const tone = abandonedJob
+                        ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800" }
+                        : inactiveJob
+                          ? { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-800" }
+                          : null;
                       return (
                         <div
                           key={col.key}
-                          className={`rounded-lg px-2.5 py-2 ${abandonedJob ? "bg-amber-50 border border-amber-200" : "bg-bg-secondary border border-border"}`}
+                          className={`rounded-lg px-2.5 py-2 ${tone ? `${tone.bg} border ${tone.border}` : "bg-bg-secondary border border-border"}`}
                         >
-                          <p className={`text-[10px] font-body font-bold uppercase tracking-[0.1em] ${abandonedJob ? "text-amber-800" : "text-text-muted"}`}>
+                          <p className={`text-[10px] font-body font-bold uppercase tracking-[0.1em] ${tone ? tone.text : "text-text-muted"}`}>
                             {col.short}
                           </p>
                           {abandonedJob ? (
@@ -845,6 +895,29 @@ function MailsView({
                                   />
                                 )}
                                 <AbandonedCartResetButton
+                                  userId={c.id}
+                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
+                                />
+                              </div>
+                            </div>
+                          ) : inactiveJob ? (
+                            <div className="mt-1.5 space-y-1">
+                              {inactiveJob.nextStageAt &&
+                                inactiveJob.nextStageIndex !== null && (
+                                  <InactiveClientCountdown
+                                    stageIndex={inactiveJob.nextStageIndex}
+                                    nextAtIso={inactiveJob.nextStageAt.toISOString()}
+                                  />
+                                )}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {inactiveJob.lastSent && (
+                                  <InactiveClientLastSent
+                                    stageIndex={inactiveJob.lastSent.stageIndex}
+                                    atIso={inactiveJob.lastSent.at.toISOString()}
+                                    stillExists={inactiveJob.lastSent.stillExists}
+                                  />
+                                )}
+                                <InactiveClientResetButton
                                   userId={c.id}
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                 />
@@ -898,6 +971,7 @@ function RegisteredPane({
   view,
   carts,
   abandonedJobs,
+  inactiveJobs,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -912,6 +986,7 @@ function RegisteredPane({
   view: "infos" | "mails";
   carts: Map<string, CartSummary>;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
+  inactiveJobs: Map<string, InactiveClientJobInfo>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
@@ -1001,6 +1076,7 @@ function RegisteredPane({
           page={page}
           perPage={perPage}
           abandonedJobs={abandonedJobs}
+          inactiveJobs={inactiveJobs}
         />
       ) : (
         <>

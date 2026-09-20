@@ -100,11 +100,11 @@ export async function updateProfile(
 
 /**
  * Bascule la préférence newsletter du client authentifié.
- * Une case unique couvre newsletter + relances panier abandonné (RGPD + choix
- * cliente). Se désinscrire coupe donc AUSSI toute relance panier oublié :
- * on force `abandonedCartOptOut = true` et on annule les jobs en attente.
- * Se réinscrire remet `abandonedCartOptOut = false` — un nouveau job sera
- * créé à la prochaine mutation panier.
+ * Une case unique couvre newsletter + relances panier abandonné + relances
+ * inactivité (RGPD + choix cliente). Se désinscrire coupe donc AUSSI toute
+ * relance : on force les opt-out à true et on annule les jobs en attente.
+ * Se réinscrire remet les opt-out à false — de nouveaux jobs seront créés
+ * naturellement au prochain déclencheur (mutation panier / worker inactivité).
  */
 export async function setNewsletterPreference(accept: boolean) {
   const session = await getServerSession(authOptions);
@@ -118,18 +118,28 @@ export async function setNewsletterPreference(accept: boolean) {
     data: {
       acceptsNewsletter: accepts,
       abandonedCartOptOut: !accepts,
+      inactiveClientOptOut: !accepts,
     },
   });
 
   if (!accepts) {
-    await prisma.abandonedCartJob.updateMany({
-      where: { userId, status: "PENDING" },
-      data: {
-        status: "CANCELLED",
-        nextStageAt: null,
-        cancelReason: "OPT_OUT",
-      },
-    });
+    await Promise.all([
+      prisma.abandonedCartJob.updateMany({
+        where: { userId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          nextStageAt: null,
+          cancelReason: "OPT_OUT",
+        },
+      }),
+      prisma.inactiveClientJob.updateMany({
+        where: { userId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          cancelReason: "OPT_OUT",
+        },
+      }),
+    ]);
   }
 
   revalidatePath("/espace-pro");

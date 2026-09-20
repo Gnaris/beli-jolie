@@ -40,17 +40,25 @@ export interface NewsletterTemplateFull extends NewsletterTemplateSummary {
 export async function listNewsletterTemplates(): Promise<NewsletterTemplateSummary[]> {
   const { tenant } = await requireAdmin();
   await ensureDefaultScenarioTemplatesFor(tenant.id);
-  // Les templates rattachés à un Stade ≥ 2 de la relance panier abandonné ne
-  // s'éditent QUE depuis /admin/marketing/mails/panier-abandonne. On les
-  // exclut de cette liste pour éviter que la cliente les supprime par erreur
-  // (la suppression du template casserait le stade par cascade FK). Le
-  // Stade 1 (scenarioKey=ABANDONED_CART) reste visible dans la section
-  // « Mails automatiques » comme les autres scénarios.
-  const abandonedStageTemplates = await prisma.abandonedCartStage.findMany({
-    where: { tenantId: tenant.id, stageIndex: { gte: 2 } },
-    select: { templateId: true },
-  });
-  const hiddenIds = abandonedStageTemplates.map((s) => s.templateId);
+  // Les templates rattachés à un Stade ≥ 2 (panier abandonné OU inactivité)
+  // ne s'éditent QUE depuis leur page dédiée. On les exclut de cette liste
+  // pour éviter que la cliente les supprime par erreur (la suppression du
+  // template casserait le stade par cascade FK). Le Stade 1 de chaque
+  // scénario reste visible via sa tuile dans « Mails automatiques ».
+  const [abandonedStageTemplates, inactiveStageTemplates] = await Promise.all([
+    prisma.abandonedCartStage.findMany({
+      where: { tenantId: tenant.id, stageIndex: { gte: 2 } },
+      select: { templateId: true },
+    }),
+    prisma.inactiveClientStage.findMany({
+      where: { tenantId: tenant.id, stageIndex: { gte: 2 } },
+      select: { templateId: true },
+    }),
+  ]);
+  const hiddenIds = [
+    ...abandonedStageTemplates.map((s) => s.templateId),
+    ...inactiveStageTemplates.map((s) => s.templateId),
+  ];
   const rows = await prisma.newsletterTemplate.findMany({
     where: {
       tenantId: tenant.id,
@@ -330,18 +338,30 @@ export async function deleteNewsletterTemplate(
         error: "Ce modèle est utilisé pour un mail automatique. Assignez d'abord un autre modèle à ce type de mail pour le libérer.",
       };
     }
-    // Défense en profondeur : les templates rattachés à un Stade ≥ 2 de la
-    // relance panier abandonné ne doivent pas être supprimables ici — la
-    // cascade FK effacerait le stade en silence. Passage obligatoire par
+    // Défense en profondeur : les templates rattachés à un stade de relance
+    // (panier abandonné ou inactivité) ne doivent pas être supprimables ici —
+    // la cascade FK effacerait le stade en silence. Passage obligatoire par
     // la page dédiée qui supprime stade + template ensemble proprement.
-    const linkedStage = await prisma.abandonedCartStage.findFirst({
-      where: { templateId: id, tenantId: tenant.id },
-      select: { stageIndex: true },
-    });
-    if (linkedStage) {
+    const [linkedAbandoned, linkedInactive] = await Promise.all([
+      prisma.abandonedCartStage.findFirst({
+        where: { templateId: id, tenantId: tenant.id },
+        select: { stageIndex: true },
+      }),
+      prisma.inactiveClientStage.findFirst({
+        where: { templateId: id, tenantId: tenant.id },
+        select: { stageIndex: true },
+      }),
+    ]);
+    if (linkedAbandoned) {
       return {
         success: false,
-        error: `Ce modèle est le Stade ${linkedStage.stageIndex} de la relance panier abandonné. Pour le retirer, ouvre « Relances panier abandonné » et clique sur la poubelle du Stade ${linkedStage.stageIndex}.`,
+        error: `Ce modèle est le Stade ${linkedAbandoned.stageIndex} de la relance panier abandonné. Pour le retirer, ouvre « Relances panier abandonné » et clique sur la poubelle du Stade ${linkedAbandoned.stageIndex}.`,
+      };
+    }
+    if (linkedInactive) {
+      return {
+        success: false,
+        error: `Ce modèle est le Stade ${linkedInactive.stageIndex} de la relance inactivité. Pour le retirer, ouvre « Relances inactivité » et clique sur la poubelle du Stade ${linkedInactive.stageIndex}.`,
       };
     }
     await prisma.newsletterTemplate.delete({ where: { id } });
@@ -444,6 +464,8 @@ export interface PreviewClientLite {
   lastName: string;
   company: string;
   email: string;
+  /** Jours d'inactivité (dernière visite) — null si jamais visité. */
+  daysInactive: number | null;
   phone: string;
   siret: string | null;
   vatNumber: string | null;
@@ -466,12 +488,19 @@ export async function listPreviewClients(): Promise<PreviewClientLite[]> {
       id: true, firstName: true, lastName: true, company: true, email: true,
       phone: true, siret: true, vatNumber: true,
       addressStreet: true, addressZip: true, addressCity: true, addressCountry: true,
+      lastSeenAt: true,
     },
     // Cap raisonnable : 200 clients suffisent pour un dropdown, éviter un
     // gros payload si la base contient plusieurs milliers de clients.
     take: 200,
   });
-  return rows;
+  const now = Date.now();
+  return rows.map(({ lastSeenAt, ...rest }) => ({
+    ...rest,
+    daysInactive: lastSeenAt
+      ? Math.floor((now - lastSeenAt.getTime()) / 86400_000)
+      : null,
+  }));
 }
 
 /**

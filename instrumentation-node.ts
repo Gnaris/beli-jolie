@@ -260,6 +260,24 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de relance inactivité (pilote InactiveClientJob).
+  // Tick 10 min : les stades sont en jours, pas besoin de plus fin. Scan des
+  // users éligibles par tenant (kill switch SiteConfig
+  // `inactive_client_automation_enabled` filtré côté worker), wrappé
+  // tenantALS.run par tenant.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startInactiveClientWorker } = await import("@/lib/inactive-client-worker");
+        startInactiveClientWorker();
+      } catch (err) {
+        logger.error("[Inactive Client] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

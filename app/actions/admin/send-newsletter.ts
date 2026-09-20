@@ -543,6 +543,10 @@ export async function sendTestNewsletterEmail({
         currency: "EUR",
       }),
       cartCount: String(cartCount),
+      days:
+        dynamic.daysInactive === null || dynamic.daysInactive === undefined
+          ? ""
+          : String(dynamic.daysInactive),
       unsubscribeLink,
       privacyLink: `${baseUrl}/fr/confidentialite`,
     };
@@ -682,6 +686,25 @@ async function buildTestDynamicContext({
     return {
       firstName: clientUser.firstName,
       cart: buildFakeCart(),
+    };
+  }
+
+  // INACTIVE_CLIENT : injecte daysInactive calculé depuis le vrai lastSeenAt
+  // du client, ou une valeur d'aperçu (45 j) pour un self-test admin.
+  if (scenarioKey === "INACTIVE_CLIENT") {
+    let daysInactive: number | null = 45;
+    if (clientUser) {
+      const u = await prisma.user.findFirst({
+        where: { id: clientUser.id, tenantId },
+        select: { lastSeenAt: true },
+      });
+      daysInactive = u?.lastSeenAt
+        ? Math.floor((Date.now() - u.lastSeenAt.getTime()) / 86400_000)
+        : null;
+    }
+    return {
+      firstName: clientUser?.firstName ?? "Marie",
+      daysInactive,
     };
   }
 

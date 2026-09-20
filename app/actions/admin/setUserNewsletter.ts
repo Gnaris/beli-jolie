@@ -31,21 +31,31 @@ export async function setUserNewsletter(userId: string, accept: boolean) {
     data: {
       acceptsNewsletter: accepts,
       abandonedCartOptOut: !accepts,
+      inactiveClientOptOut: !accepts,
     },
   });
 
   if (!accepts) {
-    // Une seule case = newsletter + relances panier. Désabonner coupe les
-    // jobs de relance en attente pour ne pas laisser de timer fantôme
-    // dans l'admin.
-    await prisma.abandonedCartJob.updateMany({
-      where: { userId, status: "PENDING" },
-      data: {
-        status: "CANCELLED",
-        nextStageAt: null,
-        cancelReason: "OPT_OUT",
-      },
-    });
+    // Une seule case = newsletter + relances panier + relances inactivité.
+    // Désabonner coupe les jobs de relance en attente pour ne pas laisser de
+    // timer fantôme dans l'admin.
+    await Promise.all([
+      prisma.abandonedCartJob.updateMany({
+        where: { userId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          nextStageAt: null,
+          cancelReason: "OPT_OUT",
+        },
+      }),
+      prisma.inactiveClientJob.updateMany({
+        where: { userId, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          cancelReason: "OPT_OUT",
+        },
+      }),
+    ]);
   }
 
   revalidatePath(`/admin/clients/${userId}`);

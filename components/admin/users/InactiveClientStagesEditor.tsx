@@ -1,42 +1,33 @@
 "use client";
 
 /**
- * Éditeur de la config de relance panier abandonné.
- *
- * Section unique avec :
- *   - Toggle « Activer les relances » (grisé + explication si des templates
- *     ont perdu leur lien de désinscription).
- *   - Liste ordonnée des stades. Chaque stade = 1 ligne avec :
- *       n° de stade / champ délai (nombre + unité) / bouton « Modifier le
- *       mail » (ouvre l'éditeur newsletter du template lié) / badge d'alerte
- *       si le footer n'a plus {unsubscribeLink} / poubelle.
- *   - Bouton « + Ajouter un stade » (crée un nouveau template cloné du
- *     dernier stade + un délai par défaut = 2× le précédent).
- *
- * Chaque modification appelle une server action, la page revalide, et
- * l'éditeur ré-affiche l'état fraîchement chargé.
+ * Éditeur de la config de relance inactivité. Miroir strict de
+ * AbandonedCartStagesEditor — même UX, palette violette. Le compte à rebours
+ * de chaque stade est calculé côté worker (pas de nextStageAt persisté), donc
+ * les hints diffèrent légèrement :
+ *   - « Envoi après X jours d'inactivité » (au lieu de « après dernière modif panier »)
+ *   - Pas de reset du timer sur modif — le worker recalcule chaque tick.
  */
 
 import { useState, useTransition } from "react";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
-import AbandonedCartMailModal from "@/components/admin/users/AbandonedCartMailModal";
+import InactiveClientMailModal from "@/components/admin/users/InactiveClientMailModal";
 import {
-  addAbandonedCartStage,
-  deleteAbandonedCartStage,
-  setAbandonedCartAutomationEnabled,
-  updateAbandonedCartStageDelay,
-  type AbandonedCartConfigDTO,
-  type AbandonedCartStageDTO,
-} from "@/app/actions/admin/abandoned-cart";
+  addInactiveClientStage,
+  deleteInactiveClientStage,
+  setInactiveClientAutomationEnabled,
+  updateInactiveClientStageDelay,
+  type InactiveClientConfigDTO,
+  type InactiveClientStageDTO,
+} from "@/app/actions/admin/inactive-client";
 import {
-  DELAY_UNIT_LABELS,
   formatDurationShort,
   fromSeconds,
   toSeconds,
   type DelayUnit,
-} from "@/lib/abandoned-cart-config";
+} from "@/lib/inactive-client-config";
 
 const UNIT_OPTIONS: { value: DelayUnit; label: string }[] = [
   { value: "seconds", label: "secondes" },
@@ -46,21 +37,20 @@ const UNIT_OPTIONS: { value: DelayUnit; label: string }[] = [
 ];
 
 interface Props {
-  initialConfig: AbandonedCartConfigDTO;
+  initialConfig: InactiveClientConfigDTO;
 }
 
-export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
+export default function InactiveClientStagesEditor({ initialConfig }: Props) {
   const toast = useToast();
   const { confirm } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [config, setConfig] = useState(initialConfig);
-  // ID du stade dont on édite le mail dans la modale. null = modale fermée.
   const [editingStageId, setEditingStageId] = useState<string | null>(null);
 
   function toggleAutomation() {
     const next = !config.automationEnabled;
     startTransition(async () => {
-      const res = await setAbandonedCartAutomationEnabled(next);
+      const res = await setInactiveClientAutomationEnabled(next);
       if (!res.success) {
         toast.error("Activation impossible", res.error);
         return;
@@ -69,15 +59,15 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
       toast.success(
         next ? "Relances activées" : "Relances désactivées",
         next
-          ? "Les clients recevront désormais les mails aux échéances configurées."
-          : "Plus aucun mail de relance panier ne sera envoyé.",
+          ? "Les clients inactifs recevront désormais les mails aux échéances configurées."
+          : "Plus aucun mail de relance inactivité ne sera envoyé.",
       );
     });
   }
 
   function onAdd() {
     startTransition(async () => {
-      const res = await addAbandonedCartStage();
+      const res = await addInactiveClientStage();
       if (!res.success) {
         toast.error("Ajout impossible", res.error);
         return;
@@ -87,7 +77,7 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
     });
   }
 
-  async function onDelete(stage: AbandonedCartStageDTO) {
+  async function onDelete(stage: InactiveClientStageDTO) {
     const ok = await confirm({
       title: `Supprimer le stade ${stage.stageIndex} ?`,
       message: `Le modèle de mail lié à ce stade (« ${stage.templateName} ») sera supprimé aussi. Les stades restants seront renumérotés. Cette action est irréversible.`,
@@ -96,7 +86,7 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
     });
     if (ok !== true) return;
     startTransition(async () => {
-      const res = await deleteAbandonedCartStage(stage.id);
+      const res = await deleteInactiveClientStage(stage.id);
       if (!res.success) {
         toast.error("Suppression impossible", res.error);
         return;
@@ -106,8 +96,7 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
     });
   }
 
-  /** Appelé par les lignes de stade après une sauvegarde de délai réussie. */
-  function applyConfig(next: AbandonedCartConfigDTO) {
+  function applyConfig(next: InactiveClientConfigDTO) {
     setConfig(next);
   }
 
@@ -152,12 +141,11 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
                 : "Relances automatiques désactivées"}
             </p>
             <p className="text-xs font-body text-text-muted mt-1 leading-relaxed">
-              Quand c&apos;est activé, dès qu&apos;un client ajoute un article
-              dans son panier, un timer démarre pour chaque stade ci-dessous.
-              Toute modification du panier (ajout, retrait, quantité, couleur,
-              taille) remet à zéro les stades non-encore envoyés. Les stades
-              déjà envoyés ne se rejouent pas — un client ne recevra jamais 2
-              fois le même mail.
+              Quand c&apos;est activé, le site vérifie chaque minute quels
+              clients n&apos;ont plus donné signe de vie depuis assez
+              longtemps et envoie le mail du stade correspondant. Un client
+              revenu sur le site met le timer en pause ; une commande passée
+              après un mail réinitialise le cycle au Stade 1.
             </p>
             {!config.allTemplatesLegal && config.stages.length > 0 && (
               <p className="text-xs font-body text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
@@ -187,14 +175,14 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
             <p className="text-xs font-body text-text-muted mt-0.5">
               {config.stages.length === 0
                 ? "Aucun stade configuré."
-                : `${config.stages.length} stade${config.stages.length > 1 ? "s" : ""} · délai calculé depuis la dernière modification du panier.`}
+                : `${config.stages.length} stade${config.stages.length > 1 ? "s" : ""} · délai calculé depuis la dernière visite / commande / création du compte.`}
             </p>
           </div>
           <button
             type="button"
             onClick={onAdd}
             disabled={pending}
-            className="px-3 py-2 rounded-lg text-xs font-body font-bold bg-gradient-to-br from-amber-600 to-amber-700 text-white shadow-sm hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
+            className="px-3 py-2 rounded-lg text-xs font-body font-bold bg-gradient-to-br from-violet-600 to-violet-700 text-white shadow-sm hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
           >
             + Ajouter un stade
           </button>
@@ -203,8 +191,8 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
         {config.stages.length === 0 ? (
           <div className="py-12 px-6 text-center">
             <p className="text-sm font-body text-text-muted">
-              Commencez en ajoutant votre premier stade — par exemple 24 h
-              après l&apos;abandon.
+              Commencez en ajoutant votre premier stade — par exemple 30 jours
+              après la dernière visite.
             </p>
           </div>
         ) : (
@@ -225,25 +213,20 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
 
       {/* ─── Modale d'édition du mail — switcher stades ─── */}
       {editingStageId && config.stages.some((s) => s.id === editingStageId) && (
-        <AbandonedCartMailModal
+        <InactiveClientMailModal
           stages={config.stages}
           initialStageId={editingStageId}
           onClose={() => {
             setEditingStageId(null);
-            // Après édition, on force un reload de la config : le lien de
-            // désinscription peut avoir été ajouté/retiré, on veut le badge
-            // à jour côté page.
-            // On ne fait pas de router.refresh — on appelle plutôt la config
-            // fraîche via l'action qui existe déjà côté toggle.
             void (async () => {
               try {
-                const { getAbandonedCartConfig } = await import(
-                  "@/app/actions/admin/abandoned-cart"
+                const { getInactiveClientConfig } = await import(
+                  "@/app/actions/admin/inactive-client"
                 );
-                const fresh = await getAbandonedCartConfig();
+                const fresh = await getInactiveClientConfig();
                 setConfig(fresh);
               } catch {
-                /* silent : la modale s'est fermée, pas urgent */
+                /* silent */
               }
             })();
           }}
@@ -262,25 +245,27 @@ export default function AbandonedCartStagesEditor({ initialConfig }: Props) {
             non-connecté.
           </p>
           <p>
-            <strong>Reset du timer</strong> : le compte à rebours du prochain
-            stade non-envoyé repart de zéro à chaque modification du panier
-            (ajout, retrait, quantité, couleur, taille).
+            <strong>Point de départ du timer</strong> : le plus récent des
+            trois : dernière visite sur le site, dernière commande, ou date de
+            création du compte (pour un client qui n&apos;a jamais navigué).
           </p>
           <p>
-            <strong>Ne rejoue jamais</strong> : si le client a reçu le Stade 1,
-            il ne le recevra plus jamais — sauf s&apos;il passe commande (dans
-            ce cas tout est réinitialisé pour le prochain cycle).
+            <strong>Reset du timer</strong> : dès que le client revient sur le
+            site ou passe commande, il n&apos;est plus « en retard ». Le
+            cycle repart proprement au Stade 1 s&apos;il redevient inactif
+            plus tard.
           </p>
           <p>
-            <strong>Panier vide au moment de l&apos;envoi</strong> : le
-            contenu du panier est vérifié en direct. Si tous les articles sont
-            passés en rupture ou hors ligne entretemps, le mail n&apos;est pas
-            envoyé.
+            <strong>Ne rejoue jamais</strong> : dans un même cycle
+            d&apos;inactivité, chaque stade n&apos;est envoyé qu&apos;une
+            fois. Une fois le dernier stade envoyé, silence total jusqu&apos;à
+            ce que le client redevienne actif.
           </p>
           <p>
             <strong>Désinscription</strong> : chaque mail contient un lien de
             désinscription (variable <code className="bg-white px-1 rounded">{`{unsubscribeLink}`}</code>{" "}
-            obligatoire dans le pied de page). 1 clic désinscrit le client.
+            obligatoire dans le pied de page). 1 clic désinscrit le client de
+            toutes les relances marketing.
           </p>
         </div>
       </details>
@@ -295,10 +280,10 @@ function StageRow({
   onConfigUpdated,
   onEditMail,
 }: {
-  stage: AbandonedCartStageDTO;
+  stage: InactiveClientStageDTO;
   pending: boolean;
   onDelete: () => void;
-  onConfigUpdated: (config: AbandonedCartConfigDTO) => void;
+  onConfigUpdated: (config: InactiveClientConfigDTO) => void;
   onEditMail: () => void;
 }) {
   const initial = fromSeconds(stage.delaySeconds);
@@ -314,7 +299,7 @@ function StageRow({
     if (!dirty) return;
     setSaving(true);
     const seconds = toSeconds(value, unit);
-    const res = await updateAbandonedCartStageDelay(stage.id, seconds);
+    const res = await updateInactiveClientStageDelay(stage.id, seconds);
     setSaving(false);
     if (!res.success) {
       toast.error("Délai refusé", res.error);
@@ -327,9 +312,8 @@ function StageRow({
 
   return (
     <div className="p-5 flex flex-col lg:flex-row lg:items-center gap-4">
-      {/* Numéro stade */}
       <div className="flex items-center gap-3 shrink-0">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-100 to-amber-200 flex items-center justify-center font-heading font-bold text-amber-800 text-sm">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-100 to-violet-200 flex items-center justify-center font-heading font-bold text-violet-800 text-sm">
           {stage.stageIndex}
         </div>
         <div>
@@ -337,12 +321,11 @@ function StageRow({
             Stade {stage.stageIndex}
           </p>
           <p className="text-xs font-body text-text-secondary">
-            {formatDurationShort(stage.delaySeconds)} après la dernière modif.
+            {formatDurationShort(stage.delaySeconds)} d&apos;inactivité.
           </p>
         </div>
       </div>
 
-      {/* Délai éditable */}
       <div className="flex items-center gap-2 flex-1">
         <span className="text-xs font-body text-text-muted whitespace-nowrap">
           Envoyer après
@@ -353,7 +336,7 @@ function StageRow({
           value={value}
           onChange={(e) => setValue(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
           disabled={pending || saving}
-          className="w-24 px-3 py-2 rounded-lg border border-border bg-bg-primary text-sm text-text-primary tabular-nums focus:outline-none focus:border-amber-500"
+          className="w-24 px-3 py-2 rounded-lg border border-border bg-bg-primary text-sm text-text-primary tabular-nums focus:outline-none focus:border-violet-500"
         />
         <div className="min-w-[130px]">
           <CustomSelect
@@ -377,7 +360,6 @@ function StageRow({
         </button>
       </div>
 
-      {/* Statut désinscription + actions */}
       <div className="flex items-center gap-2 flex-wrap justify-end shrink-0">
         {!stage.templateHasUnsubscribeLink && (
           <button
@@ -408,7 +390,6 @@ function StageRow({
         </button>
       </div>
 
-      {/* Cache utile : nom du modèle & date maj */}
       <div className="lg:hidden text-[10.5px] font-body text-text-muted mt-1">
         Modèle « {stage.templateName} » — modifié le{" "}
         {new Date(stage.templateUpdatedAt).toLocaleDateString("fr-FR", {
@@ -420,6 +401,3 @@ function StageRow({
     </div>
   );
 }
-
-/** Voir DELAY_UNIT_LABELS dans lib/abandoned-cart-config si tu ajoutes des unités. */
-export { DELAY_UNIT_LABELS };

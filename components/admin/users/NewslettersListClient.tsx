@@ -199,13 +199,15 @@ export default function NewslettersListClient({ templates }: Props) {
                 </div>
               );
             }
-            // Panier abandonné : route dédiée qui gère les N stades + config
-            // d'automation. Les autres scénarios pointent vers l'éditeur newsletter
-            // classique (1 modèle → 1 URL `newsletters/[id]`).
+            // Panier abandonné + Relance inactivité : routes dédiées qui
+            // gèrent les N stades + config d'automation. Les autres scénarios
+            // pointent vers l'éditeur newsletter classique.
             const cardHref =
               scenario === "ABANDONED_CART"
                 ? "/admin/marketing/mails/panier-abandonne"
-                : `/admin/marketing/mails/newsletter/${t.id}`;
+                : scenario === "INACTIVE_CLIENT"
+                  ? "/admin/marketing/mails/inactivite"
+                  : `/admin/marketing/mails/newsletter/${t.id}`;
             return (
               <div
                 key={t.id}
@@ -247,13 +249,22 @@ export default function NewslettersListClient({ templates }: Props) {
                   </div>
                 </Link>
                 <div className="px-3 py-2 bg-bg-secondary border-t border-border flex justify-end gap-1">
-                  {scenario === "ABANDONED_CART" ? (
-                    <span
-                      className="px-2.5 py-1.5 text-[11px] font-body text-text-muted"
-                      title="Le design par défaut se remet depuis la page dédiée"
+                  {scenario === "ABANDONED_CART" || scenario === "INACTIVE_CLIENT" ? (
+                    // Ces 2 scénarios ont une page dédiée qui pilote N stades
+                    // + config d'automation. Le « remettre par défaut » se
+                    // fait sur chaque stade depuis l'éditeur — ici on renvoie
+                    // simplement vers la page dédiée.
+                    <Link
+                      href={
+                        scenario === "ABANDONED_CART"
+                          ? "/admin/marketing/mails/panier-abandonne"
+                          : "/admin/marketing/mails/inactivite"
+                      }
+                      className="px-2.5 py-1.5 rounded-md text-[11px] font-body font-semibold text-text-secondary hover:bg-bg-primary"
+                      title="Ouvrir la page dédiée qui gère les stades + l'automation"
                     >
-                      Voir page dédiée
-                    </span>
+                      → Voir la page dédiée
+                    </Link>
                   ) : (
                     <button
                       type="button"

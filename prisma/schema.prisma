@@ -77,6 +77,12 @@ model User {
   // quand le client veut juste couper les relances panier.
   abandonedCartOptOut           Boolean             @default(false)
   abandonedCartOptOutToken      String?             @unique // token 1-clic (nullable = lazy, généré au 1er envoi)
+  // Opt-out spécifique aux relances inactivité (« On vous a pas vu depuis
+  // X jours »). Miroir de abandonedCartOptOut : case séparée dans /espace-pro
+  // + lien 1-clic dans le mail via inactiveClientOptOutToken. Prime sur
+  // acceptsNewsletter : true → aucun envoi + job éventuel annulé.
+  inactiveClientOptOut          Boolean             @default(false)
+  inactiveClientOptOutToken     String?             @unique // token 1-clic (nullable = lazy, généré au 1er envoi)
   role                          Role                @default(CLIENT)
   status                        UserStatus          @default(PENDING)
   // Remise commerciale
@@ -123,6 +129,7 @@ model User {
   microstoreOrders           MicrostoreOrder[]
   emailSends                 EmailSend[]
   abandonedCartJob           AbandonedCartJob?
+  inactiveClientJob          InactiveClientJob?
   customerReview             CustomerReview?                  @relation("CustomerReviewAuthor")
   customerReviewsModerated   CustomerReview[]                 @relation("CustomerReviewModerator")
 
@@ -2476,6 +2483,9 @@ model Order {
   // CGV acceptance
   cgvAcceptedAt DateTime? // Timestamp when client accepted CGV before payment
 
+  // Consentement remplacement en cas de rupture de stock (case cochée au panier)
+  acceptReplacementContact Boolean @default(false)
+
   // Promotion & credit applied
   promoCode     String?
   promoDiscount Decimal @default(0) @db.Decimal(10, 2)
@@ -3594,6 +3604,8 @@ model Tenant {
   newsletterTemplates NewsletterTemplate[]
   abandonedCartStages AbandonedCartStage[]
   abandonedCartJobs   AbandonedCartJob[]
+  inactiveClientStages InactiveClientStage[]
+  inactiveClientJobs   InactiveClientJob[]
   bulkMailJobs        BulkMailJob[]
   customerReviews     CustomerReview[]
 
@@ -3701,7 +3713,8 @@ model NewsletterTemplate {
   updatedAt   DateTime  @updatedAt
   lastSentAt  DateTime? // Dernière fois qu'un envoi a utilisé ce modèle
 
-  abandonedCartStage AbandonedCartStage?
+  abandonedCartStage  AbandonedCartStage?
+  inactiveClientStage InactiveClientStage?
 
   @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
@@ -3832,6 +3845,65 @@ model AbandonedCartJob {
   updatedAt DateTime @updatedAt
 
   @@index([tenantId, status, nextStageAt])
+  @@index([tenantId, userId])
+}
+
+// ─────────────────────────────────────────────
+// Config des stades de relance inactivité (miroir strict de
+// AbandonedCartStage). Un stade = un délai en secondes depuis la dernière
+// activité du client (max(lastSeenAt, lastOrderAt, createdAt)) + un modèle
+// de mail dédié. Suppression d'un stade = cascade delete du template lié.
+// ─────────────────────────────────────────────
+model InactiveClientStage {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
+  delaySeconds Int // délai depuis referenceAt (max lastSeen/lastOrder/createdAt) avant envoi
+  templateId   String   @unique
+  template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, stageIndex])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Job actif de relance inactivité pour un client.
+// Un unique job par (tenant, user). Contrairement au panier abandonné, on ne
+// pose PAS nextStageAt à l'avance (le worker recalcule à chaque tick à
+// partir de referenceAt = max(lastSeenAt, lastOrderAt, createdAt)).
+// stagesFired mémorise ce qui a été envoyé pour éviter les doublons.
+// Wipé automatiquement au démarrage d'un nouveau cycle (referenceAt plus
+// récent que le dernier sentAt de stagesFired).
+// ─────────────────────────────────────────────
+model InactiveClientJob {
+  id     String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Dernier stade envoyé avec succès (0 = aucun envoi encore dans le cycle courant).
+  currentStage Int  @default(0)
+  // Historique JSON : [{stageIndex, sentAt, emailSendId}]. Wipé au reset de cycle.
+  stagesFired  Json @default("[]")
+  // PENDING | COMPLETED (tous stades envoyés) | CANCELLED (opt-out, non-APPROVED, désinscrit)
+  status       String @default("PENDING") @db.VarChar(20)
+
+  // Référence temporelle utilisée pour calculer le prochain envoi. Recalculée
+  // par le worker à chaque tick : max(lastSeenAt, lastOrderAt, createdAt).
+  referenceAt     DateTime?
+  // Dernière évaluation par le worker (debug + throttling anti-boucle).
+  lastEvaluatedAt DateTime?
+  // Cause de dernier CANCELLED / COMPLETED (debug côté admin).
+  cancelReason    String?  @db.VarChar(50)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
   @@index([tenantId, userId])
 }
 

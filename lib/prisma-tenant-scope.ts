@@ -93,6 +93,8 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "TranslationJob",
   "AbandonedCartJob",
   "AbandonedCartStage",
+  "InactiveClientJob",
+  "InactiveClientStage",
   "BulkMailJob",
   "EmailSend",
   "NewsletterTemplate",

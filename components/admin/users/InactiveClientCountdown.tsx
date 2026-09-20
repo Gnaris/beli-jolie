@@ -1,11 +1,8 @@
 "use client";
 
 /**
- * Compte à rebours live pour la colonne « Prochaine relance » de la liste
- * clients. Rafraîchit toutes les secondes côté client sans re-render de la
- * page — le composant serveur passe juste `nextAt` (ISO string).
- *
- * Affiche par exemple : « Stade 2 dans 2 j 3 h ».
+ * Compte à rebours live pour l'affichage « Prochaine relance » d'un client.
+ * Miroir de AbandonedCartCountdown — même comportement, palette identique.
  *
  * Anti-hydratation : au 1er render (SSR + 1re passe client) on affiche « … ».
  * Le compteur réel s'active seulement après montage — évite le mismatch
@@ -13,15 +10,14 @@
  */
 
 import { useEffect, useState } from "react";
-import { formatCountdownDetailed } from "@/lib/abandoned-cart-config";
+import { formatCountdownDetailed } from "@/lib/inactive-client-config";
 
 interface Props {
   stageIndex: number;
-  /** ISO string du prochain envoi. */
   nextAtIso: string;
 }
 
-export default function AbandonedCartCountdown({ stageIndex, nextAtIso }: Props) {
+export default function InactiveClientCountdown({ stageIndex, nextAtIso }: Props) {
   const target = new Date(nextAtIso).getTime();
   const [nowMs, setNowMs] = useState<number | null>(null);
 
