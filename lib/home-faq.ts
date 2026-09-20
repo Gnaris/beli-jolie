@@ -16,10 +16,13 @@
 export interface HomeFaqItem {
   /** Identifiant stable (clés React côté éditeur). */
   id: string;
-  /** Question — obligatoire, sinon l'item est ignoré. */
+  /** Question FR — obligatoire, sinon l'item est ignoré. */
   question: string;
-  /** Réponse — obligatoire, sinon l'item est ignoré. */
+  /** Réponse FR — obligatoire, sinon l'item est ignoré. */
   answer: string;
+  /** Version anglaise optionnelle — vide → fallback sur la version FR. */
+  questionEn?: string;
+  answerEn?: string;
 }
 
 export const MAX_HOME_FAQ_ITEMS = 8;
@@ -58,15 +61,48 @@ export function parseHomeFaq(raw: string | null | undefined): HomeFaqItem[] {
     return parsed
       .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
       .slice(0, MAX_HOME_FAQ_ITEMS)
-      .map((r, i) => ({
-        id: typeof r.id === "string" && r.id ? r.id : `faq-${i}`,
-        question: typeof r.question === "string" ? r.question.trim() : "",
-        answer: typeof r.answer === "string" ? r.answer.trim() : "",
-      }))
+      .map((r, i) => {
+        const item: HomeFaqItem = {
+          id: typeof r.id === "string" && r.id ? r.id : `faq-${i}`,
+          question: typeof r.question === "string" ? r.question.trim() : "",
+          answer: typeof r.answer === "string" ? r.answer.trim() : "",
+        };
+        // Ne posons les champs EN que s'ils sont explicitement présents et non
+        // vides — évite de trainer des chaînes vides dans le JSON stocké et
+        // conserve la forme historique pour les FAQ 100 % FR.
+        const qEn = typeof r.questionEn === "string" ? r.questionEn.trim() : "";
+        const aEn = typeof r.answerEn === "string" ? r.answerEn.trim() : "";
+        if (qEn) item.questionEn = qEn;
+        if (aEn) item.answerEn = aEn;
+        return item;
+      })
       .filter((r) => r.question && r.answer);
   } catch {
     return [];
   }
+}
+
+/**
+ * Résout la version localisée de chaque item : si `locale === "en"` et que la
+ * traduction EN existe pour question ET answer, on l'utilise. Sinon fallback
+ * sur la version FR. Retourne un nouveau tableau avec `question`/`answer` déjà
+ * dans la bonne langue — les layouts consomment ce résultat sans se soucier
+ * de la locale.
+ */
+export function resolveHomeFaqForLocale(
+  items: HomeFaqItem[],
+  locale: string,
+): HomeFaqItem[] {
+  if (locale === "fr" || !items.length) return items;
+  return items.map((it) => {
+    const useEn = locale === "en" && (it.questionEn?.trim() || it.answerEn?.trim());
+    if (!useEn) return it;
+    return {
+      ...it,
+      question: it.questionEn?.trim() || it.question,
+      answer: it.answerEn?.trim() || it.answer,
+    };
+  });
 }
 
 /** Construit le JSON-LD FAQPage schema.org — à injecter dans un

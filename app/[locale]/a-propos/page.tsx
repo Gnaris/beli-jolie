@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Link } from "@/i18n/navigation";
-import { getTranslations } from "next-intl/server";
+import { getTranslations, getLocale } from "next-intl/server";
 import Image from "next/image";
 import { getCachedShopName, getCachedSiteConfig } from "@/lib/cached-data";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
@@ -29,11 +29,24 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
  * Petit helper : chaque section de la page « À propos » peut être surchargée
  * via SiteConfig (`about_intro`, `about_history_body`, `about_showroom_body`,
  * `about_team_body`, `about_newness_body`, `about_delivery_body`).
- * Fallback = message i18n générique.
+ *
+ * En anglais, on tente d'abord la variante `_en` saisie dans Paramètres →
+ * Vitrine (onglet 🇬🇧). Si vide, on retombe sur la version FR. Si la FR est
+ * elle aussi vide, on utilise le texte i18n générique de `messages/en.json`.
  */
-function sectionText(override: string | null | undefined, fallback: string): string {
-  const trimmed = override?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : fallback;
+function sectionText(
+  overrideEn: string | null | undefined,
+  overrideFr: string | null | undefined,
+  fallback: string,
+  locale: string,
+): string {
+  if (locale === "en") {
+    const en = overrideEn?.trim();
+    if (en) return en;
+  }
+  const fr = overrideFr?.trim();
+  if (fr) return fr;
+  return fallback;
 }
 
 export default async function AboutPage() {
@@ -42,12 +55,19 @@ export default async function AboutPage() {
   const [
     shopName,
     t,
+    currentLocale,
     aboutIntroRow,
     aboutHistoryRow,
     aboutShowroomRow,
     aboutTeamRow,
     aboutNewnessRow,
     aboutDeliveryRow,
+    aboutIntroEnRow,
+    aboutHistoryEnRow,
+    aboutShowroomEnRow,
+    aboutTeamEnRow,
+    aboutNewnessEnRow,
+    aboutDeliveryEnRow,
     aboutPhoto1Row,
     aboutPhoto2Row,
     aboutPhoto3Row,
@@ -57,12 +77,19 @@ export default async function AboutPage() {
   ] = await Promise.all([
     getCachedShopName(),
     getTranslations("about"),
+    getLocale(),
     getCachedSiteConfig("about_intro"),
     getCachedSiteConfig("about_history_body"),
     getCachedSiteConfig("about_showroom_body"),
     getCachedSiteConfig("about_team_body"),
     getCachedSiteConfig("about_newness_body"),
     getCachedSiteConfig("about_delivery_body"),
+    getCachedSiteConfig("about_intro_en"),
+    getCachedSiteConfig("about_history_body_en"),
+    getCachedSiteConfig("about_showroom_body_en"),
+    getCachedSiteConfig("about_team_body_en"),
+    getCachedSiteConfig("about_newness_body_en"),
+    getCachedSiteConfig("about_delivery_body_en"),
     getCachedSiteConfig("about_photo_1_url"),
     getCachedSiteConfig("about_photo_2_url"),
     getCachedSiteConfig("about_photo_3_url"),
@@ -71,12 +98,12 @@ export default async function AboutPage() {
     getCachedSiteConfig("about_photo_6_url"),
   ]);
 
-  const intro = sectionText(aboutIntroRow?.value, t("intro"));
-  const historyBody = sectionText(aboutHistoryRow?.value, t("historyBody"));
-  const showroomBody = sectionText(aboutShowroomRow?.value, t("showroomBody"));
-  const teamBody = sectionText(aboutTeamRow?.value, t("teamBody"));
-  const newnessBody = sectionText(aboutNewnessRow?.value, t("newnessBody"));
-  const deliveryBody = sectionText(aboutDeliveryRow?.value, t("deliveryBody"));
+  const intro = sectionText(aboutIntroEnRow?.value, aboutIntroRow?.value, t("intro"), currentLocale);
+  const historyBody = sectionText(aboutHistoryEnRow?.value, aboutHistoryRow?.value, t("historyBody"), currentLocale);
+  const showroomBody = sectionText(aboutShowroomEnRow?.value, aboutShowroomRow?.value, t("showroomBody"), currentLocale);
+  const teamBody = sectionText(aboutTeamEnRow?.value, aboutTeamRow?.value, t("teamBody"), currentLocale);
+  const newnessBody = sectionText(aboutNewnessEnRow?.value, aboutNewnessRow?.value, t("newnessBody"), currentLocale);
+  const deliveryBody = sectionText(aboutDeliveryEnRow?.value, aboutDeliveryRow?.value, t("deliveryBody"), currentLocale);
 
   // 6 emplacements photos : on n'affiche QUE les slots réellement chargés
   // par la cliente dans Paramètres → Vitrine. Si aucune photo n'a été

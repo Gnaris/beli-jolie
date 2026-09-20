@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { translatePhrases, PFS_TRANSLATION_LOCALES } from "@/lib/pfs-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { logger } from "@/lib/logger";
 
 /**
  * POST /api/admin/translate-batch
@@ -40,9 +41,12 @@ export async function POST(req: NextRequest) {
   try {
     const data = await translatePhrases(phrases);
     if (!data) {
+      logger.warn("[translate-batch] translatePhrases a renvoyé null (échec PFS final)", {
+        phraseCount: Object.keys(phrases).length,
+      });
       return NextResponse.json(
-        { error: "Erreur lors de la traduction" },
-        { status: 500 }
+        { error: "Erreur lors de la traduction", reason: "pfs_unavailable" },
+        { status: 502 }
       );
     }
 
@@ -61,13 +65,27 @@ export async function POST(req: NextRequest) {
       return out;
     });
 
+    // Diagnostic : si PFS a répondu mais qu'aucune traduction EN n'est
+    // sortie, on log un warn pour investigation. Se produit typiquement
+    // quand PFS renvoie 200 avec un body incomplet (rate limit soft,
+    // texte non traduisible, etc.).
+    const filledEn = results.filter((r) => r.en && r.en.trim()).length;
+    if (filledEn === 0 && validTexts.some((t) => t.length > 0)) {
+      logger.warn("[translate-batch] PFS a répondu mais 0 traduction EN sortie", {
+        requested: Object.keys(phrases).length,
+        returnedKeys: Object.keys(data),
+        sampleEntry: data[Object.keys(data)[0] ?? ""] ?? null,
+      });
+    }
+
     return NextResponse.json({
       results,
       remaining: Number.MAX_SAFE_INTEGER,
     });
-  } catch {
+  } catch (error) {
+    logger.error("[translate-batch] exception inattendue", { error });
     return NextResponse.json(
-      { error: "Erreur lors de la traduction" },
+      { error: "Erreur lors de la traduction", reason: "internal" },
       { status: 500 }
     );
   }

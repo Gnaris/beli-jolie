@@ -31,9 +31,17 @@ interface ColorData {
 export interface CarouselProduct {
   id: string;
   name: string;
+  /** Nom localisé pour l'affichage (fallback = name FR). Le champ `name` reste
+   *  toujours en français car il sert à construire les URLs produit
+   *  (`buildProductHandle`) — traduire `name` casserait le lookup URL → BDD. */
+  displayName?: string;
   reference: string;
   category: string;
+  /** Catégorie localisée pour l'affichage (fallback = category FR). */
+  displayCategory?: string;
   subCategory: string | null;
+  /** Sous-catégorie localisée pour l'affichage (fallback = subCategory FR). */
+  displaySubCategory?: string | null;
   colors: ColorData[];
   tags: { id: string; name: string }[];
   isBestSeller: boolean;

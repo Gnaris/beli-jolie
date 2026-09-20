@@ -863,7 +863,10 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
               }}
             />
           </div>
-          <div className="flex-1 overflow-y-auto py-6 pl-6 pr-16 bg-slate-100">
+          <div
+            className="mail-preview-light flex-1 overflow-y-auto py-6 pl-6 pr-16"
+            style={{ background: "#f1f5f9" }}
+          >
             {/* Wrapper overflow-visible : les boutons drag/corbeille de
                 BlockCanvas sont positionnés à `-right-11` (44 px hors du
                 bloc). Un overflow-hidden ici les rognerait — c'était le bug
@@ -873,7 +876,10 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
                 1ᵉʳ enfant (header) et l'avant-dernier (footer, avant la drop
                 zone `h-3`) via sélecteurs CSS. Buttons header/footer sont
                 verrouillés (grisés) → OK de les clipper. */}
-            <div className="max-w-[600px] mx-auto bg-white rounded-lg shadow-sm [&>*:first-child]:rounded-t-lg [&>*:first-child]:overflow-hidden [&>*:nth-last-child(2)]:rounded-b-lg [&>*:nth-last-child(2)]:overflow-hidden">
+            <div
+              className="max-w-[600px] mx-auto rounded-lg shadow-sm [&>*:first-child]:rounded-t-lg [&>*:first-child]:overflow-hidden [&>*:nth-last-child(2)]:rounded-b-lg [&>*:nth-last-child(2)]:overflow-hidden"
+              style={{ background: "#ffffff" }}
+            >
               {/* Sélection : ring-inset (à l'intérieur du bloc) reste visible
                   même sur le 1ᵉʳ et le dernier bloc. */}
               {blocks.length === 0 ? (
@@ -1074,7 +1080,7 @@ function BlockCanvas({
       onDragOver={combinedOnDragOver}
       onDragLeave={combinedOnDragLeave}
       onDrop={combinedOnDrop}
-      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator} ${isSelected ? "shadow-[inset_0_0_0_2px_#ffffff,inset_0_0_0_4px_#7c3aed]" : "hover:ring-2 hover:ring-inset hover:ring-slate-300"}`}
+      className={`relative group ${isDragging ? "opacity-40" : ""} ${dropIndicator}`}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -1143,6 +1149,18 @@ function BlockCanvas({
         )}
       </div>
       <BlockRender block={block} productsCache={productsCache} previewContext={previewContext} previewCart={previewCart} />
+      {/* Calque overlay pour la bordure de sélection / survol. Placé au-dessus
+          du contenu du bloc (BlockRender) via z-[2] pour rester visible même
+          quand le bloc a un fond opaque plein (header, footer, callout…).
+          `pointer-events-none` pour ne pas voler les clics au bloc. */}
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 z-[2] rounded-[inherit] transition ${
+          isSelected
+            ? "shadow-[inset_0_0_0_2px_#ffffff,inset_0_0_0_4px_#7c3aed]"
+            : "group-hover:shadow-[inset_0_0_0_2px_#cbd5e1]"
+        }`}
+      />
     </div>
   );
 }
@@ -1259,18 +1277,22 @@ function BlockRender({
     }
     case "callout":
       return (
-        <div style={{ ...s, padding: "12px 20px" }}>
-          <div style={{ background: block.data.bg, color: block.data.color, padding: 20, borderRadius: 14, textAlign: "center" }}>
-            <div style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 16, fontWeight: 700, marginBottom: 6, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</div>
-            <div style={{ fontSize: block.data.subtitleSize || 13, opacity: 0.85, marginBottom: 14, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
-            <span style={{ display: "inline-block", background: "white", color: block.data.bg, padding: "8px 20px", borderRadius: 999, fontWeight: 600, fontSize: block.data.ctaSize || 12, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.cta)}</span>
+        <div style={{ ...s, background: block.data.wrapperBg || "transparent" }}>
+          <div style={{ padding: "12px 20px" }}>
+            <div style={{ background: block.data.bg, color: block.data.color, padding: 20, borderRadius: 14, textAlign: "center" }}>
+              <div style={{ fontFamily: "Poppins", fontSize: block.data.titleSize || 16, fontWeight: 700, marginBottom: 6, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.title)}</div>
+              <div style={{ fontSize: block.data.subtitleSize || 13, opacity: 0.85, marginBottom: 14, wordBreak: "break-word", overflowWrap: "break-word" }}>{tBr(block.data.subtitle)}</div>
+              <span style={{ display: "inline-block", background: "white", color: block.data.bg, padding: "8px 20px", borderRadius: 999, fontWeight: 600, fontSize: block.data.ctaSize || 12, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.cta)}</span>
+            </div>
           </div>
         </div>
       );
     case "button":
       return (
-        <div style={{ ...s, padding: "12px 20px", textAlign: block.data.align || "center" }}>
-          <span style={{ display: "inline-block", background: block.data.bg, color: block.data.color, padding: "12px 28px", borderRadius: 10, fontFamily: "Poppins", fontWeight: 600, fontSize: block.data.labelSize || 13, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.label)} →</span>
+        <div style={{ ...s, background: block.data.wrapperBg || "transparent" }}>
+          <div style={{ padding: "12px 20px", textAlign: block.data.align || "center" }}>
+            <span style={{ display: "inline-block", background: block.data.bg, color: block.data.color, padding: "12px 28px", borderRadius: 10, fontFamily: "Poppins", fontWeight: 600, fontSize: block.data.labelSize || 13, wordBreak: "break-word", overflowWrap: "break-word", maxWidth: "100%" }}>{tBr(block.data.label)} →</span>
+          </div>
         </div>
       );
     case "products": {
@@ -1612,11 +1634,14 @@ function BlockSettings({
             <SizeField label="Taille" value={block.data.ctaSize} onChange={(v) => onUpdate("ctaSize", v)} defaultSize={13} />
           </FieldGroup>
           <FieldGroup title="Général">
-            <Field label="Fond du bloc">
+            <Field label="Couleur du cadre">
               <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
             </Field>
             <Field label="Couleur des textes">
               <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
+            </Field>
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.wrapperBg} onChange={(v) => onUpdate("wrapperBg", v ?? "")} />
             </Field>
           </FieldGroup>
         </div>
@@ -1631,7 +1656,7 @@ function BlockSettings({
             <Field label="Couleur du texte">
               <ColorPicker value={block.data.color} onChange={(c) => onUpdate("color", c)} />
             </Field>
-            <Field label="Couleur de fond">
+            <Field label="Couleur du bouton">
               <BackgroundInput value={block.data.bg} onChange={(v) => onUpdate("bg", v ?? "#0f172a")} allowEmpty={false} />
             </Field>
           </FieldGroup>
@@ -1647,6 +1672,9 @@ function BlockSettings({
                 ]}
                 size="sm"
               />
+            </Field>
+            <Field label="Fond du bloc">
+              <BackgroundInput value={block.data.wrapperBg} onChange={(v) => onUpdate("wrapperBg", v ?? "")} />
             </Field>
           </FieldGroup>
         </div>

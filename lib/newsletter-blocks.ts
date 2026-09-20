@@ -57,8 +57,8 @@ export interface HeaderData {
   ruleColor?: string;
 }
 export interface HeadingData { title: string; body: string; align: "left" | "center" | "right"; bg?: string; titleColor?: string; bodyColor?: string; titleSize?: number; bodySize?: number; titleAlign?: "left" | "center" | "right"; bodyAlign?: "left" | "center" | "right" }
-export interface CalloutData { title: string; subtitle: string; cta: string; ctaUrl: string; bg: string; color: string; titleSize?: number; subtitleSize?: number; ctaSize?: number }
-export interface ButtonData { label: string; url: string; bg: string; color: string; align?: "left" | "center" | "right"; labelSize?: number }
+export interface CalloutData { title: string; subtitle: string; cta: string; ctaUrl: string; bg: string; color: string; titleSize?: number; subtitleSize?: number; ctaSize?: number; wrapperBg?: string }
+export interface ButtonData { label: string; url: string; bg: string; color: string; align?: "left" | "center" | "right"; labelSize?: number; wrapperBg?: string }
 export interface ProductsData { cols: 2 | 3 | 4; productIds: string[]; bg?: string }
 export interface ImgTextData { img: string; title: string; body: string; side: "left" | "right" | "top" | "bottom"; bg?: string; titleColor?: string; bodyColor?: string; imgWidth?: number; textAlign?: "left" | "center" | "right"; titleSize?: number; bodySize?: number; titleAlign?: "left" | "center" | "right"; bodyAlign?: "left" | "center" | "right" }
 export interface ListData { items: string[]; bg?: string; color?: string; itemSize?: number }
@@ -574,13 +574,13 @@ function renderBlock(
         : rawCtaUrl
           ? absoluteUrl(shared.baseUrl, rawCtaUrl)
           : "";
-      return contained(`<div style="margin:16px 0;">
+      return wrapBg(block.data.wrapperBg, contained(`<div style="margin:16px 0;">
 <div style="background:${block.data.bg}; color:${block.data.color}; padding:20px; border-radius:14px; text-align:center;">
 <div style="font-family:'Poppins', sans-serif; font-size:${block.data.titleSize || 16}px; font-weight:700; margin-bottom:6px; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.title)}</div>
 <div style="font-size:${block.data.subtitleSize || 13}px; opacity:0.85; margin-bottom:14px; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.subtitle)}</div>
 ${ctaAbsolute ? `<a href="${escapeHtml(ctaAbsolute)}" style="display:inline-block; background:white; color:${block.data.bg}; padding:10px 22px; border-radius:999px; font-weight:600; font-size:${block.data.ctaSize || 13}px; text-decoration:none; word-wrap:break-word; overflow-wrap:break-word;">${escapeHtmlWithBreaks(block.data.cta)}</a>` : ""}
 </div>
-</div>`);
+</div>`));
     }
     case "button": {
       const align = block.data.align || "center";
@@ -593,12 +593,12 @@ ${ctaAbsolute ? `<a href="${escapeHtml(ctaAbsolute)}" style="display:inline-bloc
         ? (isAbsolute ? rawUrl : absoluteUrl(shared.baseUrl, rawUrl))
         : shared.baseUrl;
       // ctaButton par défaut centre. Custom rendering si couleurs perso ou alignement autre.
-      if (block.data.bg === "#0f172a" && block.data.color === "#ffffff" && align === "center") {
-        return contained(ctaButton(block.data.label, url));
-      }
-      return contained(`<div style="text-align:${align}; margin:16px 0;">
+      const inner = (block.data.bg === "#0f172a" && block.data.color === "#ffffff" && align === "center")
+        ? contained(ctaButton(block.data.label, url))
+        : contained(`<div style="text-align:${align}; margin:16px 0;">
 <a href="${escapeHtml(url)}" style="display:inline-block; background:${block.data.bg}; color:${block.data.color}; padding:12px 28px; border-radius:10px; font-family:'Poppins', sans-serif; font-weight:600; font-size:${block.data.labelSize || 14}px; text-decoration:none; word-wrap:break-word; overflow-wrap:break-word; max-width:100%;">${escapeHtmlWithBreaks(block.data.label)}</a>
 </div>`);
+      return wrapBg(block.data.wrapperBg, inner);
     }
     case "products": {
       const products = block.data.productIds

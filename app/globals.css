@@ -593,6 +593,32 @@ h1, h2, h3, h4, h5, h6 {
 .scrollbar-light::-webkit-scrollbar-thumb:hover { background: #A1A1AA; background-clip: content-box; }
 .scrollbar-light::-webkit-scrollbar-corner { background: transparent; }
 
+/* ─── Scrollbar publique (BJ + Issyma, hors admin) ────────────────────
+   Fine, discrète, uniforme sur les 2 boutiques. Thumb slate translucide
+   qui se densifie au hover. La règle est scopée `:not(.admin-dark)`
+   pour laisser intacte la scrollbar sombre de l'admin (ligne ~1782). */
+html:not(.admin-dark) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+html:not(.admin-dark)::-webkit-scrollbar { width: 10px; height: 10px; }
+html:not(.admin-dark)::-webkit-scrollbar-track { background: transparent; }
+html:not(.admin-dark)::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+html:not(.admin-dark)::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.65);
+  background-clip: content-box;
+}
+html:not(.admin-dark)::-webkit-scrollbar-corner { background: transparent; }
+@media (max-width: 768px) {
+  html:not(.admin-dark)::-webkit-scrollbar { width: 0; height: 0; }
+}
+
 /* ─── Custom checkbox ────────────────────── */
 .checkbox-custom {
   appearance: none;
@@ -2590,5 +2616,87 @@ html.admin-dark .product-row-status-badge[data-status="incomplete"] {
 
 
 
+
+/* ─────────────────────────────────────────────
+   Aperçu email — toujours en mode clair
+   ─────────────────────────────────────────────
+   Un mail arrive dans Gmail/Outlook sur fond blanc, quel que soit le thème
+   du back-office. Forcer les couleurs claires à l'intérieur de la zone
+   d'aperçu évite un rendu trompeur (texte sombre sur fond sombre) quand
+   la cliente édite ses modèles avec l'admin en dark mode. */
+html.admin-dark .mail-preview-light,
+#admin-theme-wrapper.admin-dark .mail-preview-light {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  color-scheme: light;
+}
+html.admin-dark .mail-preview-light .bg-white,
+#admin-theme-wrapper.admin-dark .mail-preview-light .bg-white {
+  background-color: #ffffff !important;
+}
+html.admin-dark .mail-preview-light .bg-slate-50,
+#admin-theme-wrapper.admin-dark .mail-preview-light .bg-slate-50 {
+  background-color: #f8fafc !important;
+}
+html.admin-dark .mail-preview-light .bg-slate-100,
+#admin-theme-wrapper.admin-dark .mail-preview-light .bg-slate-100 {
+  background-color: #f1f5f9 !important;
+}
+html.admin-dark .mail-preview-light .bg-bg-primary,
+#admin-theme-wrapper.admin-dark .mail-preview-light .bg-bg-primary {
+  background-color: #ffffff !important;
+}
+html.admin-dark .mail-preview-light .text-slate-900,
+html.admin-dark .mail-preview-light .text-zinc-900,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-slate-900,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-zinc-900 { color: #0f172a !important; }
+html.admin-dark .mail-preview-light .text-slate-800,
+html.admin-dark .mail-preview-light .text-zinc-800,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-slate-800,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-zinc-800 { color: #1e293b !important; }
+html.admin-dark .mail-preview-light .text-slate-700,
+html.admin-dark .mail-preview-light .text-zinc-700,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-slate-700,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-zinc-700 { color: #334155 !important; }
+html.admin-dark .mail-preview-light .text-slate-600,
+html.admin-dark .mail-preview-light .text-zinc-600,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-slate-600,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-zinc-600 { color: #475569 !important; }
+html.admin-dark .mail-preview-light .text-slate-500,
+html.admin-dark .mail-preview-light .text-zinc-500,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-slate-500,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-zinc-500 { color: #64748b !important; }
+html.admin-dark .mail-preview-light .text-text-muted,
+#admin-theme-wrapper.admin-dark .mail-preview-light .text-text-muted { color: #94a3b8 !important; }
+html.admin-dark .mail-preview-light .border-slate-300,
+#admin-theme-wrapper.admin-dark .mail-preview-light .border-slate-300 { border-color: #cbd5e1 !important; }
+
+/* ─── SettingsTabs — dark mode ─────────────────────────────────────────────
+   Le composant `<SettingsTabs>` (segmented pill utilisé dans les modales de
+   paramètres — Vitrine, Marketplaces, etc.) était illisible en sombre :
+   l'onglet actif retombait sur un fond blanc + texte gris clair (screenshot
+   cliente du 2026-09-20). Cause : le drawer est monté via `createPortal` sur
+   `document.body`, hors du wrapper `#admin-theme-wrapper` — dans certains
+   contextes de cascade la vars CSS `--color-bg-primary` n'était pas la bonne.
+   Solution : override figé avec `!important` sur classes marqueur dédiées. */
+html.admin-dark .settings-tabs__bar,
+#admin-theme-wrapper.admin-dark .settings-tabs__bar {
+  background-color: #1c1c20 !important;
+  border-color: #3f3f47 !important;
+}
+html.admin-dark .settings-tabs__tab,
+#admin-theme-wrapper.admin-dark .settings-tabs__tab {
+  color: #a1a1aa !important;
+}
+html.admin-dark .settings-tabs__tab:hover,
+#admin-theme-wrapper.admin-dark .settings-tabs__tab:hover {
+  color: #e4e4e7 !important;
+}
+html.admin-dark .settings-tabs__tab--active,
+#admin-theme-wrapper.admin-dark .settings-tabs__tab--active {
+  background-color: #37373f !important;
+  color: #f4f4f5 !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06) inset !important;
+}
 
 /* trigger */

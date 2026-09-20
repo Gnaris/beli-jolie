@@ -376,6 +376,9 @@ export async function updateHomeFaq(input: {
   items: Array<{
     question: string;
     answer: string;
+    /** Version anglaise optionnelle. Vide → fallback FR sur la home /en. */
+    questionEn?: string;
+    answerEn?: string;
   }>;
 }): Promise<{ success: boolean; error?: string }> {
   try {
@@ -391,15 +394,23 @@ export async function updateHomeFaq(input: {
       return { success: false, error: `Vous ne pouvez pas dépasser ${MAX_ITEMS} questions.` };
     }
 
-    const cleaned: Array<{ id: string; question: string; answer: string }> = [];
+    const cleaned: Array<{
+      id: string;
+      question: string;
+      answer: string;
+      questionEn: string;
+      answerEn: string;
+    }> = [];
     for (const [i, it] of input.items.entries()) {
       const question = String(it?.question ?? "").trim();
       const answer = String(it?.answer ?? "").trim();
+      const questionEn = String(it?.questionEn ?? "").trim();
+      const answerEn = String(it?.answerEn ?? "").trim();
       if (!question) {
-        return { success: false, error: `Question n°${i + 1} : le libellé est obligatoire.` };
+        return { success: false, error: `Question n°${i + 1} : le libellé (FR) est obligatoire.` };
       }
       if (!answer) {
-        return { success: false, error: `Question n°${i + 1} : la réponse est obligatoire.` };
+        return { success: false, error: `Question n°${i + 1} : la réponse (FR) est obligatoire.` };
       }
       if (question.length > QUESTION_MAX) {
         return { success: false, error: `Question n°${i + 1} : la question ne doit pas dépasser ${QUESTION_MAX} caractères.` };
@@ -407,7 +418,13 @@ export async function updateHomeFaq(input: {
       if (answer.length > ANSWER_MAX) {
         return { success: false, error: `Question n°${i + 1} : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
       }
-      cleaned.push({ id: `faq-${i}`, question, answer });
+      if (questionEn.length > QUESTION_MAX) {
+        return { success: false, error: `Question n°${i + 1} (EN) : ne doit pas dépasser ${QUESTION_MAX} caractères.` };
+      }
+      if (answerEn.length > ANSWER_MAX) {
+        return { success: false, error: `Question n°${i + 1} (EN) : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
+      }
+      cleaned.push({ id: `faq-${i}`, question, answer, questionEn, answerEn });
     }
 
     await setSiteConfig("home_faq", JSON.stringify(cleaned));
@@ -442,6 +459,13 @@ export async function updateAboutPage(input: {
   teamBody: string;
   newnessBody: string;
   deliveryBody: string;
+  /** Versions anglaises optionnelles — vide → fallback FR sur /en/a-propos. */
+  introEn?: string;
+  historyBodyEn?: string;
+  showroomBodyEn?: string;
+  teamBodyEn?: string;
+  newnessBodyEn?: string;
+  deliveryBodyEn?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
@@ -453,6 +477,12 @@ export async function updateAboutPage(input: {
       ["about_team_body", input.teamBody.trim()],
       ["about_newness_body", input.newnessBody.trim()],
       ["about_delivery_body", input.deliveryBody.trim()],
+      ["about_intro_en", (input.introEn ?? "").trim()],
+      ["about_history_body_en", (input.historyBodyEn ?? "").trim()],
+      ["about_showroom_body_en", (input.showroomBodyEn ?? "").trim()],
+      ["about_team_body_en", (input.teamBodyEn ?? "").trim()],
+      ["about_newness_body_en", (input.newnessBodyEn ?? "").trim()],
+      ["about_delivery_body_en", (input.deliveryBodyEn ?? "").trim()],
     ];
     for (const [, value] of sections) {
       if (value.length > SECTION_MAX) {

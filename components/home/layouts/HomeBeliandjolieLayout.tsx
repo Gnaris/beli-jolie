@@ -9,6 +9,7 @@ import TrustBand from "@/components/home/TrustBand";
 import ReviewsSection from "@/components/home/ReviewsSection";
 import FaqSection from "@/components/home/FaqSection";
 import CtaBanner from "@/components/home/CtaBanner";
+import ShowroomSection from "@/components/home/ShowroomSection";
 import type { HomeLayoutProps } from "./HomeLayoutProps";
 
 export default async function HomeBeliandjolieLayout({
@@ -106,7 +107,30 @@ export default async function HomeBeliandjolieLayout({
           />
         )}
 
-        {/* 9. CTA final « Inscription pro » */}
+        {/* 9. Showroom — adresse + carte OpenStreetMap + CTA itinéraire.
+             Coordonnées : 90 rue de la Haie Coq, 93300 Aubervilliers. */}
+        <ShowroomSection
+          variant="beliandjolie"
+          shopName={shopName}
+          eyebrow={t("showroomEyebrow")}
+          titleLine1={t("showroomTitle1")}
+          titleLine2={t("showroomTitle2")}
+          addressLine1={t("showroomAddressLine1")}
+          addressLine2={t("showroomAddressLine2")}
+          welcomeLabel={t("showroomWelcomeLabel")}
+          welcomeValue={t("showroomWelcomeValue")}
+          hoursLabel={t("showroomHoursLabel")}
+          hoursValue={t("showroomHoursValue")}
+          description={t("showroomDescription")}
+          ctaDirections={t("showroomCtaDirections")}
+          ctaContact={t("showroomCtaContact")}
+          lat={48.9134}
+          lon={2.3765}
+          mapsQuery={t("showroomMapsQuery")}
+          pinLabel={t("showroomPinLabel")}
+        />
+
+        {/* 10. CTA final « Inscription pro » */}
         <CtaBanner />
       </main>
 

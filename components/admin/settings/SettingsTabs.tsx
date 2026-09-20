@@ -25,9 +25,15 @@ export default function SettingsTabs({ tabs, initialKey }: Props) {
   const activeTab = tabs.find((t) => t.key === active) ?? tabs[0];
   if (!activeTab) return null;
 
+  // Classes marqueur `settings-tabs*` : servent d'ancre à un override dark
+  // dédié dans globals.css. Le SettingsModal est monté via `createPortal` sur
+  // `document.body` (hors du wrapper `#admin-theme-wrapper`) : sans marqueurs
+  // dédiés, dans certains contextes de cascade, l'onglet actif retombait sur
+  // ses valeurs light (fond blanc + texte clair invisible — screenshot du
+  // 2026-09-20). Voir bloc « SettingsTabs — dark mode » de globals.css.
   return (
-    <div>
-      <div className="mb-6 inline-flex items-center gap-1 rounded-full bg-bg-secondary border border-border p-1">
+    <div className="settings-tabs">
+      <div className="settings-tabs__bar mb-6 inline-flex items-center gap-1 rounded-full bg-bg-secondary border border-border p-1">
         {tabs.map((t) => {
           const isActive = t.key === activeTab.key;
           return (
@@ -35,7 +41,7 @@ export default function SettingsTabs({ tabs, initialKey }: Props) {
               key={t.key}
               type="button"
               onClick={() => setActive(t.key)}
-              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-body font-semibold transition ${
+              className={`settings-tabs__tab ${isActive ? "settings-tabs__tab--active" : ""} inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-body font-semibold transition ${
                 isActive
                   ? "bg-bg-primary text-text-primary shadow-sm"
                   : "text-text-muted hover:text-text-primary"

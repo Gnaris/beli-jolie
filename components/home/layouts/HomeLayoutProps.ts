@@ -7,6 +7,8 @@ export interface HomeCategoryItem {
   id: string;
   slug: string;
   name: string;
+  /** Nom localisé pour l'affichage (fallback = name FR). */
+  displayName?: string;
   image: string | null;
   _count: { products: number };
 }
@@ -15,6 +17,8 @@ export interface HomeCollectionItem {
   id: string;
   slug: string | null;
   name: string;
+  /** Nom localisé pour l'affichage (fallback = name FR). */
+  displayName?: string;
   image: string | null;
   _count: { products: number };
 }

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getCachedSiteConfig, getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
 import { buildAlternates, buildWebsiteSchema, buildSiteNavigationSchema, getSiteUrl } from "@/lib/seo";
 import { getPublishedCustomerReviews } from "@/lib/customer-reviews";
-import { parseHomeFaq, buildFaqJsonLd } from "@/lib/home-faq";
+import { parseHomeFaq, resolveHomeFaqForLocale, buildFaqJsonLd } from "@/lib/home-faq";
 import { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import { parseHeroOverlay } from "@/lib/hero-overlay";
@@ -15,6 +15,12 @@ import { canSeePrices } from "@/lib/price-visibility";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 import { getCurrentTenantSlug } from "@/lib/tenant";
 import { cookies } from "next/headers";
+import {
+  loadHomeTranslationLookups,
+  translateCategoryLike,
+  translateCollectionName,
+  translateProductName,
+} from "@/lib/home-translations";
 import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
 import HomeIssymaLayout from "@/components/home/layouts/HomeIssymaLayout";
 import HomeLayoutDevSwitcher from "@/components/home/layouts/HomeLayoutDevSwitcher";
@@ -378,13 +384,63 @@ export default async function HomePage() {
   const newCards = toCarousel(applyEnrichment(newProducts), imageMap);
   const bestSellerCards = toCarousel(applyEnrichment(bestSellerProducts), imageMap);
 
+  // ── Pré-traduction des noms catalog pour la locale courante ────────────────
+  // Le layout Issyma est un Server Component qui inline le rendu (pas de hook
+  // client `useProductTranslation`). On résout donc ici, une fois pour toutes,
+  // les noms de catégories / collections / produits — DB > dictionnaire > FR.
+  // On **n'écrase pas** `name` (utilisé pour construire les URLs produit) : les
+  // valeurs traduites sont posées dans `displayName` / `displayCategory` etc.
+  // Locale par défaut (fr) → aucune requête, aucun coût.
+  const currentLocaleForTranslate = await getLocale();
+  const productNamesForTranslate = [...newCards, ...bestSellerCards].map((p) => p.name);
+  const categoryNamesForTranslate = [
+    ...categories.map((c) => c.name),
+    ...newCards.map((p) => p.category),
+    ...bestSellerCards.map((p) => p.category),
+  ];
+  const subCategoryNamesForTranslate = [...newCards, ...bestSellerCards]
+    .map((p) => p.subCategory)
+    .filter((s): s is string => Boolean(s));
+  const collectionNamesForTranslate = collections.map((c) => c.name);
+  const translationLookups = await loadHomeTranslationLookups(currentLocaleForTranslate, {
+    categoryNames: categoryNamesForTranslate,
+    subCategoryNames: subCategoryNamesForTranslate,
+    collectionNames: collectionNamesForTranslate,
+    productNames: productNamesForTranslate,
+  });
+
+  const translatedCategories = categories.map((c) => ({
+    ...c,
+    displayName: translateCategoryLike(c.name, currentLocaleForTranslate, translationLookups),
+  }));
+  const translatedCollections = collections.map((c) => ({
+    ...c,
+    displayName: translateCollectionName(c.name, currentLocaleForTranslate, translationLookups),
+  }));
+  const translateCard = (p: CarouselProduct): CarouselProduct => ({
+    ...p,
+    displayName: translateProductName(p.name, currentLocaleForTranslate, translationLookups),
+    displayCategory: translateCategoryLike(p.category, currentLocaleForTranslate, translationLookups),
+    displaySubCategory: p.subCategory
+      ? translateCategoryLike(p.subCategory, currentLocaleForTranslate, translationLookups)
+      : p.subCategory,
+  });
+  const translatedNewCards = newCards.map(translateCard);
+  const translatedBestSellerCards = bestSellerCards.map(translateCard);
+
+  // ── FAQ localisée ─────────────────────────────────────────────────────────
+  // Si la cliente a saisi une version EN (Paramètres → Vitrine, onglet 🇬🇧)
+  // et qu'on est en /en, on l'affiche. Sinon fallback FR — comme ça la FAQ ne
+  // devient jamais vide sur /en même sans traduction.
+  const localizedFaqItems = resolveHomeFaqForLocale(faqItems, currentLocaleForTranslate);
+
   // JSON-LD WebSite (avec SearchAction). Organization est rendu dans le layout
   // racine, pas de doublon. SiteNavigationElement = signal explicite à Google
   // des pages principales, pour maximiser les chances d'affichage de
   // sitelinks. Miroir de la nav du header.
   const siteUrl = await getSiteUrl();
   const webSiteJsonLd = buildWebsiteSchema({ name: shopName, url: siteUrl });
-  const currentLocale = await getLocale();
+  const currentLocale = currentLocaleForTranslate;
   const navJsonLd = buildSiteNavigationSchema({
     baseUrl: siteUrl,
     locale: currentLocale,
@@ -399,7 +455,7 @@ export default async function HomePage() {
   // JSON-LD FAQPage — donne à Google le contexte pour afficher les Q&R en
   // rich results directement dans la SERP. Omis si aucune FAQ saisie.
   const jsonLdBlocks: object[] = [webSiteJsonLd, navJsonLd];
-  if (faqItems.length > 0) jsonLdBlocks.push(buildFaqJsonLd(faqItems));
+  if (localizedFaqItems.length > 0) jsonLdBlocks.push(buildFaqJsonLd(localizedFaqItems));
 
   // ── Dispatch vers le layout du tenant courant ──────────────────────────────
   // Chaque boutique a son propre fichier dans `components/home/layouts/`.
@@ -411,12 +467,12 @@ export default async function HomePage() {
     productCount,
     clientDiscount,
     favoriteIds,
-    newCards,
-    bestSellerCards,
-    categories,
-    collections,
+    newCards: translatedNewCards,
+    bestSellerCards: translatedBestSellerCards,
+    categories: translatedCategories,
+    collections: translatedCollections,
     reviews,
-    faqItems,
+    faqItems: localizedFaqItems,
     jsonLdBlocks,
     canSeePrices: canSeePrices(session),
   };

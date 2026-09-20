@@ -159,6 +159,12 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     aboutTeamRow,
     aboutNewnessRow,
     aboutDeliveryRow,
+    aboutIntroEnRow,
+    aboutHistoryEnRow,
+    aboutShowroomEnRow,
+    aboutTeamEnRow,
+    aboutNewnessEnRow,
+    aboutDeliveryEnRow,
     aboutPhoto1Row,
     aboutPhoto2Row,
     aboutPhoto3Row,
@@ -188,6 +194,12 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_intro_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_history_body_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_team_body_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_newness_body_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body_en" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_photo_1_url" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_photo_2_url" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_photo_3_url" } }),
@@ -400,6 +412,12 @@ async function buildVitrineTile(): Promise<DashboardTile> {
                     initialTeamBody={aboutTeamRow?.value ?? ""}
                     initialNewnessBody={aboutNewnessRow?.value ?? ""}
                     initialDeliveryBody={aboutDeliveryRow?.value ?? ""}
+                    initialIntroEn={aboutIntroEnRow?.value ?? ""}
+                    initialHistoryBodyEn={aboutHistoryEnRow?.value ?? ""}
+                    initialShowroomBodyEn={aboutShowroomEnRow?.value ?? ""}
+                    initialTeamBodyEn={aboutTeamEnRow?.value ?? ""}
+                    initialNewnessBodyEn={aboutNewnessEnRow?.value ?? ""}
+                    initialDeliveryBodyEn={aboutDeliveryEnRow?.value ?? ""}
                     placeholders={{
                       intro: tAbout("intro"),
                       historyBody: tAbout("historyBody"),

@@ -3,6 +3,7 @@ import { Link } from "@/i18n/navigation";
 import Image from "@/components/ui/SmartImage";
 import { buildProductHandle } from "@/lib/product-url";
 import PublicSidebar from "@/components/layout/PublicSidebar";
+import ShowroomSection from "@/components/home/ShowroomSection";
 import type { CarouselProduct } from "@/components/home/ProductCarousel";
 import type { HomeLayoutProps } from "./HomeLayoutProps";
 
@@ -247,6 +248,12 @@ const ISSYMA_STYLES = `
   .issyma-home > header button.text-neutral-700:hover { color: #ffffff !important; }
   .issyma-home > header .cart-count { background-color: ${PALETTE.wine600} !important; color: ${PALETTE.cream} !important; }
 
+  /* Bouton hamburger mobile : PublicSidebar utilise .text-text-primary (foncé)
+     pensé pour un fond blanc. Sur notre bandeau bordeaux il disparaît — on
+     force le cream, hover blanc pur, pour rester lisible. */
+  .issyma-home > header button[aria-label="Menu"] { color: ${PALETTE.cream} !important; }
+  .issyma-home > header button[aria-label="Menu"]:hover { color: #ffffff !important; }
+
   /* Dropdown utilisateur (déclenché par l'icône user) : fond clair posé
      par PublicSidebar (bg-bg-primary/95). Sans surcharge, les textes
      "Retour admin" et "Déconnexion" hériteraient du cream du header et
@@ -312,7 +319,11 @@ export function ProductCardIssyma({
   pricePromptHint: string;
 }) {
   const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
+  // URL = toujours slug français (résolution DB via `parseProductHandle` côté
+  // fiche produit). Affichage = displayName si présent, sinon nom FR.
   const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
+  const displayName = p.displayName ?? p.name;
+  const displayCategory = p.displayCategory ?? p.category;
   const image = primary?.firstImage ?? null;
   const price = primary ? primary.unitPrice : null;
 
@@ -320,7 +331,7 @@ export function ProductCardIssyma({
     <Link href={href} className="product-card group block">
       <div className="relative aspect-square overflow-hidden rounded-2xl">
         {image ? (
-          <Image src={image} alt={p.name} width={800} height={800} className="w-full h-full object-cover" />
+          <Image src={image} alt={displayName} width={800} height={800} className="w-full h-full object-cover" />
         ) : (
           <div className="absolute inset-0 thumb-placeholder">
             <div
@@ -347,10 +358,10 @@ export function ProductCardIssyma({
       </div>
       <div className="mt-4">
         <p className="text-[10px] tracking-[0.24em] uppercase font-semibold" style={{ color: PALETTE.muted }}>
-          {p.reference} · {p.category}
+          {p.reference} · {displayCategory}
         </p>
         <h3 className="serif text-base mt-1.5 font-semibold" style={{ color: PALETTE.ink }}>
-          {p.name}
+          {displayName}
         </h3>
         {canSeePrices ? (
           price != null && (
@@ -620,7 +631,9 @@ export default async function HomeIssymaLayout({
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-                {categories.slice(0, featureCatSlots).map((c) => (
+                {categories.slice(0, featureCatSlots).map((c) => {
+                  const catLabel = c.displayName ?? c.name;
+                  return (
                   <Link
                     key={c.id}
                     href={`/categories/${c.slug}`}
@@ -630,7 +643,7 @@ export default async function HomeIssymaLayout({
                       {c.image ? (
                         <Image
                           src={c.image}
-                          alt={c.name}
+                          alt={catLabel}
                           width={192}
                           height={192}
                           className="w-full h-full object-cover"
@@ -641,18 +654,19 @@ export default async function HomeIssymaLayout({
                           style={{ color: PALETTE.wine700, fontSize: "2rem", lineHeight: 1 }}
                           aria-hidden="true"
                         >
-                          {c.name.trim().charAt(0).toUpperCase() || "?"}
+                          {catLabel.trim().charAt(0).toUpperCase() || "?"}
                         </span>
                       )}
                     </div>
                     <div className="mt-auto">
-                      <p className="serif text-lg font-semibold" style={{ color: PALETTE.ink }}>{c.name}</p>
+                      <p className="serif text-lg font-semibold" style={{ color: PALETTE.ink }}>{catLabel}</p>
                       <p className="text-[12px] mt-1" style={{ color: PALETTE.inkSoft }}>
                         {t("issyma.catProductsCount", { count: String(c._count.products) })}
                       </p>
                     </div>
                   </Link>
-                ))}
+                  );
+                })}
 
                 {featureCollection && (
                   <Link
@@ -679,7 +693,7 @@ export default async function HomeIssymaLayout({
                     </div>
                     <div className="relative z-10">
                       <p className="serif text-2xl leading-tight font-semibold" style={{ color: PALETTE.cream }}>
-                        {featureCollection.name}
+                        {featureCollection.displayName ?? featureCollection.name}
                       </p>
                       <p className="text-[12px] mt-2 font-light" style={{ color: `${PALETTE.cream2}cc` }}>
                         {t("issyma.catFeatureDesc")}
@@ -808,7 +822,30 @@ export default async function HomeIssymaLayout({
           </section>
         )}
 
-        {/* 7) CTA BORDEAUX */}
+        {/* 7) SHOWROOM — carte OpenStreetMap + itineraire.
+             Coordonnees : Marche CIFA, Aubervilliers. */}
+        <ShowroomSection
+          variant="issyma"
+          shopName={shopName}
+          eyebrow={t("issyma.showroomEyebrow")}
+          titleLine1={t("issyma.showroomTitle1")}
+          titleLine2={t("issyma.showroomTitle2")}
+          addressLine1={t("issyma.showroomAddressLine1")}
+          addressLine2={t("issyma.showroomAddressLine2")}
+          welcomeLabel={t("issyma.showroomWelcomeLabel")}
+          welcomeValue={t("issyma.showroomWelcomeValue")}
+          hoursLabel={t("issyma.showroomHoursLabel")}
+          hoursValue={t("issyma.showroomHoursValue")}
+          description={t("issyma.showroomDescription")}
+          ctaDirections={t("issyma.showroomCtaDirections")}
+          ctaContact={t("issyma.showroomCtaContact")}
+          lat={48.9128}
+          lon={2.3760}
+          mapsQuery={t("issyma.showroomMapsQuery")}
+          pinLabel={t("issyma.showroomPinLabel")}
+        />
+
+        {/* 8) CTA BORDEAUX */}
         <section className="wine-panel" style={{ borderRadius: 0 }}>
           <SilkTexture />
           <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-16 sm:py-20 text-center relative z-10">
