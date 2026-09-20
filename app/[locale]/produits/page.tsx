@@ -381,6 +381,44 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // Infinite scroll BJ-only pour l'instant (Issyma affiche la 1re page seulement).
   const effectiveSlug = await getEffectiveTenantSlug();
   if (effectiveSlug === "issyma") {
+    // Traduction des noms de filtres (Categories, Collections, Colors,
+    // Compositions, Tags). En locale FR, on ne fait rien (map vide) ;
+    // en EN, on charge en parallèle les traductions des lignes concernées.
+    let catTr = new Map<string, string>();
+    let colTr = new Map<string, string>();
+    let colorTr = new Map<string, string>();
+    let compTr = new Map<string, string>();
+    let tagTr = new Map<string, string>();
+    if (locale !== "fr") {
+      const [catRows, colRows, colorRows, compRows, tagRows] = await Promise.all([
+        prisma.categoryTranslation.findMany({
+          where: { locale, categoryId: { in: categories.map((c) => c.id) } },
+          select: { categoryId: true, name: true },
+        }),
+        prisma.collectionTranslation.findMany({
+          where: { locale, collectionId: { in: collections.map((c) => c.id) } },
+          select: { collectionId: true, name: true },
+        }),
+        prisma.colorTranslation.findMany({
+          where: { locale, colorId: { in: colors.map((c) => c.id) } },
+          select: { colorId: true, name: true },
+        }),
+        prisma.compositionTranslation.findMany({
+          where: { locale, compositionId: { in: compositions.map((c) => c.id) } },
+          select: { compositionId: true, name: true },
+        }),
+        prisma.tagTranslation.findMany({
+          where: { locale, tagId: { in: tags.map((t) => t.id) } },
+          select: { tagId: true, name: true },
+        }),
+      ]);
+      for (const r of catRows) if (r.name) catTr.set(r.categoryId, r.name);
+      for (const r of colRows) if (r.name) colTr.set(r.collectionId, r.name);
+      for (const r of colorRows) if (r.name) colorTr.set(r.colorId, r.name);
+      for (const r of compRows) if (r.name) compTr.set(r.compositionId, r.name);
+      for (const r of tagRows) if (r.name) tagTr.set(r.tagId, r.name);
+    }
+
     const issymaProducts: CarouselProduct[] = products.map((p) => ({
       id: p.id,
       name: p.name,
@@ -398,11 +436,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         shopName={shopName}
         products={issymaProducts}
         totalCount={totalCount}
-        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
-        collections={collections.map((c) => ({ id: c.id, name: c.name }))}
-        colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? null }))}
-        compositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
-        tags={tags.map((tg) => ({ id: tg.id, name: tg.name }))}
+        categories={categories.map((c) => ({ id: c.id, name: catTr.get(c.id) ?? c.name }))}
+        collections={collections.map((c) => ({ id: c.id, name: colTr.get(c.id) ?? c.name }))}
+        colors={colors.map((c) => ({ id: c.id, name: colorTr.get(c.id) ?? c.name, hex: c.hex ?? null }))}
+        compositions={compositions.map((c) => ({ id: c.id, name: compTr.get(c.id) ?? c.name }))}
+        tags={tags.map((tg) => ({ id: tg.id, name: tagTr.get(tg.id) ?? tg.name }))}
         selectedFilters={{
           q: q || undefined,
           cat: cat || undefined,

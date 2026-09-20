@@ -162,10 +162,12 @@ function FilterSection({
 }
 
 function ColorFilterSection({
+  title,
   colors,
   currentValue,
   selected,
 }: {
+  title: string;
   colors: ColorFilter[];
   currentValue?: string;
   selected: SelectedFilters;
@@ -176,7 +178,7 @@ function ColorFilterSection({
         className="text-[10px] tracking-[0.28em] uppercase font-semibold mb-3"
         style={{ color: P.wine700 }}
       >
-        Couleur
+        {title}
       </p>
       <div className="flex flex-wrap gap-2">
         {colors.slice(0, 14).map((c) => {
@@ -206,11 +208,15 @@ function ProductCardIssymaCatalogue({
   ctaLabel,
   pricePromptLabel,
   canSeePrices,
+  badgeLabel,
+  refLabel,
 }: {
   p: CarouselProduct;
   ctaLabel: string;
   pricePromptLabel: string;
   canSeePrices: boolean;
+  badgeLabel: string;
+  refLabel: string;
 }) {
   const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
   const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
@@ -259,7 +265,7 @@ function ProductCardIssymaCatalogue({
             className="absolute top-2 left-2 text-[9px] tracking-[0.2em] uppercase font-semibold px-2 py-0.5 rounded-full"
             style={{ background: P.cream, color: P.wine800 }}
           >
-            Coup de cœur
+            {badgeLabel}
           </span>
         )}
       </Link>
@@ -270,7 +276,7 @@ function ProductCardIssymaCatalogue({
           {displayName}
         </h3>
         <p className="mt-0.5 text-[9px] tracking-[0.2em] uppercase font-semibold" style={{ color: P.muted }}>
-          Ref: {p.reference}
+          {refLabel}: {p.reference}
         </p>
 
         <div className="mt-1.5 flex items-center justify-between gap-1.5">
@@ -322,7 +328,7 @@ export default async function ProduitsIssymaLayout({
   const session = await getServerSession(authOptions);
   const canSeePrices = canUserSeePrices(session);
   const pricePromptLabel = tHome("issyma.cardPricePro");
-  const ctaLabel = "Ajouter au panier";
+  const ctaLabel = t("issymaAddToCart");
 
   const hasAnyFilter =
     !!(selectedFilters.cat || selectedFilters.collection || selectedFilters.color ||
@@ -337,7 +343,7 @@ export default async function ProduitsIssymaLayout({
           <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-6 items-center">
             <div>
               <p className="eyebrow" style={{ color: P.wine700, fontSize: "10px" }}>
-                Professionnels
+                {t("issymaEyebrow")}
               </p>
               <h1
                 className="serif mt-2"
@@ -347,10 +353,10 @@ export default async function ProduitsIssymaLayout({
                   lineHeight: 1.05,
                 }}
               >
-                Notre catalogue
+                {t("title")}
               </h1>
               <p className="mt-2 text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: P.muted }}>
-                Vente à l&apos;unité · Minimum 100 € HT
+                {t("issymaHeroSubtitle")}
               </p>
             </div>
 
@@ -360,14 +366,14 @@ export default async function ProduitsIssymaLayout({
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] tracking-[0.22em] uppercase font-semibold transition"
                 style={{ background: P.wine700, color: P.cream }}
               >
-                Créer mon compte pro <span aria-hidden>→</span>
+                {t("issymaCtaPro")} <span aria-hidden>→</span>
               </Link>
 
               <div className="grid grid-cols-3 gap-2 w-full max-w-md">
                 {[
-                  { Icon: IconBox, title: "Expédition", desc: "sous 48h" },
-                  { Icon: IconTag, title: "Vente", desc: "à l'unité" },
-                  { Icon: IconTeam, title: "Une équipe", desc: "dédiée" },
+                  { Icon: IconBox, title: t("issymaTile1Title"), desc: t("issymaTile1Desc") },
+                  { Icon: IconTag, title: t("issymaTile2Title"), desc: t("issymaTile2Desc") },
+                  { Icon: IconTeam, title: t("issymaTile3Title"), desc: t("issymaTile3Desc") },
                 ].map(({ Icon, title, desc }, i) => (
                   <div
                     key={i}
@@ -409,7 +415,7 @@ export default async function ProduitsIssymaLayout({
                 className="lg:hidden cursor-pointer flex items-center justify-between px-5 py-3 select-none"
                 style={{ color: P.ink }}
               >
-                <span className="text-[11px] tracking-[0.28em] uppercase font-bold">Filtres</span>
+                <span className="text-[11px] tracking-[0.28em] uppercase font-bold">{t("issymaFiltersTitle")}</span>
                 <span
                   className="text-[11px] font-semibold group-open:rotate-180 transition-transform"
                   style={{ color: P.wine700 }}
@@ -424,7 +430,7 @@ export default async function ProduitsIssymaLayout({
                   className="text-[11px] tracking-[0.28em] uppercase font-bold"
                   style={{ color: P.ink }}
                 >
-                  Filtres
+                  {t("issymaFiltersTitle")}
                 </p>
                 {hasAnyFilter && (
                   <Link
@@ -432,7 +438,7 @@ export default async function ProduitsIssymaLayout({
                     className="text-[10px] tracking-[0.18em] uppercase"
                     style={{ color: P.wine700 }}
                   >
-                    Effacer
+                    {t("issymaFiltersClear")}
                   </Link>
                 )}
               </div>
@@ -443,12 +449,12 @@ export default async function ProduitsIssymaLayout({
                     className="text-[10px] tracking-[0.18em] uppercase"
                     style={{ color: P.wine700 }}
                   >
-                    Effacer
+                    {t("issymaFiltersClear")}
                   </Link>
                 </div>
               )}
               <FilterSection
-                title="Catégories"
+                title={t("issymaFilterCategories")}
                 currentValue={selectedFilters.cat}
                 options={categories}
                 paramKey="cat"
@@ -456,7 +462,7 @@ export default async function ProduitsIssymaLayout({
               />
               {collections.length > 0 && (
                 <FilterSection
-                  title="Collection"
+                  title={t("issymaFilterCollection")}
                   currentValue={selectedFilters.collection}
                   options={collections}
                   paramKey="collection"
@@ -464,13 +470,14 @@ export default async function ProduitsIssymaLayout({
                 />
               )}
               <ColorFilterSection
+                title={t("issymaFilterColor")}
                 colors={colors}
                 currentValue={selectedFilters.color}
                 selected={selectedFilters}
               />
               {compositions.length > 0 && (
                 <FilterSection
-                  title="Matière"
+                  title={t("issymaFilterMaterial")}
                   currentValue={selectedFilters.composition}
                   options={compositions}
                   paramKey="composition"
@@ -479,7 +486,7 @@ export default async function ProduitsIssymaLayout({
               )}
               {tags.length > 0 && (
                 <FilterSection
-                  title="Style"
+                  title={t("issymaFilterStyle")}
                   currentValue={selectedFilters.tag}
                   options={tags}
                   paramKey="tag"
@@ -505,7 +512,7 @@ export default async function ProduitsIssymaLayout({
                     type="text"
                     name="q"
                     defaultValue={selectedFilters.q ?? ""}
-                    placeholder="Rechercher un produit..."
+                    placeholder={t("issymaSearchPlaceholder")}
                     className="flex-1 bg-transparent border-none outline-none text-[13px] font-body"
                     style={{ color: P.ink }}
                   />
@@ -514,7 +521,7 @@ export default async function ProduitsIssymaLayout({
                   className="flex items-center gap-2 rounded-full px-4 py-3 text-[12px] tracking-[0.15em] uppercase font-semibold"
                   style={{ background: P.paper, border: `1px solid ${P.borderSoft}`, color: P.wine700 }}
                 >
-                  <span>Trier : Nouveauté</span>
+                  <span>{t("issymaSortLabel")}</span>
                 </div>
               </form>
 
@@ -527,7 +534,7 @@ export default async function ProduitsIssymaLayout({
               {/* Grille — cartes compactes, 4 colonnes en desktop */}
               {products.length === 0 ? (
                 <div className="text-center py-20 text-[14px]" style={{ color: P.inkSoft }}>
-                  {t("emptyState.description")}
+                  {t("issymaEmptyLabel")}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
@@ -538,6 +545,8 @@ export default async function ProduitsIssymaLayout({
                       ctaLabel={ctaLabel}
                       pricePromptLabel={pricePromptLabel}
                       canSeePrices={canSeePrices}
+                      badgeLabel={t("issymaBestSellerBadge")}
+                      refLabel={t("issymaRefLabel")}
                     />
                   ))}
                 </div>
