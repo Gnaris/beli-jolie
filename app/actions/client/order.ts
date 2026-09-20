@@ -128,6 +128,9 @@ export interface PlaceOrderInput {
   carrierPrice:  number;
   stripePaymentIntentId: string; // pi_xxx retourné par Stripe
   cgvAcceptedAt?: string; // ISO date when client accepted CGV
+  // Consentement client à être contacté pour un produit de remplacement en cas
+  // de rupture de stock sur un article de la commande.
+  acceptReplacementContact?: boolean;
   // Transporteur privé : email/téléphone OU bordereau
   privateCarrierEmail?:     string;
   privateCarrierPhone?:     string;
@@ -790,6 +793,8 @@ export async function placeOrder(
       promoDiscount: appliedCode?.totalSaved ?? 0,
       // CGV
       cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
+      // Consentement remplacement rupture stock (case cochée au panier)
+      acceptReplacementContact: input.acceptReplacementContact ?? false,
       // TVA
       tvaRate,
       subtotalHT: subtotalAfterDiscount,
@@ -1174,6 +1179,7 @@ export async function finalizeOrderFromPaymentIntent(
     // avant CGV coché), on retombe sur la date de succès du PI — le paiement
     // ayant été validé, les CGV l'étaient nécessairement à ce moment-là.
     cgvAcceptedAt: md.cgvAcceptedAt || new Date().toISOString(),
+    acceptReplacementContact: md.acceptReplacementContact === "1",
     privateCarrierEmail: md.privateCarrierEmail || undefined,
     privateCarrierPhone: md.privateCarrierPhone || undefined,
     privateCarrierBordereau: md.privateCarrierBordereau || undefined,

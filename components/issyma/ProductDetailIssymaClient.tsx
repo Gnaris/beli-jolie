@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import Image from "@/components/ui/SmartImage";
 import { Link } from "@/i18n/navigation";
 import { addToCart } from "@/app/actions/client/cart";
@@ -51,6 +52,7 @@ export default function ProductDetailIssymaClient({
   isRevoked: boolean;
 }) {
   const toast = useToast();
+  const t = useTranslations("productDetailIssyma");
   const [isPending, startTransition] = useTransition();
 
   // Regrouper par couleur : chaque couleur peut avoir plusieurs variantes
@@ -114,16 +116,16 @@ export default function ProductDetailIssymaClient({
   function handleAdd() {
     if (!currentVariant) return;
     if (hasSizes && !activeSize) {
-      toast.error("Sélection incomplète", "Merci de choisir une taille.");
+      toast.error(t("toastIncompleteTitle"), t("toastIncompleteDesc"));
       return;
     }
     startTransition(async () => {
       try {
         await addToCart(currentVariant.id, quantity);
-        toast.success("Ajouté au panier");
+        toast.success(t("toastAddedTitle"));
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Erreur d'ajout.";
-        toast.error("Impossible d'ajouter", msg);
+        const msg = err instanceof Error ? err.message : t("toastErrorDefault");
+        toast.error(t("toastErrorTitle"), msg);
       }
     });
   }
@@ -205,19 +207,19 @@ export default function ProductDetailIssymaClient({
         </h1>
 
         <p className="mt-2 text-[11px] tracking-[0.24em] uppercase font-semibold" style={{ color: P.muted }}>
-          Réf: {reference}
+          {t("refLabel")} {reference}
         </p>
 
         {compositionsText && (
           <p className="mt-3 text-[13px]" style={{ color: P.inkSoft }}>
-            <span className="font-semibold" style={{ color: P.ink }}>Composition :</span> {compositionsText}
+            <span className="font-semibold" style={{ color: P.ink }}>{t("compositionLabel")}</span> {compositionsText}
           </p>
         )}
 
         {/* Sélecteur couleur */}
         <div className="mt-4">
           <p className="text-[10px] tracking-[0.22em] uppercase font-semibold mb-2" style={{ color: P.muted }}>
-            Couleur : <span style={{ color: P.ink }}>{currentGroup?.colorName ?? ""}</span>
+            {t("colorLabel")} <span style={{ color: P.ink }}>{currentGroup?.colorName ?? ""}</span>
           </p>
           <div className="flex flex-wrap gap-2">
             {colorGroups.map((c) => {
@@ -252,7 +254,7 @@ export default function ProductDetailIssymaClient({
         {hasBothSaleTypes && (
           <div className="mt-4">
             <p className="text-[10px] tracking-[0.22em] uppercase font-semibold mb-2" style={{ color: P.muted }}>
-              Mode de vente
+              {t("saleModeLabel")}
             </p>
             <div
               className="inline-flex rounded-full p-1"
@@ -262,8 +264,8 @@ export default function ProductDetailIssymaClient({
                 const isActive = activeSaleType === mode;
                 const label =
                   mode === "UNIT"
-                    ? "À l'unité"
-                    : `Lot de ${currentGroup?.packVariant?.packQuantity ?? "?"}`;
+                    ? t("saleUnit")
+                    : t("salePack", { qty: currentGroup?.packVariant?.packQuantity ?? "?" });
                 return (
                   <button
                     key={mode}
@@ -283,25 +285,26 @@ export default function ProductDetailIssymaClient({
           </div>
         )}
 
-        {/* Réassurance rows (icônes + texte) */}
+        {/* Réassurance rows (emojis + texte) */}
         <div className="mt-5 rounded-xl p-4 space-y-3" style={{ background: P.paper, border: `1px solid ${P.borderSoft}` }}>
           {[
-            { title: "48h chrono", desc: "Traitement de commande" },
-            { title: "10j max", desc: "Livraison partout en France" },
-            { title: "14 jours", desc: "Retour gratuit sous 14 jours" },
+            { emoji: "📦", title: t("reassurancePrepTitle"), desc: null },
+            { emoji: "👗", title: t("reassuranceUnitTitle"), desc: t("reassuranceUnitDesc") },
+            { emoji: "🛍️", title: t("reassuranceMinTitle"), desc: t("reassuranceMinDesc") },
           ].map((row, i) => (
             <div key={i} className="flex items-start gap-3">
               <span
-                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: "#f2d9d3", color: P.wine700 }}
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base leading-none"
+                style={{ background: "#f2d9d3" }}
+                aria-hidden
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-                  <circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/>
-                </svg>
+                {row.emoji}
               </span>
               <div className="leading-tight">
                 <p className="text-[12px] font-semibold" style={{ color: P.ink }}>{row.title}</p>
-                <p className="text-[11px]" style={{ color: P.inkSoft }}>{row.desc}</p>
+                {row.desc && (
+                  <p className="text-[11px]" style={{ color: P.inkSoft }}>{row.desc}</p>
+                )}
               </div>
             </div>
           ))}
@@ -326,10 +329,10 @@ export default function ProductDetailIssymaClient({
                 </span>
                 <div>
                   <p className="serif text-[16px] sm:text-[18px] font-semibold" style={{ color: P.cream }}>
-                    Tarifs réservés aux professionnels
+                    {t("guestPriceGateTitle")}
                   </p>
                   <p className="text-[12px] mt-1 leading-relaxed" style={{ color: `${P.cream2}cc` }}>
-                    Créez votre compte pro (KBIS requis) pour voir les prix et passer commande.
+                    {t("guestPriceGateDesc")}
                   </p>
                 </div>
               </div>
@@ -340,14 +343,14 @@ export default function ProductDetailIssymaClient({
                   className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold transition"
                   style={{ background: P.cream, color: P.wine800 }}
                 >
-                  Créer mon compte <span aria-hidden>→</span>
+                  {t("guestPriceGateCta")} <span aria-hidden>→</span>
                 </Link>
                 <Link
                   href="/connexion"
                   className="inline-flex items-center justify-center gap-2 text-[11px] tracking-[0.18em] uppercase font-semibold px-3 py-2"
                   style={{ color: `${P.cream2}cc` }}
                 >
-                  Déjà pro ? Se connecter
+                  {t("guestPriceGateLogin")}
                 </Link>
               </div>
             </div>
@@ -360,12 +363,10 @@ export default function ProductDetailIssymaClient({
               }}
             >
               <p className="text-[13px] font-semibold" style={{ color: isRevoked ? "#991b1b" : "#1e40af" }}>
-                {isRevoked ? "Compte désactivé" : "Compte en attente de validation"}
+                {isRevoked ? t("accountRevokedTitle") : t("accountPendingTitle")}
               </p>
               <p className="text-[12px] mt-1" style={{ color: isRevoked ? "#7f1d1d" : "#1e3a8a" }}>
-                {isRevoked
-                  ? "Contactez-nous pour réactiver votre accès."
-                  : "Nous vérifions vos documents. Vous serez notifié·e par email."}
+                {isRevoked ? t("accountRevokedDesc") : t("accountPendingDesc")}
               </p>
             </div>
           ) : (
@@ -375,7 +376,7 @@ export default function ProductDetailIssymaClient({
             >
               <div className="flex items-baseline justify-between mb-1">
                 <p className="text-[10px] tracking-[0.22em] uppercase font-semibold" style={{ color: P.muted }}>
-                  {isPack ? `Lot de ${packQty ?? "?"} — Prix HT` : "Prix HT unitaire"}
+                  {isPack ? t("packPriceLabel", { qty: packQty ?? "?" }) : t("unitPriceLabel")}
                 </p>
                 <p className="serif text-[26px] font-bold tabular-nums" style={{ color: P.wine700 }}>
                   {price.toFixed(2).replace(".", ",")} €
@@ -383,14 +384,14 @@ export default function ProductDetailIssymaClient({
               </div>
               {isPack && packQty && packQty > 0 && (
                 <p className="text-[11px] mb-3" style={{ color: P.inkSoft }}>
-                  Soit {(price / packQty).toFixed(2).replace(".", ",")} € / pièce
+                  {t("perPiece", { price: (price / packQty).toFixed(2).replace(".", ",") })}
                 </p>
               )}
 
               {hasSizes && (
                 <div className="mt-3 mb-3">
                   <p className="text-[10px] tracking-[0.22em] uppercase font-semibold mb-2" style={{ color: P.muted }}>
-                    Taille
+                    {t("sizeLabel")}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {currentVariant!.sizes.map((s) => {
@@ -419,7 +420,7 @@ export default function ProductDetailIssymaClient({
 
               <div className="mb-3">
                 <p className="text-[10px] tracking-[0.22em] uppercase font-semibold mb-2" style={{ color: P.muted }}>
-                  Quantité {isPack ? "(lots)" : ""}
+                  {isPack ? t("quantityLabelPack") : t("quantityLabel")}
                 </p>
                 <div className="inline-flex items-center rounded-full overflow-hidden" style={{ border: `1.5px solid ${P.borderSoft}` }}>
                   <button
@@ -449,7 +450,7 @@ export default function ProductDetailIssymaClient({
                 className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-full text-[11px] tracking-[0.22em] uppercase font-semibold transition disabled:opacity-60"
                 style={{ background: P.wine700, color: P.cream }}
               >
-                {isPending ? "Ajout..." : "Ajouter au panier"} <span aria-hidden>→</span>
+                {isPending ? t("adding") : t("addToCart")} <span aria-hidden>→</span>
               </button>
             </div>
           )}

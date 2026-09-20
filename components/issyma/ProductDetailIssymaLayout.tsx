@@ -76,7 +76,10 @@ export default async function ProductDetailIssymaLayout({
   isRevoked: boolean;
   jsonLdBlocks?: object[];
 }) {
-  const tProducts = await getTranslations("products");
+  const [tProducts, tDetail] = await Promise.all([
+    getTranslations("products"),
+    getTranslations("productDetailIssyma"),
+  ]);
 
   return (
     <IssymaShell shopName={shopName} jsonLdBlocks={jsonLdBlocks}>
@@ -127,9 +130,9 @@ export default async function ProductDetailIssymaLayout({
               }}
             >
               {[
-                { Icon: IconTruck, title: "Vente à l'unité", desc: "Commandez selon vos besoins" },
-                { Icon: IconBoxLine, title: "Minimum 100 € HT", desc: "Montant minimum de commande" },
-                { Icon: IconHeadset, title: "Préparation sous 24 à 48h", desc: "Expédition rapide et soignée" },
+                { Icon: IconTruck, title: tDetail("tileUnitTitle"), desc: tDetail("tileUnitDesc") },
+                { Icon: IconBoxLine, title: tDetail("tileMinTitle"), desc: tDetail("tileMinDesc") },
+                { Icon: IconHeadset, title: tDetail("tilePrepTitle"), desc: tDetail("tilePrepDesc") },
               ].map(({ Icon, title, desc }, i) => (
                 <div
                   key={i}
@@ -164,11 +167,11 @@ export default async function ProductDetailIssymaLayout({
                 className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
                 style={{ color: P.ink }}
               >
-                <span>Description</span>
+                <span>{tDetail("accordionDescription")}</span>
                 <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
               </summary>
               <div className="px-5 pb-5 text-[13px] leading-relaxed whitespace-pre-line" style={{ color: P.inkSoft }}>
-                {description || "—"}
+                {description || tDetail("accordionDescriptionEmpty")}
               </div>
             </details>
 
@@ -180,11 +183,11 @@ export default async function ProductDetailIssymaLayout({
                 className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
                 style={{ color: P.ink }}
               >
-                <span>Tailles et mesures</span>
+                <span>{tDetail("accordionSizes")}</span>
                 <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
               </summary>
               <div className="px-5 pb-5 text-[13px] leading-relaxed" style={{ color: P.inkSoft }}>
-                Contactez-nous si vous avez besoin des mesures détaillées.
+                {tDetail("accordionSizesContent")}
               </div>
             </details>
 
@@ -196,11 +199,11 @@ export default async function ProductDetailIssymaLayout({
                 className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
                 style={{ color: P.ink }}
               >
-                <span>Livraison</span>
+                <span>{tDetail("accordionShipping")}</span>
                 <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
               </summary>
               <div className="px-5 pb-5 text-[13px] leading-relaxed" style={{ color: P.inkSoft }}>
-                Expédition sous 48h. Livraison partout en France en 10 jours max. Retour gratuit sous 14 jours.
+                {tDetail("accordionShippingContent")}
               </div>
             </details>
           </div>
@@ -214,10 +217,10 @@ export default async function ProductDetailIssymaLayout({
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
               <div>
                 <p className="text-[10px] tracking-[0.32em] uppercase font-semibold" style={{ color: P.wine700 }}>
-                  À découvrir aussi
+                  {tDetail("similarEyebrow")}
                 </p>
                 <h2 className="serif mt-2 text-[26px] sm:text-[32px] font-semibold" style={{ color: P.ink, lineHeight: 1.05 }}>
-                  Produits similaires
+                  {tDetail("similarHeading")}
                 </h2>
               </div>
               <Link
@@ -225,7 +228,7 @@ export default async function ProductDetailIssymaLayout({
                 className="text-[11px] tracking-[0.22em] uppercase font-semibold self-start sm:self-end"
                 style={{ color: P.wine700 }}
               >
-                Voir tout le catalogue →
+                {tDetail("similarSeeAll")}
               </Link>
             </div>
 
@@ -258,7 +261,7 @@ export default async function ProductDetailIssymaLayout({
                       {sp.name}
                     </h3>
                     <p className="mt-0.5 text-[9px] tracking-[0.2em] uppercase font-semibold" style={{ color: P.muted }}>
-                      Ref: {sp.reference}
+                      {tDetail("similarRefLabel")} {sp.reference}
                     </p>
                   </div>
                 </Link>

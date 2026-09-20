@@ -31,6 +31,8 @@ export default function Step3PaymentContent({
   shippingSummary,
   cgvAccepted,
   onCgvChange,
+  acceptReplacementContact,
+  onAcceptReplacementChange,
   promoCode,
   onPromoCodeChange,
   promoApplied,
@@ -62,6 +64,8 @@ export default function Step3PaymentContent({
   shippingSummary: { title: string; description: string };
   cgvAccepted: boolean;
   onCgvChange: (v: boolean) => void;
+  acceptReplacementContact: boolean;
+  onAcceptReplacementChange: (v: boolean) => void;
   promoCode: string;
   onPromoCodeChange: (v: string) => void;
   promoApplied: { code: string; name: string; totalSaved: number } | null;
@@ -133,25 +137,39 @@ export default function Step3PaymentContent({
     }
   }
 
-  // CGV — bloc partagé entre Carte (rendu dans StripeCardForm juste avant le
-  // bouton Payer) et Virement (rendu dans le bloc virement juste avant le
-  // bouton Confirmer). Une seule source de vérité pour cgvAccepted.
-  const cgvNode = (
-    <label className="flex items-start gap-3 cursor-pointer">
-      <input
-        type="checkbox"
-        checked={cgvAccepted}
-        onChange={(e) => onCgvChange(e.target.checked)}
-        className="mt-1"
-      />
-      <span className="text-sm text-slate-600">
-        {t("cgvAccept")}{" "}
-        <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
-          {t("cgvLink")}
-        </a>
-        .
-      </span>
-    </label>
+  // CGV + consentement remplacement — bloc partagé entre Carte (rendu dans
+  // StripeCardForm juste avant le bouton Payer) et Virement (rendu dans le
+  // bloc virement juste avant le bouton Confirmer). Une seule source de
+  // vérité pour cgvAccepted et acceptReplacementContact.
+  const consentNode = (
+    <div className="space-y-3">
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={acceptReplacementContact}
+          onChange={(e) => onAcceptReplacementChange(e.target.checked)}
+          className="mt-1"
+        />
+        <span className="text-sm text-slate-600">
+          {t("replacementAccept")}
+        </span>
+      </label>
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={cgvAccepted}
+          onChange={(e) => onCgvChange(e.target.checked)}
+          className="mt-1"
+        />
+        <span className="text-sm text-slate-600">
+          {t("cgvAccept")}{" "}
+          <a href="/mentions-legales" target="_blank" className="underline hover:text-slate-900">
+            {t("cgvLink")}
+          </a>
+          .
+        </span>
+      </label>
+    </div>
   );
 
   return (
@@ -326,7 +344,7 @@ export default function Step3PaymentContent({
                 onError={onPaymentError}
                 disabled={!cgvAccepted || isCreatingOrder}
                 totalAmountCents={totalAmountCents}
-                cgvBlock={cgvNode}
+                consentBlock={consentNode}
               />
             </Elements>
           )}
@@ -363,7 +381,7 @@ export default function Step3PaymentContent({
             </p>
           </div>
 
-          <div className="mt-5">{cgvNode}</div>
+          <div className="mt-5">{consentNode}</div>
 
           <button
             type="button"
@@ -394,14 +412,14 @@ function StripeCardForm({
   onError,
   disabled,
   totalAmountCents,
-  cgvBlock,
+  consentBlock,
 }: {
   clientSecret: string;
   onSuccess: (piId: string) => void;
   onError: (msg: string) => void;
   disabled: boolean;
   totalAmountCents: number;
-  cgvBlock: React.ReactNode;
+  consentBlock: React.ReactNode;
 }) {
   const t = useTranslations("checkout");
   const locale = useLocale();
@@ -451,7 +469,7 @@ function StripeCardForm({
           wallets: { applePay: "auto", googlePay: "auto", link: "never" },
         }}
       />
-      {cgvBlock}
+      {consentBlock}
       <button
         type="submit"
         disabled={disabled || !ready || processing}

@@ -399,6 +399,10 @@ export default function CartWizardClient({
   // affichés, la cliente doit d'abord picker un mode). Refonte 2026-09-18.
   const [paymentMode, setPaymentMode] = useState<"card" | "bank_transfer" | null>(null);
 
+  // Consentement remplacement rupture stock — décoché par défaut (opt-in explicite).
+  // Déclaré avant le useEffect create-intent pour que la valeur soit dans metadata PI.
+  const [acceptReplacementContact, setAcceptReplacementContact] = useState(false);
+
   useEffect(() => {
     // On ne crée le PaymentIntent Stripe qu'à partir du moment où la cliente a
     // sélectionné « Carte bancaire ». Le virement passe par placeBankTransferOrder
@@ -453,6 +457,7 @@ export default function CartWizardClient({
         ...(deliveryMode === "merge" && selectedMergeOrderId
           ? { mergeIntoOrderId: selectedMergeOrderId }
           : {}),
+        acceptReplacementContact,
       }),
     })
       .then((r) => r.json())
@@ -492,6 +497,7 @@ export default function CartWizardClient({
     privateCarrierPhone,
     bordereauPath,
     selectedMergeOrderId,
+    acceptReplacementContact,
   ]);
 
   // ── CGV + placeOrder
@@ -528,6 +534,7 @@ export default function CartWizardClient({
         carrierName:  selectedCarrier.name,
         carrierPrice: rawCarrierPrice,
         cgvAcceptedAt: new Date().toISOString(),
+        acceptReplacementContact,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
             ? {
@@ -584,6 +591,7 @@ export default function CartWizardClient({
         carrierPrice:          rawCarrierPrice,
         stripePaymentIntentId: piId,
         cgvAcceptedAt:         new Date().toISOString(),
+        acceptReplacementContact,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
             ? {
@@ -866,6 +874,8 @@ export default function CartWizardClient({
                 }}
                 cgvAccepted={cgvAccepted}
                 onCgvChange={setCgvAccepted}
+                acceptReplacementContact={acceptReplacementContact}
+                onAcceptReplacementChange={setAcceptReplacementContact}
                 promoCode={promoCode}
                 onPromoCodeChange={setPromoCode}
                 promoApplied={promoApplied}

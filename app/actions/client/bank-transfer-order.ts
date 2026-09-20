@@ -47,6 +47,9 @@ export interface BankTransferOrderInput {
   carrierName: string;
   carrierPrice: number;
   cgvAcceptedAt?: string;
+  // Consentement client à être contacté pour un produit de remplacement en cas
+  // de rupture de stock sur un article de la commande.
+  acceptReplacementContact?: boolean;
   privateCarrierEmail?: string;
   privateCarrierPhone?: string;
   privateCarrierBordereau?: string;
@@ -562,6 +565,7 @@ export async function placeBankTransferOrder(
           promoCode: appliedCode?.code ?? null,
           promoDiscount: appliedCode?.totalSaved ?? 0,
           cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
+          acceptReplacementContact: input.acceptReplacementContact ?? false,
           tvaRate,
           subtotalHT: subtotalAfterDiscount,
           subtotalBrutHT,

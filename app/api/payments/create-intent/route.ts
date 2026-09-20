@@ -41,6 +41,9 @@ const CreateIntentSchema = z.object({
   privateCarrierPhone: z.string().optional(),
   privateCarrierBordereau: z.string().optional(),
   mergeIntoOrderId: z.string().optional(),
+  // Consentement remplacement rupture stock — stocké en metadata pour être
+  // relu par finalizeOrderFromPaymentIntent au retour PayPal.
+  acceptReplacementContact: z.boolean().optional(),
 });
 
 /**
@@ -75,6 +78,7 @@ export async function POST(req: Request) {
     privateCarrierPhone,
     privateCarrierBordereau,
     mergeIntoOrderId,
+    acceptReplacementContact,
   } = parsed.data;
 
   const userId = session.user.id;
@@ -336,6 +340,7 @@ export async function POST(req: Request) {
         privateCarrierPhone: privateCarrierPhone ?? "",
         privateCarrierBordereau: privateCarrierBordereau ?? "",
         mergeIntoOrderId: mergeIntoOrderId ?? "",
+        acceptReplacementContact: acceptReplacementContact ? "1" : "0",
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${pricing.totalTTC.toFixed(2)} € TTC`,

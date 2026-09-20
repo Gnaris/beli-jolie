@@ -10,7 +10,6 @@ import OrderQuickActions from "@/components/admin/orders/OrderQuickActions";
 import BankTransferConfirmButton from "@/components/admin/orders/BankTransferConfirmButton";
 import { EU_COUNTRIES } from "@/lib/vat";
 import { roundCent } from "@/lib/money";
-import { getBankTransferConfigFresh, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -64,9 +63,6 @@ export default async function AdminCommandeDetailPage({
     order.paymentMode === "BANK_TRANSFER" && order.paymentStatus !== "paid" && order.status !== "CANCELLED";
   const isBankTransferPaid =
     order.paymentMode === "BANK_TRANSFER" && order.paymentStatus === "paid";
-  const btConfig = order.paymentMode === "BANK_TRANSFER"
-    ? await getBankTransferConfigFresh()
-    : null;
 
   const shipCountryCode = (order.shipCountry ?? "").toUpperCase();
   const isOutsideEu = !!shipCountryCode && !EU_COUNTRIES.has(shipCountryCode);
@@ -170,7 +166,7 @@ export default async function AdminCommandeDetailPage({
       </section>
 
       {/* Encart virement en attente (rappel des infos à vérifier sur la banque) */}
-      {isBankTransferPending && btConfig && (
+      {isBankTransferPending && (
         <section className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
           <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
             <span className="w-1 h-6 bg-amber-500 rounded-full" />
@@ -193,16 +189,37 @@ export default async function AdminCommandeDetailPage({
               {order.clientCompany && <p className="text-xs text-slate-500">{order.clientCompany}</p>}
             </div>
           </div>
-          {btConfig.iban && (
-            <div className="px-5 py-3 border-t border-amber-100 bg-slate-50">
-              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Compte destinataire</p>
-              <p className="text-xs text-slate-700 font-mono tracking-widest">{formatIbanForDisplay(btConfig.iban)}</p>
-            </div>
-          )}
           <div className="px-5 py-3 border-t border-amber-100 bg-white">
             <p className="text-xs text-slate-500">
               💡 Ouvrez votre banque, vérifiez que le virement est bien crédité, puis cliquez sur « Marquer virement reçu » en haut.
             </p>
+          </div>
+        </section>
+      )}
+
+      {/* Consentement remplacement en cas de rupture de stock (case cochée au panier) */}
+      {order.acceptReplacementContact ? (
+        <section className="bg-white border border-emerald-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-emerald-100 bg-emerald-50 flex items-center gap-2">
+            <span className="w-1 h-6 bg-emerald-500 rounded-full" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              Remplacement en cas de rupture
+            </p>
+          </div>
+          <div className="px-5 py-3 text-sm text-emerald-900">
+            ✅ Le client <span className="font-semibold">accepte</span> d'être contacté pour se voir proposer un produit de remplacement si un article de sa commande est en rupture de stock.
+          </div>
+        </section>
+      ) : (
+        <section className="bg-white border border-rose-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-rose-100 bg-rose-50 flex items-center gap-2">
+            <span className="w-1 h-6 bg-rose-500 rounded-full" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-700">
+              Remplacement en cas de rupture
+            </p>
+          </div>
+          <div className="px-5 py-3 text-sm text-rose-900">
+            ⛔ Le client <span className="font-semibold">refuse</span> d'être contacté pour un produit de remplacement en cas de rupture de stock.
           </div>
         </section>
       )}
