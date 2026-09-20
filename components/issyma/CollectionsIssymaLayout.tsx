@@ -61,43 +61,51 @@ export default async function CollectionsIssymaLayout({
               {t("empty")}
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
               {collections.map((col) => (
                 <Link
                   key={col.id}
                   href={`/collections/${col.slug ?? col.id}`}
-                  className="group rounded-xl overflow-hidden flex flex-col items-center text-center p-2.5 sm:p-3 transition"
+                  className="group relative rounded-2xl overflow-hidden block transition"
                   style={{
-                    background: P.paper,
                     aspectRatio: "1 / 1",
                     border: `1px solid ${P.borderSoft}`,
+                    background: P.blush100,
                   }}
                 >
-                  {/* Illustration : image sans cercle, ou grande initiale bordeaux */}
-                  <div className="flex-1 w-full flex items-center justify-center">
-                    {col.image ? (
-                      <Image
-                        src={col.image}
-                        alt={col.name}
-                        width={160}
-                        height={160}
-                        className="max-w-[65%] max-h-[65%] object-contain transition-transform duration-500 group-hover:scale-105"
-                      />
-                    ) : (
+                  {/* Image plein cadre */}
+                  {col.image ? (
+                    <Image
+                      src={col.image}
+                      alt={col.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
                       <span
                         className="serif font-bold"
-                        style={{ color: P.wine700, fontSize: "clamp(1.6rem, 3.5vw, 2.4rem)", lineHeight: 1 }}
+                        style={{ color: P.wine700, fontSize: "clamp(3rem, 5vw, 4.5rem)", lineHeight: 1 }}
                         aria-hidden="true"
                       >
                         {col.name.trim().charAt(0).toUpperCase() || "?"}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* Libellé sans-serif gras */}
+                  {/* Dégradé bas + libellé superposé */}
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, transparent 0%, rgba(42, 15, 21, 0.55) 60%, rgba(42, 15, 21, 0.85) 100%)",
+                    }}
+                  />
                   <p
-                    className="mt-1 font-semibold text-[11px] sm:text-[12px] leading-tight"
-                    style={{ color: P.ink }}
+                    className="absolute left-4 right-4 bottom-4 serif font-semibold text-[15px] sm:text-[17px] leading-tight"
+                    style={{ color: P.cream }}
                   >
                     {col.name}
                   </p>
