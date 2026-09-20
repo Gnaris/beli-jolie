@@ -16,6 +16,8 @@ import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import ProductDetailIssymaLayout from "@/components/issyma/ProductDetailIssymaLayout";
 import { loadActivePromotions } from "@/lib/promotions";
 import { resolveBestPercentForProductBadge } from "@/lib/promotion-engine";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
@@ -498,6 +500,104 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     ],
   };
 
+  // Le composant interactif ProductDetail est partagé entre les deux tenants —
+  // seul l'habillage (header, breadcrumb, fond, footer) change.
+  const productDetailNode = (
+    <ProductDetail
+      productId={product.id}
+      name={translated.name}
+      reference={product.reference}
+      description={translated.description}
+      category={product.category.name}
+      subCategories={product.subCategories.map((sc) => sc.name)}
+      variants={filteredColors.map((pc) => ({
+        id:            pc.id,
+        groupKey:      pcGroupKeys.get(pc.id)!,
+        colorId:       pc.colorId,
+        colorName:     pc.color?.name,
+        colorHex:      pc.color?.hex,
+        patternImage:  pc.color?.patternImage,
+        unitPrice:     Number(pc.unitPrice),
+        weight:        pc.weight,
+        stock:         pc.stock,
+        isPrimary:     primaryColorIdResolved != null && pc.colorId === primaryColorIdResolved,
+        saleType:      pc.saleType,
+        packQuantity:  pc.packQuantity,
+        sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit != null ? Number(vs.pricePerUnit) : undefined })),
+      }))}
+      colorImages={colorImagesForDetail}
+      compositions={product.compositions.map((c) => ({
+        name:       c.composition.name,
+        percentage: c.percentage,
+      }))}
+      dimensions={{
+        length:        product.dimensionLength,
+        width:         product.dimensionWidth,
+        height:        product.dimensionHeight,
+        diameter:      product.dimensionDiameter,
+        circumference: product.dimensionCircumference,
+      }}
+      tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
+      similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
+      bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
+      bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
+      sizeDetailsTu={product.sizeDetailsTu}
+      discountPercent={bestDiscountPercent > 0 ? bestDiscountPercent : (manualDiscountPercent > 0 ? manualDiscountPercent : null)}
+      clientDiscount={clientDiscount}
+      isAuthenticated={!!session?.user?.id}
+      showPrices={canSeePrices(session)}
+      isRevoked={session?.user?.status === "REJECTED"}
+    />
+  );
+
+  // Dispatch tenant : Issyma reçoit un rendu complètement custom (gallery,
+  // accordions, produits similaires) matchant le visuel Issyma. BJ inchangé.
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    const issymaVariants = filteredColors.map((pc) => ({
+      id: pc.id,
+      groupKey: pcGroupKeys.get(pc.id)!,
+      colorId: pc.colorId,
+      colorName: pc.color?.name ?? null,
+      hex: pc.color?.hex ?? null,
+      patternImage: pc.color?.patternImage ?? null,
+      unitPrice: Number(pc.unitPrice),
+      stock: pc.stock,
+      saleType: pc.saleType as "UNIT" | "PACK",
+      packQuantity: pc.packQuantity,
+      sizes: (pc.variantSizes ?? []).map((vs: any) => ({
+        name: vs.size.name,
+        quantity: vs.quantity,
+      })),
+    }));
+    const issymaImageGroups = colorImagesForDetail.map((g) => ({
+      groupKey: g.groupKey,
+      images: g.images.map((i) => i.path),
+    }));
+    const compositionsText = product.compositions
+      .map((c) => `${c.composition.name} ${c.percentage}%`)
+      .join(" · ");
+    return (
+      <ProductDetailIssymaLayout
+        shopName={shopName}
+        categorySlug={product.category.slug ?? ""}
+        categoryName={translatedCategoryName}
+        productId={product.id}
+        productName={translated.name}
+        reference={product.reference}
+        description={translated.description}
+        compositionsText={compositionsText}
+        variants={issymaVariants}
+        imageGroups={issymaImageGroups}
+        similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
+        showPrices={canSeePrices(session)}
+        isAuthenticated={!!session?.user?.id}
+        isRevoked={session?.user?.status === "REJECTED"}
+        jsonLdBlocks={[productJsonLd, breadcrumbJsonLd]}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen relative">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
@@ -520,51 +620,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
               <span className="text-text-secondary truncate">{translated.name}</span>
             </nav>
 
-            <ProductDetail
-              productId={product.id}
-              name={translated.name}
-              reference={product.reference}
-              description={translated.description}
-              category={product.category.name}
-              subCategories={product.subCategories.map((sc) => sc.name)}
-              variants={filteredColors.map((pc) => ({
-                id:            pc.id,
-                groupKey:      pcGroupKeys.get(pc.id)!,
-                colorId:       pc.colorId,
-                colorName:     pc.color?.name,
-                colorHex:      pc.color?.hex,
-                patternImage:  pc.color?.patternImage,
-                unitPrice:     Number(pc.unitPrice),
-                weight:        pc.weight,
-                stock:         pc.stock,
-                isPrimary:     primaryColorIdResolved != null && pc.colorId === primaryColorIdResolved,
-                saleType:      pc.saleType,
-                packQuantity:  pc.packQuantity,
-                sizes:         (pc.variantSizes ?? []).map((vs: any) => ({ name: vs.size.name, quantity: vs.quantity, pricePerUnit: vs.pricePerUnit != null ? Number(vs.pricePerUnit) : undefined })),
-              }))}
-              colorImages={colorImagesForDetail}
-              compositions={product.compositions.map((c) => ({
-                name:       c.composition.name,
-                percentage: c.percentage,
-              }))}
-              dimensions={{
-                length:        product.dimensionLength,
-                width:         product.dimensionWidth,
-                height:        product.dimensionHeight,
-                diameter:      product.dimensionDiameter,
-                circumference: product.dimensionCircumference,
-              }}
-              tags={product.tags.map((t) => ({ id: t.tag.id, name: t.tag.name }))}
-              similarProducts={product.similarProducts.map((sp) => toRelated(sp.similar))}
-              bundleChildren={product.bundleChildren.map((b) => toRelated(b.child))}
-              bundleParents={product.bundleParents.map((b) => toRelated(b.parent))}
-              sizeDetailsTu={product.sizeDetailsTu}
-              discountPercent={bestDiscountPercent > 0 ? bestDiscountPercent : (manualDiscountPercent > 0 ? manualDiscountPercent : null)}
-              clientDiscount={clientDiscount}
-              isAuthenticated={!!session?.user?.id}
-              showPrices={canSeePrices(session)}
-              isRevoked={session?.user?.status === "REJECTED"}
-            />
+            {productDetailNode}
           </div>
         </main>
         <Footer shopName={shopName} />

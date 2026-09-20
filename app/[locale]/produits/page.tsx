@@ -16,6 +16,9 @@ import ProductsInfiniteScroll from "@/components/produits/ProductsInfiniteScroll
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import ProduitsIssymaLayout from "@/components/issyma/ProduitsIssymaLayout";
+import type { CarouselProduct } from "@/components/home/ProductCarousel";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant les caches tenant-scopés
@@ -223,7 +226,14 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // les produits dont toutes les variantes sont a 0 sont desormais archives
   // automatiquement et donc deja masques par le filtre status. On garde
   // uniquement le filtre per-request hideOos (toggle utilisateur).
-  const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow] = await Promise.all([
+  // Deux textes distincts, éditables dans Admin → Paramètres → SEO :
+  //  - `produits_seo_intro` : phrase courte en haut de page (au-dessus des filtres)
+  //  - `produits_seo_text` : paragraphe long affiché en bas (utile pour Google)
+  // Chacun a sa variante `_en` saisie par l'admin. Locale visiteur `en` →
+  // lit d'abord `_en`, fallback FR si vide (évite qu'une boutique partiellement
+  // traduite affiche du vide).
+  const wantEn = locale === "en";
+  const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow, seoTextRowEn, seoIntroRowEn] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
@@ -231,14 +241,17 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     getCachedCompositions(),
     getCachedSiteConfig("produits_seo_text"),
     getCachedSiteConfig("produits_seo_intro"),
+    wantEn ? getCachedSiteConfig("produits_seo_text_en") : Promise.resolve(null),
+    wantEn ? getCachedSiteConfig("produits_seo_intro_en") : Promise.resolve(null),
   ]);
-  // Deux textes distincts :
-  //  - `produits_seo_intro` : phrase courte en haut de page (au-dessus des filtres)
-  //  - `produits_seo_text` : paragraphe long affiché en bas (utile pour Google)
-  // Les deux ne s'affichent qu'en l'absence de filtres, pour ne pas polluer les
-  // pages de résultats filtrées.
-  const produitsSeoIntro = !hasFilters ? (seoIntroRow?.value?.trim() ?? "") : "";
-  const produitsSeoText = !hasFilters ? (seoTextRow?.value?.trim() ?? "") : "";
+  const seoIntroSource =
+    (wantEn && seoIntroRowEn?.value?.trim()) || seoIntroRow?.value?.trim() || "";
+  const seoTextSource =
+    (wantEn && seoTextRowEn?.value?.trim()) || seoTextRow?.value?.trim() || "";
+  // Les textes ne s'affichent qu'en l'absence de filtres — évite de polluer
+  // les pages de résultats filtrées.
+  const produitsSeoIntro = !hasFilters ? seoIntroSource : "";
+  const produitsSeoText = !hasFilters ? seoTextSource : "";
 
   // Le toggle "Masquer les ruptures" reste affiche cote UI catalogue.
   const showOosToggle = true;
@@ -362,6 +375,47 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // Enrichit avec le meilleur % promo AUTO applicable à chaque produit
   // (override du discountPercent manuel si une promo est plus forte).
   products = await enrichProductsWithBestPromoPercent(products);
+
+  // Dispatch tenant : Issyma reçoit son propre layout bordeaux (grille + sidebar
+  // bordeaux + hero avec CTA "Créer mon compte pro" + tuiles réassurance).
+  // Infinite scroll BJ-only pour l'instant (Issyma affiche la 1re page seulement).
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    const issymaProducts: CarouselProduct[] = products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      reference: p.reference,
+      category: p.category?.name ?? "",
+      subCategory: p.subCategories?.[0]?.name ?? null,
+      colors: p.colors,
+      tags: (p.tags ?? []).map((tt: { tag: { id: string; name: string } }) => ({ id: tt.tag.id, name: tt.tag.name })),
+      isBestSeller: !!p.isBestSeller,
+      isNew: false,
+      discountPercent: p.discountPercent ?? null,
+    }));
+    return (
+      <ProduitsIssymaLayout
+        shopName={shopName}
+        products={issymaProducts}
+        totalCount={totalCount}
+        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        collections={collections.map((c) => ({ id: c.id, name: c.name }))}
+        colors={colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex ?? null }))}
+        compositions={compositions.map((c) => ({ id: c.id, name: c.name }))}
+        tags={tags.map((tg) => ({ id: tg.id, name: tg.name }))}
+        selectedFilters={{
+          q: q || undefined,
+          cat: cat || undefined,
+          collection: collection || undefined,
+          color: colorIds[0] || undefined,
+          composition: compositionId || undefined,
+          tag: tagId || undefined,
+          bestseller: bestseller_,
+          isNew: isNew_,
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white relative">

@@ -9,6 +9,9 @@ import {
   getShippingAddresses,
 } from "@/app/actions/client/cart";
 import CartWizardClient from "@/components/panier/CartWizardClient";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import CartIssymaWrapper from "@/components/issyma/CartIssymaWrapper";
+import { getCachedShopName } from "@/lib/cached-data";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { loadActivePromotions } from "@/lib/promotions";
@@ -314,7 +317,7 @@ export default async function PanierPage() {
       userRow!.shippingDiscountValue != null ? Number(userRow!.shippingDiscountValue) : null,
   };
 
-  return (
+  const wizardNode = (
     <CartWizardClient
       cart={serializedCart}
       productsMeta={productsMeta}
@@ -345,4 +348,14 @@ export default async function PanierPage() {
       }}
     />
   );
+
+  // Dispatch tenant : Issyma reçoit le wizard enveloppé dans la coquille
+  // bordeaux + hero rose + bandeau réassurance. BJ reste inchangé.
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    const shopName = await getCachedShopName();
+    return <CartIssymaWrapper shopName={shopName}>{wizardNode}</CartIssymaWrapper>;
+  }
+
+  return wizardNode;
 }

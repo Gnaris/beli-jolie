@@ -1,6 +1,6 @@
 /**
  * Tests for updateSeoTexts (server action) — gating admin, validation longueur,
- * upsert des deux clés SiteConfig (home_seo_text + produits_seo_text).
+ * upsert des 8 clés SiteConfig (4 FR + 4 EN).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -49,33 +49,44 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
-  it("upsert les quatre clés SiteConfig pour un admin", async () => {
+  it("upsert les huit clés SiteConfig pour un admin (4 FR + 4 EN)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({
       homeText: "  Bienvenue chez nous  ",
       produitsText: "Notre catalogue.",
       produitsIntroText: "  Accroche courte  ",
       tagline: "  Grossiste maroquinerie  ",
+      homeTextEn: "  Welcome  ",
+      produitsTextEn: "Our catalog.",
+      produitsIntroTextEn: "  Short intro  ",
+      taglineEn: "  Wholesaler leathergoods  ",
     });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(4);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
-      "home_seo_text",
-      "Bienvenue chez nous",
-    );
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
-      "produits_seo_text",
-      "Notre catalogue.",
-    );
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
-      "produits_seo_intro",
-      "Accroche courte",
-    );
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(
-      "seo_tagline",
-      "Grossiste maroquinerie",
-    );
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(8);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text", "Bienvenue chez nous");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text", "Notre catalogue.");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro", "Accroche courte");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline", "Grossiste maroquinerie");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_en", "Welcome");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text_en", "Our catalog.");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro_en", "Short intro");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_en", "Wholesaler leathergoods");
     expect(mockRevalidate.revalidateTag).toHaveBeenCalledWith("site-config", "default");
+  });
+
+  it("écrit les clés _en vides quand l'anglais n'est pas fourni (fallback FR côté front)", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const result = await updateSeoTexts({
+      homeText: "FR",
+      produitsText: "FR2",
+      produitsIntroText: "Intro FR",
+      tagline: "Baseline FR",
+    });
+    expect(result.success).toBe(true);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_en", "");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text_en", "");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro_en", "");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_en", "");
   });
 
   it("écrit seo_tagline vide quand la baseline n'est pas fournie", async () => {
@@ -127,6 +138,23 @@ describe("updateSeoTexts", () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(4);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(8);
+  });
+
+  it("rejette un texte anglais trop long", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const huge = "a".repeat(5001);
+    const result = await updateSeoTexts({ homeText: "", produitsText: "", homeTextEn: huge });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/5000/);
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
+  });
+
+  it("rejette une accroche anglaise trop longue", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const long = "z".repeat(401);
+    const result = await updateSeoTexts({ homeText: "", produitsText: "", produitsIntroTextEn: long });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/400/);
   });
 });

@@ -236,15 +236,21 @@ export function slugify(input: string): string {
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .trim()
-    // Strip filesystem-illegal characters and ASCII control chars / null bytes.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\\/:*?"<>|\x00-\x1F]/g, "")
     // Références type `A2251(2)` (doublon) : transforme `(N)` en `_N` pour
     // éviter les parenthèses dans les URLs marketplaces (Orderchamp rejette
     // « Invalid attachment » sur les parenthèses non-encodées).
     .replace(/\((\d+)\)/g, "_$1")
-    // Parenthèses orphelines restantes → `_` (filet de sécurité).
-    .replace(/[()]/g, "_")
+    // Tirets typographiques Unicode (em/en dash, minus, hyphen) → tiret ASCII.
+    // Sans ça, un slug comme `automne—hiver` restait avec `—` (U+2014) et
+    // toutes les URL contenaient des caractères non-ASCII (Next.js ISR
+    // cache 404 pour les URLs pourcent-encodées, Google indexe mal).
+    .replace(/[‐-―⁃−]/g, "-")
+    // Retire tout ce qui n'est pas [a-z0-9-_]. Filet unique qui remplace
+    // l'ancienne liste (« filesystem-illegal », parenthèses orphelines,
+    // apostrophes courbes, guillemets typo, etc.) — désormais on garde
+    // exclusivement l'ASCII sûr pour URLs, filesystems et marketplaces.
+    // Whitespace inclus dans le reject → converti en `-` par le collapse.
+    .replace(/[^a-z0-9\s\-_]/g, "")
     // Whitespace -> "-"
     .replace(/\s+/g, "-")
     // Collapse repeated "-"

@@ -12,6 +12,9 @@ import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import CollectionDetailIssymaLayout from "@/components/issyma/CollectionDetailIssymaLayout";
+import type { CarouselProduct } from "@/components/home/ProductCarousel";
 
 interface PageProps {
   params: Promise<{ slug: string; locale: string }>;
@@ -49,7 +52,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const col = await prisma.collection.findFirst({
     where: { id: resolved.id },
-    select: { name: true, image: true, slug: true },
+    select: {
+      name: true,
+      image: true,
+      slug: true,
+      translations: { where: { locale }, select: { name: true }, take: 1 },
+    },
   });
   if (!col || !col.slug) return {};
   const [shopName, siteUrl, alternates] = await Promise.all([
@@ -57,8 +65,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     getSiteUrl(),
     buildAlternates(`/collections/${col.slug}`, locale),
   ]);
-  const title = `${col.name} — Collections ${shopName}`;
-  const description = `Découvrez la collection ${col.name} sur ${shopName}. Sélection grossiste pour professionnels.`;
+  const localizedName = col.translations[0]?.name ?? col.name;
+  const title = `${localizedName} — Collections ${shopName}`;
+  const description = `Découvrez la collection ${localizedName} sur ${shopName}. Sélection grossiste pour professionnels.`;
   const imageUrl = col.image ? (col.image.startsWith("http") ? col.image : `${siteUrl}${col.image}`) : null;
 
   return {
@@ -70,7 +79,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       type: "website",
       siteName: shopName,
       url: `${siteUrl}/${locale}/collections/${col.slug}`,
-      ...(imageUrl && { images: [{ url: imageUrl, alt: col.name }] }),
+      ...(imageUrl && { images: [{ url: imageUrl, alt: localizedName }] }),
     },
     twitter: {
       card: "summary_large_image",
@@ -102,6 +111,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
   const collection = await prisma.collection.findFirst({
     where:   { id: resolved.id },
     include: {
+      translations: { where: { locale }, select: { name: true }, take: 1 },
       products: {
         where: {
           product: {
@@ -115,6 +125,9 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             include: {
               category:      { select: { name: true } },
               subCategories: { select: { name: true }, take: 1 },
+              ...(locale !== "fr" && {
+                translations: { where: { locale }, select: { name: true }, take: 1 },
+              }),
               colors: {
                 where: { disabled: false },
                 select: {
@@ -138,6 +151,9 @@ export default async function CollectionDetailPage({ params }: PageProps) {
 
   if (!collection) notFound();
 
+  // Nom collection localisé (fallback FR si aucune CollectionTranslation).
+  const localizedCollectionName = collection.translations[0]?.name ?? collection.name;
+
   // Fetch images for all products in collection
   const colProductIds = collection.products.map((cp) => cp.product.id);
   const colColorImages = colProductIds.length > 0
@@ -149,6 +165,70 @@ export default async function CollectionDetailPage({ params }: PageProps) {
     const cm = colImageMap.get(img.productId)!;
     const imgKey = img.productColorId ?? img.colorId;
     if (!cm.has(imgKey)) cm.set(imgKey, img.path);
+  }
+
+  // Dispatch tenant : Issyma reçoit son propre layout bordeaux.
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    const issymaProducts: CarouselProduct[] = collection.products.map((cp) => {
+      const p = cp.product;
+      const productPrimaryColorId = getProductPrimaryColorId({
+        primaryColorId: p.primaryColorId,
+        colors: p.colors,
+      });
+      const effectivePrimaryColorId = cp.colorId ?? productPrimaryColorId;
+      const colorMap = new Map<string, {
+        groupKey: string; colorId: string; name: string; hex: string | null; patternImage?: string | null;
+        firstImage: string | null; unitPrice: number; isPrimary: boolean; totalStock: number;
+        variants: { id: string; saleType: "UNIT" | "PACK"; packQuantity: number | null; sizes: {name: string, quantity: number}[]; unitPrice: number; stock: number }[];
+      }>();
+      for (const v of p.colors) {
+        if (!v.colorId) continue;
+        const gk = v.colorId;
+        const isPrimaryColor = effectivePrimaryColorId != null && v.colorId === effectivePrimaryColorId;
+        if (!colorMap.has(gk)) {
+          colorMap.set(gk, {
+            groupKey: gk, colorId: v.colorId, name: v.color?.name ?? "", hex: v.color?.hex ?? null,
+            patternImage: (v.color as { patternImage?: string | null } | null)?.patternImage,
+            firstImage: colImageMap.get(p.id)?.get(v.id) ?? colImageMap.get(p.id)?.get(v.colorId) ?? null,
+            unitPrice: Number(v.unitPrice),
+            isPrimary: isPrimaryColor,
+            totalStock: 0,
+            variants: [],
+          });
+        }
+        const cd = colorMap.get(gk)!;
+        if (!cd.firstImage) cd.firstImage = colImageMap.get(p.id)?.get(v.id) ?? colImageMap.get(p.id)?.get(v.colorId) ?? null;
+        cd.unitPrice = Math.min(cd.unitPrice, Number(v.unitPrice));
+        cd.totalStock += v.stock ?? 0;
+        if (isPrimaryColor) cd.isPrimary = true;
+        cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
+      }
+      const visibleColors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
+      // Cohérent avec /produits : si une traduction produit existe pour la
+      // locale demandée, on remplace le nom source par la traduction.
+      const translatedProductName = (p as { translations?: { name: string }[] }).translations?.[0]?.name;
+      return {
+        id: p.id,
+        name: translatedProductName ?? p.name,
+        reference: p.reference,
+        category: p.category.name,
+        subCategory: p.subCategories[0]?.name ?? null,
+        colors: visibleColors,
+        tags: [],
+        isBestSeller: false,
+        isNew: false,
+        discountPercent: null,
+      };
+    });
+    return (
+      <CollectionDetailIssymaLayout
+        shopName={shopName}
+        collectionName={localizedCollectionName}
+        collectionImage={collection.image}
+        products={issymaProducts}
+      />
+    );
   }
 
   return (
@@ -163,7 +243,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
             <div className="h-48 md:h-64 overflow-hidden relative">
               <Image
                 src={collection.image}
-                alt={collection.name}
+                alt={localizedCollectionName}
                 fill
                 sizes="100vw"
                 className="object-cover"
@@ -177,10 +257,10 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                 {t("breadcrumb")}
               </Link>
               <span>/</span>
-              <span className="text-text-primary">{collection.name}</span>
+              <span className="text-text-primary">{localizedCollectionName}</span>
             </div>
             <h1 className="font-heading text-2xl font-semibold text-text-primary">
-              {collection.name}
+              {localizedCollectionName}
             </h1>
             <p className="mt-1 text-sm text-text-muted font-body">
               {collection.products.length <= 1
@@ -232,12 +312,13 @@ export default async function CollectionDetailPage({ params }: PageProps) {
                   cd.variants.push({ id: v.id, saleType: v.saleType, packQuantity: v.packQuantity, sizes: (v.variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity })), unitPrice: Number(v.unitPrice), stock: v.stock ?? 0 });
                 }
                 const colors = [...colorMap.values()].filter((cd) => cd.firstImage != null);
+                const translatedProductName = (p as { translations?: { name: string }[] }).translations?.[0]?.name;
 
                 return (
                   <ProductCard
                     key={cp.productId}
                     id={p.id}
-                    name={p.name}
+                    name={translatedProductName ?? p.name}
                     reference={p.reference}
                     category={p.category.name}
                     subCategory={p.subCategories[0]?.name ?? null}

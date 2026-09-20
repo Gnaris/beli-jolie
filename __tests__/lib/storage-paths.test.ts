@@ -73,7 +73,9 @@ describe("lib/storage — slugify", () => {
   });
 
   it("handles multi-color labels (Brun + Kaki)", () => {
-    expect(slugify("Brun + Kaki")).toBe("brun-+-kaki");
+    // Le `+` non-ASCII-safe est retiré (idem `’`, `—`, autres caractères
+    // typographiques) — cohérent avec la règle générale post-2026-09.
+    expect(slugify("Brun + Kaki")).toBe("brun-kaki");
   });
 
   it("converts (N) duplicate suffix to _N (Orderchamp URL compat)", () => {
@@ -85,10 +87,13 @@ describe("lib/storage — slugify", () => {
     expect(slugify("A(10)")).toBe("a_10");
   });
 
-  it("converts orphan parentheses to _ (defensive fallback)", () => {
-    // Parenthèses sans chiffre à l'intérieur : remplacées par `_`.
-    expect(slugify("A(B)C")).toBe("a_b_c");
-    expect(slugify("test(abc)")).toBe("test_abc_");
+  it("supprime les parenthèses orphelines (non numériques)", () => {
+    // Cas rare — la règle `(N)` → `_N` ci-dessus capture les doublons de
+    // référence ; toute autre parenthèse (sans chiffre à l'intérieur) est
+    // désormais retirée par le filtre ASCII strict. `A(B)C` → `abc` reste
+    // exploitable comme slug URL.
+    expect(slugify("A(B)C")).toBe("abc");
+    expect(slugify("test(abc)")).toBe("testabc");
   });
 
   it("productImageDir strips parentheses from reference", () => {

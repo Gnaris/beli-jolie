@@ -9,6 +9,8 @@ import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import CollectionsIssymaLayout from "@/components/issyma/CollectionsIssymaLayout";
 
 export const revalidate = 7200; // ISR: revalidate every 2 hours
 
@@ -26,7 +28,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default async function CollectionsPage() {
+export default async function CollectionsPage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
   const [t, shopName, tenantSlug] = await Promise.all([
     getTranslations("collectionsPage"),
     getCachedShopName(),
@@ -35,6 +38,11 @@ export default async function CollectionsPage() {
   const collections = await prisma.collection.findMany({
     orderBy: { createdAt: "desc" },
     include: {
+      translations: {
+        where: { locale },
+        select: { name: true },
+        take: 1,
+      },
       _count: {
         select: {
           products: {
@@ -49,6 +57,25 @@ export default async function CollectionsPage() {
       },
     },
   });
+
+  // Fallback FR : si aucune CollectionTranslation pour la locale demandée,
+  // on affiche le nom source (français).
+  const translatedCollections = collections.map((c) => ({
+    id: c.id,
+    slug: c.slug,
+    name: c.translations[0]?.name ?? c.name,
+    image: c.image,
+    productCount: c._count.products,
+  }));
+
+  // Dispatch tenant : Issyma reçoit son propre layout bordeaux. BJ reste
+  // inchangé (grille actuelle).
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    return (
+      <CollectionsIssymaLayout shopName={shopName} collections={translatedCollections} />
+    );
+  }
 
   return (
     <div className="min-h-screen relative">
@@ -65,21 +92,21 @@ export default async function CollectionsPage() {
               {t("intro", { shopName })}
             </p>
             <p className="mt-3 text-xs text-text-muted font-body">
-              {collections.length <= 1
-                ? t("available", { count: collections.length })
-                : t("available_plural", { count: collections.length })}
+              {translatedCollections.length <= 1
+                ? t("available", { count: translatedCollections.length })
+                : t("available_plural", { count: translatedCollections.length })}
             </p>
           </div>
         </div>
 
         <main className="container-site py-8 relative overflow-hidden">
-          {collections.length === 0 ? (
+          {translatedCollections.length === 0 ? (
             <div className="text-center py-20 text-text-muted font-body">
               {t("empty")}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {collections.map((col) => (
+              {translatedCollections.map((col) => (
                 <Link
                   key={col.id}
                   href={`/collections/${col.slug ?? col.id}`}
@@ -113,9 +140,9 @@ export default async function CollectionsPage() {
                         {col.name}
                       </h2>
                       <p className="text-xs text-text-muted font-body mt-0.5">
-                        {col._count.products <= 1
-                          ? t("products", { count: col._count.products })
-                          : t("products_plural", { count: col._count.products })}
+                        {col.productCount <= 1
+                          ? t("products", { count: col.productCount })
+                          : t("products_plural", { count: col.productCount })}
                       </p>
                     </div>
                     <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">

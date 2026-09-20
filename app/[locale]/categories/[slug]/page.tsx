@@ -10,6 +10,9 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
 import Pagination from "@/components/ui/Pagination";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import CategoryDetailIssymaLayout from "@/components/issyma/CategoryDetailIssymaLayout";
+import type { CarouselProduct } from "@/components/home/ProductCarousel";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import {
   resolveCategorySeo,
@@ -405,6 +408,46 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
     },
   });
   const faqJsonLd = buildFaqJsonLd(seo.faq);
+
+  // Dispatch tenant : Issyma reçoit son propre layout bordeaux.
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    const issymaProducts: CarouselProduct[] = products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      reference: p.reference,
+      category: p.category,
+      subCategory: p.subCategory,
+      colors: p.colors,
+      tags: [],
+      isBestSeller: false,
+      isNew: false,
+      discountPercent: null,
+    }));
+    return (
+      <CategoryDetailIssymaLayout
+        shopName={shopName}
+        categoryId={category.id}
+        categoryName={localizedName}
+        heroMosaic={heroMosaic}
+        seoTitle={seo.title}
+        seoIntro={seo.intro}
+        seoSecondary={seo.secondary}
+        subCategories={category.subCategories.map((sub) => ({
+          id: sub.id,
+          name: sub.translations[0]?.name ?? sub.name,
+          slug: sub.slug ?? null,
+        }))}
+        products={issymaProducts}
+        relatedCategories={relatedWithProducts.map((rc) => ({
+          id: rc.id,
+          slug: rc.slug,
+          name: rc.translations[0]?.name ?? rc.name,
+          productCount: rc._count.products,
+        }))}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen">

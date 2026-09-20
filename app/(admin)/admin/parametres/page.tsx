@@ -1061,6 +1061,10 @@ async function buildContenuTile(): Promise<DashboardTile> {
     produitsRow,
     produitsIntroRow,
     taglineRow,
+    homeRowEn,
+    produitsRowEn,
+    produitsIntroRowEn,
+    taglineRowEn,
     shopName,
     siteUrl,
     brandingRows,
@@ -1069,6 +1073,10 @@ async function buildContenuTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro" } }),
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
+    prisma.siteConfig.findFirst({ where: { key: "home_seo_text_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "produits_seo_text_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro_en" } }),
+    prisma.siteConfig.findFirst({ where: { key: "seo_tagline_en" } }),
     getCachedShopName(),
     getSiteUrl(),
     prisma.siteConfig.findMany({
@@ -1115,6 +1123,10 @@ async function buildContenuTile(): Promise<DashboardTile> {
             initialProduitsText={produitsRow?.value ?? ""}
             initialProduitsIntroText={produitsIntroRow?.value ?? ""}
             initialTagline={taglineRow?.value ?? ""}
+            initialHomeTextEn={homeRowEn?.value ?? ""}
+            initialProduitsTextEn={produitsRowEn?.value ?? ""}
+            initialProduitsIntroTextEn={produitsIntroRowEn?.value ?? ""}
+            initialTaglineEn={taglineRowEn?.value ?? ""}
           />
         </SettingCard>
 

@@ -13,8 +13,7 @@ import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
-import { getCurrentTenantSlug } from "@/lib/tenant";
-import { cookies } from "next/headers";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import {
   loadHomeTranslationLookups,
   translateCategoryLike,
@@ -23,22 +22,26 @@ import {
 } from "@/lib/home-translations";
 import HomeBeliandjolieLayout from "@/components/home/layouts/HomeBeliandjolieLayout";
 import HomeIssymaLayout from "@/components/home/layouts/HomeIssymaLayout";
-import HomeLayoutDevSwitcher from "@/components/home/layouts/HomeLayoutDevSwitcher";
 import type { HomeLayoutProps } from "@/components/home/layouts/HomeLayoutProps";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const [shopName, tMeta, siteUrl, alternates, taglineRow] = await Promise.all([
+  const wantEn = locale === "en";
+  const [shopName, tMeta, siteUrl, alternates, taglineRow, taglineRowEn] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
     getSiteUrl(),
     buildAlternates("/", locale),
     getCachedSiteConfig("seo_tagline"),
+    wantEn ? getCachedSiteConfig("seo_tagline_en") : Promise.resolve(null),
   ]);
   // Le title de la home = tagline configurable par tenant (Paramètres SEO).
-  // Fallback = message i18n générique. Le template `%s | shopName` du layout
-  // racine ajoute automatiquement le suffixe — on ne le réécrit pas ici.
-  const homeTitle = taglineRow?.value?.trim() || tMeta("homeTitle");
+  // Locale EN : priorité à la version anglaise si saisie, sinon fallback FR.
+  // Fallback ultime = message i18n générique. Le template `%s | shopName` du
+  // layout racine ajoute automatiquement le suffixe — on ne le réécrit pas ici.
+  const tagline =
+    (wantEn && taglineRowEn?.value?.trim()) || taglineRow?.value?.trim() || "";
+  const homeTitle = tagline || tMeta("homeTitle");
   return {
     title: homeTitle,
     description: tMeta("homeDescription", { shopName }),
@@ -477,29 +480,13 @@ export default async function HomePage() {
     canSeePrices: canSeePrices(session),
   };
 
-  const tenantSlug = await getCurrentTenantSlug();
+  // Résolution unifiée : slug résolu par middleware + override dev-only via
+  // cookie `bj_home_preview` (posé par TenantDevSwitcher). Voir lib/tenant-preview.
+  const layoutChoice = await getEffectiveTenantSlug();
 
-  // Override dev-only : cookie `bj_home_preview` posé par HomeLayoutDevSwitcher.
-  // Permet de basculer en local entre les 2 layouts sans changer de domaine.
-  // Jamais actif en prod (garde `NODE_ENV`).
-  const isDev = process.env.NODE_ENV !== "production";
-  const cookieStore = await cookies();
-  const previewOverride = cookieStore.get("bj_home_preview")?.value;
-
-  let layoutChoice: "beliandjolie" | "issyma" =
-    tenantSlug === "issyma" ? "issyma" : "beliandjolie";
-  if (isDev && (previewOverride === "beliandjolie" || previewOverride === "issyma")) {
-    layoutChoice = previewOverride;
-  }
-
-  return (
-    <>
-      {layoutChoice === "issyma" ? (
-        <HomeIssymaLayout {...layoutProps} />
-      ) : (
-        <HomeBeliandjolieLayout {...layoutProps} />
-      )}
-      {isDev && <HomeLayoutDevSwitcher current={layoutChoice} />}
-    </>
+  return layoutChoice === "issyma" ? (
+    <HomeIssymaLayout {...layoutProps} />
+  ) : (
+    <HomeBeliandjolieLayout {...layoutProps} />
   );
 }

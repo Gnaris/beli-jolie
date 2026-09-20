@@ -8,6 +8,8 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CategoriesGrid from "@/components/produits/CategoriesGrid";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
+import CategoriesIssymaLayout from "@/components/issyma/CategoriesIssymaLayout";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -23,7 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default async function CategoriesPage() {
+export default async function CategoriesPage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
   const [t, shopName, tenantSlug] = await Promise.all([
     getTranslations("categoriesPage"),
     getCachedShopName(),
@@ -36,9 +39,22 @@ export default async function CategoriesPage() {
       slug: true,
       name: true,
       image: true,
+      translations: {
+        where: { locale },
+        select: { name: true },
+        take: 1,
+      },
       subCategories: {
         orderBy: { name: "asc" },
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+          translations: {
+            where: { locale },
+            select: { name: true },
+            take: 1,
+          },
+        },
       },
       _count: {
         select: {
@@ -50,17 +66,29 @@ export default async function CategoriesPage() {
     },
   });
 
-  // Only keep categories that have at least 1 ONLINE product
+  // Only keep categories that have at least 1 ONLINE product. Traduction avec
+  // fallback FR : si aucune ligne CategoryTranslation pour la locale demandée,
+  // on retombe sur `name` (français en base).
   const categories = allCategories
     .filter((c) => c._count.products > 0)
     .map((c) => ({
       id: c.id,
       slug: c.slug,
-      name: c.name,
+      name: c.translations[0]?.name ?? c.name,
       image: c.image,
       productCount: c._count.products,
-      subCategories: c.subCategories,
+      subCategories: c.subCategories.map((sub) => ({
+        id: sub.id,
+        name: sub.translations[0]?.name ?? sub.name,
+      })),
     }));
+
+  // Dispatch tenant : Issyma reçoit son propre layout bordeaux. BJ reste
+  // inchangé (grille actuelle).
+  const effectiveSlug = await getEffectiveTenantSlug();
+  if (effectiveSlug === "issyma") {
+    return <CategoriesIssymaLayout shopName={shopName} categories={categories} />;
+  }
 
   return (
     <div className="min-h-screen relative">

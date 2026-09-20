@@ -1,30 +1,29 @@
 "use client";
 
+import { TENANT_PREVIEW_COOKIE, type TenantSlug } from "@/lib/tenant-preview-shared";
+
 /**
- * Bouton flottant dev-only pour basculer la home entre les layouts des tenants.
- * Pose un cookie `bj_home_preview` (30j) lu par `app/[locale]/page.tsx` en
- * priorité sur le tenant courant — utile pour visualiser en local la home
- * Issyma sans changer de domaine.
+ * Bouton flottant dev-only pour basculer d'une boutique à l'autre en local.
+ * Pose un cookie `bj_home_preview` (30j) lu côté serveur par
+ * `lib/tenant-preview.ts::getEffectiveTenantSlug()`, qui prime sur le tenant
+ * résolu par le middleware. Permet de visualiser en local BJ vs Issyma sans
+ * changer de domaine, sur toutes les pages.
  *
- * Rendu conditionné à `NODE_ENV !== "production"` côté page.tsx : ce composant
- * n'existe jamais en prod, aucun impact SEO / UX visiteur.
+ * Visible uniquement quand `NODE_ENV !== "production"` (garde côté layout).
+ * Aucun impact SEO / UX visiteur en prod.
  */
-export default function HomeLayoutDevSwitcher({
-  current,
-}: {
-  current: "beliandjolie" | "issyma";
-}) {
-  const setPreview = (choice: "beliandjolie" | "issyma") => {
-    document.cookie = `bj_home_preview=${choice}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
+export default function TenantDevSwitcher({ current }: { current: TenantSlug }) {
+  const setPreview = (choice: TenantSlug) => {
+    document.cookie = `${TENANT_PREVIEW_COOKIE}=${choice}; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`;
     window.location.reload();
   };
 
   const clearPreview = () => {
-    document.cookie = "bj_home_preview=; path=/; max-age=0; SameSite=Lax";
+    document.cookie = `${TENANT_PREVIEW_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
     window.location.reload();
   };
 
-  const btn = (choice: "beliandjolie" | "issyma", label: string) => {
+  const btn = (choice: TenantSlug, label: string) => {
     const active = current === choice;
     return (
       <button
@@ -45,10 +44,10 @@ export default function HomeLayoutDevSwitcher({
     <div
       className="fixed bottom-4 left-4 z-[9999] flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/95 px-2 py-1.5 shadow-lg backdrop-blur"
       role="group"
-      aria-label="Prévisualisation home (dev only)"
+      aria-label="Prévisualisation boutique (dev only)"
     >
       <span className="px-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-        Home
+        Boutique
       </span>
       {btn("beliandjolie", "Beli & Jolie")}
       {btn("issyma", "Issyma")}

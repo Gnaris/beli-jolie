@@ -126,12 +126,18 @@ export async function updateBusinessHours(schedule: {
  * Ces textes apparaissent côté visiteur (utiles pour Google) et sont éditables
  * dans Admin > Paramètres > onglet « Référencement ».
  *
- * Clés SiteConfig :
+ * Clés SiteConfig FR (source) :
  *  - `seo_tagline` : baseline courte (~80 car.) utilisée dans le <title> et
  *    l'aperçu Google. Vide → fallback « Grossiste B2B ».
  *  - `home_seo_text` : paragraphe long affiché en bas de la home.
- *  - `produits_seo_intro` : phrase courte en haut de la page /produits (au-dessus des filtres).
- *  - `produits_seo_text` : paragraphe long affiché en bas de la page /produits.
+ *  - `produits_seo_intro` : phrase courte en haut de /produits (au-dessus des filtres).
+ *  - `produits_seo_text` : paragraphe long affiché en bas de /produits.
+ *
+ * Clés SiteConfig EN (traduction manuelle) :
+ *  - `seo_tagline_en`, `home_seo_text_en`, `produits_seo_intro_en`, `produits_seo_text_en`
+ *    Lue quand la locale visiteur = `en`. Vide → fallback sur la version FR
+ *    (évite qu'une boutique multilingue partiellement traduite affiche du vide).
+ *
  * Une chaîne vide supprime simplement le bloc / retombe sur le défaut.
  */
 export async function updateSeoTexts(input: {
@@ -139,6 +145,11 @@ export async function updateSeoTexts(input: {
   produitsText: string;
   produitsIntroText?: string;
   tagline?: string;
+  // Versions anglaises (facultatives, séparément saisies dans l'UI).
+  homeTextEn?: string;
+  produitsTextEn?: string;
+  produitsIntroTextEn?: string;
+  taglineEn?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
@@ -146,16 +157,20 @@ export async function updateSeoTexts(input: {
     const produits = input.produitsText.trim();
     const produitsIntro = (input.produitsIntroText ?? "").trim();
     const tagline = (input.tagline ?? "").trim();
+    const homeEn = (input.homeTextEn ?? "").trim();
+    const produitsEn = (input.produitsTextEn ?? "").trim();
+    const produitsIntroEn = (input.produitsIntroTextEn ?? "").trim();
+    const taglineEn = (input.taglineEn ?? "").trim();
     const MAX = 5000;
     const INTRO_MAX = 400;
     const TAGLINE_MAX = 80;
-    if (home.length > MAX || produits.length > MAX) {
+    if (home.length > MAX || produits.length > MAX || homeEn.length > MAX || produitsEn.length > MAX) {
       return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
     }
-    if (produitsIntro.length > INTRO_MAX) {
+    if (produitsIntro.length > INTRO_MAX || produitsIntroEn.length > INTRO_MAX) {
       return { success: false, error: `L'accroche ne doit pas dépasser ${INTRO_MAX} caractères.` };
     }
-    if (tagline.length > TAGLINE_MAX) {
+    if (tagline.length > TAGLINE_MAX || taglineEn.length > TAGLINE_MAX) {
       return { success: false, error: `La baseline ne doit pas dépasser ${TAGLINE_MAX} caractères.` };
     }
     await Promise.all([
@@ -163,6 +178,10 @@ export async function updateSeoTexts(input: {
       setSiteConfig("produits_seo_text", produits),
       setSiteConfig("produits_seo_intro", produitsIntro),
       setSiteConfig("seo_tagline", tagline),
+      setSiteConfig("home_seo_text_en", homeEn),
+      setSiteConfig("produits_seo_text_en", produitsEn),
+      setSiteConfig("produits_seo_intro_en", produitsIntroEn),
+      setSiteConfig("seo_tagline_en", taglineEn),
     ]);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
