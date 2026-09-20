@@ -27,10 +27,31 @@ interface PageProps {
   params: Promise<{ id: string; locale: string }>;
 }
 
+// Résolution nom traduit → fallback FR. Fonctionne aussi bien pour `color`
+// que pour `composition` (structure identique : { name, translations?[] }).
+function resolveTranslatedName<T extends { name: string; translations?: { name: string }[] } | null | undefined>(
+  entity: T,
+): string | null {
+  if (!entity) return null;
+  const t = entity.translations?.[0]?.name;
+  if (t && t.trim() !== "") return t;
+  return entity.name;
+}
+
 const getProduct = cache(async (handle: string, locale: string) => {
-  const categorySelect = locale === "fr"
-    ? { name: true, slug: true }
-    : { name: true, slug: true, translations: { where: { locale }, select: { name: true }, take: 1 } };
+  const withTranslations = locale !== "fr";
+  const categorySelect = withTranslations
+    ? { name: true, slug: true, translations: { where: { locale }, select: { name: true }, take: 1 } }
+    : { name: true, slug: true };
+  const colorSelect = withTranslations
+    ? { name: true, hex: true, patternImage: true, translations: { where: { locale }, select: { name: true }, take: 1 } }
+    : { name: true, hex: true, patternImage: true };
+  const compositionSelect = withTranslations
+    ? { name: true, translations: { where: { locale }, select: { name: true }, take: 1 } }
+    : { name: true };
+  const relatedColorSelect = withTranslations
+    ? { name: true, translations: { where: { locale }, select: { name: true }, take: 1 } }
+    : { name: true };
   const parsed = parseProductHandle(handle);
   const where = parsed.legacyCuid
     ? { id: parsed.legacyCuid }
@@ -48,7 +69,7 @@ const getProduct = cache(async (handle: string, locale: string) => {
       colors: {
         where: { disabled: false },
         include: {
-          color: { select: { name: true, hex: true, patternImage: true } },
+          color: { select: colorSelect },
           variantSizes: {
             orderBy: { size: { position: "asc" } },
             include: { size: true },
@@ -57,7 +78,7 @@ const getProduct = cache(async (handle: string, locale: string) => {
         orderBy: { isPrimary: "desc" },
       },
       compositions: {
-        include: { composition: { select: { name: true } } },
+        include: { composition: { select: compositionSelect } },
         orderBy:  { percentage: "desc" },
       },
       similarProducts: {
@@ -70,7 +91,7 @@ const getProduct = cache(async (handle: string, locale: string) => {
               colors: {
                 orderBy: { isPrimary: "desc" },
                 take:    1,
-                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+                select:  { colorId: true, unitPrice: true, color: { select: relatedColorSelect } },
               },
             },
           },
@@ -86,7 +107,7 @@ const getProduct = cache(async (handle: string, locale: string) => {
               colors: {
                 orderBy: { isPrimary: "desc" },
                 take:    1,
-                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+                select:  { colorId: true, unitPrice: true, color: { select: relatedColorSelect } },
               },
             },
           },
@@ -102,7 +123,7 @@ const getProduct = cache(async (handle: string, locale: string) => {
               colors: {
                 orderBy: { isPrimary: "desc" },
                 take:    1,
-                select:  { colorId: true, unitPrice: true, color: { select: { name: true } } },
+                select:  { colorId: true, unitPrice: true, color: { select: relatedColorSelect } },
               },
             },
           },
@@ -443,7 +464,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
   const categoryRaw = product.category as { name: string; translations?: { name: string }[] };
   const translatedCategoryName = categoryRaw.translations?.[0]?.name ?? categoryRaw.name;
 
-  function toRelated(p: { id: string; name: string; reference: string; colors: { colorId: string | null; unitPrice: any; color: { name: string } | null }[] }) {
+  function toRelated(p: { id: string; name: string; reference: string; colors: { colorId: string | null; unitPrice: any; color: ({ name: string; translations?: { name: string }[] }) | null }[] }) {
     const pc  = p.colors[0];
     const img = relatedColorImages.find(
       (i) => i.productId === p.id && i.colorId === pc?.colorId
@@ -453,7 +474,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       name:             p.name,
       reference:        p.reference,
       primaryImage:     img?.path ?? null,
-      primaryColorName: pc?.color?.name ?? null,
+      primaryColorName: resolveTranslatedName(pc?.color ?? null),
       minPrice:         pc ? Number(pc.unitPrice) : 0,
     };
   }
@@ -514,7 +535,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
         id:            pc.id,
         groupKey:      pcGroupKeys.get(pc.id)!,
         colorId:       pc.colorId,
-        colorName:     pc.color?.name,
+        colorName:     resolveTranslatedName(pc.color ?? null) ?? undefined,
         colorHex:      pc.color?.hex,
         patternImage:  pc.color?.patternImage,
         unitPrice:     Number(pc.unitPrice),
@@ -527,7 +548,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       }))}
       colorImages={colorImagesForDetail}
       compositions={product.compositions.map((c) => ({
-        name:       c.composition.name,
+        name:       resolveTranslatedName(c.composition) ?? c.composition.name,
         percentage: c.percentage,
       }))}
       dimensions={{
@@ -558,7 +579,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       id: pc.id,
       groupKey: pcGroupKeys.get(pc.id)!,
       colorId: pc.colorId,
-      colorName: pc.color?.name ?? null,
+      colorName: resolveTranslatedName(pc.color ?? null),
       hex: pc.color?.hex ?? null,
       patternImage: pc.color?.patternImage ?? null,
       unitPrice: Number(pc.unitPrice),
@@ -575,7 +596,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
       images: g.images.map((i) => i.path),
     }));
     const compositionsText = product.compositions
-      .map((c) => `${c.composition.name} ${c.percentage}%`)
+      .map((c) => `${resolveTranslatedName(c.composition) ?? c.composition.name} ${c.percentage}%`)
       .join(" · ");
     return (
       <ProductDetailIssymaLayout
