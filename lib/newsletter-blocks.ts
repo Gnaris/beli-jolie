@@ -356,9 +356,9 @@ function applySubToBlock(
     case "heading":
       return { ...b, data: { ...b.data, title: sub(b.data.title) ?? "", body: sub(b.data.body) ?? "" } };
     case "callout":
-      return { ...b, data: { ...b.data, title: sub(b.data.title) ?? "", subtitle: sub(b.data.subtitle) ?? "", cta: sub(b.data.cta) ?? "" } };
+      return { ...b, data: { ...b.data, title: sub(b.data.title) ?? "", subtitle: sub(b.data.subtitle) ?? "", cta: sub(b.data.cta) ?? "", ctaUrl: sub(b.data.ctaUrl) ?? "" } };
     case "button":
-      return { ...b, data: { ...b.data, label: sub(b.data.label) ?? "" } };
+      return { ...b, data: { ...b.data, label: sub(b.data.label) ?? "", url: sub(b.data.url) ?? "" } };
     case "imgtext":
       return { ...b, data: { ...b.data, title: sub(b.data.title) ?? "", body: sub(b.data.body) ?? "" } };
     case "list":

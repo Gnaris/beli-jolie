@@ -82,34 +82,44 @@ export async function updateClientProfile(
   }
 
   const vatChanged = newVat !== target.vatNumber;
+  const emailChanged = newEmail !== target.email;
 
   try {
-    await prisma.user.update({
-      where: { id: target.id },
-      data: {
-        firstName: p.firstName,
-        lastName: p.lastName,
-        email: newEmail,
-        company: p.company,
-        phone: p.phone,
-        siret: newSiret,
-        vatNumber: newVat,
-        addressStreet: nullifyEmpty(p.addressStreet),
-        addressComplement: nullifyEmpty(p.addressComplement),
-        addressZip: nullifyEmpty(p.addressZip),
-        addressCity: nullifyEmpty(p.addressCity),
-        addressCountry: nullifyEmpty(p.addressCountry),
-        ...(vatChanged && {
-          viesValid: null,
-          viesName: null,
-          viesAddress: null,
-          viesRequestDate: null,
-          viesError: null,
-          vatExempt: false,
-          vatValidatedAt: null,
-          vatValidatedBy: null,
-        }),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: target.id },
+        data: {
+          firstName: p.firstName,
+          lastName: p.lastName,
+          email: newEmail,
+          company: p.company,
+          phone: p.phone,
+          siret: newSiret,
+          vatNumber: newVat,
+          addressStreet: nullifyEmpty(p.addressStreet),
+          addressComplement: nullifyEmpty(p.addressComplement),
+          addressZip: nullifyEmpty(p.addressZip),
+          addressCity: nullifyEmpty(p.addressCity),
+          addressCountry: nullifyEmpty(p.addressCountry),
+          ...(vatChanged && {
+            viesValid: null,
+            viesName: null,
+            viesAddress: null,
+            viesRequestDate: null,
+            viesError: null,
+            vatExempt: false,
+            vatValidatedAt: null,
+            vatValidatedBy: null,
+          }),
+        },
+      });
+
+      if (emailChanged) {
+        await tx.order.updateMany({
+          where: { userId: target.id },
+          data: { clientEmail: newEmail },
+        });
+      }
     });
 
     revalidatePath(`/admin/clients/${clientId}`);

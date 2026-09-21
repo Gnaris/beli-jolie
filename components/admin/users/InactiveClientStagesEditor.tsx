@@ -16,6 +16,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import InactiveClientMailModal from "@/components/admin/users/InactiveClientMailModal";
 import {
   addInactiveClientStage,
+  applyInactiveClientDefaultDesigns,
   deleteInactiveClientStage,
   setInactiveClientAutomationEnabled,
   updateInactiveClientStageDelay,
@@ -74,6 +75,29 @@ export default function InactiveClientStagesEditor({ initialConfig }: Props) {
       }
       setConfig(res.config);
       toast.success("Stade ajouté");
+    });
+  }
+
+  async function onApplyDefaults() {
+    const ok = await confirm({
+      title: "Remettre les designs officiels ?",
+      message:
+        "Chaque stade retrouvera son modèle par défaut : mise en page, textes, sujet et nom. Les délais et le nombre de stades ne changent pas. Toute personnalisation que vous auriez faite dans les mails sera écrasée.",
+      confirmLabel: "Remettre les designs",
+      type: "warning",
+    });
+    if (ok !== true) return;
+    startTransition(async () => {
+      const res = await applyInactiveClientDefaultDesigns();
+      if (!res.success) {
+        toast.error("Réinitialisation impossible", res.error);
+        return;
+      }
+      setConfig(res.config);
+      toast.success(
+        "Designs remis à zéro",
+        `${res.updated} stade${res.updated > 1 ? "s" : ""} mis à jour avec les modèles par défaut.`,
+      );
     });
   }
 
@@ -178,14 +202,27 @@ export default function InactiveClientStagesEditor({ initialConfig }: Props) {
                 : `${config.stages.length} stade${config.stages.length > 1 ? "s" : ""} · délai calculé depuis la dernière visite / commande / création du compte.`}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onAdd}
-            disabled={pending}
-            className="px-3 py-2 rounded-lg text-xs font-body font-bold bg-gradient-to-br from-violet-600 to-violet-700 text-white shadow-sm hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
-          >
-            + Ajouter un stade
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {config.stages.length > 0 && (
+              <button
+                type="button"
+                onClick={onApplyDefaults}
+                disabled={pending}
+                className="px-3 py-2 rounded-lg text-xs font-body font-semibold bg-bg-secondary border border-border text-text-primary hover:bg-bg-primary disabled:opacity-40 whitespace-nowrap"
+                title="Réinitialise le design, le sujet et le nom de chaque stade avec les modèles officiels — utile pour repartir sur une base propre."
+              >
+                ↺ Designs par défaut
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={pending}
+              className="px-3 py-2 rounded-lg text-xs font-body font-bold bg-gradient-to-br from-violet-600 to-violet-700 text-white shadow-sm hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
+            >
+              + Ajouter un stade
+            </button>
+          </div>
         </div>
 
         {config.stages.length === 0 ? (

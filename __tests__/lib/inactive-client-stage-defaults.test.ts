@@ -4,6 +4,12 @@ import {
   SCENARIO_DEFAULTS,
 } from "@/lib/mail-scenario-defaults";
 import { templateHasUnsubscribeLink } from "@/lib/inactive-client-config";
+import {
+  renderNewsletterHtml,
+  substituteVariables,
+  type NewsletterBlock,
+} from "@/lib/newsletter-blocks";
+import { interpolate } from "@/lib/mail-merge-variables";
 
 /**
  * Fige le contrat des 3 designs par défaut de la relance inactivité :
@@ -56,4 +62,73 @@ describe("inactiveClientStageDefault", () => {
     const s4 = inactiveClientStageDefault(4);
     expect(s4.subject).toBe(s3.subject);
   });
+
+  it("les 3 stades commencent par un header (identité de scénario)", () => {
+    for (const idx of [1, 2, 3]) {
+      const def = inactiveClientStageDefault(idx);
+      expect(def.blocks[0]?.type).toBe("header");
+    }
+  });
+
+  it("chaque stade utilise une composition distincte (signature visuelle)", () => {
+    // Fige la personnalité de chaque stade : features/callout+mailto/columns.
+    const s1Types = inactiveClientStageDefault(1).blocks.map((b) => b.type);
+    const s2Types = inactiveClientStageDefault(2).blocks.map((b) => b.type);
+    const s3Types = inactiveClientStageDefault(3).blocks.map((b) => b.type);
+    expect(s1Types).toContain("featuresRow");
+    expect(s2Types).toContain("callout");
+    expect(s3Types).toContain("columns");
+  });
+
+  it("stade 2 : le callout pointe vers mailto:{shopEmail}", () => {
+    const s2 = inactiveClientStageDefault(2);
+    const callout = s2.blocks.find((b) => b.type === "callout");
+    expect(callout).toBeDefined();
+    if (callout && callout.type === "callout") {
+      expect(callout.data.ctaUrl).toBe("mailto:{shopEmail}");
+    }
+  });
+
+  it.each([1, 2, 3])(
+    "stade %i : le rendu HTML complet ne throw pas et interpole les variables",
+    (idx) => {
+      const def = inactiveClientStageDefault(idx);
+      const context = {
+        firstName: "Marie",
+        shopName: "Boutique Test",
+        shopEmail: "contact@example.com",
+        shopAddress: "12 rue Test, 75000 Paris",
+        unsubscribeLink: "https://example.com/unsub?t=abc",
+        privacyLink: "https://example.com/confidentialite",
+      };
+      const finalBlocks = substituteVariables(
+        def.blocks as NewsletterBlock[],
+        context,
+      );
+      const finalSubject = interpolate(def.subject, context);
+      const html = renderNewsletterHtml({
+        subject: finalSubject,
+        blocks: finalBlocks,
+        productsById: new Map(),
+        shared: {
+          shopName: context.shopName,
+          baseUrl: "https://example.com",
+          legalLine: `${context.shopName} · ${context.shopAddress}`,
+          mergeContext: context,
+        },
+        dynamic: { firstName: context.firstName, daysInactive: 42 },
+        omitGlobalChrome: true,
+      });
+      expect(html).toContain("Boutique Test");
+      expect(html).toContain("42");
+      // Aucune variable non substituée dans le HTML final.
+      expect(html).not.toContain("{firstName}");
+      expect(html).not.toContain("{shopEmail}");
+      expect(html).not.toContain("{shopName}");
+      // Stade 2 : le mailto: doit être bien assemblé côté callout.
+      if (idx === 2) {
+        expect(html).toContain("mailto:contact@example.com");
+      }
+    },
+  );
 });

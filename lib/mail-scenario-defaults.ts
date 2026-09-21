@@ -402,10 +402,39 @@ export function abandonedCartStageDefault(stageIndex: number): DefaultTemplate {
 }
 
 /**
+ * Header signature des 3 mails inactivité — logo/nom boutique centré, eyebrow
+ * en petites capitales espacées et fine règle décorative. Différent du header
+ * panier abandonné pour signer visuellement le scénario.
+ */
+function elegantInactivityHeader(prefix: string): NewsletterBlock {
+  return {
+    id: `${prefix}-header`,
+    type: "header",
+    data: {
+      logo: "",
+      logoMaxHeight: 60,
+      title: "{shopName}",
+      subtitle: "Grossiste bijoux",
+      bg: "#ffffff",
+      textColor: "#0f172a",
+      titleSize: 26,
+      subtitleSize: 10,
+      align: "center",
+      subtitleUppercase: true,
+      subtitleLetterSpacing: 30,
+      decorativeRule: true,
+      ruleColor: "#cbd5e1",
+    },
+  };
+}
+
+/**
  * Retourne le modèle par défaut pour un stade relance inactivité donné.
- * - Stade 1 : rappel doux « on ne vous a pas vu depuis un moment ».
- * - Stade 2 : rappel personnalisé avec bénéfices.
- * - Stade 3 : dernière relance chaleureuse avant silence.
+ * Les 3 stades partagent le même header/footer et la même palette ardoise ;
+ * ils se différencient par le ton, la composition et l'intention :
+ * - Stade 1 : invitation douce, focus nouveautés, 3 bénéfices en pastilles.
+ * - Stade 2 : main tendue, ouverture au dialogue, callout « Nous écrire ».
+ * - Stade 3 : au revoir élégant, bandeau dark de dernière invitation, colonnes.
  * Au-delà du stade 3 → design du stade 3 (édité par la cliente).
  */
 export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate {
@@ -413,16 +442,24 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
     case 1:
       return {
         name: SCENARIO_DEFAULT_NAMES.INACTIVE_CLIENT,
-        subject: "Nos nouveautés vous attendent",
+        subject: "Vous nous manquez déjà, {firstName}",
         blocks: [
-          brandHeaderBlock("inac1"),
+          elegantInactivityHeader("inac1"),
+          {
+            id: "inac1-spacer-top",
+            type: "empty",
+            data: { height: 12 },
+          },
           {
             id: "inac1-title",
             type: "heading",
             data: {
-              title: "On vous a pas vu depuis un moment 😴",
-              body: "Bonjour {firstName},",
+              title: "Vous nous manquez déjà",
+              body: "Bonjour {firstName}, ça fait un moment qu'on ne s'est pas croisés sur la boutique. Nos rayons ont bien changé depuis — on tenait à vous inviter à jeter un œil.",
               align: "left",
+              titleSize: 22,
+              titleColor: "#0f172a",
+              bodyColor: "#475569",
             },
           },
           {
@@ -430,20 +467,28 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
             type: "daysInactive",
             data: {
               template:
-                "Cela fait {days} jour(s) qu'on ne vous a pas vu sur notre boutique. Nous avons plein de nouveautés à vous montrer !",
+                "Cela fait {days} jour(s) que vous n'êtes pas passé nous voir — et pendant ce temps, notre catalogue s'est étoffé.",
               neverVisitedTemplate:
-                "Vous n'avez encore jamais visité notre boutique en ligne. Nos nouveautés vous attendent !",
+                "Vous n'avez pas encore exploré la boutique en ligne — nos dernières pièces vous attendent.",
+              color: "#64748b",
             },
           },
           {
-            id: "inac1-list",
-            type: "list",
+            id: "inac1-features",
+            type: "featuresRow",
             data: {
               items: [
-                "✨ Nouvelle collection en ligne",
-                "💎 Nouveaux modèles en stock",
-                "🎁 Livraison offerte dès 200 € HT",
+                { icon: "✨", label: "Nouveaux modèles\nchaque semaine" },
+                { icon: "💎", label: "Sélection\nexclusive grossiste" },
+                { icon: "🚚", label: "Livraison offerte\ndès 200 € HT" },
               ],
+              bg: "#f8fafc",
+              circleBg: "#ffffff",
+              iconColor: "#0f172a",
+              labelColor: "#475569",
+              circleSize: 56,
+              iconSize: 22,
+              labelSize: 12,
             },
           },
           {
@@ -456,6 +501,11 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
               color: "#ffffff",
               align: "center",
             },
+          },
+          {
+            id: "inac1-spacer-sign",
+            type: "empty",
+            data: { height: 8 },
           },
           {
             id: "inac1-sign",
@@ -474,16 +524,35 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
     case 2:
       return {
         name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade 2`,
-        subject: "Un petit clin d'œil pour vous {firstName}",
+        subject: "Un petit mot pour vous, {firstName}",
         blocks: [
-          brandHeaderBlock("inac2"),
+          elegantInactivityHeader("inac2"),
+          {
+            id: "inac2-spacer-top",
+            type: "empty",
+            data: { height: 12 },
+          },
+          {
+            id: "inac2-eyebrow",
+            type: "heading",
+            data: {
+              title: "ON PENSE À VOUS",
+              body: "",
+              align: "left",
+              titleSize: 11,
+              titleColor: "#64748b",
+            },
+          },
           {
             id: "inac2-title",
             type: "heading",
             data: {
-              title: "Vous nous manquez",
-              body: "Bonjour {firstName}, on tenait à reprendre contact.",
+              title: "Un petit mot personnel",
+              body: "Bonjour {firstName}, on n'aime pas trop quand un client s'éloigne sans qu'on sache pourquoi. Rien d'obligatoire ici — juste l'envie de garder le lien et de vous dire qu'on est là si besoin.",
               align: "left",
+              titleSize: 22,
+              titleColor: "#0f172a",
+              bodyColor: "#475569",
             },
           },
           {
@@ -491,9 +560,25 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
             type: "daysInactive",
             data: {
               template:
-                "Il s'est écoulé {days} jour(s) depuis votre dernière visite. Notre équipe reste disponible si vous avez la moindre question — sur un modèle, la livraison, votre compte.",
+                "Il s'est écoulé {days} jour(s) depuis votre dernière visite. Si quelque chose vous retient — un doute sur un modèle, un souci de livraison, un besoin particulier — on prend le temps d'y répondre.",
               neverVisitedTemplate:
-                "Nous n'avons pas encore eu le plaisir de vous accueillir sur notre boutique en ligne. On serait ravi de vous montrer ce qu'on a préparé.",
+                "Nous n'avons pas encore eu le plaisir de vous accueillir sur la boutique en ligne. Prenez le temps qu'il vous faut — on reste disponible.",
+              color: "#64748b",
+            },
+          },
+          {
+            id: "inac2-callout",
+            type: "callout",
+            data: {
+              title: "Une question ? Un doute ?",
+              subtitle: "On répond en général sous 2 h ouvrées.",
+              cta: "Nous écrire",
+              ctaUrl: "mailto:{shopEmail}",
+              bg: "#0f172a",
+              color: "#ffffff",
+              titleSize: 16,
+              subtitleSize: 13,
+              ctaSize: 13,
             },
           },
           {
@@ -502,28 +587,18 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
             data: {
               label: "Revenir sur la boutique",
               url: "/produits",
-              bg: "#0f172a",
-              color: "#ffffff",
+              bg: "#f1f5f9",
+              color: "#0f172a",
               align: "center",
             },
           },
-          {
-            id: "inac2-subcta",
-            type: "heading",
-            data: {
-              title: "",
-              body: "Ou contactez-nous — on répond en général sous 2 h ouvrées.",
-              align: "center",
-              bodyColor: "#64748b",
-              bodySize: 12,
-            },
-          },
+          { id: "inac2-divider", type: "divider", data: {} },
           {
             id: "inac2-sign",
             type: "heading",
             data: {
               title: "",
-              body: "Bonne journée,\nL'équipe {shopName}",
+              body: "Prenez soin de vous,\nL'équipe {shopName}",
               align: "left",
               bodyColor: "#475569",
             },
@@ -536,30 +611,31 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
     default:
       return {
         name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade 3`,
-        subject: "Un dernier bonjour de notre part",
+        subject: "Un dernier bonjour, {firstName}",
         blocks: [
-          brandHeaderBlock("inac3"),
+          elegantInactivityHeader("inac3"),
           {
-            id: "inac3-warn",
+            id: "inac3-banner",
             type: "heading",
             data: {
-              title: "NOUVEAUTÉS DU MOMENT",
-              body: "On vous a préparé les dernières arrivées à découvrir.",
+              title: "DERNIÈRE INVITATION",
+              body: "Un dernier bonjour de notre part",
               align: "center",
               bg: "#0f172a",
-              titleColor: "#cbd5e1",
+              titleColor: "#94a3b8",
               bodyColor: "#ffffff",
               titleSize: 11,
-              bodySize: 15,
+              bodySize: 22,
             },
           },
           {
             id: "inac3-title",
             type: "heading",
             data: {
-              title: "{firstName}, ce sera notre dernière relance",
-              body: "On ne veut pas encombrer votre boîte mail. Voici la dernière invitation à passer nous voir — après, promis, on vous laisse tranquille.",
+              title: "",
+              body: "{firstName}, on ne veut pas encombrer votre boîte mail. Voici notre dernière relance — après, promis, on vous laisse tranquille. Avant de partir, jetez peut-être un œil à ce qui vient d'arriver.",
               align: "left",
+              bodyColor: "#475569",
             },
           },
           {
@@ -567,9 +643,31 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
             type: "daysInactive",
             data: {
               template:
-                "Cela fait {days} jour(s) qu'on ne vous a pas croisé sur la boutique.",
+                "Cela fait {days} jour(s) qu'on ne s'est pas croisés.",
               neverVisitedTemplate:
-                "Vous n'avez encore jamais franchi les portes de notre boutique en ligne.",
+                "Nous n'avons pas eu la chance de vous accueillir sur la boutique.",
+              color: "#64748b",
+            },
+          },
+          {
+            id: "inac3-columns",
+            type: "columns",
+            data: {
+              cols: 2,
+              columns: [
+                {
+                  kind: "text",
+                  text:
+                    "Nos dernières pièces\n\nDécouvrez ce qui vient d'arriver — modèles inédits et sélection exclusive grossiste.",
+                },
+                {
+                  kind: "text",
+                  text:
+                    "Restons en contact\n\nUne question, une envie particulière ? Écrivez-nous à {shopEmail}, on prend le temps de vous répondre.",
+                },
+              ],
+              bg: "#f8fafc",
+              color: "#475569",
             },
           },
           {
@@ -589,7 +687,7 @@ export function inactiveClientStageDefault(stageIndex: number): DefaultTemplate 
             type: "heading",
             data: {
               title: "",
-              body: "Merci pour votre confiance,\nL'équipe {shopName}",
+              body: "Merci pour votre confiance,\nÀ bientôt peut-être,\nL'équipe {shopName}",
               align: "left",
               bodyColor: "#475569",
             },

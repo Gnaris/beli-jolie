@@ -8,12 +8,20 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const TENANT_ID = "tenant_bj";
 
-const mockPrisma = vi.hoisted(() => ({
-  user: {
+const mockPrisma = vi.hoisted(() => {
+  const user = {
     findFirst: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
-  },
-}));
+  };
+  const order = {
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+  };
+  return {
+    user,
+    order,
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({ user, order })),
+  };
+});
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 
@@ -165,5 +173,30 @@ describe("updateClientProfile", () => {
     const res = await updateClientProfile("user_1", { ...validData, addressCountry: "ZZ" });
     expect(res.success).toBe(false);
     if (!res.success) expect(res.error).toMatch(/pays/i);
+  });
+
+  it("propage le nouvel email sur toutes les commandes du client quand l'email change", async () => {
+    mockPrisma.user.findFirst
+      .mockResolvedValueOnce(targetClient)
+      .mockResolvedValueOnce(null) // email libre
+      .mockResolvedValueOnce(null); // siret libre
+
+    const res = await updateClientProfile("user_1", { ...validData, email: "nouveau@example.com" });
+    expect(res.success).toBe(true);
+    expect(mockPrisma.order.updateMany).toHaveBeenCalledOnce();
+    expect(mockPrisma.order.updateMany).toHaveBeenCalledWith({
+      where: { userId: "user_1" },
+      data: { clientEmail: "nouveau@example.com" },
+    });
+  });
+
+  it("ne touche pas aux commandes quand l'email est inchangé", async () => {
+    mockPrisma.user.findFirst
+      .mockResolvedValueOnce(targetClient)
+      .mockResolvedValueOnce(null); // siret libre
+
+    const res = await updateClientProfile("user_1", { ...validData, email: targetClient.email });
+    expect(res.success).toBe(true);
+    expect(mockPrisma.order.updateMany).not.toHaveBeenCalled();
   });
 });

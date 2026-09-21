@@ -279,6 +279,59 @@ export async function updateInactiveClientStageDelay(
   }
 }
 
+/**
+ * Ré-applique les designs par défaut de `inactiveClientStageDefault()` à chaque
+ * stade existant du tenant courant (mêmes blocs + sujet + nom). N'affecte pas
+ * les délais ni le nombre de stades. Sert à réinitialiser d'un coup les 3
+ * modèles quand la cliente veut repartir sur les designs officiels sans avoir
+ * à ouvrir chaque modèle un par un. Idempotent.
+ */
+export async function applyInactiveClientDefaultDesigns(): Promise<
+  | { success: true; config: InactiveClientConfigDTO; updated: number }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+
+    const stages = await prisma.inactiveClientStage.findMany({
+      where: { tenantId: tenant.id },
+      orderBy: { stageIndex: "asc" },
+      select: { id: true, stageIndex: true, templateId: true },
+    });
+
+    if (stages.length === 0) {
+      return {
+        success: false,
+        error: "Aucun stade à réinitialiser — ajoutez au moins un stade d'abord.",
+      };
+    }
+
+    let updated = 0;
+    await prisma.$transaction(async (tx) => {
+      for (const s of stages) {
+        const def = inactiveClientStageDefault(s.stageIndex);
+        await tx.newsletterTemplate.update({
+          where: { id: s.templateId },
+          data: {
+            name: def.name,
+            subject: def.subject,
+            blocks: def.blocks as unknown as object,
+          },
+        });
+        updated++;
+      }
+    });
+
+    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/marketing/mails/inactivite");
+    const config = await getInactiveClientConfig();
+    return { success: true, config, updated };
+  } catch (err) {
+    logger.error("[applyInactiveClientDefaultDesigns]", { error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 export async function deleteInactiveClientStage(
   stageId: string,
 ): Promise<
