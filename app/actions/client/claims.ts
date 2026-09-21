@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { generateClaimReference, CLAIMS_PAGE_SIZE } from "@/lib/claims";
 import { createConversation, addMessage } from "@/lib/messaging";
 import { notifyAdminNewClaim } from "@/lib/notifications";
+import { cancelPendingNotifications } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { logger } from "@/lib/logger";
 
@@ -252,6 +253,9 @@ export async function markMessagesReadByClient(claimId: string) {
     },
     data: { readAt: new Date() },
   });
+
+  // Le client vient de lire → on annule le mail 5 min si un timer était armé.
+  await cancelPendingNotifications(claim.conversation.id);
 
   emitChatEvent({
     type: "MESSAGE_READ",

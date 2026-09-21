@@ -102,6 +102,12 @@ model User {
   shippingDiscountNextOrderUsed Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
   lastLoginAt                   DateTime?
   lastSeenAt                    DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
+  // Présence Service Client : id de la conversation actuellement ouverte par
+  // le client (chat flottant ou réclamation). Mis à jour à chaque heartbeat
+  // et remis à null quand le client ferme le widget / quitte la page.
+  // Sert à décider si un mail « nouvelle réponse » doit partir tout de suite,
+  // être différé de 5 min, ou skippé (client déjà en train de lire).
+  activeConversationId          String?
   createdAt                     DateTime            @default(now())
   updatedAt                     DateTime            @updatedAt
 
@@ -3202,6 +3208,11 @@ model Conversation {
   claimId   String?            @unique
   claim     Claim?             @relation(fields: [claimId], references: [id])
   messages  Message[]
+  // Timestamp du dernier mail « nouvelle réponse » envoyé au client sur
+  // cette conversation. Utilisé pour l'anti-spam 20 min du système
+  // Service Client (cf. `lib/support-notify.ts`). Reset uniquement quand
+  // le client a effectivement lu depuis (Message.readAt > lastSupportEmailAt).
+  lastSupportEmailAt DateTime?
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
@@ -3272,7 +3283,6 @@ model Claim {
   user                 User          @relation(fields: [userId], references: [id])
   conversation         Conversation?
   closedAt             DateTime?
-  lastNotifiedClientAt DateTime?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -3284,6 +3294,39 @@ model Claim {
   @@index([userId, status])
   @@index([status])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Notification différée Service Client
+// ─────────────────────────────────────────────
+// À chaque réponse admin dans une conversation (chat flottant OU réclamation),
+// on décide selon la présence du client :
+//   - hors ligne              → mail immédiat (aucune ligne créée ici)
+//   - en ligne hors conv      → PendingSupportEmail créé, dueAt = now + 5 min
+//   - en ligne sur la conv    → rien (il voit en direct)
+// Tout nouveau message admin dans la même conversation annule les jobs
+// PENDING précédents et repose un timer neuf (règle « reset à chaque msg »).
+// Quand le client lit → jobs PENDING → CANCELLED.
+// Worker background scanne toutes les 30 s et envoie les mails dus.
+model PendingSupportEmail {
+  id             String   @id @default(cuid())
+  conversationId String
+  messageId      String // dernier message admin déclencheur (pour tracer)
+  userId         String // destinataire (client)
+  claimId        String? // si conversation liée à une réclamation
+  dueAt          DateTime // instant d'envoi prévu
+  status         String   @default("PENDING") // PENDING | SENT | CANCELLED
+  sentAt         DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([status, dueAt])
+  @@index([conversationId, status])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -3538,6 +3581,7 @@ model Tenant {
   favorites                  Favorite[]
   shippingAddresss           ShippingAddress[]
   claims                     Claim[]
+  pendingSupportEmails       PendingSupportEmail[]
   credits                    Credit[]
   creditUsages               CreditUsage[]
   collections                Collection[]

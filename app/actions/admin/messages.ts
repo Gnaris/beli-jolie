@@ -5,8 +5,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { addMessage, markAsRead } from "@/lib/messaging";
 import { emitChatEvent } from "@/lib/chat-events";
-import { notifyClientNewReply } from "@/lib/notifications";
-import { logger } from "@/lib/logger";
+import {
+  scheduleReplyNotification,
+  cancelPendingNotifications,
+} from "@/lib/support-notify";
 import { revalidateTag } from "next/cache";
 
 export async function getAdminConversations(filter?: "all" | "unread" | "open" | "closed") {
@@ -47,6 +49,9 @@ export async function getAdminConversation(conversationId: string) {
   if (!session || session.user.role !== "ADMIN") return null;
 
   await markAsRead(conversationId, "ADMIN");
+  // Marquage admin ≠ lecture client. On ne touche pas ici aux mails
+  // programmés (cancelPendingNotifications) — c'est la lecture CLIENT qui doit
+  // arrêter le chronomètre, pas la lecture admin.
 
   return prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -116,21 +121,14 @@ export async function sendAdminReply(
 
     revalidateTag("messages", "default");
 
-    // Email au client (fire-and-forget) — pour qu'il sache qu'on lui a répondu
-    // même s'il n'est pas connecté au site.
-    if (conversation.user?.email) {
-      notifyClientNewReply({
-        clientEmail: conversation.user.email,
-        clientName: conversation.user.firstName || "",
-        subject: conversation.subject || "Votre message",
-        messagePreview: content.trim() || "Une pièce jointe vous a été envoyée.",
-        conversationId: conversation.id,
-      }).catch((err) =>
-        logger.error("[sendAdminReply] Email client échoué", {
-          error: err,
-        }),
-      );
-    }
+    // Décision présence-aware : mail immédiat, chronomètre 5 min, ou rien.
+    // Fire-and-forget — les erreurs sont loggées dans scheduleReplyNotification.
+    void scheduleReplyNotification({
+      conversationId: conversation.id,
+      messageId: message.id,
+      userId: conversation.userId,
+      context: "chat",
+    });
 
     return { success: true, message };
   } catch {

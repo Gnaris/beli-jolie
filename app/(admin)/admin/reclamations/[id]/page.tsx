@@ -88,7 +88,6 @@ export default async function AdminClaimDetailPage({ params }: { params: Promise
           subject: claim.subject,
           status: claim.status as "OPEN" | "CLOSED",
           createdAt: claim.createdAt.toISOString(),
-          lastNotifiedClientAt: claim.lastNotifiedClientAt ? claim.lastNotifiedClientAt.toISOString() : null,
         }}
         client={clientSummary}
         conversation={conversation}

@@ -260,6 +260,22 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker du chronomètre 5 min « Service Client » (pilote PendingSupportEmail).
+  // Tick 30 s : envoi différé des mails « un admin vous a répondu » quand le
+  // client est en ligne mais pas sur la conversation. Voir lib/support-notify.ts.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startSupportEmailWorker } = await import("@/lib/support-email-worker");
+        startSupportEmailWorker();
+      } catch (err) {
+        logger.error("[Support Email] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker de relance inactivité (pilote InactiveClientJob).
   // Tick 10 min : les stades sont en jours, pas besoin de plus fin. Scan des
   // users éligibles par tenant (kill switch SiteConfig

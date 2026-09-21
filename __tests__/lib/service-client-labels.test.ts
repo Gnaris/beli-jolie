@@ -66,18 +66,20 @@ describe("Service Client — labels & structure", () => {
   });
 
   describe("Emails", () => {
-    it("utilise 'Nouvelle demande (Service Client)' et 'Nouvelle réponse'", () => {
+    it("utilise 'Nouvelle demande (Service Client)' + template générique de réponse", () => {
       const notif = readFileSync(join(root, "lib/notifications.ts"), "utf8");
       expect(notif).toContain("Nouvelle demande (Service Client)");
-      expect(notif).toContain("Nouvelle réponse");
-      // L'ancien template de résolution de claim ne doit plus exister
+      // Nouveau template unifié (chronomètre 5 min) : formulation figée avec
+      // la cliente le 2026-09-21 — le mail ne contient plus le détail de la
+      // réponse, pour forcer le client à revenir sur le site.
+      expect(notif).toContain("Un administrateur vous a répondu");
       const withoutComments = notif
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .replace(/^\s*\/\/.*$/gm, "");
       expect(withoutComments).not.toContain("notifyClientClaimUpdate");
-      // (Note : refundAmount / creditAmount peuvent apparaître dans d'autres
-      // notifs — modifications de commande, avoirs Order — sans lien avec le
-      // Service Client refondu.)
+      // Les 2 anciens helpers séparés ont été fusionnés en un seul.
+      expect(withoutComments).not.toContain("notifyClientNewReply");
+      expect(withoutComments).not.toContain("notifyClientHasNewReply");
     });
   });
 });

@@ -1,7 +1,10 @@
 /**
- * Tests pour app/actions/admin/messages.ts — sendAdminReply (P1-03).
+ * Tests pour app/actions/admin/messages.ts — sendAdminReply.
  *
- * Vérifie que le client reçoit un email à chaque réponse admin.
+ * Vérifie qu'à chaque réponse admin dans le chat SUPPORT, la décision
+ * de notification (immédiate / différée 5 min / rien) est déléguée au
+ * système `scheduleReplyNotification`. La logique métier elle-même est
+ * testée dans __tests__/lib/support-notify.test.ts.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -17,12 +20,15 @@ const mockMessaging = vi.hoisted(() => ({
   addMessage: vi.fn().mockResolvedValue({
     id: "msg-1",
     createdAt: new Date(),
+    attachments: [],
+    sender: { firstName: "Admin", lastName: "", company: "" },
   }),
   markAsRead: vi.fn(),
 }));
 
-const mockNotifications = vi.hoisted(() => ({
-  notifyClientNewReply: vi.fn().mockResolvedValue(undefined),
+const mockSupportNotify = vi.hoisted(() => ({
+  scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
+  cancelPendingNotifications: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("next-auth", () => ({
@@ -32,10 +38,7 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 vi.mock("@/lib/messaging", () => mockMessaging);
 vi.mock("@/lib/chat-events", () => ({ emitChatEvent: vi.fn() }));
-vi.mock("@/lib/notifications", () => mockNotifications);
-vi.mock("@/lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+vi.mock("@/lib/support-notify", () => mockSupportNotify);
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 
 import { sendAdminReply } from "@/app/actions/admin/messages";
@@ -55,23 +58,22 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("sendAdminReply — email client (P1-03)", () => {
-  it("envoie un email au client avec un extrait de la réponse", async () => {
+describe("sendAdminReply — notification client", () => {
+  it("délègue la décision à scheduleReplyNotification (chat)", async () => {
     mockPrisma.conversation.findUnique.mockResolvedValue(baseConversation);
 
     const res = await sendAdminReply("conv-1", "Bonjour, votre commande est partie ce matin.");
 
     expect(res.success).toBe(true);
-    expect(mockNotifications.notifyClientNewReply).toHaveBeenCalledWith({
-      clientEmail: "client@test.fr",
-      clientName: "Marie",
-      subject: "Question sur ma commande",
-      messagePreview: "Bonjour, votre commande est partie ce matin.",
+    expect(mockSupportNotify.scheduleReplyNotification).toHaveBeenCalledWith({
       conversationId: "conv-1",
+      messageId: "msg-1",
+      userId: "client-1",
+      context: "chat",
     });
   });
 
-  it("envoie un email même quand l'admin envoie uniquement une pièce jointe", async () => {
+  it("appelle scheduleReplyNotification même quand l'admin envoie uniquement une pièce jointe", async () => {
     mockPrisma.conversation.findUnique.mockResolvedValue(baseConversation);
 
     const res = await sendAdminReply("conv-1", "", [
@@ -79,18 +81,16 @@ describe("sendAdminReply — email client (P1-03)", () => {
     ]);
 
     expect(res.success).toBe(true);
-    expect(mockNotifications.notifyClientNewReply).toHaveBeenCalledOnce();
-    const call = mockNotifications.notifyClientNewReply.mock.calls[0][0];
-    expect(call.messagePreview).toMatch(/pièce jointe/i);
+    expect(mockSupportNotify.scheduleReplyNotification).toHaveBeenCalledOnce();
   });
 
-  it("n'envoie pas d'email si la conversation est introuvable", async () => {
+  it("n'appelle pas scheduleReplyNotification si la conversation est introuvable", async () => {
     mockPrisma.conversation.findUnique.mockResolvedValue(null);
 
     const res = await sendAdminReply("conv-1", "Bonjour");
 
     expect(res.success).toBe(false);
-    expect(mockNotifications.notifyClientNewReply).not.toHaveBeenCalled();
+    expect(mockSupportNotify.scheduleReplyNotification).not.toHaveBeenCalled();
   });
 
   it("refuse les utilisateurs non-admin", async () => {
@@ -102,6 +102,6 @@ describe("sendAdminReply — email client (P1-03)", () => {
     const res = await sendAdminReply("conv-1", "Bonjour");
 
     expect(res.success).toBe(false);
-    expect(mockNotifications.notifyClientNewReply).not.toHaveBeenCalled();
+    expect(mockSupportNotify.scheduleReplyNotification).not.toHaveBeenCalled();
   });
 });

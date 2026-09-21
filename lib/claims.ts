@@ -23,8 +23,5 @@ export async function generateClaimReference(): Promise<string> {
   return `${prefix}${String(nextNum).padStart(6, "0")}`;
 }
 
-/** Délai minimum entre deux clics sur « Notifier le client » (1 h). */
-export const NOTIFY_CLIENT_COOLDOWN_MS = 60 * 60 * 1000;
-
 /** Pagination des listes Service Client (identique admin + client). */
 export const CLAIMS_PAGE_SIZE = 50;

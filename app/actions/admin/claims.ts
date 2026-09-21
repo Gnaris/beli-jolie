@@ -4,9 +4,9 @@ import { getServerSession } from "next-auth";
 import { revalidateTag } from "next/cache";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { NOTIFY_CLIENT_COOLDOWN_MS, CLAIMS_PAGE_SIZE } from "@/lib/claims";
+import { CLAIMS_PAGE_SIZE } from "@/lib/claims";
 import { addMessage } from "@/lib/messaging";
-import { notifyClientHasNewReply } from "@/lib/notifications";
+import { scheduleReplyNotification } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -243,6 +243,16 @@ export async function sendAdminMessage(
     },
   });
 
+  // Décision présence-aware : mail immédiat, chronomètre 5 min, ou rien.
+  // Reset auto du chronomètre s'il y a déjà un job PENDING sur la conv.
+  void scheduleReplyNotification({
+    conversationId: claim.conversation.id,
+    messageId: message.id,
+    userId: claim.userId,
+    context: "claim",
+    claimId,
+  });
+
   revalidateTag("claims", "default");
   return { success: true, messageId: message.id };
 }
@@ -352,54 +362,6 @@ export async function closeClaim(claimId: string) {
     targetRole: "CLIENT",
     context: "claim",
     claimData: { claimId, newStatus: "CLOSED" },
-  });
-
-  revalidateTag("claims", "default");
-  return { success: true };
-}
-
-/** Envoi manuel d'un email au client (« vous avez une nouvelle réponse »). Rate-limité 1 h. */
-export async function notifyClient(claimId: string) {
-  await requireAdmin();
-
-  const claim = await prisma.claim.findUnique({
-    where: { id: claimId },
-    include: {
-      user: { select: { email: true, firstName: true, lastName: true } },
-    },
-  });
-  if (!claim) return { success: false, error: "Demande introuvable." };
-
-  const now = new Date();
-  if (
-    claim.lastNotifiedClientAt &&
-    now.getTime() - claim.lastNotifiedClientAt.getTime() < NOTIFY_CLIENT_COOLDOWN_MS
-  ) {
-    const remainingMs =
-      NOTIFY_CLIENT_COOLDOWN_MS - (now.getTime() - claim.lastNotifiedClientAt.getTime());
-    return {
-      success: false,
-      error: "Notification déjà envoyée récemment.",
-      remainingMinutes: Math.ceil(remainingMs / 60_000),
-    };
-  }
-
-  try {
-    await notifyClientHasNewReply({
-      clientEmail: claim.user.email,
-      clientName: claim.user.firstName ?? "",
-      claimReference: claim.reference,
-      subject: claim.subject,
-      claimId: claim.id,
-    });
-  } catch (err) {
-    logger.error("[notifyClient] Email client échoué", { error: err });
-    return { success: false, error: "Échec de l'envoi de l'email." };
-  }
-
-  await prisma.claim.update({
-    where: { id: claimId },
-    data: { lastNotifiedClientAt: now },
   });
 
   revalidateTag("claims", "default");

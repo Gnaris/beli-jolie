@@ -1,16 +1,14 @@
 /**
  * Tests fonctionnels — Service Client (Claim simplifiée).
  *
- * Couvre les invariants clés post-refonte 2026-08 :
+ * Couvre les invariants clés :
  *  - Statut binaire OPEN/CLOSED
  *  - Réouverture auto d'une conv fermée quand le client répond
- *  - Rate-limit de notifyClient (1h)
+ *  - Notification client déléguée à scheduleReplyNotification (chronomètre 5 min)
  *  - Accusé de lecture asymétrique (readAt posé côté admin uniquement)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// vi.mock est hoisté en haut du fichier — on utilise vi.hoisted() pour
-// que les mocks soient initialisés AVANT les vi.mock() qui les référencent.
 const mocks = vi.hoisted(() => ({
   claim: {
     findUnique: vi.fn(),
@@ -21,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   conversation: { findFirst: vi.fn() },
   message: { create: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn() },
-  notifyClient: vi.fn().mockResolvedValue(undefined),
+  scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
+  cancelPendingNotifications: vi.fn().mockResolvedValue(undefined),
   notifyAdmin: vi.fn().mockResolvedValue(undefined),
   session: { user: { id: "admin-1", role: "ADMIN", status: "APPROVED", email: "a@t.fr" } },
 }));
@@ -46,8 +45,12 @@ vi.mock("next/cache", () => ({
 }));
 
 vi.mock("@/lib/notifications", () => ({
-  notifyClientHasNewReply: mocks.notifyClient,
   notifyAdminNewClaim: mocks.notifyAdmin,
+}));
+
+vi.mock("@/lib/support-notify", () => ({
+  scheduleReplyNotification: mocks.scheduleReplyNotification,
+  cancelPendingNotifications: mocks.cancelPendingNotifications,
 }));
 
 vi.mock("@/lib/chat-events", () => ({
@@ -74,20 +77,29 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/lib/claims", () => ({
-  NOTIFY_CLIENT_COOLDOWN_MS: 60 * 60 * 1000,
   generateClaimReference: vi.fn().mockResolvedValue("SAV-2026-000042"),
 }));
 
+vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn().mockResolvedValue(undefined) }));
+
 const mockClaim = mocks.claim;
 const mockMessage = mocks.message;
-const mockNotifyClient = mocks.notifyClient;
+const mockScheduleReply = mocks.scheduleReplyNotification;
+const mockCancelPending = mocks.cancelPendingNotifications;
 const mockNotifyAdmin = mocks.notifyAdmin;
 const mockSession = mocks.session;
 
 // ─── Import APRÈS les mocks ─────────────────────────────────────
 
-import { notifyClient, closeClaim, markMessagesReadByAdmin } from "@/app/actions/admin/claims";
-import { sendClientMessage } from "@/app/actions/client/claims";
+import {
+  sendAdminMessage,
+  closeClaim,
+  markMessagesReadByAdmin,
+} from "@/app/actions/admin/claims";
+import {
+  sendClientMessage,
+  markMessagesReadByClient,
+} from "@/app/actions/client/claims";
 
 describe("Service Client — flow", () => {
   beforeEach(() => {
@@ -127,52 +139,22 @@ describe("Service Client — flow", () => {
     });
   });
 
-  describe("notifyClient — rate-limit 1h", () => {
-    it("envoie l'email si jamais notifié", async () => {
+  describe("sendAdminMessage — programme la notification", () => {
+    it("appelle scheduleReplyNotification avec context=claim + claimId", async () => {
       mockClaim.findUnique.mockResolvedValue({
-        id: "c1", reference: "SAV-2026-000042", subject: "Test",
-        lastNotifiedClientAt: null,
-        user: { email: "c@t.fr", firstName: "Marie", lastName: "L" },
+        userId: "client-1",
+        conversation: { id: "conv-1" },
       });
-      mockClaim.update.mockResolvedValue({});
 
-      const res = await notifyClient("c1");
+      const res = await sendAdminMessage("c1", "Bonjour");
       expect(res.success).toBe(true);
-      expect(mockNotifyClient).toHaveBeenCalledOnce();
-      expect(mockClaim.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { lastNotifiedClientAt: expect.any(Date) },
-        }),
-      );
-    });
-
-    it("refuse si dernier envoi < 1h + expose remainingMinutes", async () => {
-      const halfHourAgo = new Date(Date.now() - 30 * 60 * 1000);
-      mockClaim.findUnique.mockResolvedValue({
-        id: "c1", reference: "SAV-2026-000042", subject: "Test",
-        lastNotifiedClientAt: halfHourAgo,
-        user: { email: "c@t.fr", firstName: "Marie", lastName: "L" },
+      expect(mockScheduleReply).toHaveBeenCalledWith({
+        conversationId: "conv-1",
+        messageId: expect.stringMatching(/^msg-/),
+        userId: "client-1",
+        context: "claim",
+        claimId: "c1",
       });
-
-      const res = await notifyClient("c1");
-      expect(res.success).toBe(false);
-      expect(res.remainingMinutes).toBeGreaterThan(25);
-      expect(res.remainingMinutes).toBeLessThanOrEqual(30);
-      expect(mockNotifyClient).not.toHaveBeenCalled();
-    });
-
-    it("autorise à nouveau si dernier envoi > 1h", async () => {
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      mockClaim.findUnique.mockResolvedValue({
-        id: "c1", reference: "SAV-2026-000042", subject: "Test",
-        lastNotifiedClientAt: twoHoursAgo,
-        user: { email: "c@t.fr", firstName: "Marie", lastName: "L" },
-      });
-      mockClaim.update.mockResolvedValue({});
-
-      const res = await notifyClient("c1");
-      expect(res.success).toBe(true);
-      expect(mockNotifyClient).toHaveBeenCalledOnce();
     });
   });
 
@@ -194,6 +176,33 @@ describe("Service Client — flow", () => {
         },
         data: { readAt: expect.any(Date) },
       });
+      // La lecture côté ADMIN ne doit PAS annuler le timer côté client
+      expect(mockCancelPending).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("markMessagesReadByClient — annule le timer 5 min", () => {
+    beforeEach(() => {
+      mockSession.user = { id: "client-1", role: "CLIENT", status: "APPROVED", email: "c@t.fr" };
+    });
+
+    it("marque les messages ADMIN comme lus + annule les PendingSupportEmail", async () => {
+      mockClaim.findFirst.mockResolvedValue({
+        conversation: { id: "conv-1" },
+      });
+      mockMessage.updateMany.mockResolvedValue({ count: 2 });
+
+      await markMessagesReadByClient("c1");
+
+      expect(mockMessage.updateMany).toHaveBeenCalledWith({
+        where: {
+          conversationId: "conv-1",
+          senderRole: "ADMIN",
+          readAt: null,
+        },
+        data: { readAt: expect.any(Date) },
+      });
+      expect(mockCancelPending).toHaveBeenCalledWith("conv-1");
     });
   });
 

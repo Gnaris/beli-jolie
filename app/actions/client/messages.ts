@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createConversation, addMessage, markAsRead } from "@/lib/messaging";
 import { notifyAdminNewMessage } from "@/lib/notifications";
+import { cancelPendingNotifications } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
@@ -172,6 +173,8 @@ export async function getClientConversation(conversationId: string) {
   if (!session || session.user.role !== "CLIENT") return null;
 
   await markAsRead(conversationId, "CLIENT");
+  // Le client vient de lire → annule le mail 5 min si un timer était armé.
+  await cancelPendingNotifications(conversationId);
 
   return prisma.conversation.findFirst({
     where: { id: conversationId, userId: session.user.id },
@@ -244,6 +247,13 @@ export async function getActiveSupportChat() {
     },
     orderBy: { updatedAt: "desc" },
   });
+
+  // L'ouverture du widget vaut lecture : on marque les messages ADMIN comme
+  // lus + on annule un éventuel mail 5 min armé.
+  if (conversation) {
+    await markAsRead(conversation.id, "CLIENT");
+    await cancelPendingNotifications(conversation.id);
+  }
 
   return conversation;
 }

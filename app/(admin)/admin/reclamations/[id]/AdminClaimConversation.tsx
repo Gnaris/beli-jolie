@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
@@ -9,11 +9,9 @@ import { useChatStream, type ChatEvent } from "@/hooks/useChatStream";
 import {
   sendAdminMessage,
   closeClaim,
-  notifyClient,
   deleteClaim,
 } from "@/app/actions/admin/claims";
 
-const NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
 const SYSTEM_PREFIX = "__system__:";
 const SYSTEM_MSG_TEXT = "Un mail a été envoyé à l'administrateur. Il traitera votre demande sous quelques minutes.";
 const MAX_ATTACHMENTS = 5;
@@ -42,7 +40,6 @@ type ClaimSummary = {
   subject: string;
   status: "OPEN" | "CLOSED";
   createdAt: string;
-  lastNotifiedClientAt: string | null;
 };
 
 type ClientSummary = {
@@ -102,10 +99,7 @@ export default function AdminClaimConversation({
   const [isUploading, setIsUploading] = useState(false);
   const [isSending, startSending] = useTransition();
   const [isClosing, startClosing] = useTransition();
-  const [isNotifying, startNotifying] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
-  const [lastNotifiedAt, setLastNotifiedAt] = useState<string | null>(claim.lastNotifiedClientAt);
-  const [now, setNow] = useState(() => Date.now());
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -118,12 +112,6 @@ export default function AdminClaimConversation({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages.length]);
-
-  // Horloge pour le compte à rebours "Notifier"
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(interval);
-  }, []);
 
   // SSE — écoute les nouveaux messages CLIENT et les MESSAGE_READ
   useChatStream((event: ChatEvent) => {
@@ -157,15 +145,6 @@ export default function AdminClaimConversation({
       );
     }
   }, Boolean(conversationId));
-
-  // Cooldown "Notifier le client" — 1h après le dernier envoi
-  const cooldownRemainingMs = useMemo(() => {
-    if (!lastNotifiedAt) return 0;
-    const elapsed = now - new Date(lastNotifiedAt).getTime();
-    return Math.max(0, NOTIFY_COOLDOWN_MS - elapsed);
-  }, [lastNotifiedAt, now]);
-
-  const notifyDisabled = status === "CLOSED" || cooldownRemainingMs > 0 || isNotifying;
 
   async function handleUpload(files: File[]): Promise<Attachment[]> {
     const fd = new FormData();
@@ -293,30 +272,8 @@ export default function AdminClaimConversation({
     });
   }
 
-  function handleNotify() {
-    startNotifying(async () => {
-      const res = await notifyClient(claim.id);
-      if (!res.success) {
-        if (res.remainingMinutes) {
-          toast.info("Notification déjà envoyée", `Nouveau clic possible dans ${res.remainingMinutes} min.`);
-        } else {
-          toast.error("Échec de l'envoi", res.error);
-        }
-        return;
-      }
-      setLastNotifiedAt(new Date().toISOString());
-      toast.success("Client notifié", "Un email vient d'être envoyé.");
-    });
-  }
-
   const clientDisplayName = client.company || `${client.firstName} ${client.lastName}`.trim() || client.email;
   const clientInitial = (clientDisplayName || "?").charAt(0).toUpperCase();
-
-  const cooldownLabel = (() => {
-    if (cooldownRemainingMs <= 0) return null;
-    const mins = Math.ceil(cooldownRemainingMs / 60_000);
-    return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")}`;
-  })();
 
   return (
     <div className="space-y-5" data-admin-chat>
@@ -359,29 +316,6 @@ export default function AdminClaimConversation({
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            <button
-              type="button"
-              onClick={handleNotify}
-              disabled={notifyDisabled}
-              title={
-                status === "CLOSED"
-                  ? "Conversation fermée"
-                  : cooldownLabel
-                  ? `Disponible dans ${cooldownLabel}`
-                  : "Envoyer un email au client pour dire « vous avez une nouvelle réponse »"
-              }
-              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border text-sm font-medium transition-colors ${
-                notifyDisabled
-                  ? "bg-zinc-50 text-zinc-400 border-zinc-200 cursor-not-allowed"
-                  : "bg-white text-text-primary border-border hover:bg-zinc-50"
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" d="M15 17h5l-1.4-1.4A2 2 0 0118 14V11a6 6 0 10-12 0v3a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-              </svg>
-              {isNotifying ? "Envoi…" : cooldownLabel ? `Dispo dans ${cooldownLabel}` : "Notifier le client"}
-            </button>
-
             {status === "OPEN" ? (
               <button
                 type="button"
@@ -562,36 +496,21 @@ export default function AdminClaimConversation({
             </div>
           </div>
 
-          {/* Notification client (verrou visible) */}
+          {/* Notification client — auto (chronomètre 5 min + présence) */}
           <div className="relative rounded-2xl bg-bg-primary border border-border p-5 overflow-hidden">
             <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: "linear-gradient(90deg, #52525B, #18181B)" }} />
             <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-text-primary">
               <span className="w-[3px] h-[14px] rounded-[3px]" style={{ background: "linear-gradient(180deg, #52525B, #18181B)" }} />
               Notification client
             </span>
-            <p className="text-sm mt-3 text-text-secondary">
-              Prévenir {client.firstName || "le client"} qu'il a une nouvelle réponse par email.
+            <p className="text-sm mt-3 text-text-secondary leading-relaxed">
+              Chaque réponse prévient <b>{client.firstName || "le client"}</b> automatiquement :
             </p>
-            <button
-              type="button"
-              onClick={handleNotify}
-              disabled={notifyDisabled}
-              className={`mt-3 w-full inline-flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                notifyDisabled
-                  ? "bg-zinc-100 text-zinc-500 border-zinc-200 cursor-not-allowed"
-                  : "bg-zinc-900 hover:bg-black text-white border-zinc-900"
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" d="M15 17h5l-1.4-1.4A2 2 0 0118 14V11a6 6 0 10-12 0v3a2 2 0 01-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
-              </svg>
-              {cooldownLabel ? `Disponible dans ${cooldownLabel}` : status === "CLOSED" ? "Conversation fermée" : isNotifying ? "Envoi…" : "Envoyer maintenant"}
-            </button>
-            {lastNotifiedAt && (
-              <p className="text-[11px] text-text-muted mt-2 text-center">
-                Dernier envoi : {formatTime(lastNotifiedAt)}
-              </p>
-            )}
+            <ul className="mt-2 text-[12.5px] text-text-secondary space-y-1.5 leading-snug">
+              <li className="flex gap-2"><span className="text-text-muted">•</span>hors ligne → email envoyé tout de suite</li>
+              <li className="flex gap-2"><span className="text-text-muted">•</span>en ligne mais ailleurs → email 5 min plus tard s'il n'a pas lu</li>
+              <li className="flex gap-2"><span className="text-text-muted">•</span>en train de lire la conversation → aucun email (il voit en direct)</li>
+            </ul>
           </div>
 
           {/* Historique */}

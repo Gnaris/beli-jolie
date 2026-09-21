@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { useChatStream } from "@/hooks/useChatStream";
+import { useActiveConversation } from "@/hooks/useActiveConversation";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
@@ -168,6 +169,10 @@ export default function ChatWidget({ businessHours }: Props) {
   );
 
   useChatStream(handleChatEvent);
+
+  // Déclare au serveur qu'on lit cette conversation → suppression du timer
+  // 5 min « client absent ». Actif uniquement panel ouvert + vue conversation.
+  useActiveConversation(isOpen && view === "conversation" ? activeConvId : null);
 
   // ── Send message in existing conversation ──
   function handleSendMessage() {

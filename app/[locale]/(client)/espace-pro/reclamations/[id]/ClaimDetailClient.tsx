@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { useChatStream, type ChatEvent } from "@/hooks/useChatStream";
+import { useActiveConversation } from "@/hooks/useActiveConversation";
 import { sendClientMessage } from "@/app/actions/client/claims";
 
 const MAX_ATTACHMENTS = 5;
@@ -64,6 +65,10 @@ export default function ClaimDetailClient({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages.length]);
+
+  // Déclare au serveur qu'on lit cette conversation → pas de mail 5 min si
+  // l'admin répond pendant qu'on est là.
+  useActiveConversation(conversationId);
 
   useChatStream((event: ChatEvent) => {
     if (event.conversationId !== conversationId) return;

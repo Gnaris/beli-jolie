@@ -104,6 +104,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "Conversation",
   "Message",
   "MessageAttachment",
+  "PendingSupportEmail",
   "PasswordResetToken",
   "LoginOtp",
   "LoginAttempt",

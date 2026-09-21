@@ -517,70 +517,69 @@ export async function notifyAdminNewMessage(params: {
 }
 
 /**
- * Notify client of a new reply from admin.
+ * Contexte du mail : distingue le chat flottant (widget SUPPORT) de la
+ * conversation liée à une réclamation. Sert seulement à construire le
+ * bon lien de retour.
  */
-export async function notifyClientNewReply(params: {
+export type SupportReplyContext = "chat" | "claim";
+
+/**
+ * Envoie au client le mail « un admin vous a répondu ».
+ *
+ * Template volontairement générique (pas de preview du message) : la cliente
+ * veut forcer le retour sur le site. Utilisé par le système de notification
+ * différée `lib/support-notify.ts` (chronomètre 5 min avec présence + lecture).
+ */
+export async function sendGenericSupportReplyEmail(params: {
   clientEmail: string;
   clientName: string;
-  subject: string;
-  messagePreview: string;
   conversationId: string;
+  context: SupportReplyContext;
+  claimId?: string;
 }) {
-  const { clientEmail, clientName, subject, messagePreview, conversationId } = params;
+  const { clientEmail, clientName, conversationId, context, claimId } = params;
   const shopName = await getCachedShopName();
-
-  const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
   const baseUrl = await getCurrentTenantBaseUrl();
 
   const userId = await resolveUserIdByEmail(clientEmail);
 
-  // Anti-spam : si un email « réponse au message » a déjà été envoyé à ce
-  // client il y a moins de 10 min, on ne le renvoie pas. Une salve de réponses
-  // rapprochées côté admin ne doit pas déclencher un email par message —
-  // le premier email suffit à ramener le client sur le site pour lire la suite.
-  if (userId) {
-    const recent = await prisma.emailSend.findFirst({
-      where: {
-        userId,
-        scenarioKey: "SUPPORT_REPLY",
-        status: "SENT",
-        sentAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
-      },
-      select: { id: true },
-    });
-    if (recent) {
-      logger.info(
-        `[Notifications] Client ${clientEmail} déjà notifié récemment [${ref}] — email skip (anti-spam 10 min)`,
-      );
-      return;
-    }
-  }
+  const conversationUrl =
+    context === "claim" && claimId
+      ? `${baseUrl}/fr/espace-pro/reclamations/${claimId}`
+      : `${baseUrl}/fr/espace-pro`;
+
+  const displayName = clientName?.trim() || "";
+  const greeting = displayName ? `Bonjour ${escapeHtml(displayName)},` : "Bonjour,";
 
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `[${ref}] Réponse à votre message — ${subject}`,
+    subject: `Un administrateur vous a répondu — ${shopName || "Service Client"}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Vous avez reçu une réponse à votre message :</p>
-        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
-          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
-        </div>
-        <a href="${baseUrl}/fr/espace-pro"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
+        <h2 style="color:#1A1A1A;">${greeting}</h2>
+        <p>Un administrateur vous a répondu sur votre Service Client.</p>
+        <p>Connectez-vous à votre espace pour lire sa réponse et lui répondre.</p>
+        <a href="${conversationUrl}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
           Voir la conversation
         </a>
+        <p style="color:#71717A;font-size:12px;margin-top:24px;">
+          Vous recevez ce message parce que vous avez ouvert une conversation
+          avec le Service Client de ${escapeHtml(shopName || "notre boutique")}.
+        </p>
       </div>
     `,
     tracking: {
       scenarioKey: "SUPPORT_REPLY",
       userId,
-      metadata: { conversationId, subject },
+      metadata: { conversationId, context, claimId },
     },
   });
 
-  logger.info(`[Notifications] Client ${clientEmail} notified of reply [${ref}]`);
+  logger.info(
+    `[Notifications] Client ${clientEmail} notifié — nouvelle réponse (${context})`,
+  );
 }
 
 /**
@@ -631,50 +630,6 @@ export async function notifyAdminNewClaim(params: {
   logger.info(`[Notifications] Admin notifié — nouvelle demande ${claimReference}`);
 }
 
-/**
- * Notif client — l'admin a répondu.
- * Envoyée uniquement quand l'admin clique sur « Notifier le client »
- * dans la page conversation (rate-limité 1 h côté action serveur).
- */
-export async function notifyClientHasNewReply(params: {
-  clientEmail: string;
-  clientName: string;
-  claimReference: string;
-  subject: string;
-  claimId: string;
-}) {
-  const { clientEmail, clientName, claimReference, subject, claimId } = params;
-  const shopName = await getCachedShopName();
-  const baseUrl = await getCurrentTenantBaseUrl();
-
-  const userId = await resolveUserIdByEmail(clientEmail);
-
-  await sendMail({
-    fromName: shopName || "Boutique",
-    to: clientEmail,
-    subject: `Service Client ${claimReference} — Nouvelle réponse`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Bonjour ${escapeHtml(clientName)},</h2>
-        <p>Vous avez une nouvelle réponse à votre demande <strong>${escapeHtml(subject)}</strong> (réf. ${escapeHtml(claimReference)}).</p>
-        <a href="${baseUrl}/fr/espace-pro/reclamations/${claimId}"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
-          Voir la conversation
-        </a>
-        <p style="color:#71717A;font-size:12px;margin-top:24px;">
-          Vous recevez cet email parce que vous avez ouvert une demande auprès du Service Client de ${escapeHtml(shopName || "notre boutique")}.
-        </p>
-      </div>
-    `,
-    tracking: {
-      scenarioKey: "CLAIM_REPLY",
-      userId,
-      metadata: { claimId, claimReference, subject },
-    },
-  });
-
-  logger.info(`[Notifications] Client ${clientEmail} notifié — nouvelle réponse ${claimReference}`);
-}
 
 // ─────────────────────────────────────────────
 // Notification admin — nouvelle commande

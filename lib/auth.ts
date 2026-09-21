@@ -325,4 +325,33 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+
+  events: {
+    /**
+     * Sur déconnexion explicite : efface la présence pour que le système
+     * de notification Service Client (cf. `lib/support-notify.ts`) considère
+     * immédiatement le client hors ligne et envoie les mails « nouvelle
+     * réponse » sans attendre les 60 s de la fenêtre `isOnline()`.
+     * Sans ça, un client qui vient de se déco garde `lastSeenAt` récent +
+     * `activeConversationId` posé → l'admin lui répond mais aucun mail ne part.
+     */
+    async signOut({ token }) {
+      const userId = (token as { id?: string } | null | undefined)?.id;
+      if (!userId) return;
+      try {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { lastSeenAt: null, activeConversationId: null },
+        });
+      } catch (err) {
+        // Loggé (au lieu de swallow silencieux) pour que la cliente puisse
+        // détecter facilement un désync client Prisma ↔ schéma.
+        const { logger } = await import("@/lib/logger");
+        logger.warn("[auth.signOut] Reset présence Service Client échoué", {
+          error: err,
+          userId,
+        });
+      }
+    },
+  },
 };
