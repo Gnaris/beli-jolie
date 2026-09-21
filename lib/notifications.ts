@@ -1116,3 +1116,98 @@ export async function notifyClientOrderModified(
     });
   }
 }
+
+/**
+ * Envoyé au client quand il demande un lien de paiement Stripe direct depuis
+ * le tunnel (fallback si son navigateur bloque l'iframe Stripe : antivirus,
+ * extension anti-pub, VPN d'entreprise…). Le lien pointe vers
+ * `checkout.stripe.com`, hors iframe, moins bloqué. Fire-and-forget : on log
+ * les erreurs mais on ne casse jamais la génération du lien côté API.
+ */
+export async function notifyClientPaymentLink(params: {
+  email: string;
+  firstName?: string | null;
+  amountTTC: number;
+  url: string;
+  expiresAt: Date;
+  /** N° de commande à afficher dans l'en-tête + subject (facultatif). */
+  orderNumber?: string | null;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const amountStr = params.amountTTC.toFixed(2);
+    const expiresStr = params.expiresAt.toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const greeting = params.firstName
+      ? `Bonjour <strong>${escapeHtml(params.firstName)}</strong>,`
+      : "Bonjour,";
+    const orderTag = params.orderNumber
+      ? `<p style="margin:8px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(params.orderNumber)}</p>`
+      : "";
+    const subjectSuffix = params.orderNumber ? ` — Commande ${params.orderNumber}` : "";
+
+    const userId = await resolveUserIdByEmail(params.email);
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: `${shopName} — Votre lien de paiement sécurisé (${amountStr} €)${subjectSuffix}`,
+      tracking: {
+        scenarioKey: "CHECKOUT_PAYMENT_LINK",
+        userId,
+        metadata: {
+          amountTTC: params.amountTTC,
+          expiresAt: params.expiresAt.toISOString(),
+          orderNumber: params.orderNumber ?? null,
+        },
+      },
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#0F172A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <div style="font-size:32px;margin-bottom:8px;">🔒</div>
+            <h2 style="margin:0;font-size:20px;">Votre lien de paiement</h2>
+            ${orderTag}
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">${greeting}</p>
+            <p style="font-size:15px;line-height:1.6;">
+              Votre commande chez <strong>${escapeHtml(shopName)}</strong> a été
+              enregistrée. Pour la régler, cliquez sur le bouton ci-dessous — vous
+              serez redirigé vers la page sécurisée de notre prestataire Stripe.
+            </p>
+            <div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
+              <div style="font-size:12px;color:#6B6B6B;text-transform:uppercase;letter-spacing:1px;">Montant à régler</div>
+              <div style="font-size:28px;font-weight:bold;margin-top:4px;">${amountStr} €</div>
+            </div>
+            <div style="text-align:center;margin:24px 0;">
+              <a href="${escapeHtml(params.url)}"
+                 style="background:#0F172A;color:#ffffff;padding:14px 32px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;font-size:15px;">
+                Payer maintenant →
+              </a>
+            </div>
+            <p style="font-size:12px;color:#6B6B6B;text-align:center;line-height:1.5;">
+              Lien valable jusqu'au <strong>${escapeHtml(expiresStr)}</strong>.<br/>
+              Si le bouton ne fonctionne pas, copiez-collez cette adresse dans votre navigateur :<br/>
+              <span style="word-break:break-all;color:#334155;">${escapeHtml(params.url)}</span>
+            </p>
+            <p style="font-size:12px;color:#6B6B6B;text-align:center;margin-top:16px;">
+              Ce lien est aussi accessible depuis votre espace commandes tant que
+              la commande reste en attente de paiement.
+            </p>
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[checkout-payment-link] Email envoyé", { to: params.email, amount: params.amountTTC });
+  } catch (err) {
+    logger.error("[checkout-payment-link] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}

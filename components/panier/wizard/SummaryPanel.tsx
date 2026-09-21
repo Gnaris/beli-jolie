@@ -50,6 +50,7 @@ export default function SummaryPanel({
   ctaLabel,
   ctaDisabled,
   onCta,
+  hideCta = false,
   backLabel,
   onBack,
   helperNote,
@@ -82,6 +83,12 @@ export default function SummaryPanel({
   ctaLabel: string;
   ctaDisabled?: boolean;
   onCta: () => void;
+  /**
+   * Masque le bouton CTA principal du récap (mais garde le bouton "retour"
+   * si onBack est fourni). Utilisé à l'étape 3 en mode carte pour éviter le
+   * double bouton "Payer" — le vrai bouton est dans le formulaire Stripe.
+   */
+  hideCta?: boolean;
   backLabel?: string;
   onBack?: () => void;
   helperNote?: string | null;
@@ -179,7 +186,7 @@ export default function SummaryPanel({
           <div className="space-y-4 text-sm">
             {/* ▸ Prix HT (déjà remisé au niveau produit) */}
             <div className="flex justify-between">
-              <span className="text-slate-600">Prix total HT</span>
+              <span className="text-slate-600">{t("summaryTotalHT")}</span>
               <span className="font-medium tabular-nums">{subtotalHT.toFixed(2)} €</span>
             </div>
 
@@ -200,7 +207,7 @@ export default function SummaryPanel({
                   </div>
                 ))}
                 <div className="flex justify-between border-t border-slate-100 pt-2">
-                  <span className="text-slate-700 font-medium">Total après remise commerciale</span>
+                  <span className="text-slate-700 font-medium">{t("summaryAfterClientDiscount")}</span>
                   <span className="font-semibold tabular-nums">
                     {subtotalAfterClient.toFixed(2)} €
                   </span>
@@ -227,7 +234,7 @@ export default function SummaryPanel({
             return (
               <div className="space-y-4 text-sm">
                 <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-                  Livraison
+                  {t("summaryShippingSection")}
                 </div>
 
                 {/* ▸ BLOC 1 — Promotion livraison */}
@@ -256,7 +263,7 @@ export default function SummaryPanel({
                   ))}
                   {shipPromoLines.length > 0 && (
                     <div className="flex justify-between border-t border-slate-100 pt-2">
-                      <span className="text-slate-700 font-medium">Livraison après promotion</span>
+                      <span className="text-slate-700 font-medium">{t("summaryShippingAfterPromo")}</span>
                       <span className="font-semibold tabular-nums">{shipAfterPromo.toFixed(2)} €</span>
                     </div>
                   )}
@@ -275,14 +282,14 @@ export default function SummaryPanel({
                         </span>
                         <span className="font-medium tabular-nums whitespace-nowrap">
                           {effectiveCarrierPrice === 0 && line.percent === 100
-                            ? "Offerte"
+                            ? t("summaryFree")
                             : `−${line.amount.toFixed(2)} €`}
                         </span>
                       </div>
                     ))}
                     <div className="flex justify-between border-t border-slate-100 pt-2">
                       <span className="text-slate-700 font-medium">
-                        Livraison après remise commerciale
+                        {t("summaryShippingAfterClient")}
                       </span>
                       <span className="font-semibold tabular-nums">
                         {shipAfterClient === 0 ? t("summaryFree") : `${shipAfterClient.toFixed(2)} €`}
@@ -302,14 +309,14 @@ export default function SummaryPanel({
           <div className="h-px bg-slate-200 my-4" />
           <div className="space-y-2 text-sm">
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              Taxes ({tvaLabel})
+              {t("summaryTaxes", { rate: tvaLabel })}
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">TVA sur panier</span>
+              <span className="text-slate-600">{t("summaryVatOnCart")}</span>
               <span className="font-medium tabular-nums">{tvaOnCart.toFixed(2)} €</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-600">TVA sur livraison</span>
+              <span className="text-slate-600">{t("summaryVatOnShipping")}</span>
               <span className="font-medium tabular-nums">{tvaOnShipping.toFixed(2)} €</span>
             </div>
           </div>
@@ -326,14 +333,16 @@ export default function SummaryPanel({
 
       {/* CTA principal + retour */}
       <div className="mt-6 space-y-2">
-        <button
-          type="button"
-          onClick={onCta}
-          disabled={ctaDisabled}
-          className="w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {ctaLabel}
-        </button>
+        {!hideCta && (
+          <button
+            type="button"
+            onClick={onCta}
+            disabled={ctaDisabled}
+            className="w-full h-11 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {ctaLabel}
+          </button>
+        )}
         {onBack && backLabel && (
           <button
             type="button"

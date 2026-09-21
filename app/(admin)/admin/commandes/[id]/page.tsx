@@ -10,6 +10,7 @@ import OrderQuickActions from "@/components/admin/orders/OrderQuickActions";
 import BankTransferConfirmButton from "@/components/admin/orders/BankTransferConfirmButton";
 import { EU_COUNTRIES } from "@/lib/vat";
 import { roundCent } from "@/lib/money";
+import { syncStripeCheckoutSessionStatus } from "@/app/actions/client/payment-link-order";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -29,6 +30,12 @@ export default async function AdminCommandeDetailPage({
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
 
   const { id } = await params;
+
+  // Filet de sécurité : synchronise le statut de paiement avec Stripe si
+  // c'est une commande STRIPE_LINK encore en attente. Couvre les webhooks
+  // manqués (dev local sans Stripe CLI, panne réseau, retry en cours…).
+  // Idempotent — no-op instantané si déjà payé ou paymentMode ≠ STRIPE_LINK.
+  await syncStripeCheckoutSessionStatus(id);
 
   const order = await prisma.order.findUnique({
     where: { id },
@@ -63,6 +70,18 @@ export default async function AdminCommandeDetailPage({
     order.paymentMode === "BANK_TRANSFER" && order.paymentStatus !== "paid" && order.status !== "CANCELLED";
   const isBankTransferPaid =
     order.paymentMode === "BANK_TRANSFER" && order.paymentStatus === "paid";
+
+  // Lien de paiement Stripe (fallback iframe bloquée) : badge dédié + encart
+  // rappelant l'URL, l'échéance et l'état. Le passage à "paid" est
+  // automatique (webhook Stripe), pas de bouton manuel côté admin.
+  const isPaymentLinkPending =
+    order.paymentMode === "STRIPE_LINK" && order.paymentStatus !== "paid" && order.status !== "CANCELLED";
+  const isPaymentLinkPaid =
+    order.paymentMode === "STRIPE_LINK" && order.paymentStatus === "paid";
+  const paymentLinkExpired =
+    isPaymentLinkPending &&
+    !!order.stripeCheckoutSessionExpiresAt &&
+    order.stripeCheckoutSessionExpiresAt.getTime() <= Date.now();
 
   const shipCountryCode = (order.shipCountry ?? "").toUpperCase();
   const isOutsideEu = !!shipCountryCode && !EU_COUNTRIES.has(shipCountryCode);
@@ -137,6 +156,16 @@ export default async function AdminCommandeDetailPage({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   Virement reçu
                 </span>
+              ) : isPaymentLinkPending ? (
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${paymentLinkExpired ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${paymentLinkExpired ? "bg-rose-500" : "bg-amber-500 animate-pulse"}`} />
+                  {paymentLinkExpired ? "Lien de paiement expiré" : "Lien de paiement en attente"}
+                </span>
+              ) : isPaymentLinkPaid ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Payé par lien Stripe
+                </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
                   Stripe · {order.paymentStatus === "paid" ? "encaissé" : order.paymentStatus}
@@ -192,6 +221,70 @@ export default async function AdminCommandeDetailPage({
           <div className="px-5 py-3 border-t border-amber-100 bg-white">
             <p className="text-xs text-slate-500">
               💡 Ouvrez votre banque, vérifiez que le virement est bien crédité, puis cliquez sur « Marquer virement reçu » en haut.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Encart lien de paiement Stripe — état + URL. Le passage à "payé"
+          est automatique dès que la cliente clique sur le lien et paie
+          (webhook Stripe). Aucune action manuelle admin nécessaire. */}
+      {isPaymentLinkPending && (
+        <section className={`bg-white rounded-2xl overflow-hidden ${paymentLinkExpired ? "border border-rose-200" : "border border-amber-200"}`}>
+          <div className={`px-5 py-3 border-b flex items-center gap-2 ${paymentLinkExpired ? "border-rose-100 bg-rose-50" : "border-amber-100 bg-amber-50"}`}>
+            <span className={`w-1 h-6 rounded-full ${paymentLinkExpired ? "bg-rose-500" : "bg-amber-500"}`} />
+            <p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${paymentLinkExpired ? "text-rose-700" : "text-amber-700"}`}>
+              {paymentLinkExpired ? "Lien de paiement expiré" : "Lien de paiement envoyé — en attente"}
+            </p>
+          </div>
+          <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Montant attendu</p>
+              <p className="text-lg font-semibold text-slate-900">{Number(order.totalTTC).toFixed(2)} €</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Client</p>
+              <p className="text-slate-900 font-medium">{order.shipFirstName} {order.shipLastName}</p>
+              {order.clientCompany && <p className="text-xs text-slate-500">{order.clientCompany}</p>}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                {paymentLinkExpired ? "A expiré le" : "Valable jusqu'au"}
+              </p>
+              <p className="text-slate-900 font-medium">
+                {order.stripeCheckoutSessionExpiresAt
+                  ? order.stripeCheckoutSessionExpiresAt.toLocaleString("fr-FR", {
+                      day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit",
+                    })
+                  : "—"}
+              </p>
+            </div>
+          </div>
+          {order.stripeCheckoutSessionUrl && !paymentLinkExpired && (
+            <div className="px-5 py-3 border-t border-amber-100 bg-white space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                Lien envoyé au client
+              </p>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                <span className="text-xs text-slate-600 truncate flex-1 font-mono" title={order.stripeCheckoutSessionUrl}>
+                  {order.stripeCheckoutSessionUrl}
+                </span>
+                <a
+                  href={order.stripeCheckoutSessionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold text-slate-700 hover:text-slate-900 whitespace-nowrap"
+                >
+                  Ouvrir ↗
+                </a>
+              </div>
+            </div>
+          )}
+          <div className={`px-5 py-3 border-t bg-white ${paymentLinkExpired ? "border-rose-100" : "border-amber-100"}`}>
+            <p className="text-xs text-slate-500">
+              {paymentLinkExpired
+                ? "💡 Le client peut régénérer un nouveau lien depuis sa fiche commande. Le paiement se marquera automatiquement dès qu'il aura payé."
+                : "💡 Aucune action de votre côté : dès que la cliente clique sur le lien et paie, la commande passe automatiquement en « payée » ici."}
             </p>
           </div>
         </section>

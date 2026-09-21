@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
@@ -58,6 +59,7 @@ export default function Step3PaymentContent({
   onPaymentModeChange,
   bankTransfer,
   onBankTransferSubmit,
+  onRequestPaymentLink,
 }: {
   cart: WizardCart;
   clientSecret: string | null;
@@ -91,9 +93,20 @@ export default function Step3PaymentContent({
   onPaymentModeChange: (mode: "card" | "bank_transfer") => void;
   bankTransfer: { enabled: boolean; holder: string; ibanDisplay: string };
   onBankTransferSubmit: () => void;
+  /**
+   * Callback fallback : appelé quand l'iframe Stripe est bloquée par le
+   * navigateur. Crée la commande et retourne l'URL du lien Stripe hébergé.
+   * Le composant redirige vers /commandes/{id} après succès (le lien reste
+   * affiché sur la page commande tant que la commande n'est pas payée).
+   */
+  onRequestPaymentLink: () => Promise<
+    | { success: true; orderId: string; url: string }
+    | { success: false; error: string }
+  >;
 }) {
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
+  const locale = useLocale();
   const { confirm } = useConfirm();
   const [promoBusy, setPromoBusy] = useState(false);
   const [promoError, setPromoError] = useState("");
@@ -343,7 +356,14 @@ export default function Step3PaymentContent({
           {clientSecret && stripePromise && !stripeError && (
             <Elements
               stripe={stripePromise}
-              options={{ clientSecret, appearance: { theme: "stripe" } }}
+              options={{
+                clientSecret,
+                appearance: { theme: "stripe" },
+                // Force la langue du PaymentElement (Stripe met en français par
+                // défaut selon l'IP/navigateur — ici on veut suivre la locale
+                // choisie par la cliente sur le site).
+                locale: locale === "en" ? "en" : "fr",
+              }}
             >
               <StripeCardForm
                 clientSecret={clientSecret}
@@ -352,6 +372,8 @@ export default function Step3PaymentContent({
                 disabled={!cgvAccepted || isCreatingOrder}
                 totalAmountCents={totalAmountCents}
                 consentBlock={consentNode}
+                cgvAccepted={cgvAccepted}
+                onRequestPaymentLink={onRequestPaymentLink}
               />
             </Elements>
           )}
@@ -414,6 +436,11 @@ export default function Step3PaymentContent({
    Formulaire Stripe unifié — PaymentElement expose carte + Apple Pay
    + Google Pay dans un même bloc (selon device/navigateur).
    ───────────────────────────────────────────────────────────── */
+type LinkState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "error"; message: string };
+
 function StripeCardForm({
   clientSecret,
   onSuccess,
@@ -421,6 +448,8 @@ function StripeCardForm({
   disabled,
   totalAmountCents,
   consentBlock,
+  cgvAccepted,
+  onRequestPaymentLink,
 }: {
   clientSecret: string;
   onSuccess: (piId: string) => void;
@@ -428,6 +457,11 @@ function StripeCardForm({
   disabled: boolean;
   totalAmountCents: number;
   consentBlock: React.ReactNode;
+  cgvAccepted: boolean;
+  onRequestPaymentLink: () => Promise<
+    | { success: true; orderId: string; url: string }
+    | { success: false; error: string }
+  >;
 }) {
   const t = useTranslations("checkout");
   const locale = useLocale();
@@ -435,7 +469,44 @@ function StripeCardForm({
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
   const [ready, setReady] = useState(false);
+  // Le panneau de secours n'apparaît QUE si la cliente clique elle-même
+  // sur le lien d'aide « Vous rencontrez un problème lors du paiement ? ».
+  // On évite ainsi le faux positif d'un watchdog automatique qui se
+  // déclencherait sur une connexion mobile lente.
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [linkState, setLinkState] = useState<LinkState>({ kind: "idle" });
   const paymentIntentId = extractPaymentIntentId(clientSecret);
+  const router = useRouter();
+
+  /**
+   * Crée la commande + le lien Stripe côté serveur puis redirige vers la
+   * page /commandes/{id} où le lien reste affiché tant que le paiement n'a
+   * pas été validé (comportement calqué sur le virement bancaire).
+   */
+  async function handleRequestPaymentLink() {
+    if (!cgvAccepted) {
+      setLinkState({ kind: "error", message: t("paymentLinkNeedsCgv") });
+      return;
+    }
+    setLinkState({ kind: "sending" });
+    try {
+      const result = await onRequestPaymentLink();
+      if (!result.success) {
+        setLinkState({
+          kind: "error",
+          message: result.error ?? t("paymentLinkError"),
+        });
+        return;
+      }
+      // Redirection immédiate vers la page commande où le lien s'affiche.
+      // Un router.replace évite le retour en arrière vers un panier vidé.
+      router.replace(`/${locale}/commandes/${result.orderId}?checkout_pending=1`);
+    } catch {
+      setLinkState({ kind: "error", message: t("paymentLinkError") });
+    }
+  }
+
+  const showFallbackPanel = helpOpen;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -486,6 +557,38 @@ function StripeCardForm({
     }
   }
 
+  // Quand la cliente clique elle-même sur « Vous rencontrez un problème ? »,
+  // on remplace COMPLÈTEMENT le formulaire par le panneau de secours.
+  // Le PaymentElement reste monté à zéro hauteur pour préserver son état
+  // Stripe (au cas où elle change d'avis et clique sur « Retour au paiement
+  // par carte »).
+  if (showFallbackPanel) {
+    return (
+      <div className="space-y-4">
+        {consentBlock}
+        <PaymentFallbackPanel
+          state={linkState}
+          onRequestLink={handleRequestPaymentLink}
+          onBackToCard={() => setHelpOpen(false)}
+        />
+        <div style={{ height: 0, overflow: "hidden" }} aria-hidden>
+          <PaymentElement
+            onReady={() => setReady(true)}
+            onLoadError={(event) => {
+              reportPaymentError({
+                stage: "load",
+                source: "checkout",
+                paymentIntentId,
+                amountCents: totalAmountCents,
+                stripeError: normalizeStripeError(event.error),
+              });
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement
@@ -525,6 +628,86 @@ function StripeCardForm({
           </>
         )}
       </button>
+      {/* Discret : proposé sans dramatiser, ne s'active que si la cliente
+          rencontre effectivement un souci et clique elle-même. */}
+      <button
+        type="button"
+        onClick={() => setHelpOpen(true)}
+        className="w-full text-center text-xs text-slate-500 hover:text-slate-900 underline underline-offset-2 py-2"
+      >
+        {t("paymentTroubleLink")}
+      </button>
     </form>
+  );
+}
+
+/**
+ * Panneau de secours qui remplace le formulaire Stripe quand celui-ci ne
+ * charge pas (bloqueur de pub, antivirus « paiement sécurisé », VPN…). Le
+ * clic sur le bouton crée la commande côté serveur et redirige vers la page
+ * commande où le lien Stripe reste affiché tant que le paiement n'est pas
+ * validé — même expérience qu'un virement bancaire.
+ */
+function PaymentFallbackPanel({
+  state,
+  onRequestLink,
+  onBackToCard,
+}: {
+  state: LinkState;
+  onRequestLink: () => void;
+  onBackToCard: () => void;
+}) {
+  const t = useTranslations("checkout");
+  return (
+    <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0 mt-0.5">
+          ⚠
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-amber-900">
+            {t("paymentStuckTitle")}
+          </div>
+          <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+            {t("paymentStuckDesc")}
+          </p>
+          <p className="text-xs text-amber-800 mt-2 leading-relaxed">
+            {t("paymentStuckTryList")}
+          </p>
+        </div>
+      </div>
+      <div className="border-t border-amber-200 pt-3">
+        <p className="text-xs text-amber-900 mb-2 leading-relaxed">
+          {t("paymentStuckAlt")}
+        </p>
+        <button
+          type="button"
+          onClick={onRequestLink}
+          disabled={state.kind === "sending"}
+          className="w-full h-11 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold flex items-center justify-center gap-2"
+        >
+          {state.kind === "sending" ? (
+            <>
+              <span className="inline-block w-3 h-3 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+              {t("paymentLinkSending")}
+            </>
+          ) : (
+            <>✉️ {t("paymentLinkRequest")}</>
+          )}
+        </button>
+        {state.kind === "error" && (
+          <p className="text-xs text-red-700 mt-2 text-center">
+            {state.message}
+          </p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onBackToCard}
+        className="w-full text-center text-xs text-amber-800 hover:text-amber-900 underline underline-offset-2 py-1"
+      >
+        {t("paymentBackToCard")}
+      </button>
+    </div>
   );
 }

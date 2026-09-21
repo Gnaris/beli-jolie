@@ -70,6 +70,23 @@ export async function POST(req: Request) {
       break;
     }
 
+    // Flow "lien de paiement" (paymentMode=STRIPE_LINK) : quand le client
+    // termine le checkout hébergé, Stripe fire à la fois
+    // `payment_intent.succeeded` (géré ci-dessus) et `checkout.session.completed`.
+    // On garde ce handler comme filet de sécurité : si le PI id a été régénéré
+    // via `regeneratePaymentLink` sans que l'ancien webhook n'ait fired, on
+    // retrouve la commande par le sessionId aussi.
+    case "checkout.session.completed": {
+      const cs = event.data.object as Stripe.Checkout.Session;
+      if (cs.payment_status === "paid") {
+        await prisma.order.updateMany({
+          where: { stripeCheckoutSessionId: cs.id },
+          data: { paymentStatus: "paid" },
+        });
+      }
+      break;
+    }
+
     case "payment_intent.payment_failed": {
       const pi = event.data.object as Stripe.PaymentIntent;
       await prisma.order.updateMany({

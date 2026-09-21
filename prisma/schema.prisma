@@ -2452,15 +2452,26 @@ model Order {
   paymentStatus         String  @default("pending") // pending | paid | failed
 
   // Mode de paiement choisi par le client au checkout.
-  // "CARD" = paiement Stripe immédiat, "BANK_TRANSFER" = virement (paiement différé,
-  // validation manuelle par l'admin via `bankTransferConfirmedAt`).
+  // "CARD" = paiement Stripe immédiat (iframe embarquée),
+  // "BANK_TRANSFER" = virement (paiement différé, validation manuelle admin),
+  // "STRIPE_LINK" = lien Stripe Checkout Session externe — fallback quand
+  //   l'iframe est bloquée par le navigateur du client. Commande créée en
+  //   PENDING avec paymentStatus="pending" ; passe à "paid" au webhook
+  //   checkout.session.completed.
   // Nullable pour compat commandes historiques (traitées comme CARD par défaut à l'affichage).
-  paymentMode String? // "CARD" | "BANK_TRANSFER"
+  paymentMode String? // "CARD" | "BANK_TRANSFER" | "STRIPE_LINK"
 
   // Horodatage + admin qui a marqué le virement comme reçu (paymentMode=BANK_TRANSFER).
   // Utilisé pour l'audit / historique + pour l'email de confirmation.
   bankTransferConfirmedAt DateTime?
   bankTransferConfirmedBy String?   // User.id de l'admin qui a confirmé
+
+  // Stripe Checkout Session (paymentMode=STRIPE_LINK uniquement).
+  // URL et expiration figées à la création ; régénérables via l'action
+  // regeneratePaymentLink si le client attend > 24h avant de payer.
+  stripeCheckoutSessionId        String?   @unique // cs_xxx
+  stripeCheckoutSessionUrl       String?   @db.Text
+  stripeCheckoutSessionExpiresAt DateTime?
 
   // Easy-Express
   eeTrackingId String? // Numéro de suivi

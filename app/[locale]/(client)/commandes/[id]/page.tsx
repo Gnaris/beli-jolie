@@ -12,6 +12,8 @@ import OrderContent from "@/components/admin/orders/OrderContent";
 import CancelOrderButton from "@/components/client/CancelOrderButton";
 import ReorderButton from "@/components/client/orders/ReorderButton";
 import PayOrderByCardButton from "@/components/client/orders/PayOrderByCardButton";
+import PaymentLinkPendingCard from "@/components/client/orders/PaymentLinkPendingCard";
+import { syncStripeCheckoutSessionStatus } from "@/app/actions/client/payment-link-order";
 import { getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
@@ -39,6 +41,12 @@ export default async function CommandeDetailPage({
   if (!session) return redirect({ href: { pathname: "/connexion", query: { callbackUrl: "/commandes" } }, locale });
 
   const t = await getTranslations("orders");
+
+  // Synchro préalable avec Stripe si la commande est un lien de paiement
+  // encore en attente : filet de sécurité contre les webhooks manqués
+  // (dev local sans Stripe CLI, panne réseau, retry Stripe en cours…).
+  // Idempotent — si déjà payé ou pas STRIPE_LINK, no-op instantané.
+  await syncStripeCheckoutSessionStatus(id);
 
   const order = await prisma.order.findFirst({
     where: { id, userId: session.user.id },
@@ -85,6 +93,13 @@ export default async function CommandeDetailPage({
   // Virement bancaire en attente : on affiche un bandeau + les coordonnées.
   const isBankTransferPending =
     order.paymentMode === "BANK_TRANSFER" &&
+    order.paymentStatus !== "paid" &&
+    order.status !== "CANCELLED";
+
+  // Lien de paiement Stripe en attente — fallback quand le client n'a pas
+  // pu payer via l'iframe embarquée. Affichage similaire au virement.
+  const isPaymentLinkPending =
+    order.paymentMode === "STRIPE_LINK" &&
     order.paymentStatus !== "paid" &&
     order.status !== "CANCELLED";
   const [bankTransferConfig, stripeReady, stripePublishableKey] = isBankTransferPending
@@ -176,6 +191,19 @@ export default async function CommandeDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Encart lien de paiement en attente — même mécanique que le virement,
+          mais paiement Stripe hors iframe (fallback si le formulaire embarqué
+          est bloqué par un antivirus ou une extension côté client). */}
+      {isPaymentLinkPending && (
+        <PaymentLinkPendingCard
+          orderId={order.id}
+          orderNumber={order.orderNumber}
+          totalTTC={Number(order.totalTTC)}
+          initialUrl={order.stripeCheckoutSessionUrl}
+          initialExpiresAt={order.stripeCheckoutSessionExpiresAt?.toISOString() ?? null}
+        />
+      )}
 
       {/* Encart virement en attente — placé juste après le hero pour être vu immédiatement */}
       {isBankTransferPending && bankTransferConfig && bankTransferConfig.enabled && (

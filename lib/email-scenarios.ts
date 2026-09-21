@@ -63,6 +63,11 @@ export const EMAIL_SCENARIOS = {
     label: "Commande modifiée",
     category: "commande",
   },
+  CHECKOUT_PAYMENT_LINK: {
+    key: "CHECKOUT_PAYMENT_LINK",
+    label: "Lien de paiement",
+    category: "commande",
+  },
 
   // ─── Messagerie & réclamations ────────────────────────
   SUPPORT_REPLY: {

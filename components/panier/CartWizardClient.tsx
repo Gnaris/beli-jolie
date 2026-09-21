@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { placeOrder } from "@/app/actions/client/order";
 import { placeBankTransferOrder } from "@/app/actions/client/bank-transfer-order";
+import { placePaymentLinkOrder } from "@/app/actions/client/payment-link-order";
 import { getSerializedCartForWizard } from "@/app/actions/client/cart";
 import { computeCartCheckoutPricing } from "@/app/actions/client/cart-pricing";
 import { resolveVatRate } from "@/lib/vat";
@@ -91,6 +92,7 @@ export default function CartWizardClient({
 }: Props) {
   const router = useRouter();
   const t = useTranslations("checkout");
+  const locale = useLocale();
   const tCart = useTranslations("cart");
   const tCommon = useTranslations("common");
 
@@ -560,6 +562,57 @@ export default function CartWizardClient({
     }
   }
 
+  /**
+   * Fallback appelé quand le PaymentElement Stripe embarqué est bloqué par
+   * le navigateur du client. On crée la commande immédiatement (comme un
+   * virement) mais avec paymentMode=STRIPE_LINK, on génère la Checkout Session
+   * hébergée, et on redirige vers la page commande où le lien reste affiché
+   * tant que le paiement n'est pas passé.
+   */
+  async function handleRequestPaymentLink(): Promise<
+    | { success: true; orderId: string; url: string }
+    | { success: false; error: string }
+  > {
+    const effectiveAddr = deliveryMode === "merge"
+      ? (selectedAddr ?? addresses[0] ?? null)
+      : selectedAddr;
+    const canSkipAddress = deliveryMode === "pickup" || deliveryMode === "private";
+    if (!effectiveAddr && !canSkipAddress) {
+      return { success: false, error: t("noAddress") };
+    }
+    if (!selectedCarrier) {
+      return { success: false, error: t("noCarriersAvailable") };
+    }
+    const result = await placePaymentLinkOrder({
+      addressId:    effectiveAddr?.id,
+      deliveryMode,
+      carrierId:    selectedCarrier.id,
+      transactionId,
+      carrierSig:   selectedCarrier.sig ?? "",
+      carrierName:  selectedCarrier.name,
+      carrierPrice: rawCarrierPrice,
+      cgvAcceptedAt: new Date().toISOString(),
+      acceptReplacementContact,
+      locale: locale === "en" ? "en" : "fr",
+      ...(deliveryMode === "private"
+        ? privateMode === "contact"
+          ? {
+              privateCarrierEmail: privateCarrierEmail.trim(),
+              privateCarrierPhone: privateCarrierPhone.trim(),
+            }
+          : { privateCarrierBordereau: bordereauPath ?? undefined }
+        : {}),
+      ...(deliveryMode === "merge" && selectedMergeOrderId
+        ? { mergeIntoOrderId: selectedMergeOrderId }
+        : {}),
+      ...(promoApplied ? { promoCode: promoApplied.code } : {}),
+    });
+    if (result.success) {
+      return { success: true, orderId: result.orderId, url: result.checkoutUrl };
+    }
+    return { success: false, error: result.error };
+  }
+
   async function handlePaymentSuccess(piId: string) {
     setOrderError("");
     setIsCreatingOrder(true);
@@ -848,6 +901,7 @@ export default function CartWizardClient({
                 onPaymentModeChange={setPaymentMode}
                 bankTransfer={bankTransfer}
                 onBankTransferSubmit={handleBankTransferSubmit}
+                onRequestPaymentLink={handleRequestPaymentLink}
                 billingSummary={{
                   name:    `${billingInfo.company || `${billingInfo.firstName} ${billingInfo.lastName}`}`,
                   address: [
@@ -897,6 +951,10 @@ export default function CartWizardClient({
           {/* Colonne droite — récap sticky */}
           <SummaryPanel
             {...summaryProps}
+            /* À l'étape 3 en mode carte, le bouton Payer est déjà dans le
+               formulaire Stripe → on masque le doublon dans le récap. Idem
+               pour le mode virement (bouton "Confirmer" dans le bloc virement). */
+            hideCta={currentStep === 3}
             ctaLabel={
               currentStep === 1
                 ? t("proceedToPayment")

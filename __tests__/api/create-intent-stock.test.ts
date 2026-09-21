@@ -12,7 +12,12 @@ const mockPrisma = vi.hoisted(() => ({
   cart: { findUnique: vi.fn() },
   shippingAddress: { findFirst: vi.fn() },
   user: { findUnique: vi.fn() },
-  siteConfig: { findFirst: vi.fn().mockResolvedValue(null) },
+  siteConfig: {
+    findFirst: vi.fn().mockResolvedValue(null),
+    // `readMinOrderConfig` (lib/min-order) lit les seuils via findMany —
+    // sans ce mock, le test explose sur la 1ʳᵉ ligne du happy path.
+    findMany: vi.fn().mockResolvedValue([]),
+  },
 }));
 
 const mockStripeInstance = vi.hoisted(() => ({
@@ -69,6 +74,18 @@ vi.mock("@/lib/stripe", () => ({
 // Bypass la vérif signature transporteur pour concentrer les tests sur le stock.
 vi.mock("@/lib/carrier-signature", () => ({
   verifyCarrierSignature: vi.fn().mockReturnValue(true),
+}));
+// La route lit la liste des méthodes optionnelles activées avant de créer le
+// PI ; par défaut on retourne juste "card" pour ne pas déclencher le fallback.
+vi.mock("@/lib/stripe-payment-methods-enabled", () => ({
+  getEnabledStripePaymentMethods: vi.fn().mockResolvedValue(["card"]),
+}));
+// Le fallback délègue au mock Stripe local pour que le happy path vérifie bien
+// la création du PaymentIntent (l'assertion cible `stripe.paymentIntents.create`).
+vi.mock("@/lib/stripe-pmt-fallback", () => ({
+  createPaymentIntentWithFallback: vi.fn((stripe, base) =>
+    stripe.paymentIntents.create(base),
+  ),
 }));
 
 import { POST } from "@/app/api/payments/create-intent/route";

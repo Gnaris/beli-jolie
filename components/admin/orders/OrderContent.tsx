@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo, useEffect } from "react";
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import {
   modifyOrderItems,
   addCompensationItemsBulk,
@@ -153,15 +154,34 @@ function parseSizes(sizesJson: string | null): Array<{ name: string; quantity: n
   }
 }
 
-function sizeLabel(item: OrderItemView): string {
+function sizeLabel(
+  item: OrderItemView,
+  translateSize?: (name: string) => string,
+): string {
+  const translate = translateSize ?? ((s: string) => s);
   const parsed = parseSizes(item.sizesJson);
   if (parsed && parsed.length > 0) {
-    return parsed.map((s) => `${s.name} × ${s.quantity}`).join(" · ");
+    return parsed.map((s) => `${translate(s.name)} × ${s.quantity}`).join(" · ");
   }
   if (item.saleType === "PACK" && item.packQty) {
     return `Pack × ${item.packQty}`;
   }
-  return item.size?.trim() || "TU";
+  return translate(item.size?.trim() || "TU");
+}
+
+/**
+ * Traduit les noms de taille figés en BDD ("Taille unique", "TU", …) vers le
+ * libellé i18n. Les tailles alphanumériques (S, M, L, 36, …) restent telles
+ * quelles — elles sont universelles.
+ */
+function makeSizeTranslator(t: (k: string) => string): (name: string) => string {
+  return (name: string) => {
+    const trimmed = name.trim();
+    if (trimmed === "Taille unique" || trimmed === "TU" || trimmed.toLowerCase() === "one size") {
+      return t("sizeOneSize");
+    }
+    return trimmed;
+  };
 }
 
 /**
@@ -197,6 +217,7 @@ export default function OrderContent({
   const toast = useToast();
   const { confirm } = useConfirm();
   const [pending, startTransition] = useTransition();
+  const t = useTranslations("orderContent");
 
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [edits, setEdits] = useState<Record<string, { qty: number; price: number }>>({});
@@ -468,9 +489,9 @@ export default function OrderContent({
           <div className="w-1 h-8 bg-sky-500 rounded-full" />
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">
-              Contenu de la commande
+              {t("orderContentEyebrow")}
             </p>
-            <h2 className="font-heading text-lg font-semibold text-slate-900">Articles commandés</h2>
+            <h2 className="font-heading text-lg font-semibold text-slate-900">{t("orderedItems")}</h2>
           </div>
         </div>
 
@@ -558,17 +579,17 @@ export default function OrderContent({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
               <tr>
-                <th className="text-left px-4 py-3 w-16">Image</th>
-                <th className="text-left px-2 py-3 w-24">Référence</th>
-                <th className="text-left px-2 py-3 w-40">Couleur</th>
-                <th className="text-left px-2 py-3 w-28">Taille</th>
-                <th className="text-center px-2 py-3 w-28">Qté</th>
-                <th className="text-center px-2 py-3 w-24">Qté totale</th>
-                <th className="text-right px-2 py-3 w-28">Prix</th>
-                <th className="text-right px-2 py-3 w-28">Prix total HT</th>
-                <th className="text-right px-2 py-3 w-24">Remise</th>
-                <th className="text-right px-2 py-3 w-28">Total HT</th>
-                <th className="text-right px-4 py-3 w-28">Total TTC</th>
+                <th className="text-left px-4 py-3 w-16">{t("thImage")}</th>
+                <th className="text-left px-2 py-3 w-24">{t("thRef")}</th>
+                <th className="text-left px-2 py-3 w-40">{t("thColor")}</th>
+                <th className="text-left px-2 py-3 w-28">{t("thSize")}</th>
+                <th className="text-center px-2 py-3 w-28">{t("thQty")}</th>
+                <th className="text-center px-2 py-3 w-24">{t("thQtyTotal")}</th>
+                <th className="text-right px-2 py-3 w-28">{t("thUnitPrice")}</th>
+                <th className="text-right px-2 py-3 w-28">{t("thTotalHT")}</th>
+                <th className="text-right px-2 py-3 w-24">{t("thDiscount")}</th>
+                <th className="text-right px-2 py-3 w-28">{t("thTotalRow")}</th>
+                <th className="text-right px-4 py-3 w-28">{t("thTotalTTC")}</th>
                 {!readOnly && mode === "edit" && <th className="w-10" />}
               </tr>
             </thead>
@@ -654,32 +675,32 @@ export default function OrderContent({
         <div className="w-1 h-8 bg-slate-900 rounded-full" />
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Totaux
+            {t("totalsEyebrow")}
           </p>
-          <h2 className="font-heading text-lg font-semibold text-slate-900">Résumé de la commande</h2>
+          <h2 className="font-heading text-lg font-semibold text-slate-900">{t("orderSummary")}</h2>
         </div>
       </div>
 
       <div className="px-5 sm:px-6 py-5 bg-slate-50/60">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-          <SummaryTile label="Modèles" value={totalModels.toString()} />
-          <SummaryTile label="Quantité totale" value={totalUnits.toString()} />
-          <SummaryTile label="Total HT" value={fmt(subHTNet)} />
-          <SummaryTile label="Total TTC" value={fmt(totalTTC)} accent="sky" />
+          <SummaryTile label={t("tileModels")} value={totalModels.toString()} />
+          <SummaryTile label={t("tileTotalQty")} value={totalUnits.toString()} />
+          <SummaryTile label={t("tileTotalHT")} value={fmt(subHTNet)} />
+          <SummaryTile label={t("tileTotalTTC")} value={fmt(totalTTC)} accent="sky" />
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4 text-sm">
           {/* ═════ BLOC 1 : Promotion ═════ */}
           <div className="space-y-2">
             <SummaryLine
-              label="Sous-total produits HT"
+              label={t("productsSubtotalHT")}
               value={fmt(currentBrutHT)}
               oldValue={hasBeenModified ? fmt(paidBrutHT) : undefined}
             />
 
             {promoTotal > 0 && (
               <SummaryLine
-                label="Promotions"
+                label={t("promotions")}
                 value={`− ${fmt(promoTotal)}`}
                 valueColor="text-emerald-700"
               />
@@ -695,7 +716,7 @@ export default function OrderContent({
                           p.kind === "CODE" ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"
                         }`}
                       >
-                        {p.kind === "CODE" ? "Code" : "Auto"}
+                        {p.kind === "CODE" ? t("badgeCode") : t("badgeAuto")}
                       </span>
                       <span>{p.name}</span>
                       {p.discountKind === "PERCENTAGE" && (
@@ -712,7 +733,7 @@ export default function OrderContent({
 
             {promoTotal > 0 && (
               <SummaryLine
-                label="Total après promotion"
+                label={t("totalAfterPromo")}
                 value={fmt(roundCent(currentBrutHT - promoTotal))}
                 oldValue={hasBeenModified ? fmt(roundCent(paidBrutHT - promoTotal)) : undefined}
                 bold
@@ -725,13 +746,13 @@ export default function OrderContent({
           {clientDiscount > 0 && (
             <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
               <SummaryLine
-                label="Remise commerciale client"
+                label={t("clientDiscount")}
                 value={`− ${fmt(clientDiscount)}`}
                 oldValue={hasBeenModified ? `− ${fmt(paidClientDiscount)}` : undefined}
                 valueColor="text-emerald-700"
               />
               <SummaryLine
-                label="Total après remise commerciale"
+                label={t("totalAfterClientDiscount")}
                 value={fmt(subHTNet)}
                 oldValue={hasBeenModified ? fmt(paidNetHT) : undefined}
                 bold
@@ -745,18 +766,18 @@ export default function OrderContent({
             {/* Livraison — bloc 1 promo */}
             <div className="space-y-2">
               <SummaryLine
-                label={`Frais de port${totals.carrierName ? ` (${totals.carrierName})` : ""}`}
-                value={totals.carrierBasePrice === 0 ? "Gratuit" : fmt(totals.carrierBasePrice)}
+                label={`${t("shippingLine")}${totals.carrierName ? ` (${totals.carrierName})` : ""}`}
+                value={totals.carrierBasePrice === 0 ? t("shippingFree") : fmt(totals.carrierBasePrice)}
               />
               {totals.carrierPromoDiscount > 0 && (
                 <>
                   <SummaryLine
-                    label="Promotion livraison"
+                    label={t("shippingPromo")}
                     value={`− ${fmt(totals.carrierPromoDiscount)}`}
                     valueColor="text-emerald-700"
                   />
                   <SummaryLine
-                    label="Livraison après promotion"
+                    label={t("shippingAfterPromo")}
                     value={fmt(
                       Math.floor((totals.carrierBasePrice - totals.carrierPromoDiscount) * 100) / 100,
                     )}
@@ -771,17 +792,17 @@ export default function OrderContent({
             {totals.carrierClientDiscount > 0 && (
               <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
                 <SummaryLine
-                  label="Remise commerciale livraison"
+                  label={t("shippingClientDiscount")}
                   value={
                     totals.carrierPrice === 0
-                      ? "Offerte"
+                      ? t("shippingOffered")
                       : `− ${fmt(totals.carrierClientDiscount)}`
                   }
                   valueColor="text-emerald-700"
                 />
                 <SummaryLine
-                  label="Livraison après remise commerciale"
-                  value={totals.carrierPrice === 0 ? "Gratuit" : fmt(totals.carrierPrice)}
+                  label={t("shippingAfterClient")}
+                  value={totals.carrierPrice === 0 ? t("shippingFree") : fmt(totals.carrierPrice)}
                   bold
                   separatorTop
                 />
@@ -789,7 +810,9 @@ export default function OrderContent({
             )}
 
             <SummaryLine
-              label={`TVA produits (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
+              label={t("vatProducts", {
+                rate: totals.tvaRate === 0 ? t("vatExempt") : `${Math.round(totals.tvaRate * 100)} %`,
+              })}
               value={fmt(tvaProducts)}
               oldValue={
                 hasBeenModified
@@ -798,12 +821,14 @@ export default function OrderContent({
               }
             />
             <SummaryLine
-              label={`TVA frais de port (${totals.tvaRate === 0 ? "0 % — exonéré" : `${Math.round(totals.tvaRate * 100)} %`})`}
+              label={t("vatShipping", {
+                rate: totals.tvaRate === 0 ? t("vatExempt") : `${Math.round(totals.tvaRate * 100)} %`,
+              })}
               value={fmt(tvaShipping)}
             />
 
             <div className="flex justify-between items-baseline gap-3 border-t-2 border-slate-900 pt-3 mt-2">
-              <span className="font-heading text-base font-semibold text-slate-900">Prix total TTC</span>
+              <span className="font-heading text-base font-semibold text-slate-900">{t("totalTTC")}</span>
               <span className="text-right inline-flex items-baseline gap-2 flex-wrap justify-end">
                 {hasBeenModified && Math.abs(paidTTC - totalTTC) > 0.005 && (
                   <span className="text-slate-400 line-through decoration-slate-400/70 text-sm font-normal tabular-nums">
@@ -817,14 +842,16 @@ export default function OrderContent({
 
           <div className="pt-3 mt-2 border-t border-dashed border-slate-200 flex justify-between text-xs text-slate-500">
             <span>
-              Payé par le client (Stripe · {totals.paymentStatus === "paid" ? "encaissé" : totals.paymentStatus})
+              {t("paidByStripe", {
+                status: totals.paymentStatus === "paid" ? t("paidByStripeStatusPaid") : totals.paymentStatus,
+              })}
             </span>
             <span className="tabular-nums">{fmt(paidTTC)}</span>
           </div>
 
           {credit > 0.01 && (
             <div className="flex justify-between items-center text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <span className="font-semibold">Avoir à rembourser</span>
+              <span className="font-semibold">{t("creditToRefund")}</span>
               <span className="font-bold tabular-nums">{fmt(credit)}</span>
             </div>
           )}
@@ -1004,6 +1031,8 @@ function VariantRow({
   onZoomImage: (img: { src: string; alt: string }) => void;
   productLinks: Record<string, string> | undefined;
 }) {
+  const t = useTranslations("orderContent");
+  const translateSize = makeSizeTranslator(t);
   const qty = mode === "edit" ? edit?.qty ?? item.quantity : item.quantity;
   const price = mode === "edit" ? edit?.price ?? item.unitPrice : item.unitPrice;
 
@@ -1049,6 +1078,7 @@ function VariantRow({
               alt={item.productName}
               width={48}
               height={48}
+              unoptimized
               className="w-full h-full object-cover"
             />
           </button>
@@ -1074,7 +1104,7 @@ function VariantRow({
       </td>
 
       {/* Taille */}
-      <td className="px-2 py-3 text-sm text-slate-700">{sizeLabel(item)}</td>
+      <td className="px-2 py-3 text-sm text-slate-700">{sizeLabel(item, translateSize)}</td>
 
       {/* Qté (avec barré + flèche + badge Qté ajustée / Retiré si modif) */}
       <td className="px-2 py-3 text-center">
@@ -1362,6 +1392,7 @@ function MobileItemCard({
   zebra: boolean;
   onZoomImage: (img: { src: string; alt: string }) => void;
 }) {
+  const t = useTranslations("orderContent");
   const qty = mode === "edit" ? edit?.qty ?? item.quantity : item.quantity;
   const price = mode === "edit" ? edit?.price ?? item.unitPrice : item.unitPrice;
   const discountAmt = Number(item.lineDiscountAmt ?? 0);
@@ -1394,7 +1425,7 @@ function MobileItemCard({
           title="Agrandir l'image"
           className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-slate-200 shrink-0 hover:ring-2 hover:ring-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400 transition"
         >
-          <Image src={item.imagePath} alt={item.productName} width={56} height={56} className="w-full h-full object-cover" />
+          <Image src={item.imagePath} alt={item.productName} width={56} height={56} unoptimized className="w-full h-full object-cover" />
         </button>
       ) : (
         <div className="w-14 h-14 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 text-xs shrink-0">—</div>
@@ -1403,7 +1434,7 @@ function MobileItemCard({
         <div className="flex flex-wrap items-center gap-1.5">
           <ColorSwatch color={color} />
           <span className="text-sm font-medium text-slate-900">{item.colorName}</span>
-          <Chip>{sizeLabel(item)}</Chip>
+          <Chip>{sizeLabel(item, makeSizeTranslator(t))}</Chip>
           {item.isCompensation && <Chip variant="success">Ajouté</Chip>}
         </div>
 
@@ -1457,9 +1488,9 @@ function MobileItemCard({
                 editable={false}
               />
             </span>
-            <span className="text-slate-500">Total HT</span>
+            <span className="text-slate-500">{t("tileTotalHT")}</span>
             <span className="text-right tabular-nums text-slate-900 font-medium">{fmt(totalHT)}</span>
-            <span className="text-slate-500">Total TTC</span>
+            <span className="text-slate-500">{t("tileTotalTTC")}</span>
             <span className="text-right tabular-nums text-slate-900 font-semibold">{fmt(totalTTC)}</span>
           </div>
         ) : (
@@ -1500,7 +1531,7 @@ function MobileItemCard({
               />
             </div>
             <div className="text-right text-xs">
-              <span className="text-slate-500">Total TTC : </span>
+              <span className="text-slate-500">{t("tileTotalTTC")} : </span>
               <span className="font-semibold text-slate-900 tabular-nums">{fmt(totalTTC)}</span>
             </div>
           </div>
