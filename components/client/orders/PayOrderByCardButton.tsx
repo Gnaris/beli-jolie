@@ -15,6 +15,7 @@ import {
   createOrderCardPaymentIntent,
   confirmOrderCardPayment,
 } from "@/app/actions/client/pay-order-by-card";
+import { reportPaymentError, normalizeStripeError } from "@/lib/report-payment-error";
 
 interface Props {
   orderId: string;
@@ -166,6 +167,8 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
                 >
                   <CardForm
                     totalAmountCents={Math.round(totalTTC * 100)}
+                    paymentIntentId={paymentIntentId ?? undefined}
+                    orderId={orderId}
                     returnUrl={`${typeof window !== "undefined" ? window.location.origin : ""}/${locale}/commandes/${orderId}`}
                     onSuccess={handleSuccess}
                     onError={setError}
@@ -187,11 +190,15 @@ export default function PayOrderByCardButton({ orderId, totalTTC, publishableKey
 /* ─────────────────────── Formulaire Stripe ─────────────────────── */
 function CardForm({
   totalAmountCents,
+  paymentIntentId,
+  orderId,
   returnUrl,
   onSuccess,
   onError,
 }: {
   totalAmountCents: number;
+  paymentIntentId?: string;
+  orderId: string;
   returnUrl: string;
   onSuccess: () => void;
   onError: (msg: string) => void;
@@ -216,11 +223,30 @@ function CardForm({
       confirmParams: { return_url: returnUrl },
     });
     if (error) {
+      reportPaymentError({
+        stage: "confirm",
+        source: "pay-order-by-card",
+        paymentIntentId,
+        orderId,
+        amountCents: totalAmountCents,
+        stripeError: normalizeStripeError(error),
+      });
       onError(error.message ?? "Erreur lors du paiement.");
       setProcessing(false);
     } else if (paymentIntent && paymentIntent.status === "succeeded") {
       startTransition(() => onSuccess());
     } else {
+      reportPaymentError({
+        stage: "confirm",
+        source: "pay-order-by-card",
+        paymentIntentId,
+        orderId,
+        amountCents: totalAmountCents,
+        stripeError: {
+          code: "not_succeeded",
+          message: `PI status ${paymentIntent?.status ?? "unknown"} après confirmPayment`,
+        },
+      });
       onError("Le paiement n'a pas abouti.");
       setProcessing(false);
     }
@@ -230,6 +256,16 @@ function CardForm({
     <form onSubmit={handleSubmit} className="space-y-3">
       <PaymentElement
         onReady={() => setReady(true)}
+        onLoadError={(event) => {
+          reportPaymentError({
+            stage: "load",
+            source: "pay-order-by-card",
+            paymentIntentId,
+            orderId,
+            amountCents: totalAmountCents,
+            stripeError: normalizeStripeError(event.error),
+          });
+        }}
         options={{
           layout: "tabs",
           wallets: { applePay: "auto", googlePay: "auto", link: "never" },

@@ -11,7 +11,14 @@ import {
 } from "@stripe/react-stripe-js";
 import { validatePromoCodeForCart } from "@/app/actions/client/promo-code";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { reportPaymentError, normalizeStripeError } from "@/lib/report-payment-error";
 import type { WizardCart, WizardCarrier, DeliveryMode, WizardMergeCandidate } from "./types";
+
+/** Extrait `pi_XXX` d'un client secret `pi_XXX_secret_YYY` (pour la télémétrie). */
+function extractPaymentIntentId(clientSecret: string): string | undefined {
+  const m = clientSecret.match(/^(pi_[^_]+)_secret_/);
+  return m ? m[1] : undefined;
+}
 
 /**
  * Étape 3 — Paiement. Récap adresses + code promo + carte bancaire (Stripe
@@ -408,6 +415,7 @@ export default function Step3PaymentContent({
    + Google Pay dans un même bloc (selon device/navigateur).
    ───────────────────────────────────────────────────────────── */
 function StripeCardForm({
+  clientSecret,
   onSuccess,
   onError,
   disabled,
@@ -427,6 +435,7 @@ function StripeCardForm({
   const elements = useElements();
   const [processing, setProcessing] = useState(false);
   const [ready, setReady] = useState(false);
+  const paymentIntentId = extractPaymentIntentId(clientSecret);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -446,11 +455,32 @@ function StripeCardForm({
       },
     });
     if (error) {
+      reportPaymentError({
+        stage: "confirm",
+        source: "checkout",
+        paymentIntentId,
+        amountCents: totalAmountCents,
+        stripeError: normalizeStripeError(error),
+      });
       onError(error.message ?? t("paymentError"));
       setProcessing(false);
     } else if (paymentIntent && paymentIntent.status === "succeeded") {
       onSuccess(paymentIntent.id);
     } else {
+      reportPaymentError({
+        stage: "confirm",
+        source: "checkout",
+        paymentIntentId,
+        amountCents: totalAmountCents,
+        stripeError: {
+          code: "not_succeeded",
+          message: `PI status ${paymentIntent?.status ?? "unknown"} après confirmPayment`,
+          paymentMethodType:
+            typeof paymentIntent?.payment_method === "object"
+              ? paymentIntent?.payment_method?.type
+              : undefined,
+        },
+      });
       onError(t("paymentNotCompleted"));
       setProcessing(false);
     }
@@ -460,6 +490,18 @@ function StripeCardForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement
         onReady={() => setReady(true)}
+        onLoadError={(event) => {
+          // Le PaymentElement n'a pas pu s'initialiser : combinaison de méthodes
+          // incompatible avec le contexte (pays/devise/montant) — c'est le cas
+          // qui affiche « Veuillez réessayer plus tard » sans laisser de trace.
+          reportPaymentError({
+            stage: "load",
+            source: "checkout",
+            paymentIntentId,
+            amountCents: totalAmountCents,
+            stripeError: normalizeStripeError(event.error),
+          });
+        }}
         options={{
           // Accordion : mieux qu'onglets quand on a 4-5 méthodes visibles à la
           // fois (carte + PayPal + Billie + Bancontact + iDEAL selon toggles).
