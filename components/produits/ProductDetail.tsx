@@ -12,6 +12,7 @@ import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useToast } from "@/components/ui/Toast";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { buildProductHandle } from "@/lib/product-url";
+import { translateSizeName } from "@/lib/size-i18n";
 
 interface VariantData {
   id: string;
@@ -196,15 +197,14 @@ export default function ProductDetail({
       ? primaryVariant.groupKey
       : uniqueColors[0]?.groupKey) ?? "";
 
-  /** Enrichit le nom de taille avec le détail TU si applicable (ex: "Taille Unique" → "TU 52-56") */
+  const oneSizeLabel = t("sizeOneSize");
+  /** Traduit « Taille unique »/« TU » en libellé localisé, et suffixe le détail TU si présent. */
   const formatSizeName = useCallback((sizeName: string) => {
-    if (!sizeDetailsTu) return sizeName;
     const lower = sizeName.toLowerCase();
-    if (lower === "tu" || lower === "taille unique") {
-      return `TU ${sizeDetailsTu}`;
-    }
-    return sizeName;
-  }, [sizeDetailsTu]);
+    const isOneSize = lower === "tu" || lower === "taille unique";
+    if (isOneSize && sizeDetailsTu) return `TU ${sizeDetailsTu}`;
+    return translateSizeName(sizeName, oneSizeLabel);
+  }, [sizeDetailsTu, oneSizeLabel]);
 
   const [selectedGroupKey, setSelectedGroupKey]   = useState<string>(primaryGroupKey);
   const [hoveredGroupKey, setHoveredGroupKey]     = useState<string | null>(null);

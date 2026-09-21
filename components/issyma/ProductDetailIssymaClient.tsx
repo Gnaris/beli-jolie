@@ -7,6 +7,7 @@ import { Link } from "@/i18n/navigation";
 import { addToCart } from "@/app/actions/client/cart";
 import { useToast } from "@/components/ui/Toast";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
+import { translateSizeName } from "@/lib/size-i18n";
 
 const P = ISSYMA_PALETTE;
 
@@ -53,6 +54,7 @@ export default function ProductDetailIssymaClient({
 }) {
   const toast = useToast();
   const t = useTranslations("productDetailIssyma");
+  const oneSizeLabel = t("sizeOneSize");
   const [isPending, startTransition] = useTransition();
 
   // Regrouper par couleur : chaque couleur peut avoir plusieurs variantes
@@ -410,7 +412,7 @@ export default function ProductDetailIssymaClient({
                             border: `1.5px solid ${active ? P.wine700 : P.borderSoft}`,
                           }}
                         >
-                          {s.name}
+                          {translateSizeName(s.name, oneSizeLabel)}
                         </button>
                       );
                     })}

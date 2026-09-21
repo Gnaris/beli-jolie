@@ -477,7 +477,16 @@
       "showroomMapsQuery": "Marché CIFA Aubervilliers",
       "ctaSimpleDesc": "Découvrez le catalogue professionnel {shopName} et accédez aux tarifs grossiste.",
       "ctaSimpleBtn1": "Voir le catalogue",
-      "ctaSimpleBtn2": "Créer un compte professionnel"
+      "ctaSimpleBtn2": "Créer un compte professionnel",
+      "cartAccount": "Mon compte",
+      "cartTitle": "Mon panier",
+      "cartSubtitle": "Vérifiez vos articles et finalisez votre commande.",
+      "cartTrust1Title": "Paiement sécurisé",
+      "cartTrust1Desc": "Carte ou virement",
+      "cartTrust2Title": "Préparation 24 à 48h",
+      "cartTrust2Desc": "Expédition rapide et soignée",
+      "cartTrust3Title": "Une question ?",
+      "cartTrust3Desc": "Contactez-nous, on vous répond vite"
     }
   },
   "brand": {
@@ -650,7 +659,8 @@
     "similarEyebrow": "À découvrir aussi",
     "similarHeading": "Produits similaires",
     "similarSeeAll": "Voir tout le catalogue →",
-    "similarRefLabel": "Réf :"
+    "similarRefLabel": "Réf :",
+    "sizeOneSize": "Taille unique"
   },
   "product": {
     "viewProduct": "Voir le produit",
@@ -754,7 +764,8 @@
     "total": "Total",
     "summary": "Récapitulatif",
     "packsCountOne": "{count} paquet",
-    "packsCountOther": "{count} paquets"
+    "packsCountOther": "{count} paquets",
+    "sizeOneSize": "Taille unique"
   },
   "cart": {
     "stepCart": "Panier",

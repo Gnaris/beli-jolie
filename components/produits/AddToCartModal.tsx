@@ -13,6 +13,7 @@ import {
   effectiveStock as effectiveStockOf,
   computeCartSummary,
 } from "@/lib/add-to-cart-pricing";
+import { translateSizeName } from "@/lib/size-i18n";
 
 // Règle métier : jamais d'arrondi à la hausse, on tronque au centime.
 function floor2(n: number): number {
@@ -67,6 +68,7 @@ export default function AddToCartModal({
   clientDiscount,
 }: AddToCartModalProps) {
   const t = useTranslations("product");
+  const oneSizeLabel = t("sizeOneSize");
   const { tp, tc } = useProductTranslation();
   const [mounted, setMounted] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -364,8 +366,8 @@ export default function AddToCartModal({
                           // mais on omet le « ×qty » (déjà dans le badge « Paquet de X »).
                           const sizesLabel = v.sizes.length > 0
                             ? isPack && v.sizes.length === 1
-                              ? v.sizes[0].name
-                              : v.sizes.map((s) => s.name + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
+                              ? translateSizeName(v.sizes[0].name, oneSizeLabel)
+                              : v.sizes.map((s) => translateSizeName(s.name, oneSizeLabel) + (s.quantity > 1 ? ` ×${s.quantity}` : "")).join(" · ")
                             : null;
                           return (
                             <div

@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getTotalUnits } from "@/lib/order-item-display";
 import { roundCent } from "@/lib/money";
+import { translateSizeName } from "@/lib/size-i18n";
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -169,19 +170,9 @@ function sizeLabel(
   return translate(item.size?.trim() || "TU");
 }
 
-/**
- * Traduit les noms de taille figés en BDD ("Taille unique", "TU", …) vers le
- * libellé i18n. Les tailles alphanumériques (S, M, L, 36, …) restent telles
- * quelles — elles sont universelles.
- */
 function makeSizeTranslator(t: (k: string) => string): (name: string) => string {
-  return (name: string) => {
-    const trimmed = name.trim();
-    if (trimmed === "Taille unique" || trimmed === "TU" || trimmed.toLowerCase() === "one size") {
-      return t("sizeOneSize");
-    }
-    return trimmed;
-  };
+  const oneSizeLabel = t("sizeOneSize");
+  return (name: string) => translateSizeName(name, oneSizeLabel);
 }
 
 /**

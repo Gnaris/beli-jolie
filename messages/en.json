@@ -477,7 +477,16 @@
       "showroomMapsQuery": "Marché CIFA Aubervilliers",
       "ctaSimpleDesc": "Discover the {shopName} professional catalog and unlock wholesale prices.",
       "ctaSimpleBtn1": "View catalog",
-      "ctaSimpleBtn2": "Create a professional account"
+      "ctaSimpleBtn2": "Create a professional account",
+      "cartAccount": "My account",
+      "cartTitle": "My cart",
+      "cartSubtitle": "Review your items and complete your order.",
+      "cartTrust1Title": "Secure payment",
+      "cartTrust1Desc": "Card or bank transfer",
+      "cartTrust2Title": "Preparation within 24 to 48 h",
+      "cartTrust2Desc": "Fast and careful shipping",
+      "cartTrust3Title": "Any questions?",
+      "cartTrust3Desc": "Contact us — we reply quickly"
     }
   },
   "brand": {
@@ -650,7 +659,8 @@
     "similarEyebrow": "You may also like",
     "similarHeading": "Similar products",
     "similarSeeAll": "See the full catalog →",
-    "similarRefLabel": "Ref:"
+    "similarRefLabel": "Ref:",
+    "sizeOneSize": "One size"
   },
   "product": {
     "viewProduct": "View product",
@@ -754,7 +764,8 @@
     "total": "Total",
     "summary": "Summary",
     "packsCountOne": "{count} pack",
-    "packsCountOther": "{count} packs"
+    "packsCountOther": "{count} packs",
+    "sizeOneSize": "One size"
   },
   "cart": {
     "stepCart": "Cart",

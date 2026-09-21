@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useTransition, useRef, useMemo } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { addToCart } from "@/app/actions/client/cart";
 import { getImageSrc } from "@/lib/image-utils";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import FavoriteToggle from "@/components/client/FavoriteToggle";
 import { buildProductHandle } from "@/lib/product-url";
+import { translateSizeName } from "@/lib/size-i18n";
 
 interface VariantSize {
   size: { name: string };
@@ -133,6 +135,8 @@ export default function CatalogProductCard({
   isFavorite = false,
 }: CatalogProductCardProps) {
   const router = useRouter();
+  const t = useTranslations("product");
+  const oneSizeLabel = t("sizeOneSize");
   const [isPending, startTransition] = useTransition();
 
   // Group variants by color
@@ -166,12 +170,12 @@ export default function CatalogProductCard({
     for (const v of activeOption.variants) {
       if (v.variantSizes.length === 0) continue;
       const label = v.variantSizes
-        .map((vs) => vs.size.name + (vs.quantity > 1 ? ` \u00d7${vs.quantity}` : ""))
+        .map((vs) => translateSizeName(vs.size.name, oneSizeLabel) + (vs.quantity > 1 ? ` \u00d7${vs.quantity}` : ""))
         .join(", ");
       groups.push({ variantId: v.id, label });
     }
     return groups;
-  }, [activeOption]);
+  }, [activeOption, oneSizeLabel]);
 
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
