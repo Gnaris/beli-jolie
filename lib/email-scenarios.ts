@@ -36,6 +36,16 @@ export const EMAIL_SCENARIOS = {
     label: "Compte désactivé",
     category: "compte",
   },
+  EMAIL_CHANGE_CONFIRM: {
+    key: "EMAIL_CHANGE_CONFIRM",
+    label: "Confirmation nouvel email",
+    category: "compte",
+  },
+  EMAIL_CHANGE_NOTICE: {
+    key: "EMAIL_CHANGE_NOTICE",
+    label: "Alerte changement d'email",
+    category: "compte",
+  },
 
   // ─── Commandes ────────────────────────────────────────
   ORDER_CREATED: {

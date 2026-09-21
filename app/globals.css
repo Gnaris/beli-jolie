@@ -1841,6 +1841,24 @@ html.admin-dark #admin-theme-wrapper { background-color: #141417 !important; }
 html.admin-dark .bg-bg-dark { background-color: #141417 !important; }
 html.admin-dark .border-bg-dark { border-color: #27272a !important; }
 
+/* ─── btn-primary en mode sombre : noir absolu + petite ombre grise.
+   Choix cliente : fond noir pur (#000000), pas de bordure. Une ombre
+   grise discrète sous le bouton suffit à le détacher du fond de page
+   (#141417) et des cartes (#26262d). Texte blanc doux. ─── */
+html.admin-dark .btn-primary,
+#admin-theme-wrapper.admin-dark .btn-primary {
+  background-color: #000000;
+  color: #f4f4f5;
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(148, 148, 158, 0.18);
+}
+html.admin-dark .btn-primary:hover,
+#admin-theme-wrapper.admin-dark .btn-primary:hover {
+  background-color: #000000;
+  border-color: transparent;
+  box-shadow: 0 2px 4px rgba(148, 148, 158, 0.28);
+}
+
 /* ─── Tuile « Total visiteurs » (dashboard) — en sombre, la variante
    `dark=true` du TodayCard fondrait dans le fond de page (bg-bg-dark
    = fond wrapper). On la ramène au look des autres tuiles (bg-primary

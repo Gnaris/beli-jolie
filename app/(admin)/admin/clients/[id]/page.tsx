@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import UserStatusActions from "@/components/admin/users/UserStatusActions";
 import DeleteUserButton from "@/components/admin/users/DeleteUserButton";
 import ClientDiscountsPanel from "@/components/admin/users/ClientDiscountsPanel";
-import VerifyViesInline from "@/components/admin/users/VerifyViesInline";
+import ClientVerificationBanner from "@/components/admin/users/ClientVerificationBanner";
 import VatExemptionHeaderToggle from "@/components/admin/users/VatExemptionHeaderToggle";
 import ClientCartPanel from "@/components/admin/users/ClientCartPanel";
 import ClientOrdersPanel from "@/components/admin/users/ClientOrdersPanel";
@@ -15,6 +15,7 @@ import ClientDetailTabs from "@/components/admin/users/ClientDetailTabs";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import AdminNewsletterToggle from "@/components/admin/users/AdminNewsletterToggle";
 import ClientProfileEditor from "@/components/admin/users/ClientProfileEditor";
+import ClientNotePanel from "@/components/admin/users/ClientNotePanel";
 import { getCountry } from "@/lib/vat";
 import { isOnline } from "@/lib/online-status";
 import type { UserStatus } from "@prisma/client";
@@ -280,20 +281,7 @@ export default async function ClientDetailPage({
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted mb-3">Entreprise</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
             <MiniField label="SIRET" value={user.siret || "—"} mono />
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted mb-1">N° TVA intra</p>
-              <VerifyViesInline
-                vatNumber={user.vatNumber}
-                userId={user.id}
-                initial={{
-                  viesValid: user.viesValid ?? null,
-                  viesName: user.viesName ?? null,
-                  viesAddress: user.viesAddress ?? null,
-                  viesRequestDate: user.viesRequestDate ?? null,
-                  viesError: user.viesError ?? null,
-                }}
-              />
-            </div>
+            <MiniField label="N° TVA intra" value={user.vatNumber || "—"} mono />
             <div className="sm:col-span-2"><MiniField label="Adresse" value={fullAddress || "—"} /></div>
           </div>
         </div>
@@ -408,6 +396,10 @@ export default async function ClientDetailPage({
     <ClientOrdersPanel orders={ordersSerialized} />
   );
 
+  const notePanel = (
+    <ClientNotePanel userId={user.id} initialNote={user.adminNote ?? ""} />
+  );
+
   return (
     <div className="space-y-8">
       <AutoRefresh intervalMs={10_000} />
@@ -467,14 +459,32 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
+      {/* ═══════════════════════ BANDEAU VÉRIFICATION ═══════════════════════ */}
+      <ClientVerificationBanner
+        userId={user.id}
+        status={user.status}
+        siret={user.siret}
+        vatNumber={user.vatNumber}
+        addressCountry={user.addressCountry}
+        viesInitial={{
+          valid: user.viesValid ?? null,
+          name: user.viesName ?? null,
+          address: user.viesAddress ?? null,
+          requestDate: user.viesRequestDate ?? null,
+          error: user.viesError ?? null,
+        }}
+      />
+
       {/* ═══════════════════════ TABS ═══════════════════════ */}
       <ClientDetailTabs
         cartCount={cartItemCount}
         ordersCount={totalOrders}
+        hasNote={Boolean(user.adminNote?.trim())}
         dashboardPanel={dashboardPanel}
         cartPanel={cartPanel}
         marketingPanel={marketingPanel}
         ordersPanel={ordersPanel}
+        notePanel={notePanel}
       />
     </div>
   );

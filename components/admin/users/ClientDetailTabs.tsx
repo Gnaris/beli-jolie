@@ -2,32 +2,37 @@
 
 import { useState } from "react";
 
-type TabKey = "dashboard" | "cart" | "marketing" | "orders";
+type TabKey = "dashboard" | "cart" | "marketing" | "orders" | "note";
 
 interface Props {
   cartCount: number;
   ordersCount: number;
+  hasNote: boolean;
   dashboardPanel: React.ReactNode;
   cartPanel: React.ReactNode;
   marketingPanel: React.ReactNode;
   ordersPanel: React.ReactNode;
+  notePanel: React.ReactNode;
 }
 
 export default function ClientDetailTabs({
   cartCount,
   ordersCount,
+  hasNote,
   dashboardPanel,
   cartPanel,
   marketingPanel,
   ordersPanel,
+  notePanel,
 }: Props) {
   const [active, setActive] = useState<TabKey>("dashboard");
 
-  const tabs: { key: TabKey; label: string; count?: number; countActive?: boolean }[] = [
+  const tabs: { key: TabKey; label: string; count?: number; countActive?: boolean; dot?: boolean }[] = [
     { key: "dashboard", label: "Tableau de bord" },
     { key: "cart",      label: "Panier",         count: cartCount,   countActive: cartCount > 0 },
     { key: "marketing", label: "Marketing" },
     { key: "orders",    label: "Commandes",      count: ordersCount },
+    { key: "note",      label: "Note",           dot: hasNote },
   ];
 
   return (
@@ -61,6 +66,12 @@ export default function ClientDetailTabs({
                       {t.count}
                     </span>
                   )}
+                  {t.dot && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-amber-500"
+                      aria-label="Note interne présente"
+                    />
+                  )}
                 </span>
                 {isActive && (
                   <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-text-primary rounded-full" />
@@ -77,6 +88,7 @@ export default function ClientDetailTabs({
       <div className={active === "cart"      ? "block" : "hidden"}>{cartPanel}</div>
       <div className={active === "marketing" ? "block" : "hidden"}>{marketingPanel}</div>
       <div className={active === "orders"    ? "block" : "hidden"}>{ordersPanel}</div>
+      <div className={active === "note"      ? "block" : "hidden"}>{notePanel}</div>
     </div>
   );
 }

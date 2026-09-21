@@ -150,8 +150,8 @@ describe("GET /api/admin/vies-check", () => {
     const res = await GET(makeReq("BE0506978319"));
     const body = await res.json();
 
-    expect(body.serviceError).toContain("SERVICE_UNAVAILABLE");
-  }, 30_000);
+    expect(body.serviceError).toMatch(/indisponible/i);
+  }, 60_000);
 
   it("surfaces non-retryable userError immediately", async () => {
     mockAdmin();
@@ -165,7 +165,7 @@ describe("GET /api/admin/vies-check", () => {
     const res = await GET(makeReq("BE0506978319"));
     const body = await res.json();
 
-    expect(body.serviceError).toContain("INVALID_INPUT");
+    expect(body.serviceError).toMatch(/format non conforme/i);
   });
 
   it("handles VIES non-200 gracefully (no 5xx leak)", async () => {
@@ -190,7 +190,7 @@ describe("GET /api/admin/vies-check", () => {
     expect(res.status).toBe(200);
     expect(body.valid).toBe(false);
     expect(body.serviceError).toMatch(/VIES/);
-  }, 30_000);
+  }, 60_000);
 
   it("handles abort/timeout gracefully", async () => {
     mockAdmin();
@@ -201,7 +201,7 @@ describe("GET /api/admin/vies-check", () => {
     const body = await res.json();
 
     expect(body.serviceError).toMatch(/tentatives/);
-  }, 30_000);
+  }, 60_000);
 
   it("accepts XI (Northern Ireland) as a valid member state", async () => {
     mockAdmin();

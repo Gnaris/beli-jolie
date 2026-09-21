@@ -6,6 +6,7 @@ import { updateProfile } from "@/app/actions/client/profile";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 import { COUNTRIES } from "@/lib/vat";
+import EmailChangeDialog from "@/components/client/EmailChangeDialog";
 
 interface AccountEditorProps {
   user: {
@@ -31,6 +32,7 @@ export default function AccountEditor({ user }: AccountEditorProps) {
   const { showLoading, hideLoading } = useLoadingOverlay();
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
 
   const [firstName, setFirstName] = useState(user.firstName);
   const [lastName, setLastName] = useState(user.lastName);
@@ -174,18 +176,20 @@ export default function AccountEditor({ user }: AccountEditorProps) {
       )}
 
       <div className="divide-y divide-border-light">
-        {/* Email — non éditable côté client */}
+        {/* Email — modifiable via une modale dédiée (mdp + confirmation par mail) */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 px-5 py-3">
           <span className="text-xs font-body font-medium text-text-muted uppercase tracking-wider w-32 shrink-0">
             {t("email")}
           </span>
-          <div className="flex-1">
+          <div className="flex-1 flex items-center gap-3 flex-wrap">
             <span className="text-sm text-text-primary font-body">{user.email}</span>
-            {editing && (
-              <p className="text-[11px] text-text-muted mt-0.5 font-body italic">
-                {t("emailNotEditable")}
-              </p>
-            )}
+            <button
+              type="button"
+              onClick={() => setEmailDialogOpen(true)}
+              className="text-xs font-body font-medium text-text-secondary hover:text-text-primary underline underline-offset-2 transition-colors"
+            >
+              {t("changeEmail")}
+            </button>
           </div>
         </div>
 
@@ -232,6 +236,12 @@ export default function AccountEditor({ user }: AccountEditorProps) {
           </>
         )}
       </div>
+
+      <EmailChangeDialog
+        open={emailDialogOpen}
+        currentEmail={user.email}
+        onClose={() => setEmailDialogOpen(false)}
+      />
     </div>
   );
 }

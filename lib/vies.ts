@@ -14,9 +14,29 @@ const EU_MEMBER_STATES = new Set([
 ]);
 
 const VIES_TIMEOUT_MS = 10_000;
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2_000;
+const MAX_RETRIES = 4;
+// Backoff exponentiel : 2s → 4s → 8s → 16s (~30s cumulés)
+// Nécessaire quand le pays interrogé (IT, ES, DE…) bride les requêtes simultanées.
+const BASE_RETRY_DELAY_MS = 2_000;
 const RETRYABLE_ERRORS = new Set(["MS_MAX_CONCURRENT_REQ", "SERVICE_UNAVAILABLE", "MS_UNAVAILABLE"]);
+
+function nextRetryDelay(attempt: number): number {
+  const exp = BASE_RETRY_DELAY_MS * 2 ** attempt;
+  const jitter = 1 + (Math.random() * 0.5 - 0.25); // ±25 %
+  return Math.round(exp * jitter);
+}
+
+// Traduction des codes techniques VIES en messages lisibles pour l'admin.
+const USER_ERROR_MESSAGES: Record<string, string> = {
+  MS_MAX_CONCURRENT_REQ: "Le service fiscal du pays du client est temporairement surchargé. Réessayez dans quelques secondes.",
+  MS_UNAVAILABLE: "Le service fiscal du pays du client est momentanément indisponible.",
+  SERVICE_UNAVAILABLE: "Le service VIES est momentanément indisponible.",
+  TIMEOUT: "Le service fiscal du pays du client n'a pas répondu à temps.",
+  INVALID_INPUT: "Numéro de TVA rejeté par VIES (format non conforme).",
+  INVALID_REQUESTER_INFO: "Requête refusée par VIES (informations invalides).",
+  GLOBAL_MAX_CONCURRENT_REQ: "VIES est saturé au niveau européen. Réessayez dans quelques secondes.",
+  IP_BLOCKED: "IP bloquée par VIES.",
+};
 
 export interface ViesResult {
   valid: boolean;
@@ -105,8 +125,9 @@ export async function checkVies(rawVat: string): Promise<ViesResult> {
 
       // Retry sur erreurs temporaires
       if (RETRYABLE_ERRORS.has(userError) && attempt < MAX_RETRIES) {
-        logger.info("[VIES] retryable error, retrying", { userError, attempt: attempt + 1, countryCode });
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        const delay = nextRetryDelay(attempt);
+        logger.info("[VIES] retryable error, retrying", { userError, attempt: attempt + 1, delayMs: delay, countryCode });
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
@@ -124,7 +145,7 @@ export async function checkVies(rawVat: string): Promise<ViesResult> {
       // signale un vrai problème → on le remonte en serviceError pour l'admin.
       const REAL_RESULTS = new Set(["VALID", "INVALID", ""]);
       if (userError && !REAL_RESULTS.has(userError)) {
-        result.serviceError = `VIES : ${userError}`;
+        result.serviceError = USER_ERROR_MESSAGES[userError] ?? `Erreur VIES : ${userError}`;
       }
 
       return result;
@@ -133,8 +154,9 @@ export async function checkVies(rawVat: string): Promise<ViesResult> {
       const isAbort = err instanceof Error && err.name === "AbortError";
 
       if (attempt < MAX_RETRIES) {
-        logger.info("[VIES] fetch error, retrying", { attempt: attempt + 1, isAbort, countryCode });
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        const delay = nextRetryDelay(attempt);
+        logger.info("[VIES] fetch error, retrying", { attempt: attempt + 1, delayMs: delay, isAbort, countryCode });
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 

@@ -909,8 +909,14 @@ export default function RegisterForm({
                         onChange={(e) => setField("acceptsNewsletter", e.target.checked)}
                         className="mt-0.5 w-4 h-4 rounded border-border-dark accent-text-primary"
                       />
-                      <span className="flex-1 text-sm font-medium text-text-primary">
-                        {t("wizardNewsletterLabel")}
+                      <span className="flex-1 text-sm text-text-primary">
+                        <span className="font-medium">{t("wizardNewsletterLabel")}</span>
+                        <span className="block text-xs text-text-muted mt-0.5">
+                          {t("wizardNewsletterDesc")}
+                        </span>
+                      </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full shrink-0">
+                        {t("wizardNewsletterRecommended")}
                       </span>
                     </label>
                   </div>
