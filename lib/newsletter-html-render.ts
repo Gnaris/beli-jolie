@@ -81,6 +81,36 @@ function stripIterations(html: string): string {
 }
 
 /**
+ * Un lien détecté dans le HTML, prêt à afficher dans le panneau « Liens du
+ * mail ». `label` est le texte visible du lien (ou l'`alt` de la 1ʳᵉ image
+ * contenue si le `<a>` n'englobe qu'une image) — permet à la cliente
+ * d'identifier de quel bouton il s'agit sans relire le code source.
+ */
+export interface LinkHrefEntry {
+  href: string;
+  label: string;
+}
+
+/**
+ * Extrait le label d'un `<a>` :
+ *  - s'il contient une `<img alt="…">`, on prend l'alt (le CTA image porte
+ *    son intention dedans) ;
+ *  - sinon on dépouille les balises internes et on trim les espaces multiples.
+ * Peut retourner "" si le `<a>` est vide ou n'a que des balises sans texte.
+ */
+function extractLinkLabel(inner: string): string {
+  const imgMatch = inner.match(/<img\b[^>]*\balt\s*=\s*(["'])([\s\S]*?)\1/i);
+  if (imgMatch) {
+    const alt = imgMatch[2].trim();
+    if (alt.length > 0) return alt;
+  }
+  return inner
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Extrait la liste unique des valeurs `href="…"` présentes dans le HTML,
  * en excluant celles à l'intérieur des boucles `{{#each …}}…{{/each}}`.
  * Utilisé par le panneau « Liens du mail » de l'éditeur — chaque href
@@ -89,32 +119,45 @@ function stripIterations(html: string): string {
  * Règles :
  *  - Accepte guillemets simples `'` ou doubles `"`.
  *  - Trim les whitespaces.
- *  - Dédoublonne (une URL configurée = tous ses hrefs récrits).
+ *  - Dédoublonne par href (une URL configurée = tous ses hrefs récrits). Si
+ *    plusieurs `<a>` partagent le même href avec des labels différents, les
+ *    labels distincts sont concaténés avec " · " pour que la cliente sache
+ *    d'un coup d'œil combien de liens elle configure en une fois.
  *  - IGNORE les hrefs qui contiennent un token merge var (ex. `{unsubscribeLink}`,
  *    `{privacyLink}`, `{shopWebsite}`) — la cliente les gère via les variables,
  *    pas via le picker.
  */
-export function extractHrefs(html: string): string[] {
+export function extractHrefs(html: string): LinkHrefEntry[] {
   if (!html) return [];
   const stripped = stripIterations(html);
-  const seen = new Set<string>();
+  const labelsByHref = new Map<string, Set<string>>();
   const order: string[] = [];
-  const re = /<a\b[^>]*\bhref\s*=\s*(["'])([\s\S]*?)\1/gi;
+  const re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(stripped)) !== null) {
+    const attrs = m[1];
+    const inner = m[2];
+    const hrefMatch = attrs.match(/\bhref\s*=\s*(["'])([\s\S]*?)\1/i);
+    if (!hrefMatch) continue;
     // On garde la valeur EXACTE (non-trimée) pour que la ré-écriture retrouve
     // l'occurrence à l'identique. Les hrefs vides (`href=""`) sont volontai-
     // rement remontés — la cliente doit pouvoir les configurer. Idem pour
     // les `href="#"` : placeholders générés par ChatGPT.
-    const raw = m[2];
+    const raw = hrefMatch[2];
     // Skip les URLs entièrement composées d'un token merge ({unsubscribeLink},
     // {privacyLink}, {shopLink}…) — gérées via les merge vars, pas le picker.
     if (/^\s*\{[a-zA-Z][a-zA-Z0-9_]*\}\s*$/.test(raw)) continue;
-    if (seen.has(raw)) continue;
-    seen.add(raw);
-    order.push(raw);
+    if (!labelsByHref.has(raw)) {
+      labelsByHref.set(raw, new Set<string>());
+      order.push(raw);
+    }
+    const label = extractLinkLabel(inner);
+    if (label) labelsByHref.get(raw)!.add(label);
   }
-  return order;
+  return order.map((href) => ({
+    href,
+    label: Array.from(labelsByHref.get(href) ?? []).join(" · "),
+  }));
 }
 
 /**

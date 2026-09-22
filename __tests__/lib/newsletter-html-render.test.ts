@@ -319,31 +319,42 @@ describe("renderNewsletterHtmlForSend — cap intégré au pipeline", () => {
 });
 
 describe("extractHrefs — capture des liens configurables", () => {
-  it("extrait les hrefs de <a>", () => {
+  it("extrait les hrefs de <a> avec leur libellé", () => {
     const html = `<a href="#">Un</a> <a href="https://x.com">Deux</a>`;
-    expect(extractHrefs(html)).toEqual(["#", "https://x.com"]);
+    expect(extractHrefs(html)).toEqual([
+      { href: "#", label: "Un" },
+      { href: "https://x.com", label: "Deux" },
+    ]);
   });
 
-  it("dédoublonne les URLs identiques", () => {
-    const html = `<a href="#">A</a><a href="#">B</a>`;
-    expect(extractHrefs(html)).toEqual(["#"]);
+  it("dédoublonne les URLs identiques et concatène les libellés distincts", () => {
+    const html = `<a href="#">Finaliser</a><a href="#">Voir mes favoris</a>`;
+    expect(extractHrefs(html)).toEqual([
+      { href: "#", label: "Finaliser · Voir mes favoris" },
+    ]);
   });
 
   it("ignore les hrefs à l'intérieur de {{#each cart}}", () => {
     const html = `<a href="#hero">Header</a>
 {{#each cart}}<a href="/prod">{name}</a>{{/each}}
 <a href="#footer">Footer</a>`;
-    expect(extractHrefs(html)).toEqual(["#hero", "#footer"]);
+    expect(extractHrefs(html)).toEqual([
+      { href: "#hero", label: "Header" },
+      { href: "#footer", label: "Footer" },
+    ]);
   });
 
   it("ignore les hrefs qui sont uniquement un token merge (unsubscribeLink, privacyLink)", () => {
     const html = `<a href="{unsubscribeLink}">Désinscription</a><a href="{privacyLink}">Vie privée</a><a href="#cta">CTA</a>`;
-    expect(extractHrefs(html)).toEqual(["#cta"]);
+    expect(extractHrefs(html)).toEqual([{ href: "#cta", label: "CTA" }]);
   });
 
   it("supporte guillemets simples et doubles", () => {
     const html = `<a href='#simple'>1</a><a href="#double">2</a>`;
-    expect(extractHrefs(html)).toEqual(["#simple", "#double"]);
+    expect(extractHrefs(html)).toEqual([
+      { href: "#simple", label: "1" },
+      { href: "#double", label: "2" },
+    ]);
   });
 
   it("HTML vide → tableau vide", () => {
@@ -352,7 +363,21 @@ describe("extractHrefs — capture des liens configurables", () => {
 
   it("inclut les href vides (`href=\"\"`) pour permettre leur configuration", () => {
     const html = `<a href="">CTA</a>`;
-    expect(extractHrefs(html)).toEqual([""]);
+    expect(extractHrefs(html)).toEqual([{ href: "", label: "CTA" }]);
+  });
+
+  it("prend l'alt de l'image si le <a> englobe une image", () => {
+    const html = `<a href="#promo"><img src="{{img.hero}}" alt="Bandeau promo -20%"></a>`;
+    expect(extractHrefs(html)).toEqual([
+      { href: "#promo", label: "Bandeau promo -20%" },
+    ]);
+  });
+
+  it("dépouille les balises internes du libellé (bold, span, styles inline)", () => {
+    const html = `<a href="" style="padding:14px 32px;"><strong>Finaliser</strong> ma commande</a>`;
+    expect(extractHrefs(html)).toEqual([
+      { href: "", label: "Finaliser ma commande" },
+    ]);
   });
 });
 

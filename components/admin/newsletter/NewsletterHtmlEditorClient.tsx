@@ -54,6 +54,7 @@ import {
   rewriteHref,
   substituteTemplateImages,
   type HtmlDynamicContext,
+  type LinkHrefEntry,
 } from "@/lib/newsletter-html-render";
 import {
   buildLinkUrl,
@@ -212,7 +213,17 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     return () => { cancelled = true; };
   }, [previewTarget, template.id, debouncedHtml, subject, toast]);
 
-  const previewSrcDoc = serverPreview ?? localPreview;
+  // Injecte `<base target="_blank">` pour que TOUT clic sur un lien dans
+  // l'aperçu ouvre un nouvel onglet — sinon un href="" (CTA non configuré)
+  // rechargerait l'iframe sur about:blank et casserait l'aperçu.
+  const previewSrcDoc = useMemo(() => {
+    const raw = serverPreview ?? localPreview;
+    const base = '<base target="_blank">';
+    if (/<head\b[^>]*>/i.test(raw)) {
+      return raw.replace(/<head\b[^>]*>/i, (m) => `${m}${base}`);
+    }
+    return base + raw;
+  }, [serverPreview, localPreview]);
 
   const handleSave = useCallback(() => {
     startTransition(async () => {
@@ -388,7 +399,10 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
             <iframe
               key={previewTarget ? `srv-${previewTarget}` : "local"}
               srcDoc={previewSrcDoc}
-              sandbox="allow-same-origin"
+              // allow-popups + allow-popups-to-escape-sandbox : indispensables
+              // pour que `<base target="_blank">` puisse effectivement ouvrir
+              // les liens dans un vrai onglet du navigateur.
+              sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
               title="Aperçu newsletter"
               className="w-full flex-1 min-h-[600px] rounded-lg border border-border bg-white"
             />
@@ -1099,8 +1113,8 @@ function LinksPanel({
   const { unconfigured, configured } = useMemo(() => {
     const all = extractHrefs(html);
     return {
-      unconfigured: all.filter(isHrefUnconfigured),
-      configured: all.filter((h) => !isHrefUnconfigured(h)),
+      unconfigured: all.filter((e) => isHrefUnconfigured(e.href)),
+      configured: all.filter((e) => !isHrefUnconfigured(e.href)),
     };
   }, [html]);
 
@@ -1147,10 +1161,10 @@ function LinksPanel({
     );
   }
 
-  const renderLinkRow = (href: string, needsConfig: boolean) => {
-    const displayHref = href.trim().length === 0
-      ? "(vide)"
-      : href;
+  const renderLinkRow = (entry: LinkHrefEntry, needsConfig: boolean) => {
+    const { href, label } = entry;
+    const displayHref = href.trim().length === 0 ? "(vide)" : href;
+    const displayLabel = label.trim().length === 0 ? "(sans texte)" : label;
     return (
     <div
       key={href}
@@ -1161,7 +1175,18 @@ function LinksPanel({
           <div className={`text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${needsConfig ? "bg-amber-200 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>
             {needsConfig ? "À configurer" : "OK"}
           </div>
-          <div className={`text-xs font-mono truncate ${href.trim().length === 0 ? "italic text-text-muted" : "text-text-secondary"}`} title={displayHref}>{displayHref}</div>
+          <div
+            className={`text-sm font-medium truncate ${label.trim().length === 0 ? "italic text-text-muted" : "text-text-primary"}`}
+            title={displayLabel}
+          >
+            {displayLabel}
+          </div>
+        </div>
+        <div
+          className={`text-[11px] font-mono truncate mt-0.5 ${href.trim().length === 0 ? "italic text-text-muted" : "text-text-secondary"}`}
+          title={displayHref}
+        >
+          {displayHref}
         </div>
       </div>
       <button
@@ -1216,7 +1241,7 @@ function LinksPanel({
         )}
       </section>
 
-      {pickerFor && (
+      {pickerFor !== null && (
         <LinkPickerModal
           currentHref={pickerFor}
           baseUrl={baseUrl}
