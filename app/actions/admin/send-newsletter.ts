@@ -300,7 +300,7 @@ export async function sendNewsletterToUsers({
   }
 }
 
-async function buildLegalLine(tenantId: string): Promise<string> {
+export async function buildLegalLine(tenantId: string): Promise<string> {
   try {
     const info = await prisma.companyInfo.findFirst({
       where: { tenantId },

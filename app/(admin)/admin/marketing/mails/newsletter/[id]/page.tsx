@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { getNewsletterTemplate } from "@/app/actions/admin/newsletter-templates";
-import NewsletterEditorClient from "@/components/admin/users/NewsletterEditorClient";
+import NewsletterHtmlEditorClient from "@/components/admin/newsletter/NewsletterHtmlEditorClient";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Éditeur newsletter — Admin" };
@@ -20,5 +20,8 @@ export default async function NewsletterEditorPage({
   const template = await getNewsletterTemplate(id);
   if (!template) notFound();
 
-  return <NewsletterEditorClient template={template} backUrl="/admin/marketing/mails" />;
+  // Depuis 2026-09-22 : tous les modèles s'éditent en HTML (auto-migration
+  // inline dans getNewsletterTemplate pour les rares templates encore en
+  // blocks). Plus qu'un seul éditeur, plus de branche.
+  return <NewsletterHtmlEditorClient template={template} backUrl="/admin/marketing/mails" />;
 }

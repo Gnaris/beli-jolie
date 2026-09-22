@@ -27,18 +27,12 @@ import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
 import {
-  renderNewsletterHtml,
-  substituteVariables,
-  type NewsletterBlock,
-  type NewsletterDynamicContext,
-  type CartItemDynamic,
-} from "@/lib/newsletter-blocks";
+  renderNewsletterHtmlForSend,
+  type HtmlCartItem,
+} from "@/lib/newsletter-html-render";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
-import {
-  WORKER_POLL_INTERVAL_MS,
-  templateHasUnsubscribeLink,
-} from "@/lib/abandoned-cart-config";
+import { WORKER_POLL_INTERVAL_MS } from "@/lib/abandoned-cart-config";
 import { pickNextStage } from "@/lib/abandoned-cart-trigger";
 import type { ProductStatus } from "@prisma/client";
 
@@ -153,7 +147,10 @@ async function tick(): Promise<void> {
         orderBy: { stageIndex: "asc" },
         include: {
           template: {
-            select: { id: true, name: true, subject: true, blocks: true },
+            select: {
+              id: true, name: true, subject: true, html: true,
+              images: { select: { name: true, path: true } },
+            },
           },
         },
       });
@@ -203,7 +200,13 @@ async function processJob(
       id: string;
       stageIndex: number;
       delaySeconds: number;
-      template: { id: string; name: string; subject: string; blocks: unknown };
+      template: {
+        id: string;
+        name: string;
+        subject: string;
+        html: string | null;
+        images: { name: string; path: string }[];
+      };
     }
   >,
 ): Promise<void> {
@@ -318,10 +321,9 @@ async function processJob(
     return;
   }
 
-  const blocks = Array.isArray(stage.template.blocks)
-    ? (stage.template.blocks as unknown as NewsletterBlock[])
-    : [];
-  if (!templateHasUnsubscribeLink(blocks)) {
+  // Filet RGPD : le mail doit contenir {unsubscribeLink} dans le source HTML.
+  const templateHtml = stage.template.html ?? "";
+  if (!templateHtml.includes("{unsubscribeLink}")) {
     logger.error("[abandonedCart] skip send: unsubscribe missing", {
       tenantId,
       stageIndex: stage.stageIndex,
@@ -360,7 +362,7 @@ async function processJob(
     (s, it) => s + Math.round(Number(it.variant.unitPrice) * 100) * it.quantity,
     0,
   );
-  const dynamicItems: CartItemDynamic[] = validItems.map((it) => ({
+  const cartItems: HtmlCartItem[] = validItems.map((it) => ({
     productName: it.variant.product.name,
     colorName: it.variant.color?.name ?? null,
     quantity: it.quantity,
@@ -421,7 +423,7 @@ async function processJob(
       style: "currency",
       currency: "EUR",
     }),
-    cartCount: String(dynamicItems.length),
+    cartCount: String(cartItems.length),
     unsubscribeLink: buildUnsubscribeUrl({
       baseUrl,
       userId: user.id,
@@ -430,30 +432,15 @@ async function processJob(
     privacyLink: `${baseUrl}/fr/confidentialite`,
   };
 
-  const legalLine = [
-    shopName,
-    [companyInfo?.address, companyInfo?.postalCode, companyInfo?.city]
-      .filter(Boolean)
-      .join(" "),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const shared = { shopName, baseUrl, legalLine, mergeContext: userContext };
-
-  const dynamic: NewsletterDynamicContext = {
-    firstName: user.firstName ?? undefined,
-    cart: { items: dynamicItems, totalCents },
-  };
-
-  const finalBlocks = substituteVariables(blocks, userContext);
   const finalSubject = interpolate(stage.template.subject, userContext);
-  const html = renderNewsletterHtml({
-    subject: finalSubject,
-    blocks: finalBlocks,
-    productsById: new Map(),
-    shared,
-    dynamic,
-    omitGlobalChrome: true,
+  // Rendu HTML uniquement (blocs retirés 2026-09-22). Boucle {{#each cart}}
+  // développée automatiquement + images de la bibliothèque substituées.
+  const html = renderNewsletterHtmlForSend({
+    html: templateHtml,
+    images: stage.template.images,
+    baseUrl,
+    mergeContext: userContext,
+    dynamic: { cart: { items: cartItems, totalCents } },
   });
 
   const result = await sendMail({
@@ -468,7 +455,7 @@ async function processJob(
       metadata: {
         source: "auto",
         stageIndex: stage.stageIndex,
-        cartItems: dynamicItems.length,
+        cartItems: cartItems.length,
       },
     },
   });

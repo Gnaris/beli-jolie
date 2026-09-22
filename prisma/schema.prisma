@@ -3688,7 +3688,8 @@ model Tenant {
   pfsAuditRunChanges PfsAuditRunChange[]
 
   emailSends          EmailSend[]
-  newsletterTemplates NewsletterTemplate[]
+  newsletterTemplates      NewsletterTemplate[]
+  newsletterTemplateImages NewsletterTemplateImage[]
   abandonedCartStages AbandonedCartStage[]
   abandonedCartJobs   AbandonedCartJob[]
   inactiveClientStages InactiveClientStage[]
@@ -3779,8 +3780,14 @@ model EmailSend {
 // « Nouvelle collection X »…) puis choisit lequel envoyer au moment de
 // cliquer « Envoyer newsletter » sur une sélection de clients.
 //
-// blocks = tableau JSON des blocs éditeur (banner/heading/products/…) avec
-// leur configuration. Rendu HTML côté serveur au moment de l'envoi.
+// Deux formats coexistent, distingués par le champ `format` :
+//   - "blocks" (défaut) : ancien éditeur visuel drag-and-drop. La structure
+//     est dans `blocks` (tableau JSON typé). Utilisé par les 3 modèles de
+//     scénario auto (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK).
+//   - "html"            : nouvel éditeur HTML/CSS libre. Le source est dans
+//     `html`. Les images embarquées sont dans la relation `images`, référencées
+//     dans le HTML par le token {{img.nom}} — remplacé au rendu par l'URL
+//     absolue de l'image.
 // ─────────────────────────────────────────────
 model NewsletterTemplate {
   id          String    @id @default(cuid())
@@ -3788,7 +3795,9 @@ model NewsletterTemplate {
   tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String    @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
   subject     String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
-  blocks      Json      @default("[]") // Structure des blocs de l'éditeur
+  format      String    @default("blocks") @db.VarChar(20) // "blocks" | "html"
+  blocks      Json      @default("[]") // Structure des blocs (format="blocks")
+  html        String?   @db.LongText   // Source HTML brut (format="html")
   // Si posé, ce modèle est le modèle actif d'un scénario transactionnel
   // (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK). Un seul modèle par scénario
   // par tenant. Non supprimable tant que ce champ est posé.
@@ -3802,9 +3811,37 @@ model NewsletterTemplate {
 
   abandonedCartStage  AbandonedCartStage?
   inactiveClientStage InactiveClientStage?
+  images              NewsletterTemplateImage[]
 
   @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
+}
+
+// ─────────────────────────────────────────────
+// Bibliothèque d'images d'un modèle newsletter (format="html").
+// Chaque image porte un nom court (« hero », « logo », « produit-1 »)
+// utilisé dans le HTML sous la forme {{img.nom}}. À l'envoi le rendu
+// remplace ce token par l'URL absolue publique de l'image.
+// Fichier stocké sous /uploads/{tenant}/newsletters/{templateId}/{name}.webp
+// (delete-cascade via templateId → nettoyage BDD à la suppression du modèle,
+// nettoyage des fichiers assuré par le server action deleteNewsletterTemplate).
+// ─────────────────────────────────────────────
+model NewsletterTemplateImage {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateId String
+  template   NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name       String   @db.VarChar(60)   // sluggé, unique par template
+  path       String   @db.VarChar(500)  // URL publique (/uploads/{tenant}/newsletters/{templateId}/{name}.webp)
+  alt        String   @default("") @db.VarChar(500)
+  sizeBytes  Int
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([templateId, name])
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────

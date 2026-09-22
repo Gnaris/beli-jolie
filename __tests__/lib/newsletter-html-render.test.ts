@@ -1,0 +1,462 @@
+import { describe, it, expect } from "vitest";
+import {
+  applyDynamicLimits,
+  expandIterations,
+  extractHrefs,
+  extractImageTokens,
+  injectMissingHrefs,
+  MAX_LOOP_ITEMS,
+  renderNewsletterHtmlForSend,
+  rewriteHref,
+  substituteTemplateImages,
+  type HtmlCartItem,
+  type HtmlDynamicContext,
+  type HtmlFavorite,
+} from "@/lib/newsletter-html-render";
+import { buildLinkUrl } from "@/lib/newsletter-link-targets";
+import { missingRequiredMarketingVariables } from "@/lib/mail-merge-variables";
+
+const IMAGES = [
+  { name: "hero", path: "/uploads/beliandjolie/newsletters/cly1/hero.webp" },
+  { name: "logo", path: "/uploads/beliandjolie/newsletters/cly1/logo.webp" },
+];
+const BASE = "https://beliandjolie.com";
+
+describe("substituteTemplateImages", () => {
+  it("remplace {{img.nom}} par l'URL absolue", () => {
+    const html = `<img src="{{img.hero}}"><img src="{{img.logo}}">`;
+    const out = substituteTemplateImages(html, IMAGES, BASE);
+    expect(out).toContain(`src="https://beliandjolie.com/uploads/beliandjolie/newsletters/cly1/hero.webp"`);
+    expect(out).toContain(`src="https://beliandjolie.com/uploads/beliandjolie/newsletters/cly1/logo.webp"`);
+  });
+
+  it("tolère les espaces autour du token", () => {
+    const html = `<img src="{{ img.hero }}">`;
+    const out = substituteTemplateImages(html, IMAGES, BASE);
+    expect(out).toContain(`hero.webp`);
+    expect(out).not.toContain(`{{`);
+  });
+
+  it("laisse intact un token inconnu (utile pour repérer les fautes de frappe)", () => {
+    const html = `<img src="{{img.inexistant}}">`;
+    const out = substituteTemplateImages(html, IMAGES, BASE);
+    expect(out).toBe(html);
+  });
+
+  it("respecte les URLs déjà absolues dans le path", () => {
+    const html = `<img src="{{img.externe}}">`;
+    const out = substituteTemplateImages(html, [{ name: "externe", path: "https://cdn.ex.com/x.png" }], BASE);
+    expect(out).toContain(`src="https://cdn.ex.com/x.png"`);
+  });
+
+  it("chaîne vide -> chaîne vide sans crash", () => {
+    expect(substituteTemplateImages("", IMAGES, BASE)).toBe("");
+  });
+});
+
+describe("renderNewsletterHtmlForSend", () => {
+  it("substitue images ET merge vars", () => {
+    const html = `<p>Bonjour {firstName}, voici {shopName} !</p><img src="{{img.hero}}">`;
+    const out = renderNewsletterHtmlForSend({
+      html,
+      images: IMAGES,
+      baseUrl: BASE,
+      mergeContext: { firstName: "Marie", shopName: "Beli & Jolie" },
+    });
+    expect(out).toContain("Bonjour Marie, voici Beli & Jolie !");
+    expect(out).toContain("hero.webp");
+  });
+
+  it("sans mergeContext, ne touche que les images", () => {
+    const html = `<p>Salut {firstName}</p><img src="{{img.logo}}">`;
+    const out = renderNewsletterHtmlForSend({ html, images: IMAGES, baseUrl: BASE });
+    expect(out).toContain("{firstName}"); // pas substitué
+    expect(out).toContain("logo.webp");
+  });
+
+  it("les tokens inconnus (image comme merge var) restent en place", () => {
+    const html = `<p>{tokenBidon}</p><img src="{{img.zzz}}">`;
+    const out = renderNewsletterHtmlForSend({
+      html,
+      images: IMAGES,
+      baseUrl: BASE,
+      mergeContext: { firstName: "Marie" },
+    });
+    expect(out).toContain("{tokenBidon}");
+    expect(out).toContain("{{img.zzz}}");
+  });
+});
+
+describe("extractImageTokens", () => {
+  it("retourne la liste des noms d'images référencés", () => {
+    const html = `<img src="{{img.hero}}"><img src="{{img.logo}}">`;
+    expect(extractImageTokens(html)).toEqual(["hero", "logo"]);
+  });
+
+  it("dédoublonne les occurrences multiples", () => {
+    const html = `<img src="{{img.hero}}"> ...loin... <img src="{{img.hero}}">`;
+    expect(extractImageTokens(html)).toEqual(["hero"]);
+  });
+
+  it("préserve l'ordre d'apparition", () => {
+    const html = `{{img.c}} {{img.a}} {{img.b}} {{img.a}}`;
+    expect(extractImageTokens(html)).toEqual(["c", "a", "b"]);
+  });
+
+  it("normalise en minuscules", () => {
+    const html = `{{img.HERO}} {{img.Hero}}`;
+    expect(extractImageTokens(html)).toEqual(["hero"]);
+  });
+
+  it("HTML vide → tableau vide", () => {
+    expect(extractImageTokens("")).toEqual([]);
+  });
+
+  it("tolère les espaces autour du token", () => {
+    expect(extractImageTokens(`{{ img.hero }}`)).toEqual(["hero"]);
+  });
+});
+
+describe("expandIterations — {{#each cart}}...{{/each}}", () => {
+  const CART_ITEMS: HtmlCartItem[] = [
+    { productName: "Bracelet doré", colorName: "Or", quantity: 2, totalCents: 4800, imagePath: "/uploads/x/p1.webp" },
+    { productName: "Collier fin", colorName: null, quantity: 1, totalCents: 3200, imagePath: null },
+  ];
+  const CTX: HtmlDynamicContext = { cart: { items: CART_ITEMS, totalCents: 8000 } };
+  const BASE = "https://beliandjolie.com";
+
+  it("développe une boucle cart en N itérations", () => {
+    const tpl = `<ul>{{#each cart}}<li>{name} × {qty}</li>{{/each}}</ul>`;
+    const out = expandIterations(tpl, CTX, BASE);
+    expect(out).toBe(`<ul><li>Bracelet doré × 2</li><li>Collier fin × 1</li></ul>`);
+  });
+
+  it("substitue {total} et formatage euros", () => {
+    const tpl = `{{#each cart}}[{total}] {{/each}}`;
+    const out = expandIterations(tpl, CTX, BASE);
+    // formats fr-FR : U+00A0 pour l'espace insécable avant le symbole
+    expect(out).toContain("[48,00");
+    expect(out).toContain("[32,00");
+  });
+
+  it("substitue {image} en URL absolue", () => {
+    const tpl = `{{#each cart}}<img src="{image}">{{/each}}`;
+    const out = expandIterations(tpl, CTX, BASE);
+    expect(out).toContain(`<img src="https://beliandjolie.com/uploads/x/p1.webp">`);
+    // 2e item sans image → placeholder SVG (voir MISSING_IMAGE_PLACEHOLDER).
+    expect(out).toContain(`<img src="data:image/svg+xml`);
+    expect(out).not.toContain(`<img src="">`);
+  });
+
+  it("{color} vide → chaîne vide", () => {
+    const tpl = `{{#each cart}}[{color}]{{/each}}`;
+    const out = expandIterations(tpl, CTX, BASE);
+    expect(out).toBe(`[Or][]`);
+  });
+
+  it("cart absent → boucle rendue vide (0 itération)", () => {
+    const tpl = `<ul>{{#each cart}}<li>x</li>{{/each}}</ul>`;
+    const out = expandIterations(tpl, undefined, BASE);
+    expect(out).toBe(`<ul></ul>`);
+  });
+
+  it("cart présent mais items vide → 0 itération", () => {
+    const tpl = `<ul>{{#each cart}}<li>x</li>{{/each}}</ul>`;
+    const out = expandIterations(tpl, { cart: { items: [], totalCents: 0 } }, BASE);
+    expect(out).toBe(`<ul></ul>`);
+  });
+
+  it("collection inconnue → laisse la boucle intacte", () => {
+    const tpl = `<ul>{{#each unknown}}<li>x</li>{{/each}}</ul>`;
+    const out = expandIterations(tpl, CTX, BASE);
+    expect(out).toContain(`{{#each unknown}}`);
+  });
+
+  it("plusieurs boucles ne se mangent pas mutuellement (non-greedy)", () => {
+    const tpl = `A{{#each cart}}{name}{{/each}} B{{#each cart}}{name}{{/each}}`;
+    const out = expandIterations(tpl, CTX, BASE);
+    expect(out).toBe(`ABracelet doréCollier fin BBracelet doréCollier fin`);
+  });
+
+  it("{{#each}} présent dans un commentaire HTML ne casse pas le rendu", () => {
+    const tpl = `<!-- doc {{#each cart}} explication {{/each}} -->
+<table>{{#each cart}}<tr>{name}</tr>{{/each}}</table>`;
+    const out = expandIterations(tpl, CTX, BASE);
+    // La vraie boucle est développée normalement (2 lignes)
+    expect(out).toContain("<tr>Bracelet doré</tr>");
+    expect(out).toContain("<tr>Collier fin</tr>");
+    // Le commentaire est laissé intact (mais les tokens neutralisés)
+    expect(out).toContain("<!--");
+    expect(out).toContain("-->");
+    // Le texte du commentaire ne doit PAS apparaître dupliqué entre 2 items
+    const bracIdx = out.indexOf("Bracelet doré");
+    const colIdx = out.indexOf("Collier fin");
+    expect(out.slice(bracIdx, colIdx)).not.toContain("explication");
+  });
+
+  it("imagePath null → utilise le placeholder SVG (pas src vide)", () => {
+    const tpl = `{{#each cart}}<img src="{image}">{{/each}}`;
+    const emptyImageCart: HtmlDynamicContext = {
+      cart: {
+        items: [{ productName: "X", colorName: null, quantity: 1, totalCents: 100, imagePath: null }],
+        totalCents: 100,
+      },
+    };
+    const out = expandIterations(tpl, emptyImageCart, BASE);
+    expect(out).toContain("data:image/svg+xml");
+    expect(out).not.toContain(`src=""`);
+  });
+});
+
+describe("renderNewsletterHtmlForSend avec dynamic", () => {
+  it("pipeline complet : itération + images + merge vars", () => {
+    const html = `Bonjour {firstName} !
+      <table>{{#each cart}}<tr><td><img src="{image}"></td><td>{name} × {qty}</td></tr>{{/each}}</table>
+      <img src="{{img.logo}}">
+      Total : {cartTotal}`;
+    const out = renderNewsletterHtmlForSend({
+      html,
+      images: [{ name: "logo", path: "/uploads/x/logo.webp" }],
+      baseUrl: "https://beliandjolie.com",
+      mergeContext: { firstName: "Marie", cartTotal: "80,00 €" },
+      dynamic: {
+        cart: {
+          items: [{ productName: "Bracelet doré", colorName: "Or", quantity: 2, totalCents: 4800, imagePath: "/uploads/x/p1.webp" }],
+          totalCents: 4800,
+        },
+      },
+    });
+    expect(out).toContain("Bonjour Marie !");
+    expect(out).toContain("Bracelet doré × 2");
+    expect(out).toContain("https://beliandjolie.com/uploads/x/p1.webp");
+    expect(out).toContain("https://beliandjolie.com/uploads/x/logo.webp");
+    expect(out).toContain("Total : 80,00 €");
+  });
+});
+
+describe("applyDynamicLimits — cap 8 items + tokens de reste", () => {
+  const makeItem = (i: number): HtmlCartItem => ({
+    productName: `P${i}`, colorName: null, quantity: 1, totalCents: 100, imagePath: null,
+  });
+  const makeFav = (i: number): HtmlFavorite => ({
+    productName: `F${i}`, colorName: null, priceCents: 100, imagePath: null,
+  });
+
+  it("cap MAX_LOOP_ITEMS = 8", () => {
+    expect(MAX_LOOP_ITEMS).toBe(8);
+  });
+
+  it("panier ≤ 8 : rien n'est tronqué, tokens vides", () => {
+    const items = Array.from({ length: 5 }, (_, i) => makeItem(i));
+    const { dynamic, extraMerge } = applyDynamicLimits({ cart: { items, totalCents: 500 } });
+    expect(dynamic?.cart?.items).toHaveLength(5);
+    expect(extraMerge.cartMoreCount).toBe("0");
+    expect(extraMerge.cartMoreText).toBe("");
+  });
+
+  it("panier 15 articles : tronque à 8, expose « … et 7 autres »", () => {
+    const items = Array.from({ length: 15 }, (_, i) => makeItem(i));
+    const { dynamic, extraMerge } = applyDynamicLimits({ cart: { items, totalCents: 1500 } });
+    expect(dynamic?.cart?.items).toHaveLength(8);
+    expect(extraMerge.cartMoreCount).toBe("7");
+    expect(extraMerge.cartMoreText).toContain("7 autres articles");
+  });
+
+  it("panier 9 articles : « … et 1 autre article » (singulier)", () => {
+    const items = Array.from({ length: 9 }, (_, i) => makeItem(i));
+    const { dynamic, extraMerge } = applyDynamicLimits({ cart: { items, totalCents: 900 } });
+    expect(dynamic?.cart?.items).toHaveLength(8);
+    expect(extraMerge.cartMoreText).toContain("1 autre article");
+    expect(extraMerge.cartMoreText).not.toContain("autres articles");
+  });
+
+  it("favoris 12 : tronque à 8, expose favoritesMoreText", () => {
+    const favorites = Array.from({ length: 12 }, (_, i) => makeFav(i));
+    const { dynamic, extraMerge } = applyDynamicLimits({ favorites });
+    expect(dynamic?.favorites).toHaveLength(8);
+    expect(extraMerge.favoritesMoreCount).toBe("4");
+    expect(extraMerge.favoritesMoreText).toContain("4 autres favoris");
+  });
+
+  it("dynamic absent : tokens vides mais présents (évite {cartMoreText} brut)", () => {
+    const { dynamic, extraMerge } = applyDynamicLimits(undefined);
+    expect(dynamic).toBeUndefined();
+    expect(extraMerge.cartMoreText).toBe("");
+    expect(extraMerge.favoritesMoreText).toBe("");
+  });
+});
+
+describe("renderNewsletterHtmlForSend — cap intégré au pipeline", () => {
+  it("15 items → 8 lignes rendues + {cartMoreText} substitué", () => {
+    const items = Array.from({ length: 15 }, (_, i) => ({
+      productName: `Article ${i + 1}`, colorName: null, quantity: 1, totalCents: 100, imagePath: null,
+    }));
+    const html = `{{#each cart}}<li>{name}</li>{{/each}}<span>{cartMoreText}</span>`;
+    const out = renderNewsletterHtmlForSend({
+      html, images: [], baseUrl: "https://x",
+      dynamic: { cart: { items, totalCents: 1500 } },
+    });
+    const liCount = (out.match(/<li>/g) ?? []).length;
+    expect(liCount).toBe(8);
+    expect(out).toContain("Article 1");
+    expect(out).toContain("Article 8");
+    expect(out).not.toContain("Article 9");
+    expect(out).toContain("et 7 autres articles");
+  });
+
+  it("5 items → 5 lignes + {cartMoreText} vide", () => {
+    const items = Array.from({ length: 5 }, (_, i) => ({
+      productName: `A${i}`, colorName: null, quantity: 1, totalCents: 100, imagePath: null,
+    }));
+    const html = `{{#each cart}}<li>{name}</li>{{/each}}[{cartMoreText}]`;
+    const out = renderNewsletterHtmlForSend({
+      html, images: [], baseUrl: "https://x",
+      dynamic: { cart: { items, totalCents: 500 } },
+    });
+    expect((out.match(/<li>/g) ?? []).length).toBe(5);
+    expect(out).toContain("[]"); // cartMoreText vide
+  });
+});
+
+describe("extractHrefs — capture des liens configurables", () => {
+  it("extrait les hrefs de <a>", () => {
+    const html = `<a href="#">Un</a> <a href="https://x.com">Deux</a>`;
+    expect(extractHrefs(html)).toEqual(["#", "https://x.com"]);
+  });
+
+  it("dédoublonne les URLs identiques", () => {
+    const html = `<a href="#">A</a><a href="#">B</a>`;
+    expect(extractHrefs(html)).toEqual(["#"]);
+  });
+
+  it("ignore les hrefs à l'intérieur de {{#each cart}}", () => {
+    const html = `<a href="#hero">Header</a>
+{{#each cart}}<a href="/prod">{name}</a>{{/each}}
+<a href="#footer">Footer</a>`;
+    expect(extractHrefs(html)).toEqual(["#hero", "#footer"]);
+  });
+
+  it("ignore les hrefs qui sont uniquement un token merge (unsubscribeLink, privacyLink)", () => {
+    const html = `<a href="{unsubscribeLink}">Désinscription</a><a href="{privacyLink}">Vie privée</a><a href="#cta">CTA</a>`;
+    expect(extractHrefs(html)).toEqual(["#cta"]);
+  });
+
+  it("supporte guillemets simples et doubles", () => {
+    const html = `<a href='#simple'>1</a><a href="#double">2</a>`;
+    expect(extractHrefs(html)).toEqual(["#simple", "#double"]);
+  });
+
+  it("HTML vide → tableau vide", () => {
+    expect(extractHrefs("")).toEqual([]);
+  });
+
+  it("inclut les href vides (`href=\"\"`) pour permettre leur configuration", () => {
+    const html = `<a href="">CTA</a>`;
+    expect(extractHrefs(html)).toEqual([""]);
+  });
+});
+
+describe("injectMissingHrefs — auto-fix <a> sans href", () => {
+  it("détecte les <a> sans href et injecte href=\"\"", () => {
+    const html = `<a>Sans href</a><a href="#">Avec</a>`;
+    const { html: out, injected } = injectMissingHrefs(html);
+    expect(injected).toBe(1);
+    expect(out).toContain(`<a href="">Sans href</a>`);
+    expect(out).toContain(`<a href="#">Avec</a>`);
+  });
+
+  it("tolère les <a> multi-lignes générés par ChatGPT", () => {
+    const html = `<a\n  style="color:red"\n>MULTI</a>`;
+    const { html: out, injected } = injectMissingHrefs(html);
+    expect(injected).toBe(1);
+    expect(out).toContain(`href=""`);
+  });
+
+  it("idempotent : ré-exécution sur HTML propre n'injecte rien", () => {
+    const html = `<a href="">A</a>`;
+    const { injected } = injectMissingHrefs(html);
+    expect(injected).toBe(0);
+  });
+});
+
+describe("rewriteHref — récriture ciblée dans le HTML", () => {
+  it("remplace toutes les occurrences de la même URL", () => {
+    const html = `<a href="#">A</a><a href="#">B</a><a href="/x">C</a>`;
+    const { html: out, count } = rewriteHref(html, "#", "https://x.com/fr");
+    expect(count).toBe(2);
+    expect(out).toBe(`<a href="https://x.com/fr">A</a><a href="https://x.com/fr">B</a><a href="/x">C</a>`);
+  });
+
+  it("préserve les guillemets simples", () => {
+    const html = `<a href='#'>A</a>`;
+    const { html: out } = rewriteHref(html, "#", "https://x.com");
+    expect(out).toBe(`<a href='https://x.com'>A</a>`);
+  });
+
+  it("échappe les caractères regex dans oldValue", () => {
+    const html = `<a href="https://x.com/?q=a&b=c">A</a>`;
+    const { html: out, count } = rewriteHref(html, "https://x.com/?q=a&b=c", "https://y.com");
+    expect(count).toBe(1);
+    expect(out).toBe(`<a href="https://y.com">A</a>`);
+  });
+
+  it("URL identique → 0 récriture, HTML inchangé", () => {
+    const html = `<a href="#">A</a>`;
+    const { html: out, count } = rewriteHref(html, "#", "#");
+    expect(count).toBe(0);
+    expect(out).toBe(html);
+  });
+});
+
+describe("buildLinkUrl — construction URLs cibles", () => {
+  const BASE = "https://beliandjolie.com";
+  it("home → /fr", () => {
+    expect(buildLinkUrl(BASE, { kind: "home" })).toBe("https://beliandjolie.com/fr");
+  });
+  it("products (liste)", () => {
+    expect(buildLinkUrl(BASE, { kind: "products" })).toBe("https://beliandjolie.com/fr/produits");
+  });
+  it("product (détail avec handle)", () => {
+    expect(buildLinkUrl(BASE, { kind: "product", id: "x", name: "N", reference: "A123", handle: "n-a123" }))
+      .toBe("https://beliandjolie.com/fr/produits/n-a123");
+  });
+  it("category (détail avec slug)", () => {
+    expect(buildLinkUrl(BASE, { kind: "category", id: "x", name: "Bijoux", slug: "bijoux" }))
+      .toBe("https://beliandjolie.com/fr/categories/bijoux");
+  });
+  it("about + contact", () => {
+    expect(buildLinkUrl(BASE, { kind: "about" })).toBe("https://beliandjolie.com/fr/a-propos");
+    expect(buildLinkUrl(BASE, { kind: "contact" })).toBe("https://beliandjolie.com/fr/nous-contacter");
+  });
+  it("trim slashes finaux du baseUrl", () => {
+    expect(buildLinkUrl("https://beliandjolie.com/", { kind: "home" })).toBe("https://beliandjolie.com/fr");
+  });
+});
+
+describe("validation footer marketing sur HTML", () => {
+  it("un HTML sans les 4 tokens obligatoires est rejeté", () => {
+    const html = `<p>Bonjour {firstName}</p>`;
+    const missing = missingRequiredMarketingVariables(html);
+    const tokens = missing.map((v) => v.token);
+    expect(tokens).toEqual(expect.arrayContaining(["shopName", "shopAddress", "unsubscribeLink", "privacyLink"]));
+  });
+
+  it("un HTML avec les 4 tokens passe", () => {
+    const html = `
+      <body>
+        <p>Contenu</p>
+        <footer>{shopName} · {shopAddress}<br>
+          Désinscription : {unsubscribeLink}<br>
+          Politique : {privacyLink}
+        </footer>
+      </body>`;
+    const missing = missingRequiredMarketingVariables(html);
+    expect(missing).toHaveLength(0);
+  });
+
+  it("un HTML avec 3 tokens sur 4 remonte le manquant", () => {
+    const html = `{shopName} {shopAddress} {unsubscribeLink}`;
+    const missing = missingRequiredMarketingVariables(html);
+    expect(missing.map((v) => v.token)).toEqual(["privacyLink"]);
+  });
+});

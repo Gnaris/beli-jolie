@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
-import NewsletterEditorClient from "@/components/admin/users/NewsletterEditorClient";
+import NewsletterHtmlEditorClient from "@/components/admin/newsletter/NewsletterHtmlEditorClient";
 import {
   getNewsletterTemplate,
   type NewsletterTemplateFull,
@@ -105,7 +105,8 @@ export default function InactiveClientMailModal({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden bg-bg-secondary">
+      {/* overflow-y-auto : indispensable pour l'éditeur HTML (min-h-screen). */}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-bg-secondary">
         {loading ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm font-body text-text-muted">
@@ -117,11 +118,12 @@ export default function InactiveClientMailModal({
             <p className="text-sm font-body text-red-700">{error}</p>
           </div>
         ) : template ? (
-          <NewsletterEditorClient
+          // Tous les templates scénario sont désormais en HTML (auto-migration
+          // + création en HTML). Plus de branche blocs.
+          <NewsletterHtmlEditorClient
             key={template.id}
             template={template}
             onLeave={onClose}
-            enforceScenario="INACTIVE_CLIENT"
           />
         ) : null}
       </div>

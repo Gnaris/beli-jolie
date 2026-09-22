@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
-import NewsletterEditorClient from "@/components/admin/users/NewsletterEditorClient";
+import NewsletterHtmlEditorClient from "@/components/admin/newsletter/NewsletterHtmlEditorClient";
 import {
   getNewsletterTemplate,
   type NewsletterTemplateFull,
@@ -123,7 +123,10 @@ export default function AbandonedCartMailModal({
       </div>
 
       {/* ─── Corps : éditeur newsletter monté sur le stade actif ─── */}
-      <div className="flex-1 min-h-0 overflow-hidden bg-bg-secondary">
+      {/* overflow-y-auto : sans ça, l'éditeur HTML dépasse la hauteur dispo
+          (min-h-screen à l'intérieur) et les panneaux du bas (variables /
+          images / prompt IA) sont clippés — impossibles à atteindre. */}
+      <div className="flex-1 min-h-0 overflow-y-auto bg-bg-secondary">
         {loading ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-sm font-body text-text-muted">
@@ -136,13 +139,12 @@ export default function AbandonedCartMailModal({
           </div>
         ) : template ? (
           // key = template.id : force le remount de l'éditeur quand on switche
-          // de stade, sinon les states internes (blocs sélectionnés, etc.)
-          // resteraient bloqués sur l'ancien template.
-          <NewsletterEditorClient
+          // de stade. Tous les templates scénario sont désormais en HTML
+          // (auto-migration + création en HTML).
+          <NewsletterHtmlEditorClient
             key={template.id}
             template={template}
             onLeave={onClose}
-            enforceScenario="ABANDONED_CART"
           />
         ) : null}
       </div>

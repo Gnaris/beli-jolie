@@ -345,10 +345,19 @@ export default function NewslettersListClient({ templates }: Props) {
                       📢
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="font-heading font-bold text-[15px] text-text-primary truncate">{t.name}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-heading font-bold text-[15px] text-text-primary truncate">{t.name}</div>
+                        {t.format === "html" && (
+                          <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                            HTML
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[12px] text-text-muted mt-0.5 truncate">Sujet : {t.subject}</div>
                       <div className="text-[11px] text-text-muted mt-2">
-                        {t.blocksCount} bloc{t.blocksCount > 1 ? "s" : ""} · Modifié le {formatDate(t.updatedAt)}
+                        {t.format === "html"
+                          ? `Modifié le ${formatDate(t.updatedAt)}`
+                          : `${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""} · Modifié le ${formatDate(t.updatedAt)}`}
                       </div>
                       {t.lastSentAt && (
                         <div className="text-[11px] text-emerald-700 font-medium mt-1">

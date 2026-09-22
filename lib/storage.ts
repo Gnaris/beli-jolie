@@ -369,6 +369,18 @@ export function mailBrandingDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/mail-branding", tenantSlug) : "uploads/mail-branding";
 }
 
+/**
+ * Directory key for the image library of a single newsletter template
+ * (format="html"). Chaque modèle a son propre dossier — les images ne sont
+ * PAS partagées entre modèles (choix produit : une newsletter est un one-shot
+ * créatif, chaque modèle est autonome).
+ * `newsletterTemplateImageDir("cly123")` → `"uploads/newsletters/cly123"`
+ */
+export function newsletterTemplateImageDir(templateId: string, tenantSlug?: string): string {
+  const base = `uploads/newsletters/${slugify(templateId)}`;
+  return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
+}
+
 /** Directory key for the 6 photos of the /a-propos public page. */
 export function aboutPhotoDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/a-propos", tenantSlug) : "uploads/a-propos";

@@ -3,6 +3,22 @@ import { ISSYMA_PALETTE } from "@/components/issyma/theme";
 
 const P = ISSYMA_PALETTE;
 
+/**
+ * CSS injecté seulement quand la coquille Issyma /panier s'affiche.
+ * Masque le header + footer génériques de la (client) layout — sans ça, le
+ * pied de page noir (FooterIssyma) apparaît sous le pied wine d'IssymaShell.
+ * Scopé strict au conteneur racine unique de la (client) layout.
+ */
+const CART_ISSYMA_CHROME_HIDE = `
+.min-h-screen.bg-bg-secondary.flex.flex-col > header,
+.min-h-screen.bg-bg-secondary.flex.flex-col > footer {
+  display: none !important;
+}
+.min-h-screen.bg-bg-secondary.flex.flex-col > main {
+  padding: 0 !important;
+}
+`;
+
 function IconTruck() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -43,6 +59,8 @@ export default async function CartIssymaWrapper({
 }) {
   return (
     <IssymaShell shopName={shopName}>
+      <style>{CART_ISSYMA_CHROME_HIDE}</style>
+
       {/* Hero rose poudré, titre à gauche */}
       <section style={{ background: P.blush50 }}>
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 pt-8 sm:pt-10 pb-6">
@@ -85,7 +103,7 @@ export default async function CartIssymaWrapper({
             }}
           >
             {[
-              { Icon: IconTruck, title: "Paiement sécurisé", desc: "Carte, virement ou espèces sur place" },
+              { Icon: IconTruck, title: "Paiement sécurisé", desc: "Carte ou virement" },
               { Icon: IconBoxLine, title: "Préparation 24 à 48h", desc: "Expédition rapide et soignée" },
               { Icon: IconHeadset, title: "Une question ?", desc: "Contactez-nous, on vous répond vite" },
             ].map(({ Icon, title, desc }, i) => (

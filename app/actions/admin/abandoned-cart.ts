@@ -15,17 +15,12 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import type { NewsletterBlock } from "@/lib/newsletter-blocks";
-import {
-  abandonedCartStageDefault,
-  SCENARIO_DEFAULTS,
-} from "@/lib/mail-scenario-defaults";
+import { SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
 import {
   extractLastSentFromFired,
   MAX_STAGES,
   MIN_DELAY_SECONDS,
   MAX_DELAY_SECONDS,
-  templateHasUnsubscribeLink,
   validateStages,
 } from "@/lib/abandoned-cart-config";
 import {
@@ -71,7 +66,7 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
       orderBy: { stageIndex: "asc" },
       include: {
         template: {
-          select: { id: true, name: true, subject: true, blocks: true, updatedAt: true },
+          select: { id: true, name: true, subject: true, html: true, updatedAt: true },
         },
       },
     }),
@@ -82,9 +77,9 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
   ]);
 
   const dtos: AbandonedCartStageDTO[] = stages.map((s) => {
-    const blocks = Array.isArray(s.template.blocks)
-      ? (s.template.blocks as unknown as NewsletterBlock[])
-      : [];
+    // Le template est désormais toujours en HTML — check filet RGPD sur le
+    // source HTML pour la présence du token {unsubscribeLink}.
+    const html = s.template.html ?? "";
     return {
       id: s.id,
       stageIndex: s.stageIndex,
@@ -92,7 +87,7 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
       templateId: s.template.id,
       templateName: s.template.name,
       templateSubject: s.template.subject,
-      templateHasUnsubscribeLink: templateHasUnsubscribeLink(blocks),
+      templateHasUnsubscribeLink: html.includes("{unsubscribeLink}"),
       templateUpdatedAt: s.template.updatedAt,
     };
   });
@@ -128,13 +123,15 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
     select: { id: true },
   });
   if (!template) {
-    const def = SCENARIO_DEFAULTS.ABANDONED_CART;
+    const def = SCENARIO_HTML_DEFAULTS.ABANDONED_CART;
     template = await prisma.newsletterTemplate.create({
       data: {
         tenantId,
         name: def.name,
         subject: def.subject,
-        blocks: def.blocks as unknown as object,
+        format: "html",
+        blocks: [],
+        html: def.html,
         scenarioKey: "ABANDONED_CART",
       },
       select: { id: true },
@@ -169,7 +166,7 @@ export async function addAbandonedCartStage(): Promise<
       where: { tenantId: tenant.id },
       orderBy: { stageIndex: "asc" },
       include: {
-        template: { select: { blocks: true, subject: true } },
+        template: { select: { html: true, subject: true } },
       },
     });
     if (existing.length >= MAX_STAGES) {
@@ -189,25 +186,16 @@ export async function addAbandonedCartStage(): Promise<
         )
       : 86400;
 
-    // Stades 2 et 3 : on utilise le design par défaut différencié (rappel
-    // rassurant / dernière chance). Stades 4+ : on clone le dernier stade —
-    // la cliente n'a pas à tout recopier. `scenarioKey=null` sur tous les
-    // stades >1 : le Stage 1 garde le rôle de template « officiel » du scénario.
-    let seedBlocks: unknown;
-    let seedSubject: string;
-    if (newStageIndex === 2 || newStageIndex === 3) {
-      const def = abandonedCartStageDefault(newStageIndex);
-      seedBlocks = def.blocks;
-      seedSubject = def.subject;
-    } else if (lastStage) {
-      seedBlocks = Array.isArray(lastStage.template.blocks)
-        ? lastStage.template.blocks
-        : SCENARIO_DEFAULTS.ABANDONED_CART.blocks;
-      seedSubject = lastStage.template.subject;
-    } else {
-      seedBlocks = SCENARIO_DEFAULTS.ABANDONED_CART.blocks;
-      seedSubject = SCENARIO_DEFAULTS.ABANDONED_CART.subject;
-    }
+    // Depuis 2026-09-22 : tous les stades (1 comme N) partent du template
+    // HTML par défaut. Stade 4+ clone le HTML du dernier stade pour que la
+    // cliente n'ait pas à repartir de zéro sur ses variantes. `scenarioKey`
+    // reste `null` pour les stades > 1 (le Stage 1 garde le rôle de template
+    // « officiel » du scénario via l'@@unique).
+    const def = SCENARIO_HTML_DEFAULTS.ABANDONED_CART;
+    const seedHtml = lastStage?.template.html?.trim().length
+      ? lastStage.template.html
+      : def.html;
+    const seedSubject = lastStage?.template.subject ?? def.subject;
 
     const created = await prisma.$transaction(async (tx) => {
       const tpl = await tx.newsletterTemplate.create({
@@ -215,7 +203,9 @@ export async function addAbandonedCartStage(): Promise<
           tenantId: tenant.id,
           name: `Panier abandonné — Stade ${newStageIndex}`,
           subject: seedSubject,
-          blocks: seedBlocks as unknown as object,
+          format: "html",
+          blocks: [],
+          html: seedHtml,
           scenarioKey: null,
         },
       });

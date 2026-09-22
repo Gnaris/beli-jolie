@@ -14,19 +14,14 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import type { NewsletterBlock } from "@/lib/newsletter-blocks";
-import {
-  inactiveClientStageDefault,
-  SCENARIO_DEFAULTS,
-  SCENARIO_LABELS,
-} from "@/lib/mail-scenario-defaults";
+import { SCENARIO_LABELS } from "@/lib/mail-scenario-defaults";
+import { SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
 import {
   extractLastSentFromFired,
   MAX_STAGES,
   MIN_DELAY_SECONDS,
   MAX_DELAY_SECONDS,
   DEFAULT_STAGE_1_DELAY_SECONDS,
-  templateHasUnsubscribeLink,
   validateStages,
   shouldWipeCycle,
   computeReferenceAt,
@@ -70,7 +65,7 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
       orderBy: { stageIndex: "asc" },
       include: {
         template: {
-          select: { id: true, name: true, subject: true, blocks: true, updatedAt: true },
+          select: { id: true, name: true, subject: true, html: true, updatedAt: true },
         },
       },
     }),
@@ -81,9 +76,7 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
   ]);
 
   const dtos: InactiveClientStageDTO[] = stages.map((s) => {
-    const blocks = Array.isArray(s.template.blocks)
-      ? (s.template.blocks as unknown as NewsletterBlock[])
-      : [];
+    const html = s.template.html ?? "";
     return {
       id: s.id,
       stageIndex: s.stageIndex,
@@ -91,7 +84,7 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
       templateId: s.template.id,
       templateName: s.template.name,
       templateSubject: s.template.subject,
-      templateHasUnsubscribeLink: templateHasUnsubscribeLink(blocks),
+      templateHasUnsubscribeLink: html.includes("{unsubscribeLink}"),
       templateUpdatedAt: s.template.updatedAt,
     };
   });
@@ -120,13 +113,15 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
     select: { id: true },
   });
   if (!template) {
-    const def = SCENARIO_DEFAULTS.INACTIVE_CLIENT;
+    const def = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT;
     template = await prisma.newsletterTemplate.create({
       data: {
         tenantId,
         name: def.name,
         subject: def.subject,
-        blocks: def.blocks as unknown as object,
+        format: "html",
+        blocks: [],
+        html: def.html,
         scenarioKey: "INACTIVE_CLIENT",
       },
       select: { id: true },
@@ -160,7 +155,7 @@ export async function addInactiveClientStage(): Promise<
       where: { tenantId: tenant.id },
       orderBy: { stageIndex: "asc" },
       include: {
-        template: { select: { blocks: true, subject: true } },
+        template: { select: { html: true, subject: true } },
       },
     });
     if (existing.length >= MAX_STAGES) {
@@ -179,21 +174,14 @@ export async function addInactiveClientStage(): Promise<
         )
       : DEFAULT_STAGE_1_DELAY_SECONDS;
 
-    let seedBlocks: unknown;
-    let seedSubject: string;
-    if (newStageIndex === 2 || newStageIndex === 3) {
-      const def = inactiveClientStageDefault(newStageIndex);
-      seedBlocks = def.blocks;
-      seedSubject = def.subject;
-    } else if (lastStage) {
-      seedBlocks = Array.isArray(lastStage.template.blocks)
-        ? lastStage.template.blocks
-        : SCENARIO_DEFAULTS.INACTIVE_CLIENT.blocks;
-      seedSubject = lastStage.template.subject;
-    } else {
-      seedBlocks = SCENARIO_DEFAULTS.INACTIVE_CLIENT.blocks;
-      seedSubject = SCENARIO_DEFAULTS.INACTIVE_CLIENT.subject;
-    }
+    // Depuis 2026-09-22 : tous les stades partent du template HTML par défaut.
+    // Stades > 1 clonent le HTML du dernier stade si présent (permet à la
+    // cliente de dupliquer ses ajustements), sinon fallback sur le défaut.
+    const def = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT;
+    const seedHtml = lastStage?.template.html?.trim().length
+      ? lastStage.template.html
+      : def.html;
+    const seedSubject = lastStage?.template.subject ?? def.subject;
 
     const created = await prisma.$transaction(async (tx) => {
       const tpl = await tx.newsletterTemplate.create({
@@ -201,7 +189,9 @@ export async function addInactiveClientStage(): Promise<
           tenantId: tenant.id,
           name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade ${newStageIndex}`,
           subject: seedSubject,
-          blocks: seedBlocks as unknown as object,
+          format: "html",
+          blocks: [],
+          html: seedHtml,
           scenarioKey: null,
         },
       });
@@ -306,16 +296,21 @@ export async function applyInactiveClientDefaultDesigns(): Promise<
       };
     }
 
+    // Depuis 2026-09-22 : reset = ré-application du template HTML par défaut.
+    // Tous les stades reprennent le même design (la cliente ré-ajuste ensuite
+    // stage par stage si besoin).
+    const def = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT;
     let updated = 0;
     await prisma.$transaction(async (tx) => {
       for (const s of stages) {
-        const def = inactiveClientStageDefault(s.stageIndex);
         await tx.newsletterTemplate.update({
           where: { id: s.templateId },
           data: {
-            name: def.name,
+            name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade ${s.stageIndex}`,
             subject: def.subject,
-            blocks: def.blocks as unknown as object,
+            format: "html",
+            blocks: [],
+            html: def.html,
           },
         });
         updated++;
