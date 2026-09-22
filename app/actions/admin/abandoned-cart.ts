@@ -477,7 +477,7 @@ export async function loadAbandonedCartJobsFor(
   if (userIds.length === 0) return map;
   const { tenant } = await requireAdmin();
 
-  const [jobs, stages] = await Promise.all([
+  const [jobs, stages, autoCfg] = await Promise.all([
     prisma.abandonedCartJob.findMany({
       where: {
         tenantId: tenant.id,
@@ -495,12 +495,20 @@ export async function loadAbandonedCartJobsFor(
       where: { tenantId: tenant.id },
       select: { stageIndex: true },
     }),
+    prisma.siteConfig.findFirst({
+      where: { tenantId: tenant.id, key: AUTOMATION_ENABLED_KEY },
+      select: { value: true },
+    }),
   ]);
+  const automationEnabled = autoCfg?.value === "true";
 
   const existingStageIndices = new Set(stages.map((s) => s.stageIndex));
 
   for (const j of jobs) {
-    const isPending = j.status === "PENDING" && j.nextStageAt !== null;
+    // Automation OFF → on masque le compteur (le worker ne partirait pas de
+    // toute façon). On garde `lastSent` pour tracer l'historique.
+    const isPending =
+      automationEnabled && j.status === "PENDING" && j.nextStageAt !== null;
     const lastSent = extractLastSentFromFired(
       j.stagesFired,
       existingStageIndices,
