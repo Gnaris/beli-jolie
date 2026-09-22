@@ -333,6 +333,64 @@ export async function getAdminSelfEmail(): Promise<string | null> {
 }
 
 /**
+ * Mail du compte admin connecté (session.user.email) — utilisé par l'aperçu
+ * newsletter HTML pour afficher « Moi-même — beliandjolie@gmail.com » et
+ * envoyer les tests vers ce login (pas vers le mail perso vérifié, qui reste
+ * réservé aux notifs système et à l'ancien éditeur blocks).
+ */
+export async function getAdminSessionEmail(): Promise<string> {
+  const { session } = await requireAdmin();
+  return session.user.email;
+}
+
+/**
+ * Renvoie les valeurs boutique du tenant courant à injecter dans la preview
+ * client des éditeurs (fallback avant le rendu serveur). Sans ça, la preview
+ * locale utilise les `previewValue` de `MAIL_VARIABLES` — hardcodés « Beli &
+ * Jolie » / « 90 rue de la Haie Coq » / … — et un admin Issyma voit sa
+ * boutique s'afficher « L'équipe Beli & Jolie » dans son propre éditeur.
+ */
+export async function getBoutiquePreviewOverrides(): Promise<{
+  shopName: string;
+  shopAddress: string;
+  shopEmail: string;
+  shopPhone: string;
+  shopWebsite: string;
+}> {
+  const { tenant } = await requireAdmin();
+  const [shopName, baseUrl, companyInfo] = await Promise.all([
+    getCachedShopName(),
+    getCurrentTenantBaseUrl(),
+    prisma.companyInfo.findFirst({
+      where: { tenantId: tenant.id },
+      select: {
+        address: true,
+        postalCode: true,
+        city: true,
+        email: true,
+        phone: true,
+        website: true,
+      },
+    }),
+  ]);
+  const shopAddress = companyInfo
+    ? [
+        companyInfo.address,
+        [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" "),
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  return {
+    shopName,
+    shopAddress,
+    shopEmail: companyInfo?.email ?? "",
+    shopPhone: companyInfo?.phone ?? "",
+    shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
+  };
+}
+
+/**
  * Envoie le modèle courant en test à un destinataire unique (l'admin ou un
  * client). Sert au bouton « Envoyer un test » de l'éditeur newsletter.
  *

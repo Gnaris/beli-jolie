@@ -135,13 +135,39 @@ export function interpolate(
 }
 
 /**
+ * Overrides pour les tokens « boutique » — passer les vraies valeurs du tenant
+ * courant pour que la preview côté client (fallback avant réponse serveur)
+ * affiche « L'équipe ISSYMA–FORCYMA » plutôt que la valeur d'exemple câblée
+ * en dur dans `MAIL_VARIABLES`. Sans ça, un admin Issyma voit brièvement
+ * « Beli & Jolie » dans son propre éditeur (fuite visuelle cross-tenant).
+ */
+export interface PreviewOverrides {
+  shopName?: string;
+  shopAddress?: string;
+  shopEmail?: string;
+  shopPhone?: string;
+  shopWebsite?: string;
+}
+
+/**
  * Construit un context d'aperçu à partir des `previewValue` de chaque variable.
  * Utilisé côté éditeur pour montrer un aperçu réaliste sans avoir de vrai user.
+ *
+ * `overrides` : valeurs du tenant courant qui remplacent les `previewValue`
+ * câblés en dur (surtout `shopName`) — indispensable en multi-tenant.
  */
-export function buildPreviewContext(scenario: ScenarioKey | null): MailMergeContext {
+export function buildPreviewContext(
+  scenario: ScenarioKey | null,
+  overrides?: PreviewOverrides,
+): MailMergeContext {
   const ctx: MailMergeContext = {};
   for (const v of variablesForScenario(scenario)) {
     ctx[v.token] = v.previewValue;
+  }
+  if (overrides) {
+    for (const [k, v] of Object.entries(overrides)) {
+      if (typeof v === "string" && v.trim()) ctx[k] = v;
+    }
   }
   return ctx;
 }

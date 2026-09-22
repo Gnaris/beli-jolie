@@ -38,7 +38,10 @@ import {
   getNewsletterHtmlPreview,
   sendTestNewsletterHtmlEmail,
 } from "@/app/actions/admin/send-newsletter-html";
-import { getAdminSelfEmail } from "@/app/actions/admin/send-newsletter";
+import {
+  getAdminSessionEmail,
+  getBoutiquePreviewOverrides,
+} from "@/app/actions/admin/send-newsletter";
 import {
   deleteNewsletterTemplateImage,
   renameNewsletterTemplateImage,
@@ -78,6 +81,7 @@ import {
   variablesForScenario,
   VARIABLE_GROUP_LABELS,
   type MailVariable,
+  type PreviewOverrides,
   type VariableGroup,
 } from "@/lib/mail-merge-variables";
 
@@ -118,38 +122,41 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     const t = setTimeout(() => setDebouncedHtml(html), 200);
     return () => clearTimeout(t);
   }, [html]);
-  // Contexte factice « Marie Dupont / Beli & Jolie / … » — issu des
-  // previewValue de MAIL_VARIABLES. On passe le scenarioKey pour inclure
-  // aussi les tokens spécifiques ({cartTotal}, {cartCount}, {days},
-  // {favoritesCount}) sans quoi ces variables resteraient brutes dans
+  // Overrides boutique du tenant courant — chargés au montage pour que la
+  // preview locale affiche « L'équipe {vraiShopName} » plutôt que la valeur
+  // d'exemple « Beli & Jolie » câblée dans MAIL_VARIABLES (fuite visuelle
+  // cross-tenant, incident Issyma 2026-09-23).
+  const [boutiqueOverrides, setBoutiqueOverrides] = useState<PreviewOverrides | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getBoutiquePreviewOverrides()
+      .then((o) => {
+        if (!cancelled) setBoutiqueOverrides(o);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Contexte factice « Marie Dupont / <shopName tenant> / … » — issu des
+  // previewValue de MAIL_VARIABLES + overrides tenant. On passe le scenarioKey
+  // pour inclure aussi les tokens spécifiques ({cartTotal}, {cartCount},
+  // {days}, {favoritesCount}) sans quoi ces variables resteraient brutes dans
   // l'aperçu local (ex. « ça fait {days} jours »).
   const previewContext = useMemo(
-    () => buildPreviewContext(template.scenarioKey),
-    [template.scenarioKey],
+    () => buildPreviewContext(template.scenarioKey, boutiqueOverrides ?? undefined),
+    [template.scenarioKey, boutiqueOverrides],
   );
-  // Données factices pour développer les boucles {{#each cart}} /
-  // {{#each favorites}} dans l'aperçu local. Sans ça, la boucle reste
-  // visible telle quelle et le mail semble cassé. À l'envoi réel (ou avec
-  // un client sélectionné), ces données sont remplacées par le vrai panier /
-  // favoris du destinataire côté serveur.
+  // Contexte dynamique local — sert de placeholder pendant le chargement
+  // de l'aperçu serveur (~200-500 ms). Cart vide = la boucle {{#each cart}}
+  // se développe à 0 ligne. Aligné sur la règle serveur « vrai panier
+  // uniquement, jamais de démo factice ».
   const previewDynamic = useMemo<HtmlDynamicContext | undefined>(() => {
-    // `imagePath: null` → le renderer utilise `MISSING_IMAGE_PLACEHOLDER`
-    // automatiquement (petit carré SVG gris avec picto photo). Pas besoin
-    // de passer d'URL bidon ici.
     if (template.scenarioKey === "ABANDONED_CART") {
-      const items = [
-        { productName: "Bracelet doré (aperçu)", colorName: "Or", quantity: 2, totalCents: 4800, imagePath: null },
-        { productName: "Collier fin (aperçu)", colorName: "Argent", quantity: 1, totalCents: 3200, imagePath: null },
-      ];
-      return { cart: { items, totalCents: 8000 } };
+      return { cart: { items: [], totalCents: 0 } };
     }
     if (template.scenarioKey === "RESTOCK") {
-      return {
-        favorites: [
-          { productName: "Bague émaillée (aperçu)", colorName: "Bleu", priceCents: 2400, imagePath: null },
-          { productName: "Boucles d'oreilles (aperçu)", colorName: "Or", priceCents: 3600, imagePath: null },
-        ],
-      };
+      return { favorites: [] };
     }
     return undefined;
   }, [template.scenarioKey]);
@@ -164,19 +171,30 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
 
   // ─── Aperçu client ───
   const [previewClients, setPreviewClients] = useState<PreviewClientLite[]>([]);
-  const [adminSelfEmail, setAdminSelfEmail] = useState<string | null>(null);
-  const [previewTarget, setPreviewTarget] = useState<string>(""); // "" | SELF_TARGET | userId
+  // Email du compte admin CONNECTÉ (session.user.email), pas le mail perso
+  // vérifié. Sert à afficher « Moi-même — beliandjolie@gmail.com » dans le
+  // sélecteur et à envoyer les tests vers ce login.
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
+  // Par défaut on démarre sur SELF_TARGET : l'aperçu n'est jamais « générique » —
+  // il montre toujours des vraies infos (soit celles de l'admin, soit celles
+  // d'un client sélectionné). Si le mail perso n'est pas configuré, on retombe
+  // sur le 1er client disponible (voir useEffect de chargement).
+  const [previewTarget, setPreviewTarget] = useState<string>(SELF_TARGET);
   const [serverPreview, setServerPreview] = useState<string | null>(null);
   const [serverPreviewLoading, setServerPreviewLoading] = useState(false);
+  const [serverPreviewMeta, setServerPreviewMeta] = useState<{
+    liveCartCount?: number;
+    previewedEmail?: string;
+  }>({});
   const [testSending, setTestSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listPreviewClients(), getAdminSelfEmail()])
-      .then(([clients, self]) => {
+    Promise.all([listPreviewClients(), getAdminSessionEmail()])
+      .then(([clients, email]) => {
         if (cancelled) return;
         setPreviewClients(clients);
-        setAdminSelfEmail(self);
+        setAdminEmail(email);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -204,8 +222,13 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
         if (cancelled) return;
         if (res.success) {
           setServerPreview(res.html);
+          setServerPreviewMeta({
+            liveCartCount: res.liveCartCount,
+            previewedEmail: res.previewedEmail,
+          });
         } else {
           setServerPreview(null);
+          setServerPreviewMeta({});
           toast.error("Aperçu client indisponible", res.error);
         }
       })
@@ -343,12 +366,14 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
       {/* ─── Barre d'aperçu client + envoi test ─── */}
       <PreviewTargetBar
         clients={previewClients}
-        adminSelfEmail={adminSelfEmail}
+        adminEmail={adminEmail}
         target={previewTarget}
         onChange={setPreviewTarget}
         onSendTest={handleSendTest}
         loading={serverPreviewLoading}
         sending={testSending}
+        scenario={template.scenarioKey}
+        meta={serverPreviewMeta}
       />
 
       {/* ─── Corps 2 colonnes ─── */}
@@ -670,28 +695,31 @@ function FieldRow({ label, hint, children }: { label: string; hint?: string; chi
 
 function PreviewTargetBar({
   clients,
-  adminSelfEmail,
+  adminEmail,
   target,
   onChange,
   onSendTest,
   loading,
   sending,
+  scenario,
+  meta,
 }: {
   clients: PreviewClientLite[];
-  adminSelfEmail: string | null;
+  adminEmail: string | null;
   target: string;
   onChange: (v: string) => void;
   onSendTest: () => void | Promise<void>;
   loading: boolean;
   sending: boolean;
+  scenario: ScenarioKey | null;
+  meta: { liveCartCount?: number; previewedEmail?: string };
 }) {
   const options = useMemo(() => {
     const opts: Array<{ value: string; label: string; disabled?: boolean }> = [
-      { value: "", label: "Aperçu générique (tokens non substitués)" },
       {
         value: SELF_TARGET,
-        label: adminSelfEmail ? `Moi-même — ${adminSelfEmail}` : "Moi-même (mail perso non vérifié)",
-        disabled: !adminSelfEmail,
+        label: adminEmail ? `Moi-même — ${adminEmail}` : "Moi-même (chargement…)",
+        disabled: !adminEmail,
       },
       ...clients.map((c) => {
         const displayName = c.company?.trim() || `${c.firstName} ${c.lastName}`.trim() || c.email;
@@ -699,10 +727,17 @@ function PreviewTargetBar({
       }),
     ];
     return opts;
-  }, [clients, adminSelfEmail]);
+  }, [clients, adminEmail]);
 
   const canSendTest = !!target && !sending;
-  const noRecipients = clients.length === 0 && !adminSelfEmail;
+  const noRecipients = clients.length === 0 && !adminEmail;
+
+  // Badge panier — uniquement pour le scénario panier abandonné. Distingue
+  // « vrai panier avec N articles » de « panier vide ». Le texte s'adapte
+  // selon qu'on regarde son propre panier (self) ou celui d'un client.
+  const cartBadge = scenario === "ABANDONED_CART" && typeof meta.liveCartCount === "number"
+    ? cartBadgeFor(target === SELF_TARGET, meta.liveCartCount, meta.previewedEmail)
+    : null;
 
   return (
     <div className="border-b border-border bg-bg-primary px-4 sm:px-6 py-3">
@@ -716,6 +751,8 @@ function PreviewTargetBar({
             onChange={onChange}
             options={options}
             placeholder="Choisir un destinataire"
+            searchable
+            title="Destinataire de l'aperçu"
           />
         </div>
         <button
@@ -740,6 +777,38 @@ function PreviewTargetBar({
           </span>
         )}
       </div>
+      {cartBadge && (
+        <div className="mt-2">
+          {cartBadge}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Bandeau contextuel qui indique l'état du panier réel de l'utilisateur
+ * affiché (admin en self, ou client sélectionné). Le message s'adapte pour
+ * que la cliente comprenne d'un coup d'œil si l'aperçu vide est normal
+ * (personne n'a de panier) ou si elle attend des articles qui ne remontent
+ * pas.
+ */
+function cartBadgeFor(isSelf: boolean, liveCount: number, previewedEmail?: string) {
+  const accountSuffix = previewedEmail ? ` — compte ${previewedEmail}` : "";
+  if (liveCount > 0) {
+    const who = isSelf ? "Ton vrai panier" : "Vrai panier du client";
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800">
+        🛒 <strong>{who}</strong> — {liveCount} article{liveCount > 1 ? "s" : ""}{accountSuffix}.
+      </div>
+    );
+  }
+  const emptyText = isSelf
+    ? "Ton panier est vide — aucun article dans l'aperçu."
+    : "Ce client n'a pas d'articles dans son panier — aucun article dans l'aperçu.";
+  return (
+    <div className="text-xs px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+      ⚠️ <strong>Panier vide.</strong> {emptyText}{accountSuffix ? ` (${accountSuffix.trim().replace(/^— /, "")})` : ""}
     </div>
   );
 }

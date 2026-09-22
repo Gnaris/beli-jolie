@@ -30,6 +30,7 @@ import {
 } from "@/app/actions/admin/newsletter-templates";
 import {
   getAdminSelfEmail,
+  getBoutiquePreviewOverrides,
   sendTestNewsletterEmail,
 } from "@/app/actions/admin/send-newsletter";
 import {
@@ -53,6 +54,7 @@ import {
   missingRequiredMarketingVariables,
   VARIABLE_GROUP_LABELS,
   type MailVariable,
+  type PreviewOverrides,
   type VariableGroup,
 } from "@/lib/mail-merge-variables";
 
@@ -259,18 +261,24 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
   const [previewClientId, setPreviewClientId] = useState<string | null>(null);
   const [adminSelfEmail, setAdminSelfEmail] = useState<string | null>(null);
   const [sendingTest, setSendingTest] = useState(false);
+  // Overrides boutique du tenant courant — sans ça la preview locale affiche
+  // « Beli & Jolie » (hardcodé dans MAIL_VARIABLES) même en admin Issyma.
+  const [boutiqueOverrides, setBoutiqueOverrides] = useState<PreviewOverrides | null>(null);
   // Panier réel du client sélectionné — injecté dans l'aperçu du bloc
   // « cartItems » à la place des lignes fictives.
   const [previewCart, setPreviewCart] = useState<PreviewCart | null>(null);
   useEffect(() => {
     let cancelled = false;
-    // En parallèle : liste des clients + mail perso admin. La cliente pourra
-    // choisir un vrai client OU s'envoyer le mail à elle-même pour tester.
-    Promise.all([listPreviewClients(), getAdminSelfEmail()])
-      .then(([rows, self]) => {
+    // En parallèle : liste des clients + mail perso admin + overrides
+    // boutique. La cliente pourra choisir un vrai client OU s'envoyer le mail
+    // à elle-même pour tester ; les overrides remplacent les previewValue
+    // câblés dans MAIL_VARIABLES par les vraies infos du tenant courant.
+    Promise.all([listPreviewClients(), getAdminSelfEmail(), getBoutiquePreviewOverrides()])
+      .then(([rows, self, overrides]) => {
         if (cancelled) return;
         setPreviewClients(rows);
         setAdminSelfEmail(self);
+        setBoutiqueOverrides(overrides);
         if (rows.length > 0) {
           // Défaut : un client au hasard, permet à la cliente de voir
           // instantanément ce que verra un vrai destinataire.
@@ -304,7 +312,7 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
   // Context d'aperçu : soit vrai client sélectionné, soit valeurs fictives.
   // Rendu réel côté serveur au moment de l'envoi (chaque destinataire son propre context).
   const previewContext = useMemo(() => {
-    const fake = buildPreviewContext(scenarioKey);
+    const fake = buildPreviewContext(scenarioKey, boutiqueOverrides ?? undefined);
     if (!previewClientId) return fake;
     const c = previewClients.find((u) => u.id === previewClientId);
     if (!c) return fake;
@@ -327,7 +335,7 @@ export default function NewsletterEditorClient({ template, backUrl = "/admin/mar
       // neverVisitedTemplate côté rendu final).
       days: c.daysInactive === null ? "" : String(c.daysInactive),
     };
-  }, [scenarioKey, previewClientId, previewClients]);
+  }, [scenarioKey, previewClientId, previewClients, boutiqueOverrides]);
 
   // Blocs dynamiques (cartItems / favoritesGrid / daysInactive) : uniquement
   // disponibles pour les modèles liés au scénario compatible. Les autres

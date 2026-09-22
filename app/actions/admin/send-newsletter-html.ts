@@ -24,7 +24,7 @@ import {
   type HtmlDynamicContext,
 } from "@/lib/newsletter-html-render";
 import { missingRequiredMarketingVariables } from "@/lib/mail-merge-variables";
-import { getAdminSelfEmail, buildLegalLine } from "./send-newsletter";
+import { buildLegalLine } from "./send-newsletter";
 import type { ProductStatus } from "@prisma/client";
 
 /**
@@ -59,10 +59,22 @@ async function buildRenderedHtml(params: {
       toEmail: string;
       clientUserId: string | null;
       unsubscribeLink: string;
+      /**
+       * Nombre d'articles réellement présents dans le panier de l'utilisateur
+       * affiché (scénario ABANDONED_CART uniquement). Permet à l'UI d'afficher
+       * un badge « Vrai panier — N articles » ou « Panier vide » sans deviner.
+       */
+      liveCartCount?: number;
+      /**
+       * Email du compte dont on affiche le panier (admin en self, ou client
+       * sélectionné). Affiché dans le badge pour que la cliente sache d'un
+       * coup d'œil sur quel compte le panier est lu.
+       */
+      previewedEmail: string;
     }
   | { success: false; error: string; missingVariables?: string[] }
 > {
-  const { tenant } = await requireAdmin();
+  const { tenant, session } = await requireAdmin();
   const template = await prisma.newsletterTemplate.findFirst({
     where: { id: params.templateId, tenantId: tenant.id },
     include: {
@@ -92,35 +104,52 @@ async function buildRenderedHtml(params: {
     }
   }
 
-  // Résolution du destinataire — même logique que sendTestNewsletterEmail
-  // pour rester cohérent (admin en test = valeurs neutres « Marie Dupont »).
+  // Résolution du destinataire.
+  // - client : on prend ses vraies infos + on lie l'unsubscribe à son userId.
+  // - self   : mail envoyé au perso Gmail de l'admin, mais on injecte les
+  //            vraies infos de son compte User (nom, société, adresse) pour
+  //            que l'aperçu soit fidèle. `adminCartUserId` sert uniquement
+  //            au chargement du vrai panier de l'admin dans le scénario
+  //            ABANDONED_CART — `clientUserId` reste null (pas de tracking
+  //            unsubscribe sur un self-test).
   let toEmail: string;
   let clientUserId: string | null = null;
+  let adminCartUserId: string | null = null;
   let userContextBase: Partial<MailMergeContext>;
 
   if (params.recipient.kind === "self") {
-    const selfEmail = await getAdminSelfEmail();
-    if (!selfEmail) {
+    // « Moi-même » = le compte admin de session, pas le mail perso vérifié.
+    // On envoie donc le test au login admin (ex. beliandjolie@gmail.com) et
+    // on utilise ses vraies infos + son vrai panier.
+    const admin = await prisma.user.findFirst({
+      where: { id: session.user.id, tenantId: tenant.id },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, company: true,
+        phone: true, siret: true, vatNumber: true,
+        addressStreet: true, addressZip: true, addressCity: true, addressCountry: true,
+      },
+    });
+    if (!admin) {
       return {
         success: false,
-        error:
-          "Vous n'avez pas encore vérifié votre mail perso. Paramètres → Messagerie pour l'enregistrer.",
+        error: "Compte admin introuvable en base — reconnecte-toi.",
       };
     }
-    toEmail = selfEmail;
+    toEmail = admin.email;
+    adminCartUserId = admin.id;
     userContextBase = {
-      firstName: "Marie",
-      lastName: "Dupont",
-      fullName: "Marie Dupont",
-      email: selfEmail,
-      company: "Boutique de test",
-      phone: "06 12 34 56 78",
-      siret: "",
-      tvaIntra: "",
-      address: "",
-      postalCode: "",
-      city: "",
-      country: "",
+      firstName: admin.firstName ?? "",
+      lastName: admin.lastName ?? "",
+      fullName: [admin.firstName, admin.lastName].filter(Boolean).join(" "),
+      email: admin.email,
+      company: admin.company ?? "",
+      phone: admin.phone ?? "",
+      siret: admin.siret ?? "",
+      tvaIntra: admin.vatNumber ?? "",
+      address: admin.addressStreet ?? "",
+      postalCode: admin.addressZip ?? "",
+      city: admin.addressCity ?? "",
+      country: admin.addressCountry ?? "",
     };
   } else {
     const user = await prisma.user.findFirst({
@@ -181,19 +210,23 @@ async function buildRenderedHtml(params: {
     ? buildUnsubscribeUrl({ baseUrl, userId: clientUserId, tenantId: tenant.id })
     : `${baseUrl}/fr`;
 
-  // Contexte dynamique selon le scénario. Pour un scénario auto testé sur
-  // un vrai client, on injecte ses vraies données (cart, days). Pour un
-  // self-test ou un client sans données live, on tombe sur un aperçu factice
-  // qui montre le rendu attendu (sinon la boucle {{#each cart}} rendrait vide).
+  // Contexte dynamique selon le scénario. On charge TOUJOURS le vrai panier
+  // de l'utilisateur affiché (client sélectionné OU admin en self) — s'il est
+  // vide, la boucle `{{#each cart}}` se développe à vide, l'aperçu montre
+  // fidèlement ce que verrait le destinataire à l'envoi.
   const dynamic: HtmlDynamicContext = {};
   let daysForContext: number | null = null;
+  let liveCartCount: number | undefined;
   if (scenarioKey === "ABANDONED_CART") {
-    dynamic.cart = clientUserId
-      ? await fetchLiveCartForHtml(tenant.id, clientUserId)
-      : buildFakeCart();
-    // Si le vrai panier est vide, on retombe sur un panier fictif pour que
-    // l'aperçu / test soit toujours démonstratif.
-    if (dynamic.cart.items.length === 0) dynamic.cart = buildFakeCart();
+    const cartUserId = clientUserId ?? adminCartUserId;
+    if (cartUserId) {
+      const live = await fetchLiveCartForHtml(tenant.id, cartUserId);
+      dynamic.cart = live;
+      liveCartCount = live.items.length;
+    } else {
+      dynamic.cart = { items: [], totalCents: 0 };
+      liveCartCount = 0;
+    }
   } else if (scenarioKey === "INACTIVE_CLIENT") {
     if (clientUserId) {
       const u = await prisma.user.findFirst({
@@ -248,6 +281,8 @@ async function buildRenderedHtml(params: {
     toEmail,
     clientUserId,
     unsubscribeLink,
+    liveCartCount,
+    previewedEmail: toEmail,
   };
 }
 
@@ -264,13 +299,25 @@ export async function getNewsletterHtmlPreview(params: {
   htmlOverride?: string;
   subjectOverride?: string;
 }): Promise<
-  | { success: true; html: string; subject: string }
+  | {
+      success: true;
+      html: string;
+      subject: string;
+      liveCartCount?: number;
+      previewedEmail: string;
+    }
   | { success: false; error: string }
 > {
   try {
     const built = await buildRenderedHtml({ ...params, requireMarketingTokens: false });
     if (!built.success) return built;
-    return { success: true, html: built.html, subject: built.subject };
+    return {
+      success: true,
+      html: built.html,
+      subject: built.subject,
+      liveCartCount: built.liveCartCount,
+      previewedEmail: built.previewedEmail,
+    };
   } catch (err) {
     logger.error("[getNewsletterHtmlPreview]", { params, error: err as Error });
     return { success: false, error: (err as Error).message };
@@ -360,13 +407,29 @@ async function fetchLiveCartForHtml(
           quantity: true,
           variant: {
             select: {
+              colorId: true,
               unitPrice: true,
               stock: true,
               saleType: true,
               packQuantity: true,
               color: { select: { name: true } },
-              product: { select: { name: true, status: true } },
-              images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+              product: {
+                select: {
+                  name: true,
+                  status: true,
+                  primaryColorId: true,
+                  // Toutes les images du produit — on résout la bonne en JS
+                  // par colorId (voir plus bas). Nécessaire parce que
+                  // `ProductColorImage` est en modèle hybride : les images
+                  // legacy ont `productColorId=null` et ne remontent donc PAS
+                  // via `variant.images` (link direct). Ici on passe par la
+                  // relation `product.colorImages` qui n'a pas ce trou.
+                  colorImages: {
+                    orderBy: { order: "asc" },
+                    select: { colorId: true, path: true },
+                  },
+                },
+              },
             },
           },
         },
@@ -382,21 +445,22 @@ async function fetchLiveCartForHtml(
         : it.variant.stock;
     return effective > 0;
   });
-  const items: HtmlCartItem[] = validItems.map((it) => ({
-    productName: it.variant.product.name,
-    colorName: it.variant.color?.name ?? null,
-    quantity: it.quantity,
-    totalCents: Math.round(Number(it.variant.unitPrice) * 100) * it.quantity,
-    imagePath: it.variant.images[0]?.path ?? null,
-  }));
+  const items: HtmlCartItem[] = validItems.map((it) => {
+    const productImages = it.variant.product.colorImages;
+    const forThisColor = productImages.find((img) => img.colorId === it.variant.colorId);
+    const forPrimary = productImages.find(
+      (img) => img.colorId === it.variant.product.primaryColorId,
+    );
+    const anyImage = productImages[0];
+    const imagePath = forThisColor?.path ?? forPrimary?.path ?? anyImage?.path ?? null;
+    return {
+      productName: it.variant.product.name,
+      colorName: it.variant.color?.name ?? null,
+      quantity: it.quantity,
+      totalCents: Math.round(Number(it.variant.unitPrice) * 100) * it.quantity,
+      imagePath,
+    };
+  });
   const totalCents = items.reduce((s, it) => s + it.totalCents, 0);
   return { items, totalCents };
-}
-
-function buildFakeCart(): { items: HtmlCartItem[]; totalCents: number } {
-  const items: HtmlCartItem[] = [
-    { productName: "Article exemple (aperçu)", colorName: "Or", quantity: 2, totalCents: 4800, imagePath: null },
-    { productName: "Autre article (aperçu)", colorName: "Argent", quantity: 1, totalCents: 3200, imagePath: null },
-  ];
-  return { items, totalCents: items.reduce((s, i) => s + i.totalCents, 0) };
 }

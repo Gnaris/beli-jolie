@@ -108,4 +108,24 @@ describe("mail-merge-variables — buildPreviewContext", () => {
     expect(ctx.cartTotal).toBe("84,50 €");
     expect(ctx.days).toBeUndefined();
   });
+
+  it("overrides tenant : remplace shopName + shopAddress dans la preview", () => {
+    // Cas multi-tenant : admin Issyma voit son propre nom, pas « Beli &
+    // Jolie » câblé en dur dans MAIL_VARIABLES.
+    const ctx = buildPreviewContext(null, {
+      shopName: "ISSYMA–FORCYMA",
+      shopAddress: "1 rue de Paris, 75001 Paris",
+    });
+    expect(ctx.shopName).toBe("ISSYMA–FORCYMA");
+    expect(ctx.shopAddress).toBe("1 rue de Paris, 75001 Paris");
+    // Les tokens non-override conservent leur previewValue.
+    expect(ctx.firstName).toBe("Marie");
+  });
+
+  it("overrides vides ou absents : ignore l'override (garde le default)", () => {
+    // Un `shopName: ""` (companyInfo pas encore rempli) ne doit pas écraser
+    // « Beli & Jolie » par une chaîne vide et casser la lecture visuelle.
+    const ctx = buildPreviewContext(null, { shopName: "   ", shopEmail: undefined });
+    expect(ctx.shopName).toBe("Beli & Jolie");
+  });
 });
