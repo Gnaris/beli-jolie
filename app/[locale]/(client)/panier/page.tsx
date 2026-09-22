@@ -11,7 +11,6 @@ import {
 import CartWizardClient from "@/components/panier/CartWizardClient";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import CartIssymaWrapper from "@/components/issyma/CartIssymaWrapper";
-import { getCachedShopName } from "@/lib/cached-data";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { loadActivePromotions } from "@/lib/promotions";
@@ -353,8 +352,7 @@ export default async function PanierPage() {
   // bordeaux + hero rose + bandeau réassurance. BJ reste inchangé.
   const effectiveSlug = await getEffectiveTenantSlug();
   if (effectiveSlug === "issyma") {
-    const shopName = await getCachedShopName();
-    return <CartIssymaWrapper shopName={shopName}>{wizardNode}</CartIssymaWrapper>;
+    return <CartIssymaWrapper>{wizardNode}</CartIssymaWrapper>;
   }
 
   return wizardNode;

@@ -1,5 +1,7 @@
+import { getTranslations } from "next-intl/server";
 import IssymaShell from "@/components/issyma/IssymaShell";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
+import { getCachedShopName } from "@/lib/cached-data";
 
 const P = ISSYMA_PALETTE;
 
@@ -51,12 +53,15 @@ function IconHeadset() {
  * conservé intact — seule l'enveloppe change.
  */
 export default async function CartIssymaWrapper({
-  shopName,
   children,
 }: {
-  shopName: string;
   children: React.ReactNode;
 }) {
+  const [shopName, t] = await Promise.all([
+    getCachedShopName(),
+    getTranslations("home.issyma"),
+  ]);
+
   return (
     <IssymaShell shopName={shopName}>
       <style>{CART_ISSYMA_CHROME_HIDE}</style>
@@ -68,7 +73,7 @@ export default async function CartIssymaWrapper({
             className="text-[10px] tracking-[0.32em] uppercase font-semibold"
             style={{ color: P.wine700 }}
           >
-            Mon compte
+            {t("cartAccount")}
           </p>
           <h1
             className="serif mt-3"
@@ -79,10 +84,10 @@ export default async function CartIssymaWrapper({
               letterSpacing: "-0.02em",
             }}
           >
-            Mon panier
+            {t("cartTitle")}
           </h1>
           <p className="mt-3 max-w-xl text-[13px] leading-[1.6] font-light" style={{ color: P.inkSoft }}>
-            Vérifiez vos articles et finalisez votre commande.
+            {t("cartSubtitle")}
           </p>
         </div>
 
@@ -103,9 +108,9 @@ export default async function CartIssymaWrapper({
             }}
           >
             {[
-              { Icon: IconTruck, title: "Paiement sécurisé", desc: "Carte ou virement" },
-              { Icon: IconBoxLine, title: "Préparation 24 à 48h", desc: "Expédition rapide et soignée" },
-              { Icon: IconHeadset, title: "Une question ?", desc: "Contactez-nous, on vous répond vite" },
+              { Icon: IconTruck, title: t("cartTrust1Title"), desc: t("cartTrust1Desc") },
+              { Icon: IconBoxLine, title: t("cartTrust2Title"), desc: t("cartTrust2Desc") },
+              { Icon: IconHeadset, title: t("cartTrust3Title"), desc: t("cartTrust3Desc") },
             ].map(({ Icon, title, desc }, i) => (
               <div
                 key={i}
