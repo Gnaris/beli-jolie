@@ -954,11 +954,30 @@ export async function faireUpdateProduct(
               status: delRes.status,
               body: text.slice(0, 200),
             });
+            // Cas typique observé (2026-09-22) : Faire renvoie 400 avec
+            // `service_error_code: PRODUCT_NEEDS_AT_LEAST_ONE_OPTION` — la
+            // fiche est publiée avec une seule variante et Faire refuse de la
+            // supprimer parce qu'il faudrait qu'il reste au moins une option.
+            // Le déliage/reliage BJ ne résout PAS ce cas : Faire refusera à
+            // nouveau tant que la fiche reste publiée. Il faut d'abord la
+            // dépublier côté Faire, puis relancer la synchro BJ (qui recréera
+            // proprement la structure avec l'axe couleur).
+            const isPublishedLockError =
+              delRes.status === 400 &&
+              /PRODUCT_NEEDS_AT_LEAST_ONE_OPTION|au moins une option/i.test(text);
+            if (isPublishedLockError) {
+              return {
+                success: false,
+                error:
+                  `Faire refuse de restructurer cette fiche : elle est publiée avec une seule variante et Faire exige au moins une option pour tout produit publié. ` +
+                  `Étapes pour débloquer — (1) sur ton back-office Faire, dépublie ou archive cette fiche, (2) reviens ici et relance la synchro : le code recréera une fiche propre avec l'axe couleur.`,
+              };
+            }
             return {
               success: false,
               error:
                 `Faire ne peut pas ajouter d'axe couleur sur cette fiche (HTTP ${delRes.status} sur suppression de la variante existante). ` +
-                `Merci de délier puis relier ce produit à Faire pour repartir sur une fiche propre.`,
+                `Vérifie que la fiche n'est pas verrouillée côté Faire (commande en cours, statut publié), puis relance.`,
             };
           }
         } catch (err) {
