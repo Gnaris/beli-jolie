@@ -25,6 +25,7 @@ import {
   readProductByIdWithSkuFallback,
   readProductByIdWithRetry,
   resolveAnkorImageUrl,
+  searchProducts,
 } from "@/lib/ankorstore-bo/read";
 
 const mockedGet = boGet as unknown as ReturnType<typeof vi.fn>;
@@ -114,6 +115,40 @@ describe("readProductByIdWithSkuFallback", () => {
     expect(r?.id).toBe(7302182);
     // 1 direct + 1 search (les vides sont skip)
     expect(mockedGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignore les SKU < 3 caractères (Ankor refuse la recherche)", async () => {
+    // Direct : mauvais produit → déclenche le fallback
+    mockedGet.mockResolvedValueOnce({ data: [{ id: 9999 }] });
+    // Un seul search (le SKU "JG" est skip, seul "JG_ROUGE" appelle Ankor)
+    mockedGet.mockResolvedValueOnce({ data: [{ id: 7302182 }] });
+    const r = await readProductByIdWithSkuFallback(7302182, ["JG", "JG_ROUGE"]);
+    expect(r?.id).toBe(7302182);
+    expect(mockedGet).toHaveBeenCalledTimes(2); // 1 direct + 1 search (JG skip)
+  });
+});
+
+describe("searchProducts — garde-fou requête < 3 caractères", () => {
+  it("throw un message explicite quand la query est < 3 caractères", async () => {
+    await expect(searchProducts("JG")).rejects.toThrow(
+      /Ankorstore refuse toute recherche à moins de 3 caractères/,
+    );
+    // Ne fait AUCUN appel réseau : le garde-fou bloque en amont.
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it("throw aussi sur une query vide après trim", async () => {
+    await expect(searchProducts("  ab  ")).rejects.toThrow(
+      /au moins 3 caractères/,
+    );
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it("laisse passer une query ≥ 3 caractères", async () => {
+    mockedGet.mockResolvedValueOnce({ data: [{ id: 42 }] });
+    const r = await searchProducts("ABC");
+    expect(r).toHaveLength(1);
+    expect(r[0].id).toBe(42);
   });
 
   it("continue si une recherche SKU throw", async () => {

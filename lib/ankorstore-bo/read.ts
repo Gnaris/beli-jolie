@@ -87,17 +87,29 @@ export async function readProductById(
 /**
  * Recherche par texte libre (référence, nom).
  * Utilisé par le flow de liaison — l'admin tape la référence BJ, on cherche un match.
+ *
+ * Ankorstore refuse toute recherche de moins de 3 caractères ("Le texte query
+ * doit contenir au moins 3 caractères."). On lève une erreur explicite plutôt
+ * que de laisser cette erreur brute remonter à l'admin — ça arrive vraiment
+ * quand une référence BJ courte (2 lettres, ex "JG") est envoyée en recherche.
  */
 export async function searchProducts(
   query: string,
   opts: { limit?: number; fields?: string } = {}
 ): Promise<BoProductSummary[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 3) {
+    throw new Error(
+      `Ankorstore refuse toute recherche à moins de 3 caractères (reçu : « ${trimmed} »). ` +
+        `La référence produit BJ doit faire au moins 3 caractères — renomme-la (par ex. « ${trimmed}01 »).`,
+    );
+  }
   const fields = opts.fields ?? DEFAULT_FIELDS;
   const qs = new URLSearchParams({
     fields,
     page: "1",
     per_page: String(opts.limit ?? 20),
-    query,
+    query: trimmed,
     "filters[requireupdate]": "0",
     "filters[with_options]": "1",
   });
@@ -124,7 +136,9 @@ export async function readProductByIdWithSkuFallback(
   if (direct) return direct;
   for (const sku of skuHints) {
     const trimmed = sku?.trim();
-    if (!trimmed) continue;
+    // Ankorstore rejette les recherches < 3 caractères — on skip ces SKUs
+    // silencieusement pour ne pas casser tout le fallback si un SKU est très court.
+    if (!trimmed || trimmed.length < 3) continue;
     try {
       const results = await searchProducts(trimmed, { limit: 5, fields: opts.fields });
       const match = results.find((p) => p.id === productId);
