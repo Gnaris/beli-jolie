@@ -243,6 +243,24 @@ export async function efashionUpdateProductInPlace(
     return { success: false, error: "Produit non lié à eFashion (référence manquante)" };
   }
 
+  // Pré-check poids : eFashion GraphQL refuse tout poids > 5 kg par unité
+  // (message brut « Le poids unitaire ne peut pas dépasser 5 kg »). On bloque
+  // en amont avec un message clair listant les couleurs à corriger — sinon
+  // eFashion renvoie N erreurs identiques (une par variante couleur) sans
+  // préciser laquelle poser.
+  const EFASHION_MAX_WEIGHT_KG = 5;
+  const overweightColors = product.colors
+    .filter((c) => !c.disabled && c.weight > EFASHION_MAX_WEIGHT_KG)
+    .map((c) => `${c.color?.name ?? "sans couleur"} = ${c.weight} kg`);
+  if (overweightColors.length > 0) {
+    return {
+      success: false,
+      error:
+        `eFashion refuse tout produit au-dessus de ${EFASHION_MAX_WEIGHT_KG} kg par unité. ` +
+        `Corrige le poids dans la fiche produit — variante(s) concernée(s) : ${overweightColors.join(", ")}.`,
+    };
+  }
+
   // Images du produit, indexées par colorId — on lit toutes les
   // `ProductColorImage` du produit (avec ou sans `productColorId`) parce que
   // les images créées via l'admin moderne ont `productColorId = NULL` et
@@ -1819,7 +1837,19 @@ export async function efashionUpdateProductInPlace(
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`updateProduit(${variant.efashionProductId}): ${msg}`);
+      // Transformation des messages bruts eFashion en texte compréhensible.
+      // Filet de sécurité : le pré-check en tête de fonction bloque déjà les
+      // poids > 5 kg, mais si quelque chose passe (arrondi, cas non-UNIT),
+      // on remplace le « poids unitaire ne peut pas dépasser 5 kg » brut par
+      // un message qui pointe la variante concernée.
+      if (/poids.*(dépasser|dépass|5\s*kg|maximum)/i.test(msg)) {
+        errors.push(
+          `Poids trop élevé (${variant.poids} kg) sur une variante — eFashion refuse au-dessus de 5 kg. ` +
+            `Corrige le poids dans la fiche produit.`,
+        );
+      } else {
+        errors.push(`updateProduit(${variant.efashionProductId}): ${msg}`);
+      }
     }
   }
 

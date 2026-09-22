@@ -726,4 +726,51 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
 
     expect(res.colorsSkippedCount ?? 0).toBe(0);
   });
+
+  it("bloque en amont si une variante dépasse 5 kg (limite eFashion GraphQL)", async () => {
+    // Reproduit le cas issyma 5443 : 5 couleurs à 8.3 kg. Sans le pré-check,
+    // eFashion renvoyait 5 erreurs GraphQL brutes « Le poids unitaire ne peut
+    // pas dépasser 5 kg » — illisibles. Le pré-check consolide en un message.
+    const heavy1 = makeLinkedColor({
+      id: "pc-a",
+      colorId: "color-a",
+      efashionProductId: 201,
+      colorName: "Blanc",
+      isPrimary: true,
+    });
+    const heavy2 = makeLinkedColor({
+      id: "pc-b",
+      colorId: "color-b",
+      efashionProductId: 202,
+      colorName: "Bleu Ciel",
+    });
+    heavy1.weight = 8.3;
+    heavy2.weight = 6;
+    findUniqueMock.mockResolvedValue({
+      id: "p-heavy",
+      reference: "5443",
+      status: "ONLINE",
+      description: null,
+      dimensionLength: null,
+      dimensionWidth: null,
+      dimensionHeight: null,
+      dimensionDiameter: null,
+      dimensionCircumference: null,
+      efashionReferenceBase: "5443",
+      efashionLastSyncSnapshot: null,
+      category: { efashionCategorieId: 1 },
+      primaryColorId: "color-a",
+      compositions: [],
+      colors: [heavy1, heavy2],
+    });
+
+    const res = await efashionUpdateProductInPlace("p-heavy");
+
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/refuse tout produit au-dessus de 5 kg/);
+    expect(res.error).toContain("Blanc = 8.3 kg");
+    expect(res.error).toContain("Bleu Ciel = 6 kg");
+    // Aucun appel eFashion : le pré-check bloque en amont.
+    expect(updateProduitMock).not.toHaveBeenCalled();
+  });
 });
