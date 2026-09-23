@@ -55,6 +55,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     select: {
       name: true,
       image: true,
+      imageBanner: true,
       slug: true,
       translations: { where: { locale }, select: { name: true }, take: 1 },
     },
@@ -68,7 +69,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const localizedName = col.translations[0]?.name ?? col.name;
   const title = `${localizedName} — Collections ${shopName}`;
   const description = `Découvrez la collection ${localizedName} sur ${shopName}. Sélection grossiste pour professionnels.`;
-  const imageUrl = col.image ? (col.image.startsWith("http") ? col.image : `${siteUrl}${col.image}`) : null;
+  // Priorité à la bannière pour OG (format paysage plus proche de ce que Twitter/FB
+  // attendent) ; sinon fallback sur l'image de carte.
+  const ogSource = col.imageBanner ?? col.image;
+  const imageUrl = ogSource ? (ogSource.startsWith("http") ? ogSource : `${siteUrl}${ogSource}`) : null;
 
   return {
     title,
@@ -154,6 +158,11 @@ export default async function CollectionDetailPage({ params }: PageProps) {
   // Nom collection localisé (fallback FR si aucune CollectionTranslation).
   const localizedCollectionName = collection.translations[0]?.name ?? collection.name;
 
+  // Bannière hero : priorité à `imageBanner` (format paysage prévu pour ça) ;
+  // fallback sur `image` (miniature carte) pour rester compatible avec les
+  // collections créées avant l'introduction du champ dédié (2026-09-23).
+  const heroImage = collection.imageBanner ?? collection.image;
+
   // Fetch images for all products in collection
   const colProductIds = collection.products.map((cp) => cp.product.id);
   const colColorImages = colProductIds.length > 0
@@ -225,7 +234,7 @@ export default async function CollectionDetailPage({ params }: PageProps) {
       <CollectionDetailIssymaLayout
         shopName={shopName}
         collectionName={localizedCollectionName}
-        collectionImage={collection.image}
+        collectionImage={heroImage}
         products={issymaProducts}
       />
     );
@@ -238,11 +247,11 @@ export default async function CollectionDetailPage({ params }: PageProps) {
       <div className="min-w-0">
         {/* Header */}
         <div className="bg-bg-primary border-b border-border">
-          {/* Cover image */}
-          {collection.image && (
+          {/* Cover banner (priorité imageBanner, fallback image de carte) */}
+          {heroImage && (
             <div className="h-48 md:h-64 overflow-hidden relative">
               <Image
-                src={collection.image}
+                src={heroImage}
                 alt={localizedCollectionName}
                 fill
                 sizes="100vw"

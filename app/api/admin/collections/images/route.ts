@@ -13,8 +13,11 @@ import { logger } from "@/lib/logger";
  * FormData :
  *   - `image` : fichier (obligatoire)
  *   - `slug`  : slug de la collection (optionnel) — détermine le sous-dossier
+ *   - `kind`  : "card" (défaut) | "banner" — préfixe le nom de fichier pour
+ *               distinguer les deux usages dans le dossier de la collection.
  *
- * Sortie : `/uploads/collections/{slug}/couverture-XXXX.webp`.
+ * Sortie carte    : `/uploads/collections/{slug}/{slug}-couverture-XXXX.webp`.
+ * Sortie bannière : `/uploads/collections/{slug}/{slug}-banniere-XXXX.webp`.
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -27,6 +30,8 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get("image") as File | null;
   const slug = ((formData.get("slug") as string | null) || "").trim();
+  const rawKind = ((formData.get("kind") as string | null) || "card").trim().toLowerCase();
+  const kind: "card" | "banner" = rawKind === "banner" ? "banner" : "card";
 
   if (!file || file.size === 0) {
     return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
@@ -53,9 +58,10 @@ export async function POST(request: NextRequest) {
     const destDir = slug
       ? collectionImageDir(slug, tenant.slug)
       : withTenantSlug("uploads/collections/_brouillon", tenant.slug);
+    const suffix = kind === "banner" ? "banniere" : "couverture";
     const basename = slug
-      ? `${slugify(slug)}-couverture-${stamp}`
-      : `couverture-${stamp}`;
+      ? `${slugify(slug)}-${suffix}-${stamp}`
+      : `${suffix}-${stamp}`;
 
     const result = await processProductImage(buffer, destDir, basename);
 

@@ -68,9 +68,10 @@ export async function GET(
   }
 
   const shaped = {
-    id:    collection.id,
-    name:  collection.name,
-    image: collection.image,
+    id:          collection.id,
+    name:        collection.name,
+    image:       collection.image,
+    imageBanner: collection.imageBanner,
     translations: translationsMap,
     products: collection.products.map((cp) => {
       // Deduplicate colors by colorId

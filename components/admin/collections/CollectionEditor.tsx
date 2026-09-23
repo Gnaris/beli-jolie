@@ -17,6 +17,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { pinCollectionProduct, unpinCollectionProduct } from "@/app/actions/admin/collections";
 import CollectionRuleEditor from "@/components/admin/collections/CollectionRuleEditor";
+import CollectionImageField from "@/components/admin/collections/CollectionImageField";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ interface CollectionData {
   slug: string | null;
   name: string;
   image: string | null;
+  imageBanner: string | null;
   translations: Record<string, string>;
   products: CollectionProductRow[];
 }
@@ -122,14 +124,12 @@ function deduplicateColors(raw: RawColorVariant[], images: RawImage[]): UniqueCo
 export default function CollectionEditor({ collection, categories, filterOptions, ruleData }: Props) {
   const router = useRouter();
   const { confirm } = useConfirm();
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Form state ──────────────────────────────────────────────────────────
   const [name, setName] = useState(collection.name);
   const [translations, setTranslations] = useState<Record<string, string>>(collection.translations);
   const [image, setImage] = useState<string | null>(collection.image);
-  const [preview, setPreview] = useState<string | null>(collection.image);
-  const [uploading, setUploading] = useState(false);
+  const [imageBanner, setImageBanner] = useState<string | null>(collection.imageBanner);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,30 +158,8 @@ export default function CollectionEditor({ collection, categories, filterOptions
   // Detect unsaved changes
   const hasChanges = name !== collection.name
     || image !== collection.image
+    || imageBanner !== collection.imageBanner
     || JSON.stringify(translations) !== JSON.stringify(collection.translations);
-
-  // ── Image upload ────────────────────────────────────────────────────────
-
-  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-
-    const fd = new FormData();
-    fd.append("image", file);
-    if (name?.trim()) fd.append("slug", name.trim());
-
-    const res = await fetch("/api/admin/collections/images", { method: "POST", body: fd });
-    const data = await res.json();
-
-    if (!res.ok) {
-      setError(data.error ?? "Erreur upload.");
-    } else {
-      setImage(data.path);
-      setPreview(data.path);
-    }
-    setUploading(false);
-  }
 
   // ── Save collection info ────────────────────────────────────────────────
 
@@ -192,6 +170,7 @@ export default function CollectionEditor({ collection, categories, filterOptions
     const fd = new FormData();
     fd.append("name", name);
     if (image) fd.append("image", image);
+    if (imageBanner) fd.append("imageBanner", imageBanner);
 
     for (const locale of NON_DEFAULT_LOCALES) {
       if (translations[locale]) {
@@ -775,72 +754,24 @@ export default function CollectionEditor({ collection, categories, filterOptions
             />
           )}
 
-          {/* Image */}
-          <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm space-y-4">
+          {/* Images */}
+          <div className="bg-bg-primary border border-border rounded-2xl p-5 shadow-sm space-y-5">
             <h2 className="font-heading font-semibold text-text-primary text-sm">
-              Image de la collection
+              Images de la collection
             </h2>
-            {preview ? (
-              <div className="relative rounded-xl overflow-hidden border border-border">
-                <img src={preview} alt="Apercu" className="w-full h-32 object-cover" />
-                <div className="absolute top-2 right-2 flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    disabled={uploading}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-bg-primary/90 hover:bg-bg-primary border border-border text-text-muted hover:text-text-primary transition-colors"
-                    title="Changer l'image"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setImage(null); setPreview(null); }}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-bg-primary/90 hover:bg-bg-primary border border-border text-[#EF4444] transition-colors"
-                    title="Supprimer l'image"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="w-full border-2 border-dashed border-border rounded-xl py-8 flex flex-col items-center gap-2 hover:border-[#9CA3AF] hover:bg-bg-secondary transition-colors disabled:opacity-50"
-              >
-                {uploading ? (
-                  <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 animate-spin text-text-muted" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <span className="text-sm text-[#6B7280] font-body">Telechargement...</span>
-                  </div>
-                ) : (
-                  <>
-                    <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                    </svg>
-                    <span className="text-sm text-[#6B7280] font-body">Choisir une image</span>
-                    <span className="text-xs text-text-muted">JPG, PNG, WEBP</span>
-                  </>
-                )}
-              </button>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleImageChange}
+            <CollectionImageField
+              kind="card"
+              value={image}
+              onChange={setImage}
+              slug={name}
+              onError={setError}
+            />
+            <CollectionImageField
+              kind="banner"
+              value={imageBanner}
+              onChange={setImageBanner}
+              slug={name}
+              onError={setError}
             />
           </div>
 

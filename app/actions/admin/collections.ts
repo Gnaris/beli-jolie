@@ -32,9 +32,32 @@ async function requireAdmin() {
 // ─────────────────────────────────────────────
 
 const CollectionSchema = z.object({
-  name:  z.string().min(1, "Le nom est requis.").max(100),
-  image: z.string().optional(),
+  name:        z.string().min(1, "Le nom est requis.").max(100),
+  image:       z.string().optional(),
+  imageBanner: z.string().optional(),
 });
+
+/**
+ * Purge les 3 tailles (grand + `-md` + `-thumb`) d'une image de couverture qui
+ * a été remplacée ou supprimée. Best-effort : les erreurs sont loggées mais
+ * n'empêchent pas la sauvegarde en BDD (la BDD est déjà à jour, on veut juste
+ * ne pas laisser de fichiers orphelins sur disque).
+ */
+async function purgeCollectionCoverFiles(collectionId: string, dbPath: string) {
+  const mdPath = dbPath.replace(/\.webp$/i, "-md.webp");
+  const thumbPath = dbPath.replace(/\.webp$/i, "-thumb.webp");
+  for (const p of [dbPath, mdPath, thumbPath]) {
+    try {
+      await deleteFile(keyFromDbPath(p));
+    } catch (err) {
+      logger.warn("[collections] Failed to delete old cover file", {
+        collectionId,
+        path: p,
+        error: err,
+      });
+    }
+  }
+}
 
 // ─────────────────────────────────────────────
 // Lister toutes les collections
@@ -59,9 +82,11 @@ export async function createCollection(formData: FormData) {
   // sur un champ `.optional()`, on le convertit en `undefined` d'abord.
   const rawName = formData.get("name");
   const rawImage = formData.get("image");
+  const rawBanner = formData.get("imageBanner");
   const raw = {
     name: typeof rawName === "string" ? rawName : "",
     image: typeof rawImage === "string" && rawImage.length > 0 ? rawImage : undefined,
+    imageBanner: typeof rawBanner === "string" && rawBanner.length > 0 ? rawBanner : undefined,
   };
 
   const parsed = CollectionSchema.safeParse(raw);
@@ -72,9 +97,10 @@ export async function createCollection(formData: FormData) {
   const slug = await ensureUniqueCollectionSlug(parsed.data.name, null);
   const collection = await prisma.collection.create({
     data: {
-      name:  parsed.data.name,
+      name:        parsed.data.name,
       slug,
-      image: parsed.data.image || null,
+      image:       parsed.data.image || null,
+      imageBanner: parsed.data.imageBanner || null,
     },
   });
   autoTranslateCollection(collection.id, parsed.data.name);
@@ -124,9 +150,11 @@ export async function updateCollection(id: string, formData: FormData) {
   // Idem createCollection : normaliser null → undefined pour Zod v4.
   const rawName = formData.get("name");
   const rawImage = formData.get("image");
+  const rawBanner = formData.get("imageBanner");
   const raw = {
     name: typeof rawName === "string" ? rawName : "",
     image: typeof rawImage === "string" && rawImage.length > 0 ? rawImage : undefined,
+    imageBanner: typeof rawBanner === "string" && rawBanner.length > 0 ? rawBanner : undefined,
   };
 
   const parsed = CollectionSchema.safeParse(raw);
@@ -138,7 +166,7 @@ export async function updateCollection(id: string, formData: FormData) {
   // garder le lecteur réseau lisible. On dérive le slug du nom.
   const previous = await prisma.collection.findUnique({
     where: { id },
-    select: { name: true, image: true, slug: true },
+    select: { name: true, image: true, imageBanner: true, slug: true },
   });
 
   // Le slug URL suit le nom : recalculé s'il a changé, on garde l'existant
@@ -151,24 +179,27 @@ export async function updateCollection(id: string, formData: FormData) {
       : previous.slug;
 
   let newImagePath = parsed.data.image || null;
+  let newBannerPath = parsed.data.imageBanner || null;
   let folderRenamed = false;
   // Resolve the *current on-disk path* of the previous image (a folder rename
   // would have moved it). Initialised before the rename: starts as
   // `previous.image`, swapped to its new path if the rename touched it.
   let previousImageEffectivePath: string | null = previous?.image ?? null;
+  let previousBannerEffectivePath: string | null = previous?.imageBanner ?? null;
   if (previous && previous.name !== parsed.data.name) {
     try {
       const { renamed } = await renameCollectionFolder(previous.name, parsed.data.name, tenant.slug);
       folderRenamed = renamed.length > 0;
-      // Si l'image actuelle pointe vers l'ancien dossier, swap aussi le path.
-      if (newImagePath) {
-        const swap = renamed.find((r) => r.oldDbPath === newImagePath);
-        if (swap) newImagePath = swap.newDbPath;
-      }
-      if (previousImageEffectivePath) {
-        const swap = renamed.find((r) => r.oldDbPath === previousImageEffectivePath);
-        if (swap) previousImageEffectivePath = swap.newDbPath;
-      }
+      // Si les images pointent vers l'ancien dossier, swap aussi les paths.
+      const swapPath = (p: string | null): string | null => {
+        if (!p) return p;
+        const hit = renamed.find((r) => r.oldDbPath === p);
+        return hit ? hit.newDbPath : p;
+      };
+      newImagePath = swapPath(newImagePath);
+      newBannerPath = swapPath(newBannerPath);
+      previousImageEffectivePath = swapPath(previousImageEffectivePath);
+      previousBannerEffectivePath = swapPath(previousBannerEffectivePath);
     } catch (err) {
       logger.error("[Storage] renameCollectionFolder failed", {
         collectionId: id,
@@ -183,9 +214,10 @@ export async function updateCollection(id: string, formData: FormData) {
     await prisma.collection.update({
       where: { id },
       data: {
-        name:  parsed.data.name,
-        slug:  nextSlug,
-        image: newImagePath,
+        name:        parsed.data.name,
+        slug:        nextSlug,
+        image:       newImagePath,
+        imageBanner: newBannerPath,
       },
     });
   } catch (err) {
@@ -202,27 +234,14 @@ export async function updateCollection(id: string, formData: FormData) {
     throw err;
   }
 
-  // BDD update succeeded — purge the previous cover image files (large +
-  // -md.webp + -thumb.webp) if the user replaced or removed it. Skip when
-  // the image path is unchanged (same file, just kept) and when the rename
-  // already moved it to the new path we just stored.
-  if (
-    previousImageEffectivePath &&
-    previousImageEffectivePath !== newImagePath
-  ) {
-    const mdPath = previousImageEffectivePath.replace(/\.webp$/i, "-md.webp");
-    const thumbPath = previousImageEffectivePath.replace(/\.webp$/i, "-thumb.webp");
-    for (const dbPath of [previousImageEffectivePath, mdPath, thumbPath]) {
-      try {
-        await deleteFile(keyFromDbPath(dbPath));
-      } catch (err) {
-        logger.warn("[updateCollection] Failed to delete old cover image", {
-          collectionId: id,
-          path: dbPath,
-          error: err,
-        });
-      }
-    }
+  // BDD update succeeded — purge the previous cover files (large + -md +
+  // -thumb) if the user replaced or removed them. Skip when the path is
+  // unchanged and when the rename already moved it to the new path stored.
+  if (previousImageEffectivePath && previousImageEffectivePath !== newImagePath) {
+    await purgeCollectionCoverFiles(id, previousImageEffectivePath);
+  }
+  if (previousBannerEffectivePath && previousBannerEffectivePath !== newBannerPath) {
+    await purgeCollectionCoverFiles(id, previousBannerEffectivePath);
   }
 
   // Save translations if present

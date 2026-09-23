@@ -1,41 +1,18 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createCollection } from "@/app/actions/admin/collections";
+import CollectionImageField from "@/components/admin/collections/CollectionImageField";
 
 export default function NewCollectionPage() {
-  const router        = useRouter();
-  const [name, setName]     = useState("");
-  const [image, setImage]   = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving]   = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const fileRef               = useRef<HTMLInputElement>(null);
-
-  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setError(null);
-
-    const fd = new FormData();
-    fd.append("image", file);
-    if (name?.trim()) fd.append("slug", name.trim());
-
-    const res  = await fetch("/api/admin/collections/images", { method: "POST", body: fd });
-    const data = await res.json();
-
-    if (!res.ok) {
-      setError(data.error ?? "Erreur upload.");
-    } else {
-      setImage(data.path);
-      setPreview(data.path);
-    }
-    setUploading(false);
-  }
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+  const [imageBanner, setImageBanner] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,8 +20,9 @@ export default function NewCollectionPage() {
     setError(null);
 
     const fd = new FormData();
-    fd.append("name",  name);
+    fd.append("name", name);
     if (image) fd.append("image", image);
+    if (imageBanner) fd.append("imageBanner", imageBanner);
 
     const result = await createCollection(fd);
     setSaving(false);
@@ -70,9 +48,7 @@ export default function NewCollectionPage() {
           </svg>
         </Link>
         <div>
-          <h1 className="page-title">
-            Nouvelle collection
-          </h1>
+          <h1 className="page-title">Nouvelle collection</h1>
           <p className="page-subtitle font-body">
             Créez une collection et ajoutez-y des produits après.
           </p>
@@ -102,60 +78,29 @@ export default function NewCollectionPage() {
           />
         </div>
 
-        {/* Image */}
-        <div>
-          <label className="field-label font-body">
-            Image de la collection
-          </label>
+        {/* Image de la carte */}
+        <CollectionImageField
+          kind="card"
+          value={image}
+          onChange={setImage}
+          slug={name}
+          onError={setError}
+        />
 
-          {preview ? (
-            <div className="relative w-48 h-48 rounded-xl overflow-hidden border border-border">
-              <img src={preview} alt="Aperçu" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={() => { setImage(null); setPreview(null); }}
-                className="absolute top-2 right-2 bg-bg-primary/90 text-text-primary rounded-full p-1 hover:bg-bg-primary transition-colors shadow-sm"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="w-full h-40 border-2 border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 text-text-muted hover:border-border-dark hover:text-text-secondary transition-colors"
-            >
-              {uploading ? (
-                <span className="text-sm font-body">Téléchargement…</span>
-              ) : (
-                <>
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                  </svg>
-                  <span className="text-sm font-body">Cliquer pour ajouter une image</span>
-                  <span className="text-xs">JPG, PNG, WEBP — max 5 Mo</span>
-                </>
-              )}
-            </button>
-          )}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={handleImageChange}
-          />
-        </div>
+        {/* Bannière */}
+        <CollectionImageField
+          kind="banner"
+          value={imageBanner}
+          onChange={setImageBanner}
+          slug={name}
+          onError={setError}
+        />
 
         {/* Submit */}
         <div className="flex gap-3 pt-2">
           <button
             type="submit"
-            disabled={saving || uploading}
+            disabled={saving}
             className="btn-primary"
           >
             {saving ? "Création…" : "Créer la collection"}
