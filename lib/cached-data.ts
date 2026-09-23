@@ -1277,7 +1277,6 @@ export const getCachedActivePromotions = tenantScopedCacheWithTid(
       minOrderAmount: p.minOrderAmount != null ? Number(p.minOrderAmount) : null,
       maxUses: p.maxUses,
       maxUsesPerUser: p.maxUsesPerUser,
-      firstOrderOnly: p.firstOrderOnly,
       currentUses: p.currentUses,
       startsAt: p.startsAt,
       endsAt: p.endsAt,

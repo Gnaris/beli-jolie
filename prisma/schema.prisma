@@ -101,6 +101,11 @@ model User {
   shippingDiscountMinAmount     Decimal?            @db.Decimal(12, 2) // seuil HT pour mode THRESHOLD
   shippingDiscountMinQuantity   Int? // nombre min d'articles pour mode THRESHOLD
   shippingDiscountNextOrderUsed Boolean             @default(false) // true = remise NEXT_ORDER déjà utilisée
+  // Override du minimum de commande pour ce client (voir lib/min-order.ts) :
+  //  - null   → on applique le minimum global (SiteConfig min_order_*)
+  //  - 0      → aucun minimum pour ce client
+  //  - > 0    → seuil HT propre au client (permanent tant que non retiré)
+  minimumOrderOverrideHt        Decimal?            @db.Decimal(12, 2)
   lastLoginAt                   DateTime?
   lastSeenAt                    DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
   // Présence Service Client : id de la conversation actuellement ouverte par
@@ -3370,6 +3375,9 @@ model Credit {
   user            User          @relation(fields: [userId], references: [id])
   amount          Decimal       @db.Decimal(10, 2)
   remainingAmount Decimal       @db.Decimal(10, 2)
+  /// Motif libre saisi par l'admin (« Geste commercial », « Colis abîmé », etc.).
+  /// Visible sur la fiche client admin + à terme sur l'espace pro cliente.
+  reason          String?       @db.Text
   expiresAt       DateTime?
   usages          CreditUsage[]
   createdAt       DateTime      @default(now())

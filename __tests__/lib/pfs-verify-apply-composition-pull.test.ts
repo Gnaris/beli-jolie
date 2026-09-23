@@ -53,6 +53,14 @@ vi.mock("@/lib/pfs-verify-variant-ops", () => ({
 }));
 vi.mock("@/lib/pfs-admin-api", () => ({
   pfsAdminFetchMaterialComposition: vi.fn(),
+  // Reproduit la vraie normalisation : strip accents, espaces, points,
+  // tirets, underscores puis uppercase. Permet à « P.U. » de matcher « PU ».
+  normalizeDictKey: (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/[.\s_-]+/g, "")
+      .toUpperCase(),
 }));
 
 import { resolvePfsCompositionsToLocal, PfsCompositionsMissingError } from "@/lib/pfs-verify-apply";
@@ -79,7 +87,7 @@ describe("resolvePfsCompositionsToLocal", () => {
 
   it("résout un code PFS connu (Composition existante, match par Ref)", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
     ]);
     const result = await resolvePfsCompositionsToLocal([compoCoton()]);
     expect(result).toEqual([{ compositionId: "loc-cotton", percentage: 100 }]);
@@ -87,16 +95,43 @@ describe("resolvePfsCompositionsToLocal", () => {
 
   it("match prioritaire par Uid Salesforce quand disponible localement", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON_LEGACY", pfsCompositionUid: "sf-cotton" },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON_LEGACY", pfsCompositionUid: "sf-cotton" },
     ]);
     // PFS renvoie un Code différent ("COTTON") mais l'Uid ("sf-cotton") matche.
     const result = await resolvePfsCompositionsToLocal([compoCoton()]);
     expect(result).toEqual([{ compositionId: "loc-cotton", percentage: 100 }]);
   });
 
+  it("tolère les libellés bruts non canoniques (« P.U. » ↔ « PU ») — incident 2026-09-22 Issyma", async () => {
+    // Reproduit le bug prod : le dictionnaire PFS mobile a échoué, l'API a
+    // renvoyé le libellé brut « P.U. » (id + reference) au lieu du couple
+    // Uid + Code « PU ». Le resolver DOIT retrouver la compo locale via la
+    // normalisation (points/espaces strippés).
+    prismaMock.composition.findMany.mockResolvedValueOnce([
+      { id: "loc-pu", name: "P.U.", pfsCompositionRef: "PU", pfsCompositionUid: "a0z58000000d3d3AAA" },
+    ]);
+    const result = await resolvePfsCompositionsToLocal([
+      { id: "P.U.", reference: "P.U.", percentage: 50, labels: { fr: "P.U." } },
+    ]);
+    expect(result).toEqual([{ compositionId: "loc-pu", percentage: 50 }]);
+  });
+
+  it("fallback par nom local normalisé quand ni Uid ni ref ne matchent", async () => {
+    // La compo locale n'a que son nom : ni Uid, ni Code PFS. PFS renvoie
+    // « Coton » sans Uid — on doit quand même retrouver la compo locale par
+    // le nom FR normalisé.
+    prismaMock.composition.findMany.mockResolvedValueOnce([
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: null, pfsCompositionUid: null },
+    ]);
+    const result = await resolvePfsCompositionsToLocal([
+      { id: "", reference: "coton", percentage: 100, labels: { fr: "Coton" } },
+    ]);
+    expect(result).toEqual([{ compositionId: "loc-cotton", percentage: 100 }]);
+  });
+
   it("heal opportuniste : match par Ref + pose l'Uid si local n'en a pas encore", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
     ]);
     await resolvePfsCompositionsToLocal([compoCoton()]);
     expect(prismaMock.composition.update).toHaveBeenCalledWith({
@@ -107,7 +142,7 @@ describe("resolvePfsCompositionsToLocal", () => {
 
   it("pas de heal si local a déjà un Uid", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON", pfsCompositionUid: "sf-cotton-existing" },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON", pfsCompositionUid: "sf-cotton-existing" },
     ]);
     await resolvePfsCompositionsToLocal([compoCoton()]);
     expect(prismaMock.composition.update).not.toHaveBeenCalled();
@@ -132,8 +167,8 @@ describe("resolvePfsCompositionsToLocal", () => {
 
   it("gère plusieurs compositions (multi-slots) — reference distincts, garde chacune", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
-      { id: "loc-elast", pfsCompositionRef: "ELASTHANNE", pfsCompositionUid: null },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
+      { id: "loc-elast", name: "Élasthanne", pfsCompositionRef: "ELASTHANNE", pfsCompositionUid: null },
     ]);
     const result = await resolvePfsCompositionsToLocal([
       { id: "1", reference: "COTTON", percentage: 95, labels: { fr: "Coton" } },
@@ -148,8 +183,8 @@ describe("resolvePfsCompositionsToLocal", () => {
     // Ex: PFS renvoie "COTTON" 60% + "COTON_ORGANIQUE" 40% et les deux sont
     // aliasés en local sur la même Composition "Coton".
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-cotton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
-      { id: "loc-cotton", pfsCompositionRef: "COTON_ORGANIQUE", pfsCompositionUid: null },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTTON", pfsCompositionUid: null },
+      { id: "loc-cotton", name: "Coton", pfsCompositionRef: "COTON_ORGANIQUE", pfsCompositionUid: null },
     ]);
     const result = await resolvePfsCompositionsToLocal([
       { id: "1", reference: "COTTON", percentage: 60, labels: { fr: "Coton" } },
@@ -161,7 +196,7 @@ describe("resolvePfsCompositionsToLocal", () => {
 
   it("préserve les pourcentages fractionnaires (ex : Argent 925 = 92.5%)", async () => {
     prismaMock.composition.findMany.mockResolvedValueOnce([
-      { id: "loc-silver", pfsCompositionRef: "SILVER", pfsCompositionUid: null },
+      { id: "loc-silver", name: "Argent 925", pfsCompositionRef: "SILVER", pfsCompositionUid: null },
     ]);
     const result = await resolvePfsCompositionsToLocal([
       { id: "1", reference: "SILVER", percentage: 92.5, labels: { fr: "Argent 925" } },

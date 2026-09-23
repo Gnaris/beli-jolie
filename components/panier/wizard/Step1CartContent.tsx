@@ -29,6 +29,9 @@ export default function Step1CartContent({
   onClearErrors,
   promoInfoByItemId = {},
   clientDiscount = null,
+  minOrderHT = 0,
+  subtotalHT = 0,
+  hasMergeCandidates = false,
 }: {
   cart: WizardCart;
   productsMeta: WizardProductsMeta;
@@ -41,6 +44,12 @@ export default function Step1CartContent({
   promoInfoByItemId?: Record<string, WizardPromoInfo>;
   /** Remise commerciale du client (cumulée en cascade sur le prix serveur). */
   clientDiscount?: { type: "PERCENT" | "AMOUNT"; value: number } | null;
+  /** Seuil HT applicable au client (0 = pas de minimum). */
+  minOrderHT?: number;
+  /** Sous-total HT courant du panier (après remises). */
+  subtotalHT?: number;
+  /** Le client a-t-il au moins une commande PENDING à laquelle il peut ajouter ce panier ? */
+  hasMergeCandidates?: boolean;
 }) {
   const t = useTranslations("cart");
 
@@ -76,8 +85,42 @@ export default function Step1CartContent({
     return () => window.removeEventListener("keydown", onKey);
   }, [zoomedSrc]);
 
+  // Bandeau minimum d'achat à l'étape 1 :
+  //  - sous minimum + fusion possible → info orange, la cliente pourra
+  //    fusionner à l'étape 2 (bouton Continuer actif).
+  //  - sous minimum + AUCUNE commande fusionnable → alerte rouge, la cliente
+  //    est bloquée ici (bouton Continuer grisé côté SummaryPanel).
+  const belowMin = minOrderHT > 0 && subtotalHT < minOrderHT;
+  const missing = Math.max(0, minOrderHT - subtotalHT);
+
   return (
     <div className="space-y-5">
+      {/* Bandeau minimum d'achat */}
+      {belowMin && (
+        <div
+          className={`rounded-2xl border p-4 md:p-5 flex items-start gap-3 ${
+            hasMergeCandidates
+              ? "bg-amber-50 border-amber-200 text-amber-900"
+              : "bg-rose-50 border-rose-200 text-rose-900"
+          }`}
+        >
+          <div className="w-9 h-9 rounded-full bg-white border border-current/20 flex items-center justify-center shrink-0">
+            !
+          </div>
+          <div className="flex-1 text-sm">
+            <p className="font-semibold">
+              Minimum de commande : {minOrderHT.toFixed(2)} € HT
+            </p>
+            <p className="opacity-90 mt-0.5">
+              Il vous manque <strong>{missing.toFixed(2)} € HT</strong>.{" "}
+              {hasMergeCandidates
+                ? "Vous pouvez soit ajouter des articles, soit passer à l'étape suivante pour ajouter ce panier à une commande en cours."
+                : "Ajoutez des articles pour continuer."}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Bandeau d'erreurs global si le passage au paiement a été refusé */}
       {hasErrors && (
         <div className="rounded-2xl bg-red-50 border border-red-200 text-red-800 p-4 md:p-5 flex items-start gap-3">

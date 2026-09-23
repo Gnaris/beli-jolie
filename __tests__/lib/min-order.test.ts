@@ -12,6 +12,9 @@ const prismaMock: any = {
   order: {
     count: vi.fn(),
   },
+  user: {
+    findUnique: vi.fn(),
+  },
 };
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
@@ -20,12 +23,18 @@ const {
   resolveMinOrderForCounters,
   isFirstOrderForUser,
   getEffectiveMinOrderHT,
+  getEffectiveMinOrder,
   isMinOrderMode,
 } = await import("@/lib/min-order");
 
 beforeEach(() => {
   prismaMock.siteConfig.findMany.mockReset();
   prismaMock.order.count.mockReset();
+  prismaMock.user.findUnique.mockReset();
+  // Défaut : pas d'override client. Tests dédiés ré-écrasent ce mock.
+  prismaMock.user.findUnique.mockResolvedValue({
+    minimumOrderOverrideHt: null,
+  });
 });
 
 function siteConfigRows(rows: Record<string, string>): { key: string; value: string }[] {
@@ -198,5 +207,50 @@ describe("getEffectiveMinOrderHT", () => {
     expect(await getEffectiveMinOrderHT("u-1")).toBe(300);
     prismaMock.order.count.mockResolvedValueOnce(2);
     expect(await getEffectiveMinOrderHT("u-1")).toBe(100);
+  });
+});
+
+describe("getEffectiveMinOrder — override client permanent", () => {
+  it("override > 0 remplace le seuil global", async () => {
+    prismaMock.siteConfig.findMany.mockResolvedValue(
+      siteConfigRows({ min_order_mode: "all", min_order_ht: "200" }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      minimumOrderOverrideHt: 50,
+    });
+    const res = await getEffectiveMinOrder("u-1");
+    expect(res).toEqual({ amountHT: 50, source: "override_client" });
+  });
+
+  it("override = 0 = client sans minimum (VIP), même si global > 0", async () => {
+    prismaMock.siteConfig.findMany.mockResolvedValue(
+      siteConfigRows({ min_order_mode: "all", min_order_ht: "200" }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      minimumOrderOverrideHt: 0,
+    });
+    const res = await getEffectiveMinOrder("u-1");
+    expect(res).toEqual({ amountHT: 0, source: "override_zero" });
+  });
+
+  it("override null → on suit le global", async () => {
+    prismaMock.siteConfig.findMany.mockResolvedValue(
+      siteConfigRows({ min_order_mode: "all", min_order_ht: "200" }),
+    );
+    prismaMock.user.findUnique.mockResolvedValue({
+      minimumOrderOverrideHt: null,
+    });
+    const res = await getEffectiveMinOrder("u-1");
+    expect(res).toEqual({ amountHT: 200, source: "global_all" });
+  });
+
+  it("erreur BDD sur le lookup override → retombe silencieusement sur le global", async () => {
+    prismaMock.siteConfig.findMany.mockResolvedValue(
+      siteConfigRows({ min_order_mode: "all", min_order_ht: "150" }),
+    );
+    prismaMock.user.findUnique.mockRejectedValue(new Error("prisma column missing"));
+    const res = await getEffectiveMinOrder("u-1");
+    expect(res.amountHT).toBe(150);
+    expect(res.source).toBe("global_all");
   });
 });

@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { placeOrder } from "@/app/actions/client/order";
 import { placeBankTransferOrder } from "@/app/actions/client/bank-transfer-order";
 import { placePaymentLinkOrder } from "@/app/actions/client/payment-link-order";
+import { placeCreditOnlyOrder } from "@/app/actions/client/credit-only-order";
 import { getSerializedCartForWizard } from "@/app/actions/client/cart";
 import { computeCartCheckoutPricing } from "@/app/actions/client/cart-pricing";
 import { resolveVatRate } from "@/lib/vat";
@@ -67,6 +68,8 @@ interface Props {
     /** IBAN déjà formatté "FR76 3000 …" pour affichage direct. */
     ibanDisplay: string;
   };
+  /** Solde total d'avoir disponible pour la cliente (0 = pas de crédit). */
+  availableCredit: number;
 }
 
 /**
@@ -89,6 +92,7 @@ export default function CartWizardClient({
   stripeReady,
   stripePublishableKey,
   bankTransfer,
+  availableCredit,
 }: Props) {
   const router = useRouter();
   const t = useTranslations("checkout");
@@ -328,9 +332,25 @@ export default function CartWizardClient({
   const effectiveCarrierPrice = shippingCalc.finalPrice;
   const autoShippingSaved = shippingCalc.totalSaved;
 
+  // Avoir / crédit — montant que la cliente veut utiliser (0 = pas utilisé).
+  // Le serveur clamp toujours à min(solde réel, totalTTC).
+  const [creditToApply, setCreditToApply] = useState<number>(0);
+
   // Code promo saisi (étape 3)
   const [promoCode, setPromoCode] = useState("");
-  const [promoApplied, setPromoApplied] = useState<{ code: string; name: string; totalSaved: number } | null>(null);
+  const [promoApplied, setPromoApplied] = useState<{
+    code: string;
+    name: string;
+    totalSaved: number;
+    /** Économie portée sur les produits (impacte le sous-total HT). */
+    itemsSaved: number;
+    /** Économie portée sur les frais de port. */
+    shippingSaved: number;
+    /** Type de remise (PERCENTAGE / FIXED_AMOUNT) — affiché à côté du code. */
+    discountKind?: string;
+    /** Valeur brute (10 pour −10 %, 5 pour 5 € fixe). */
+    discountValue?: number;
+  } | null>(null);
   const promoAmount = promoApplied?.totalSaved ?? 0;
 
   // ── Pricing SERVEUR (source unique de vérité, strictement identique au checkout Stripe) ──
@@ -343,6 +363,9 @@ export default function CartWizardClient({
     tvaOnShipping: number;
     tvaAmount: number;
     totalTTC: number;
+    creditApplied: number;
+    amountDue: number;
+    amountDueCents: number;
     codeError?: string;
   } | null>(null);
   const carrierIdForPricing = selectedCarrier?.id ?? (isPickup ? "pickup_store" : "");
@@ -362,6 +385,7 @@ export default function CartWizardClient({
         carrierPrice: carrierPriceForPricing,
         addressCountry: addrCountryForPricing,
         promoCode: promoApplied?.code ?? null,
+        creditToApply,
       });
       if (cancelled) return;
       if (r.success) {
@@ -372,6 +396,9 @@ export default function CartWizardClient({
           tvaOnShipping: r.tvaOnShipping,
           tvaAmount: r.tvaAmount,
           totalTTC: r.totalTTC,
+          creditApplied: r.creditApplied,
+          amountDue: r.amountDue,
+          amountDueCents: r.amountDueCents,
           codeError: r.codeError,
         });
       }
@@ -379,7 +406,7 @@ export default function CartWizardClient({
     return () => {
       cancelled = true;
     };
-  }, [currentStep, carrierIdForPricing, carrierPriceForPricing, addrCountryForPricing, promoApplied?.code, cart]);
+  }, [currentStep, carrierIdForPricing, carrierPriceForPricing, addrCountryForPricing, promoApplied?.code, creditToApply, cart]);
 
   // Fallback local (formules serveur identiques) si serveur pas encore répondu — étape 1 seulement.
   const floor2 = (n: number) => Math.floor(n * 100) / 100;
@@ -389,6 +416,15 @@ export default function CartWizardClient({
   const totalTTCLocal = floor2(totalBaseHT + totalBaseHT * tvaRate);
   const tvaAmount = serverPricing?.tvaAmount ?? tvaAmountLocal;
   const totalTTC = serverPricing?.totalTTC ?? totalTTCLocal;
+  // Crédit appliqué — priorité serveur ; sinon on clamp localement.
+  const creditApplied = serverPricing?.creditApplied
+    ?? Math.min(availableCredit, totalTTC, Math.max(0, creditToApply));
+  const amountDue = serverPricing?.amountDue
+    ?? Math.max(0, floor2(totalTTC - creditApplied));
+  const amountDueCents = serverPricing?.amountDueCents ?? Math.round(amountDue * 100);
+  // Si l'avoir couvre toute la commande, on passe en paiement "credit only"
+  // (skip Stripe, skip virement).
+  const isCoveredByCredit = amountDueCents === 0 && creditApplied > 0;
 
   // ── Stripe PaymentIntent (créé à l'entrée en étape 3)
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -410,7 +446,10 @@ export default function CartWizardClient({
     // sélectionné « Carte bancaire ». Le virement passe par placeBankTransferOrder
     // directement (aucun PI nécessaire).
     if (currentStep !== 3 || !stripeReady || !selectedCarrier || paymentMode !== "card") return;
-    const amountCents = Math.round(totalTTC * 100);
+    // Si le crédit couvre 100 % du panier, on ne crée pas de PaymentIntent
+    // (la commande sera enregistrée en direct via placeCreditOnlyOrder).
+    if (isCoveredByCredit) return;
+    const amountCents = amountDueCents;
     if (amountCents <= 0) return;
     // Ne pas re-créer si le montant n'a pas changé (évite les re-fetches en cascade)
     if (clientSecret && paymentIntentAmountRef.current === amountCents) return;
@@ -460,6 +499,7 @@ export default function CartWizardClient({
           ? { mergeIntoOrderId: selectedMergeOrderId }
           : {}),
         acceptReplacementContact,
+        creditToApply,
       }),
     })
       .then((r) => r.json())
@@ -500,6 +540,9 @@ export default function CartWizardClient({
     bordereauPath,
     selectedMergeOrderId,
     acceptReplacementContact,
+    // Le montant d'avoir change le montant à payer → il faut un nouveau PI.
+    creditToApply,
+    isCoveredByCredit,
   ]);
 
   // ── CGV + placeOrder
@@ -537,6 +580,65 @@ export default function CartWizardClient({
         carrierPrice: rawCarrierPrice,
         cgvAcceptedAt: new Date().toISOString(),
         acceptReplacementContact,
+        ...(deliveryMode === "private"
+          ? privateMode === "contact"
+            ? {
+                privateCarrierEmail: privateCarrierEmail.trim(),
+                privateCarrierPhone: privateCarrierPhone.trim(),
+              }
+            : { privateCarrierBordereau: bordereauPath ?? undefined }
+          : {}),
+        ...(deliveryMode === "merge" && selectedMergeOrderId
+          ? { mergeIntoOrderId: selectedMergeOrderId }
+          : {}),
+        ...(promoApplied ? { promoCode: promoApplied.code } : {}),
+        creditToApply,
+      });
+      if (result.success) {
+        router.replace(`/commandes/${result.orderId}`);
+      } else {
+        setOrderError(result.error);
+        setIsCreatingOrder(false);
+      }
+    } catch (err) {
+      setOrderError((err as Error).message);
+      setIsCreatingOrder(false);
+    }
+  }
+
+  /**
+   * Commande 100 % payée par avoir (crédit couvre tout le TTC).
+   * Skip Stripe et virement, marque directement la commande "paid".
+   */
+  async function handleCreditOnlySubmit() {
+    setOrderError("");
+    setIsCreatingOrder(true);
+    try {
+      const effectiveAddr = deliveryMode === "merge"
+        ? (selectedAddr ?? addresses[0] ?? null)
+        : selectedAddr;
+      const canSkipAddress = deliveryMode === "pickup" || deliveryMode === "private";
+      if (!effectiveAddr && !canSkipAddress) {
+        setOrderError(t("noAddress"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      if (!selectedCarrier) {
+        setOrderError(t("noCarriersAvailable"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      const result = await placeCreditOnlyOrder({
+        addressId:    effectiveAddr?.id,
+        deliveryMode,
+        carrierId:    selectedCarrier.id,
+        transactionId,
+        carrierSig:   selectedCarrier.sig ?? "",
+        carrierName:  selectedCarrier.name,
+        carrierPrice: rawCarrierPrice,
+        cgvAcceptedAt: new Date().toISOString(),
+        acceptReplacementContact,
+        creditToApply,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
             ? {
@@ -594,6 +696,7 @@ export default function CartWizardClient({
       cgvAcceptedAt: new Date().toISOString(),
       acceptReplacementContact,
       locale: locale === "en" ? "en" : "fr",
+      creditToApply,
       ...(deliveryMode === "private"
         ? privateMode === "contact"
           ? {
@@ -645,6 +748,7 @@ export default function CartWizardClient({
         stripePaymentIntentId: piId,
         cgvAcceptedAt:         new Date().toISOString(),
         acceptReplacementContact,
+        creditToApply,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
             ? {
@@ -674,32 +778,38 @@ export default function CartWizardClient({
   // Étape 1 : panier non vide. Le minimum d'achat est vérifié UNIQUEMENT à
   // l'étape 2 → 3 (car il ne s'applique pas au mode « merge »).
   const step1Ready = !!cart && cart.items.length > 0;
+  // Le panier lui-même atteint-il le minimum ? Indépendant du mode choisi.
+  const cartReachesMin = minOrderHT <= 0 || subtotalHT >= minOrderHT;
+  const hasMergeCandidates = mergeCandidates.length > 0;
+  // Le panier est sous le minimum mais des commandes en cours existent :
+  // le seul chemin possible est de fusionner avec une commande existante.
+  const mustMergeToProceed = !cartReachesMin && hasMergeCandidates;
+
   // Minimum d'achat : ignoré pour le mode « merge » (l'admin ajoutera à la
   // commande parente, qui elle a déjà passé le seuil).
-  const minOrderReached =
-    deliveryMode === "merge" || minOrderHT <= 0 || subtotalHT >= minOrderHT;
+  const minOrderReached = deliveryMode === "merge" || cartReachesMin;
+
   const step2Ready = useMemo(() => {
     if (!step1Ready) return false;
     if (!minOrderReached) return false;
-    // Livraison classique : adresse + transporteur
     if (deliveryMode === "delivery") return !!selectedAddr && !!selectedCarrierId;
-    // Retrait boutique : rien de plus
     if (deliveryMode === "pickup") return true;
-    // Transporteur privé : email+tel OU bordereau
     if (deliveryMode === "private") {
       return privateMode === "contact"
         ? privateCarrierEmail.trim().length > 0 && privateCarrierPhone.trim().length > 0
         : !!bordereauPath;
     }
-    // Fusion : commande cible sélectionnée
     if (deliveryMode === "merge") return !!selectedMergeOrderId;
     return false;
   }, [
-    step1Ready, deliveryMode, selectedAddr, selectedCarrierId,
+    step1Ready, minOrderReached, deliveryMode, selectedAddr, selectedCarrierId,
     privateMode, privateCarrierEmail, privateCarrierPhone, bordereauPath, selectedMergeOrderId,
   ]);
 
-  const canGoToStep2 = step1Ready;
+  // Passage étape 1 → 2 : bloqué si le panier est sous le minimum SANS
+  // commande fusionnable (aucun chemin possible). Autorisé si le panier
+  // atteint le minimum, ou si le client a une commande à laquelle ajouter.
+  const canGoToStep2 = step1Ready && (cartReachesMin || hasMergeCandidates);
   const canGoToStep3 = step2Ready;
 
   function goToStep(s: WizardStep) {
@@ -707,6 +817,12 @@ export default function CartWizardClient({
     if (s > currentStep) {
       if (s === 2 && !canGoToStep2) return;
       if (s === 3 && !canGoToStep3) return;
+    }
+    // Sous le minimum + une commande à laquelle ajouter : on force le mode
+    // « merge » dès l'arrivée à l'étape 2 (le seul mode possible dans ce cas).
+    // La cliente n'a rien à comprendre : la tuile est déjà cochée pour elle.
+    if (s === 2 && mustMergeToProceed && deliveryMode !== "merge") {
+      setDeliveryMode("merge");
     }
     // Le passage à l'étape 3 (paiement) passe par handleValidateAndGoToPayment
     // pour lancer la vérif serveur du panier. On laisse toutefois goToStep
@@ -805,9 +921,11 @@ export default function CartWizardClient({
     tvaOnCart,
     tvaOnShipping,
     totalTTC,
+    creditApplied,
     deliveryMode,
     selectedCarrier,
     selectedMergeOrder,
+    promoApplied,
   };
 
   return (
@@ -847,6 +965,9 @@ export default function CartWizardClient({
                       }
                     : null
                 }
+                minOrderHT={minOrderHT}
+                subtotalHT={subtotalHT}
+                hasMergeCandidates={hasMergeCandidates}
               />
             )}
 
@@ -884,6 +1005,7 @@ export default function CartWizardClient({
                 shippingPromos={shippingPromos}
                 minOrderHT={minOrderHT}
                 subtotalHT={subtotalHT}
+                mustMergeToProceed={mustMergeToProceed}
               />
             )}
 
@@ -935,7 +1057,7 @@ export default function CartWizardClient({
                 promoApplied={promoApplied}
                 onPromoApplied={setPromoApplied}
                 onPromoCleared={() => setPromoApplied(null)}
-                totalAmountCents={Math.round(totalTTC * 100)}
+                totalAmountCents={amountDueCents}
                 totalTTC={totalTTC}
                 orderError={orderError}
                 isCreatingOrder={isCreatingOrder}
@@ -944,6 +1066,11 @@ export default function CartWizardClient({
                 selectedMergeOrder={selectedMergeOrder}
                 subtotalHT={subtotalHT}
                 shippingHT={effectiveCarrierPrice}
+                availableCredit={availableCredit}
+                creditToApply={creditApplied}
+                onCreditToApplyChange={setCreditToApply}
+                isCoveredByCredit={isCoveredByCredit}
+                onCreditOnlySubmit={handleCreditOnlySubmit}
               />
             )}
           </div>
@@ -960,21 +1087,25 @@ export default function CartWizardClient({
                 ? t("proceedToPayment")
                 : currentStep === 2
                   ? t("proceedToPayment")
-                  : t("payAmount", { amount: totalTTC.toFixed(2) })
+                  : t("payAmount", { amount: amountDue.toFixed(2) })
             }
             ctaDisabled={
               currentStep === 1
                 ? !canGoToStep2
                 : currentStep === 2
                   ? !canGoToStep3 || isValidating
-                  : paymentMode === "bank_transfer"
+                  : isCoveredByCredit
                     ? !cgvAccepted || isCreatingOrder
-                    : !cgvAccepted || !clientSecret || isCreatingOrder || paymentMode !== "card"
+                    : paymentMode === "bank_transfer"
+                      ? !cgvAccepted || isCreatingOrder
+                      : !cgvAccepted || !clientSecret || isCreatingOrder || paymentMode !== "card"
             }
             onCta={() => {
               if (currentStep === 1) goToStep(2);
               else if (currentStep === 2) void handleValidateAndGoToPayment();
-              else if (paymentMode === "bank_transfer") {
+              else if (isCoveredByCredit) {
+                void handleCreditOnlySubmit();
+              } else if (paymentMode === "bank_transfer") {
                 void handleBankTransferSubmit();
               } else {
                 // L'étape 3 (mode carte) : le CTA du récap sert de raccourci

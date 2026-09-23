@@ -14,6 +14,10 @@
  *  - `min_order_ht_first`  : seuil 1ʳᵉ commande (`first_only` / `first_then_rest`)
  *  - `min_order_ht_rest`   : seuil commandes suivantes (`first_then_rest`)
  *
+ * Override par client (permanent tant que non retiré) :
+ *  - `User.minimumOrderOverrideHt` : null = suit le global · 0 = aucun min
+ *    pour ce client · > 0 = seuil personnel qui remplace le global.
+ *
  * Compat : si `min_order_mode` est absent mais `min_order_ht > 0`, on retombe
  * sur `all` (comportement historique). Sinon `none`.
  */
@@ -95,22 +99,91 @@ export function resolveMinOrderForCounters(
   }
 }
 
+export type EffectiveMinOrderSource =
+  | "none"
+  | "override_zero"
+  | "override_client"
+  | "global_all"
+  | "global_first"
+  | "global_rest";
+
+export interface EffectiveMinOrder {
+  /** Seuil HT à appliquer côté UI/garde-fou (0 = pas de blocage). */
+  amountHT: number;
+  /** Origine du seuil retenu. */
+  source: EffectiveMinOrderSource;
+}
+
 /**
- * Renvoie le montant minimum HT applicable à un client donné, selon la
- * config et le nombre de ses commandes existantes. `userId = null` = visiteur
- * non connecté : on renvoie le seuil le plus haut susceptible d'être appliqué
- * (utilisé côté panier public quand on ne sait pas encore qui commande).
+ * Renvoie le montant minimum HT applicable à un client donné, avec son
+ * origine. `userId = null` = visiteur non connecté : on renvoie le pire cas
+ * global (utilisé côté panier public quand on ne sait pas encore qui commande).
+ *
+ * Priorité :
+ *  1. `User.minimumOrderOverrideHt` (non-null) — remplace le global,
+ *     0 = client sans aucun minimum.
+ *  2. Sinon → global via `readMinOrderConfig()` + `isFirstOrderForUser`.
+ */
+export async function getEffectiveMinOrder(
+  userId: string | null,
+): Promise<EffectiveMinOrder> {
+  const config = await readMinOrderConfig();
+
+  // Baseline global (indépendant de l'override client)
+  let amountHT = 0;
+  let source: EffectiveMinOrderSource = "none";
+  if (config.mode === "all") {
+    amountHT = config.valueAll;
+    source = amountHT > 0 ? "global_all" : "none";
+  } else if (config.mode === "first_only" || config.mode === "first_then_rest") {
+    if (!userId) {
+      amountHT = config.valueFirst;
+      source = amountHT > 0 ? "global_first" : "none";
+    } else {
+      const first = await isFirstOrderForUser(userId);
+      if (config.mode === "first_only") {
+        amountHT = first ? config.valueFirst : 0;
+        source = amountHT > 0 ? "global_first" : "none";
+      } else {
+        amountHT = first ? config.valueFirst : config.valueRest;
+        source = amountHT > 0 ? (first ? "global_first" : "global_rest") : "none";
+      }
+    }
+  }
+
+  if (!userId) return { amountHT, source };
+
+  // Lecture défensive : si la BDD ou le client Prisma n'a pas encore la
+  // nouvelle colonne (dev sans `prisma generate` ou hot-reload stale), on
+  // retombe sur le baseline global au lieu de faire planter la page /panier.
+  let user: { minimumOrderOverrideHt: unknown } | null = null;
+  try {
+    user = (await prisma.user.findUnique({
+      where: { id: userId },
+      select: { minimumOrderOverrideHt: true },
+    })) as typeof user;
+  } catch {
+    user = null;
+  }
+
+  if (user && user.minimumOrderOverrideHt != null) {
+    const override = Number(user.minimumOrderOverrideHt);
+    const valid = Number.isFinite(override) && override >= 0 ? override : 0;
+    return {
+      amountHT: valid,
+      source: valid > 0 ? "override_client" : "override_zero",
+    };
+  }
+
+  return { amountHT, source };
+}
+
+/**
+ * Renvoie le montant minimum HT applicable, en un seul nombre. Compat avec
+ * les appels existants qui n'ont pas besoin de la source.
  */
 export async function getEffectiveMinOrderHT(
   userId: string | null,
 ): Promise<number> {
-  const config = await readMinOrderConfig();
-  if (config.mode === "none") return 0;
-  if (config.mode === "all") return config.valueAll;
-  if (!userId) {
-    // Visiteur : on montre le pire cas — celui d'une 1ʳᵉ commande.
-    return config.valueFirst;
-  }
-  const first = await isFirstOrderForUser(userId);
-  return resolveMinOrderForCounters(config, first);
+  return (await getEffectiveMinOrder(userId)).amountHT;
 }

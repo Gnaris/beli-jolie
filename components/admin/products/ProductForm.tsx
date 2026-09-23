@@ -1979,7 +1979,7 @@ export default function ProductForm({
   }
 
   // ── Submit ───────────────────────────────────────────────────────────
-  async function handleSave() {
+  async function handleSave(opts: { exitAfterSave?: boolean } = {}) {
     if (isSyncLocked) return;
     setError("");
     setOnlineErrors([]);
@@ -2627,7 +2627,10 @@ export default function ProductForm({
         }
       }
 
-      if (shouldRedirectAfterSave) {
+      if (opts.exitAfterSave) {
+        isDirty.current = false;
+        router.push("/admin/produits");
+      } else if (shouldRedirectAfterSave) {
         // Draft finalization: we're already on /admin/produits/{id}/modifier
         // and need the server to re-render (isDraft recalculated from DB).
         // router.push to the same URL may serve stale cached data, so use refresh.
@@ -3790,6 +3793,17 @@ export default function ProductForm({
                   className="btn-secondary h-14 px-7 py-0 text-sm"
                 >
                   Annuler les modifications
+                </button>
+              )}
+
+              {mode === "edit" && hasUnsavedChanges && (
+                <button
+                  type="button"
+                  disabled={isPending || isSyncLocked || uploadProgress !== null}
+                  onClick={() => handleSave({ exitAfterSave: true })}
+                  className="btn-secondary h-14 px-7 py-0 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Enregistrer les modifications et quitter
                 </button>
               )}
             </div>

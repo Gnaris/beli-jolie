@@ -36,7 +36,6 @@ function makePercentPromo(id: string, percent: number, opts?: Partial<ActiveProm
     minOrderAmount: null,
     maxUses: null,
     maxUsesPerUser: null,
-    firstOrderOnly: false,
     currentUses: 0,
     startsAt: new Date(2020, 0, 1),
     endsAt: null,

@@ -20,7 +20,6 @@ export interface PromotionData {
   minOrderAmount: string;
   maxUses: string;
   maxUsesPerUser: string;
-  firstOrderOnly: boolean;
   stackable: boolean;
   startsAt: string;
   endsAt: string;
@@ -39,7 +38,6 @@ const DEFAULT_DATA: PromotionData = {
   minOrderAmount: "",
   maxUses: "",
   maxUsesPerUser: "",
-  firstOrderOnly: false,
   stackable: false,
   startsAt: new Date().toISOString().slice(0, 16),
   endsAt: "",
@@ -404,14 +402,6 @@ function PromotionPreview({ data, targetsCount }: { data: PromotionData; targets
           <span className="text-text-muted">Par client</span>
           <span className="font-medium text-text-primary tabular-nums">{data.maxUsesPerUser ? `${data.maxUsesPerUser} max` : "Illimité"}</span>
         </div>
-        {data.firstOrderOnly && (
-          <div className="flex items-center justify-between py-1.5 border-b border-border-light">
-            <span className="text-text-muted">1<sup>re</sup> commande</span>
-            <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-              {Icons.check} Oui
-            </span>
-          </div>
-        )}
         <div className="flex items-center justify-between py-1.5 border-b border-border-light">
           <span className="text-text-muted">Début</span>
           <span className="font-medium text-text-primary text-[11.5px]">{formatDate(data.startsAt)}</span>
@@ -482,7 +472,6 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
       minOrderAmount: data.minOrderAmount ? parseFloat(data.minOrderAmount) : undefined,
       maxUses: data.maxUses ? parseInt(data.maxUses) : undefined,
       maxUsesPerUser: data.maxUsesPerUser ? parseInt(data.maxUsesPerUser) : undefined,
-      firstOrderOnly: data.firstOrderOnly,
       stackable: data.stackable,
       startsAt: data.startsAt,
       endsAt: data.endsAt || undefined,
@@ -717,12 +706,6 @@ export default function PromotionForm({ initial }: { initial?: Partial<Promotion
           </div>
 
           <div className="border-t border-border-light pt-4 space-y-1">
-            <ToggleSwitch
-              checked={data.firstOrderOnly}
-              onChange={(v) => update("firstOrderOnly", v)}
-              label="Première commande uniquement"
-              description="Seuls les nouveaux clients pourront l'utiliser"
-            />
             <ToggleSwitch
               checked={data.stackable}
               onChange={(v) => update("stackable", v)}

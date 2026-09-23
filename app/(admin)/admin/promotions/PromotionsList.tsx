@@ -24,7 +24,6 @@ type SerializedPromotion = {
   minOrderAmount: number | null;
   maxUses: number | null;
   maxUsesPerUser: number | null;
-  firstOrderOnly: boolean;
   stackable: boolean;
   appliesToAll: boolean;
   startsAt: string;
@@ -320,12 +319,6 @@ export default function PromotionsList({
                           <span className="inline-flex items-center gap-1.5">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                             Min {promo.minOrderAmount.toFixed(2)} € HT
-                          </span>
-                        )}
-                        {promo.firstOrderOnly && (
-                          <span className="inline-flex items-center gap-1.5">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
-                            1<sup>re</sup> commande
                           </span>
                         )}
                         {promo.stackable && (

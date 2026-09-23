@@ -25,7 +25,6 @@ function makePromo(overrides: Partial<ActivePromotion> = {}): ActivePromotion {
     minOrderAmount: null,
     maxUses: null,
     maxUsesPerUser: null,
-    firstOrderOnly: false,
     currentUses: 0,
     startsAt: new Date("2020-01-01"),
     endsAt: null,

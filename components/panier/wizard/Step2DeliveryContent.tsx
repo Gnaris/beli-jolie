@@ -64,6 +64,7 @@ export default function Step2DeliveryContent({
   shippingPromos,
   minOrderHT,
   subtotalHT,
+  mustMergeToProceed = false,
 }: {
   billingInfo: WizardBillingInfo;
   onBillingChange: (b: WizardBillingInfo) => void;
@@ -100,6 +101,9 @@ export default function Step2DeliveryContent({
   minOrderHT: number;
   /** Sous-total HT courant du panier (après remises produit). */
   subtotalHT: number;
+  /** Sous le minimum + commandes fusionnables : seul le mode « merge » est
+   *  autorisé, les tuiles delivery/pickup/private sont grisées. */
+  mustMergeToProceed?: boolean;
 }) {
   const t = useTranslations("checkout");
   const tCart = useTranslations("cart");
@@ -308,30 +312,37 @@ export default function Step2DeliveryContent({
           </h2>
         </div>
 
-        {/* Tuiles de mode */}
+        {/* Tuiles de mode — sous le minimum + fusion possible, seule la tuile
+            « Ajouter à une commande » reste cliquable. Les autres sont grisées
+            car le panier ne peut PAS partir en livraison classique tant qu'il
+            n'atteint pas le seuil. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           <ModeTile
             active={deliveryMode === "delivery"}
-            onClick={() => onDeliveryModeChange("delivery")}
+            onClick={() => !mustMergeToProceed && onDeliveryModeChange("delivery")}
             icon="🚚"
             title={t("modeDelivery")}
             desc={t("modeDeliveryDesc")}
+            disabled={mustMergeToProceed}
           />
           <ModeTile
             active={deliveryMode === "pickup"}
-            onClick={() => onDeliveryModeChange("pickup")}
+            onClick={() => !mustMergeToProceed && onDeliveryModeChange("pickup")}
             icon="🏬"
             title={t("modePickup")}
             desc={t("modePickupDesc")}
+            disabled={mustMergeToProceed}
           />
           <ModeTile
             active={deliveryMode === "private"}
-            onClick={() => onDeliveryModeChange("private")}
+            onClick={() => !mustMergeToProceed && onDeliveryModeChange("private")}
             icon="🚛"
             title={t("modePrivate")}
             desc={t("modePrivateDesc")}
+            disabled={mustMergeToProceed}
           />
           <ModeTile
+            id="delivery-mode-merge"
             active={deliveryMode === "merge"}
             onClick={() => hasMergeCandidates && onDeliveryModeChange("merge")}
             icon="➕"
@@ -669,6 +680,7 @@ function ModeTile({
   title,
   desc,
   disabled = false,
+  id,
 }: {
   active: boolean;
   onClick: () => void;
@@ -676,10 +688,12 @@ function ModeTile({
   title: string;
   desc: string;
   disabled?: boolean;
+  id?: string;
 }) {
   return (
     <button
       type="button"
+      id={id}
       onClick={onClick}
       disabled={disabled}
       className={`text-left p-4 rounded-2xl border transition-all flex flex-col gap-2 ${

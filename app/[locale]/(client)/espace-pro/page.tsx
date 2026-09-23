@@ -319,13 +319,13 @@ export default async function DashboardPage() {
           {availableCredit > 0 && (
             <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-bg-primary to-bg-primary p-5">
               <p className="text-[11px] font-body font-semibold uppercase tracking-wider text-emerald-800">
-                {tOrders("creditNote")}
+                {tOrders("myCredit")}
               </p>
               <p className="font-heading text-3xl font-bold text-emerald-900 mt-1">
                 {availableCredit.toFixed(2)} {"€"}
               </p>
               <p className="text-xs font-body text-emerald-800/80 mt-2">
-                {tOrders("remaining")}
+                {tOrders("usableAtCheckout")}
               </p>
               <a href="#avoirs" className="mt-3 inline-flex text-xs font-medium text-emerald-900 hover:underline">
                 {t("viewAll")} →

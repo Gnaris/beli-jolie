@@ -13,6 +13,7 @@ import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import CartIssymaWrapper from "@/components/issyma/CartIssymaWrapper";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
+import { getAvailableCredit } from "@/lib/credits";
 import { loadActivePromotions } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { resolveBestItemDiscount } from "@/lib/promotion-engine";
@@ -96,6 +97,7 @@ export default async function PanierPage() {
     companyInfo,
     businessHoursRow,
     mergeCandidates,
+    availableCredit,
   ] = await Promise.all([
     getCartWithProductVariants(),
     getShippingAddresses(),
@@ -165,6 +167,7 @@ export default async function PanierPage() {
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
+    getAvailableCredit(session.user.id),
   ]);
 
   // Retrait boutique
@@ -345,6 +348,7 @@ export default async function PanierPage() {
         holder: bankTransferConfig.holder,
         ibanDisplay: bankTransferConfig.iban ? formatIbanForDisplay(bankTransferConfig.iban) : "",
       }}
+      availableCredit={availableCredit}
     />
   );
 

@@ -44,9 +44,11 @@ export default function SummaryPanel({
   tvaOnCart,
   tvaOnShipping,
   totalTTC,
+  creditApplied = 0,
   deliveryMode,
   selectedCarrier,
   selectedMergeOrder,
+  promoApplied,
   ctaLabel,
   ctaDisabled,
   onCta,
@@ -77,9 +79,28 @@ export default function SummaryPanel({
   tvaOnCart: number;
   tvaOnShipping: number;
   totalTTC: number;
+  /** Montant d'avoir appliqué (rogne le TTC en bas du récap). */
+  creditApplied?: number;
   deliveryMode: DeliveryMode;
   selectedCarrier: WizardCarrier | null;
   selectedMergeOrder: WizardMergeCandidate | null;
+  /**
+   * Code promo saisi manuellement à l'étape 3. `itemsSaved` s'applique sur
+   * le panier (section « Panier »), `shippingSaved` sur les frais de port
+   * (section « Livraison »). Une ligne verte apparaît uniquement là où le
+   * code réduit réellement quelque chose.
+   */
+  promoApplied?: {
+    code: string;
+    name: string;
+    totalSaved: number;
+    itemsSaved: number;
+    shippingSaved: number;
+    /** "PERCENTAGE" ou "FIXED_AMOUNT" ou "FREE_SHIPPING". Affiché à côté du code. */
+    discountKind?: string;
+    /** Valeur brute — 10 pour −10 %, 5 pour 5 €. Combiné à discountKind pour l'affichage. */
+    discountValue?: number;
+  } | null;
   ctaLabel: string;
   ctaDisabled?: boolean;
   onCta: () => void;
@@ -181,12 +202,26 @@ export default function SummaryPanel({
         const subtotalHT = cartCascade?.subtotalHT ?? cartFallbackSubtotal;
         const totalClientAmount = floor2(clientLines.reduce((s, l) => s + l.amount, 0));
         const subtotalAfterClient = floor2(subtotalHT - totalClientAmount);
+        // Ligne dédiée au code promo saisi côté items (scope PRODUCTS,
+        // CATEGORIES, COLLECTIONS ou ALL_PRODUCTS). N'apparaît que si le code
+        // rogne effectivement le panier — jamais s'il ne touche que la
+        // livraison (dans ce cas la ligne sort dans la section Livraison).
+        const promoCodeItemsSaved = floor2(promoApplied?.itemsSaved ?? 0);
+        const showPromoCodeOnCart = !!promoApplied && promoCodeItemsSaved > 0;
+        const subtotalAfterPromoCode = floor2(subtotalAfterClient - promoCodeItemsSaved);
 
         return (
           <div className="space-y-4 text-sm">
-            {/* ▸ Prix HT (déjà remisé au niveau produit) */}
+            {/* ▸ Prix HT (déjà remisé au niveau produit)
+                Quand un code promo réduit ce sous-total, on renomme la ligne
+                en « Sous-total avant remise » pour indiquer clairement que ce
+                n'est pas le HT final — sinon le client pouvait s'attendre à
+                voir 10 % de ce montant apparaître pile en remise, alors que
+                l'arrondi Sage donne quelques millièmes d'écart apparent. */}
             <div className="flex justify-between">
-              <span className="text-slate-600">{t("summaryTotalHT")}</span>
+              <span className="text-slate-600">
+                {showPromoCodeOnCart ? t("summarySubtotalBeforeDiscount") : t("summaryTotalHT")}
+              </span>
               <span className="font-medium tabular-nums">{subtotalHT.toFixed(2)} €</span>
             </div>
 
@@ -210,6 +245,33 @@ export default function SummaryPanel({
                   <span className="text-slate-700 font-medium">{t("summaryAfterClientDiscount")}</span>
                   <span className="font-semibold tabular-nums">
                     {subtotalAfterClient.toFixed(2)} €
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* ▸ Code promo saisi (seulement si actif ET impacte les produits) */}
+            {showPromoCodeOnCart && (
+              <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+                <div className="flex justify-between text-emerald-700 pl-3">
+                  <span className="truncate mr-2">
+                    {t("summaryPromoCode")}{" "}
+                    <span className="text-emerald-600/70">({promoApplied!.code})</span>
+                    {promoApplied!.discountKind === "PERCENTAGE"
+                      && promoApplied!.discountValue != null && (
+                      <span className="text-emerald-600/70">
+                        {" "}−{promoApplied!.discountValue}%
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-medium tabular-nums whitespace-nowrap">
+                    −{promoCodeItemsSaved.toFixed(2)} €
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-slate-100 pt-2">
+                  <span className="text-slate-700 font-medium">{t("summaryAfterPromoCode")}</span>
+                  <span className="font-semibold tabular-nums">
+                    {subtotalAfterPromoCode.toFixed(2)} €
                   </span>
                 </div>
               </div>
@@ -297,6 +359,40 @@ export default function SummaryPanel({
                     </div>
                   </div>
                 )}
+
+                {/* ▸ BLOC 3 — Code promo saisi (seulement si actif ET touche la livraison) */}
+                {(() => {
+                  const promoCodeShippingSaved = floor2(promoApplied?.shippingSaved ?? 0);
+                  if (!promoApplied || promoCodeShippingSaved <= 0) return null;
+                  const shipAfterPromoCode = floor2(shipAfterClient - promoCodeShippingSaved);
+                  return (
+                    <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+                      <div className="flex justify-between text-emerald-700 pl-3">
+                        <span className="truncate mr-2">
+                          {t("summaryPromoCode")}{" "}
+                          <span className="text-emerald-600/70">({promoApplied.code})</span>
+                          {promoApplied.discountKind === "PERCENTAGE"
+                            && promoApplied.discountValue != null && (
+                            <span className="text-emerald-600/70">
+                              {" "}−{promoApplied.discountValue}%
+                            </span>
+                          )}
+                        </span>
+                        <span className="font-medium tabular-nums whitespace-nowrap">
+                          −{promoCodeShippingSaved.toFixed(2)} €
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-t border-slate-100 pt-2">
+                        <span className="text-slate-700 font-medium">
+                          {t("summaryShippingAfterPromoCode")}
+                        </span>
+                        <span className="font-semibold tabular-nums">
+                          {shipAfterPromoCode <= 0 ? t("summaryFree") : `${shipAfterPromoCode.toFixed(2)} €`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
@@ -322,10 +418,27 @@ export default function SummaryPanel({
           </div>
 
           <div className="h-px bg-slate-200 my-4" />
+          {creditApplied > 0.005 && (
+            <>
+              <div className="flex justify-between items-baseline text-sm">
+                <span className="text-slate-600">{t("summaryTotal")}</span>
+                <span className="tabular-nums text-slate-600">{totalTTC.toFixed(2)} €</span>
+              </div>
+              <div className="flex justify-between items-baseline text-sm text-emerald-700 mt-2">
+                <span>{t("summaryCreditUsed")}</span>
+                <span className="font-medium tabular-nums whitespace-nowrap">
+                  −{creditApplied.toFixed(2)} €
+                </span>
+              </div>
+              <div className="h-px bg-slate-100 my-3" />
+            </>
+          )}
           <div className="flex justify-between items-baseline">
-            <span className="font-semibold text-slate-900">{t("summaryTotal")}</span>
+            <span className="font-semibold text-slate-900">
+              {creditApplied > 0.005 ? t("summaryAmountDue") : t("summaryTotal")}
+            </span>
             <span className="font-heading font-bold text-2xl text-slate-900 tabular-nums">
-              {totalTTC.toFixed(2)} €
+              {Math.max(0, totalTTC - creditApplied).toFixed(2)} €
             </span>
           </div>
         </>

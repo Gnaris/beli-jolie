@@ -32,7 +32,6 @@ export default async function EditPromotionPage({ params }: { params: Promise<{ 
     minOrderAmount: promo.minOrderAmount ? String(Number(promo.minOrderAmount)) : "",
     maxUses: promo.maxUses ? String(promo.maxUses) : "",
     maxUsesPerUser: promo.maxUsesPerUser ? String(promo.maxUsesPerUser) : "",
-    firstOrderOnly: promo.firstOrderOnly,
     stackable: promo.stackable,
     startsAt: new Date(promo.startsAt).toISOString().slice(0, 16),
     endsAt: promo.endsAt ? new Date(promo.endsAt).toISOString().slice(0, 16) : "",

@@ -60,6 +60,11 @@ export default function Step3PaymentContent({
   bankTransfer,
   onBankTransferSubmit,
   onRequestPaymentLink,
+  availableCredit,
+  creditToApply,
+  onCreditToApplyChange,
+  isCoveredByCredit,
+  onCreditOnlySubmit,
 }: {
   cart: WizardCart;
   clientSecret: string | null;
@@ -77,8 +82,26 @@ export default function Step3PaymentContent({
   onAcceptReplacementChange: (v: boolean) => void;
   promoCode: string;
   onPromoCodeChange: (v: string) => void;
-  promoApplied: { code: string; name: string; totalSaved: number } | null;
-  onPromoApplied: (r: { code: string; name: string; totalSaved: number } | null) => void;
+  promoApplied: {
+    code: string;
+    name: string;
+    totalSaved: number;
+    itemsSaved: number;
+    shippingSaved: number;
+    discountKind?: string;
+    discountValue?: number;
+  } | null;
+  onPromoApplied: (
+    r: {
+      code: string;
+      name: string;
+      totalSaved: number;
+      itemsSaved: number;
+      shippingSaved: number;
+      discountKind?: string;
+      discountValue?: number;
+    } | null,
+  ) => void;
   onPromoCleared: () => void;
   totalAmountCents: number;
   totalTTC: number;
@@ -103,6 +126,15 @@ export default function Step3PaymentContent({
     | { success: true; orderId: string; url: string }
     | { success: false; error: string }
   >;
+  /** Solde total d'avoir disponible pour la cliente (0 = pas d'avoir → bloc masqué). */
+  availableCredit: number;
+  /** Montant d'avoir que la cliente veut utiliser (0 = non utilisé). */
+  creditToApply: number;
+  onCreditToApplyChange: (v: number) => void;
+  /** True quand le crédit couvre 100% du panier → on masque carte/virement. */
+  isCoveredByCredit: boolean;
+  /** Handler pour finaliser une commande 100% payée par avoir. */
+  onCreditOnlySubmit: () => void;
 }) {
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
@@ -121,6 +153,16 @@ export default function Step3PaymentContent({
       cancelLabel: tCommon("cancel"),
     });
     if (ok) onBankTransferSubmit();
+  }
+
+  async function handleCreditOnlyClick() {
+    const ok = await confirm({
+      title: t("creditOnlyConfirmTitle"),
+      message: t("creditOnlyConfirmMessage", { amount: creditToApply.toFixed(2) }),
+      confirmLabel: t("creditOnlyConfirmYes"),
+      cancelLabel: tCommon("cancel"),
+    });
+    if (ok) onCreditOnlySubmit();
   }
 
   const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
@@ -145,6 +187,10 @@ export default function Step3PaymentContent({
           code: res.result.code,
           name: res.result.name ?? res.result.code,
           totalSaved: res.result.totalSaved,
+          itemsSaved: res.result.itemsSaved,
+          shippingSaved: res.result.shippingSaved,
+          discountKind: res.result.discountKind,
+          discountValue: res.result.discountValue,
         });
       } else {
         setPromoError(res.error ?? t("promoInvalid"));
@@ -238,6 +284,20 @@ export default function Step3PaymentContent({
             type="text"
             value={promoCode}
             onChange={(e) => onPromoCodeChange(e.target.value)}
+            onKeyDown={(e) => {
+              // Entrée = raccourci « Appliquer ». On garde silencieux si un
+              // code est déjà posé (bouton devient « Retirer »), pendant
+              // l'envoi, ou si le champ est vide.
+              if (
+                e.key === "Enter"
+                && !promoApplied
+                && !promoBusy
+                && promoCode.trim().length > 0
+              ) {
+                e.preventDefault();
+                void handleApplyPromo();
+              }
+            }}
             placeholder="Ex : ETE2026"
             disabled={!!promoApplied}
             className="flex-1 px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-50 disabled:text-slate-500"
@@ -277,7 +337,117 @@ export default function Step3PaymentContent({
         )}
       </section>
 
-      {/* Choix carte / virement — 2 gros radios exposés d'entrée */}
+      {/* Utiliser mon avoir */}
+      {availableCredit > 0 && (
+        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">
+            {t("creditSectionLabel")}
+          </div>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={creditToApply > 0}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    // Par défaut : utiliser tout ce qui est utile — min(solde, totalTTC)
+                    const suggested = Math.min(availableCredit, totalTTC);
+                    onCreditToApplyChange(Math.max(0.01, Math.round(suggested * 100) / 100));
+                  } else {
+                    onCreditToApplyChange(0);
+                  }
+                }}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-slate-700">
+                {t("useMyCredit", { balance: availableCredit.toFixed(2) })}
+              </span>
+            </label>
+          </div>
+
+          {creditToApply > 0 && (
+            <div className="mt-4 rounded-xl bg-emerald-50 border border-emerald-200 p-4 space-y-3">
+              <label className="block">
+                <span className="text-xs text-emerald-900 font-medium block mb-1.5">
+                  {t("creditAmountLabel")}
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={Math.min(availableCredit, totalTTC)}
+                    step="0.01"
+                    value={creditToApply}
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value);
+                      if (!Number.isFinite(raw) || raw <= 0) {
+                        onCreditToApplyChange(0);
+                        return;
+                      }
+                      const capped = Math.min(raw, availableCredit, totalTTC);
+                      onCreditToApplyChange(Math.round(capped * 100) / 100);
+                    }}
+                    className="w-32 px-3 py-2 rounded-lg border border-emerald-300 bg-white text-sm font-medium text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 tabular-nums"
+                  />
+                  <span className="text-sm text-emerald-900">€</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const maxUsable = Math.min(availableCredit, totalTTC);
+                      onCreditToApplyChange(Math.round(maxUsable * 100) / 100);
+                    }}
+                    className="ml-auto text-xs text-emerald-800 underline underline-offset-2 hover:text-emerald-900 cursor-pointer"
+                  >
+                    {t("creditUseMax")}
+                  </button>
+                </div>
+              </label>
+              <p className="text-[11px] text-emerald-800/80 leading-relaxed">
+                {creditToApply >= totalTTC - 0.005
+                  ? t("creditCoversAll")
+                  : t("creditRemainingAfter", {
+                      remaining: (availableCredit - creditToApply).toFixed(2),
+                    })}
+              </p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Cas particulier : le crédit couvre 100% de la commande → un seul bouton */}
+      {isCoveredByCredit && (
+        <section className="bg-white border border-emerald-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="text-[10px] uppercase tracking-widest text-emerald-700 font-semibold mb-2">
+            {t("creditOnlyTitle")}
+          </div>
+          <h2 className="font-heading text-lg md:text-xl font-semibold text-slate-900 mb-2">
+            {t("creditOnlySubtitle")}
+          </h2>
+          <p className="text-sm text-slate-600 mb-4">
+            {t("creditOnlyDescription", { amount: creditToApply.toFixed(2) })}
+          </p>
+
+          <div className="mb-4">{consentNode}</div>
+
+          <button
+            type="button"
+            onClick={handleCreditOnlyClick}
+            disabled={!cgvAccepted || isCreatingOrder}
+            className="w-full h-12 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isCreatingOrder ? t("preparingPayment") : t("creditOnlyConfirmBtn")}
+          </button>
+
+          {orderError && (
+            <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
+              {orderError}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Choix carte / virement — masqué si le crédit couvre tout */}
+      {!isCoveredByCredit && (
       <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
         <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
           {t("paymentTitle")}
@@ -327,9 +497,10 @@ export default function Step3PaymentContent({
           )}
         </div>
       </section>
+      )}
 
       {/* Bloc Carte : Stripe PaymentElement (accordéon interne des méthodes Stripe) */}
-      {paymentMode === "card" && (
+      {!isCoveredByCredit && paymentMode === "card" && (
         <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
           <div className="mb-5">
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">
@@ -387,7 +558,7 @@ export default function Step3PaymentContent({
       )}
 
       {/* Bloc Virement bancaire */}
-      {paymentMode === "bank_transfer" && bankTransfer.enabled && (
+      {!isCoveredByCredit && paymentMode === "bank_transfer" && bankTransfer.enabled && (
         <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
           <div className="mb-5">
             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">

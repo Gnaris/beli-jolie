@@ -6,6 +6,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { roundCent } from "@/lib/money";
 import type { DiscountKind, PromotionScope } from "@prisma/client";
 import {
   type ActivePromotion,
@@ -61,7 +62,6 @@ export async function loadActivePromotions(): Promise<ActivePromotion[]> {
     minOrderAmount: p.minOrderAmount != null ? Number(p.minOrderAmount) : null,
     maxUses: p.maxUses,
     maxUsesPerUser: p.maxUsesPerUser,
-    firstOrderOnly: p.firstOrderOnly,
     currentUses: p.currentUses,
     startsAt: p.startsAt,
     endsAt: p.endsAt,
@@ -146,13 +146,6 @@ export async function validatePromoCode(
     }
   }
 
-  if (promo.firstOrderOnly) {
-    const orderCount = await prisma.order.count({ where: { userId: cart.userId } });
-    if (orderCount > 0) {
-      return { valid: false, error: "Ce code est réservé à la première commande." };
-    }
-  }
-
   if (promo.minOrderAmount && cart.subtotalHT < Number(promo.minOrderAmount)) {
     return {
       valid: false,
@@ -171,7 +164,6 @@ export async function validatePromoCode(
     minOrderAmount: promo.minOrderAmount != null ? Number(promo.minOrderAmount) : null,
     maxUses: promo.maxUses,
     maxUsesPerUser: promo.maxUsesPerUser,
-    firstOrderOnly: promo.firstOrderOnly,
     currentUses: promo.currentUses,
     startsAt: promo.startsAt,
     endsAt: promo.endsAt,
@@ -195,17 +187,18 @@ export async function validatePromoCode(
       };
     }
   } else {
-    let anyBeaten = false;
-    for (const item of cart.items) {
-      const withoutCode = resolveBestItemDiscount(item, activePromos, null);
-      const withCode = resolveBestItemDiscount(item, activePromos, applied);
-      const gain = (withoutCode.finalUnitPrice - withCode.finalUnitPrice) * item.quantity;
-      if (gain > 0) {
-        anyBeaten = true;
-        itemsSaved += gain;
-      }
+    // Depuis 2026-09-23, le code promo sur produits est une remise unique
+    // sur le sous-total post-promos AUTO, arrondie au centime le plus proche
+    // (roundCent, règle Sage). Le montant renvoyé ici DOIT coïncider avec ce
+    // que `computeOrderPricing` appliquera, sinon le récap panier et la
+    // facture divergent.
+    if (applied.discountKind === "PERCENTAGE") {
+      itemsSaved = Math.max(0, roundCent(cart.subtotalHT * (applied.discountValue / 100)));
+    } else if (applied.discountKind === "FIXED_AMOUNT") {
+      itemsSaved = Math.min(applied.discountValue, cart.subtotalHT);
     }
-    if (!anyBeaten) {
+    itemsSaved = Math.min(itemsSaved, cart.subtotalHT);
+    if (itemsSaved <= 0) {
       return {
         valid: false,
         error: "Ce code n'apporte pas d'avantage supplémentaire sur votre panier actuel.",
@@ -213,7 +206,7 @@ export async function validatePromoCode(
     }
   }
 
-  const totalSaved = Math.round((itemsSaved + shippingSaved) * 100) / 100;
+  const totalSaved = roundCent(itemsSaved + shippingSaved);
 
   return {
     valid: true,
@@ -225,8 +218,8 @@ export async function validatePromoCode(
       discountKind: applied.discountKind,
       discountValue: applied.discountValue,
       totalSaved,
-      itemsSaved: Math.round(itemsSaved * 100) / 100,
-      shippingSaved: Math.round(shippingSaved * 100) / 100,
+      itemsSaved: roundCent(itemsSaved),
+      shippingSaved: roundCent(shippingSaved),
     },
   };
 }

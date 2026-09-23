@@ -185,6 +185,13 @@ function computeSubtotalWithPromos(
 export function computeOrderPricing(input: OrderPricingInput): OrderPricingResult {
   const { user, activePromos, appliedCodePromo } = input;
 
+  // Depuis 2026-09-23, le code promo ciblant les items n'est plus incorporé
+  // ligne à ligne : il devient une remise globale unique, arrondie au centime
+  // le plus proche (roundCent), appliquée sur le sous-total après remise
+  // commerciale client. Cela aligne le calcul sur Sage 50 (Remise globale
+  // sur le brut) : sans ce changement, la troncature ligne par ligne du
+  // moteur créait un mini-écart (ex : 931,96 × 10 % → 93,31 côté BJ vs
+  // 93,20 côté Sage) qui empêchait la facture BJ et Sage de tomber pareil.
   const itemsCodePromo = appliedCodePromo?.scope !== "SHIPPING" ? appliedCodePromo : null;
   const shippingCodePromo = appliedCodePromo?.scope === "SHIPPING" ? appliedCodePromo : null;
 
@@ -192,7 +199,9 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   const totalItemQuantity = input.items.reduce((s, i) => s + i.quantity, 0);
 
   const subtotalBrutHT = computeSubtotalBrut(input.items);
-  const subtotalHT = computeSubtotalWithPromos(input.items, activePromos, itemsCodePromo);
+  // Sous-total post-promos AUTO uniquement — le code promo est appliqué
+  // globalement après (voir étape 3.bis ci-dessous).
+  const subtotalHT = computeSubtotalWithPromos(input.items, activePromos, null);
 
   const clientDiscountApplies = (() => {
     if (!user.discountType || user.discountValue == null) return false;
@@ -208,11 +217,11 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   })();
 
   // ── 2. Snapshot par item (pour OrderItem BDD) ──────────────────────
-  // La remise commerciale client n'entre pas ici — elle est appliquée
-  // exclusivement sur le total panier (étape 3).
+  // La remise commerciale client et le code promo global n'entrent pas ici —
+  // seul le prix "post-promos AUTO" est incorporé dans chaque OrderItem.
   const itemFinalPrices: OrderPricingResult["itemFinalPrices"] = new Map();
   for (const item of input.items) {
-    const resolved = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo);
+    const resolved = resolveBestItemDiscount(item.promoContext, activePromos, null);
     itemFinalPrices.set(item.id, {
       finalUnitPrice: resolved.finalUnitPrice,
       savedPerUnit: resolved.savedPerUnit,
@@ -227,7 +236,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   // Net HT = base − Remise (pas de re-arrondi). Sur 258.50 −5 % : remise
   // 12.93, net 245.57 → TTC 294.68 (idem Sage).
   let clientDiscountAmt = 0;
-  let subtotalAfterDiscount = roundCent(subtotalHT);
+  let subtotalAfterClient = roundCent(subtotalHT);
   if (clientDiscountApplies && user.discountType && user.discountValue != null) {
     if (user.discountType === "PERCENT") {
       clientDiscountAmt = Math.max(0, roundCent(subtotalHT * (user.discountValue / 100)));
@@ -235,10 +244,32 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
     } else {
       clientDiscountAmt = Math.min(subtotalHT, user.discountValue);
     }
-    subtotalAfterDiscount = Math.max(0, roundCent(subtotalHT - clientDiscountAmt));
+    subtotalAfterClient = Math.max(0, roundCent(subtotalHT - clientDiscountAmt));
   }
 
-  // ── 4. Cascade trace — affichage récap (promos items + remise client) ──
+  // ── 3bis. Code promo global (scope items) — Remise unique arrondi Sage ──
+  // Appliqué APRÈS la remise commerciale, sur (subtotalHT − clientDiscountAmt).
+  // Cet ordre est celui affiché dans le récap panier et le PDF facture.
+  // Le montant final tombe pareil que Sage 50 (Remise globale sur le brut −
+  // 10 % → 93,20 € sur 931,96 €), quel que soit le détail des lignes.
+  let promoCodeItemsSaved = 0;
+  if (itemsCodePromo && subtotalAfterClient > 0.005) {
+    if (itemsCodePromo.discountKind === "PERCENTAGE") {
+      promoCodeItemsSaved = Math.max(
+        0,
+        roundCent(subtotalAfterClient * (itemsCodePromo.discountValue / 100)),
+      );
+    } else if (itemsCodePromo.discountKind === "FIXED_AMOUNT") {
+      promoCodeItemsSaved = Math.min(itemsCodePromo.discountValue, subtotalAfterClient);
+    }
+    promoCodeItemsSaved = Math.min(promoCodeItemsSaved, subtotalAfterClient);
+  }
+  const subtotalAfterDiscount = Math.max(
+    0,
+    roundCent(subtotalAfterClient - promoCodeItemsSaved),
+  );
+
+  // ── 4. Cascade trace — affichage récap (promos items + remise client + code) ──
   const discountTrace: CascadeTraceLine[] = [];
   let running = subtotalBrutHT;
 
@@ -246,7 +277,7 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   const subtotalAfterNonStackable = computeSubtotalWithPromos(
     input.items,
     activePromos.filter((p) => !p.stackable),
-    itemsCodePromo && !itemsCodePromo.stackable ? itemsCodePromo : null,
+    null,
   );
   if (subtotalAfterNonStackable < running - 0.005) {
     const gain = floorMoney(running - subtotalAfterNonStackable);
@@ -261,17 +292,15 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
 
   // 4b. Chaque promo stackable, dans l'ordre, avec son gain cascade
   const stackablePromos = activePromos.filter((p) => p.type === "AUTO" && p.stackable);
-  const stackableCode = itemsCodePromo?.stackable ? itemsCodePromo : null;
   const cumulative: ActivePromotion[] = [];
   const nonStackList = activePromos.filter((p) => !p.stackable);
-  const nonStackCodeArg = itemsCodePromo && !itemsCodePromo.stackable ? itemsCodePromo : null;
 
   for (const promo of stackablePromos) {
     cumulative.push(promo);
     const newSubtotal = computeSubtotalWithPromos(
       input.items,
       [...nonStackList, ...cumulative],
-      nonStackCodeArg,
+      null,
     );
     if (newSubtotal < running - 0.005) {
       const gain = floorMoney(running - newSubtotal);
@@ -285,26 +314,8 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       running = newSubtotal;
     }
   }
-  if (stackableCode) {
-    const newSubtotal = computeSubtotalWithPromos(
-      input.items,
-      [...nonStackList, ...cumulative],
-      stackableCode,
-    );
-    if (newSubtotal < running - 0.005) {
-      const gain = floorMoney(running - newSubtotal);
-      discountTrace.push({
-        label: stackableCode.name,
-        kind: "promo",
-        percent: stackableCode.discountKind === "PERCENTAGE" ? stackableCode.discountValue : undefined,
-        amount: gain,
-        subtotalAfter: newSubtotal,
-      });
-      running = newSubtotal;
-    }
-  }
 
-  // 4c. Remise commerciale client — toujours en dernier
+  // 4c. Remise commerciale client — après les promos catalogue
   if (clientDiscountAmt > 0.005) {
     const newSubtotal = Math.max(0, floorMoney(running - clientDiscountAmt));
     discountTrace.push({
@@ -312,6 +323,21 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
       kind: "client",
       percent: user.discountType === "PERCENT" && user.discountValue != null ? user.discountValue : undefined,
       amount: clientDiscountAmt,
+      subtotalAfter: newSubtotal,
+    });
+    running = newSubtotal;
+  }
+
+  // 4d. Code promo saisi (scope items) — toujours en dernier, remise unique
+  if (promoCodeItemsSaved > 0.005 && itemsCodePromo) {
+    const newSubtotal = Math.max(0, floorMoney(running - promoCodeItemsSaved));
+    discountTrace.push({
+      label: itemsCodePromo.code
+        ? `Code promo (${itemsCodePromo.code})`
+        : itemsCodePromo.name,
+      kind: "promo",
+      percent: itemsCodePromo.discountKind === "PERCENTAGE" ? itemsCodePromo.discountValue : undefined,
+      amount: promoCodeItemsSaved,
       subtotalAfter: newSubtotal,
     });
     running = newSubtotal;
@@ -457,16 +483,14 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   const totalTTCCents = Math.round(totalTTC * 100);
 
   // ── 7. Gain apporté par le code promo ──────────────────────────────
+  // Scope SHIPPING : gain sur la livraison, calculé par le moteur shipping.
+  // Scope items : montant global de la remise unique (étape 3bis).
   let promoCodeSaved = 0;
   if (appliedCodePromo) {
     if (appliedCodePromo.scope === "SHIPPING") {
       promoCodeSaved = shipping.promotion?.id === appliedCodePromo.id ? shipping.savedAmount : 0;
     } else {
-      for (const item of input.items) {
-        const withoutCode = resolveBestItemDiscount(item.promoContext, activePromos, null);
-        const withCode = resolveBestItemDiscount(item.promoContext, activePromos, itemsCodePromo);
-        promoCodeSaved += (withoutCode.finalUnitPrice - withCode.finalUnitPrice) * item.quantity;
-      }
+      promoCodeSaved = promoCodeItemsSaved;
     }
   }
 

@@ -63,7 +63,6 @@ export default async function AdminPromotionsPage() {
     minOrderAmount: p.minOrderAmount != null ? Number(p.minOrderAmount) : null,
     maxUses: p.maxUses,
     maxUsesPerUser: p.maxUsesPerUser,
-    firstOrderOnly: p.firstOrderOnly,
     stackable: p.stackable,
     appliesToAll: p.appliesToAll,
     startsAt: p.startsAt.toISOString(),

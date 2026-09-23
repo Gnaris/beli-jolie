@@ -15,6 +15,8 @@ import {
 } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
+import { getAvailableCredit, applyCreditsToOrder } from "@/lib/credits";
+import { clampCreditToApply } from "@/lib/credit-clamp";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
@@ -67,6 +69,8 @@ export interface PaymentLinkOrderInput {
   promoCode?: string;
   /** Locale du client au checkout — sert au success_url + à `locale` Stripe. */
   locale?: "fr" | "en";
+  /** Avoir à consommer (clampé serveur). */
+  creditToApply?: number;
 }
 
 export interface PaymentLinkOrderResult {
@@ -445,7 +449,24 @@ export async function placePaymentLinkOrder(
     };
   }
 
-  if (totalTTCCents < 50) {
+  // Crédit / avoir : clamp serveur (min(solde, TTC, montant demandé)).
+  // Si le crédit couvre 100%, on refuse ici — la cliente doit passer par
+  // placeCreditOnlyOrder qui skip la génération du lien Stripe.
+  const availableCredit = await getAvailableCredit(userId);
+  const { creditApplied, amountDue: amountDueTTC, amountDueCents } = clampCreditToApply({
+    availableCredit,
+    totalTTC,
+    requested: Number(input.creditToApply ?? 0),
+  });
+
+  if (amountDueCents === 0 && creditApplied > 0) {
+    return {
+      success: false,
+      error: "Votre avoir couvre la totalité — utilisez le bouton « Confirmer par avoir ».",
+    };
+  }
+
+  if (amountDueCents < 50) {
     return { success: false, error: "Le montant minimum est de 0,50 €." };
   }
 
@@ -591,6 +612,7 @@ export async function placePaymentLinkOrder(
           clientFreeShipping,
           promoCode: appliedCode?.code ?? null,
           promoDiscount: appliedCode?.totalSaved ?? 0,
+          creditApplied,
           cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
           acceptReplacementContact: input.acceptReplacementContact ?? false,
           tvaRate,
@@ -642,6 +664,19 @@ export async function placePaymentLinkOrder(
     }
     logger.error("[placePaymentLinkOrder] Transaction error", { error: err });
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
+  }
+
+  // Décrémenter les crédits consommés (best-effort).
+  if (creditApplied > 0.005) {
+    try {
+      await applyCreditsToOrder(userId, order.id, creditApplied);
+    } catch (err) {
+      logger.error("[placePaymentLinkOrder] Décrémentation crédit échouée", {
+        orderId: order.id,
+        creditApplied,
+        error: err as Error,
+      });
+    }
   }
 
   // ── Copie miniatures dans le dossier de la commande ─────────────────────
@@ -699,10 +734,12 @@ export async function placePaymentLinkOrder(
         {
           price_data: {
             currency: "eur",
-            unit_amount: totalTTCCents,
+            unit_amount: amountDueCents,
             product_data: {
               name: `${shopName} — Commande ${orderNumber}`,
-              description: `Total TTC : ${totalTTC.toFixed(2)} € (livraison incluse)`,
+              description: creditApplied > 0
+                ? `Total TTC : ${totalTTC.toFixed(2)} € − avoir ${creditApplied.toFixed(2)} € = ${amountDueTTC.toFixed(2)} €`
+                : `Total TTC : ${totalTTC.toFixed(2)} € (livraison incluse)`,
             },
           },
           quantity: 1,

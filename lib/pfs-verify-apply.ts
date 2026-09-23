@@ -47,7 +47,7 @@ import {
   pullRemoveLocalVariant,
 } from "@/lib/pfs-verify-variant-ops";
 import { Prisma } from "@prisma/client";
-import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { pfsAdminFetchMaterialComposition, normalizeDictKey } from "@/lib/pfs-admin-api";
 import { clampStock } from "@/lib/product-variant-validation";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
@@ -722,49 +722,66 @@ async function buildProductPullPatch(a: ParsedAction, ctx: ApplyContext, patch: 
 
 /**
  * Prend un array de composition PFS (format `checkRef.material_composition`)
- * et le convertit en lignes `ProductComposition` prêtes à écrire en base :
- *   1. Résolution `Composition` locale — priorité `pfsCompositionUid`
- *      (Salesforce Uid, stable et immunisé aux fautes d'orthographe),
- *      fallback `pfsCompositionRef` (Code PFS) pour compat rétro pendant
- *      la migration du backfill.
- *   2. Heal opportuniste : si une compo locale a été trouvée par Ref mais
- *      n'a pas encore de Uid, on lui pose le Uid PFS courant (aligne
- *      progressivement toutes les compos existantes sur la clé Uid).
- *   3. Si aucun match : ON BLOQUE — jette une erreur listant les matières
- *      PFS sans mapping local. La cliente doit créer la Composition
- *      manuellement dans Paramètres avant de relancer l'audit (règle
- *      établie après l'incident du 2026-08-01).
- *   4. Dédoublonnage : si 2 codes PFS distincts mappent sur la même
- *      Composition locale (alias par nom), on additionne les pourcentages.
+ * et le convertit en lignes `ProductComposition` prêtes à écrire en base.
+ *
+ * Match 3 niveaux (aligné sur `reconcileCompositionsByLabel` de pfs-verify.ts
+ * pour éviter que l'audit accepte un écart en verify puis crashe en apply) :
+ *   1. Uid Salesforce (le plus stable).
+ *   2. Code PFS normalisé — accents, espaces, points, tirets, underscores
+ *      strippés ; ainsi « P.U. » (libellé brut renvoyé par l'API mobile quand
+ *      son dictionnaire répond mal) matche la biblio locale stockée en
+ *      « PU » (incident 2026-09-22 sur Issyma, réf 10599).
+ *   3. Nom local normalisé (fallback ultime — libellé FR PFS = nom BJ).
+ *
+ * Comportements annexes :
+ *   - Heal opportuniste : si la compo locale trouvée par ref/nom n'a pas
+ *     encore d'Uid, on le pose (aligne progressivement la clé stable).
+ *   - Si aucun match : ON BLOQUE — jette une erreur listant les matières
+ *     PFS sans mapping local. La cliente doit créer la Composition
+ *     manuellement dans Paramètres (règle post-incident 2026-08-01 :
+ *     jamais d'auto-création silencieuse).
+ *   - Dédoublonnage : si 2 codes PFS distincts mappent sur la même
+ *     Composition locale (alias par nom), on additionne les pourcentages.
  */
 export async function resolvePfsCompositionsToLocal(
   pfsCompositions: NonNullable<Awaited<ReturnType<typeof pfsCheckReference>>["product"]>["material_composition"],
 ): Promise<{ compositionId: string; percentage: number }[]> {
   if (pfsCompositions.length === 0) return [];
-  const uniqueUids = Array.from(new Set(pfsCompositions.map((m) => m.id).filter(Boolean)));
-  const uniqueRefs = Array.from(new Set(pfsCompositions.map((m) => m.reference).filter(Boolean)));
-  const existingRows = await prisma.composition.findMany({
-    where: {
-      OR: [
-        ...(uniqueUids.length > 0 ? [{ pfsCompositionUid: { in: uniqueUids } }] : []),
-        ...(uniqueRefs.length > 0 ? [{ pfsCompositionRef: { in: uniqueRefs } }] : []),
-      ],
-    },
-    select: { id: true, pfsCompositionRef: true, pfsCompositionUid: true },
+
+  // Charge toutes les compositions du tenant courant (extension Prisma scope
+  // auto). Table petite (< 200 lignes/tenant en pratique) — 1 requête plutôt
+  // qu'un WHERE IN étroit qui rate les orthographes non canoniques.
+  const rows = await prisma.composition.findMany({
+    select: { id: true, name: true, pfsCompositionRef: true, pfsCompositionUid: true },
   });
-  const byUid = new Map(
-    existingRows.filter((r) => r.pfsCompositionUid).map((r) => [r.pfsCompositionUid!, r]),
-  );
-  const byRef = new Map(
-    existingRows.filter((r) => r.pfsCompositionRef).map((r) => [r.pfsCompositionRef!, r]),
-  );
+
+  type Row = (typeof rows)[number];
+  const byUid = new Map<string, Row>();
+  const byNormRef = new Map<string, Row>();
+  const byNormName = new Map<string, Row>();
+  for (const r of rows) {
+    if (r.pfsCompositionUid) byUid.set(r.pfsCompositionUid, r);
+    if (r.pfsCompositionRef) {
+      const k = normalizeDictKey(r.pfsCompositionRef);
+      if (!byNormRef.has(k)) byNormRef.set(k, r);
+    }
+    if (r.name) {
+      const k = normalizeDictKey(r.name);
+      if (!byNormName.has(k)) byNormName.set(k, r);
+    }
+  }
 
   const healPromises: Promise<unknown>[] = [];
   const missing: PfsMissingCompositionInfo[] = [];
   const merged = new Map<string, { compositionId: string; percentage: number }>();
   for (const mat of pfsCompositions) {
-    let match = mat.id ? byUid.get(mat.id) : undefined;
-    if (!match && mat.reference) match = byRef.get(mat.reference);
+    let match: Row | undefined = mat.id ? byUid.get(mat.id) : undefined;
+    if (!match && mat.reference) match = byNormRef.get(normalizeDictKey(mat.reference));
+    if (!match) {
+      const pfsFrLabel = mat.labels?.fr ?? mat.labels?.en ?? mat.reference;
+      if (pfsFrLabel) match = byNormName.get(normalizeDictKey(pfsFrLabel));
+    }
+
     if (!match) {
       const suggestedName = mat.labels?.fr ?? mat.labels?.en ?? mat.reference ?? "(sans nom)";
       // Dédoublonne par Uid (ou par ref si pas d'Uid) : PFS renvoie parfois
@@ -780,21 +797,23 @@ export async function resolvePfsCompositionsToLocal(
       }
       continue;
     }
-    // Heal opportuniste : matched par Ref mais Uid pas encore rempli localement.
+    // Heal opportuniste : matched par ref/nom mais Uid pas encore rempli.
     if (mat.id && !match.pfsCompositionUid) {
+      const targetId = match.id;
+      const targetUid = mat.id;
       healPromises.push(
         prisma.composition
-          .update({ where: { id: match.id }, data: { pfsCompositionUid: mat.id } })
+          .update({ where: { id: targetId }, data: { pfsCompositionUid: targetUid } })
           .catch((err) =>
             logger.warn("[PFS Resolve] Heal Uid skipped (collision ou erreur)", {
-              compositionId: match!.id,
-              targetUid: mat.id,
+              compositionId: targetId,
+              targetUid,
               error: err instanceof Error ? err.message : String(err),
             }),
           ),
       );
-      match.pfsCompositionUid = mat.id;
-      byUid.set(mat.id, match);
+      match.pfsCompositionUid = targetUid;
+      byUid.set(targetUid, match);
     }
     const existing = merged.get(match.id);
     if (existing) {

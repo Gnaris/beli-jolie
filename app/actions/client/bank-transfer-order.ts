@@ -15,6 +15,8 @@ import {
 } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
+import { getAvailableCredit, applyCreditsToOrder } from "@/lib/credits";
+import { clampCreditToApply } from "@/lib/credit-clamp";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
@@ -55,6 +57,12 @@ export interface BankTransferOrderInput {
   privateCarrierBordereau?: string;
   mergeIntoOrderId?: string;
   promoCode?: string;
+  // Montant d'avoir à consommer (clampé serveur à min(solde, TTC)).
+  creditToApply?: number;
+  /** @internal Ne PAS passer depuis le client — utilisé par
+   *  placeCreditOnlyOrder pour forcer paymentMode="CREDIT" + paymentStatus="paid"
+   *  + bypass du check bank transfer enabled. */
+  _creditOnlyMode?: boolean;
 }
 
 export interface BankTransferOrderResult {
@@ -119,9 +127,12 @@ export async function placeBankTransferOrder(
   }
 
   // Refuser si la boutique n'a pas activé le virement.
-  const btConfig = await getCachedBankTransferConfig();
-  if (!btConfig.enabled) {
-    return { success: false, error: "Le paiement par virement n'est pas disponible pour cette boutique." };
+  // Bypass en mode "credit only" — pas de virement à valider.
+  if (!input._creditOnlyMode) {
+    const btConfig = await getCachedBankTransferConfig();
+    if (!btConfig.enabled) {
+      return { success: false, error: "Le paiement par virement n'est pas disponible pour cette boutique." };
+    }
   }
 
   // ── Charger les données ────────────────────────────────────────────────
@@ -492,6 +503,22 @@ export async function placeBankTransferOrder(
 
   const orderNumber = await generateOrderNumber();
 
+  // ── Crédit / avoir : clamp serveur ─────────────────────────────────────
+  const availableCredit = await getAvailableCredit(userId);
+  const { creditApplied } = clampCreditToApply({
+    availableCredit,
+    totalTTC,
+    requested: Number(input.creditToApply ?? 0),
+  });
+
+  // En mode "crédit seul", exiger que le crédit couvre TOUT (avec 1ct de tolérance).
+  if (input._creditOnlyMode && creditApplied < totalTTC - 0.01) {
+    return {
+      success: false,
+      error: "Votre avoir ne couvre pas la totalité de la commande. Choisissez un moyen de paiement (carte ou virement) pour régler le reste.",
+    };
+  }
+
   // ── Transaction : stock + order + cleanup panier ──────────────────────
   let order;
   try {
@@ -527,10 +554,10 @@ export async function placeBankTransferOrder(
           orderNumber,
           userId,
           status: "PENDING",
-          // Marqueurs virement — pas de Stripe PI, paymentStatus reste "pending"
-          // jusqu'à ce que l'admin clique « Marquer virement reçu ».
-          paymentMode: "BANK_TRANSFER",
-          paymentStatus: "pending",
+          // Marqueurs paiement — virement classique : "pending" jusqu'à validation
+          // admin ; crédit uniquement : "paid" immédiat (aucun règlement externe).
+          paymentMode: input._creditOnlyMode ? "CREDIT" : "BANK_TRANSFER",
+          paymentStatus: input._creditOnlyMode ? "paid" : "pending",
           // Livraison
           shipLabel: address.label,
           shipFirstName: address.firstName,
@@ -564,6 +591,7 @@ export async function placeBankTransferOrder(
           clientFreeShipping,
           promoCode: appliedCode?.code ?? null,
           promoDiscount: appliedCode?.totalSaved ?? 0,
+          creditApplied,
           cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
           acceptReplacementContact: input.acceptReplacementContact ?? false,
           tvaRate,
@@ -608,6 +636,19 @@ export async function placeBankTransferOrder(
 
       return created;
     });
+
+    // Décrémenter les crédits consommés (best-effort — hors transaction).
+    if (creditApplied > 0.005) {
+      try {
+        await applyCreditsToOrder(userId, order.id, creditApplied);
+      } catch (err) {
+        logger.error("[placeBankTransferOrder] Décrémentation crédit échouée", {
+          orderId: order.id,
+          creditApplied,
+          error: err as Error,
+        });
+      }
+    }
 
     // Copie des miniatures dans un dossier propre à la commande (cf.
     // placeOrder pour la justification — commande autonome des fiches produit).
@@ -657,11 +698,13 @@ export async function placeBankTransferOrder(
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
   }
 
-  // ── Emails : virement en attente (client) + notification admin ────────
+  // ── Emails : notif admin + confirmation client (virement en attente
+  //    OU commande reçue selon mode) ──────────────────────────────────
   notifyAdminNewOrder({ orderId: order.id }).catch((err) =>
     logger.error("[placeBankTransferOrder] Notif admin error", { error: err }),
   );
-  notifyOrderStatusChange({ orderId: order.id, newStatus: "BANK_TRANSFER_PENDING" }).catch((err) =>
+  const clientNotif = input._creditOnlyMode ? "ORDER_CREATED" : "BANK_TRANSFER_PENDING";
+  notifyOrderStatusChange({ orderId: order.id, newStatus: clientNotif }).catch((err) =>
     logger.error("[placeBankTransferOrder] Confirmation client error", { error: err }),
   );
 

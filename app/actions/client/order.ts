@@ -19,6 +19,8 @@ import {
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { getEffectiveMinOrderHT } from "@/lib/min-order";
+import { getAvailableCredit, applyCreditsToOrder } from "@/lib/credits";
+import { clampCreditToApply } from "@/lib/credit-clamp";
 import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
@@ -141,6 +143,10 @@ export interface PlaceOrderInput {
   mergeIntoOrderId?: string;
   // Code promo saisi par le client (facultatif). Re-validé côté serveur.
   promoCode?: string;
+  // Montant d'avoir que la cliente souhaite consommer. Clampé serveur à
+  // min(solde réel, totalTTC). Le montant Stripe payé doit égaler
+  // totalTTC - creditApplied (tolérance 1 centime).
+  creditToApply?: number;
 }
 
 export interface PlaceOrderResult {
@@ -596,13 +602,23 @@ export async function placeOrder(
     );
   }
 
-  // ── Vérifier que le montant payé par Stripe correspond au total recalculé.
-  //    Tolérance de 1 centime pour absorber les arrondis.
+  // ── Crédit / avoir : clamp serveur (min(solde, TTC, montant demandé)) ─
+  const availableCredit = await getAvailableCredit(userId);
+  const { creditApplied, amountDueCents: expectedPayCents } = clampCreditToApply({
+    availableCredit,
+    totalTTC,
+    requested: Number(input.creditToApply ?? 0),
+  });
+
+  // ── Vérifier que le montant payé par Stripe correspond au total recalculé
+  //    APRÈS déduction de l'avoir. Tolérance 1 centime pour les arrondis.
   const paidAmountCents = paymentIntent.amount;
-  if (Math.abs(paidAmountCents - totalTTCCents) > 1) {
+  if (Math.abs(paidAmountCents - expectedPayCents) > 1) {
     logger.error("[placeOrder] Montant Stripe incohérent", {
       paid: paidAmountCents,
-      expected: totalTTCCents,
+      expected: expectedPayCents,
+      totalTTCCents,
+      creditApplied,
       orderUserId: userId,
     });
     return refundAndAbort(
@@ -791,6 +807,11 @@ export async function placeOrder(
       // Promotion (code saisi manuellement)
       promoCode:     appliedCode?.code ?? null,
       promoDiscount: appliedCode?.totalSaved ?? 0,
+      // Avoir / crédit consommé sur cette commande
+      creditApplied,
+      // Mode de paiement (CARD par défaut ici ; STRIPE_LINK écrasé plus tard
+      // par le lien Stripe, BANK_TRANSFER par le virement).
+      paymentMode: "CARD",
       // CGV
       cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
       // Consentement remplacement rupture stock (case cochée au panier)
@@ -849,6 +870,22 @@ export async function placeOrder(
 
       return created;
     });
+
+    // 5. Décrémenter les crédits (avoirs) consommés — hors transaction, mais
+    //    idempotent (FIFO, lié à orderId). Une seule commande = un seul jeu
+    //    d'usages. Best-effort : si le decrement échoue (rare), on log mais on
+    //    ne casse pas la commande déjà créée + facturée.
+    if (creditApplied > 0.005) {
+      try {
+        await applyCreditsToOrder(userId, order.id, creditApplied);
+      } catch (err) {
+        logger.error("[placeOrder] Décrémentation crédit échouée", {
+          orderId: order.id,
+          creditApplied,
+          error: err as Error,
+        });
+      }
+    }
 
     // Copie des miniatures dans un dossier propre à la commande. La commande
     // devient ainsi autonome des fiches produit : si une variante est
@@ -1185,6 +1222,7 @@ export async function finalizeOrderFromPaymentIntent(
     privateCarrierBordereau: md.privateCarrierBordereau || undefined,
     mergeIntoOrderId: md.mergeIntoOrderId || undefined,
     promoCode: md.promoCode || undefined,
+    creditToApply: md.creditToApply ? Number(md.creditToApply) : undefined,
   };
 
   if (!input.carrierId) {

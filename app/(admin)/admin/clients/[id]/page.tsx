@@ -16,6 +16,13 @@ import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import AdminNewsletterToggle from "@/components/admin/users/AdminNewsletterToggle";
 import ClientProfileEditor from "@/components/admin/users/ClientProfileEditor";
 import ClientNotePanel from "@/components/admin/users/ClientNotePanel";
+import ClientCreditPanel, { type ClientCreditEntry } from "@/components/admin/users/ClientCreditPanel";
+import ClientMinOrderPanel from "@/components/admin/users/ClientMinOrderPanel";
+import {
+  readMinOrderConfig,
+  isFirstOrderForUser,
+  resolveMinOrderForCounters,
+} from "@/lib/min-order";
 import { getCountry } from "@/lib/vat";
 import { isOnline } from "@/lib/online-status";
 import type { UserStatus } from "@prisma/client";
@@ -62,7 +69,7 @@ export default async function ClientDetailPage({
 
   const { id } = await params;
 
-  const [user, cart, orders] = await Promise.all([
+  const [user, cart, orders, credits, minOrderConfig] = await Promise.all([
     prisma.user.findUnique({ where: { id } }),
     prisma.cart.findUnique({
       where: { userId: id },
@@ -89,7 +96,37 @@ export default async function ClientDetailPage({
       },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.credit.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: "desc" },
+      include: { _count: { select: { usages: true } } },
+    }),
+    readMinOrderConfig(),
   ]);
+
+  // Seuil global qui s'appliquerait à ce client sans override — calculé
+  // depuis la config globale + son historique de commandes. Utilisé pour
+  // informer l'admin dans le panneau « Minimum de commande ».
+  const clientIsFirstOrder = await isFirstOrderForUser(id);
+  const globalMinHt = resolveMinOrderForCounters(minOrderConfig, clientIsFirstOrder);
+  const globalMinLabel = (() => {
+    if (minOrderConfig.mode === "none") return "Aucun minimum global";
+    if (minOrderConfig.mode === "all")
+      return `${minOrderConfig.valueAll} € HT · toutes commandes`;
+    if (minOrderConfig.mode === "first_only")
+      return `${minOrderConfig.valueFirst} € HT · 1ʳᵉ commande, aucun ensuite`;
+    return `${minOrderConfig.valueFirst} € HT · 1ʳᵉ · puis ${minOrderConfig.valueRest} € HT`;
+  })();
+
+  const creditsSerialized: ClientCreditEntry[] = credits.map((c) => ({
+    id: c.id,
+    amount: Number(c.amount),
+    remainingAmount: Number(c.remainingAmount),
+    expiresAt: c.expiresAt ? c.expiresAt.toISOString() : null,
+    createdAt: c.createdAt.toISOString(),
+    usagesCount: c._count.usages,
+    reason: c.reason ?? null,
+  }));
 
   // Cart images
   const cartImagePairs = (cart?.items ?? [])
@@ -350,6 +387,9 @@ export default async function ClientDetailPage({
         </p>
       </div>
 
+      {/* Crédit / Avoir */}
+      <ClientCreditPanel userId={user.id} credits={creditsSerialized} />
+
       {/* Zone dangereuse */}
       <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -375,8 +415,15 @@ export default async function ClientDetailPage({
   );
 
   const marketingPanel = (
-    <ClientDiscountsPanel
-      userId={user.id}
+    <div className="space-y-6">
+      <ClientMinOrderPanel
+        userId={user.id}
+        initialOverrideHt={user.minimumOrderOverrideHt != null ? Number(user.minimumOrderOverrideHt) : null}
+        globalMinHt={globalMinHt}
+        globalMinLabel={globalMinLabel}
+      />
+      <ClientDiscountsPanel
+        userId={user.id}
       initialDiscountType={user.discountType ?? null}
       initialDiscountValue={user.discountValue != null ? Number(user.discountValue) : null}
       initialDiscountMode={user.discountMode ?? null}
@@ -389,7 +436,8 @@ export default async function ClientDetailPage({
       initialShippingDiscountMode={user.shippingDiscountMode ?? null}
       initialShippingDiscountMinAmount={user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : null}
       initialShippingDiscountMinQuantity={user.shippingDiscountMinQuantity ?? null}
-    />
+      />
+    </div>
   );
 
   const ordersPanel = (

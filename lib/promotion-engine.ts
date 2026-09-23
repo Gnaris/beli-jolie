@@ -33,7 +33,6 @@ export interface ActivePromotion {
   minOrderAmount: number | null;
   maxUses: number | null;
   maxUsesPerUser: number | null;
-  firstOrderOnly: boolean;
   currentUses: number;
   startsAt: Date;
   endsAt: Date | null;

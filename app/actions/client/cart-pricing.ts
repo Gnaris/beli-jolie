@@ -14,6 +14,8 @@ import { prisma } from "@/lib/prisma";
 import { computeOrderPricing } from "@/lib/order-pricing";
 import { loadActivePromotions, validatePromoCode } from "@/lib/promotions";
 import { buildCartPromoContexts } from "@/lib/promotion-cart-context";
+import { getAvailableCredit } from "@/lib/credits";
+import { clampCreditToApply } from "@/lib/credit-clamp";
 import { logger } from "@/lib/logger";
 
 export interface CartPricingInput {
@@ -21,6 +23,9 @@ export interface CartPricingInput {
   carrierPrice: number;
   addressCountry: string | null;
   promoCode?: string | null;
+  /** Montant d'avoir que la cliente souhaite consommer, en €. Le serveur
+   *  clamp toujours à min(solde réel, totalTTC). Null / 0 = pas d'avoir. */
+  creditToApply?: number | null;
 }
 
 export interface CartPricingResult {
@@ -41,6 +46,14 @@ export interface CartPricingResult {
   totalTTCCents: number;
   appliedCodePromo: { code: string; name: string; totalSaved: number } | null;
   codeError?: string;
+  /** Solde total d'avoir disponible pour cette cliente (tous crédits actifs). */
+  availableCredit: number;
+  /** Montant d'avoir effectivement appliqué à cette commande (clamp serveur). */
+  creditApplied: number;
+  /** Montant restant à payer par carte / virement APRÈS déduction de l'avoir. */
+  amountDue: number;
+  /** Idem en centimes, pour Stripe. */
+  amountDueCents: number;
 }
 
 export interface CartPricingError {
@@ -172,6 +185,13 @@ export async function computeCartCheckoutPricing(
       appliedCodePromo,
     });
 
+    const availableCredit = await getAvailableCredit(userId);
+    const { creditApplied, amountDue, amountDueCents } = clampCreditToApply({
+      availableCredit,
+      totalTTC: pricing.totalTTC,
+      requested: Number(input.creditToApply ?? 0),
+    });
+
     return {
       success: true,
       subtotalBrutHT: pricing.subtotalBrutHT,
@@ -190,6 +210,10 @@ export async function computeCartCheckoutPricing(
       totalTTCCents: pricing.totalTTCCents,
       appliedCodePromo: appliedCode ? { code: appliedCode.code, name: appliedCode.name, totalSaved: appliedCode.totalSaved } : null,
       codeError,
+      availableCredit,
+      creditApplied,
+      amountDue,
+      amountDueCents,
     };
   } catch (err) {
     logger.error("[computeCartCheckoutPricing] Error", { error: err });

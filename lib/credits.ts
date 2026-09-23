@@ -8,6 +8,7 @@ export async function createCredit(params: {
   userId: string;
   amount: number;
   expiresAt?: Date;
+  reason?: string | null;
 }) {
   const credit = await prisma.credit.create({
     data: {
@@ -15,6 +16,7 @@ export async function createCredit(params: {
       amount: params.amount,
       remainingAmount: params.amount,
       expiresAt: params.expiresAt,
+      reason: params.reason?.trim() || null,
     },
   });
 

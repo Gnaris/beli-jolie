@@ -16,6 +16,8 @@ import { getEffectiveMinOrderHT } from "@/lib/min-order";
 import { buildFallbackAddressFromUser, isFallbackAddressAllowed } from "@/lib/order-address-fallback";
 import { createPaymentIntentWithFallback } from "@/lib/stripe-pmt-fallback";
 import { getEnabledStripePaymentMethods } from "@/lib/stripe-payment-methods-enabled";
+import { getAvailableCredit } from "@/lib/credits";
+import { clampCreditToApply } from "@/lib/credit-clamp";
 
 const CreateIntentSchema = z.object({
   // addressId optionnel : en retrait boutique ou transporteur privé, la cliente
@@ -44,6 +46,9 @@ const CreateIntentSchema = z.object({
   // Consentement remplacement rupture stock — stocké en metadata pour être
   // relu par finalizeOrderFromPaymentIntent au retour PayPal.
   acceptReplacementContact: z.boolean().optional(),
+  // Montant d'avoir que la cliente souhaite consommer (en €). Le serveur
+  // clamp toujours à min(solde réel, totalTTC). Absent = 0.
+  creditToApply: z.number().min(0).optional(),
 });
 
 /**
@@ -79,6 +84,7 @@ export async function POST(req: Request) {
     privateCarrierBordereau,
     mergeIntoOrderId,
     acceptReplacementContact,
+    creditToApply: creditToApplyInput,
   } = parsed.data;
 
   const userId = session.user.id;
@@ -287,7 +293,24 @@ export async function POST(req: Request) {
     );
   }
 
-  if (pricing.totalTTCCents < 50) {
+  // Crédit / avoir : clamp serveur à min(solde réel, totalTTC, montant demandé).
+  // Si 100% couvert par le crédit, on refuse ici — le client doit passer par
+  // placeCreditOnlyOrder (pas de PaymentIntent Stripe).
+  const availableCredit = await getAvailableCredit(userId);
+  const { creditApplied, amountDue: amountDueTTC, amountDueCents } = clampCreditToApply({
+    availableCredit,
+    totalTTC: pricing.totalTTC,
+    requested: Number(creditToApplyInput ?? 0),
+  });
+
+  if (amountDueCents === 0 && creditApplied > 0) {
+    return NextResponse.json(
+      { error: "Votre avoir couvre la totalité de la commande — utilisez le bouton « Confirmer » sans passer par la carte." },
+      { status: 400 },
+    );
+  }
+
+  if (amountDueCents < 50) {
     return NextResponse.json({ error: "Le montant minimum est de 0,50 €." }, { status: 400 });
   }
 
@@ -323,7 +346,7 @@ export async function POST(req: Request) {
     const statementDescriptor = buildStatementDescriptor(shopName);
 
     const piBase = {
-      amount: pricing.totalTTCCents,
+      amount: amountDueCents,
       currency: "eur",
       metadata: {
         userId,
@@ -341,9 +364,10 @@ export async function POST(req: Request) {
         privateCarrierBordereau: privateCarrierBordereau ?? "",
         mergeIntoOrderId: mergeIntoOrderId ?? "",
         acceptReplacementContact: acceptReplacementContact ? "1" : "0",
+        creditToApply: String(creditApplied),
       },
       receipt_email: user?.email ?? undefined,
-      description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${pricing.totalTTC.toFixed(2)} € TTC`,
+      description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${amountDueTTC.toFixed(2)} € TTC (après avoir)`,
       ...(statementDescriptor ? { statement_descriptor_suffix: statementDescriptor } : {}),
     };
 
@@ -363,6 +387,8 @@ export async function POST(req: Request) {
       paymentIntentId: paymentIntent.id,
       totalTTC: pricing.totalTTC,
       promoDiscount: pricing.promoCodeSaved,
+      creditApplied,
+      amountDue: amountDueTTC,
     });
   } catch (err) {
     logger.error("[create-intent] Erreur création PI", { error: err });
