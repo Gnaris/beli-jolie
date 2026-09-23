@@ -19,8 +19,8 @@ function computeCartUnitPrice(v: {
   return Math.max(0, base * (1 - dp / 100));
 }
 
-// Réplique la logique des cards (ProductCard, ProductCarousel, CatalogProductCard)
-// après le fix : prix affiché PAR UNITÉ.
+// Réplique la logique des cards (ProductCard, ProductCarousel) après le fix :
+// prix affiché PAR UNITÉ.
 function variantPricePerUnit(v: { unitPrice: number; saleType: "UNIT" | "PACK"; packQuantity: number | null }): number {
   const p = Number(v.unitPrice);
   if (v.saleType === "PACK" && v.packQuantity && v.packQuantity > 0) return p / v.packQuantity;
