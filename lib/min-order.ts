@@ -156,12 +156,14 @@ export async function getEffectiveMinOrder(
   // Lecture défensive : si la BDD ou le client Prisma n'a pas encore la
   // nouvelle colonne (dev sans `prisma generate` ou hot-reload stale), on
   // retombe sur le baseline global au lieu de faire planter la page /panier.
-  let user: { minimumOrderOverrideHt: unknown } | null = null;
+  type MinOrderRow = { minimumOrderOverrideHt: unknown } | null;
+  let user: MinOrderRow = null;
   try {
-    user = (await prisma.user.findUnique({
+    const row = await prisma.user.findUnique({
       where: { id: userId },
       select: { minimumOrderOverrideHt: true },
-    })) as typeof user;
+    });
+    user = (row as unknown) as MinOrderRow;
   } catch {
     user = null;
   }
