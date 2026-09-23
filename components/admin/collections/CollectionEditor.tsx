@@ -417,7 +417,7 @@ export default function CollectionEditor({ collection, categories, filterOptions
             {/* Save button */}
             <button
               onClick={handleSave}
-              disabled={saving || uploading}
+              disabled={saving}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium font-body transition-all disabled:opacity-50 ${
                 saved
                   ? "bg-[#DCFCE7] text-[#16A34A]"
