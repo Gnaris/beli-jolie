@@ -322,15 +322,25 @@ describe("extractHrefs — capture des liens configurables", () => {
   it("extrait les hrefs de <a> avec leur libellé", () => {
     const html = `<a href="#">Un</a> <a href="https://x.com">Deux</a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "#", label: "Un" },
+      { href: "#", label: "Un", occurrenceIndex: 0 },
       { href: "https://x.com", label: "Deux" },
     ]);
   });
 
-  it("dédoublonne les URLs identiques et concatène les libellés distincts", () => {
-    const html = `<a href="#">Finaliser</a><a href="#">Voir mes favoris</a>`;
+  it("hrefs NON-configurés identiques → 1 entrée par occurrence (chacune avec son label)", () => {
+    // Bug cliente 2026-09-24 : logo + bouton CTA partagent href="" → configurer
+    // l'un propageait l'URL à l'autre. Fix : chaque occurrence est distincte.
+    const html = `<a href="">Finaliser</a><a href="">Voir mes favoris</a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "#", label: "Finaliser · Voir mes favoris" },
+      { href: "", label: "Finaliser", occurrenceIndex: 0 },
+      { href: "", label: "Voir mes favoris", occurrenceIndex: 1 },
+    ]);
+  });
+
+  it("URLs configurées identiques → 1 entrée dédoublonnée avec labels concaténés", () => {
+    const html = `<a href="/produits">Voir tout</a><a href="/produits">Nos nouveautés</a>`;
+    expect(extractHrefs(html)).toEqual([
+      { href: "/produits", label: "Voir tout · Nos nouveautés" },
     ]);
   });
 
@@ -339,21 +349,23 @@ describe("extractHrefs — capture des liens configurables", () => {
 {{#each cart}}<a href="/prod">{name}</a>{{/each}}
 <a href="#footer">Footer</a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "#hero", label: "Header" },
-      { href: "#footer", label: "Footer" },
+      { href: "#hero", label: "Header", occurrenceIndex: 0 },
+      { href: "#footer", label: "Footer", occurrenceIndex: 0 },
     ]);
   });
 
   it("ignore les hrefs qui sont uniquement un token merge (unsubscribeLink, privacyLink)", () => {
     const html = `<a href="{unsubscribeLink}">Désinscription</a><a href="{privacyLink}">Vie privée</a><a href="#cta">CTA</a>`;
-    expect(extractHrefs(html)).toEqual([{ href: "#cta", label: "CTA" }]);
+    expect(extractHrefs(html)).toEqual([
+      { href: "#cta", label: "CTA", occurrenceIndex: 0 },
+    ]);
   });
 
   it("supporte guillemets simples et doubles", () => {
     const html = `<a href='#simple'>1</a><a href="#double">2</a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "#simple", label: "1" },
-      { href: "#double", label: "2" },
+      { href: "#simple", label: "1", occurrenceIndex: 0 },
+      { href: "#double", label: "2", occurrenceIndex: 0 },
     ]);
   });
 
@@ -363,20 +375,32 @@ describe("extractHrefs — capture des liens configurables", () => {
 
   it("inclut les href vides (`href=\"\"`) pour permettre leur configuration", () => {
     const html = `<a href="">CTA</a>`;
-    expect(extractHrefs(html)).toEqual([{ href: "", label: "CTA" }]);
+    expect(extractHrefs(html)).toEqual([
+      { href: "", label: "CTA", occurrenceIndex: 0 },
+    ]);
   });
 
   it("prend l'alt de l'image si le <a> englobe une image", () => {
     const html = `<a href="#promo"><img src="{{img.hero}}" alt="Bandeau promo -20%"></a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "#promo", label: "Bandeau promo -20%" },
+      { href: "#promo", label: "Bandeau promo -20%", occurrenceIndex: 0 },
     ]);
   });
 
   it("dépouille les balises internes du libellé (bold, span, styles inline)", () => {
     const html = `<a href="" style="padding:14px 32px;"><strong>Finaliser</strong> ma commande</a>`;
     expect(extractHrefs(html)).toEqual([
-      { href: "", label: "Finaliser ma commande" },
+      { href: "", label: "Finaliser ma commande", occurrenceIndex: 0 },
+    ]);
+  });
+
+  it("ordre : non-configurés d'abord, configurés ensuite", () => {
+    const html = `<a href="/x">Deja OK</a><a href="">A configurer 1</a><a href="/y">Aussi OK</a><a href="">A configurer 2</a>`;
+    expect(extractHrefs(html)).toEqual([
+      { href: "", label: "A configurer 1", occurrenceIndex: 0 },
+      { href: "", label: "A configurer 2", occurrenceIndex: 1 },
+      { href: "/x", label: "Deja OK" },
+      { href: "/y", label: "Aussi OK" },
     ]);
   });
 });
@@ -405,11 +429,34 @@ describe("injectMissingHrefs — auto-fix <a> sans href", () => {
 });
 
 describe("rewriteHref — récriture ciblée dans le HTML", () => {
-  it("remplace toutes les occurrences de la même URL", () => {
+  it("sans occurrenceIndex → remplace toutes les occurrences de la même URL", () => {
     const html = `<a href="#">A</a><a href="#">B</a><a href="/x">C</a>`;
     const { html: out, count } = rewriteHref(html, "#", "https://x.com/fr");
     expect(count).toBe(2);
     expect(out).toBe(`<a href="https://x.com/fr">A</a><a href="https://x.com/fr">B</a><a href="/x">C</a>`);
+  });
+
+  it("occurrenceIndex=0 → ne remplace QUE la 1ʳᵉ occurrence, laisse les autres intactes", () => {
+    // Cas cliente : logo (occurrence 0) + bouton CTA (occurrence 1) partagent href="".
+    const html = `<a href="">Logo</a><a href="">CTA</a>`;
+    const { html: out, count } = rewriteHref(html, "", "https://beliandjolie.com/fr", 0);
+    expect(count).toBe(1);
+    expect(out).toBe(`<a href="https://beliandjolie.com/fr">Logo</a><a href="">CTA</a>`);
+  });
+
+  it("occurrenceIndex=1 → ne remplace QUE la 2ème occurrence", () => {
+    const html = `<a href="">Logo</a><a href="">CTA</a>`;
+    const { html: out, count } = rewriteHref(html, "", "https://beliandjolie.com/fr/panier", 1);
+    expect(count).toBe(1);
+    expect(out).toBe(`<a href="">Logo</a><a href="https://beliandjolie.com/fr/panier">CTA</a>`);
+  });
+
+  it("occurrenceIndex ignore les hrefs d'une autre valeur", () => {
+    const html = `<a href="">A</a><a href="#">B</a><a href="">C</a>`;
+    const { html: out, count } = rewriteHref(html, "", "/x", 1);
+    // La 2ème occurrence de `href=""` est le <a>C, pas le <a>B (autre valeur).
+    expect(count).toBe(1);
+    expect(out).toBe(`<a href="">A</a><a href="#">B</a><a href="/x">C</a>`);
   });
 
   it("préserve les guillemets simples", () => {

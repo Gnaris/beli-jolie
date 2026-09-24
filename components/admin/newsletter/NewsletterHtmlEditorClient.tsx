@@ -54,6 +54,7 @@ import {
   extractHrefs,
   extractImageTokens,
   injectMissingHrefs,
+  isHrefUnconfigured,
   rewriteHref,
   substituteTemplateImages,
   type HtmlDynamicContext,
@@ -441,9 +442,9 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
             leur cible dans l'arbre de la boutique (Produit / Catégorie / …). */}
         <LinksPanel
           html={html}
-          onRewrite={(oldHref, newHref) => {
+          onRewrite={(oldHref, newHref, occurrenceIndex) => {
             setHtml((prev) => {
-              const { html: next } = rewriteHref(prev, oldHref, newHref);
+              const { html: next } = rewriteHref(prev, oldHref, newHref, occurrenceIndex);
               return next;
             });
             markDirty();
@@ -1143,30 +1144,22 @@ function formatBytes(n: number): string {
    Panneau Liens
    ───────────────────────────────────────────── */
 
-/**
- * Un href est considéré « à configurer » si c'est un placeholder générique
- * (`#`, `#anything`, vide, `javascript:`) — cas typique d'un modèle généré
- * par ChatGPT. Sinon c'est une URL déjà valide, la cliente n'a rien à faire.
- */
-function isHrefUnconfigured(href: string): boolean {
-  const trimmed = href.trim();
-  if (trimmed.length === 0) return true;
-  if (/^#/.test(trimmed)) return true;
-  if (/^javascript:/i.test(trimmed)) return true;
-  return false;
-}
-
 function LinksPanel({
   html,
   onRewrite,
   onInjectMissing,
 }: {
   html: string;
-  onRewrite: (oldHref: string, newHref: string) => void;
+  onRewrite: (oldHref: string, newHref: string, occurrenceIndex?: number) => void;
   onInjectMissing: () => void;
 }) {
   const [baseUrl, setBaseUrl] = useState<string>("");
-  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // Cible du picker : href brut à récrire + occurrence à cibler (uniquement
+  // pour les hrefs non-configurés où plusieurs <a> partagent la même valeur).
+  const [pickerFor, setPickerFor] = useState<
+    | { href: string; occurrenceIndex?: number }
+    | null
+  >(null);
   const [showConfigured, setShowConfigured] = useState(false);
 
   useEffect(() => {
@@ -1231,12 +1224,14 @@ function LinksPanel({
   }
 
   const renderLinkRow = (entry: LinkHrefEntry, needsConfig: boolean) => {
-    const { href, label } = entry;
+    const { href, label, occurrenceIndex } = entry;
     const displayHref = href.trim().length === 0 ? "(vide)" : href;
     const displayLabel = label.trim().length === 0 ? "(sans texte)" : label;
+    // Key React unique : sans l'occurrence, 2 hrefs vides collapseraient.
+    const rowKey = occurrenceIndex !== undefined ? `${href}::${occurrenceIndex}` : href;
     return (
     <div
-      key={href}
+      key={rowKey}
       className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border ${needsConfig ? "border-amber-300 bg-amber-50" : "border-border bg-bg-primary"}`}
     >
       <div className="min-w-0 flex-1">
@@ -1260,7 +1255,7 @@ function LinksPanel({
       </div>
       <button
         type="button"
-        onClick={() => setPickerFor(href)}
+        onClick={() => setPickerFor({ href, occurrenceIndex })}
         className={`text-xs px-3 py-1.5 rounded shrink-0 font-semibold ${needsConfig ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-bg-secondary text-text-primary hover:bg-bg-tertiary border border-border"}`}
       >
         {needsConfig ? "Configurer" : "Modifier"}
@@ -1312,11 +1307,11 @@ function LinksPanel({
 
       {pickerFor !== null && (
         <LinkPickerModal
-          currentHref={pickerFor}
+          currentHref={pickerFor.href}
           baseUrl={baseUrl}
           onClose={() => setPickerFor(null)}
           onValidate={(newHref) => {
-            onRewrite(pickerFor, newHref);
+            onRewrite(pickerFor.href, newHref, pickerFor.occurrenceIndex);
             setPickerFor(null);
           }}
         />

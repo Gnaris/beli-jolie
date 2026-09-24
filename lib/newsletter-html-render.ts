@@ -85,10 +85,36 @@ function stripIterations(html: string): string {
  * mail ». `label` est le texte visible du lien (ou l'`alt` de la 1ʳᵉ image
  * contenue si le `<a>` n'englobe qu'une image) — permet à la cliente
  * d'identifier de quel bouton il s'agit sans relire le code source.
+ *
+ * `occurrenceIndex` est présent uniquement quand l'entrée cible UNE occurrence
+ * précise (cas des hrefs non-configurés : `""`, `#`, `#…`, `javascript:`).
+ * Il correspond à l'index 0-based de ce `<a>` parmi tous les `<a>` du HTML
+ * qui partagent le même href brut. Sert à `rewriteHref` pour ne récrire que
+ * cette occurrence-là — sans lui, la cliente configure « logo » et « bouton »
+ * en 1 clic parce que les 2 partagent `href=""`.
+ * Absent = « toutes les occurrences de ce href » (comportement historique
+ * pour les URLs déjà configurées).
  */
 export interface LinkHrefEntry {
   href: string;
   label: string;
+  occurrenceIndex?: number;
+}
+
+/**
+ * Un href est considéré « non-configuré » s'il ne mène nulle part de
+ * fonctionnel : placeholder générique (`#`, `#anything`), vide, ou
+ * `javascript:…`. Ces liens sont TOUS listés séparément par `extractHrefs`
+ * pour que la cliente puisse choisir une cible différente pour chacun
+ * (logo → home, bouton → panier, etc.). Les URLs valides restent
+ * dédoublonnées : si 3 CTA pointent tous vers /produits, une seule ligne.
+ */
+export function isHrefUnconfigured(href: string): boolean {
+  const trimmed = href.trim();
+  if (trimmed.length === 0) return true;
+  if (/^#/.test(trimmed)) return true;
+  if (/^javascript:/i.test(trimmed)) return true;
+  return false;
 }
 
 /**
@@ -111,18 +137,22 @@ function extractLinkLabel(inner: string): string {
 }
 
 /**
- * Extrait la liste unique des valeurs `href="…"` présentes dans le HTML,
- * en excluant celles à l'intérieur des boucles `{{#each …}}…{{/each}}`.
- * Utilisé par le panneau « Liens du mail » de l'éditeur — chaque href
- * détecté ouvre un picker de cible (Accueil / Produit / Catégorie / …).
+ * Extrait la liste des valeurs `href="…"` présentes dans le HTML, en excluant
+ * celles à l'intérieur des boucles `{{#each …}}…{{/each}}`. Utilisé par le
+ * panneau « Liens du mail » de l'éditeur — chaque href détecté ouvre un
+ * picker de cible (Accueil / Produit / Catégorie / …).
  *
  * Règles :
  *  - Accepte guillemets simples `'` ou doubles `"`.
  *  - Trim les whitespaces.
- *  - Dédoublonne par href (une URL configurée = tous ses hrefs récrits). Si
- *    plusieurs `<a>` partagent le même href avec des labels différents, les
- *    labels distincts sont concaténés avec " · " pour que la cliente sache
- *    d'un coup d'œil combien de liens elle configure en une fois.
+ *  - **URLs déjà configurées** (autres que `""`, `#…`, `javascript:`) :
+ *    dédoublonnées. Si 3 CTA pointent tous vers `/produits`, une seule
+ *    ligne — configurer l'une reconfigure les 3, comportement voulu.
+ *  - **Hrefs non-configurés** (vide, `#`, `#quelquechose`, `javascript:`) :
+ *    UNE entrée PAR occurrence, chacune avec son propre label et son
+ *    `occurrenceIndex`. Sinon, un mail « logo + bouton CTA » aurait 2×
+ *    `href=""` fusionnés en 1 ligne, et configurer le bouton propagerait
+ *    l'URL au logo. Fix 2026-09-24 signalé par la cliente.
  *  - IGNORE les hrefs qui contiennent un token merge var (ex. `{unsubscribeLink}`,
  *    `{privacyLink}`, `{shopWebsite}`) — la cliente les gère via les variables,
  *    pas via le picker.
@@ -130,8 +160,14 @@ function extractLinkLabel(inner: string): string {
 export function extractHrefs(html: string): LinkHrefEntry[] {
   if (!html) return [];
   const stripped = stripIterations(html);
-  const labelsByHref = new Map<string, Set<string>>();
-  const order: string[] = [];
+  // Pour les hrefs configurés : dédup + concat labels.
+  const configuredLabels = new Map<string, Set<string>>();
+  const configuredOrder: string[] = [];
+  // Pour les hrefs non-configurés : liste ordonnée avec occurrenceIndex,
+  // compteur par valeur brute pour numéroter chaque occurrence à part.
+  const unconfiguredEntries: LinkHrefEntry[] = [];
+  const unconfiguredCounters = new Map<string, number>();
+
   const re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(stripped)) !== null) {
@@ -139,25 +175,37 @@ export function extractHrefs(html: string): LinkHrefEntry[] {
     const inner = m[2];
     const hrefMatch = attrs.match(/\bhref\s*=\s*(["'])([\s\S]*?)\1/i);
     if (!hrefMatch) continue;
-    // On garde la valeur EXACTE (non-trimée) pour que la ré-écriture retrouve
-    // l'occurrence à l'identique. Les hrefs vides (`href=""`) sont volontai-
-    // rement remontés — la cliente doit pouvoir les configurer. Idem pour
-    // les `href="#"` : placeholders générés par ChatGPT.
+    // Valeur EXACTE (non-trimée) pour que la ré-écriture retrouve
+    // l'occurrence à l'identique.
     const raw = hrefMatch[2];
     // Skip les URLs entièrement composées d'un token merge ({unsubscribeLink},
     // {privacyLink}, {shopLink}…) — gérées via les merge vars, pas le picker.
     if (/^\s*\{[a-zA-Z][a-zA-Z0-9_]*\}\s*$/.test(raw)) continue;
-    if (!labelsByHref.has(raw)) {
-      labelsByHref.set(raw, new Set<string>());
-      order.push(raw);
-    }
+
     const label = extractLinkLabel(inner);
-    if (label) labelsByHref.get(raw)!.add(label);
+    if (isHrefUnconfigured(raw)) {
+      const nextIndex = unconfiguredCounters.get(raw) ?? 0;
+      unconfiguredCounters.set(raw, nextIndex + 1);
+      unconfiguredEntries.push({
+        href: raw,
+        label,
+        occurrenceIndex: nextIndex,
+      });
+    } else {
+      if (!configuredLabels.has(raw)) {
+        configuredLabels.set(raw, new Set<string>());
+        configuredOrder.push(raw);
+      }
+      if (label) configuredLabels.get(raw)!.add(label);
+    }
   }
-  return order.map((href) => ({
+  const configuredEntries = configuredOrder.map<LinkHrefEntry>((href) => ({
     href,
-    label: Array.from(labelsByHref.get(href) ?? []).join(" · "),
+    label: Array.from(configuredLabels.get(href) ?? []).join(" · "),
   }));
+  // Non-configurés d'abord (ce que la cliente doit traiter en priorité),
+  // configurés ensuite.
+  return [...unconfiguredEntries, ...configuredEntries];
 }
 
 /**
@@ -197,23 +245,35 @@ export function injectMissingHrefs(html: string): { html: string; injected: numb
 }
 
 /**
- * Récrit toutes les occurrences de `href="OLD"` (ou `href='OLD'`) par
+ * Récrit les occurrences de `href="OLD"` (ou `href='OLD'`) par
  * `href="NEW"` en préservant la casse du guillemet original. Utilisé par
  * le panneau de liens à la validation du picker. Retourne le HTML mis à
  * jour + le nombre d'occurrences récrites (utile pour le toast).
+ *
+ * `occurrenceIndex` (0-based, optionnel) : ne récrit QUE la Nème occurrence
+ * qui matche `oldValue`. Utilisé pour les hrefs non-configurés qui ont
+ * chacun leur propre ligne dans le panneau — sinon configurer le logo
+ * réécrirait aussi le bouton CTA qui partage `href=""`.
+ * Omis (comportement historique) → récrit toutes les occurrences.
  */
 export function rewriteHref(
   html: string,
   oldValue: string,
   newValue: string,
+  occurrenceIndex?: number,
 ): { html: string; count: number } {
   if (!html || oldValue === newValue) return { html, count: 0 };
   // Échappe les caractères regex de `oldValue` pour construire un pattern sûr.
   const esc = oldValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   let count = 0;
+  let seenIndex = -1;
   const out = html.replace(
     new RegExp(`(\\bhref\\s*=\\s*)(["'])${esc}\\2`, "gi"),
-    (_full, prefix: string, quote: string) => {
+    (full, prefix: string, quote: string) => {
+      seenIndex += 1;
+      if (occurrenceIndex !== undefined && seenIndex !== occurrenceIndex) {
+        return full;
+      }
       count += 1;
       return `${prefix}${quote}${newValue}${quote}`;
     },
