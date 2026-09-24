@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
-import { useProductTranslation } from "@/hooks/useProductTranslation";
 import { buildProductHandle } from "@/lib/product-url";
 import { setCartItemQuantity } from "@/app/actions/client/cart";
 import type { CartValidationError } from "@/lib/cart-validation";
@@ -205,7 +204,6 @@ function ProductCard({
   onZoomImage: (src: string, alt: string) => void;
 }) {
   const t = useTranslations("cart");
-  const { tp, tc: translateCat } = useProductTranslation();
 
   // Items du panier associés à ce produit
   const itemsByVariantId = useMemo(() => {
@@ -239,18 +237,18 @@ function ProductCard({
         <div className="flex gap-3 md:gap-4 min-w-0">
           <ProductThumb
             path={meta.mainImagePath}
-            alt={tp(meta.productName)}
-            onZoom={meta.mainImagePath ? () => onZoomImage(meta.mainImagePath!, tp(meta.productName)) : undefined}
+            alt={meta.productName}
+            onZoom={meta.mainImagePath ? () => onZoomImage(meta.mainImagePath!, meta.productName) : undefined}
           />
           <div className="flex-1 min-w-0">
             <Link
               href={`/produits/${buildProductHandle(meta.productName, meta.productReference)}`}
               className="block font-heading font-semibold text-slate-900 text-sm md:text-base truncate hover:underline"
             >
-              {tp(meta.productName)}
+              {meta.productName}
             </Link>
             <div className="text-xs text-slate-500 mt-0.5 truncate">
-              {meta.productReference} · {translateCat(meta.categoryName)}
+              {meta.productReference} · {meta.categoryName}
               {hasDiscount && (
                 <>
                   {" · "}
@@ -356,7 +354,6 @@ function VariantRow({
   onZoomImage: (src: string, alt: string) => void;
 }) {
   const t = useTranslations("cart");
-  const { tp } = useProductTranslation();
 
   const [qtyDraft, setQtyDraft] = useState(String(currentQty));
   const dirtyRef = useRef(false);
@@ -557,7 +554,7 @@ function VariantRow({
 
   // Source à zoomer : priorité image variante > pattern couleur.
   const zoomSrc = variant.firstImagePath || variant.colorPatternImage || null;
-  const openZoom = zoomSrc ? () => onZoomImage(zoomSrc, tp(variant.colorName)) : undefined;
+  const openZoom = zoomSrc ? () => onZoomImage(zoomSrc, variant.colorName) : undefined;
 
   if (layout === "desktop") {
     return (
@@ -574,7 +571,7 @@ function VariantRow({
             />
             <div className="min-w-0">
               <div className="font-medium text-sm text-slate-900 truncate">
-                {tp(variant.colorName)}
+                {variant.colorName}
                 {variant.saleType === "PACK" && variant.packQuantity ? (
                   <span className="ml-2 text-xs font-semibold text-slate-500">
                     PACK ×{variant.packQuantity}
@@ -617,7 +614,7 @@ function VariantRow({
         />
         <div className="flex-1 min-w-0">
           <div className="font-medium text-sm text-slate-900 truncate">
-            {tp(variant.colorName)}
+            {variant.colorName}
           </div>
           {variant.saleType === "PACK" && variant.packQuantity ? (
             <div className="mt-0.5 inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">

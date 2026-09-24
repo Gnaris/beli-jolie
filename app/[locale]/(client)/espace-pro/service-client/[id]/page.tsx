@@ -5,6 +5,9 @@ import { getClientClaim, markMessagesReadByClient } from "@/app/actions/client/c
 import { getCachedShopName } from "@/lib/cached-data";
 import { getTranslations } from "next-intl/server";
 import ClaimDetailClient from "./ClaimDetailClient";
+import ClaimOrderItemsPanel from "@/components/claims/ClaimOrderItemsPanel";
+import CloseMyClaimButton from "@/components/client/claims/CloseMyClaimButton";
+import { computeClaimItemPricing } from "@/lib/claim-item-pricing";
 import type { Metadata } from "next";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
@@ -25,7 +28,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
   const claim = await getClientClaim(id);
   // Si la conversation a été supprimée par l'admin (ou n'a jamais existé pour ce
   // client), on renvoie proprement sur la liste avec un flash — pas de 404.
-  if (!claim) return redirect({ href: "/espace-pro/reclamations?deleted=1", locale });
+  if (!claim) return redirect({ href: "/espace-pro/service-client?deleted=1", locale });
 
   // Marque les messages admin comme lus à l'ouverture de la page
   await markMessagesReadByClient(id);
@@ -59,7 +62,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
   return (
     <div className="max-w-3xl mx-auto space-y-5">
       <Link
-        href="/espace-pro/reclamations"
+        href="/espace-pro/service-client"
         className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary font-body transition-colors"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -95,8 +98,63 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
               {t("detailCreatedOn", { date: formattedDate })}
             </p>
           </div>
+          {isOpen && <CloseMyClaimButton claimId={claim.id} />}
         </div>
       </div>
+
+      {claim.type === "ORDER_RELATED" && claim.order && (() => {
+        const discountableSubtotal = claim.order.items
+          .filter((it) => !it.isCompensation)
+          .reduce((s, it) => s + Number(it.lineTotal), 0);
+        const ctx = {
+          discountableSubtotal,
+          clientDiscountAmt: Number(claim.order.clientDiscountAmt ?? 0),
+          promoDiscount: Number(claim.order.promoDiscount ?? 0),
+        };
+        return (
+          <ClaimOrderItemsPanel
+            role="client"
+            order={{
+              id: claim.order.id,
+              orderNumber: claim.order.orderNumber,
+              createdAt: claim.order.createdAt.toISOString(),
+              totalTTC: Number(claim.order.totalTTC),
+              status: claim.order.status as "PENDING" | "SHIPPED" | "CANCELLED",
+            }}
+            items={claim.orderItems.map((oi) => {
+              const pricing = computeClaimItemPricing(
+                {
+                  quantity: oi.orderItem.quantity,
+                  unitPrice: Number(oi.orderItem.unitPrice),
+                  lineTotal: Number(oi.orderItem.lineTotal),
+                  lineDiscountAmt: oi.orderItem.lineDiscountAmt ? Number(oi.orderItem.lineDiscountAmt) : null,
+                  isCompensation: oi.orderItem.isCompensation,
+                  variantSnapshot: oi.orderItem.variantSnapshot,
+                },
+                ctx,
+                oi.quantity,
+              );
+              return {
+                id: oi.id,
+                reportedQuantity: oi.quantity,
+                orderItem: {
+                  id: oi.orderItem.id,
+                  productName: oi.orderItem.productName,
+                  productRef: oi.orderItem.productRef,
+                  colorName: oi.orderItem.colorName,
+                  imagePath: oi.orderItem.imagePath,
+                  saleType: oi.orderItem.saleType,
+                  packQty: oi.orderItem.packQty,
+                  size: oi.orderItem.size,
+                  sizesJson: oi.orderItem.sizesJson,
+                  quantity: oi.orderItem.quantity,
+                },
+                pricing,
+              };
+            })}
+          />
+        );
+      })()}
 
       {claim.conversation && (
         <ClaimDetailClient

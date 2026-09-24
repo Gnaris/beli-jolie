@@ -27,7 +27,7 @@
  */
 import { Prisma, PrismaClient } from "@prisma/client";
 import { headers } from "next/headers";
-import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+import { bindTenantId, getCurrentTenantIdSync } from "@/lib/tenant-als";
 
 /**
  * Client "raw" utilisé uniquement pour les pré-checks à l'intérieur de
@@ -156,6 +156,14 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
  * si on est hors contexte requête (scripts, cron, boot) — le caller doit
  * alors sauter le filtrage.
  */
+/**
+ * Exposée pour les tests uniquement (voir __tests__/lib/prisma-tenant-scope-als.test.ts).
+ * En prod, uniquement appelée par le hook `$allOperations` ci-dessous.
+ */
+export async function __getTenantIdFromRequestForTest(): Promise<string | null> {
+  return getTenantIdFromRequest();
+}
+
 async function getTenantIdFromRequest(): Promise<string | null> {
   // Priorité à l'ALS Node : peuplée par lib/tenant.ts::getCurrentTenant/etc,
   // elle survit aux microtasks où next/headers throw.
@@ -164,9 +172,14 @@ async function getTenantIdFromRequest(): Promise<string | null> {
 
   // Fallback : lecture directe des headers. Fonctionne pour les tout premiers
   // appels d'un handler qui n'a pas encore appelé getCurrentTenant().
+  // On populate l'ALS ici même — sinon un émetteur sync ultérieur
+  // (emitChatEvent) ne verrait rien et enverrait un event sans tenantId, ce
+  // qui fait fuiter le son de notification entre boutiques.
   try {
     const h = await headers();
-    return h.get("x-tenant-id");
+    const id = h.get("x-tenant-id");
+    if (id) bindTenantId(id);
+    return id;
   } catch {
     return null;
   }

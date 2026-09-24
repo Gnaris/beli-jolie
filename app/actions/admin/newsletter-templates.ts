@@ -15,7 +15,10 @@ import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { getFooterContent, type NewsletterBlock } from "@/lib/newsletter-blocks";
-import { missingRequiredMarketingVariables } from "@/lib/mail-merge-variables";
+import {
+  missingRequiredMarketingVariables,
+  missingScenarioTokens,
+} from "@/lib/mail-merge-variables";
 import { deleteFiles, keyFromDbPath, listFiles, newsletterTemplateImageDir } from "@/lib/storage";
 import {
   SCENARIO_KEYS,
@@ -435,7 +438,7 @@ export async function updateNewsletterTemplateHtml(
     const { tenant } = await requireAdmin();
     const existing = await prisma.newsletterTemplate.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { id: true, format: true, html: true },
+      select: { id: true, format: true, html: true, scenarioKey: true },
     });
     if (!existing) return { success: false, error: "Modèle introuvable." };
     if (existing.format !== "html") {
@@ -449,6 +452,26 @@ export async function updateNewsletterTemplateHtml(
         success: false,
         error: `Ces variables obligatoires manquent dans le HTML : ${missing.map((v) => `{${v.token}}`).join(", ")}. Elles doivent apparaître quelque part dans le mail (typiquement en pied de page) — elles seront remplacées à l'envoi par la vraie info.`,
         missingVariables: missing.map((v) => v.token),
+      };
+    }
+
+    // Garde-fou scénario : un mail « Panier abandonné » DOIT contenir la
+    // boucle `{{#each cart}}` avec {name}, {image}, {qty}, {total} — sinon
+    // le client reçoit un mail sans la liste de ses articles oubliés, aucun
+    // sens. Idem RESTOCK avec {{#each favorites}} + {name}, {image}, {price},
+    // et INACTIVE_CLIENT avec {days}.
+    const scenarioKey = existing.scenarioKey as ScenarioKey | null;
+    const scenarioMissing = missingScenarioTokens(finalHtml, scenarioKey);
+    if (scenarioMissing.length > 0) {
+      const labelForScenario: Record<ScenarioKey, string> = {
+        ABANDONED_CART: "panier abandonné",
+        INACTIVE_CLIENT: "relance inactivité",
+        RESTOCK: "retour en stock",
+      };
+      return {
+        success: false,
+        error: `Ce mail est lié au scénario « ${labelForScenario[scenarioKey!]} » — il manque : ${scenarioMissing.map((s) => s.label).join(" · ")}. Ces tokens sont indispensables pour que le mail affiche les vraies données du client au moment de l'envoi.`,
+        missingVariables: scenarioMissing.map((s) => s.token),
       };
     }
 

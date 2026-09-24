@@ -153,6 +153,28 @@ async function getMaintenanceStatus(requestUrl: string, tenantId: string | null)
 }
 
 /**
+ * Ancienne route Service Client (`/reclamations`) → nouvelle (`/service-client`).
+ * Retourne le nouveau pathname si l'URL doit être redirigée, sinon null.
+ * Exporté pour test unitaire.
+ */
+export function redirectLegacyClaimsUrl(pathname: string): string | null {
+  // /admin/reclamations[/...] → /admin/service-client[/...]
+  if (pathname === "/admin/reclamations") return "/admin/service-client";
+  if (pathname.startsWith("/admin/reclamations/")) {
+    return "/admin/service-client" + pathname.slice("/admin/reclamations".length);
+  }
+  // /{locale}/espace-pro/reclamations[/...] → /{locale}/espace-pro/service-client[/...]
+  // /espace-pro/reclamations[/...] (sans locale) → /espace-pro/service-client[/...]
+  const m = pathname.match(/^(\/(?:[a-z]{2}\/)?)espace-pro\/reclamations(\/.*)?$/);
+  if (m) {
+    const prefix = m[1];
+    const suffix = m[2] ?? "";
+    return `${prefix}espace-pro/service-client${suffix}`;
+  }
+  return null;
+}
+
+/**
  * Liste des chemins qui ignorent l'auto-maintenance.
  *
  * Le webhook Ankorstore (et tout `/api/webhooks/*`), et le webhook Stripe
@@ -212,6 +234,15 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/onboarding-status");
   if (isInternalMiddlewareCall) {
     return NextResponse.next();
+  }
+
+  // Redirect 301 : ancienne URL /reclamations → /service-client
+  // Couvre les vieux liens dans les emails déjà envoyés et les bookmarks
+  // des clientes. Placé avant tenant/auth pour rediriger les crawlers aussi.
+  const legacyClaimsRedirect = redirectLegacyClaimsUrl(pathname);
+  if (legacyClaimsRedirect) {
+    const url = new URL(legacyClaimsRedirect + request.nextUrl.search, request.url);
+    return NextResponse.redirect(url, 301);
   }
 
   // ── 0.b Résolution multi-tenant (host → boutique) ──────────────────────────

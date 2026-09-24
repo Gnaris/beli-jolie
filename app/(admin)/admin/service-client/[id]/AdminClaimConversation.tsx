@@ -268,7 +268,7 @@ export default function AdminClaimConversation({
         return;
       }
       toast.success("Conversation supprimée");
-      router.push("/admin/reclamations");
+      router.push("/admin/service-client");
     });
   }
 
@@ -525,7 +525,7 @@ export default function AdminClaimConversation({
                 {previousClaims.map((pc) => (
                   <li key={pc.id} className="flex items-start gap-2">
                     <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${pc.status === "OPEN" ? "bg-zinc-800" : "bg-zinc-400"}`} />
-                    <Link href={`/admin/reclamations/${pc.id}`} className="flex-1 group">
+                    <Link href={`/admin/service-client/${pc.id}`} className="flex-1 group">
                       <p className="font-medium text-text-primary group-hover:underline truncate">{pc.subject}</p>
                       <p className="text-[11px] text-text-muted">
                         {pc.status === "OPEN" ? "Ouverte" : `Fermée · ${pc.closedAt ? formatDay(pc.closedAt) : formatDay(pc.createdAt)}`}

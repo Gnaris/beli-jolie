@@ -1,7 +1,6 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useProductTranslation } from "@/hooks/useProductTranslation";
 import type {
   WizardCart,
   WizardCarrier,
@@ -116,7 +115,6 @@ export default function SummaryPanel({
 }) {
   const t = useTranslations("cart");
   const tCheckout = useTranslations("checkout");
-  const { tp } = useProductTranslation();
 
   const itemCount = cart.items.reduce((s, i) => s + i.quantity, 0);
   const modelsCount = cart.items.length;
@@ -178,7 +176,7 @@ export default function SummaryPanel({
             return (
               <li key={item.id} className="flex justify-between gap-3">
                 <span className="text-slate-600 truncate flex-1 min-w-0">
-                  {tp(item.variant.product.name)} × {item.quantity}
+                  {item.variant.product.name} × {item.quantity}
                 </span>
                 <span className="whitespace-nowrap font-medium text-slate-900 tabular-nums">
                   {total.toFixed(2)} €

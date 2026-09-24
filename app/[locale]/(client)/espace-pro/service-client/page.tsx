@@ -87,7 +87,7 @@ export default async function ClientClaimsPage({
             </p>
           </div>
           <Link
-            href="/espace-pro/reclamations/nouveau"
+            href="/espace-pro/service-client/nouveau"
             className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold font-body bg-bg-dark text-text-inverse rounded-xl hover:bg-primary-hover transition-colors shadow-sm whitespace-nowrap"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -112,7 +112,7 @@ export default async function ClientClaimsPage({
             {t("emptyHint")}
           </p>
           <Link
-            href="/espace-pro/reclamations/nouveau"
+            href="/espace-pro/service-client/nouveau"
             className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold font-body bg-bg-dark text-text-inverse rounded-xl hover:bg-primary-hover transition-colors shadow-sm"
           >
             {t("createClaim")}
@@ -157,7 +157,7 @@ export default async function ClientClaimsPage({
                     <tr key={claim.id} className={`group relative hover:bg-bg-secondary/50 transition-colors ${!isOpen ? "opacity-75" : ""}`}>
                       <td className="px-4 py-3 align-top">
                         <Link
-                          href={`/espace-pro/reclamations/${claim.id}`}
+                          href={`/espace-pro/service-client/${claim.id}`}
                           className="font-heading font-bold text-text-primary hover:underline after:absolute after:inset-0 after:content-['']"
                         >
                           {claim.reference}
@@ -215,7 +215,7 @@ export default async function ClientClaimsPage({
               return (
                 <Link
                   key={claim.id}
-                  href={`/espace-pro/reclamations/${claim.id}`}
+                  href={`/espace-pro/service-client/${claim.id}`}
                   className={`block bg-bg-primary border border-border rounded-2xl shadow-sm p-4 hover:shadow-md transition-shadow ${!isOpen ? "opacity-75" : ""}`}
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
@@ -261,7 +261,7 @@ export default async function ClientClaimsPage({
               <div className="flex items-center gap-1">
                 {activePage > 1 ? (
                   <Link
-                    href={{ pathname: "/espace-pro/reclamations", query: { page: String(activePage - 1) } }}
+                    href={{ pathname: "/espace-pro/service-client", query: { page: String(activePage - 1) } }}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-white text-sm font-medium hover:bg-bg-secondary transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -282,7 +282,7 @@ export default async function ClientClaimsPage({
                 </span>
                 {activePage < totalPages ? (
                   <Link
-                    href={{ pathname: "/espace-pro/reclamations", query: { page: String(activePage + 1) } }}
+                    href={{ pathname: "/espace-pro/service-client", query: { page: String(activePage + 1) } }}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-white text-sm font-medium hover:bg-bg-secondary transition-colors"
                   >
                     Suivant

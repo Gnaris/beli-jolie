@@ -7,16 +7,25 @@ import { createConversation, addMessage, markAsRead } from "@/lib/messaging";
 import { notifyAdminNewMessage } from "@/lib/notifications";
 import { cancelPendingNotifications } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
+import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
-export async function createSupportConversation(subject: string, message: string) {
+export async function createSupportConversation(
+  subject: string,
+  message: string,
+  attachments?: { fileName: string; filePath: string; fileSize: number; mimeType: string }[],
+) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "CLIENT" || session.user.status !== "APPROVED") {
     return { success: false, error: "Acces non autorise." };
   }
 
-  if (!subject.trim() || !message.trim()) {
+  const trimmedSubject = subject.trim();
+  const trimmedMessage = message.trim();
+  const hasAttachments = attachments && attachments.length > 0;
+
+  if (!trimmedSubject || (!trimmedMessage && !hasAttachments)) {
     return { success: false, error: "Le sujet et le message sont obligatoires." };
   }
 
@@ -35,20 +44,23 @@ export async function createSupportConversation(subject: string, message: string
       select: { firstName: true, lastName: true, company: true },
     });
 
+    const initialContent = trimmedMessage || "📎 Pièce jointe";
+
     const conversation = await createConversation({
       type: "SUPPORT",
-      subject: subject.trim(),
+      subject: trimmedSubject,
       userId: session.user.id,
-      initialMessage: message.trim(),
+      initialMessage: initialContent,
       senderRole: "CLIENT",
       senderId: session.user.id,
+      attachments,
     });
 
     notifyAdminNewMessage({
       clientName: `${user?.firstName} ${user?.lastName}`,
       clientCompany: user?.company || "",
-      subject: subject.trim(),
-      messagePreview: message.trim(),
+      subject: trimmedSubject,
+      messagePreview: initialContent,
       conversationId: conversation.id,
     }).catch((err) =>
       logger.error("[createSupportConversation] Email admin échoué", {
@@ -56,17 +68,32 @@ export async function createSupportConversation(subject: string, message: string
       }),
     );
 
+    // Le premier message vient d'être créé par createConversation ; on le
+    // récupère pour renvoyer ses attachments à l'admin en temps réel.
+    const initialMessage = await prisma.message.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "asc" },
+      include: { attachments: true },
+    });
+
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId: conversation.id,
       userId: session.user.id,
       targetRole: "ADMIN",
       messageData: {
-        id: conversation.id,
-        content: message.trim(),
+        id: initialMessage?.id ?? conversation.id,
+        content: trimmedMessage,
         senderRole: "CLIENT",
         senderName: `${user?.firstName} ${user?.lastName}`,
         createdAt: new Date().toISOString(),
+        attachments: (initialMessage?.attachments ?? []).map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          filePath: a.filePath,
+          fileSize: a.fileSize,
+          mimeType: a.mimeType,
+        })),
       },
     });
 
@@ -198,17 +225,41 @@ export async function closeClientConversation(conversationId: string) {
 
   const conversation = await prisma.conversation.findFirst({
     where: { id: conversationId, userId: session.user.id },
-    select: { id: true },
+    select: {
+      id: true,
+      messages: {
+        select: {
+          attachments: { select: { filePath: true } },
+        },
+      },
+    },
   });
 
   if (!conversation) {
     return { success: false, error: "Conversation introuvable." };
   }
 
-  // Delete conversation + all messages + attachments (cascade)
+  // Récupère les fichiers physiques AVANT le delete cascade (Prisma efface
+  // MessageAttachment via ON DELETE CASCADE mais les fichiers sur disque
+  // restent — il faut les nettoyer nous-mêmes).
+  const filePaths = conversation.messages
+    .flatMap((m) => m.attachments)
+    .map((a) => a.filePath);
+
+  // Delete conversation + all messages + attachments (cascade Prisma)
   await prisma.conversation.delete({
     where: { id: conversationId },
   });
+
+  if (filePaths.length > 0) {
+    deleteFiles(filePaths).catch((err) =>
+      logger.error("[closeClientConversation] Suppression fichiers chat échouée", {
+        error: err,
+        conversationId,
+        count: filePaths.length,
+      }),
+    );
+  }
 
   emitChatEvent({
     type: "CONVERSATION_CLOSED",

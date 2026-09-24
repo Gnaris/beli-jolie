@@ -9,11 +9,18 @@ import { getAdminClaims, deleteClaim } from "@/app/actions/admin/claims";
 type Claim = Awaited<ReturnType<typeof getAdminClaims>>["rows"][number];
 
 type FilterKey = "all" | "OPEN" | "CLOSED";
+type TypeKey = "all" | "ORDER_RELATED" | "OTHER";
 
 const FILTERS: { key: FilterKey; label: string; dotClass?: string }[] = [
   { key: "all", label: "Toutes" },
   { key: "OPEN", label: "Ouvertes", dotClass: "bg-zinc-800" },
   { key: "CLOSED", label: "Fermées", dotClass: "bg-zinc-300" },
+];
+
+const TYPE_FILTERS: { key: TypeKey; label: string }[] = [
+  { key: "all", label: "Tous types" },
+  { key: "ORDER_RELATED", label: "Commande" },
+  { key: "OTHER", label: "Autre" },
 ];
 
 function getAvatarInitial(claim: Claim): string {
@@ -64,6 +71,7 @@ export default function AdminClaimsList({
 }) {
   const [claims, setClaims] = useState(initialClaims);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeKey>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(initialPage);
   const [totalPages, setTotalPages] = useState(initialTotalPages);
@@ -93,15 +101,19 @@ export default function AdminClaimsList({
       }
       toast.success("Conversation supprimée");
       // Recharge la page courante
-      loadPage(filter, page);
+      loadPage(filter, typeFilter, page);
     } finally {
       setDeletingId(null);
     }
   }
 
-  function loadPage(f: FilterKey, p: number) {
+  function loadPage(f: FilterKey, t: TypeKey, p: number) {
     startTransition(async () => {
-      const data = await getAdminClaims(f === "all" ? undefined : f, p);
+      const data = await getAdminClaims(
+        f === "all" ? undefined : f,
+        p,
+        t === "all" ? undefined : t,
+      );
       setClaims(data.rows);
       setPage(data.page);
       setTotalPages(data.totalPages);
@@ -112,12 +124,18 @@ export default function AdminClaimsList({
   function handleFilter(f: FilterKey) {
     setFilter(f);
     setPage(1);
-    loadPage(f, 1);
+    loadPage(f, typeFilter, 1);
+  }
+
+  function handleTypeFilter(t: TypeKey) {
+    setTypeFilter(t);
+    setPage(1);
+    loadPage(filter, t, 1);
   }
 
   function goToPage(p: number) {
     if (p < 1 || p > totalPages || p === page) return;
-    loadPage(filter, p);
+    loadPage(filter, typeFilter, p);
   }
 
   const filtered = useMemo(() => {
@@ -158,11 +176,12 @@ export default function AdminClaimsList({
               />
               Filtrer les conversations
             </span>
-            {(filter !== "all" || search) && (
+            {(filter !== "all" || typeFilter !== "all" || search) && (
               <button
                 type="button"
                 onClick={() => {
                   setSearch("");
+                  setTypeFilter("all");
                   handleFilter("all");
                 }}
                 className="text-xs font-medium text-text-muted hover:text-text-primary transition-colors"
@@ -183,6 +202,21 @@ export default function AdminClaimsList({
                   dotClass={f.dotClass}
                   onClick={() => handleFilter(f.key)}
                 />
+              ))}
+              <span className="w-px h-6 bg-border mx-1 hidden md:block" />
+              {TYPE_FILTERS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => handleTypeFilter(t.key)}
+                  className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium border transition-all ${
+                    typeFilter === t.key
+                      ? "bg-text-primary text-text-inverse border-text-primary shadow-sm"
+                      : "bg-white text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
+                  }`}
+                >
+                  {t.label}
+                </button>
               ))}
             </div>
 
@@ -275,7 +309,7 @@ export default function AdminClaimsList({
               return (
                 <Link
                   key={claim.id}
-                  href={`/admin/reclamations/${claim.id}`}
+                  href={`/admin/service-client/${claim.id}`}
                   className={`block group hover:bg-zinc-50 transition-colors relative ${isFaded ? "opacity-75" : ""} ${isDeleting ? "opacity-40 pointer-events-none" : ""}`}
                 >
                   {claim.hasUnreadFromClient && (
@@ -296,6 +330,7 @@ export default function AdminClaimsList({
                           {claim.hasUnreadFromClient && <UnreadBadge />}
                         </div>
                         <p className="text-[13px] mt-0.5 truncate text-text-secondary">{claim.subject}</p>
+                        <TypeLine claim={claim} />
                       </div>
                       <StatusBadge status={claim.status} />
                     </div>
@@ -350,6 +385,7 @@ export default function AdminClaimsList({
                         {claim.hasUnreadFromClient && <UnreadBadge />}
                       </div>
                       <p className="text-[13px] mt-0.5 truncate text-text-secondary">{claim.subject}</p>
+                      <TypeLine claim={claim} />
                     </div>
                     <div className="min-w-0">
                       {lastMsg ? (
@@ -462,6 +498,26 @@ function FilterChip({
         {count}
       </span>
     </button>
+  );
+}
+
+function TypeLine({ claim }: { claim: Claim }) {
+  const isOrder = claim.type === "ORDER_RELATED";
+  return (
+    <div className="mt-1 flex items-center gap-2 flex-wrap">
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+          isOrder ? "bg-violet-50 text-violet-700 border border-violet-200" : "bg-slate-50 text-slate-600 border border-slate-200"
+        }`}
+      >
+        {isOrder ? "Commande" : "Autre"}
+      </span>
+      {isOrder && claim.order && (
+        <span className="text-[11px] text-text-muted font-mono">
+          {claim.order.orderNumber}
+        </span>
+      )}
+    </div>
   );
 }
 

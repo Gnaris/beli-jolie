@@ -195,3 +195,55 @@ export function missingRequiredMarketingVariables(hayContent: string): MailVaria
     return !hayContent.includes(literal);
   });
 }
+
+/* ─────────────────────────────────────────────
+   Tokens obligatoires par scénario auto
+   ───────────────────────────────────────────── */
+
+/**
+ * Un token obligatoire pour un scénario auto. `literal` est la chaîne exacte
+ * à chercher dans le HTML source (avant interpolation). Si le token est
+ * absent, la sauvegarde du modèle est refusée — sans ça, l'admin risque
+ * d'envoyer un mail « Panier abandonné » qui ne contient PAS la liste des
+ * articles, ce qui n'aurait aucun sens pour le client.
+ */
+export interface ScenarioTokenSpec {
+  token: string;
+  label: string;
+  literal: string;
+}
+
+export const SCENARIO_REQUIRED_TOKENS: Record<ScenarioKey, ScenarioTokenSpec[]> = {
+  ABANDONED_CART: [
+    { token: "each-cart",  label: "Boucle des articles du panier `{{#each cart}}…{{/each}}`", literal: "{{#each cart}}" },
+    { token: "each-close", label: "Fermeture de la boucle `{{/each}}`", literal: "{{/each}}" },
+    { token: "name",       label: "Nom du produit `{name}` (dans la boucle)", literal: "{name}" },
+    { token: "image",      label: "Image du produit `{image}` (dans la boucle)", literal: "{image}" },
+    { token: "qty",        label: "Quantité `{qty}` (dans la boucle)", literal: "{qty}" },
+    { token: "total",      label: "Prix ligne `{total}` (dans la boucle)", literal: "{total}" },
+  ],
+  INACTIVE_CLIENT: [
+    { token: "days", label: "Nombre de jours d'inactivité `{days}`", literal: "{days}" },
+  ],
+  RESTOCK: [
+    { token: "each-favorites", label: "Boucle des favoris `{{#each favorites}}…{{/each}}`", literal: "{{#each favorites}}" },
+    { token: "each-close",     label: "Fermeture de la boucle `{{/each}}`", literal: "{{/each}}" },
+    { token: "name",           label: "Nom du produit `{name}` (dans la boucle)", literal: "{name}" },
+    { token: "image",          label: "Image du produit `{image}` (dans la boucle)", literal: "{image}" },
+    { token: "price",          label: "Prix `{price}` (dans la boucle)", literal: "{price}" },
+  ],
+};
+
+/**
+ * Détecte les tokens dynamiques obligatoires manquants pour un scénario
+ * auto donné. Retourne [] si scénario null (mail libre) ou si tout est
+ * présent. À brancher AVANT la sauvegarde d'un modèle lié à un scénario.
+ */
+export function missingScenarioTokens(
+  html: string,
+  scenario: ScenarioKey | null,
+): ScenarioTokenSpec[] {
+  if (!scenario) return [];
+  const required = SCENARIO_REQUIRED_TOKENS[scenario] ?? [];
+  return required.filter((r) => !html.includes(r.literal));
+}

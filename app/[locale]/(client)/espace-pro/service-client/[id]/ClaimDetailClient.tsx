@@ -98,7 +98,7 @@ export default function ClaimDetailClient({
         "Conversation supprimée",
         "L'administrateur a supprimé cette conversation. Vous êtes redirigé(e) vers vos autres tickets.",
       );
-      router.replace("/espace-pro/reclamations");
+      router.replace("/espace-pro/service-client");
     }
   }, true);
 

@@ -96,7 +96,7 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
   const PROFILE_LINKS = [
     { label: t("profile"),   href: "/espace-pro" },
     { label: t("orders"),    href: "/commandes" },
-    { label: t("claims"),    href: "/espace-pro/reclamations" },
+    { label: t("claims"),    href: "/espace-pro/service-client" },
   ];
 
   // Profile dropdown state

@@ -33,6 +33,10 @@ import {
   shouldWipeCycle,
 } from "@/lib/inactive-client-config";
 import { isOnline } from "@/lib/online-status";
+import {
+  countNonCancelledOrdersByUser,
+  shouldSkipStageForOrderCount,
+} from "@/lib/mail-stage-order-gate";
 
 const AUTOMATION_ENABLED_KEY = "inactive_client_automation_enabled";
 
@@ -40,6 +44,10 @@ interface FiredEntry {
   stageIndex: number;
   sentAt: string;
   emailSendId?: string;
+  // Marqueur "stade sauté par la condition maxOrderCount". Voir
+  // abandoned-cart-worker.ts pour la logique.
+  skipped?: boolean;
+  skipReason?: string;
 }
 
 let started = false;
@@ -101,7 +109,11 @@ async function processTenant(tenantId: string): Promise<void> {
   const stages = await prisma.inactiveClientStage.findMany({
     where: { tenantId },
     orderBy: { stageIndex: "asc" },
-    include: {
+    select: {
+      id: true,
+      stageIndex: true,
+      delaySeconds: true,
+      maxOrderCount: true,
       template: {
         select: {
           id: true, name: true, subject: true, html: true,
@@ -175,10 +187,19 @@ async function processTenant(tenantId: string): Promise<void> {
     lastOrders.map((row) => [row.userId, row._max.createdAt]),
   );
 
+  // Charge le compteur de commandes non annulées par user (batch pour éviter
+  // 500 counts individuels). Sert à la condition « n'envoyer ce stade que
+  // si le client a < N commandes ».
+  const orderCountByUser = await countNonCancelledOrdersByUser(
+    tenantId,
+    candidateUsers.map((u) => u.id),
+  );
+
   // Attache lastOrderAt à chaque user pour la suite (processUser en a besoin).
   const users = candidateUsers.map((u) => ({
     ...u,
     lastOrderAt: lastOrderByUser.get(u.id) ?? null,
+    nonCancelledOrderCount: orderCountByUser.get(u.id) ?? 0,
   }));
 
   const [shopName, baseUrl, companyInfo] = await Promise.all([
@@ -254,6 +275,7 @@ async function processUser(params: {
     createdAt: Date;
     lastSeenAt: Date | null;
     lastOrderAt: Date | null;
+    nonCancelledOrderCount: number;
     inactiveClientJob: {
       id: string;
       stagesFired: unknown;
@@ -267,6 +289,7 @@ async function processUser(params: {
       id: string;
       stageIndex: number;
       delaySeconds: number;
+      maxOrderCount: number | null;
       template: {
         id: string;
         name: string;
@@ -348,16 +371,96 @@ async function processUser(params: {
   // en cascade). Les stades intermédiaires sont sautés (pas mémorisés dans
   // stagesFired), ils sont simplement "zappés" par avance de currentStage.
   const stagesArr = Array.from(stageByIndex.values());
-  const stage = pickFastForwardStage(stagesArr, elapsedSeconds, maxFired);
+  let stage = pickFastForwardStage(stagesArr, elapsedSeconds, maxFired);
+
+  // Boucle « skip par seuil de commandes » : si le stade choisi a un
+  // maxOrderCount et que le client l'a atteint, on marque ce stade sauté
+  // et on essaie le suivant (dans la limite des stades dus). Ce n'est PAS
+  // le même mécanisme que le fast-forward : ici on peut retomber sur un
+  // stade PLUS BAS qui n'est plus dû après avoir consommé un stade plus
+  // haut — dans ce cas on sort de la boucle.
+  const skippedThisTick: FiredEntry[] = [];
+  while (stage && stage.maxOrderCount !== null && stage.maxOrderCount !== undefined) {
+    if (!shouldSkipStageForOrderCount(stage.maxOrderCount, user.nonCancelledOrderCount)) {
+      break; // seuil non atteint, on envoie ce stade
+    }
+    skippedThisTick.push({
+      stageIndex: stage.stageIndex,
+      sentAt: now.toISOString(),
+      skipped: true,
+      skipReason: "MAX_ORDER_COUNT",
+    });
+    logger.info?.("[inactiveClient] stage skipped: order count threshold", {
+      tenantId,
+      userId: user.id,
+      stageIndex: stage.stageIndex,
+      orderCount: user.nonCancelledOrderCount,
+      maxOrderCount: stage.maxOrderCount,
+    });
+    // Re-pick avec le nouveau maxFired virtuel (le stade sauté est consommé).
+    const newMaxFired = Math.max(
+      maxFired,
+      ...skippedThisTick.map((e) => e.stageIndex),
+    );
+    stage = pickFastForwardStage(stagesArr, elapsedSeconds, newMaxFired);
+  }
 
   if (!stage) {
-    // Aucun stade dû. Si maxFired couvre déjà tous les stades → COMPLETED.
+    // Aucun stade dû (ou tous les stades dus ont été sautés par le seuil).
+    // On persiste quand même les skips éventuels pour ne pas les rejouer au
+    // prochain tick — sinon on ferait une boucle « pick + skip » sans fin.
+    const firedWithSkips = [...fired, ...skippedThisTick];
+    const effectiveMaxFired = firedWithSkips.reduce(
+      (m, e) => (e.stageIndex > m ? e.stageIndex : m),
+      0,
+    );
     const highest = stagesArr.reduce(
       (m, s) => (s.stageIndex > m ? s.stageIndex : m),
       0,
     );
-    if (
-      maxFired >= highest &&
+    const reachedEnd = effectiveMaxFired >= highest;
+
+    if (skippedThisTick.length > 0 && user.inactiveClientJob) {
+      // Persistance des skips — le job passe COMPLETED si le plafond a été
+      // atteint, sinon reste PENDING pour attendre l'échéance du stade
+      // suivant qui n'est pas encore dû.
+      await prisma.inactiveClientJob.updateMany({
+        where: {
+          id: user.inactiveClientJob.id,
+          currentStage: maxFired,
+        },
+        data: {
+          currentStage: effectiveMaxFired,
+          stagesFired: firedWithSkips as unknown as object,
+          status: reachedEnd ? "COMPLETED" : "PENDING",
+          referenceAt,
+          lastEvaluatedAt: now,
+          cancelReason: null,
+        },
+      });
+    } else if (skippedThisTick.length > 0) {
+      // Cas rare : pas de job encore mais on a des skips à mémoriser.
+      try {
+        await prisma.inactiveClientJob.create({
+          data: {
+            tenantId,
+            userId: user.id,
+            currentStage: effectiveMaxFired,
+            stagesFired: firedWithSkips as unknown as object,
+            status: reachedEnd ? "COMPLETED" : "PENDING",
+            referenceAt,
+            lastEvaluatedAt: now,
+          },
+        });
+      } catch (err) {
+        logger.info?.("[inactiveClient] skip: job already created concurrently", {
+          tenantId,
+          userId: user.id,
+          error: (err as Error).message,
+        });
+      }
+    } else if (
+      reachedEnd &&
       user.inactiveClientJob &&
       user.inactiveClientJob.status !== "COMPLETED"
     ) {
@@ -440,6 +543,7 @@ async function processUser(params: {
   // C'est infiniment moins grave qu'un doublon dans la boîte du client.
   const newFired: FiredEntry[] = [
     ...fired,
+    ...skippedThisTick,
     { stageIndex: stage.stageIndex, sentAt: now.toISOString() },
   ];
   const hasMoreStages = stageByIndex.has(stage.stageIndex + 1);
@@ -546,6 +650,9 @@ function parseStagesFired(raw: unknown): FiredEntry[] {
         sentAt: at,
         emailSendId:
           typeof rec.emailSendId === "string" ? rec.emailSendId : undefined,
+        skipped: rec.skipped === true ? true : undefined,
+        skipReason:
+          typeof rec.skipReason === "string" ? rec.skipReason : undefined,
       };
     })
     .filter((x): x is FiredEntry => x !== null);

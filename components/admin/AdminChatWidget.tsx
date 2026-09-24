@@ -13,6 +13,13 @@ import {
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { playNotificationSound } from "@/lib/notification-sound";
 import { useRightRail } from "@/components/admin/widgets-rail";
+import ChatAttachmentPreview, { type PendingFile } from "@/components/shared/ChatAttachmentPreview";
+import ChatMessageAttachments, { type ChatAttachment } from "@/components/shared/ChatMessageAttachments";
+import { ALLOWED_MIMES } from "@/lib/chat-upload-security";
+
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const ACCEPT_ATTR = ALLOWED_MIMES.join(",");
 
 // ── Types ──────────────────────────────────────
 interface ConversationSummary {
@@ -31,6 +38,7 @@ interface ChatMessage {
   senderRole: "ADMIN" | "CLIENT";
   senderName: string;
   createdAt: string;
+  attachments?: ChatAttachment[];
 }
 
 // ── Component ──────────────────────────────────
@@ -61,9 +69,11 @@ export default function AdminChatWidget() {
 
   // Input
   const [newMessage, setNewMessage] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [isPending, startTransition] = useTransition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Typing
   const [clientTyping, setClientTyping] = useState(false);
@@ -149,12 +159,19 @@ export default function AdminChatWidget() {
         if (data) {
           setActiveConvStatus(data.status as "OPEN" | "CLOSED");
           setMessages(
-            data.messages.map((m: { id: string; content: string; createdAt: string | Date; sender: { firstName: string; lastName: string; role: string } }) => ({
+            data.messages.map((m: {
+              id: string;
+              content: string;
+              createdAt: string | Date;
+              sender: { firstName: string; lastName: string; role: string };
+              attachments?: { id: string; fileName: string; filePath: string; fileSize: number; mimeType: string }[];
+            }) => ({
               id: m.id,
               content: m.content,
               senderRole: m.sender.role as "ADMIN" | "CLIENT",
               senderName: `${m.sender.firstName} ${m.sender.lastName}`,
               createdAt: typeof m.createdAt === "string" ? m.createdAt : (m.createdAt as Date).toISOString(),
+              attachments: m.attachments,
             }))
           );
           const convInList = conversations.find((c) => c.id === convId);
@@ -171,6 +188,48 @@ export default function AdminChatWidget() {
         if (requestIdRef.current !== reqId) return;
         setConvLoading(false);
       });
+  }
+
+  // ── File picker helpers ─────────────────────
+  function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(e.target.files || []);
+    if (!selected.length) return;
+    const remaining = MAX_FILES - pendingFiles.length;
+    const accepted: PendingFile[] = [];
+    for (const file of selected.slice(0, remaining)) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} dépasse 10 Mo.`);
+        continue;
+      }
+      accepted.push({ file, url: URL.createObjectURL(file) });
+    }
+    if (accepted.length > 0) setPendingFiles((prev) => [...prev, ...accepted]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removePendingFile(index: number) {
+    setPendingFiles((prev) => {
+      const copy = [...prev];
+      URL.revokeObjectURL(copy[index].url);
+      copy.splice(index, 1);
+      return copy;
+    });
+  }
+
+  async function uploadPendingFiles(): Promise<ChatAttachment[] | null> {
+    if (pendingFiles.length === 0) return [];
+    const fd = new FormData();
+    for (const f of pendingFiles) fd.append("files", f.file);
+    const res = await fetch("/api/chat/upload", { method: "POST", body: fd });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      toast.error(data?.error || "Envoi des pièces jointes impossible.");
+      return null;
+    }
+    const data = (await res.json()) as { attachments: ChatAttachment[] };
+    for (const f of pendingFiles) URL.revokeObjectURL(f.url);
+    setPendingFiles([]);
+    return data.attachments;
   }
 
   // ── SSE real-time events ────────────────────
@@ -281,8 +340,12 @@ export default function AdminChatWidget() {
 
   // ── Send reply ──────────────────────────────
   function handleSendReply() {
-    if (!activeConvId || !newMessage.trim()) return;
+    if (!activeConvId) return;
     const content = newMessage.trim();
+    const hasFiles = pendingFiles.length > 0;
+    if (!content && !hasFiles) return;
+
+    const filesSnapshot = pendingFiles;
     setNewMessage("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     isTypingRef.current = false;
@@ -297,7 +360,14 @@ export default function AdminChatWidget() {
     ]);
 
     startTransition(async () => {
-      const result = await sendAdminReply(activeConvId, content);
+      const uploaded = await uploadPendingFiles();
+      if (uploaded === null) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setNewMessage(content);
+        setPendingFiles(filesSnapshot);
+        return;
+      }
+      const result = await sendAdminReply(activeConvId, content, uploaded);
       if (result.success && result.message) {
         // Replace temp message with real one
         setMessages((prev) =>
@@ -310,6 +380,13 @@ export default function AdminChatWidget() {
                     typeof result.message!.createdAt === "string"
                       ? result.message!.createdAt
                       : (result.message!.createdAt as Date).toISOString(),
+                  attachments: result.message!.attachments?.map((a) => ({
+                    id: a.id,
+                    fileName: a.fileName,
+                    filePath: a.filePath,
+                    fileSize: a.fileSize,
+                    mimeType: a.mimeType,
+                  })),
                 }
               : m
           )
@@ -384,6 +461,10 @@ export default function AdminChatWidget() {
     setNewMessage("");
     setClientTyping(false);
     setConvLoading(false);
+    setPendingFiles((prev) => {
+      for (const f of prev) URL.revokeObjectURL(f.url);
+      return [];
+    });
   }
 
   return (
@@ -542,7 +623,15 @@ export default function AdminChatWidget() {
                         {msg.senderRole === "CLIENT" && (
                           <p className="text-[10px] font-medium text-text-muted mb-0.5">{msg.senderName}</p>
                         )}
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        {msg.content && (
+                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                        )}
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <ChatMessageAttachments
+                            attachments={msg.attachments}
+                            isSelf={msg.senderRole === "ADMIN"}
+                          />
+                        )}
                         <p
                           className={`text-[10px] mt-1 ${
                             msg.senderRole === "ADMIN" ? "text-white/50" : "text-text-muted"
@@ -585,7 +674,20 @@ export default function AdminChatWidget() {
           {/* ── Input area ── */}
           {view === "conversation" && activeConvStatus === "OPEN" && !convLoading && (
             <div className="border-t border-border px-3 py-2.5 shrink-0">
+              <ChatAttachmentPreview files={pendingFiles} onRemove={removePendingFile} />
               <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={pendingFiles.length >= MAX_FILES || isPending}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl border border-border text-text-muted hover:text-text-primary hover:border-[#1A1A1A]/30 disabled:opacity-40 transition-colors"
+                  title="Joindre un fichier"
+                  aria-label="Joindre un fichier"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                  </svg>
+                </button>
                 <textarea
                   ref={textareaRef}
                   value={newMessage}
@@ -602,7 +704,7 @@ export default function AdminChatWidget() {
                 />
                 <button
                   onClick={handleSendReply}
-                  disabled={!newMessage.trim() || isPending}
+                  disabled={(!newMessage.trim() && pendingFiles.length === 0) || isPending}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-[#1A1A1A] text-white hover:bg-[#333] disabled:opacity-40 transition-colors"
                 >
                   {isPending ? (
@@ -617,6 +719,14 @@ export default function AdminChatWidget() {
                   )}
                 </button>
               </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ACCEPT_ATTR}
+                multiple
+                onChange={handleFilePick}
+                className="hidden"
+              />
             </div>
           )}
         </div>

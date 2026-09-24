@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
@@ -11,6 +12,7 @@ import {
   serializeMissingFields,
 } from "@/lib/shipping-address-validate";
 import { resolveCountryCode } from "@/lib/countries";
+import { resolveLocalizedName } from "@/lib/localize-name";
 
 /**
  * Déclenche la mise à jour du timer de relance panier abandonné.
@@ -56,6 +58,7 @@ async function getOrCreateCart(userId: string) {
 
 export async function getCart() {
   const userId = await requireClient();
+  const locale = await getLocale();
 
   const cart = await prisma.cart.findUnique({
     where: { userId },
@@ -71,15 +74,52 @@ export async function getCart() {
                   reference: true,
                   status: true,
                   discountPercent: true,
-                  category: { select: { name: true } },
+                  translations: {
+                    where: { locale },
+                    select: { name: true },
+                    take: 1,
+                  },
+                  category: {
+                    select: {
+                      name: true,
+                      translations: {
+                        where: { locale },
+                        select: { name: true },
+                        take: 1,
+                      },
+                    },
+                  },
                 },
               },
-              color: { select: { id: true, name: true, hex: true, patternImage: true } },
+              color: {
+                select: {
+                  id: true,
+                  name: true,
+                  hex: true,
+                  patternImage: true,
+                  translations: {
+                    where: { locale },
+                    select: { name: true },
+                    take: 1,
+                  },
+                },
+              },
               variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
               packLines: {
                 orderBy: { position: "asc" },
                 select: {
-                  color: { select: { name: true, hex: true, patternImage: true } },
+                  color: {
+                    select: {
+                      name: true,
+                      hex: true,
+                      patternImage: true,
+                      translations: {
+                        where: { locale },
+                        select: { name: true },
+                        take: 1,
+                      },
+                    },
+                  },
                   sizes: { select: { size: { select: { name: true } }, quantity: true } },
                 },
               },
@@ -123,10 +163,12 @@ export async function getCart() {
   }
 
   // Attach first image to each item + transform variantSizes → sizes
+  // + localise les libellés (nom produit / catégorie / couleur) selon la locale
+  //   courante en lisant la traduction saisie par la cliente si présente.
   const itemsWithImages = cart.items.map((item) => {
     const key = `${item.variant.productId}__${item.variant.colorId}`;
     const imgs = imagesByKey.get(key) ?? [];
-    const { variantSizes, packLines, ...variantRest } = item.variant;
+    const { variantSizes, packLines, product, color, ...variantRest } = item.variant;
     const isMultiPack = item.variant.saleType === "PACK" && packLines.length > 0;
     // Pour multi-couleurs : sizes = somme par taille (toutes couleurs confondues)
     const sizes = isMultiPack
@@ -142,13 +184,43 @@ export async function getCart() {
           return [...map.values()];
         })()
       : (variantSizes ?? []).map((vs) => ({ name: vs.size.name, quantity: vs.quantity }));
+
+    const {
+      translations: productTranslations,
+      category,
+      ...productRest
+    } = product;
+    const {
+      translations: categoryTranslations,
+      name: categoryRawName,
+    } = category;
+    const localizedProduct = {
+      ...productRest,
+      name: resolveLocalizedName(product.name, productTranslations, locale),
+      category: {
+        name: resolveLocalizedName(categoryRawName, categoryTranslations, locale),
+      },
+    };
+
+    const localizedColor = color
+      ? (() => {
+          const { translations: colorTranslations, ...colorRest } = color;
+          return {
+            ...colorRest,
+            name: resolveLocalizedName(color.name, colorTranslations, locale),
+          };
+        })()
+      : color;
+
     return {
       ...item,
       variant: {
         ...variantRest,
+        product: localizedProduct,
+        color: localizedColor,
         sizes,
         packLines: packLines.map((l) => ({
-          colorName: l.color?.name ?? "",
+          colorName: resolveLocalizedName(l.color?.name ?? "", l.color?.translations, locale),
           colorHex: l.color?.hex ?? null,
           colorPatternImage: l.color?.patternImage ?? null,
           sizes: l.sizes.map((s) => ({ name: s.size.name, quantity: s.quantity })),
@@ -167,6 +239,7 @@ export async function getCart() {
 // ─────────────────────────────────────────────
 
 export async function getCartWithProductVariants() {
+  const locale = await getLocale();
   const cart = await getCart();
   if (!cart) return { cart: null, productsMeta: {} as Record<string, ProductMeta> };
 
@@ -174,6 +247,7 @@ export async function getCartWithProductVariants() {
   if (productIds.length === 0) return { cart, productsMeta: {} };
 
   // Toutes les variantes ProductColor de ces produits, même celles non commandées
+  // — le nom couleur est localisé au vol via ColorTranslation.
   const allVariants = await prisma.productColor.findMany({
     where: { productId: { in: productIds } },
     select: {
@@ -184,7 +258,19 @@ export async function getCartWithProductVariants() {
       packQuantity: true,
       unitPrice: true,
       stock: true,
-      color: { select: { id: true, name: true, hex: true, patternImage: true } },
+      color: {
+        select: {
+          id: true,
+          name: true,
+          hex: true,
+          patternImage: true,
+          translations: {
+            where: { locale },
+            select: { name: true },
+            take: 1,
+          },
+        },
+      },
       variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
       packLines: {
         orderBy: { position: "asc" },
@@ -240,7 +326,11 @@ export async function getCartWithProductVariants() {
         return {
           variantId: v.id,
           colorId: v.colorId,
-          colorName: v.color?.name ?? "",
+          colorName: resolveLocalizedName(
+            v.color?.name ?? "",
+            v.color?.translations,
+            locale
+          ),
           colorHex: v.color?.hex ?? null,
           colorPatternImage: v.color?.patternImage ?? null,
           saleType: v.saleType,

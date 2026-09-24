@@ -43,23 +43,25 @@ import {
   getBoutiquePreviewOverrides,
 } from "@/app/actions/admin/send-newsletter";
 import {
-  deleteNewsletterTemplateImage,
-  renameNewsletterTemplateImage,
-  updateNewsletterTemplateImageAlt,
-} from "@/app/actions/admin/newsletter-template-images";
-import {
   applyDynamicLimits,
-  countAnchorsWithoutHref,
+  countMarkdownCodeFences,
   expandIterations,
-  extractHrefs,
-  extractImageTokens,
-  injectMissingHrefs,
-  isHrefUnconfigured,
-  rewriteHref,
+  stripMarkdownCodeFences,
   substituteTemplateImages,
   type HtmlDynamicContext,
-  type LinkHrefEntry,
 } from "@/lib/newsletter-html-render";
+import {
+  annotateHtmlForInlineEdit,
+  applyImageMutation,
+  applyLinkMutation,
+  applyTextMutation,
+  readAttrValue,
+  readTextContent,
+  stripEditAttrs,
+  wrapElementInLink,
+  type EditableKind,
+} from "@/lib/newsletter-inline-edit";
+import { HtmlSourceEditor } from "@/components/admin/newsletter/HtmlSourceEditor";
 import {
   buildLinkUrl,
   describeLinkTarget,
@@ -87,6 +89,31 @@ import {
 } from "@/lib/mail-merge-variables";
 
 const SELF_TARGET = "__self__";
+
+/**
+ * Détecte la raison pour laquelle un élément cliqué n'est pas éditable
+ * inline. Retourne un message court à afficher, ou null si silencieux.
+ *
+ * Depuis 2026-09-24, les textes avec variables SONT éditables via la modale
+ * (qui propose une palette pour ré-insérer les tokens). Restent refusés :
+ *   - Les blocs `{{#each}}` (structure de boucle → à éditer via le code).
+ *   - Les tags mixtes avec sous-balises (édite l'enfant précis).
+ */
+function detectNonEditableReason(el: Element | null): string | null {
+  if (!el) return null;
+  const parent = el.closest(
+    "p,span,h1,h2,h3,h4,h5,h6,td,div,li,strong,em,b,i,small,button,label",
+  );
+  if (!parent) return null;
+  const inner = parent.innerHTML ?? "";
+  if (/\{\{\s*[#/]/.test(inner)) {
+    return "Ce bloc est une boucle qui se répète pour chaque article — modifie-le via le code HTML à gauche.";
+  }
+  if (/<[a-zA-Z/]/.test(inner)) {
+    return "Ce bloc contient plusieurs éléments — fais clic droit directement sur l'élément à modifier (ex. le bouton, le mot en gras).";
+  }
+  return null;
+}
 
 interface Props {
   template: NewsletterTemplateFull;
@@ -161,14 +188,23 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     }
     return undefined;
   }, [template.scenarioKey]);
+  // HTML avec `data-bj-edit-id` sur chaque balise éditable inline (img, a,
+  // texte pur sans token). Passé au pipeline de rendu iframe pour que le
+  // clic droit dans l'aperçu puisse retrouver la balise source à muter.
+  // Les data-attrs sont invisibles à l'affichage (clients mail les ignorent)
+  // et sont strippés à la sauvegarde via stripEditAttrs.
+  const htmlAnnotated = useMemo(
+    () => annotateHtmlForInlineEdit(debouncedHtml).annotated,
+    [debouncedHtml],
+  );
   const localPreview = useMemo(() => {
     // Même pipeline que l'envoi réel : troncature 8 max + tokens
     // {cartMoreText}/{favoritesMoreText}, itérations, images, merge vars.
     const { dynamic: limited, extraMerge } = applyDynamicLimits(previewDynamic);
-    const withIter = expandIterations(debouncedHtml, limited, "");
+    const withIter = expandIterations(htmlAnnotated, limited, "");
     const withImages = substituteTemplateImages(withIter, images, "");
     return interpolate(withImages, { ...previewContext, ...extraMerge });
-  }, [debouncedHtml, images, previewContext, previewDynamic]);
+  }, [htmlAnnotated, images, previewContext, previewDynamic]);
 
   // ─── Aperçu client ───
   const [previewClients, setPreviewClients] = useState<PreviewClientLite[]>([]);
@@ -208,6 +244,13 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
   // écrase un aperçu plus récent.
   useEffect(() => {
     if (!previewTarget) { setServerPreview(null); return; }
+    // Après un upload d'image : skip ce re-fetch (le DOM iframe est déjà
+    // mis à jour de manière optimiste). Ça évite le "flash retour en haut"
+    // causé par le reload du srcDoc.
+    if (skipNextServerPreviewFetchRef.current) {
+      skipNextServerPreviewFetchRef.current = false;
+      return;
+    }
     const recipient = previewTarget === SELF_TARGET
       ? { kind: "self" as const }
       : { kind: "client" as const, userId: previewTarget };
@@ -216,7 +259,10 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     getNewsletterHtmlPreview({
       templateId: template.id,
       recipient,
-      htmlOverride: debouncedHtml,
+      // On envoie la version annotée pour que les data-bj-edit-id survivent
+      // au rendu serveur (interpolation, boucles) — le clic droit iframe
+      // retrouve les balises. La sauvegarde strippe ces attrs.
+      htmlOverride: htmlAnnotated,
       subjectOverride: subject,
     })
       .then((res) => {
@@ -235,18 +281,31 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
       })
       .finally(() => { if (!cancelled) setServerPreviewLoading(false); });
     return () => { cancelled = true; };
-  }, [previewTarget, template.id, debouncedHtml, subject, toast]);
+  }, [previewTarget, template.id, htmlAnnotated, subject, toast]);
 
   // Injecte `<base target="_blank">` pour que TOUT clic sur un lien dans
   // l'aperçu ouvre un nouvel onglet — sinon un href="" (CTA non configuré)
   // rechargerait l'iframe sur about:blank et casserait l'aperçu.
+  // Injecte aussi une <style> qui highlight au survol tout élément éditable
+  // inline — feedback visuel indispensable pour que la cliente sache où
+  // faire clic droit.
   const previewSrcDoc = useMemo(() => {
     const raw = serverPreview ?? localPreview;
-    const base = '<base target="_blank">';
+    const head =
+      '<base target="_blank">' +
+      '<style>' +
+      '[data-bj-edit-id]{cursor:context-menu;transition:outline 120ms ease-out;}' +
+      '[data-bj-edit-id]:hover{outline:2px dashed #f59e0b;outline-offset:2px;}' +
+      // Image en cours d'upload : opacity réduite + pulse pour indiquer
+      // qu'un chargement est en cours. L'attribut `data-bj-upload` est
+      // posé par le composant parent (mutation directe du contentDocument).
+      '@keyframes bj-pulse{0%,100%{opacity:.35}50%{opacity:.6}}' +
+      '[data-bj-upload="loading"]{animation:bj-pulse 1.2s ease-in-out infinite;filter:grayscale(.4) blur(1px);}' +
+      '</style>';
     if (/<head\b[^>]*>/i.test(raw)) {
-      return raw.replace(/<head\b[^>]*>/i, (m) => `${m}${base}`);
+      return raw.replace(/<head\b[^>]*>/i, (m) => `${m}${head}`);
     }
-    return base + raw;
+    return head + raw;
   }, [serverPreview, localPreview]);
 
   const handleSave = useCallback(() => {
@@ -287,6 +346,318 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     }
   }, [previewTarget, template.id, html, subject, toast]);
 
+  // ─── Édition inline dans l'aperçu iframe ───
+  // Clic droit sur une balise éditable (<img>, <a>, texte sans token) →
+  // menu contextuel avec 1 action selon le type. Mutation appliquée au HTML
+  // annoté puis strippée pour le state clean, qui re-annote automatiquement
+  // au prochain render.
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Scroll iframe préservé entre re-renders du srcDoc (upload d'image, etc.).
+  // Reset à 0 quand on change de destinataire d'aperçu.
+  const iframeScrollTopRef = useRef<number>(0);
+  useEffect(() => {
+    iframeScrollTopRef.current = 0;
+  }, [previewTarget]);
+
+  // Flag pour skipper le prochain re-fetch server preview. Utilisé juste
+  // après un upload d'image : la mutation directe du DOM iframe suffit à
+  // afficher la nouvelle image, pas besoin de recharger tout le srcDoc
+  // (sinon flash "retour en haut puis restauration scroll" désagréable).
+  const skipNextServerPreviewFetchRef = useRef<boolean>(false);
+  const [inlineMenu, setInlineMenu] = useState<
+    | { id: string; kind: EditableKind; screenX: number; screenY: number }
+    | null
+  >(null);
+  // Tooltip d'erreur affiché quand la cliente fait clic droit sur un élément
+  // NON éditable (typiquement : texte contenant `{firstName}` ou boucle).
+  // Auto-fade après 3 s, positionné à l'endroit du clic.
+  const [inlineError, setInlineError] = useState<
+    | { message: string; screenX: number; screenY: number; token: number }
+    | null
+  >(null);
+  const [inlineTextEdit, setInlineTextEdit] = useState<
+    | { id: string; initialValue: string; kind: EditableKind }
+    | null
+  >(null);
+  const [inlineLinkEdit, setInlineLinkEdit] = useState<
+    | { id: string; kind: EditableKind; currentHref: string }
+    | null
+  >(null);
+  // Uploads d'image en cours — Set d'ids de <img data-bj-edit-id>. Chaque
+  // upload est indépendant (nouveau <input type="file"> jetable créé au clic
+  // menu et retiré du DOM après consommation), plusieurs peuvent tourner en
+  // parallèle sans s'annuler mutuellement. Bug cliente 2026-09-24.
+  const [inlineImageUploading, setInlineImageUploading] = useState<Set<string>>(new Set());
+
+  const applyMutation = useCallback(
+    (mutator: (current: string) => string) => {
+      const nextAnnotated = mutator(htmlAnnotated);
+      const cleaned = stripEditAttrs(nextAnnotated);
+      setHtml(cleaned);
+      setIsDirty(true);
+    },
+    [htmlAnnotated],
+  );
+
+  // Handler contextmenu attaché directement via la prop `onLoad` de l'iframe
+  // (voir plus bas dans le JSX). À chaque changement de srcDoc, load fire →
+  // handler ré-attaché sur le nouveau contentDocument. Approche onLoad JSX
+  // plus fiable qu'un useEffect + listener (évite race avec React fiber).
+  //
+  // Ouvre un file picker pour uploader une nouvelle image sur la balise
+  // ciblée. File input JETABLE (un par upload) → indépendance totale entre
+  // uploads parallèles. Défini AVANT attachIframeListener pour ordre
+  // d'initialisation des consts.
+  const triggerImageUploadRef = useRef<((targetId: string) => void) | null>(null);
+  const triggerImageUpload = useCallback((targetId: string) => {
+    triggerImageUploadRef.current?.(targetId);
+  }, []);
+
+  // Comportement :
+  //  - preventDefault TOUJOURS → le menu Google/Firefox natif est bloqué
+  //    partout dans l'aperçu, on maîtrise l'UX complètement.
+  //  - Element éditable ([data-bj-edit-id]) → menu inline (image/lien/texte).
+  //  - Element non éditable avec token merge dans son texte → tooltip
+  //    d'erreur qui fade out, expliquant pourquoi c'est bloqué.
+  //  - Element non éditable sans token → silencieux (pas de bruit UI).
+  //  - Un scroll dans l'iframe ferme immédiatement le menu / tooltip.
+  const attachIframeListener = useCallback((iframe: HTMLIFrameElement) => {
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    const holder = doc as unknown as {
+      __bjCtxHandler?: (e: MouseEvent) => void;
+      __bjClickHandler?: (e: MouseEvent) => void;
+      __bjScrollHandler?: () => void;
+    };
+    if (holder.__bjCtxHandler) doc.removeEventListener("contextmenu", holder.__bjCtxHandler);
+    if (holder.__bjClickHandler) doc.removeEventListener("click", holder.__bjClickHandler, true);
+    if (holder.__bjScrollHandler) {
+      doc.removeEventListener("scroll", holder.__bjScrollHandler, true);
+      iframe.contentWindow?.removeEventListener("scroll", holder.__bjScrollHandler);
+    }
+
+    // Handler partagé clic gauche / clic droit. Différence :
+    //  - Clic droit : preventDefault (bloque menu natif du navigateur).
+    //  - Clic gauche : preventDefault aussi (bloque la navigation par
+    //    défaut des <a> vers about:blank via <base target="_blank">).
+    // Sur <img> : upload direct (pas de menu, plus rapide pour la cliente).
+    // Sur <a> / <p> / autres tags texte : ouvre le menu Actions.
+    const handleActivation = (e: MouseEvent) => {
+      const clicked = e.target as Element | null;
+      const target = clicked?.closest("[data-bj-edit-id]");
+      if (!target) {
+        // Non éditable — ferme un éventuel menu déjà ouvert (le click
+        // dans l'iframe ne bulle pas jusqu'au window listener parent).
+        setInlineMenu(null);
+        if (e.type === "contextmenu") {
+          e.preventDefault();
+          const reason = detectNonEditableReason(clicked);
+          if (reason) {
+            const rect = iframe.getBoundingClientRect();
+            setInlineError({
+              message: reason,
+              screenX: rect.left + e.clientX,
+              screenY: rect.top + e.clientY,
+              token: Date.now(),
+            });
+          }
+        }
+        return;
+      }
+      e.preventDefault();
+      const id = target.getAttribute("data-bj-edit-id") ?? "";
+      const tag = target.tagName.toLowerCase();
+      // Image → upload direct (pas de menu, la cliente veut 1 clic = upload).
+      if (tag === "img") {
+        setInlineMenu(null);
+        setInlineError(null);
+        triggerImageUpload(id);
+        return;
+      }
+      const kind: EditableKind = tag === "a" ? "link" : "text";
+      const rect = iframe.getBoundingClientRect();
+      setInlineError(null);
+      setInlineMenu({
+        id,
+        kind,
+        screenX: rect.left + e.clientX,
+        screenY: rect.top + e.clientY,
+      });
+    };
+
+    const scrollHandler = () => {
+      setInlineMenu(null);
+      setInlineError(null);
+      // Sauvegarde la position pour la restaurer après un re-render du srcDoc
+      // (upload d'image = mut de state qui refait localPreview et recharge
+      // l'iframe — sans ça le scroll revient à 0 → sensation de « refresh »
+      // désagréable, bug cliente 2026-09-24).
+      const y = iframe.contentWindow?.scrollY ?? 0;
+      if (y > 0) iframeScrollTopRef.current = y;
+    };
+
+    holder.__bjCtxHandler = handleActivation;
+    holder.__bjClickHandler = handleActivation;
+    holder.__bjScrollHandler = scrollHandler;
+    doc.addEventListener("contextmenu", handleActivation);
+    doc.addEventListener("click", handleActivation, true);
+    doc.addEventListener("scroll", scrollHandler, { capture: true, passive: true });
+    iframe.contentWindow?.addEventListener("scroll", scrollHandler, { passive: true });
+
+    // Restaure le scroll sauvegardé (utile après re-render du srcDoc).
+    const savedY = iframeScrollTopRef.current;
+    if (savedY > 0) {
+      iframe.contentWindow?.scrollTo(0, savedY);
+    }
+  }, [triggerImageUpload]);
+
+  // Ferme aussi le menu/tooltip au scroll du parent (l'iframe est dans une
+  // colonne scrollable).
+  useEffect(() => {
+    if (!inlineMenu && !inlineError) return;
+    const close = () => { setInlineMenu(null); setInlineError(null); };
+    window.addEventListener("scroll", close, { passive: true });
+    return () => window.removeEventListener("scroll", close);
+  }, [inlineMenu, inlineError]);
+
+  // Auto-dismiss du tooltip d'erreur après 3 s (fade géré côté CSS).
+  useEffect(() => {
+    if (!inlineError) return;
+    const t = setTimeout(() => setInlineError(null), 3000);
+    return () => clearTimeout(t);
+  }, [inlineError]);
+
+  // Ferme le menu contextuel : ESC, clic à côté (window), scroll parent.
+  // Le container du menu a `stopPropagation` sur son onClick → le click
+  // interne (sur les boutons ou la croix) ne bulle pas jusqu'à window,
+  // donc close() ne se déclenche pas quand on interagit avec le menu.
+  // setTimeout 0 pour éviter que le clic droit qui a ouvert le menu ferme
+  // immédiatement (le contextmenu event peut se propager au mousedown).
+  useEffect(() => {
+    if (!inlineMenu) return;
+    const close = () => setInlineMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    const timer = window.setTimeout(() => {
+      window.addEventListener("click", close);
+    }, 0);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, { passive: true, capture: true });
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, { capture: true } as EventListenerOptions);
+    };
+  }, [inlineMenu]);
+
+  // Assigne l'implémentation réelle du trigger — appelée via la ref au
+  // callsite pour contourner l'ordre d'initialisation.
+  triggerImageUploadRef.current = (targetId: string) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.style.display = "none";
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (file) void handleInlineImageFile(file, targetId);
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  };
+
+  type InlineAction = "replaceImage" | "editText" | "configureLink";
+  const openInlineEditor = useCallback(
+    (menu: { id: string; kind: EditableKind }, action: InlineAction) => {
+      setInlineMenu(null);
+      if (action === "replaceImage") {
+        triggerImageUpload(menu.id);
+        return;
+      }
+      if (action === "editText") {
+        setInlineTextEdit({
+          id: menu.id,
+          kind: menu.kind,
+          initialValue: readTextContent(htmlAnnotated, menu.id),
+        });
+        return;
+      }
+      if (action === "configureLink") {
+        // Sur un <a> existant : on modifie son href. Sur autre chose (texte,
+        // img) : on enveloppe le tag dans un <a href="…"> via wrapElementInLink.
+        const currentHref =
+          menu.kind === "link" ? readAttrValue(htmlAnnotated, menu.id, "href") : "";
+        setInlineLinkEdit({
+          id: menu.id,
+          kind: menu.kind,
+          currentHref,
+        });
+      }
+    },
+    [htmlAnnotated],
+  );
+
+  const handleInlineImageFile = useCallback(
+    async (file: File, targetId: string) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Fichier refusé", "Choisis une image (JPG, PNG, WebP).");
+        return;
+      }
+      // Marque cet id "loading" (Set immuable pour bien trigger re-render).
+      setInlineImageUploading((prev) => {
+        const next = new Set(prev);
+        next.add(targetId);
+        return next;
+      });
+      // Feedback visuel immédiat dans l'iframe : opacity réduite + spinner
+      // via un attribut `data-bj-upload="loading"` que le style injecté dans
+      // le srcDoc anime.
+      const iframeDoc = iframeRef.current?.contentDocument;
+      const targetEl = iframeDoc?.querySelector(`[data-bj-edit-id="${targetId}"]`);
+      targetEl?.setAttribute("data-bj-upload", "loading");
+      try {
+        const form = new FormData();
+        form.append("image", file);
+        const autoName = `inline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        form.append("name", autoName);
+        const res = await fetch(
+          `/api/admin/newsletter-templates/${template.id}/images`,
+          { method: "POST", body: form },
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({} as { error?: string }));
+          toast.error("Upload refusé", body.error ?? `Erreur ${res.status}`);
+          return;
+        }
+        const uploaded = (await res.json()) as { path: string };
+        // 1) Mise à jour visuelle DIRECTE dans l'iframe — évite le flash
+        //    que causerait le rerender du srcDoc entier. L'image apparaît
+        //    tout de suite sans reload du reste de l'aperçu.
+        if (targetEl?.tagName.toLowerCase() === "img") {
+          targetEl.setAttribute("src", uploaded.path);
+        }
+        // 2) Mise à jour du state (source de vérité pour save + prochain
+        //    render). On skip le re-fetch server preview qui suivra — le
+        //    DOM iframe est déjà à jour visuellement, pas besoin de
+        //    recharger tout l'aperçu (évite le flash "retour en haut").
+        //    Le prochain vrai changement (édition texte, autre upload)
+        //    re-fetchera normalement.
+        skipNextServerPreviewFetchRef.current = true;
+        applyMutation((current) => applyImageMutation(current, targetId, uploaded.path));
+      } catch (err) {
+        toast.error("Upload échoué", (err as Error).message);
+      } finally {
+        setInlineImageUploading((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+        targetEl?.removeAttribute("data-bj-upload");
+      }
+    },
+    [applyMutation, template.id, toast],
+  );
+
   // Garde-fou navigation
   useEffect(() => {
     if (!isDirty) return;
@@ -294,6 +665,21 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
+
+  // Raccourci Ctrl/Cmd + S = enregistrer. Fonctionne partout dans l'éditeur
+  // (textarea code, aperçu, sujet…) sauf dans les inputs de contentEditable
+  // qui font leur propre save via Ctrl+Entrée. preventDefault → évite le
+  // « Enregistrer sous » du navigateur.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (isDirty && !isPending) handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDirty, isPending, handleSave]);
 
   const handleBackClick = useCallback(
     async (e: React.MouseEvent) => {
@@ -391,19 +777,40 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
               />
             </FieldRow>
             <FieldRow label="Sujet du mail">
-              <input
+              <SubjectInputWithVariables
                 value={subject}
-                onChange={(e) => { setSubject(e.target.value); markDirty(); }}
-                className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm"
-                placeholder="✨ Découvrez nos nouveautés"
+                scenario={template.scenarioKey}
+                onChange={(v) => { setSubject(v); markDirty(); }}
               />
             </FieldRow>
             <FieldRow label="Code HTML" hint="Doit contenir {shopName}, {shopAddress}, {unsubscribeLink}, {privacyLink}">
-              <textarea
+              <MarkdownFencesBanner html={html} onClean={() => {
+                setHtml((prev) => stripMarkdownCodeFences(prev).html);
+                markDirty();
+              }} />
+              <HtmlSourceEditor
                 value={html}
-                onChange={(e) => { setHtml(e.target.value); markDirty(); }}
-                spellCheck={false}
-                className="w-full h-[560px] rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs font-mono leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-text-primary/20"
+                onChange={(v) => { setHtml(v); markDirty(); }}
+                onPaste={(e) => {
+                  const pasted = e.clipboardData.getData("text");
+                  const { html: cleaned, removed } = stripMarkdownCodeFences(pasted);
+                  if (removed === 0) return;
+                  e.preventDefault();
+                  const target = e.currentTarget;
+                  const start = target.selectionStart ?? html.length;
+                  const end = target.selectionEnd ?? html.length;
+                  const next = html.slice(0, start) + cleaned + html.slice(end);
+                  setHtml(next);
+                  markDirty();
+                  toast.success(
+                    "Balises Markdown nettoyées",
+                    `${removed} bloc${removed > 1 ? "s" : ""} \`\`\`…\`\`\` retiré${removed > 1 ? "s" : ""} du collage.`,
+                  );
+                  requestAnimationFrame(() => {
+                    const pos = start + cleaned.length;
+                    target.setSelectionRange(pos, pos);
+                  });
+                }}
               />
             </FieldRow>
           </section>
@@ -423,8 +830,10 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
               </div>
             </div>
             <iframe
+              ref={iframeRef}
               key={previewTarget ? `srv-${previewTarget}` : "local"}
               srcDoc={previewSrcDoc}
+              onLoad={(e) => attachIframeListener(e.currentTarget)}
               // allow-popups + allow-popups-to-escape-sandbox : indispensables
               // pour que `<base target="_blank">` puisse effectivement ouvrir
               // les liens dans un vrai onglet du navigateur.
@@ -437,164 +846,580 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
 
         {/* Panneau Prompt IA */}
         <AiPromptPanel scenario={template.scenarioKey} />
-
-        {/* Panneau liens : capture les hrefs du HTML et propose de choisir
-            leur cible dans l'arbre de la boutique (Produit / Catégorie / …). */}
-        <LinksPanel
-          html={html}
-          onRewrite={(oldHref, newHref, occurrenceIndex) => {
-            setHtml((prev) => {
-              const { html: next } = rewriteHref(prev, oldHref, newHref, occurrenceIndex);
-              return next;
-            });
-            markDirty();
-          }}
-          onInjectMissing={() => {
-            setHtml((prev) => {
-              const { html: next } = injectMissingHrefs(prev);
-              return next;
-            });
-            markDirty();
-          }}
-        />
-
-        {/* Panneau variables */}
-        <VariablesPanel scenario={template.scenarioKey} />
-
-        {/* Bandeau images utilisées dans le HTML mais pas encore uploadées.
-            Se masque tout seul quand tout est OK — pas de bruit UI inutile. */}
-        <MissingImagesBanner
-          templateId={template.id}
-          htmlContent={html}
-          images={images}
-          onUploaded={(img) => setImages((prev) => [...prev, img])}
-        />
-
-        {/* Panneau images */}
-        <ImagesPanel
-          templateId={template.id}
-          images={images}
-          onChange={setImages}
-        />
       </main>
+
+      {/* ─── Édition inline dans l'aperçu ─── */}
+      {/* Menu contextuel : 1 seule action, positionné au clic droit. Portale
+          en fixed dans le layout parent. Clampé à la viewport pour ne pas
+          sortir en bas / à droite. */}
+      {inlineMenu && (
+        <div
+          className="fixed z-[120] bg-bg-primary border border-border rounded-lg shadow-xl py-1 min-w-[220px]"
+          style={{
+            left: Math.min(inlineMenu.screenX, window.innerWidth - 240),
+            top: Math.min(inlineMenu.screenY, window.innerHeight - 120),
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="flex items-center justify-between px-3 py-1 border-b border-border mb-1">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold">Actions</span>
+            <button
+              type="button"
+              onClick={() => setInlineMenu(null)}
+              aria-label="Fermer"
+              className="text-text-muted hover:text-text-primary text-sm leading-none"
+            >
+              ✕
+            </button>
+          </div>
+          {inlineMenu.kind === "image" && (
+            <MenuAction
+              icon="🖼"
+              label="Remplacer l'image"
+              onClick={() => openInlineEditor({ id: inlineMenu.id, kind: inlineMenu.kind }, "replaceImage")}
+            />
+          )}
+          {inlineMenu.kind === "text" && (
+            <MenuAction
+              icon="✏️"
+              label="Modifier le texte"
+              onClick={() => openInlineEditor({ id: inlineMenu.id, kind: inlineMenu.kind }, "editText")}
+            />
+          )}
+          {inlineMenu.kind === "link" && (
+            <>
+              <MenuAction
+                icon="✏️"
+                label="Modifier le texte"
+                onClick={() => openInlineEditor({ id: inlineMenu.id, kind: inlineMenu.kind }, "editText")}
+              />
+              <MenuAction
+                icon="🔗"
+                label="Modifier le lien"
+                onClick={() => openInlineEditor({ id: inlineMenu.id, kind: inlineMenu.kind }, "configureLink")}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Tooltip d'erreur au clic droit sur un élément non éditable (avec
+          variable). Fade-out géré par le composant interne via transition
+          d'opacity. Auto-dismiss 3 s via useEffect ci-dessus. */}
+      {inlineError && (
+        <InlineErrorTooltip
+          key={inlineError.token}
+          message={inlineError.message}
+          left={Math.min(inlineError.screenX, window.innerWidth - 320)}
+          top={Math.min(inlineError.screenY, window.innerHeight - 80)}
+        />
+      )}
+
+      {/* Badge cumulatif "Upload en cours" — visible dès qu'au moins 1
+          image est en train de s'uploader. Compte le nombre d'uploads
+          parallèles pour informer la cliente. */}
+      {inlineImageUploading.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[130] bg-bg-dark text-text-inverse px-4 py-2 rounded-full text-xs shadow-lg flex items-center gap-2">
+          <span className="inline-block w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+          <span>
+            {inlineImageUploading.size === 1
+              ? "Upload en cours…"
+              : `${inlineImageUploading.size} uploads en cours…`}
+          </span>
+        </div>
+      )}
+
+      {/* Modale édition texte inline. */}
+      {inlineTextEdit && (
+        <InlineTextEditModal
+          initialValue={inlineTextEdit.initialValue}
+          scenario={template.scenarioKey}
+          disableAddLink={inlineTextEdit.kind === "link"}
+          onCancel={() => setInlineTextEdit(null)}
+          onValidate={(newText) => {
+            const id = inlineTextEdit.id;
+            applyMutation((current) => applyTextMutation(current, id, newText));
+            setInlineTextEdit(null);
+          }}
+        />
+      )}
+
+      {/* Picker de lien inline. Selon le kind cible :
+          - link : modifie le href du <a> existant.
+          - image / text : enveloppe la balise dans un nouveau <a href="…">. */}
+      {inlineLinkEdit && (
+        <LinkPickerModal
+          currentHref={inlineLinkEdit.currentHref}
+          baseUrl={""}
+          onClose={() => setInlineLinkEdit(null)}
+          onValidate={(newHref) => {
+            const { id, kind } = inlineLinkEdit;
+            applyMutation((current) =>
+              kind === "link"
+                ? applyLinkMutation(current, id, newHref)
+                : wrapElementInLink(current, id, newHref),
+            );
+            setInlineLinkEdit(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 /* ─────────────────────────────────────────────
-   Bandeau « images manquantes »
+   Input sujet avec palette de variables intégrée
    ───────────────────────────────────────────── */
 
-function MissingImagesBanner({
-  templateId,
-  htmlContent,
-  images,
-  onUploaded,
+/**
+ * Input classique pour le sujet du mail + bouton `{...}` à droite qui ouvre
+ * un popover listant les variables mergeables du scénario. Clic sur une
+ * variable = insertion à la position du curseur (préservée même après un
+ * clic sur le bouton).
+ */
+function SubjectInputWithVariables({
+  value,
+  scenario,
+  onChange,
 }: {
-  templateId: string;
-  htmlContent: string;
-  images: NewsletterTemplateImageLite[];
-  onUploaded: (img: NewsletterTemplateImageLite) => void;
+  value: string;
+  scenario: ScenarioKey | null;
+  onChange: (v: string) => void;
 }) {
-  const toast = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingNameRef = useRef<string | null>(null);
-  const [uploadingName, setUploadingName] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const caretRef = useRef<number>(value.length);
+  const [open, setOpen] = useState(false);
+  const variables = useMemo(() => variablesForScenario(scenario), [scenario]);
 
-  const missing = useMemo(() => {
-    const tokens = extractImageTokens(htmlContent);
-    const uploaded = new Set(images.map((i) => i.name.toLowerCase()));
-    return tokens.filter((t) => !uploaded.has(t));
-  }, [htmlContent, images]);
-
-  if (missing.length === 0) return null;
-
-  const handleClickChip = (name: string) => {
-    pendingNameRef.current = name;
-    fileInputRef.current?.click();
+  const insertToken = (token: string) => {
+    const insert = `{${token}}`;
+    const pos = caretRef.current ?? value.length;
+    const next = value.slice(0, pos) + insert + value.slice(pos);
+    onChange(next);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      const p = pos + insert.length;
+      el.focus();
+      el.setSelectionRange(p, p);
+      caretRef.current = p;
+    });
   };
 
-  const handleFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const name = pendingNameRef.current;
-    pendingNameRef.current = null;
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!file || !name) return;
+  // Ferme le popover au clic ailleurs ou ESC.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = e.target as Element | null;
+      if (!el?.closest("[data-bj-subject-vars]")) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const t = window.setTimeout(() => document.addEventListener("click", onDoc), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("click", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
-    setUploadingName(name);
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("name", name);
-      const res = await fetch(
-        `/api/admin/newsletter-templates/${templateId}/images`,
-        { method: "POST", body: formData },
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error("Upload échoué", data.error ?? "Erreur inconnue.");
-        return;
-      }
-      onUploaded({
-        id: data.id,
-        name: data.name,
-        path: data.path,
-        alt: data.alt,
-        sizeBytes: data.sizeBytes,
-        width: data.width,
-        height: data.height,
-      });
-      toast.success(
-        `Image « ${data.name} » ajoutée`,
-        "Elle est désormais visible dans le HTML et l'aperçu.",
-      );
-    } catch (err) {
-      toast.error("Erreur", (err as Error).message);
-    } finally {
-      setUploadingName(null);
+  return (
+    <div className="relative" data-bj-subject-vars>
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          caretRef.current = e.target.selectionStart ?? e.target.value.length;
+        }}
+        onKeyUp={(e) => { caretRef.current = e.currentTarget.selectionStart ?? 0; }}
+        onClick={(e) => { caretRef.current = e.currentTarget.selectionStart ?? 0; }}
+        onBlur={(e) => { caretRef.current = e.currentTarget.selectionStart ?? 0; }}
+        className="w-full rounded-lg border border-border bg-bg-primary pl-3 pr-10 py-2 text-sm"
+        placeholder="✨ Découvrez nos nouveautés"
+      />
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
+        title="Insérer une variable"
+        aria-label="Insérer une variable"
+        className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-text-secondary hover:bg-bg-secondary hover:text-text-primary flex items-center justify-center font-mono text-sm"
+      >
+        {"{…}"}
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-30 w-80 max-h-[60vh] overflow-y-auto bg-bg-primary border border-border rounded-lg shadow-xl p-3"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted mb-2">
+            Insérer une variable dans le sujet
+          </div>
+          {(["client", "boutique", "dynamique", "legal"] as VariableGroup[]).map((group) => {
+            const inGroup = variables.filter((v) => v.group === group);
+            if (inGroup.length === 0) return null;
+            return (
+              <div key={group} className="mb-3 last:mb-0">
+                <div className="text-[10px] font-semibold text-text-secondary mb-1">
+                  {VARIABLE_GROUP_LABELS[group]}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {inGroup.map((v) => (
+                    <button
+                      key={v.token}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => insertToken(v.token)}
+                      title={v.hint ? `${v.hint} — exemple : ${v.previewValue}` : `Exemple : ${v.previewValue}`}
+                      className="text-[11px] px-2 py-1 rounded bg-bg-secondary border border-border hover:bg-bg-tertiary hover:border-text-secondary text-text-primary"
+                    >
+                      {v.label}
+                      <span className="ml-1 text-text-muted font-mono">{`{${v.token}}`}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Bouton du menu contextuel (utilisé pour chaque action)
+   ───────────────────────────────────────────── */
+
+function MenuAction({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left text-sm px-3 py-1.5 hover:bg-bg-secondary flex items-center gap-2"
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Tooltip d'erreur au clic droit (fade-out 3 s)
+   ───────────────────────────────────────────── */
+
+function InlineErrorTooltip({
+  message,
+  left,
+  top,
+}: {
+  message: string;
+  left: number;
+  top: number;
+}) {
+  const [opacity, setOpacity] = useState(1);
+  useEffect(() => {
+    // Visible immédiatement, fade-out démarré après 500 ms sur ~2.5 s.
+    const t = setTimeout(() => setOpacity(0), 500);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div
+      className="fixed z-[120] max-w-xs bg-rose-600 text-white text-xs rounded-lg shadow-xl px-3 py-2 pointer-events-none"
+      style={{
+        left,
+        top,
+        opacity,
+        transition: "opacity 2500ms ease-out",
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Modale édition texte inline (mini prompt)
+   ───────────────────────────────────────────── */
+
+/**
+ * Modale d'édition rich text : contentEditable + toolbar (gras / italique /
+ * souligné / lien) + palette de variables. Le HTML riche produit est passé
+ * tel quel à `applyTextMutation` (qui sanitize).
+ *
+ * Persistance de la sélection : quand la cliente clique sur un bouton de
+ * toolbar ou un chip variable, le focus de l'editor est perdu. On mémorise
+ * la Range active dans `savedRangeRef` et on la restaure avant chaque
+ * `execCommand` / insertion.
+ */
+function InlineTextEditModal({
+  initialValue,
+  scenario,
+  disableAddLink,
+  onCancel,
+  onValidate,
+}: {
+  initialValue: string;
+  scenario: ScenarioKey | null;
+  /** true si l'élément édité est DÉJÀ un <a> — on interdit l'ajout d'un
+   *  sous-lien pour éviter l'imbrication `<a><a>…</a></a>` invalide. */
+  disableAddLink?: boolean;
+  onCancel: () => void;
+  onValidate: (html: string) => void;
+}) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    // Injecte le HTML initial de façon impérative (dangerouslySetInnerHTML
+    // ne fonctionne pas bien avec contentEditable — react re-render écrase
+    // le curseur à chaque frappe).
+    el.innerHTML = initialValue;
+    // Focus + curseur placé à la fin du contenu.
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+    }
+  }, [initialValue]);
+
+  const variables = useMemo(() => variablesForScenario(scenario), [scenario]);
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
     }
   };
 
+  const restoreSelection = () => {
+    const range = savedRangeRef.current;
+    const el = editorRef.current;
+    if (!range || !el) return;
+    el.focus();
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  };
+
+  const exec = (command: string, value?: string) => {
+    restoreSelection();
+    document.execCommand(command, false, value);
+    saveSelection();
+  };
+
+  const insertToken = (token: string) => {
+    restoreSelection();
+    document.execCommand("insertText", false, `{${token}}`);
+    saveSelection();
+  };
+
+  const validate = () => {
+    const el = editorRef.current;
+    onValidate(el ? el.innerHTML : "");
+  };
+
+  // Ferme sur clic overlay UNIQUEMENT si mousedown + mouseup ont eu lieu sur
+  // l'overlay lui-même. Sinon une sélection de texte qui finit sur l'overlay
+  // (glisse hors du modal en relâchant) fermerait par erreur.
+  const overlayMouseDownRef = useRef(false);
+
   return (
-    <section className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-      <div className="flex items-start gap-3 flex-wrap">
-        <div className="text-2xl leading-none" aria-hidden>🖼️</div>
-        <div className="flex-1 min-w-[240px]">
-          <div className="text-sm font-heading font-semibold text-amber-900">
-            {missing.length} image{missing.length > 1 ? "s" : ""} à ajouter
+    <div
+      className="fixed inset-0 z-[125] bg-black/40 flex items-center justify-center p-4"
+      onMouseDown={(e) => {
+        overlayMouseDownRef.current = e.target === e.currentTarget;
+      }}
+      onMouseUp={(e) => {
+        if (overlayMouseDownRef.current && e.target === e.currentTarget) {
+          onCancel();
+        }
+        overlayMouseDownRef.current = false;
+      }}
+    >
+      <div
+        className="bg-bg-primary rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[85vh]"
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseUp={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-border shrink-0 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Édition du texte</div>
+            <div className="text-sm font-heading font-semibold text-text-primary">Modifier le contenu</div>
           </div>
-          <div className="text-xs text-amber-800 mt-0.5">
-            Ces images sont référencées dans ton HTML mais pas encore uploadées.
-            Clique sur chaque nom pour choisir l'image correspondante depuis ton ordinateur —
-            elle sera ajoutée à la bibliothèque et apparaîtra dans l'aperçu.
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Fermer"
+            className="text-text-muted hover:text-text-primary text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Toolbar : formatage + lien */}
+        <div className="px-4 pt-3 flex items-center gap-1 flex-wrap shrink-0">
+          <ToolbarButton title="Gras (Ctrl+B)" onClick={() => exec("bold")}>
+            <b>B</b>
+          </ToolbarButton>
+          <ToolbarButton title="Italique (Ctrl+I)" onClick={() => exec("italic")}>
+            <i>I</i>
+          </ToolbarButton>
+          <ToolbarButton title="Souligné (Ctrl+U)" onClick={() => exec("underline")}>
+            <u>U</u>
+          </ToolbarButton>
+          <span className="mx-1 h-5 w-px bg-border" />
+          <ToolbarButton
+            title={disableAddLink
+              ? "Cet élément est déjà un lien — ajouter un sous-lien créerait une imbrication interdite."
+              : "Ajouter un lien sur la sélection"}
+            disabled={disableAddLink}
+            onClick={() => {
+              saveSelection();
+              setLinkPickerOpen(true);
+            }}
+          >
+            🔗 Lien
+          </ToolbarButton>
+          <ToolbarButton
+            title={disableAddLink
+              ? "Cet élément est déjà un lien complet — utilise le picker « Modifier le lien » du menu contextuel."
+              : "Retirer le lien de la sélection"}
+            disabled={disableAddLink}
+            onClick={() => exec("unlink")}
+          >
+            ✕ Lien
+          </ToolbarButton>
+        </div>
+
+        <div className="p-4 overflow-y-auto">
+          {/* Zone éditable rich text */}
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onKeyUp={saveSelection}
+            onMouseUp={saveSelection}
+            onBlur={saveSelection}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                validate();
+              }
+              if (e.key === "Escape") onCancel();
+            }}
+            className="w-full min-h-[100px] rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-text-primary/20 text-left align-top whitespace-pre-wrap"
+            style={{ textAlign: "left", verticalAlign: "top" }}
+          />
+          <div className="text-[11px] text-text-muted mt-1">
+            Astuce : sélectionne du texte puis clique <b>B</b>/<i>I</i>/<u>U</u> ou 🔗 Lien.{" "}
+            <kbd className="bg-bg-secondary rounded px-1">Ctrl</kbd>+<kbd className="bg-bg-secondary rounded px-1">Entrée</kbd> pour valider.
           </div>
+
+          {/* Palette de variables */}
+          <div className="mt-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted mb-2">
+              Insérer un mot-clé
+            </div>
+            {(["client", "boutique", "dynamique", "legal"] as VariableGroup[]).map((group) => {
+              const inGroup = variables.filter((v) => v.group === group);
+              if (inGroup.length === 0) return null;
+              return (
+                <div key={group} className="mb-2">
+                  <div className="text-[10px] font-semibold text-text-secondary mb-1">
+                    {VARIABLE_GROUP_LABELS[group]}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {inGroup.map((v) => (
+                      <button
+                        key={v.token}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => insertToken(v.token)}
+                        title={v.hint ? `${v.hint} — exemple : ${v.previewValue}` : `Exemple : ${v.previewValue}`}
+                        className="text-[11px] px-2 py-1 rounded bg-bg-secondary border border-border hover:bg-bg-tertiary hover:border-text-secondary text-text-primary"
+                      >
+                        {v.label}
+                        <span className="ml-1 text-text-muted font-mono">{`{${v.token}}`}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-border flex justify-end gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-sm px-3 py-1.5 rounded border border-border hover:bg-bg-secondary"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            onClick={validate}
+            className="text-sm px-4 py-1.5 rounded bg-bg-dark text-text-inverse font-semibold transition-all hover:bg-amber-600 hover:shadow-md active:scale-95"
+          >
+            Valider
+          </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mt-3">
-        {missing.map((name) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() => handleClickChip(name)}
-            disabled={uploadingName === name}
-            className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-          >
-            <span className="text-amber-500">+</span>
-            <span className="font-mono">{name}</span>
-            {uploadingName === name && <span className="italic ml-1">envoi…</span>}
-          </button>
-        ))}
-      </div>
+      {/* Sous-picker : sélection dans l'éditeur → insertion d'un lien
+          (execCommand createLink) sur les caractères sélectionnés. */}
+      {linkPickerOpen && (
+        <LinkPickerModal
+          currentHref=""
+          baseUrl={""}
+          onClose={() => setLinkPickerOpen(false)}
+          onValidate={(newHref) => {
+            setLinkPickerOpen(false);
+            exec("createLink", newHref);
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
-        className="hidden"
-        onChange={handleFilePicked}
-      />
-    </section>
+function ToolbarButton({
+  title,
+  onClick,
+  disabled,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault()} // évite le blur du contentEditable
+      onClick={onClick}
+      className="min-w-[32px] h-8 px-2 rounded border border-border bg-bg-primary text-sm text-text-primary flex items-center justify-center transition-all hover:bg-amber-100 hover:border-amber-400 hover:text-amber-900 hover:shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-bg-primary disabled:hover:border-border disabled:hover:text-text-primary"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -618,7 +1443,7 @@ function AiPromptPanel({ scenario }: { scenario: ScenarioKey | null }) {
     }
     try {
       await navigator.clipboard.writeText(prompt);
-      toast.success("Prompt copié", "Colle-le dans ChatGPT ou Claude, il te renverra du HTML prêt à coller.");
+      toast.success("Prompt copié", "Colle-le dans ton IA préférée, elle te renverra du HTML prêt à coller.");
     } catch {
       toast.error("Copie manuelle", "Ouvre l'aperçu, sélectionne le texte et Ctrl+C.");
     }
@@ -629,7 +1454,7 @@ function AiPromptPanel({ scenario }: { scenario: ScenarioKey | null }) {
       <div className="mb-3">
         <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Assistant IA</div>
         <div className="text-sm font-heading font-semibold text-text-primary">
-          Générer un modèle avec ChatGPT / Claude
+          Générer un modèle avec l'IA
         </div>
         <div className="text-xs text-text-secondary mt-0.5">
           Décris ce que tu veux, copie le prompt, colle-le dans ton IA préférée — elle te
@@ -660,7 +1485,7 @@ function AiPromptPanel({ scenario }: { scenario: ScenarioKey | null }) {
           onClick={handleCopy}
           className="text-sm px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700"
         >
-          Copier le prompt pour ChatGPT / Claude
+          Copier le prompt pour l'IA
         </button>
         <button
           type="button"
@@ -814,517 +1639,49 @@ function cartBadgeFor(isSelf: boolean, liveCount: number, previewedEmail?: strin
   );
 }
 
-/* ─────────────────────────────────────────────
-   Panneau variables
-   ───────────────────────────────────────────── */
-
-function VariablesPanel({ scenario }: { scenario: ScenarioKey | null }) {
-  const toast = useToast();
-  // Pour un scénario auto, on ajoute ses tokens dynamiques ({cartTotal},
-  // {days}, {favoritesCount}) à la liste des variables communes.
-  const variables = useMemo(() => variablesForScenario(scenario), [scenario]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<VariableGroup, MailVariable[]>();
-    for (const v of variables) {
-      const arr = map.get(v.group) ?? [];
-      arr.push(v);
-      map.set(v.group, arr);
-    }
-    return map;
-  }, [variables]);
-
-  const handleCopy = async (token: string) => {
-    const literal = `{${token}}`;
-    try {
-      await navigator.clipboard.writeText(literal);
-      toast.success("Copié", `${literal} — colle dans le HTML.`);
-    } catch {
-      toast.error("Impossible de copier", `Copie manuellement : ${literal}`);
-    }
-  };
-
-  const order: VariableGroup[] = ["client", "boutique", "dynamique", "legal"];
-
-  return (
-    <section className="bg-bg-primary border border-border rounded-2xl shadow-sm p-4">
-      <div className="mb-3">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Variables disponibles</div>
-        <div className="text-sm font-heading font-semibold text-text-primary">
-          {variables.length} variables
-        </div>
-        <div className="text-xs text-text-secondary mt-0.5">
-          Copie une variable et colle-la dans le HTML — elle sera remplacée à l'envoi par la vraie donnée du destinataire.
-        </div>
-      </div>
-      <div className="space-y-4">
-        {order.map((group) => {
-          const list = grouped.get(group);
-          if (!list || list.length === 0) return null;
-          return (
-            <div key={group}>
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-text-secondary mb-2">
-                {VARIABLE_GROUP_LABELS[group]}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {list.map((v) => (
-                  <button
-                    key={v.token}
-                    type="button"
-                    onClick={() => handleCopy(v.token)}
-                    className="group text-left border border-border bg-bg-primary hover:bg-bg-secondary rounded-lg p-2.5 transition-colors"
-                    title={v.hint ?? "Cliquer pour copier"}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-text-primary truncate">{v.label}</span>
-                      {v.requiredMarketing && (
-                        <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 shrink-0">
-                          Obligatoire
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <code className="text-[11px] bg-bg-secondary rounded px-1.5 py-0.5 text-text-secondary truncate">
-                        {`{${v.token}}`}
-                      </code>
-                      <span className="text-[10px] text-text-muted opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                        Copier
-                      </span>
-                    </div>
-                    {v.hint && (
-                      <div className="text-[10px] text-text-muted mt-1 line-clamp-2">{v.hint}</div>
-                    )}
-                    <div className="text-[10px] text-text-muted mt-1">
-                      Exemple : <em>{v.previewValue}</em>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-/* ─────────────────────────────────────────────
-   Panneau images
-   ───────────────────────────────────────────── */
-
-function ImagesPanel({
-  templateId,
-  images,
-  onChange,
-}: {
-  templateId: string;
-  images: NewsletterTemplateImageLite[];
-  onChange: (imgs: NewsletterTemplateImageLite[]) => void;
-}) {
-  const toast = useToast();
-  const confirm = useConfirm();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadName, setUploadName] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-
-  const handlePickFile = () => fileInputRef.current?.click();
-
-  const handleUpload = async (file: File) => {
-    const name = uploadName.trim() || file.name.replace(/\.[^.]+$/, "");
-    if (!name) {
-      toast.error("Nom manquant", "Donne un nom court à ton image (ex: hero, logo, produit-1).");
-      return;
-    }
-    setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("name", name);
-      const res = await fetch(`/api/admin/newsletter-templates/${templateId}/images`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error("Upload échoué", data.error ?? "Erreur inconnue.");
-        return;
-      }
-      onChange([...images, {
-        id: data.id, name: data.name, path: data.path, alt: data.alt,
-        sizeBytes: data.sizeBytes, width: data.width, height: data.height,
-      }]);
-      setUploadName("");
-      toast.success("Image ajoutée", `Insère-la dans le HTML avec ${data.tag}`);
-    } catch (err) {
-      toast.error("Erreur", (err as Error).message);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  const handleCopyTag = async (image: NewsletterTemplateImageLite) => {
-    // Balise <img> complète — plus pratique pour la cliente non-technique qui
-    // n'a plus qu'à coller là où elle veut, sans se soucier de l'attribut
-    // `src=""` ni des styles. Le `alt` reprend celui saisi (fallback : nom),
-    // les styles inline (max-width:100%;display:block;height:auto;) rendent
-    // l'image responsive dans tous les clients mail.
-    const altValue = (image.alt || image.name).replace(/"/g, "&quot;");
-    const tag = `<img src="{{img.${image.name}}}" alt="${altValue}" style="max-width:100%;display:block;height:auto;">`;
-    try {
-      await navigator.clipboard.writeText(tag);
-      toast.success("Balise <img> copiée", `Colle-la dans ton HTML là où tu veux afficher « ${image.name} ».`);
-    } catch {
-      toast.error("Impossible de copier", "Copie manuellement : " + tag);
-    }
-  };
-
-  const handleRename = async (image: NewsletterTemplateImageLite) => {
-    const newName = window.prompt(`Nouveau nom pour « ${image.name} » :`, image.name);
-    if (!newName || newName === image.name) return;
-    const res = await renameNewsletterTemplateImage(image.id, newName);
-    if (!res.success) {
-      toast.error("Renommage impossible", res.error);
-      return;
-    }
-    onChange(images.map((i) => i.id === image.id ? { ...i, name: res.name, path: res.path } : i));
-    toast.success("Image renommée");
-  };
-
-  const handleEditAlt = async (image: NewsletterTemplateImageLite) => {
-    const newAlt = window.prompt(`Texte alternatif pour « ${image.name} » (pour les mails où les images sont bloquées) :`, image.alt);
-    if (newAlt === null) return;
-    const res = await updateNewsletterTemplateImageAlt(image.id, newAlt);
-    if (!res.success) {
-      toast.error("Erreur", res.error);
-      return;
-    }
-    onChange(images.map((i) => i.id === image.id ? { ...i, alt: newAlt } : i));
-  };
-
-  const handleDelete = async (image: NewsletterTemplateImageLite) => {
-    const ok = await confirm.confirm({
-      type: "danger",
-      title: "Supprimer cette image ?",
-      message: `« ${image.name} » sera retirée du modèle. Si tu l'utilises encore dans ton HTML (${`{{img.${image.name}}}`}), le mail n'affichera plus rien à cet endroit.`,
-      confirmLabel: "Supprimer",
-      cancelLabel: "Annuler",
-    });
-    if (ok !== true) return;
-    const res = await deleteNewsletterTemplateImage(image.id);
-    if (!res.success) {
-      toast.error("Suppression impossible", res.error);
-      return;
-    }
-    onChange(images.filter((i) => i.id !== image.id));
-    toast.success("Image supprimée");
-  };
-
-  return (
-    <section className="bg-bg-primary border border-border rounded-2xl shadow-sm p-4">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Bibliothèque d'images</div>
-          <div className="text-sm font-heading font-semibold text-text-primary">
-            {images.length} image{images.length > 1 ? "s" : ""}
-          </div>
-          <div className="text-xs text-text-secondary mt-0.5">
-            Chaque image est disponible via <code className="text-[11px] bg-bg-secondary rounded px-1 py-0.5">{"{{img.nom}}"}</code> dans le HTML.
-          </div>
-        </div>
-      </div>
-
-      {/* Zone d'upload */}
-      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end p-3 bg-bg-secondary rounded-xl mb-4">
-        <div className="flex-1">
-          <div className="text-xs font-medium text-text-secondary mb-1">Nom de la nouvelle image</div>
-          <input
-            value={uploadName}
-            onChange={(e) => setUploadName(e.target.value)}
-            placeholder="hero, logo, produit-1…"
-            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm"
-          />
-          <div className="text-[11px] text-text-muted mt-1">
-            Lettres, chiffres et tirets uniquement. Sera référencée par {"{{img."}<em>ton-nom</em>{"}}"}.
-          </div>
-        </div>
-        <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleUpload(f);
-            }}
-          />
-          <button
-            type="button"
-            onClick={handlePickFile}
-            disabled={isUploading}
-            className="w-full sm:w-auto text-sm px-4 py-2 rounded-lg bg-bg-dark text-text-inverse hover:bg-text-primary disabled:opacity-40"
-          >
-            {isUploading ? "Envoi…" : "Choisir une image"}
-          </button>
-        </div>
-      </div>
-
-      {/* Grille des images */}
-      {images.length === 0 ? (
-        <div className="text-center text-sm text-text-muted py-8 border border-dashed border-border rounded-xl">
-          Aucune image pour le moment. Ajoutes-en une pour la référencer dans ton HTML.
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {images.map((img) => (
-            <div key={img.id} className="border border-border rounded-xl overflow-hidden bg-bg-primary flex flex-col">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={img.path}
-                alt={img.alt || img.name}
-                className="w-full h-32 object-cover bg-bg-secondary"
-              />
-              <div className="p-2 space-y-1 flex-1 flex flex-col">
-                <div className="font-mono text-xs truncate" title={img.name}>{img.name}</div>
-                <div className="text-[10px] text-text-muted">
-                  {formatBytes(img.sizeBytes)}
-                  {img.width && img.height ? ` · ${img.width}×${img.height}` : ""}
-                </div>
-                <div className="flex flex-wrap gap-1 pt-1 mt-auto">
-                  <button
-                    type="button"
-                    onClick={() => handleCopyTag(img)}
-                    className="flex-1 text-[11px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                    title="Copier la balise <img> complète, prête à coller"
-                  >
-                    Copier &lt;img&gt;
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRename(img)}
-                    className="text-[11px] px-2 py-1 rounded bg-bg-secondary hover:bg-bg-tertiary border border-border"
-                    title="Renommer"
-                  >
-                    ✏
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleEditAlt(img)}
-                    className="text-[11px] px-2 py-1 rounded bg-bg-secondary hover:bg-bg-tertiary border border-border"
-                    title="Texte alternatif"
-                  >
-                    Alt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(img)}
-                    className="text-[11px] px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200"
-                    title="Supprimer"
-                  >
-                    🗑
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} o`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
-  return `${(n / 1024 / 1024).toFixed(2)} Mo`;
-}
 
 /* ─────────────────────────────────────────────
    Panneau Liens
    ───────────────────────────────────────────── */
 
-function LinksPanel({
-  html,
-  onRewrite,
-  onInjectMissing,
-}: {
-  html: string;
-  onRewrite: (oldHref: string, newHref: string, occurrenceIndex?: number) => void;
-  onInjectMissing: () => void;
-}) {
-  const [baseUrl, setBaseUrl] = useState<string>("");
-  // Cible du picker : href brut à récrire + occurrence à cibler (uniquement
-  // pour les hrefs non-configurés où plusieurs <a> partagent la même valeur).
-  const [pickerFor, setPickerFor] = useState<
-    | { href: string; occurrenceIndex?: number }
-    | null
-  >(null);
-  const [showConfigured, setShowConfigured] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getNewsletterEditorBaseUrl()
-      .then((u) => { if (!cancelled) setBaseUrl(u); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  const missingHrefCount = useMemo(() => countAnchorsWithoutHref(html), [html]);
-
-  const { unconfigured, configured } = useMemo(() => {
-    const all = extractHrefs(html);
-    return {
-      unconfigured: all.filter((e) => isHrefUnconfigured(e.href)),
-      configured: all.filter((e) => !isHrefUnconfigured(e.href)),
-    };
-  }, [html]);
-
-  // Cas particulier : le HTML contient des <a> sans attribut href du tout —
-  // typiquement ChatGPT qui a oublié. Sans href, le picker ne peut rien
-  // extraire ni configurer. On propose un fix en 1 clic qui injecte href=""
-  // partout où c'est manquant.
-  const missingHrefWarning = missingHrefCount > 0 && (
-    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-start gap-3 mb-3">
+/**
+ * Bannière d'alerte affichée au-dessus du textarea HTML quand des fences
+ * Markdown (``` ou ```html) sont présentes — typiquement quand l'IA a coupé
+ * sa réponse en plusieurs blocs et que la cliente a tout collé. Un clic sur
+ * « Nettoyer maintenant » les retire d'un coup.
+ */
+function MarkdownFencesBanner({ html, onClean }: { html: string; onClean: () => void }) {
+  const count = useMemo(() => countMarkdownCodeFences(html), [html]);
+  if (count === 0) return null;
+  return (
+    <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 mb-2 flex items-start gap-3">
       <div className="text-lg" aria-hidden>⚠️</div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-heading font-semibold text-rose-900">
-          {missingHrefCount} lien{missingHrefCount > 1 ? "s" : ""} sans <code className="text-[11px] bg-white/70 rounded px-1 py-0.5">href</code>
+        <div className="text-sm font-heading font-semibold text-amber-900">
+          {count} balise{count > 1 ? "s" : ""} Markdown <code className="bg-white/70 rounded px-1 py-0.5 text-[11px]">```</code> détectée{count > 1 ? "s" : ""}
         </div>
-        <div className="text-xs text-rose-800 mt-0.5">
-          Ces balises <code className="text-[11px] bg-white/70 rounded px-1 py-0.5">&lt;a&gt;</code>
-          {" "}n'ont pas d'attribut <code className="text-[11px] bg-white/70 rounded px-1 py-0.5">href</code>
-          {" "}et resteront invisibles au picker. Ajoute un <code className="text-[11px] bg-white/70 rounded px-1 py-0.5">href=""</code> vide sur chacun pour pouvoir les configurer.
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onInjectMissing}
-        className="text-xs font-semibold px-3 py-1.5 rounded bg-rose-600 text-white hover:bg-rose-700 shrink-0"
-      >
-        Corriger
-      </button>
-    </div>
-  );
-
-  if (unconfigured.length === 0 && configured.length === 0) {
-    return (
-      <section className="bg-bg-primary border border-border rounded-2xl shadow-sm p-4">
-        {missingHrefWarning}
-        <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Liens du mail</div>
-        <div className="text-sm font-heading font-semibold text-text-primary">
-          {missingHrefCount > 0 ? "Corrige les liens sans href pour les faire apparaître" : "Aucun lien détecté"}
-        </div>
-        <div className="text-xs text-text-secondary mt-1">
-          Ajoute un <code className="text-[11px] bg-bg-secondary rounded px-1 py-0.5">{`<a href="">…</a>`}</code>
-          {" "}dans ton HTML (ou colle un modèle généré par ChatGPT), reviens ici pour choisir vers quoi il redirige.
-        </div>
-      </section>
-    );
-  }
-
-  const renderLinkRow = (entry: LinkHrefEntry, needsConfig: boolean) => {
-    const { href, label, occurrenceIndex } = entry;
-    const displayHref = href.trim().length === 0 ? "(vide)" : href;
-    const displayLabel = label.trim().length === 0 ? "(sans texte)" : label;
-    // Key React unique : sans l'occurrence, 2 hrefs vides collapseraient.
-    const rowKey = occurrenceIndex !== undefined ? `${href}::${occurrenceIndex}` : href;
-    return (
-    <div
-      key={rowKey}
-      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 border ${needsConfig ? "border-amber-300 bg-amber-50" : "border-border bg-bg-primary"}`}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <div className={`text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${needsConfig ? "bg-amber-200 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>
-            {needsConfig ? "À configurer" : "OK"}
-          </div>
-          <div
-            className={`text-sm font-medium truncate ${label.trim().length === 0 ? "italic text-text-muted" : "text-text-primary"}`}
-            title={displayLabel}
-          >
-            {displayLabel}
-          </div>
-        </div>
-        <div
-          className={`text-[11px] font-mono truncate mt-0.5 ${href.trim().length === 0 ? "italic text-text-muted" : "text-text-secondary"}`}
-          title={displayHref}
-        >
-          {displayHref}
+        <div className="text-xs text-amber-800 mt-0.5">
+          Ton IA a laissé des balises de bloc de code dans le HTML. Elles vont
+          s&apos;afficher en clair dans le mail. Clique <span className="font-semibold">Nettoyer</span> pour les retirer.
         </div>
       </div>
       <button
         type="button"
-        onClick={() => setPickerFor({ href, occurrenceIndex })}
-        className={`text-xs px-3 py-1.5 rounded shrink-0 font-semibold ${needsConfig ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-bg-secondary text-text-primary hover:bg-bg-tertiary border border-border"}`}
+        onClick={onClean}
+        className="text-xs font-semibold px-3 py-1.5 rounded bg-amber-600 text-white hover:bg-amber-700 shrink-0"
       >
-        {needsConfig ? "Configurer" : "Modifier"}
+        Nettoyer
       </button>
     </div>
-    );
-  };
-
-  return (
-    <>
-      <section className="bg-bg-primary border border-border rounded-2xl shadow-sm p-4">
-        {missingHrefWarning}
-        <div className="mb-3">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Liens du mail</div>
-          <div className="text-sm font-heading font-semibold text-text-primary">
-            {unconfigured.length > 0
-              ? `${unconfigured.length} lien${unconfigured.length > 1 ? "s" : ""} à configurer`
-              : "Tous les liens sont configurés ✓"}
-          </div>
-          <div className="text-xs text-text-secondary mt-0.5">
-            Clique le bouton <span className="font-semibold text-amber-800">Configurer</span> à droite pour choisir la cible du lien (Produit / Catégorie / …). L'URL sera écrite automatiquement dans ton HTML.
-          </div>
-        </div>
-
-        {unconfigured.length > 0 && (
-          <div className="space-y-2">
-            {unconfigured.map((h) => renderLinkRow(h, true))}
-          </div>
-        )}
-
-        {configured.length > 0 && (
-          <div className={`${unconfigured.length > 0 ? "mt-4 pt-4 border-t border-border" : ""}`}>
-            <button
-              type="button"
-              onClick={() => setShowConfigured((v) => !v)}
-              className="text-xs text-text-secondary hover:text-text-primary flex items-center gap-1"
-            >
-              <span>{showConfigured ? "▼" : "▶"}</span>
-              <span>Déjà configurés ({configured.length})</span>
-            </button>
-            {showConfigured && (
-              <div className="space-y-2 mt-2">
-                {configured.map((h) => renderLinkRow(h, false))}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {pickerFor !== null && (
-        <LinkPickerModal
-          currentHref={pickerFor.href}
-          baseUrl={baseUrl}
-          onClose={() => setPickerFor(null)}
-          onValidate={(newHref) => {
-            onRewrite(pickerFor.href, newHref, pickerFor.occurrenceIndex);
-            setPickerFor(null);
-          }}
-        />
-      )}
-    </>
   );
 }
+
 
 /* ─────────────────────────────────────────────
    Modale picker en arbre
    ───────────────────────────────────────────── */
 
-type PickerParent = "home" | "products" | "categories" | "collections" | "about" | "contact";
+type PickerParent = "home" | "cart" | "products" | "categories" | "collections" | "about" | "contact" | "custom";
 
 function LinkPickerModal({
   currentHref,
@@ -1347,6 +1704,14 @@ function LinkPickerModal({
 
   const [categories, setCategories] = useState<CategoryLinkOption[]>([]);
   const [collections, setCollections] = useState<CollectionLinkOption[]>([]);
+
+  // Input « Lien personnalisé ». Pré-rempli si l'URL actuelle ressemble à une
+  // URL absolue déjà tapée à la main (http/https/mailto/tel) — évite à la
+  // cliente de tout retaper pour un simple changement de destination.
+  const [customUrl, setCustomUrl] = useState<string>(() => {
+    const t = currentHref.trim();
+    return /^(https?:|mailto:|tel:)/i.test(t) ? t : "";
+  });
 
   // Charge produits (debounced), catégories, collections quand on ouvre les
   // sous-branches correspondantes. Idempotent (skip si déjà chargé).
@@ -1371,14 +1736,23 @@ function LinkPickerModal({
     listCollectionsForLink().then(setCollections).catch(() => {});
   }, [expanded, collections.length]);
 
-  const canValidate = selected !== null && baseUrl !== "";
+  // Bouton Valider actif dès qu'une cible est choisie. `baseUrl` peut être
+  // vide au moment du clic (chargement asynchrone) — on utilise alors un
+  // fallback URL relatif (`/fr/…`), le rendu serveur absolutise à l'envoi.
+  const canValidate =
+    selected !== null &&
+    !(selected.kind === "custom" && selected.url.trim().length === 0);
 
   const handleValidate = () => {
-    if (!selected || !baseUrl) {
+    if (!selected) {
       toast.error("Sélection incomplète", "Choisis une cible dans l'arbre.");
       return;
     }
-    const newHref = buildLinkUrl(baseUrl, selected);
+    if (selected.kind === "custom" && selected.url.trim().length === 0) {
+      toast.error("URL manquante", "Colle une URL complète (avec https://…) dans le champ Lien personnalisé.");
+      return;
+    }
+    const newHref = buildLinkUrl(baseUrl || "", selected);
     onValidate(newHref);
   };
 
@@ -1506,6 +1880,7 @@ function LinkPickerModal({
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {parentButton("home", "Accueil", "🏠", false, { kind: "home" })}
+          {parentButton("cart", "Panier", "🛒", false, { kind: "cart" })}
           <div className="border border-border rounded-lg overflow-hidden">
             <div className="flex items-center gap-2 p-2.5">
               <button
@@ -1636,6 +2011,46 @@ function LinkPickerModal({
           </div>
           {parentButton("about", "Qui sommes-nous", "ℹ️", false, { kind: "about" })}
           {parentButton("contact", "Nous contacter", "📞", false, { kind: "contact" })}
+
+          {/* Lien personnalisé : URL libre (domaine inclus). Utilisé pour les
+              cas hors-boutique (Instagram, WhatsApp, page événement, PDF…). */}
+          <div className="border border-border rounded-lg overflow-hidden">
+            <div className="flex items-center gap-2 p-2.5">
+              <button
+                type="button"
+                onClick={() => setExpanded(expanded === "custom" ? null : "custom")}
+                className={`flex-1 flex items-center gap-2 text-left ${selected?.kind === "custom" ? "text-emerald-700 font-semibold" : "text-text-primary"}`}
+              >
+                <span aria-hidden>🔗</span>
+                <span className="text-sm">Lien personnalisé (URL libre)</span>
+                <span className="text-xs text-text-muted ml-auto">
+                  {expanded === "custom" ? "▼" : "▶"}
+                </span>
+              </button>
+            </div>
+            {expanded === "custom" && (
+              <div className="p-3 border-t border-border bg-bg-secondary space-y-1.5">
+                <input
+                  type="url"
+                  inputMode="url"
+                  value={customUrl}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCustomUrl(v);
+                    setSelected({ kind: "custom", url: v });
+                  }}
+                  onFocus={() => setSelected({ kind: "custom", url: customUrl })}
+                  placeholder="https://exemple.com/ma-page"
+                  className="w-full rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm"
+                />
+                <div className="text-[11px] text-text-muted">
+                  Colle l&apos;URL complète (avec <code className="bg-bg-primary rounded px-1">https://</code>).
+                  Aussi accepté : <code className="bg-bg-primary rounded px-1">mailto:</code>,{" "}
+                  <code className="bg-bg-primary rounded px-1">tel:</code>.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="p-4 border-t border-border flex items-center justify-between gap-3">
           <div className="text-xs text-text-muted min-w-0 truncate flex-1">

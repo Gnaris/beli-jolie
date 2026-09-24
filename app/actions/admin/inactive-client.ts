@@ -36,6 +36,8 @@ export interface InactiveClientStageDTO {
   id: string;
   stageIndex: number;
   delaySeconds: number;
+  /** null = aucune limite ; sinon plafond de commandes non annulées. */
+  maxOrderCount: number | null;
   templateId: string;
   templateName: string;
   templateSubject: string;
@@ -63,7 +65,11 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
     prisma.inactiveClientStage.findMany({
       where: { tenantId: tenant.id },
       orderBy: { stageIndex: "asc" },
-      include: {
+      select: {
+        id: true,
+        stageIndex: true,
+        delaySeconds: true,
+        maxOrderCount: true,
         template: {
           select: { id: true, name: true, subject: true, html: true, updatedAt: true },
         },
@@ -81,6 +87,7 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
       id: s.id,
       stageIndex: s.stageIndex,
       delaySeconds: s.delaySeconds,
+      maxOrderCount: s.maxOrderCount,
       templateId: s.template.id,
       templateName: s.template.name,
       templateSubject: s.template.subject,
@@ -265,6 +272,61 @@ export async function updateInactiveClientStageDelay(
     return { success: true, config };
   } catch (err) {
     logger.error("[updateInactiveClientStageDelay]", { stageId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Met à jour le plafond de commandes non annulées d'un stade. `null` (ou
+ * valeur < 1) → aucune limite. Valeur >= 1 → stade sauté silencieusement si
+ * le client a >= N commandes non annulées (PENDING + SHIPPED).
+ */
+export async function updateInactiveClientStageMaxOrderCount(
+  stageId: string,
+  maxOrderCount: number | null,
+): Promise<
+  | { success: true; config: InactiveClientConfigDTO }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+    const target = await prisma.inactiveClientStage.findFirst({
+      where: { id: stageId, tenantId: tenant.id },
+      select: { id: true },
+    });
+    if (!target) return { success: false, error: "Stade introuvable." };
+
+    let normalized: number | null = null;
+    if (maxOrderCount !== null && maxOrderCount !== undefined) {
+      if (!Number.isFinite(maxOrderCount)) {
+        return { success: false, error: "Valeur invalide." };
+      }
+      const n = Math.floor(maxOrderCount);
+      if (n < 1) {
+        normalized = null;
+      } else if (n > 10000) {
+        return {
+          success: false,
+          error: "Nombre trop grand — au maximum 10 000 commandes.",
+        };
+      } else {
+        normalized = n;
+      }
+    }
+
+    await prisma.inactiveClientStage.update({
+      where: { id: stageId },
+      data: { maxOrderCount: normalized },
+    });
+
+    revalidatePath("/admin/marketing/mails/inactivite");
+    const config = await getInactiveClientConfig();
+    return { success: true, config };
+  } catch (err) {
+    logger.error("[updateInactiveClientStageMaxOrderCount]", {
+      stageId,
+      error: err as Error,
+    });
     return { success: false, error: (err as Error).message };
   }
 }

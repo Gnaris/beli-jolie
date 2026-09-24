@@ -145,7 +145,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             ),
             "/admin/commandes": pendingOrdersCount,
             "/admin/clients": pendingUsersCount,
-            "/admin/reclamations": openClaimsCount,
+            "/admin/service-client": openClaimsCount,
             "/admin/avis": pendingReviewsCount,
           }}
           shopName={shopName}

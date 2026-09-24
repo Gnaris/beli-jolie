@@ -55,7 +55,7 @@ const NAV_SECTIONS: NavSection[] = [
         { label: "Panier abandonné", href: "/admin/marketing/mails/panier-abandonne" },
         { label: "Inactivité", href: "/admin/marketing/mails/inactivite" },
       ] },
-      { label: "Service Client", href: "/admin/reclamations", icon: "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" },
+      { label: "Service Client", href: "/admin/service-client", icon: "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" },
       { label: "Promotions", href: "/admin/promotions", icon: "M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" },
     ],
   },
@@ -78,7 +78,7 @@ interface Props {
 const BLUE_BADGE_HREFS = new Set([
   "/admin/commandes",
   "/admin/clients",
-  "/admin/reclamations",
+  "/admin/service-client",
 ]);
 
 function isItemActive(pathname: string, href: string): boolean {

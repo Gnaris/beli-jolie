@@ -391,7 +391,7 @@ export default async function DashboardPage() {
                   <span className="text-[11px] font-body bg-bg-secondary text-text-secondary px-2 py-0.5 rounded-full">{allOrderedProducts.length}</span>
                 )}
               </a>
-              <Link href="/espace-pro/reclamations" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-colors">
+              <Link href="/espace-pro/service-client" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>

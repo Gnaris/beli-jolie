@@ -178,7 +178,7 @@ export default async function CommandeDetailPage({
             <ReorderButton orderId={order.id} size="md" />
             {order.status !== "CANCELLED" && (
               <Link
-                href={`/espace-pro/reclamations/nouveau?order=${order.id}`}
+                href={`/espace-pro/service-client/nouveau?order=${order.id}`}
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-white transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

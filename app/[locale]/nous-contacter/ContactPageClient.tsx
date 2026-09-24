@@ -136,7 +136,7 @@ export default function ContactPageClient({
             </p>
             {isApproved ? (
               <Link
-                href="/espace-pro/reclamations/nouveau"
+                href="/espace-pro/service-client/nouveau"
                 className="inline-flex items-center gap-2 mt-3 btn-primary text-sm py-2 px-4"
               >
                 {t("openClaim")}

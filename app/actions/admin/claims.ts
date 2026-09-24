@@ -10,6 +10,7 @@ import { scheduleReplyNotification } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { createCredit, getAvailableCredit } from "@/lib/credits";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -17,11 +18,25 @@ async function requireAdmin() {
   return session;
 }
 
-export async function getAdminClaims(filter?: string, page = 1) {
+export async function getAdminClaims(filter?: string, page = 1, typeFilter?: string, search?: string) {
   await requireAdmin();
 
   const where: Record<string, unknown> = {};
   if (filter === "OPEN" || filter === "CLOSED") where.status = filter;
+  if (typeFilter === "ORDER_RELATED" || typeFilter === "OTHER") where.type = typeFilter;
+
+  const q = (search ?? "").trim();
+  if (q.length > 0) {
+    where.OR = [
+      { subject: { contains: q } },
+      { reference: { contains: q } },
+      { user: { email: { contains: q } } },
+      { user: { company: { contains: q } } },
+      { user: { firstName: { contains: q } } },
+      { user: { lastName: { contains: q } } },
+      { order: { orderNumber: { contains: q } } },
+    ];
+  }
 
   const currentPage = Math.max(1, page | 0);
   const skip = (currentPage - 1) * CLAIMS_PAGE_SIZE;
@@ -31,6 +46,7 @@ export async function getAdminClaims(filter?: string, page = 1) {
       where,
       include: {
         user: { select: { firstName: true, lastName: true, company: true, email: true } },
+        order: { select: { id: true, orderNumber: true } },
         conversation: {
           select: {
             id: true,
@@ -178,6 +194,47 @@ export async function getAdminClaim(claimId: string) {
           company: true,
           email: true,
           createdAt: true,
+        },
+      },
+      order: {
+        select: {
+          id: true,
+          orderNumber: true,
+          createdAt: true,
+          totalTTC: true,
+          status: true,
+          clientDiscountAmt: true,
+          promoDiscount: true,
+          items: {
+            select: {
+              id: true,
+              lineTotal: true,
+              isCompensation: true,
+            },
+          },
+        },
+      },
+      orderItems: {
+        include: {
+          orderItem: {
+            select: {
+              id: true,
+              productName: true,
+              productRef: true,
+              colorName: true,
+              imagePath: true,
+              saleType: true,
+              packQty: true,
+              size: true,
+              sizesJson: true,
+              quantity: true,
+              unitPrice: true,
+              lineTotal: true,
+              lineDiscountAmt: true,
+              isCompensation: true,
+              variantSnapshot: true,
+            },
+          },
         },
       },
       conversation: {
@@ -366,6 +423,99 @@ export async function closeClaim(claimId: string) {
 
   revalidateTag("claims", "default");
   return { success: true };
+}
+
+/**
+ * Charge le contexte crédit d'un client pour l'afficher dans la fiche
+ * service client admin : solde dispo + 5 derniers crédits accordés.
+ */
+export async function getClientCreditContext(userId: string) {
+  await requireAdmin();
+
+  const [available, recent] = await Promise.all([
+    getAvailableCredit(userId),
+    prisma.credit.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: {
+        id: true,
+        amount: true,
+        remainingAmount: true,
+        reason: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  return {
+    available,
+    recent: recent.map((c) => ({
+      id: c.id,
+      amount: Number(c.amount),
+      remainingAmount: Number(c.remainingAmount),
+      reason: c.reason,
+      expiresAt: c.expiresAt ? c.expiresAt.toISOString() : null,
+      createdAt: c.createdAt.toISOString(),
+    })),
+  };
+}
+
+/**
+ * Raccourci « attribuer un avoir » depuis la fiche service client. L'admin
+ * ouvre une demande, décide d'accorder un geste commercial, clique — l'avoir
+ * atterrit dans le solde crédit du client, utilisable dès sa prochaine commande.
+ */
+export async function grantCreditForClient(input: {
+  userId: string;
+  amount: number;
+  reason?: string;
+  expiresAt?: string | null;
+  claimReference?: string;
+}) {
+  const session = await requireAdmin();
+
+  const amount = Math.round(Number(input.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { success: false as const, error: "Le montant doit être supérieur à 0." };
+  }
+  if (amount > 10000) {
+    return { success: false as const, error: "Montant trop élevé (max 10 000 €). Contactez le support technique si nécessaire." };
+  }
+
+  // Vérifie que le client existe dans le tenant courant (extension Prisma
+  // scope automatiquement, mais on veut un message d'erreur explicite).
+  const user = await prisma.user.findFirst({
+    where: { id: input.userId },
+    select: { id: true, firstName: true, lastName: true, email: true },
+  });
+  if (!user) return { success: false as const, error: "Client introuvable." };
+
+  const reason =
+    input.reason?.trim() ||
+    (input.claimReference ? `Geste commercial – demande ${input.claimReference}` : "Geste commercial");
+
+  const expiresAt =
+    input.expiresAt && input.expiresAt.trim().length > 0 ? new Date(input.expiresAt) : undefined;
+  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+    return { success: false as const, error: "Date d'expiration invalide." };
+  }
+
+  const credit = await createCredit({
+    userId: user.id,
+    amount,
+    reason,
+    expiresAt,
+  });
+
+  logger.info(
+    `[Claims] Admin ${session.user.email} a accordé ${amount}€ d'avoir à ${user.email} (raison : ${reason})`,
+    { creditId: credit.id, claimReference: input.claimReference },
+  );
+
+  const available = await getAvailableCredit(user.id);
+  return { success: true as const, creditId: credit.id, available };
 }
 
 /** Marque tous les messages CLIENT comme lus (à l'ouverture de la page admin).

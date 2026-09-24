@@ -1149,9 +1149,9 @@ model Category {
   // Contenu éditable de la page publique `/fr/categories/[slug]`. Tous facultatifs :
   // si vide, une trame par défaut est générée à partir du nom de la catégorie.
   seoTitle                   String?               @db.VarChar(255) // H1 + <title> (ex : "Grossiste blouses femme")
-  seoIntro                   String?               @db.Text          // Paragraphe d'intro (positionnement, minimum, livraison)
-  seoSecondary               String?               @db.Text          // Paragraphe secondaire (fabricants, tailles, saisons)
-  seoFaq                     Json?                 // Tableau [{ q: string, a: string }, …]
+  seoIntro                   String?               @db.Text // Paragraphe d'intro (positionnement, minimum, livraison)
+  seoSecondary               String?               @db.Text // Paragraphe secondaire (fabricants, tailles, saisons)
+  seoFaq                     Json? // Tableau [{ q: string, a: string }, …]
   subCategories              SubCategory[]
   products                   Product[]
   translations               CategoryTranslation[]
@@ -2364,6 +2364,11 @@ enum ClaimStatus {
   CLOSED
 }
 
+enum ClaimType {
+  ORDER_RELATED
+  OTHER
+}
+
 // ─────────────────────────────────────────────
 // Promotions
 // ─────────────────────────────────────────────
@@ -2477,7 +2482,7 @@ model Order {
   // Horodatage + admin qui a marqué le virement comme reçu (paymentMode=BANK_TRANSFER).
   // Utilisé pour l'audit / historique + pour l'email de confirmation.
   bankTransferConfirmedAt DateTime?
-  bankTransferConfirmedBy String?   // User.id de l'admin qui a confirmé
+  bankTransferConfirmedBy String? // User.id de l'admin qui a confirmé
 
   // Stripe Checkout Session (paymentMode=STRIPE_LINK uniquement).
   // URL et expiration figées à la création ; régénérables via l'action
@@ -2535,6 +2540,7 @@ model Order {
   creditUsages      CreditUsage[]
   promotionUsages   PromotionUsage[]
   itemModifications OrderItemModification[]
+  claims            Claim[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2590,7 +2596,8 @@ model OrderItem {
   // d'articles identiques ajoutés successivement en compensation.
   productColorId String?
 
-  modifications OrderItemModification[]
+  modifications   OrderItemModification[]
+  claimOrderItems ClaimOrderItem[]
 
   createdAt DateTime @default(now())
 
@@ -3242,22 +3249,22 @@ model StockMovement {
 // ─────────────────────────────────────────────
 
 model Conversation {
-  id        String             @id @default(cuid())
-  type      ConversationType
-  subject   String?
-  status    ConversationStatus @default(OPEN)
-  userId    String
-  user      User               @relation(fields: [userId], references: [id])
-  claimId   String?            @unique
-  claim     Claim?             @relation(fields: [claimId], references: [id])
-  messages  Message[]
+  id                 String             @id @default(cuid())
+  type               ConversationType
+  subject            String?
+  status             ConversationStatus @default(OPEN)
+  userId             String
+  user               User               @relation(fields: [userId], references: [id])
+  claimId            String?            @unique
+  claim              Claim?             @relation(fields: [claimId], references: [id])
+  messages           Message[]
   // Timestamp du dernier mail « nouvelle réponse » envoyé au client sur
   // cette conversation. Utilisé pour l'anti-spam 20 min du système
   // Service Client (cf. `lib/support-notify.ts`). Reset uniquement quand
   // le client a effectivement lu depuis (Message.readAt > lastSupportEmailAt).
   lastSupportEmailAt DateTime?
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -3318,16 +3325,26 @@ model MessageAttachment {
 // Si le client répond après clôture → repasse automatiquement en OPEN
 // (voir app/actions/client/claims.ts).
 model Claim {
-  id                   String        @id @default(cuid())
-  reference            String
-  subject              String        @default("")
-  status               ClaimStatus   @default(OPEN)
-  userId               String
-  user                 User          @relation(fields: [userId], references: [id])
-  conversation         Conversation?
-  closedAt             DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  id           String        @id @default(cuid())
+  reference    String
+  subject      String        @default("")
+  status       ClaimStatus   @default(OPEN)
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  conversation Conversation?
+  closedAt     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Service Client wizard : distingue les demandes liées à une commande
+  // (avec articles/quantités signalés) des autres demandes libres.
+  type    ClaimType @default(OTHER)
+  orderId String?
+  order   Order?    @relation(fields: [orderId], references: [id])
+  body    String    @default("") @db.Text
+
+  orderItems  ClaimOrderItem[]
+  attachments ClaimAttachment[]
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
@@ -3337,6 +3354,40 @@ model Claim {
   @@index([userId, status])
   @@index([status])
   @@index([createdAt])
+  @@index([orderId])
+  @@index([tenantId, type])
+}
+
+// Article de commande signalé par le client via le wizard Service Client
+// (type = ORDER_RELATED). Une même Claim peut viser plusieurs OrderItem,
+// chacun avec une quantité (>=1, <= orderItem.quantity).
+model ClaimOrderItem {
+  id          String    @id @default(cuid())
+  claimId     String
+  claim       Claim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity    Int
+  createdAt   DateTime  @default(now())
+
+  @@unique([claimId, orderItemId])
+  @@index([orderItemId])
+}
+
+// Pièce jointe uploadée par le client dans le wizard Service Client
+// (photo d'article cassé, capture d'écran, etc.). Stockage :
+// private/uploads/{tenantSlug}/service-client/{claimReference}/{fileName}.
+model ClaimAttachment {
+  id        String   @id @default(cuid())
+  claimId   String
+  claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  @@index([claimId])
 }
 
 // ─────────────────────────────────────────────
@@ -3352,16 +3403,16 @@ model Claim {
 // Quand le client lit → jobs PENDING → CANCELLED.
 // Worker background scanne toutes les 30 s et envoie les mails dus.
 model PendingSupportEmail {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   conversationId String
   messageId      String // dernier message admin déclencheur (pour tracer)
   userId         String // destinataire (client)
   claimId        String? // si conversation liée à une réclamation
   dueAt          DateTime // instant d'envoi prévu
-  status         String   @default("PENDING") // PENDING | SENT | CANCELLED
+  status         String    @default("PENDING") // PENDING | SENT | CANCELLED
   sentAt         DateTime?
   cancelledAt    DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
@@ -3702,15 +3753,15 @@ model Tenant {
   pfsAuditRuns       PfsAuditRun[]
   pfsAuditRunChanges PfsAuditRunChange[]
 
-  emailSends          EmailSend[]
+  emailSends               EmailSend[]
   newsletterTemplates      NewsletterTemplate[]
   newsletterTemplateImages NewsletterTemplateImage[]
-  abandonedCartStages AbandonedCartStage[]
-  abandonedCartJobs   AbandonedCartJob[]
-  inactiveClientStages InactiveClientStage[]
-  inactiveClientJobs   InactiveClientJob[]
-  bulkMailJobs        BulkMailJob[]
-  customerReviews     CustomerReview[]
+  abandonedCartStages      AbandonedCartStage[]
+  abandonedCartJobs        AbandonedCartJob[]
+  inactiveClientStages     InactiveClientStage[]
+  inactiveClientJobs       InactiveClientJob[]
+  bulkMailJobs             BulkMailJob[]
+  customerReviews          CustomerReview[]
 
   @@index([isActive])
 }
@@ -3812,7 +3863,7 @@ model NewsletterTemplate {
   subject     String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
   format      String    @default("blocks") @db.VarChar(20) // "blocks" | "html"
   blocks      Json      @default("[]") // Structure des blocs (format="blocks")
-  html        String?   @db.LongText   // Source HTML brut (format="html")
+  html        String?   @db.LongText // Source HTML brut (format="html")
   // Si posé, ce modèle est le modèle actif d'un scénario transactionnel
   // (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK). Un seul modèle par scénario
   // par tenant. Non supprimable tant que ce champ est posé.
@@ -3842,18 +3893,18 @@ model NewsletterTemplate {
 // nettoyage des fichiers assuré par le server action deleteNewsletterTemplate).
 // ─────────────────────────────────────────────
 model NewsletterTemplateImage {
-  id         String   @id @default(cuid())
+  id         String             @id @default(cuid())
   tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   templateId String
   template   NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  name       String   @db.VarChar(60)   // sluggé, unique par template
-  path       String   @db.VarChar(500)  // URL publique (/uploads/{tenant}/newsletters/{templateId}/{name}.webp)
-  alt        String   @default("") @db.VarChar(500)
+  name       String             @db.VarChar(60) // sluggé, unique par template
+  path       String             @db.VarChar(500) // URL publique (/uploads/{tenant}/newsletters/{templateId}/{name}.webp)
+  alt        String             @default("") @db.VarChar(500)
   sizeBytes  Int
   width      Int?
   height     Int?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime           @default(now())
 
   @@unique([templateId, name])
   @@index([tenantId])
@@ -3927,15 +3978,21 @@ model BulkMailJob {
 // 2026-09-09 (« Supprime avec pour être plus propre »).
 // ─────────────────────────────────────────────
 model AbandonedCartStage {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
   delaySeconds Int // délai depuis la dernière mutation panier avant envoi
-  templateId   String   @unique
+  // Plafond de commandes non annulées (PENDING + SHIPPED) au-delà duquel
+  // ce stade est SILENCIEUSEMENT sauté. null = aucune limite (comportement
+  // historique). Un client qui a >= maxOrderCount commandes ne recevra pas
+  // ce stade précis mais reste éligible aux stades suivants (chacun a sa
+  // propre condition indépendante).
+  maxOrderCount Int?
+  templateId   String             @unique
   template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@unique([tenantId, stageIndex])
   @@index([tenantId])
@@ -3952,24 +4009,24 @@ model AbandonedCartStage {
 // SELECT WHERE status="PENDING" AND nextStageAt <= now().
 // ─────────────────────────────────────────────
 model AbandonedCartJob {
-  id     String @id @default(cuid())
+  id       String @id @default(cuid())
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Dernier stade envoyé avec succès (0 = aucun envoi encore).
   // La règle « ne jamais rejouer un stade déjà envoyé » repose sur ce champ.
-  currentStage    Int      @default(0)
+  currentStage Int       @default(0)
   // Historique JSON : [{stageIndex, sentAt, emailSendId}].
-  stagesFired     Json     @default("[]")
+  stagesFired  Json      @default("[]")
   // Date planifiée du prochain envoi. null si :
   //  - status != "PENDING", OU
   //  - tous les stades disponibles ont été envoyés (jusqu'à ce que la
   //    cliente ajoute un stade supérieur → recalcul via upsert au prochain
   //    mouvement panier).
-  nextStageAt     DateTime?
-  status          String   @default("PENDING") @db.VarChar(20)
+  nextStageAt  DateTime?
+  status       String    @default("PENDING") @db.VarChar(20)
   // PENDING | COMPLETED (tous stades envoyés) | CANCELLED (commande / opt-out / panier vidé)
 
   // Dernière mutation panier détectée : sert de point de référence pour
@@ -3978,7 +4035,7 @@ model AbandonedCartJob {
   // Dernière évaluation par le worker (debug).
   lastEvaluatedAt  DateTime?
   // Cause de dernier CANCELLED / COMPLETED (debug côté admin).
-  cancelReason     String?  @db.VarChar(50)
+  cancelReason     String?   @db.VarChar(50)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3994,15 +4051,20 @@ model AbandonedCartJob {
 // de mail dédié. Suppression d'un stade = cascade delete du template lié.
 // ─────────────────────────────────────────────
 model InactiveClientStage {
-  id           String   @id @default(cuid())
+  id           String             @id @default(cuid())
   tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
   delaySeconds Int // délai depuis referenceAt (max lastSeen/lastOrder/createdAt) avant envoi
-  templateId   String   @unique
+  // Plafond de commandes non annulées (PENDING + SHIPPED) au-delà duquel
+  // ce stade est SILENCIEUSEMENT sauté. null = aucune limite. Un client
+  // au-dessus du seuil verra son stade marqué "sauté" dans stagesFired
+  // pour ne pas être re-évalué en boucle par le worker.
+  maxOrderCount Int?
+  templateId   String             @unique
   template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@unique([tenantId, stageIndex])
   @@index([tenantId])
@@ -4018,16 +4080,16 @@ model InactiveClientStage {
 // récent que le dernier sentAt de stagesFired).
 // ─────────────────────────────────────────────
 model InactiveClientJob {
-  id     String @id @default(cuid())
+  id       String @id @default(cuid())
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Dernier stade envoyé avec succès (0 = aucun envoi encore dans le cycle courant).
-  currentStage Int  @default(0)
+  currentStage Int    @default(0)
   // Historique JSON : [{stageIndex, sentAt, emailSendId}]. Wipé au reset de cycle.
-  stagesFired  Json @default("[]")
+  stagesFired  Json   @default("[]")
   // PENDING | COMPLETED (tous stades envoyés) | CANCELLED (opt-out, non-APPROVED, désinscrit)
   status       String @default("PENDING") @db.VarChar(20)
 
@@ -4037,7 +4099,7 @@ model InactiveClientJob {
   // Dernière évaluation par le worker (debug + throttling anti-boucle).
   lastEvaluatedAt DateTime?
   // Cause de dernier CANCELLED / COMPLETED (debug côté admin).
-  cancelReason    String?  @db.VarChar(50)
+  cancelReason    String?   @db.VarChar(50)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4083,16 +4145,16 @@ model PfsAuditResult {
 // scheduler (SiteConfig `pfs_audit_auto_enabled`) ; false = déclenché par un
 // clic humain. Purge auto après 90 jours (voir purgeOldPfsAuditRuns).
 model PfsAuditRun {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   tenantId        String
-  autoTriggered   Boolean  @default(false)
-  startedAt       DateTime @default(now())
+  autoTriggered   Boolean   @default(false)
+  startedAt       DateTime  @default(now())
   finishedAt      DateTime?
   // "RUNNING" | "DONE" | "ERROR"
   status          String
-  totalProducts   Int      @default(0)
-  changedProducts Int      @default(0)
-  errorMessage    String?  @db.Text
+  totalProducts   Int       @default(0)
+  changedProducts Int       @default(0)
+  errorMessage    String?   @db.Text
 
   tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   changes PfsAuditRunChange[]

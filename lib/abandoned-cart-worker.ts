@@ -34,6 +34,10 @@ import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
 import { WORKER_POLL_INTERVAL_MS } from "@/lib/abandoned-cart-config";
 import { pickNextStage } from "@/lib/abandoned-cart-trigger";
+import {
+  countNonCancelledOrdersForUser,
+  shouldSkipStageForOrderCount,
+} from "@/lib/mail-stage-order-gate";
 import type { ProductStatus } from "@prisma/client";
 
 const AUTOMATION_ENABLED_KEY = "abandoned_cart_automation_enabled";
@@ -42,6 +46,12 @@ interface FiredEntry {
   stageIndex: number;
   sentAt: string;
   emailSendId?: string;
+  // Marqueur "stade sauté par la condition maxOrderCount" — aucun mail n'a
+  // été envoyé, mais on l'inscrit ici pour que `maxFired` avance et que le
+  // worker ne re-tente pas ce stade en boucle. La vue admin peut filtrer
+  // ces entrées pour l'historique des envois réels.
+  skipped?: boolean;
+  skipReason?: string;
 }
 
 let started = false;
@@ -145,7 +155,11 @@ async function tick(): Promise<void> {
       const stages = await prisma.abandonedCartStage.findMany({
         where: { tenantId },
         orderBy: { stageIndex: "asc" },
-        include: {
+        select: {
+          id: true,
+          stageIndex: true,
+          delaySeconds: true,
+          maxOrderCount: true,
           template: {
             select: {
               id: true, name: true, subject: true, html: true,
@@ -200,6 +214,7 @@ async function processJob(
       id: string;
       stageIndex: number;
       delaySeconds: number;
+      maxOrderCount: number | null;
       template: {
         id: string;
         name: string;
@@ -319,6 +334,49 @@ async function processJob(
     // Panier vide après filtre — on annule (règle validée : « skip si vide »).
     await cancel(job.id, "CART_EMPTY");
     return;
+  }
+
+  // Condition « seuil de commandes » : si ce stade impose un plafond de
+  // commandes non annulées (PENDING + SHIPPED) et que le client l'a atteint,
+  // on saute SILENCIEUSEMENT ce stade et on passe au suivant. Le stade sauté
+  // est mémorisé dans stagesFired avec skipped=true pour que le worker ne
+  // le re-évalue pas au prochain tick (sinon boucle infinie).
+  if (stage.maxOrderCount !== null && stage.maxOrderCount !== undefined) {
+    const orderCount = await countNonCancelledOrdersForUser(tenantId, user.id);
+    if (shouldSkipStageForOrderCount(stage.maxOrderCount, orderCount)) {
+      const skippedFired: FiredEntry[] = [
+        ...fired,
+        {
+          stageIndex: stage.stageIndex,
+          sentAt: now.toISOString(),
+          skipped: true,
+          skipReason: "MAX_ORDER_COUNT",
+        },
+      ];
+      const remainingStages = [...stageByIndex.values()].map((s) => ({
+        stageIndex: s.stageIndex,
+        delaySeconds: s.delaySeconds,
+      }));
+      const next = pickNextStage(remainingStages, stage.stageIndex);
+      await prisma.abandonedCartJob.update({
+        where: { id: job.id },
+        data: {
+          currentStage: stage.stageIndex,
+          stagesFired: skippedFired as unknown as object,
+          status: next ? "PENDING" : "COMPLETED",
+          nextStageAt: next ? new Date(now.getTime() + next.delaySeconds * 1000) : null,
+          lastEvaluatedAt: now,
+        },
+      });
+      logger.info?.("[abandonedCart] stage skipped: order count threshold", {
+        tenantId,
+        userId: user.id,
+        stageIndex: stage.stageIndex,
+        orderCount,
+        maxOrderCount: stage.maxOrderCount,
+      });
+      return;
+    }
   }
 
   // Filet RGPD : le mail doit contenir {unsubscribeLink} dans le source HTML.
@@ -530,6 +588,9 @@ function parseStagesFired(raw: unknown): FiredEntry[] {
         sentAt: at,
         emailSendId:
           typeof rec.emailSendId === "string" ? rec.emailSendId : undefined,
+        skipped: rec.skipped === true ? true : undefined,
+        skipReason:
+          typeof rec.skipReason === "string" ? rec.skipReason : undefined,
       };
     })
     .filter((x): x is FiredEntry => x !== null);

@@ -35,6 +35,8 @@ export interface AbandonedCartStageDTO {
   id: string;
   stageIndex: number;
   delaySeconds: number;
+  /** null = aucune limite ; sinon plafond de commandes non annulées. */
+  maxOrderCount: number | null;
   templateId: string;
   templateName: string;
   templateSubject: string;
@@ -64,7 +66,11 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
     prisma.abandonedCartStage.findMany({
       where: { tenantId: tenant.id },
       orderBy: { stageIndex: "asc" },
-      include: {
+      select: {
+        id: true,
+        stageIndex: true,
+        delaySeconds: true,
+        maxOrderCount: true,
         template: {
           select: { id: true, name: true, subject: true, html: true, updatedAt: true },
         },
@@ -84,6 +90,7 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
       id: s.id,
       stageIndex: s.stageIndex,
       delaySeconds: s.delaySeconds,
+      maxOrderCount: s.maxOrderCount,
       templateId: s.template.id,
       templateName: s.template.name,
       templateSubject: s.template.subject,
@@ -297,6 +304,64 @@ export async function updateAbandonedCartStageDelay(
     return { success: true, config };
   } catch (err) {
     logger.error("[updateAbandonedCartStageDelay]", { stageId, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Met à jour le plafond de commandes non annulées d'un stade. `null` (ou
+ * valeur < 1) → aucune limite (le stade s'envoie à tout le monde éligible).
+ * Valeur >= 1 → stade sauté silencieusement si le client a >= N commandes
+ * non annulées (PENDING + SHIPPED) dans le tenant.
+ */
+export async function updateAbandonedCartStageMaxOrderCount(
+  stageId: string,
+  maxOrderCount: number | null,
+): Promise<
+  | { success: true; config: AbandonedCartConfigDTO }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+    const target = await prisma.abandonedCartStage.findFirst({
+      where: { id: stageId, tenantId: tenant.id },
+      select: { id: true },
+    });
+    if (!target) return { success: false, error: "Stade introuvable." };
+
+    // Normalisation : null / 0 / négatif → aucune limite. Valeur > 10000 =
+    // saisie improbable, on refuse pour éviter les erreurs de frappe.
+    let normalized: number | null = null;
+    if (maxOrderCount !== null && maxOrderCount !== undefined) {
+      if (!Number.isFinite(maxOrderCount)) {
+        return { success: false, error: "Valeur invalide." };
+      }
+      const n = Math.floor(maxOrderCount);
+      if (n < 1) {
+        normalized = null; // 0 ou négatif = pas de limite (facilite le UX du champ vide)
+      } else if (n > 10000) {
+        return {
+          success: false,
+          error: "Nombre trop grand — au maximum 10 000 commandes.",
+        };
+      } else {
+        normalized = n;
+      }
+    }
+
+    await prisma.abandonedCartStage.update({
+      where: { id: stageId },
+      data: { maxOrderCount: normalized },
+    });
+
+    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    const config = await getAbandonedCartConfig();
+    return { success: true, config };
+  } catch (err) {
+    logger.error("[updateAbandonedCartStageMaxOrderCount]", {
+      stageId,
+      error: err as Error,
+    });
     return { success: false, error: (err as Error).message };
   }
 }

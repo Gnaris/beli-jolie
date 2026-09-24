@@ -27,6 +27,7 @@ import {
   deleteAbandonedCartStage,
   setAbandonedCartAutomationEnabled,
   updateAbandonedCartStageDelay,
+  updateAbandonedCartStageMaxOrderCount,
   type AbandonedCartConfigDTO,
   type AbandonedCartStageDTO,
 } from "@/app/actions/admin/abandoned-cart";
@@ -417,6 +418,106 @@ function StageRow({
         })}
         .
       </div>
+
+      {/* Ligne "condition" — occupe toute la largeur sous la ligne principale */}
+      <MaxOrderCountRow
+        stageId={stage.id}
+        value={stage.maxOrderCount}
+        pending={pending}
+        onConfigUpdated={onConfigUpdated}
+      />
+    </div>
+  );
+}
+
+function MaxOrderCountRow({
+  stageId,
+  value,
+  pending,
+  onConfigUpdated,
+}: {
+  stageId: string;
+  value: number | null;
+  pending: boolean;
+  onConfigUpdated: (config: AbandonedCartConfigDTO) => void;
+}) {
+  const toast = useToast();
+  const [localValue, setLocalValue] = useState<string>(
+    value === null ? "" : String(value),
+  );
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  async function commit() {
+    const trimmed = localValue.trim();
+    let next: number | null = null;
+    if (trimmed !== "") {
+      const parsed = Math.floor(Number(trimmed));
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        // vide / 0 / négatif → considéré comme "aucune limite"
+        next = null;
+        setLocalValue("");
+      } else {
+        next = parsed;
+      }
+    }
+    // Rien changé → skip.
+    if (next === value) return;
+
+    setSaving(true);
+    const res = await updateAbandonedCartStageMaxOrderCount(stageId, next);
+    setSaving(false);
+    if (!res.success) {
+      toast.error("Enregistrement impossible", res.error);
+      // Rollback affichage
+      setLocalValue(value === null ? "" : String(value));
+      return;
+    }
+    onConfigUpdated(res.config);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+  }
+
+  return (
+    <div className="w-full mt-1 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 pt-3 border-t border-dashed border-border">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted whitespace-nowrap">
+          Condition
+        </span>
+        <span className="text-xs font-body text-text-secondary">
+          Ne pas envoyer si le client a déjà
+        </span>
+        <input
+          type="number"
+          min={1}
+          placeholder="—"
+          value={localValue}
+          onChange={(e) => setLocalValue(e.target.value)}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          disabled={pending || saving}
+          className="w-20 px-2 py-1.5 rounded-lg border border-border bg-bg-primary text-sm text-text-primary tabular-nums text-center focus:outline-none focus:border-amber-500"
+          title="Nombre de commandes non annulées au-delà duquel ce stade n'est pas envoyé. Vide = aucune limite."
+        />
+        <span className="text-xs font-body text-text-secondary">
+          commande(s) ou plus.
+        </span>
+        {saving ? (
+          <span className="text-[11px] font-body text-text-muted">…</span>
+        ) : savedFlash ? (
+          <span className="text-[11px] font-body font-semibold text-emerald-700">
+            ✓ Enregistré
+          </span>
+        ) : null}
+      </div>
+      <p className="text-[10.5px] font-body text-text-muted italic sm:ml-auto">
+        Vide = envoi à tous les clients éligibles.
+      </p>
     </div>
   );
 }

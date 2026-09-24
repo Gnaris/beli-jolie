@@ -545,7 +545,7 @@ export async function sendGenericSupportReplyEmail(params: {
 
   const conversationUrl =
     context === "claim" && claimId
-      ? `${baseUrl}/fr/espace-pro/reclamations/${claimId}`
+      ? `${baseUrl}/fr/espace-pro/service-client/${claimId}`
       : `${baseUrl}/fr/espace-pro`;
 
   const displayName = clientName?.trim() || "";
@@ -594,8 +594,19 @@ export async function notifyAdminNewClaim(params: {
   subject: string;
   messagePreview: string;
   claimId: string;
+  orderNumber?: string;
+  reportedItems?: { productName: string; productRef: string; quantity: number }[];
 }) {
-  const { clientName, clientCompany, claimReference, subject, messagePreview, claimId } = params;
+  const {
+    clientName,
+    clientCompany,
+    claimReference,
+    subject,
+    messagePreview,
+    claimId,
+    orderNumber,
+    reportedItems,
+  } = params;
   const [shopName, notifyEmail] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -603,6 +614,33 @@ export async function notifyAdminNewClaim(params: {
   if (!notifyEmail) return;
 
   const baseUrl = await getCurrentTenantBaseUrl();
+
+  const orderRow = orderNumber
+    ? `<tr><td style="padding:8px;font-weight:bold;">Commande</td><td style="padding:8px;font-family:monospace;">${escapeHtml(orderNumber)}</td></tr>`
+    : "";
+
+  const reportedItemsBlock =
+    reportedItems && reportedItems.length > 0
+      ? `
+        <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:16px;margin:16px 0;">
+          <p style="margin:0 0 8px 0;font-weight:bold;color:#78350f;text-transform:uppercase;font-size:11px;letter-spacing:1px;">
+            Articles signalés
+          </p>
+          <ul style="margin:0;padding-left:20px;color:#78350f;">
+            ${reportedItems
+              .map(
+                (it) => `
+              <li style="margin:4px 0;">
+                <strong>${escapeHtml(it.productName)}</strong>
+                <span style="font-family:monospace;color:#92400e;"> (${escapeHtml(it.productRef)})</span>
+                — <strong>${it.quantity}</strong> à signaler
+              </li>
+            `,
+              )
+              .join("")}
+          </ul>
+        </div>`
+      : "";
 
   await sendMail({
     fromName: shopName || "Boutique",
@@ -614,12 +652,14 @@ export async function notifyAdminNewClaim(params: {
         <table style="width:100%;border-collapse:collapse;margin:16px 0;">
           <tr><td style="padding:8px;font-weight:bold;">Référence</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
           <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)}${clientCompany ? ` (${escapeHtml(clientCompany)})` : ""}</td></tr>
+          ${orderRow}
           <tr><td style="padding:8px;font-weight:bold;">Sujet</td><td style="padding:8px;">${escapeHtml(subject)}</td></tr>
         </table>
+        ${reportedItemsBlock}
         <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
-          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
+          <p style="margin:0;color:#333;white-space:pre-wrap;">${escapeHtml(messagePreview).substring(0, 500)}</p>
         </div>
-        <a href="${baseUrl}/admin/reclamations/${claimId}"
+        <a href="${baseUrl}/admin/service-client/${claimId}"
            style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
           Ouvrir la conversation
         </a>

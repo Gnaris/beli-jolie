@@ -226,6 +226,42 @@ export function countAnchorsWithoutHref(html: string): number {
 }
 
 /**
+ * Retire les fences Markdown `` ``` `` d'un texte HTML collé depuis une IA.
+ * Cas visé : ChatGPT/Claude coupent parfois leur réponse en plusieurs blocs
+ * `` ```html … ``` `` (message trop long), et l'admin colle le tout — les
+ * fences se retrouvent au milieu du HTML et s'affichent en clair dans le mail.
+ *
+ * Règles :
+ *  - Ouverture avec langage : `` ```html ``, `` ```HTML ``, `` ```markup ``.
+ *  - Fence nu : `` ``` ``.
+ *  - Matché où qu'il apparaisse dans le texte (pas seulement en début de ligne),
+ *    parce que ChatGPT ré-ouvre parfois un fence collé à la fin d'une ligne HTML.
+ *  - Les backticks isolés à l'intérieur d'un attribut / d'une valeur ne sont
+ *    pas touchés (on cible spécifiquement 3+ backticks consécutifs).
+ * Idempotent : ré-exécuter sur un HTML propre ne change rien.
+ */
+export function stripMarkdownCodeFences(html: string): { html: string; removed: number } {
+  if (!html) return { html, removed: 0 };
+  let removed = 0;
+  const out = html.replace(/```[a-zA-Z]*\s*/g, () => {
+    removed += 1;
+    return "";
+  });
+  return { html: out, removed };
+}
+
+/**
+ * Compte les fences Markdown `` ``` `` présents dans le HTML. Utilisé par
+ * l'éditeur pour afficher une bannière d'avertissement + un bouton « Nettoyer »
+ * quand l'admin colle un HTML pollué par les fences d'un chat IA.
+ */
+export function countMarkdownCodeFences(html: string): number {
+  if (!html) return 0;
+  const matches = html.match(/```[a-zA-Z]*/g);
+  return matches ? matches.length : 0;
+}
+
+/**
  * Injecte `href="#"` sur chaque `<a>` sans attribut `href`. Retourne le HTML
  * corrigé + le nombre d'injections. Attributs existants préservés dans leur
  * ordre et leur formatage (multi-ligne toléré). Idempotent : ré-exécuter

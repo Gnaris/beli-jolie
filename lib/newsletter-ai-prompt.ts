@@ -1,6 +1,6 @@
 /**
- * Construction du prompt à donner à ChatGPT/Claude pour générer un modèle
- * de mail HTML compatible tous clients mail.
+ * Construction du prompt à donner à une IA (ChatGPT, Claude, Gemini, Mistral…)
+ * pour générer un modèle de mail HTML compatible tous clients mail.
  *
  * Le prompt réunit :
  *   1. le contexte (rôle de l'IA, format attendu),
@@ -27,7 +27,7 @@ const TECH_CONSTRAINTS = `CONTRAINTES TECHNIQUES OBLIGATOIRES :
 - Ta réponse doit être un fichier HTML complet et autonome, commençant par \`<!doctype html>\`, prêt à être copié-collé tel quel.`;
 
 const IMG_INSTRUCTIONS = `IMAGES :
-Ne mets **jamais** d'URLs d'images en dur (pas de \`https://…\`, pas de placeholder \`via.placeholder.com\`, pas de base64). Utilise systématiquement des tokens \`{{img.nom}}\` là où tu veux placer une image. La cliente uploadera l'image correspondante en un clic après avoir collé ton HTML — l'éditeur détecte automatiquement chaque token et propose un upload rapide.
+**OBLIGATOIRE — chaque image doit être un token \`{{img.<nom>}}\`** (double accolades, préfixe \`img.\`, nom court en minuscules-tirets). Exemple : \`<img src="{{img.hero}}">\`, \`<img src="{{img.logo}}">\`, \`<img src="{{img.produit-1}}">\`. **Aucune URL en dur**, aucun \`https://\`, aucun \`data:\`, aucun \`via.placeholder.com\` — l'admin fera clic droit sur chaque image dans l'aperçu pour uploader le fichier réel, et le token sera automatiquement remplacé par l'URL du fichier uploadé.
 
 Règles pour les noms d'images :
 - Un mot court en minuscules (lettres, chiffres et tirets uniquement, pas d'accents).
@@ -116,6 +116,42 @@ function buildOptionalSection(): string {
   return parts.join("\n");
 }
 
+const GRANULARITY_INSTRUCTIONS = `GRANULARITÉ DU TEXTE (édition inline) :
+**Chaque bout de texte doit vivre dans SON PROPRE tag simple** (pas de texte "libre" mélangé avec des balises sœurs dans le même parent). L'éditeur permet à l'admin de faire clic droit sur un texte pour l'éditer inline — MAIS il ne peut éditer que les tags dont le contenu est purement du texte (avec ou sans variables \`{token}\`). Un tag qui contient à la fois du texte ET des sous-balises N'EST PAS éditable inline.
+
+**RÈGLE — pour CHAQUE ligne de texte lisible, utilise un tag texte propre** (\`<p>\`, \`<span>\`, \`<h1>\`, \`<td>\`, \`<div>\`, etc.) contenant UNIQUEMENT ce texte, sans sous-balise à l'intérieur.
+
+**INTERDIT** :
+\`\`\`html
+<td>Bonjour {firstName}<br><a href="">CTA</a></td>   <!-- texte + <br> + <a> mélangés -->
+<p>Voici <strong>Marie</strong>, votre panier</p>      <!-- texte + <strong> mélangés -->
+<td>{shopName} · {shopAddress}<br><a href="{unsubscribeLink}">Se désinscrire</a></td>
+\`\`\`
+
+**CORRECT — sépare en tags frères / imbrique proprement** :
+\`\`\`html
+<!-- Message avec CTA : chaque bloc dans un tag propre -->
+<td>
+  <p style="margin:0 0 12px 0;">Bonjour {firstName}</p>
+  <p style="margin:0 0 16px 0;">Voici les nouveautés du jour.</p>
+  <a href="" style="display:inline-block;padding:12px 24px;background:#111;color:#fff;">Voir la boutique</a>
+</td>
+
+<!-- Footer avec liens légaux : chaque partie dans un tag propre -->
+<td style="padding:20px 24px;text-align:center;font-size:11px;color:#64748b;">
+  <p style="margin:0 0 6px 0;">{shopName} · {shopAddress}</p>
+  <p style="margin:0;">
+    <a href="{unsubscribeLink}" style="color:#64748b;">Se désinscrire</a>
+    ·
+    <a href="{privacyLink}" style="color:#64748b;">Politique de confidentialité</a>
+  </p>
+</td>
+
+<!-- Mise en emphase : le mot en gras est un enfant, PAS mélangé avec le reste -->
+<p style="margin:0;">Une nouvelle collection <strong>vient d'arriver</strong> — profitez-en.</p>
+\`\`\`
+Le dernier exemple reste éditable : l'admin voit un tag \`<p>\` NON annoté (car mixte) MAIS le \`<strong>Vient d'arriver</strong>\` interne EST annoté (car texte pur) — clic droit dessus édite juste ce mot. Utilise \`<strong>\` / \`<em>\` uniquement pour la MISE EN EMPHASE, pas pour découper des phrases entières.`;
+
 const LINKS_INSTRUCTIONS = `LIENS (CTAs, boutons, images cliquables) :
 Ne mets **JAMAIS** d'URLs en dur pour les liens du corps du mail (\`href="https://…"\`, \`href="/panier"\`, etc.). Chaque balise \`<a>\` DOIT avoir un attribut \`href=""\` (VIDE — deux guillemets qui se suivent). L'admin configure ensuite chaque lien via un picker visuel (arbre : Accueil / Produits / Catégories / Collections / Qui sommes-nous / Nous contacter) — la valeur vide est récrite automatiquement en URL absolue au moment de la configuration.
 
@@ -135,7 +171,7 @@ Exemple correct :
 
 const FOOTER_INSTRUCTIONS = `RÈGLES DE LIVRAISON :
 - Réponds UNIQUEMENT avec le HTML final, sans commentaire, sans explication avant/après.
-- N'utilise pas de bloc de code Markdown (\`\`\`) autour du HTML.
+- **Encapsule TOUT le HTML dans UN SEUL et UNIQUE bloc de code Markdown** \`\`\`html … \`\`\`. Aucun texte en dehors du bloc. Ne DÉCOUPE JAMAIS ta réponse en plusieurs blocs \`\`\`html … \`\`\` : un seul bloc contenant l'intégralité du HTML, du \`<!doctype html>\` jusqu'au \`</html>\` final. L'admin utilisera le bouton « Copier » du bloc pour récupérer le code sans les backticks.
 - Vérifie avant de répondre :
   - les 4 tokens obligatoires \`{shopName}\`, \`{shopAddress}\`, \`{unsubscribeLink}\`, \`{privacyLink}\` sont présents ;
   - toutes les images utilisent la syntaxe \`{{img.nom}}\` (aucune URL en dur) ;
@@ -158,19 +194,21 @@ function buildScenarioSection(scenario: ScenarioKey | null): string | null {
     return `CONTEXTE MAIL — PANIER ABANDONNÉ :
 Ce mail est envoyé automatiquement quelques heures après qu'un client B2B a rempli son panier sans passer commande. Objectif : lui rappeler ce qu'il a oublié et l'inciter à finaliser.
 
-Tokens dynamiques disponibles pour CE scénario :
-- \`{cartTotal}\` : total du panier formaté (ex. « 84,50 € »)
-- \`{cartCount}\` : nombre TOTAL d'articles dans le panier (ex. « 12 »)
+**⚠️ OBLIGATOIRE — SANS CES TOKENS LA SAUVEGARDE EST REFUSÉE :**
+- \`{{#each cart}}…{{/each}}\` : la boucle qui affiche chaque article.
+- \`{name}\` : nom du produit (à l'intérieur de la boucle).
+- \`{image}\` : image du produit (à l'intérieur de la boucle, dans un \`<img src="{image}">\`).
+- \`{qty}\` : quantité (à l'intérieur de la boucle).
+- \`{total}\` : prix ligne formaté (à l'intérieur de la boucle).
+
+Sans ces tokens, le client recevrait un mail « panier abandonné » VIDE — aucun sens métier. Le back-office bloque la sauvegarde tant que ces 5 éléments ne sont pas présents dans le HTML.
+
+Tokens dynamiques complémentaires (fortement recommandés) :
+- \`{cartTotal}\` : total du panier formaté (ex. « 84,50 € »).
+- \`{cartCount}\` : nombre TOTAL d'articles dans le panier (ex. « 12 »).
+- \`{color}\` : nom de la couleur (peut être vide, à l'intérieur de la boucle).
 - \`{cartMoreCount}\` : nombre d'articles **non affichés** dans la boucle si le panier dépasse 8 (ex. « 4 »). Vaut « 0 » sinon.
 - \`{cartMoreText}\` : phrase prête à coller quand des articles ne rentrent pas (ex. « … et 4 autres articles »). Vaut chaîne vide sinon.
-
-BOUCLE OBLIGATOIRE — liste des articles du panier :
-Le mail DOIT afficher les articles avec la syntaxe \`{{#each cart}}…{{/each}}\`. À l'intérieur de la boucle, chaque itération substitue :
-- \`{image}\` : URL absolue de la photo du produit (ou vide s'il n'y a pas d'image)
-- \`{name}\` : nom du produit
-- \`{color}\` : nom de la couleur (peut être vide)
-- \`{qty}\` : quantité commandée
-- \`{total}\` : total ligne formaté (ex. « 42,00 € »)
 
 **Cap de 8 articles** : le renderer tronque automatiquement à 8 articles maximum côté serveur. Au-dessus, il expose \`{cartMoreText}\` (« … et N autres articles »). Ajoute TOUJOURS une ligne sobre juste sous la boucle pour afficher ce token — sinon un panier de 15 articles ne montrera que les 8 premiers sans indication.
 
@@ -199,27 +237,29 @@ Exemple d'usage correct :
     return `CONTEXTE MAIL — RELANCE INACTIVITÉ :
 Ce mail est envoyé automatiquement à un client B2B qui n'a pas visité la boutique depuis N jours. Objectif : le faire revenir, lui montrer qu'il nous a manqué.
 
-Tokens dynamiques disponibles pour CE scénario :
-- \`{days}\` : nombre de jours d'inactivité (ex. « 45 »)
+**⚠️ OBLIGATOIRE — SANS CE TOKEN LA SAUVEGARDE EST REFUSÉE :**
+- \`{days}\` : nombre de jours d'inactivité (ex. « 45 »).
 
-Note : pas de boucle nécessaire pour ce scénario — utilise juste \`{days}\` dans une phrase (ex. « ça fait {days} jours qu'on ne vous a pas vu ! »).`;
+Utilise \`{days}\` dans une phrase (ex. « Ça fait {days} jours qu'on ne vous a pas vu ! »). Pas de boucle nécessaire pour ce scénario.`;
   }
 
   if (scenario === "RESTOCK") {
     return `CONTEXTE MAIL — RETOUR EN STOCK :
 Ce mail est envoyé quand un produit favori d'un client revient en stock. Objectif : l'avertir + lui proposer d'autres favoris qui sont aussi disponibles.
 
-Tokens dynamiques disponibles pour CE scénario :
-- \`{favoritesCount}\` : nombre TOTAL de favoris disponibles
+**⚠️ OBLIGATOIRE — SANS CES TOKENS LA SAUVEGARDE EST REFUSÉE :**
+- \`{{#each favorites}}…{{/each}}\` : la boucle qui affiche chaque favori.
+- \`{name}\` : nom du produit (à l'intérieur de la boucle).
+- \`{image}\` : image du produit (à l'intérieur de la boucle, dans un \`<img src="{image}">\`).
+- \`{price}\` : prix unitaire formaté (à l'intérieur de la boucle).
+
+Tokens complémentaires (recommandés) :
+- \`{color}\` : nom de la couleur (à l'intérieur de la boucle, peut être vide).
+- \`{favoritesCount}\` : nombre TOTAL de favoris disponibles.
 - \`{favoritesMoreCount}\` : nombre de favoris non affichés dans la boucle si > 8. Vaut « 0 » sinon.
 - \`{favoritesMoreText}\` : phrase prête à coller (ex. « … et 3 autres favoris »). Vaut chaîne vide sinon.
 
-BOUCLE OBLIGATOIRE — grille des produits favoris (**cap 8** — ajoute \`{favoritesMoreText}\` sous la boucle) :
-Utilise la syntaxe \`{{#each favorites}}…{{/each}}\`. À l'intérieur, chaque itération substitue :
-- \`{image}\` : URL absolue de la photo
-- \`{name}\` : nom du produit
-- \`{color}\` : nom de la couleur (peut être vide)
-- \`{price}\` : prix unitaire formaté (ex. « 24,00 € »)
+**Cap 8** : la boucle est tronquée à 8 items côté serveur — ajoute une ligne \`{favoritesMoreText}\` sous la boucle pour signaler les items restants.
 
 Exemple d'usage :
 \`\`\`html
@@ -259,6 +299,7 @@ export function buildAiPrompt({ description, scenario = null }: BuildAiPromptPar
   const parts: string[] = [
     HEADER,
     TECH_CONSTRAINTS,
+    GRANULARITY_INSTRUCTIONS,
     IMG_INSTRUCTIONS,
     LINKS_INSTRUCTIONS,
     buildMandatorySection(),

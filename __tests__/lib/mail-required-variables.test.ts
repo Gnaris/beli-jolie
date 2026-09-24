@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   missingRequiredMarketingVariables,
+  missingScenarioTokens,
   REQUIRED_MARKETING_VARIABLES,
 } from "@/lib/mail-merge-variables";
 import {
@@ -249,5 +250,63 @@ describe("renderNewsletterHtml — omitGlobalChrome", () => {
     expect(html).toContain("Bonjour");
     // Pas de section footer avec la ligne légale
     expect(html).not.toContain("Beli &amp; Jolie · Aubervilliers");
+  });
+});
+
+describe("missingScenarioTokens — garde-fou scénarios auto", () => {
+  it("scénario null → aucune contrainte", () => {
+    expect(missingScenarioTokens("<p>Test</p>", null)).toEqual([]);
+  });
+
+  it("ABANDONED_CART complet → aucun manquant", () => {
+    const html = `
+      {{#each cart}}
+        <tr>
+          <td><img src="{image}" alt="{name}"></td>
+          <td>{name} · × {qty}</td>
+          <td>{total}</td>
+        </tr>
+      {{/each}}
+    `;
+    expect(missingScenarioTokens(html, "ABANDONED_CART")).toEqual([]);
+  });
+
+  it("ABANDONED_CART sans la boucle → boucle + tokens internes manquants", () => {
+    const html = `<p>Bonjour {firstName}, ton panier attend.</p>`;
+    const missing = missingScenarioTokens(html, "ABANDONED_CART");
+    const tokens = missing.map((m) => m.token);
+    expect(tokens).toEqual(expect.arrayContaining([
+      "each-cart", "each-close", "name", "image", "qty", "total",
+    ]));
+  });
+
+  it("ABANDONED_CART sans {qty} → seul {qty} manquant", () => {
+    const html = `
+      {{#each cart}}
+        <img src="{image}" alt="{name}">
+        <span>{name}</span>
+        <span>{total}</span>
+      {{/each}}
+    `;
+    const missing = missingScenarioTokens(html, "ABANDONED_CART");
+    const tokens = missing.map((m) => m.token);
+    expect(tokens).toEqual(["qty"]);
+  });
+
+  it("INACTIVE_CLIENT requiert {days}", () => {
+    expect(missingScenarioTokens("<p>Coucou !</p>", "INACTIVE_CLIENT"))
+      .toHaveLength(1);
+    expect(missingScenarioTokens("<p>Ça fait {days} jours…</p>", "INACTIVE_CLIENT"))
+      .toEqual([]);
+  });
+
+  it("RESTOCK requiert la boucle favoris + {name}, {image}, {price}", () => {
+    const html = `
+      {{#each favorites}}
+        <img src="{image}" alt="{name}">
+        <span>{name} — {price}</span>
+      {{/each}}
+    `;
+    expect(missingScenarioTokens(html, "RESTOCK")).toEqual([]);
   });
 });

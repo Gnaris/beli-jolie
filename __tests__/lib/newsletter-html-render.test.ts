@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyDynamicLimits,
+  countMarkdownCodeFences,
   expandIterations,
   extractHrefs,
   extractImageTokens,
@@ -8,6 +9,7 @@ import {
   MAX_LOOP_ITEMS,
   renderNewsletterHtmlForSend,
   rewriteHref,
+  stripMarkdownCodeFences,
   substituteTemplateImages,
   type HtmlCartItem,
   type HtmlDynamicContext,
@@ -405,6 +407,52 @@ describe("extractHrefs — capture des liens configurables", () => {
   });
 });
 
+describe("stripMarkdownCodeFences / countMarkdownCodeFences — nettoyage des fences IA", () => {
+  it("retire ```html en ouverture et ``` en fermeture", () => {
+    const html = "```html\n<!doctype html>\n<html>...</html>\n```";
+    const { html: out, removed } = stripMarkdownCodeFences(html);
+    expect(removed).toBe(2);
+    expect(out).not.toContain("```");
+    expect(out).toContain("<!doctype html>");
+    expect(out).toContain("<html>...</html>");
+  });
+
+  it("retire les fences au milieu du HTML (ChatGPT découpe sa réponse en 2 blocs)", () => {
+    // Cas cliente 2026-09-24 : ChatGPT recoupe son bloc → ``` au milieu du HTML.
+    const html = `<table>
+<tr><td>Bonjour</td></tr>
+\`\`\`
+\`\`\`html
+<tr><td>Suite</td></tr>
+</table>`;
+    const { html: out, removed } = stripMarkdownCodeFences(html);
+    expect(removed).toBe(2);
+    expect(out).not.toContain("```");
+    expect(out).toContain("Bonjour");
+    expect(out).toContain("Suite");
+  });
+
+  it("idempotent sur HTML propre", () => {
+    const html = `<p>Hello</p>`;
+    const { html: out, removed } = stripMarkdownCodeFences(html);
+    expect(removed).toBe(0);
+    expect(out).toBe(html);
+  });
+
+  it("ne touche pas aux backticks isolés (< 3 consécutifs)", () => {
+    const html = "<code>let x = `hello`</code>";
+    const { html: out, removed } = stripMarkdownCodeFences(html);
+    expect(removed).toBe(0);
+    expect(out).toBe(html);
+  });
+
+  it("countMarkdownCodeFences détecte le nombre de fences", () => {
+    expect(countMarkdownCodeFences("<p>ok</p>")).toBe(0);
+    expect(countMarkdownCodeFences("```html\n<p>ok</p>\n```")).toBe(2);
+    expect(countMarkdownCodeFences("```\n```\n```")).toBe(3);
+  });
+});
+
 describe("injectMissingHrefs — auto-fix <a> sans href", () => {
   it("détecte les <a> sans href et injecte href=\"\"", () => {
     const html = `<a>Sans href</a><a href="#">Avec</a>`;
@@ -484,6 +532,15 @@ describe("buildLinkUrl — construction URLs cibles", () => {
   const BASE = "https://beliandjolie.com";
   it("home → /fr", () => {
     expect(buildLinkUrl(BASE, { kind: "home" })).toBe("https://beliandjolie.com/fr");
+  });
+  it("cart → /fr/panier", () => {
+    expect(buildLinkUrl(BASE, { kind: "cart" })).toBe("https://beliandjolie.com/fr/panier");
+  });
+  it("custom → URL renvoyée telle quelle (avec trim)", () => {
+    expect(buildLinkUrl(BASE, { kind: "custom", url: "https://exemple.com/promo" }))
+      .toBe("https://exemple.com/promo");
+    expect(buildLinkUrl(BASE, { kind: "custom", url: "  mailto:contact@x.fr  " }))
+      .toBe("mailto:contact@x.fr");
   });
   it("products (liste)", () => {
     expect(buildLinkUrl(BASE, { kind: "products" })).toBe("https://beliandjolie.com/fr/produits");

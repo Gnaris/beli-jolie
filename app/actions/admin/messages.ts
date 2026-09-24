@@ -9,6 +9,8 @@ import {
   scheduleReplyNotification,
   cancelPendingNotifications,
 } from "@/lib/support-notify";
+import { deleteFiles } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
 
 export async function getAdminConversations(filter?: "all" | "unread" | "open" | "closed") {
@@ -144,15 +146,38 @@ export async function closeConversation(conversationId: string) {
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    select: { userId: true },
+    select: {
+      userId: true,
+      messages: {
+        select: {
+          attachments: { select: { filePath: true } },
+        },
+      },
+    },
   });
 
   if (!conversation) return { success: false, error: "Conversation introuvable." };
 
-  // Delete conversation + all messages + attachments (cascade)
+  const filePaths = conversation.messages
+    .flatMap((m) => m.attachments)
+    .map((a) => a.filePath);
+
+  // Delete conversation + all messages + attachments (cascade Prisma).
+  // Nettoyage des fichiers physiques après le delete BDD — les MessageAttachment
+  // partent en cascade mais les fichiers sur disque resteraient orphelins.
   await prisma.conversation.delete({
     where: { id: conversationId },
   });
+
+  if (filePaths.length > 0) {
+    deleteFiles(filePaths).catch((err) =>
+      logger.error("[closeConversation] Suppression fichiers chat échouée", {
+        error: err,
+        conversationId,
+        count: filePaths.length,
+      }),
+    );
+  }
 
   emitChatEvent({
     type: "CONVERSATION_CLOSED",

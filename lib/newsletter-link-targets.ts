@@ -10,6 +10,7 @@
 
 export type LinkTarget =
   | { kind: "home" }
+  | { kind: "cart" }
   | { kind: "products" }
   | { kind: "product"; id: string; name: string; reference: string; handle: string }
   | { kind: "categories" }
@@ -17,7 +18,11 @@ export type LinkTarget =
   | { kind: "collections" }
   | { kind: "collection"; id: string; name: string; slug: string }
   | { kind: "about" }
-  | { kind: "contact" };
+  | { kind: "contact" }
+  // URL libre entrée par l'admin (domaine inclus). Renvoyée telle quelle par
+  // `buildLinkUrl` sans injection de `/fr` ni de baseUrl — c'est la cliente
+  // qui garantit la validité (mailto:, http://, //cdn.example.com…).
+  | { kind: "custom"; url: string };
 
 /**
  * Construit l'URL absolue pour une cible donnée. `baseUrl` doit être fourni
@@ -30,6 +35,7 @@ export function buildLinkUrl(baseUrl: string, target: LinkTarget): string {
   const fr = `${root}/fr`;
   switch (target.kind) {
     case "home":         return fr;
+    case "cart":         return `${fr}/panier`;
     case "products":     return `${fr}/produits`;
     case "product":      return `${fr}/produits/${target.handle}`;
     case "categories":   return `${fr}/categories`;
@@ -38,6 +44,7 @@ export function buildLinkUrl(baseUrl: string, target: LinkTarget): string {
     case "collection":   return `${fr}/collections/${target.slug}`;
     case "about":        return `${fr}/a-propos`;
     case "contact":      return `${fr}/nous-contacter`;
+    case "custom":       return target.url.trim();
   }
 }
 
@@ -48,6 +55,7 @@ export function buildLinkUrl(baseUrl: string, target: LinkTarget): string {
 export function describeLinkTarget(target: LinkTarget): string {
   switch (target.kind) {
     case "home":         return "Accueil";
+    case "cart":         return "Panier";
     case "products":     return "Tous les produits";
     case "product":      return `Produit — ${target.name} (${target.reference})`;
     case "categories":   return "Toutes les catégories";
@@ -56,5 +64,6 @@ export function describeLinkTarget(target: LinkTarget): string {
     case "collection":   return `Collection — ${target.name}`;
     case "about":        return "Qui sommes-nous";
     case "contact":      return "Nous contacter";
+    case "custom":       return `Lien personnalisé — ${target.url.trim()}`;
   }
 }
