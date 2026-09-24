@@ -3341,7 +3341,11 @@ model Claim {
   type    ClaimType @default(OTHER)
   orderId String?
   order   Order?    @relation(fields: [orderId], references: [id])
-  body    String    @default("") @db.Text
+  // Nullable : MySQL refuse un DEFAULT sur une colonne TEXT ; passer en `?`
+  // évite la migration bloquante côté prod sans casser les callers (Prisma
+  // interprète l'absence de body comme NULL, comportement voulu — les
+  // anciens claims créés avant ce champ resteront à NULL).
+  body    String?   @db.Text
 
   orderItems  ClaimOrderItem[]
   attachments ClaimAttachment[]
