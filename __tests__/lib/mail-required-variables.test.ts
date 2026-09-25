@@ -253,60 +253,21 @@ describe("renderNewsletterHtml — omitGlobalChrome", () => {
   });
 });
 
-describe("missingScenarioTokens — garde-fou scénarios auto", () => {
+describe("missingScenarioTokens — plus de garde-fou (facultatif depuis 2026-09-25)", () => {
   it("scénario null → aucune contrainte", () => {
     expect(missingScenarioTokens("<p>Test</p>", null)).toEqual([]);
   });
 
-  it("ABANDONED_CART complet → aucun manquant", () => {
-    const html = `
-      {{#each cart}}
-        <tr>
-          <td><img src="{image}" alt="{name}"></td>
-          <td>{name} · × {qty}</td>
-          <td>{total}</td>
-        </tr>
-      {{/each}}
-    `;
+  it("ABANDONED_CART sans la boucle produits → autorisé (facultatif)", () => {
+    const html = `<p>Bonjour {firstName}, ton panier attend.</p>`;
     expect(missingScenarioTokens(html, "ABANDONED_CART")).toEqual([]);
   });
 
-  it("ABANDONED_CART sans la boucle → boucle + tokens internes manquants", () => {
-    const html = `<p>Bonjour {firstName}, ton panier attend.</p>`;
-    const missing = missingScenarioTokens(html, "ABANDONED_CART");
-    const tokens = missing.map((m) => m.token);
-    expect(tokens).toEqual(expect.arrayContaining([
-      "each-cart", "each-close", "name", "image", "qty", "total",
-    ]));
+  it("INACTIVE_CLIENT sans {days} → autorisé (facultatif)", () => {
+    expect(missingScenarioTokens("<p>Coucou !</p>", "INACTIVE_CLIENT")).toEqual([]);
   });
 
-  it("ABANDONED_CART sans {qty} → seul {qty} manquant", () => {
-    const html = `
-      {{#each cart}}
-        <img src="{image}" alt="{name}">
-        <span>{name}</span>
-        <span>{total}</span>
-      {{/each}}
-    `;
-    const missing = missingScenarioTokens(html, "ABANDONED_CART");
-    const tokens = missing.map((m) => m.token);
-    expect(tokens).toEqual(["qty"]);
-  });
-
-  it("INACTIVE_CLIENT requiert {days}", () => {
-    expect(missingScenarioTokens("<p>Coucou !</p>", "INACTIVE_CLIENT"))
-      .toHaveLength(1);
-    expect(missingScenarioTokens("<p>Ça fait {days} jours…</p>", "INACTIVE_CLIENT"))
-      .toEqual([]);
-  });
-
-  it("RESTOCK requiert la boucle favoris + {name}, {image}, {price}", () => {
-    const html = `
-      {{#each favorites}}
-        <img src="{image}" alt="{name}">
-        <span>{name} — {price}</span>
-      {{/each}}
-    `;
-    expect(missingScenarioTokens(html, "RESTOCK")).toEqual([]);
+  it("RESTOCK sans la boucle favoris → autorisé (facultatif)", () => {
+    expect(missingScenarioTokens("<p>Un article vient de revenir !</p>", "RESTOCK")).toEqual([]);
   });
 });

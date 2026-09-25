@@ -214,24 +214,13 @@ export interface ScenarioTokenSpec {
 }
 
 export const SCENARIO_REQUIRED_TOKENS: Record<ScenarioKey, ScenarioTokenSpec[]> = {
-  ABANDONED_CART: [
-    { token: "each-cart",  label: "Boucle des articles du panier `{{#each cart}}…{{/each}}`", literal: "{{#each cart}}" },
-    { token: "each-close", label: "Fermeture de la boucle `{{/each}}`", literal: "{{/each}}" },
-    { token: "name",       label: "Nom du produit `{name}` (dans la boucle)", literal: "{name}" },
-    { token: "image",      label: "Image du produit `{image}` (dans la boucle)", literal: "{image}" },
-    { token: "qty",        label: "Quantité `{qty}` (dans la boucle)", literal: "{qty}" },
-    { token: "total",      label: "Prix ligne `{total}` (dans la boucle)", literal: "{total}" },
-  ],
-  INACTIVE_CLIENT: [
-    { token: "days", label: "Nombre de jours d'inactivité `{days}`", literal: "{days}" },
-  ],
-  RESTOCK: [
-    { token: "each-favorites", label: "Boucle des favoris `{{#each favorites}}…{{/each}}`", literal: "{{#each favorites}}" },
-    { token: "each-close",     label: "Fermeture de la boucle `{{/each}}`", literal: "{{/each}}" },
-    { token: "name",           label: "Nom du produit `{name}` (dans la boucle)", literal: "{name}" },
-    { token: "image",          label: "Image du produit `{image}` (dans la boucle)", literal: "{image}" },
-    { token: "price",          label: "Prix `{price}` (dans la boucle)", literal: "{price}" },
-  ],
+  // Boucle `{{#each cart}}` désormais FACULTATIVE (décision cliente 2026-09-25) :
+  // la boucle produits est développée automatiquement si présente, sinon le
+  // mail est envoyé sans elle. Utile pour les Stades 2/3 où la cliente veut
+  // parfois un mail plus court ou une simple relance conversationnelle.
+  ABANDONED_CART: [],
+  INACTIVE_CLIENT: [],
+  RESTOCK: [],
 };
 
 /**
