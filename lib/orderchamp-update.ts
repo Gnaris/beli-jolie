@@ -44,6 +44,10 @@ import {
   type OrderchampInventoryUpdate,
 } from "@/lib/orderchamp-inventory";
 import { loadOrderchampPricingConfig, getOrderchampWholesalePrice, getOrderchampChainedRetailPrice } from "@/lib/orderchamp-pricing";
+import {
+  identifyMissingOrderchampVariants,
+  orderchampCreateMissingVariants,
+} from "@/lib/orderchamp-create-missing-variants";
 import { buildOrderchampDescription } from "@/lib/orderchamp-description";
 import { resolveOrderchampCountry } from "@/lib/orderchamp-country";
 import { buildOrderchampVariantSkus } from "@/lib/orderchamp-sku";
@@ -310,6 +314,55 @@ export async function orderchampUpdateProduct(
     return { success: false, error: err instanceof Error ? err.message : "Erreur productUpdate" };
   }
 
+  // Création des couleurs BJ ajoutées après la 1re publication OC.
+  // Décision cliente 2026-09-25 (incident W121, 3 couleurs manquantes côté
+  // OC malgré 2 updates OK) : passer par `productVariantCreate` dans un
+  // update NORMAL, jamais par un refresh — le refresh appelle
+  // `productRepublish` qui bump la date OC et fait remonter le produit dans
+  // les nouveautés, ce qui casse les réassorts côté acheteuses qui
+  // s'appuient sur l'ordre d'ancienneté pour retrouver un produit déjà
+  // commandé. On charge `pricing` ici (au lieu de plus bas) car les
+  // variantes créées ont besoin du prix wholesale + retail dès l'envoi.
+  const pricing = await loadOrderchampPricingConfig();
+  const missingVariantsRaw = identifyMissingOrderchampVariants(activeVariants);
+  if (missingVariantsRaw.length > 0) {
+    const createRes = await orderchampCreateMissingVariants({
+      productId,
+      orderchampProductId: bj.orderchampProductId,
+      reference: product.reference,
+      missing: missingVariantsRaw.map((v) => ({
+        id: v.id,
+        orderchampVariantId: v.orderchampVariantId,
+        orderchampColorNameOverride: v.orderchampColorNameOverride,
+        saleType: v.saleType,
+        packQuantity: v.packQuantity,
+        unitPrice: v.unitPrice,
+        weight: v.weight,
+        stock: v.stock,
+        disabled: v.disabled,
+        color: v.color,
+        variantSizes: v.variantSizes,
+      })),
+      pricing,
+      dimensions: {
+        lengthCm: mmToCm(product.dimensionLength),
+        widthCm: mmToCm(product.dimensionWidth),
+        heightCm: mmToCm(product.dimensionHeight),
+        diameterCm: mmToCm(product.dimensionDiameter),
+      },
+      hsCode: product.hsCode?.code ?? null,
+    });
+    warnings.push(...createRes.warnings);
+    // Propage les IDs OC fraîchement obtenus dans la vue en mémoire pour que
+    // les boucles suivantes (attribution image, inventory, sku/prix) traitent
+    // aussi les nouvelles variantes.
+    for (const v of activeVariants) {
+      const newId = createRes.bjVariantIdToOrderchampVariantId.get(v.id);
+      if (newId) v.orderchampVariantId = newId;
+    }
+    if (createRes.createdCount > 0) changedFields.push("variantsCreated");
+  }
+
   // Post-passe attribution image → variante (identique au publish). Sans ça,
   // chaque variante OC affiche la première image du produit au lieu de la
   // sienne dans le back-office acheteurs.
@@ -341,7 +394,6 @@ export async function orderchampUpdateProduct(
   }
 
   // 2) Update stock bulk (SET) pour toutes les variantes liées
-  const pricing = await loadOrderchampPricingConfig();
   const inventoryUpdates: OrderchampInventoryUpdate[] = [];
   for (const v of activeVariants) {
     if (!v.orderchampVariantId) continue;
