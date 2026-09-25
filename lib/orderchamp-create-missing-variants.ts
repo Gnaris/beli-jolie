@@ -185,6 +185,12 @@ export function buildOrderchampVariantCreateInput(
   },
   hsCode: string | null | undefined,
 ): Record<string, unknown> {
+  // Piège API OC (incident W121, 25/09/2026) : `ProductVariantCreateInput`
+  // n'utilise PAS `option1`/`option2` comme `ProductCreateVariantInput`
+  // (nested dans productCreate). Il a des champs dédiés `color` + `size`
+  // + `option` (introspection GraphQL confirmée). Résultat : `option1`
+  // fait rejeter la mutation avec "Field option1 is not defined by type
+  // ProductVariantCreateInput. Did you mean option?".
   const input: Record<string, unknown> = {
     productId: orderchampProductId,
     sku: exp.sku,
@@ -192,8 +198,8 @@ export function buildOrderchampVariantCreateInput(
     msrp: exp.msrpEur,
     inventoryQuantity: Math.max(0, exp.stock),
     inventoryPolicy: "DENY",
-    option1: exp.colorName,
-    option2: exp.sizeName,
+    color: exp.colorName,
+    size: exp.sizeName,
     weight: exp.weightGrams,
   };
   if (dimensions.lengthCm !== undefined) input.length = dimensions.lengthCm;

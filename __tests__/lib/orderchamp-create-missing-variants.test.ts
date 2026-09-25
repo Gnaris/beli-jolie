@@ -186,8 +186,14 @@ describe("buildOrderchampVariantCreateInput", () => {
     expect(input.msrp).toBe(15);
     expect(input.inventoryQuantity).toBe(300);
     expect(input.inventoryPolicy).toBe("DENY");
-    expect(input.option1).toBe("Rouge");
-    expect(input.option2).toBe("One Size");
+    // Régression 25/09/2026 : `ProductVariantCreateInput` OC utilise
+    // `color`/`size`, pas `option1`/`option2` (piège API — nested
+    // ProductCreateVariantInput a bien option1/option2 mais top-level
+    // ProductVariantCreateInput non). Verrouillé ici.
+    expect(input.color).toBe("Rouge");
+    expect(input.size).toBe("One Size");
+    expect(input.option1).toBeUndefined();
+    expect(input.option2).toBeUndefined();
     expect(input.weight).toBe(25);
     expect(input.length).toBe(6);
     expect(input.width).toBe(6);
