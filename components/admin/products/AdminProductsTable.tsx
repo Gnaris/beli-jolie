@@ -5474,10 +5474,12 @@ export default function AdminProductsTable({
       publishAnkorstore: boolean;
       publishEfashion: boolean;
       publishFaire: boolean;
+      publishOrderchamp?: boolean;
       publishMicrostore: boolean;
       efashionEligibleIds: string[];
       microstoreEligibleIds: string[];
     }) => {
+      const showOrderchamp = hasOrderchampConfig && orderchampEnabled;
       setBulkPublishDraftsOpen(false);
       if (decision.eligibleIds.length === 0) return;
 
@@ -5548,6 +5550,17 @@ export default function AdminProductsTable({
             marketplace: "faire" as const,
           });
         }
+        if (decision.publishOrderchamp && showOrderchamp && !p.orderchampProductId) {
+          inputs.push({
+            productId: p.id,
+            reference: p.reference,
+            productName: p.name,
+            firstImage: p.firstImage,
+            options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: true },
+            mode: "publish" as const,
+            marketplace: "orderchamp" as const,
+          });
+        }
       }
       if (inputs.length > 0) enqueuePfs(inputs);
 
@@ -5612,6 +5625,8 @@ export default function AdminProductsTable({
       runMicrostoreBulkPush,
       hasPfsConfig,
       hasMicrostoreConfig,
+      hasOrderchampConfig,
+      orderchampEnabled,
       showAnkorstore,
       showEfashion,
       showFaire,
@@ -6803,6 +6818,7 @@ export default function AdminProductsTable({
         onDeselectAll={() => setSelectedIds(new Set())}
         onMarketplacePublish={handleBulkMarketplacePublish}
         onMarketplaceSync={handleBulkMarketplaceSync}
+        onSyncAll={() => handleBulkSync([...selectedIds])}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
         onSetBestSeller={handleBulkSetBestSeller}
         onSetImportant={handleBulkSetImportant}

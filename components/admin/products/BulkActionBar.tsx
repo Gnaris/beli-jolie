@@ -73,6 +73,12 @@ interface Props {
   onDeselectAll: () => void;
   onMarketplacePublish: (marketplace: MarketplaceKey, productIds: string[]) => void;
   onMarketplaceSync: (marketplace: MarketplaceKey, productIds: string[]) => void;
+  /**
+   * « Tout synchroniser » : ouvre la modale de resync globale qui liste les
+   * marketplaces où chaque produit est déjà lié et permet de cocher lesquelles
+   * synchroniser en une seule fois. Passé au bas du panneau Marketplaces.
+   */
+  onSyncAll?: () => void;
   onPublishDrafts?: () => void;
   /**
    * Bascule le drapeau best-seller sur toute la sélection. Impacte PFS :
@@ -226,6 +232,7 @@ export default function BulkActionBar({
   onDeselectAll,
   onMarketplacePublish,
   onMarketplaceSync,
+  onSyncAll,
   onPublishDrafts,
   onSetBestSeller,
   onSetImportant,
@@ -788,6 +795,14 @@ export default function BulkActionBar({
                     setMarketplacesOpen(false);
                     onMarketplaceSync(k, products.map((p) => p.id));
                   }}
+                  onSyncAll={
+                    onSyncAll
+                      ? () => {
+                          setMarketplacesOpen(false);
+                          onSyncAll();
+                        }
+                      : undefined
+                  }
                   onClose={() => setMarketplacesOpen(false)}
                 />,
                 document.body,
@@ -1142,6 +1157,7 @@ function MarketplacePanel({
   totalSelected,
   onPublish,
   onSync,
+  onSyncAll,
   onClose,
 }: {
   counts: ReturnType<typeof computeMarketplaceCounts>;
@@ -1149,6 +1165,7 @@ function MarketplacePanel({
   totalSelected: number;
   onPublish: (k: MarketplaceKey, products: BulkBarProduct[]) => void;
   onSync: (k: MarketplaceKey, products: BulkBarProduct[]) => void;
+  onSyncAll?: () => void;
   onClose: () => void;
 }) {
   const order: MarketplaceKey[] = ["pfs", "ankorstore", "efashion", "faire", "orderchamp", "microstore"];
@@ -1157,6 +1174,25 @@ function MarketplacePanel({
     if (!isMarketplaceAvailable(k, marketplaces)) return acc;
     return acc + counts[k].publish.length + counts[k].sync.length;
   }, 0);
+
+  // Nombre de produits ayant AU MOINS UN vrai lien marketplace disponible.
+  // Mirror strict de `isMarketplaceLinked` — Microstore compte seulement si
+  // le produit a déjà été poussé (`microstoreLastPushedAt != null`), pas s'il
+  // est simplement "éligible" (sinon tout produit ONLINE serait compté).
+  const totalLinkedProductsCount = (() => {
+    const linked = new Set<string>();
+    for (const k of order) {
+      if (!isMarketplaceAvailable(k, marketplaces)) continue;
+      for (const p of counts[k].alreadyOn) {
+        if (k === "microstore") {
+          if (p.microstoreLastPushedAt != null) linked.add(p.id);
+        } else {
+          linked.add(p.id);
+        }
+      }
+    }
+    return linked.size;
+  })();
 
   // Modal centré (au lieu d'un popover ancré) : la liste des sections
   // marketplaces dépassait le viewport côté desktop et les dernières lignes
@@ -1319,6 +1355,35 @@ function MarketplacePanel({
             </div>
           );
         })
+      )}
+
+      {/* « Tout synchroniser » — ouvre la modale de resync globale (askMarketplaceOptions)
+          qui liste toutes les marketplaces où au moins un produit sélectionné est déjà
+          lié, et permet de cocher lesquelles pousser en une seule fois. */}
+      {onSyncAll && totalLinkedProductsCount > 0 && (
+        <div className="px-5 py-4 border-t border-border-light bg-slate-50/60">
+          <button
+            type="button"
+            onClick={onSyncAll}
+            className="w-full flex items-center gap-3 p-3 rounded-xl border border-border bg-white hover:border-fuchsia-300 hover:bg-fuchsia-50/60 transition-all text-left"
+            title="Renvoyer toutes les infos actuelles (prix, stock, images, statut…) sur toutes les marketplaces où ces produits sont déjà liés."
+          >
+            <div className="w-8 h-8 rounded-lg bg-fuchsia-100 text-fuchsia-700 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-text-primary">Tout synchroniser</div>
+              <div className="text-[11px] text-text-muted">
+                <b className="text-fuchsia-700">
+                  {totalLinkedProductsCount} produit{totalLinkedProductsCount > 1 ? "s" : ""}
+                </b>{" "}
+                sur toutes leurs marketplaces liées
+              </div>
+            </div>
+          </button>
+        </div>
       )}
       </div>
       </div>
