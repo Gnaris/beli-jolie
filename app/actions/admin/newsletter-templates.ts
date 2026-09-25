@@ -19,12 +19,13 @@ import {
   missingRequiredMarketingVariables,
   missingScenarioTokens,
 } from "@/lib/mail-merge-variables";
-import { deleteFiles, keyFromDbPath, listFiles, newsletterTemplateImageDir } from "@/lib/storage";
+import { deleteFile, deleteFiles, keyFromDbPath, listFiles, newsletterTemplateImageDir } from "@/lib/storage";
 import {
   SCENARIO_KEYS,
   type ScenarioKey,
 } from "@/lib/mail-scenario-defaults";
 import { MANUAL_HTML_DEFAULT, SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
+import { findOrphanedTemplateImages } from "@/lib/newsletter-html-render";
 
 export type NewsletterTemplateFormat = "blocks" | "html";
 
@@ -483,6 +484,17 @@ export async function updateNewsletterTemplateHtml(
         ...(data.html !== undefined ? { html: data.html } : {}),
       },
     });
+
+    // Nettoyage auto des images orphelines : dès qu'une sauvegarde a lieu, on
+    // supprime les fichiers de la bibliothèque qui ne sont plus référencés
+    // dans le HTML (ni par token `{{img.name}}` ni par path direct). Choix
+    // produit 2026-09-25 : la cliente valide qu'une image retirée de l'éditeur
+    // n'a plus vocation à rester sur le disque — évite l'accumulation à long
+    // terme. La suppression FS est best-effort (BDD prime).
+    await gcOrphanedTemplateImages(id, finalHtml).catch((err) => {
+      logger.error("[updateNewsletterTemplateHtml] gc orphans", { id, error: err as Error });
+    });
+
     revalidatePath("/admin/marketing/mails");
     revalidatePath(`/admin/marketing/mails/newsletter/${id}`);
     return { success: true };
@@ -490,6 +502,40 @@ export async function updateNewsletterTemplateHtml(
     logger.error("[updateNewsletterTemplateHtml]", { id, error: err as Error });
     return { success: false, error: (err as Error).message };
   }
+}
+
+/**
+ * Supprime de la bibliothèque du template les images qui ne sont plus
+ * référencées dans son HTML (fichier disque + entrée BDD).
+ *
+ * Ne lit pas `requireAdmin()` — appelé depuis un contexte déjà authentifié.
+ * Non-transactionnel : chaque image est traitée indépendamment pour qu'un
+ * échec (fichier déjà absent, permission denied) n'empêche pas la suppression
+ * des autres. Les échecs FS sont loggés mais non-bloquants — l'entrée BDD est
+ * quand même supprimée pour éviter un state incohérent (record → fichier
+ * manquant qui empêcherait la ré-utilisation du nom).
+ */
+async function gcOrphanedTemplateImages(templateId: string, html: string): Promise<void> {
+  const images = await prisma.newsletterTemplateImage.findMany({
+    where: { templateId },
+    select: { id: true, name: true, path: true },
+  });
+  if (images.length === 0) return;
+  const orphans = findOrphanedTemplateImages(html, images);
+  if (orphans.length === 0) return;
+  for (const orphan of orphans) {
+    try {
+      await deleteFile(keyFromDbPath(orphan.path));
+    } catch (err) {
+      logger.error("[gcOrphanedTemplateImages] delete FS", { imageId: orphan.id, error: err as Error });
+    }
+    try {
+      await prisma.newsletterTemplateImage.delete({ where: { id: orphan.id } });
+    } catch (err) {
+      logger.error("[gcOrphanedTemplateImages] delete BDD", { imageId: orphan.id, error: err as Error });
+    }
+  }
+  logger.info("[gcOrphanedTemplateImages] cleaned", { templateId, removed: orphans.length });
 }
 
 export async function updateNewsletterTemplate(

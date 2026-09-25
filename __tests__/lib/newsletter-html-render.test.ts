@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  absolutizeRelativeUrls,
   applyDynamicLimits,
   countMarkdownCodeFences,
   expandIterations,
   extractHrefs,
   extractImageTokens,
+  findOrphanedTemplateImages,
   injectMissingHrefs,
   MAX_LOOP_ITEMS,
   renderNewsletterHtmlForSend,
@@ -86,6 +88,112 @@ describe("renderNewsletterHtmlForSend", () => {
     });
     expect(out).toContain("{tokenBidon}");
     expect(out).toContain("{{img.zzz}}");
+  });
+
+  it("absolutise les <img src> et <a href> relatifs (fix bug logo cassé + /fr/panier)", () => {
+    const html = `
+      <img src="/uploads/beliandjolie/newsletters/x/logo.webp" alt="Logo">
+      <a href="/fr/panier">Reprendre mon panier</a>
+      <a href="https://www.beliandjolie.com/fr/confidentialite">Politique</a>
+      <img src="https://cdn.ex.com/pic.png">
+      <a href="mailto:contact@x.com">Écrire</a>
+      <a href="#top">Haut</a>
+    `;
+    const out = renderNewsletterHtmlForSend({ html, images: [], baseUrl: BASE });
+    expect(out).toContain(`src="https://beliandjolie.com/uploads/beliandjolie/newsletters/x/logo.webp"`);
+    expect(out).toContain(`href="https://beliandjolie.com/fr/panier"`);
+    // Déjà absolues : intactes.
+    expect(out).toContain(`href="https://www.beliandjolie.com/fr/confidentialite"`);
+    expect(out).toContain(`src="https://cdn.ex.com/pic.png"`);
+    expect(out).toContain(`href="mailto:contact@x.com"`);
+    expect(out).toContain(`href="#top"`);
+  });
+});
+
+describe("findOrphanedTemplateImages", () => {
+  const LIB = [
+    { id: "1", name: "hero", path: "/uploads/beliandjolie/newsletters/x/hero.webp" },
+    { id: "2", name: "logo", path: "/uploads/beliandjolie/newsletters/x/logo.webp" },
+    { id: "3", name: "footer", path: "/uploads/beliandjolie/newsletters/x/footer.webp" },
+    { id: "4", name: "inline-1234", path: "/uploads/beliandjolie/newsletters/x/inline-1234-abcd.webp" },
+  ];
+
+  it("détecte les images non référencées (ni token ni path)", () => {
+    const html = `<img src="{{img.hero}}">`;
+    const orphans = findOrphanedTemplateImages(html, LIB);
+    expect(orphans.map((o) => o.id).sort()).toEqual(["2", "3", "4"]);
+  });
+
+  it("reconnaît les images citées par path direct (upload inline WYSIWYG)", () => {
+    const html = `<img src="/uploads/beliandjolie/newsletters/x/inline-1234-abcd.webp">`;
+    const orphans = findOrphanedTemplateImages(html, LIB);
+    expect(orphans.map((o) => o.id).sort()).toEqual(["1", "2", "3"]);
+  });
+
+  it("reconnaît le path même dans une URL absolue (baseUrl préfixé)", () => {
+    const html = `<img src="https://www.beliandjolie.com/uploads/beliandjolie/newsletters/x/logo.webp">`;
+    const orphans = findOrphanedTemplateImages(html, LIB);
+    expect(orphans.map((o) => o.id).sort()).toEqual(["1", "3", "4"]);
+  });
+
+  it("mix token + path direct", () => {
+    const html = `
+      <img src="{{img.hero}}">
+      <img src="/uploads/beliandjolie/newsletters/x/logo.webp">
+    `;
+    const orphans = findOrphanedTemplateImages(html, LIB);
+    expect(orphans.map((o) => o.id).sort()).toEqual(["3", "4"]);
+  });
+
+  it("bibliothèque vide -> aucune orpheline", () => {
+    expect(findOrphanedTemplateImages(`<img src="{{img.hero}}">`, [])).toEqual([]);
+  });
+
+  it("HTML vide -> toutes orphelines", () => {
+    expect(findOrphanedTemplateImages("", LIB).map((o) => o.id).sort()).toEqual(["1", "2", "3", "4"]);
+  });
+
+  it("tolère la casse du token", () => {
+    const html = `<img src="{{img.HERO}}">`;
+    const orphans = findOrphanedTemplateImages(html, LIB);
+    expect(orphans.map((o) => o.id).sort()).toEqual(["2", "3", "4"]);
+  });
+});
+
+describe("absolutizeRelativeUrls", () => {
+  it("préfixe les chemins qui commencent par /", () => {
+    const html = `<img src="/a.png"><a href="/x">L</a>`;
+    expect(absolutizeRelativeUrls(html, BASE)).toBe(
+      `<img src="https://beliandjolie.com/a.png"><a href="https://beliandjolie.com/x">L</a>`,
+    );
+  });
+
+  it("laisse intacts les schemes, //, #, tokens {…}, vide", () => {
+    const cases = [
+      `<a href="https://x.com/y">a</a>`,
+      `<a href="//cdn.x/y">a</a>`,
+      `<a href="mailto:x@y.z">a</a>`,
+      `<a href="tel:+33">a</a>`,
+      `<img src="data:image/png;base64,AAA">`,
+      `<img src="cid:logo">`,
+      `<a href="#anchor">a</a>`,
+      `<a href="{unsubscribeLink}">a</a>`,
+      `<a href="">a</a>`,
+    ];
+    for (const html of cases) {
+      expect(absolutizeRelativeUrls(html, BASE)).toBe(html);
+    }
+  });
+
+  it("gère les guillemets simples et retire le / final du baseUrl", () => {
+    const html = `<img src='/logo.webp'>`;
+    expect(absolutizeRelativeUrls(html, `${BASE}/`)).toBe(
+      `<img src='https://beliandjolie.com/logo.webp'>`,
+    );
+  });
+
+  it("chaîne vide -> chaîne vide", () => {
+    expect(absolutizeRelativeUrls("", BASE)).toBe("");
   });
 });
 

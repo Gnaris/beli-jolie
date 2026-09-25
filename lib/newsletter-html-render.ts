@@ -318,6 +318,33 @@ export function rewriteHref(
 }
 
 /**
+ * Détecte les images de la bibliothèque du modèle qui NE SONT PLUS référencées
+ * dans le HTML — utilisé par le nettoyage automatique à la sauvegarde
+ * (`updateNewsletterTemplateHtml`) pour supprimer les fichiers orphelins.
+ *
+ * Une image est considérée « utilisée » si :
+ *  - son nom apparaît dans un token `{{img.<name>}}` (upload nommé + réinsertion) ;
+ *  - OU son chemin BDD (`/uploads/…/newsletters/{templateId}/xxx.webp`) apparaît
+ *    littéralement dans le HTML (cas des uploads inline WYSIWYG qui écrivent
+ *    directement `<img src="/uploads/…">` sans passer par un token).
+ *
+ * Toute image ni citée par nom ni citée par path est considérée orpheline.
+ * Retourne la liste dans l'ordre d'entrée pour un log stable.
+ */
+export function findOrphanedTemplateImages<
+  T extends { name: string; path: string },
+>(html: string, images: readonly T[]): T[] {
+  if (images.length === 0) return [];
+  const source = html ?? "";
+  const usedNames = new Set(extractImageTokens(source));
+  return images.filter((img) => {
+    if (usedNames.has(img.name.toLowerCase())) return false;
+    if (img.path && source.includes(img.path)) return false;
+    return true;
+  });
+}
+
+/**
  * Extrait la liste des noms d'images référencés dans un HTML via la syntaxe
  * `{{img.<nom>}}`. Utilisé par l'éditeur pour détecter les images citées dans
  * le HTML mais pas encore uploadées, et proposer un upload rapide.
@@ -538,13 +565,51 @@ export function expandIterations(
 }
 
 /**
+ * Absolutise les URLs relatives (`<img src="/…">`, `<a href="/…">`) en les
+ * préfixant avec `baseUrl`. Nécessaire à l'envoi : les clients mail (Gmail,
+ * Outlook…) ne connaissent pas le domaine de l'expéditeur, donc un `src="/…"`
+ * reste littéralement `http:///…` et casse l'image (alt affiché) ou le lien
+ * (page « avertissement de redirection » Google).
+ *
+ * Ne touche PAS :
+ *  - URLs déjà absolues (`http://`, `https://`, `//`, `data:`, `mailto:`, `tel:`, `cid:`) ;
+ *  - fragments (`#…`) ;
+ *  - tokens merge non résolus (ex: `{unsubscribeLink}` si l'appelant ne l'a pas fourni) —
+ *    les laisser tels quels facilite le repérage à la relecture ;
+ *  - chaînes vides.
+ */
+export function absolutizeRelativeUrls(html: string, baseUrl: string): string {
+  if (!html) return html;
+  const trimmedBase = baseUrl.replace(/\/+$/, "");
+  const shouldAbsolutize = (raw: string): boolean => {
+    const value = raw.trim();
+    if (value.length === 0) return false;
+    if (value.startsWith("//")) return false;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false; // http:, https:, mailto:, tel:, data:, cid:…
+    if (value.startsWith("#")) return false;
+    if (/^\s*\{[a-zA-Z][a-zA-Z0-9_]*\}/.test(value)) return false;
+    return value.startsWith("/");
+  };
+  return html.replace(
+    /\b(src|href)\s*=\s*(["'])([^"']*)\2/gi,
+    (full, attr: string, quote: string, raw: string) => {
+      if (!shouldAbsolutize(raw)) return full;
+      return `${attr}=${quote}${trimmedBase}${raw}${quote}`;
+    },
+  );
+}
+
+/**
  * Rendu final d'un modèle newsletter HTML pour l'envoi :
  *   1. développement des boucles `{{#each cart}}…{{/each}}` (scénarios dyn.),
  *   2. substitution des images de la bibliothèque ({{img.nom}}),
- *   3. interpolation des merge vars ({firstName}, {shopName}, {unsubscribeLink}…).
+ *   3. interpolation des merge vars ({firstName}, {shopName}, {unsubscribeLink}…),
+ *   4. absolutisation des URLs relatives (`<img src="/…">`, `<a href="/…">`).
  *
  * L'ordre importe : les boucles d'abord (produisent du HTML qui peut contenir
- * des `{{img.nom}}` ou des `{merge}`), puis images, puis merge vars.
+ * des `{{img.nom}}` ou des `{merge}`), puis images, puis merge vars, puis
+ * l'absolutisation en dernier (pour capturer aussi les URLs relatives issues
+ * des merge vars).
  *
  * Retourne le HTML tel qu'envoyé au destinataire — la cliente doit avoir
  * inclus son propre `<!doctype>` / `<html>` dans le source.
@@ -565,5 +630,6 @@ export function renderNewsletterHtmlForSend(params: {
   // sont dérivés directement de la longueur réelle du cart/favorites, un
   // caller n'a pas de raison légitime de les fournir en override.
   const merged: MailMergeContext = { ...(params.mergeContext ?? {}), ...extraMerge };
-  return interpolate(withImages, merged);
+  const withMergeVars = interpolate(withImages, merged);
+  return absolutizeRelativeUrls(withMergeVars, params.baseUrl);
 }
