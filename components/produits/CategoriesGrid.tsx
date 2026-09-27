@@ -41,7 +41,7 @@ export default function CategoriesGrid({ categories }: Props) {
   const { tp } = useProductTranslation();
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-x-4 gap-y-12 lg:gap-x-6 lg:gap-y-14 items-start">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-12 lg:gap-x-6 lg:gap-y-14 items-start">
       {categories.map((cat) => (
         <CategoryCell key={cat.id} cat={cat} tp={tp} t={t} />
       ))}

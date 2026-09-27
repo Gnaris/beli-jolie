@@ -8,6 +8,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import CategoriesGrid from "@/components/produits/CategoriesGrid";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { pickCategoryCoverImages } from "@/lib/category-cover-image";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import CategoriesIssymaLayout from "@/components/issyma/CategoriesIssymaLayout";
 
@@ -90,6 +91,16 @@ export default async function CategoriesPage({ params }: { params: Promise<{ loc
     return <CategoriesIssymaLayout shopName={shopName} categories={categories} />;
   }
 
+  // BJ : chaque cercle catégorie affiche la photo d'un produit tiré au sort
+  // dans la catégorie (stable par jour). Pas de fallback sur l'ancienne image
+  // manuelle : si aucun produit vendable n'a de photo, on tombe sur le
+  // monogramme — plus propre qu'un PNG blanc résiduel.
+  const categoryCoverMap = await pickCategoryCoverImages(categories.map((c) => c.id));
+  const categoriesWithCover = categories.map((c) => ({
+    ...c,
+    image: categoryCoverMap.get(c.id) ?? null,
+  }));
+
   return (
     <div className="min-h-screen relative">
       <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
@@ -113,7 +124,7 @@ export default async function CategoriesPage({ params }: { params: Promise<{ loc
               {t("empty")}
             </div>
           ) : (
-            <CategoriesGrid categories={categories} />
+            <CategoriesGrid categories={categoriesWithCover} />
           )}
         </main>
 

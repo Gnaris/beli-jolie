@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import SmartImage from "@/components/ui/SmartImage";
 
 interface Props {
@@ -7,15 +10,15 @@ interface Props {
 }
 
 const SIZE_CLASS: Record<NonNullable<Props["size"]>, string> = {
-  sm: "w-20 h-20",
-  md: "w-24 h-24 sm:w-28 sm:h-28",
-  lg: "w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36",
+  sm: "w-24 h-24",
+  md: "w-32 h-32 sm:w-40 sm:h-40 lg:w-48 lg:h-48",
+  lg: "w-36 h-36 sm:w-48 sm:h-48 md:w-52 md:h-52 lg:w-64 lg:h-64",
 };
 
 const IMAGE_DIM: Record<NonNullable<Props["size"]>, number> = {
-  sm: 160,
-  md: 240,
-  lg: 320,
+  sm: 192,
+  md: 384,
+  lg: 512,
 };
 
 const MONOGRAM_CLASS: Record<NonNullable<Props["size"]>, string> = {
@@ -25,36 +28,33 @@ const MONOGRAM_CLASS: Record<NonNullable<Props["size"]>, string> = {
 };
 
 /**
- * Cercle catégorie — trois rendus :
- *   - avec image raster (WebP/JPG) : cercle blanc bordé fin, image détourée
- *     à 78 % (photos BJ centrées, marge visuelle autour).
- *   - avec image SVG : image affichée à 100 % sans cadre — les icônes
- *     Issyma portent déjà leur propre disque de fond, un cadre blanc
- *     créerait un liseré parasite.
+ * Cercle catégorie — deux rendus :
+ *   - avec image (photo produit ou SVG icône) : image affichée en plein
+ *     cadre `object-cover`, cercle sans bordure ni fond. Sur BJ la photo
+ *     est tirée d'un produit vendable de la catégorie ; sur Issyma c'est
+ *     une icône SVG dédiée. Dans les deux cas, plus de liseré.
  *   - sans image : cercle plein noir, première lettre majuscule blanche
  *     (monogramme). Fallback stable, jamais moche.
  */
 export default function CategoryCircle({ name, image, size = "md" }: Props) {
+  const [failed, setFailed] = useState(false);
   const dim = IMAGE_DIM[size];
   const monogram = name.trim().charAt(0).toUpperCase() || "•";
 
-  if (image) {
-    const isSvg = image.toLowerCase().endsWith(".svg");
+  // Si l'image ne charge pas côté navigateur (fichier absent sur disque,
+  // path corrompu…), on retombe sur le monogramme au lieu d'afficher le
+  // texte alt dans un rectangle vide.
+  if (image && !failed) {
     return (
-      <div
-        className={`${SIZE_CLASS[size]} rounded-full grid place-items-center overflow-hidden transition-colors duration-200 ${
-          isSvg
-            ? ""
-            : "bg-white border border-slate-200 shadow-[var(--shadow-sm)] group-hover:border-slate-900"
-        }`}
-      >
+      <div className={`${SIZE_CLASS[size]} rounded-3xl overflow-hidden`}>
         <SmartImage
           src={image}
           alt={name}
           width={dim}
           height={dim}
-          className={isSvg ? "w-full h-full object-cover" : "w-[78%] h-[78%] object-contain"}
+          className="w-full h-full object-cover"
           loading="lazy"
+          onError={() => setFailed(true)}
         />
       </div>
     );
@@ -62,7 +62,7 @@ export default function CategoryCircle({ name, image, size = "md" }: Props) {
 
   return (
     <div
-      className={`${SIZE_CLASS[size]} rounded-full bg-slate-900 text-white grid place-items-center transition-colors duration-200 group-hover:bg-black`}
+      className={`${SIZE_CLASS[size]} rounded-3xl bg-slate-900 text-white grid place-items-center transition-colors duration-200 group-hover:bg-black`}
     >
       <span
         aria-hidden

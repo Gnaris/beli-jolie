@@ -12,6 +12,7 @@ import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
+import { pickCategoryCoverImages } from "@/lib/category-cover-image";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import {
   loadHomeTranslationLookups,
@@ -282,7 +283,13 @@ export default async function HomePage() {
       // second critère pour rester déterministe quand plusieurs positions
       // valent 0 (catégories jamais réordonnées).
       orderBy: [{ position: "asc" }, { name: "asc" }],
-      select:  { id: true, slug: true, name: true, image: true, _count: { select: { products: { where: { status: "ONLINE" } } } } },
+      select:  {
+        id: true, slug: true, name: true, image: true,
+        // Même critère « vendable » que /categories : status ONLINE + au moins
+        // une variante non désactivée avec stock > 0. Une catégorie dont tous
+        // les produits sont en rupture disparaît de la home.
+        _count: { select: { products: { where: { status: "ONLINE", colors: PUBLIC_SELLABLE_COLORS_CLAUSE } } } },
+      },
     }),
   ]);
 
@@ -390,6 +397,23 @@ export default async function HomePage() {
   const translatedNewCards = newCards.map(translateCard);
   const translatedBestSellerCards = bestSellerCards.map(translateCard);
 
+  // ── Image de couverture catégorie ──────────────────────────────────────────
+  // Sur BJ, la section catégories affiche la photo d'un produit tiré au sort
+  // dans la catégorie (stable par jour) plutôt que l'image uploadée à la main.
+  // Issyma garde son propre visuel (bandeau bordeaux dédié) — pas de remap.
+  const layoutChoice = await getEffectiveTenantSlug();
+  const categoryCoverMap =
+    layoutChoice === "issyma"
+      ? new Map<string, string>()
+      : await pickCategoryCoverImages(translatedCategories.map((c) => c.id));
+  // Pas de fallback sur l'ancienne image manuelle : si aucun produit
+  // vendable n'a de photo dans la catégorie, on tombe sur le monogramme
+  // (initiale sur fond noir) — plus propre qu'un PNG blanc résiduel.
+  const categoriesWithCover = translatedCategories.map((c) => ({
+    ...c,
+    image: categoryCoverMap.get(c.id) ?? null,
+  }));
+
   // ── FAQ localisée ─────────────────────────────────────────────────────────
   // Si la cliente a saisi une version EN (Paramètres → Vitrine, onglet 🇬🇧)
   // et qu'on est en /en, on l'affiche. Sinon fallback FR — comme ça la FAQ ne
@@ -429,17 +453,13 @@ export default async function HomePage() {
     favoriteIds,
     newCards: translatedNewCards,
     bestSellerCards: translatedBestSellerCards,
-    categories: translatedCategories,
+    categories: categoriesWithCover,
     collections: translatedCollections,
     reviews,
     faqItems: localizedFaqItems,
     jsonLdBlocks,
     canSeePrices: canSeePrices(session),
   };
-
-  // Résolution unifiée : slug résolu par middleware + override dev-only via
-  // cookie `bj_home_preview` (posé par TenantDevSwitcher). Voir lib/tenant-preview.
-  const layoutChoice = await getEffectiveTenantSlug();
 
   return layoutChoice === "issyma" ? (
     <HomeIssymaLayout {...layoutProps} />
