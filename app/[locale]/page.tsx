@@ -293,15 +293,17 @@ export default async function HomePage() {
     }),
   ]);
 
-  // Ne garder que catégories & collections avec ≥ 1 produit ONLINE ; on limite
-  // catégories à 6 et collections à 3 pour rester dans l'esprit « sélections du
-  // moment » (page plus courte + plus premium). Les listes complètes restent
-  // accessibles depuis /categories et /collections.
-  const categories = allCategories
-    .filter(c => c._count.products > 0)
-    .slice(0, HOME_CATEGORIES_LIMIT);
+  // Résolution du tenant en amont : sur BJ la home affiche TOUTES les
+  // catégories vendables (pas de troncature) ; sur Issyma on garde
+  // l'esprit « sélection du moment » avec un cap à 6.
+  const layoutChoice = await getEffectiveTenantSlug();
+  const filteredCategories = allCategories.filter((c) => c._count.products > 0);
+  const categories =
+    layoutChoice === "issyma"
+      ? filteredCategories.slice(0, HOME_CATEGORIES_LIMIT)
+      : filteredCategories;
   const collections = allCollections
-    .filter(c => c._count.products > 0)
+    .filter((c) => c._count.products > 0)
     .slice(0, HOME_COLLECTIONS_LIMIT);
 
   // ── Fetch produits homepage : 8 nouveautés + 8 best sellers ────────────────
@@ -401,7 +403,6 @@ export default async function HomePage() {
   // Sur BJ, la section catégories affiche la photo d'un produit tiré au sort
   // dans la catégorie (stable par jour) plutôt que l'image uploadée à la main.
   // Issyma garde son propre visuel (bandeau bordeaux dédié) — pas de remap.
-  const layoutChoice = await getEffectiveTenantSlug();
   const categoryCoverMap =
     layoutChoice === "issyma"
       ? new Map<string, string>()
