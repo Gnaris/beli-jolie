@@ -14,6 +14,7 @@
 import { getCachedPfsCredentials } from "@/lib/cached-data";
 import { getCurrentTenantIdSync } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
+import { canonicalizePfsCompositionKey } from "@/lib/pfs-composition-aliases";
 
 const PFS_ADMIN_ORIGIN = "https://admin.parisfashionshops.com";
 const PFS_ADMIN_API_V1 = `${PFS_ADMIN_ORIGIN}/api/v1`;
@@ -304,14 +305,17 @@ export async function pfsAdminFetchMaterialComposition(
 /**
  * Normalisation utilisée pour indexer le dict PFS : strip accents, points,
  * espaces, uppercase. Permet de matcher "P.U." avec "PU", "Élasthanne" avec
- * "ELASTHANNE" ou "Elastane".
+ * "ELASTHANNE". Applique aussi la table d'alias
+ * (`canonicalizePfsCompositionKey`) pour absorber les anciens libellés PFS
+ * — ex : "Elastane" → "ELASTHANNE" — voir `lib/pfs-composition-aliases.ts`.
  */
 export function normalizeDictKey(s: string): string {
-  return s
+  const stripped = s
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[.\s_-]+/g, "")
     .toUpperCase();
+  return canonicalizePfsCompositionKey(stripped);
 }
 
 /**

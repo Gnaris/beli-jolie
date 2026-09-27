@@ -55,13 +55,13 @@ interface SearchResult {
 
 interface PublicSidebarProps {
   shopName: string;
-  /** Slug du tenant courant, résolu côté serveur (fiable en dev + prod +
-   *  preview cookie). Sert notamment à afficher le CTA « Créer mon compte
-   *  pro » uniquement sur Issyma. Optionnel pour ne pas casser l'existant. */
+  /** Passé par l'aiguilleur `PublicSidebar` pour compat avec Issyma. Non lu
+   *  ici (le CTA « Créer mon compte pro » est désormais affiché sur toutes
+   *  les boutiques), mais on garde le prop pour ne pas casser le call site. */
   tenantSlug?: string;
 }
 
-export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: PublicSidebarProps) {
+export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarProps) {
   const t      = useTranslations("nav");
   const locale = useLocale();
 
@@ -102,20 +102,6 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
   // Profile dropdown state
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
-
-  // Détection tenant Issyma. Priorité 1 : prop `tenantSlug` (résolu serveur,
-  // fiable en dev + prod + cookie preview). Fallback : hostname si le prop
-  // n'est pas fourni (compat callers non migrés). Sert à afficher le bouton
-  // « Créer mon compte pro » dans le header UNIQUEMENT sur Issyma.
-  const [isIssyma, setIsIssyma] = useState(tenantSlug === "issyma");
-  useEffect(() => {
-    if (tenantSlug) {
-      setIsIssyma(tenantSlug === "issyma");
-      return;
-    }
-    if (typeof window === "undefined") return;
-    setIsIssyma(/(^|\.)issyma\./i.test(window.location.hostname));
-  }, [tenantSlug]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -292,12 +278,11 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
       <header
-        className={`fixed left-0 right-0 z-50 border-b transition-all duration-300 ${
+        className={`fixed left-0 right-0 top-0 z-50 border-b transition-all duration-300 ${
           scrolled
             ? "bg-white/92 backdrop-blur-md border-neutral-200"
             : "bg-white border-transparent"
         }`}
-        style={{ top: "var(--announcement-height, 0px)" }}
       >
         {/* Mobile : bande dédiée au nom de boutique (toute la largeur) */}
         <div className="lg:hidden border-b border-neutral-100">
@@ -513,14 +498,12 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
               </div>
             ) : (
               <>
-                {isIssyma && (
-                  <Link
-                    href="/inscription"
-                    className="hidden lg:inline-flex items-center px-3 h-9 rounded-full bg-black text-white text-[11px] tracking-[0.18em] uppercase font-semibold hover:bg-neutral-800 transition-colors"
-                  >
-                    {t("register")}
-                  </Link>
-                )}
+                <Link
+                  href="/inscription"
+                  className="hidden lg:inline-flex items-center px-3 h-9 rounded-full bg-black text-white text-[11px] tracking-[0.18em] uppercase font-semibold hover:bg-neutral-800 transition-colors"
+                >
+                  {t("register")}
+                </Link>
                 <Link
                   href="/connexion"
                   className="hidden lg:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
@@ -548,6 +531,12 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
                 </svg>
               </Link>
             )}
+
+            {/* Sélecteur de langue mobile (à côté du panier) — le desktop
+                a déjà son propre switcher en début de barre. */}
+            <div className="lg:hidden shrink-0">
+              <LanguageSwitcher currentLocale={locale} />
+            </div>
 
             {/* Panier */}
             {showClientUI && (
@@ -852,23 +841,17 @@ export default function PublicSidebarBeliandjolie({ shopName, tenantSlug }: Publ
                 </>
               ) : (
                 <>
-                  {isIssyma && (
-                    <Link
-                      href="/inscription"
-                      onClick={() => setMobileOpen(false)}
-                      className="w-full flex items-center justify-center py-3 bg-black text-white text-[11px] tracking-[0.24em] uppercase font-medium"
-                    >
-                      {t("register")}
-                    </Link>
-                  )}
+                  <Link
+                    href="/inscription"
+                    onClick={() => setMobileOpen(false)}
+                    className="w-full flex items-center justify-center py-3 bg-black text-white text-[11px] tracking-[0.24em] uppercase font-medium"
+                  >
+                    {t("register")}
+                  </Link>
                   <Link
                     href="/connexion"
                     onClick={() => setMobileOpen(false)}
-                    className={`w-full flex items-center justify-center py-3 text-[11px] tracking-[0.24em] uppercase font-medium ${
-                      isIssyma
-                        ? "border border-neutral-300 text-text-primary hover:bg-black hover:text-white hover:border-black transition-all duration-300"
-                        : "bg-black text-white"
-                    }`}
+                    className="w-full flex items-center justify-center py-3 text-[11px] tracking-[0.24em] uppercase font-medium border border-neutral-300 text-text-primary hover:bg-black hover:text-white hover:border-black transition-all duration-300"
                   >
                     {t("login")}
                   </Link>

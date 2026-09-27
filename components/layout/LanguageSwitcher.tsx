@@ -41,9 +41,13 @@ const MENU_GAP = 6;
 
 interface Props {
   currentLocale: string;
+  /** "light" (défaut) = fond blanc, texte foncé ; "dark" = transparent
+   *  sur fond sombre (footer). Le menu déroulant reste clair dans les 2
+   *  cas — c'est un portail sur `document.body`. */
+  variant?: "light" | "dark";
 }
 
-export default function LanguageSwitcher({ currentLocale }: Props) {
+export default function LanguageSwitcher({ currentLocale, variant = "light" }: Props) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -151,24 +155,38 @@ export default function LanguageSwitcher({ currentLocale }: Props) {
     document.body
   ) : null;
 
+  const isDark = variant === "dark";
+  const buttonClass = isDark
+    ? "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-sm font-medium text-white transition-colors disabled:opacity-50"
+    : "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:bg-bg-secondary text-sm font-medium text-text-primary transition-colors disabled:opacity-50";
+  const codeClass = isDark
+    ? "text-xs font-semibold text-white/80"
+    : "text-xs font-semibold text-text-secondary";
+  const chevronClass = isDark
+    ? `w-3 h-3 text-white/60 transition-transform ${open ? "rotate-180" : ""}`
+    : `w-3 h-3 text-[#999] transition-transform ${open ? "rotate-180" : ""}`;
+  const spinnerClass = isDark
+    ? "w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"
+    : "w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin";
+
   return (
     <div className="relative">
       <button
         ref={buttonRef}
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
-        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-bg-primary hover:bg-bg-secondary text-sm font-medium text-text-primary transition-colors disabled:opacity-50"
+        className={buttonClass}
         aria-label="Change language"
         aria-expanded={open}
       >
         {isPending ? (
-          <span className="w-4 h-4 border-2 border-border border-t-text-primary rounded-full animate-spin" />
+          <span className={spinnerClass} />
         ) : (
           <Flag code={current.code} className="w-5 h-[14px] border border-black/10" />
         )}
-        <span className="text-xs font-semibold text-text-secondary">{current.code.toUpperCase()}</span>
+        <span className={codeClass}>{current.code.toUpperCase()}</span>
         <svg
-          className={`w-3 h-3 text-[#999] transition-transform ${open ? "rotate-180" : ""}`}
+          className={chevronClass}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

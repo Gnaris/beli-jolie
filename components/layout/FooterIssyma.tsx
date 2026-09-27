@@ -1,7 +1,8 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
+import LanguageSwitcher from "@/components/layout/LanguageSwitcher";
 
 interface FooterProps {
   shopName: string;
@@ -9,6 +10,8 @@ interface FooterProps {
 
 export default function FooterIssyma({ shopName }: FooterProps) {
   const t = useTranslations("footer");
+  const tIssyma = useTranslations("home.issyma");
+  const locale = useLocale();
   const currentYear = new Date().getFullYear();
 
   const catalogueItems = [
@@ -45,7 +48,7 @@ export default function FooterIssyma({ shopName }: FooterProps) {
               {shopName}
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/60 font-body">
-              {t("description")}
+              {tIssyma("footerAbout")}
             </p>
           </div>
 
@@ -100,9 +103,12 @@ export default function FooterIssyma({ shopName }: FooterProps) {
       </div>
 
       <div className="border-t border-white/[0.06]">
-        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/40 font-body">
+        <div className="container-site py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-white/40 font-body">
           <p>&copy; {currentYear} {shopName}. {t("rights")}</p>
-          <p>{t("reserved")}</p>
+          <div className="flex items-center gap-4">
+            <LanguageSwitcher currentLocale={locale} variant="dark" />
+            <p>{t("reserved")}</p>
+          </div>
         </div>
       </div>
     </footer>

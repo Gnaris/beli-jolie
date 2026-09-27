@@ -21,7 +21,6 @@ export default async function DoneStepPage() {
     shopName,
     company,
     faviconRow,
-    bannerRow,
     eeRow,
     docsCount,
     stripeStatus,
@@ -31,7 +30,6 @@ export default async function DoneStepPage() {
     getCachedShopName().catch(() => ""),
     prisma.companyInfo.findFirst(),
     prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
-    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
     prisma.siteConfig.findFirst({
       where: { key: "easy_express_api_key" },
       select: { key: true },
@@ -61,12 +59,9 @@ export default async function DoneStepPage() {
     {
       key: "brand",
       emoji: "🎨",
-      label: "Icône et bannière",
-      ok: !!faviconRow?.value || !!bannerRow?.value,
-      hint:
-        !faviconRow?.value && !bannerRow?.value
-          ? "Aucune image ajoutée (facultatif)"
-          : undefined,
+      label: "Icône du site",
+      ok: !!faviconRow?.value,
+      hint: !faviconRow?.value ? "Aucune icône ajoutée (facultatif)" : undefined,
     },
     {
       key: "stripe",

@@ -345,11 +345,6 @@ export function categoryImageDir(id: string, tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
-/** Directory key for the homepage banner. */
-export function bannerDir(tenantSlug?: string): string {
-  return tenantSlug ? withTenantSlug("uploads/banniere", tenantSlug) : "uploads/banniere";
-}
-
 /** Directory key for the site favicon (browser tab icon, Google results). */
 export function faviconDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/favicon", tenantSlug) : "uploads/favicon";

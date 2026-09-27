@@ -9,7 +9,6 @@ import { getPublishedCustomerReviews } from "@/lib/customer-reviews";
 import { parseHomeFaq, resolveHomeFaqForLocale, buildFaqJsonLd } from "@/lib/home-faq";
 import { CarouselProduct } from "@/components/home/ProductCarousel";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
-import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
@@ -238,54 +237,14 @@ export default async function HomePage() {
   ]);
   const userId  = session?.user?.id;
 
-  // ── Load site config (bannière + hero éditable + FAQ) + avis clients DB ──
-  const [
-    bannerImageRow,
-    shopName,
-    heroEyebrowRow,
-    heroTitle1Row,
-    heroTitle2Row,
-    heroDescRow,
-    heroCta2LabelRow,
-    heroCta2HrefRow,
-    homeFaqRow,
-    reviews,
-    overlayTypeRow,
-    overlayDirectionRow,
-    overlayColorRow,
-    overlayOpacityRow,
-  ] = await Promise.all([
-    getCachedSiteConfig("banner_image"),
+  // ── Load site config (FAQ) + avis clients DB ──
+  // Le hero et la bannière ne sont plus configurables depuis l'admin : chaque
+  // tenant a un design de home hardcodé dans son layout dédié.
+  const [shopName, homeFaqRow, reviews] = await Promise.all([
     getCachedShopName(),
-    getCachedSiteConfig("home_hero_eyebrow"),
-    getCachedSiteConfig("home_hero_title_line1"),
-    getCachedSiteConfig("home_hero_title_line2"),
-    getCachedSiteConfig("home_hero_description"),
-    getCachedSiteConfig("home_hero_cta_secondary_label"),
-    getCachedSiteConfig("home_hero_cta_secondary_href"),
     getCachedSiteConfig("home_faq"),
     getPublishedCustomerReviews(6),
-    getCachedSiteConfig("home_hero_overlay_type"),
-    getCachedSiteConfig("home_hero_overlay_direction"),
-    getCachedSiteConfig("home_hero_overlay_color"),
-    getCachedSiteConfig("home_hero_overlay_opacity"),
   ]);
-  const bannerImage = bannerImageRow?.value ?? null;
-  const heroOverlay = parseHeroOverlay({
-    type: overlayTypeRow?.value ?? null,
-    direction: overlayDirectionRow?.value ?? null,
-    color: overlayColorRow?.value ?? null,
-    opacity: overlayOpacityRow?.value ?? null,
-  });
-  const heroOverrides = {
-    heroEyebrow: heroEyebrowRow?.value ?? undefined,
-    heroTitleLine1: heroTitle1Row?.value ?? undefined,
-    heroTitleLine2: heroTitle2Row?.value ?? undefined,
-    heroDescription: heroDescRow?.value ?? undefined,
-    heroCtaSecondaryLabel: heroCta2LabelRow?.value ?? undefined,
-    heroCtaSecondaryHref: heroCta2HrefRow?.value ?? undefined,
-    overlay: heroOverlay,
-  } as const;
   const faqItems = parseHomeFaq(homeFaqRow?.value);
 
   // ── Fetch client discount + favoris (pour cœurs déjà remplis au 1er rendu) ─
@@ -465,8 +424,6 @@ export default async function HomePage() {
   // Fallback = layout Beliandjolie (design d'origine) pour tout tenant inconnu.
   const layoutProps: HomeLayoutProps = {
     shopName,
-    bannerImage,
-    heroOverrides,
     productCount,
     clientDiscount,
     favoriteIds,

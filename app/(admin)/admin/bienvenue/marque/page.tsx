@@ -2,15 +2,11 @@ import { prisma } from "@/lib/prisma";
 import WizardStepHeader from "@/components/admin/onboarding/WizardStepHeader";
 import WizardContinueButton from "@/components/admin/onboarding/WizardContinueButton";
 import FaviconConfig from "@/components/admin/settings/FaviconConfig";
-import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 
 export const dynamic = "force-dynamic";
 
 export default async function BrandStepPage() {
-  const [faviconRow, bannerRow] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
-    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
-  ]);
+  const faviconRow = await prisma.siteConfig.findFirst({ where: { key: "site_favicon" } });
 
   let currentFavicon: { icon: string; appleIcon: string } | null = null;
   if (faviconRow?.value) {
@@ -29,12 +25,11 @@ export default async function BrandStepPage() {
       <WizardStepHeader
         emoji="🎨"
         eyebrow="Étape 3 — Identité visuelle"
-        title="Votre logo et votre bannière"
+        title="Votre icône de site"
         description={
           <>
-            Deux images pour habiller votre boutique&nbsp;: la petite icône dans
-            l&apos;onglet du navigateur et la grande photo qui accueille vos
-            clients sur la page d&apos;accueil.
+            Petite image affichée dans l&apos;onglet du navigateur et à côté du
+            site dans les résultats Google.
           </>
         }
         accent="violet"
@@ -60,23 +55,6 @@ export default async function BrandStepPage() {
             💡 Pas d&apos;icône&nbsp;? Vos initiales sont générées automatiquement.
             Vous pourrez toujours en ajouter une plus tard.
           </p>
-        </section>
-
-        <section className="rounded-3xl bg-white border border-border p-6 md:p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-11 h-11 rounded-xl bg-emerald-100 flex items-center justify-center text-2xl">
-              🖼️
-            </div>
-            <div>
-              <p className="font-heading text-lg font-bold text-text-primary">
-                Bannière d&apos;accueil
-              </p>
-              <p className="text-sm text-text-secondary">
-                Grande photo en haut de la page d&apos;accueil de votre boutique.
-              </p>
-            </div>
-          </div>
-          <BannerImageConfig currentImage={bannerRow?.value ?? null} />
         </section>
 
         <div className="flex justify-end pt-2">

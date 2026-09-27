@@ -16,13 +16,6 @@ import { getCachedShopName, getCachedBusinessHours, getCachedSiteConfig } from "
 import { getCachedSeoConfig, buildOrganizationSchema, getSiteUrl } from "@/lib/seo";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { ADMIN_THEME_COOKIE, parseAdminTheme } from "@/lib/admin-theme";
-import AnnouncementBanner from "@/components/layout/AnnouncementBanner";
-import { ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX } from "@/components/layout/announcement-banner-constants";
-import {
-  normalizeAnnouncementMessages,
-  resolveLocalizedMessages,
-} from "@/lib/announcement-banner";
-import type { Locale } from "@/i18n/locales";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import HeartbeatLoader from "@/components/client/HeartbeatLoader";
 import "./globals.css";
@@ -115,13 +108,12 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   // Idem generateMetadata : bind ALS avant caches.
   await getCurrentTenantId();
-  const [locale, messages, shopName, businessHours, session, announcementRow, seoConfig, cookieStore, headerStore] = await Promise.all([
+  const [locale, messages, shopName, businessHours, session, seoConfig, cookieStore, headerStore] = await Promise.all([
     getLocale(),
     getMessages(),
     getCachedShopName(),
     getCachedBusinessHours(),
     getServerSession(authOptions),
-    getCachedSiteConfig("announcement_banner"),
     getCachedSeoConfig(),
     cookies(),
     headers(),
@@ -154,34 +146,6 @@ export default async function RootLayout({
     aggregateRating: seoConfig.reviews,
   });
 
-  let announcement: {
-    messages: string[];
-    bgColor: string;
-    textColor: string;
-    speed?: number;
-    mode?: "scroll" | "static";
-  } | null = null;
-  if (announcementRow?.value) {
-    try {
-      const parsed = JSON.parse(announcementRow.value);
-      // `messages` peut être `string[]` (ancien format) ou `Array<{fr, en?}>`
-      // (nouveau format multilingue). `normalizeAnnouncementMessages` uniformise
-      // les 2 puis `resolveLocalizedMessages` choisit la variante correspondant
-      // à la locale demandée avec fallback FR.
-      const normalized = normalizeAnnouncementMessages(parsed.messages);
-      const localizedMessages = resolveLocalizedMessages(normalized, locale as Locale);
-      if (localizedMessages.length > 0) {
-        announcement = {
-          messages: localizedMessages,
-          bgColor: parsed.bgColor,
-          textColor: parsed.textColor,
-          speed: parsed.speed,
-          mode: parsed.mode === "static" ? "static" : "scroll",
-        };
-      }
-    } catch { /* ignore invalid JSON */ }
-  }
-
   const isRTL = (RTL_LOCALES as string[]).includes(locale);
 
   return (
@@ -189,7 +153,6 @@ export default async function RootLayout({
       lang={locale}
       dir={isRTL ? "rtl" : "ltr"}
       className={`${poppins.variable} ${roboto.variable} ${cormorant.variable} ${htmlThemeClass}`.trim()}
-      style={announcement ? ({ "--announcement-height": `${ANNOUNCEMENT_BANNER_INITIAL_HEIGHT_PX}px` } as React.CSSProperties) : undefined}
       suppressHydrationWarning
     >
       <head />
@@ -200,15 +163,6 @@ export default async function RootLayout({
             __html: JSON.stringify(organizationJsonLd),
           }}
         />
-        {announcement && (
-          <AnnouncementBanner
-            messages={announcement.messages}
-            bgColor={announcement.bgColor}
-            textColor={announcement.textColor}
-            speed={announcement.speed}
-            mode={announcement.mode}
-          />
-        )}
         <NextIntlClientProvider messages={messages}>
           <SessionProvider session={session}>
             <ToastProvider>

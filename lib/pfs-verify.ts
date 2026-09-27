@@ -35,6 +35,7 @@ import { mapLocalToPfsStatus, type PfsTargetStatus } from "@/lib/pfs-status";
 import { countryName } from "@/lib/countries";
 import { logger } from "@/lib/logger";
 import { pfsAdminFetchMaterialComposition } from "@/lib/pfs-admin-api";
+import { canonicalizePfsCompositionKey } from "@/lib/pfs-composition-aliases";
 import { MAX_STOCK } from "@/lib/product-variant-validation";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
@@ -1224,13 +1225,19 @@ export function comparePfsProduct(
  * uppercase + retrait des espaces et accents. Évite les faux positifs
  * quand une composition locale est stockée en libellé humain ("Acier
  * inoxydable") plutôt qu'en code PFS strict ("ACIERINOXYDABLE").
+ *
+ * Applique aussi `canonicalizePfsCompositionKey` en fin de chaîne : les
+ * anciens libellés PFS ("Elastane") deviennent leur équivalent canonique
+ * ("Élasthanne") de manière invisible pour la cliente — voir
+ * `lib/pfs-composition-aliases.ts`.
  */
 function normalizeCompositionRef(ref: string): string {
-  return ref
+  const stripped = ref
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/\s+/g, "")
     .toUpperCase();
+  return canonicalizePfsCompositionKey(stripped);
 }
 
 /**

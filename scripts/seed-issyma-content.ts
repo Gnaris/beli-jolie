@@ -1,6 +1,5 @@
 /**
  * Seed les textes visibles côté visiteurs pour le tenant ISSYMA :
- *   - Hero de la page d'accueil (surtitre, titre, description, bouton 2)
  *   - Baseline SEO (title <title>)
  *   - Accroche courte en haut du catalogue
  *
@@ -18,14 +17,6 @@ const prisma = new PrismaClient();
 const ISSYMA_TENANT_SLUG = "issyma";
 
 const CONFIG: Record<string, string> = {
-  home_hero_eyebrow: "Grossiste en prêt-à-porter féminin B2B · CIFA Aubervilliers",
-  home_hero_title_line1: "Des produits tendance",
-  home_hero_title_line2: "pour votre boutique",
-  home_hero_description:
-    "Plus de 600 références disponibles pour les boutiques et revendeurs professionnels. Nouveautés régulières, tarifs grossiste et livraison en France et en Europe.",
-  home_hero_cta_secondary_label: "Créer un compte professionnel",
-  home_hero_cta_secondary_href: "/inscription",
-
   seo_tagline: "Grossiste en prêt-à-porter féminin B2B",
 
   produits_seo_intro:

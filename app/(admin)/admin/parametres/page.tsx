@@ -30,7 +30,6 @@ import HomeFaqConfig from "@/components/admin/settings/HomeFaqConfig";
 import SettingsTabs from "@/components/admin/settings/SettingsTabs";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
-import BannerImageConfig from "@/components/admin/settings/BannerImageConfig";
 import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
 import Smarty365ApiKeyConfig from "@/components/admin/settings/Smarty365ApiKeyConfig";
@@ -46,13 +45,9 @@ import MarketplaceConfig from "@/components/admin/settings/MarketplaceConfig";
 import AutoTranslateConfig from "@/components/admin/settings/AutoTranslateConfig";
 import TranslationProviderStatus from "@/components/admin/settings/TranslationProviderStatus";
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
-import AnnouncementBannerConfig from "@/components/admin/settings/AnnouncementBannerConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 import BrandBrandingConfig from "@/components/admin/settings/BrandBrandingConfig";
 import { SEO_CONFIG_KEYS } from "@/lib/seo";
-import HomeHeroConfig from "@/components/admin/settings/HomeHeroConfig";
-import HeroOverlayConfig from "@/components/admin/settings/HeroOverlayConfig";
-import { parseHeroOverlay } from "@/lib/hero-overlay";
 import { parseHomeFaq } from "@/lib/home-faq";
 import { getPendingReviewsCount } from "@/app/actions/admin/customer-reviews";
 import AboutPageConfig from "@/components/admin/settings/AboutPageConfig";
@@ -78,7 +73,6 @@ export async function generateMetadata(): Promise<Metadata> {
    Icônes réutilisées dans les headers de cartes internes aux modales
    ═══════════════════════════════════════════════════════════════════════════ */
 const Ico = {
-  megaphone: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l18-7v16L3 13z"/><path d="M11 8v10a2 2 0 0 1-4 0v-1"/></svg>,
   image:     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>,
   favicon:   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>,
   minOrder:  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 12l2 2 4-4"/></svg>,
@@ -136,22 +130,13 @@ export default async function ParametresPage({
    TUILE 1 — Vitrine : bandeau annonces + bannière + favicon
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildVitrineTile(): Promise<DashboardTile> {
-  // Issyma a un hero 100 % hardcodé (bordeaux showroom, cf. HomeIssymaLayout.tsx).
-  // On masque les cartes « Bloc d'accueil » et « Bannière d'accueil » pour ce
-  // tenant : ni les textes ni l'image ne sont modifiables depuis l'admin.
-  const tenant = await requireCurrentTenant();
-  const isIssyma = tenant.slug === "issyma";
+  // Le hero de la page d'accueil est désormais hardcodé par tenant (voir
+  // components/home/layouts/Home{Beliandjolie,Issyma}Layout.tsx). Plus de config
+  // admin pour l'image, les textes ou le voile.
+  await requireCurrentTenant();
 
   const [
-    bannerImageConfig,
-    announcementConfig,
     faviconConfig,
-    heroEyebrowRow,
-    heroTitle1Row,
-    heroTitle2Row,
-    heroDescRow,
-    heroCta2LabelRow,
-    heroCta2HrefRow,
     homeFaqRow,
     aboutIntroRow,
     aboutHistoryRow,
@@ -173,20 +158,8 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     aboutPhoto6Row,
     tAbout,
     pendingReviewsCount,
-    heroOverlayTypeRow,
-    heroOverlayDirectionRow,
-    heroOverlayColorRow,
-    heroOverlayOpacityRow,
   ] = await Promise.all([
-    prisma.siteConfig.findFirst({ where: { key: "banner_image" } }),
-    prisma.siteConfig.findFirst({ where: { key: "announcement_banner" } }),
     prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_eyebrow" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line1" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_title_line2" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_description" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_label" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_cta_secondary_href" } }),
     prisma.siteConfig.findFirst({ where: { key: "home_faq" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_intro" } }),
     prisma.siteConfig.findFirst({ where: { key: "about_history_body" } }),
@@ -208,17 +181,7 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "about_photo_6_url" } }),
     getTranslations("about"),
     getPendingReviewsCount().catch(() => 0),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_type" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_direction" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_color" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_hero_overlay_opacity" } }),
   ]);
-  const heroOverlay = parseHeroOverlay({
-    type: heroOverlayTypeRow?.value ?? null,
-    direction: heroOverlayDirectionRow?.value ?? null,
-    color: heroOverlayColorRow?.value ?? null,
-    opacity: heroOverlayOpacityRow?.value ?? null,
-  });
   const faqItems = parseHomeFaq(homeFaqRow?.value);
   const aboutPhotos: (string | null)[] = [
     aboutPhoto1Row?.value ?? null,
@@ -239,31 +202,13 @@ async function buildVitrineTile(): Promise<DashboardTile> {
     } catch { /* ignore */ }
   }
 
-  let announcementMessages: Array<{ fr: string; en?: string }> = [];
-  let announcementBgColor = "#0F0F0F";
-  let announcementTextColor = "#F5F1EA";
-  let announcementSpeed = 8;
-  let announcementMode: "scroll" | "static" = "scroll";
-  if (announcementConfig?.value) {
-    try {
-      const parsed = JSON.parse(announcementConfig.value);
-      const { normalizeAnnouncementMessages } = await import("@/lib/announcement-banner");
-      announcementMessages = normalizeAnnouncementMessages(parsed.messages);
-      announcementBgColor = parsed.bgColor || "#0F0F0F";
-      announcementTextColor = parsed.textColor || "#F5F1EA";
-      announcementSpeed = parsed.speed || 8;
-      announcementMode = parsed.mode === "static" ? "static" : "scroll";
-    } catch { /* ignore */ }
-  }
-
   const bits: string[] = [];
-  if (announcementMessages.length > 0) bits.push(`${announcementMessages.length} annonce${announcementMessages.length > 1 ? "s" : ""}`);
-  if (bannerImageConfig?.value) bits.push("bannière définie");
   if (currentFavicon) bits.push("favicon en place");
+  if (faqItems.length > 0) bits.push(`${faqItems.length} question${faqItems.length > 1 ? "s" : ""} FAQ`);
 
-  const anyConfigured = announcementMessages.length > 0 || !!bannerImageConfig?.value || !!currentFavicon;
+  const anyConfigured = !!currentFavicon || faqItems.length > 0;
   const status: TileStatus = anyConfigured
-    ? { tone: "ok", label: bits.length === 3 ? "Complète" : "Partielle" }
+    ? { tone: "ok", label: bits.length >= 2 ? "Complète" : "Partielle" }
     : { tone: "off", label: "À personnaliser" };
 
   return {
@@ -293,66 +238,6 @@ async function buildVitrineTile(): Promise<DashboardTile> {
             label: "Accueil",
             content: (
               <CardsStack>
-                <SettingCard
-                  icon={Ico.megaphone}
-                  title="Bandeau d'annonces"
-                  description="Messages défilants en haut du site (soldes, livraison offerte, promo du moment…)"
-                  accent="dark"
-                  status={announcementMessages.length > 0
-                    ? { tone: "ok", label: `${announcementMessages.length} message${announcementMessages.length > 1 ? "s" : ""}` }
-                    : { tone: "off", label: "Aucun" }}
-                >
-                  <AnnouncementBannerConfig
-                    initialMessages={announcementMessages}
-                    initialBgColor={announcementBgColor}
-                    initialTextColor={announcementTextColor}
-                    initialSpeed={announcementSpeed}
-                    initialMode={announcementMode}
-                  />
-                </SettingCard>
-
-                {!isIssyma && (
-                  <SettingCard
-                    icon={Ico.slides}
-                    title="Bloc d'accueil (grand bandeau noir)"
-                    description="Textes visibles tout en haut de la page d'accueil — surtitre, titre en 2 lignes, description et 2ᵉ bouton."
-                    accent="dark"
-                  >
-                    <HomeHeroConfig
-                      initialEyebrow={heroEyebrowRow?.value ?? ""}
-                      initialTitleLine1={heroTitle1Row?.value ?? ""}
-                      initialTitleLine2={heroTitle2Row?.value ?? ""}
-                      initialDescription={heroDescRow?.value ?? ""}
-                      initialCtaSecondaryLabel={heroCta2LabelRow?.value ?? ""}
-                      initialCtaSecondaryHref={heroCta2HrefRow?.value ?? ""}
-                    />
-                  </SettingCard>
-                )}
-
-                {!isIssyma && (
-                  <SettingCard
-                    icon={Ico.image}
-                    title="Bannière d'accueil"
-                    description="Grande image en haut de la page d'accueil du site, avec un voile pour garder les textes lisibles."
-                  >
-                    <div className="space-y-6">
-                      <BannerImageConfig currentImage={bannerImageConfig?.value ?? null} />
-                      <div className="border-t border-border pt-6">
-                        <p className="text-sm font-heading font-semibold text-text-primary mb-1">
-                          Voile posé sur la bannière
-                        </p>
-                        <p className="text-xs text-text-secondary font-body mb-4">
-                          Réglez la couleur, le type d'ombre et l'intensité pour que vos titres restent bien lisibles par-dessus l'image.
-                        </p>
-                        <HeroOverlayConfig
-                          initial={heroOverlay}
-                          bannerImage={bannerImageConfig?.value ?? null}
-                        />
-                      </div>
-                    </div>
-                  </SettingCard>
-                )}
-
                 <SettingCard
                   icon={Ico.slides}
                   title="Questions fréquentes (FAQ)"

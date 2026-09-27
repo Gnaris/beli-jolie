@@ -19,6 +19,7 @@ const CART_ISSYMA_CHROME_HIDE = `
 .min-h-screen.bg-bg-secondary.flex.flex-col > main {
   padding: 0 !important;
 }
+.issyma-page { background: ${P.blush50}; }
 `;
 
 function IconTruck() {

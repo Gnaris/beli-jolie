@@ -14,8 +14,6 @@ import type { HomeLayoutProps } from "./HomeLayoutProps";
 
 export default async function HomeBeliandjolieLayout({
   shopName,
-  bannerImage,
-  heroOverrides,
   productCount,
   clientDiscount,
   favoriteIds,
@@ -35,13 +33,8 @@ export default async function HomeBeliandjolieLayout({
       <PublicSidebar shopName={shopName} tenantSlug="beliandjolie" />
 
       <main className="relative z-10 -mt-16">
-        {/* 1. Hero éditable */}
-        <HeroBanner
-          bannerImage={bannerImage}
-          shopName={shopName}
-          productCount={productCount}
-          {...heroOverrides}
-        />
+        {/* 1. Hero (design figé, plus de config admin) */}
+        <HeroBanner productCount={productCount} />
 
         {/* 2. Nouveautés — 8 max + CTA « Voir toutes les nouveautés → » */}
         {newCards.length > 0 && (

@@ -292,12 +292,11 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
     <>
       {/* ===== TOP NAVBAR - fixed ===== */}
       <header
-        className={`fixed left-0 right-0 z-50 border-b transition-all duration-300 ${
+        className={`fixed left-0 right-0 top-0 z-50 border-b transition-all duration-300 ${
           scrolled
             ? "bg-white/92 backdrop-blur-md border-neutral-200"
             : "bg-white border-transparent"
         }`}
-        style={{ top: "var(--announcement-height, 0px)" }}
       >
         {/* Mobile : bande dédiée au nom de boutique (toute la largeur) */}
         <div className="lg:hidden border-b border-neutral-100">
@@ -548,6 +547,12 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
                 </svg>
               </Link>
             )}
+
+            {/* Sélecteur de langue mobile (à côté du panier) — le desktop
+                a déjà son propre switcher en début de barre. */}
+            <div className="lg:hidden shrink-0">
+              <LanguageSwitcher currentLocale={locale} />
+            </div>
 
             {/* Panier */}
             {showClientUI && (
