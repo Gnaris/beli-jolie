@@ -1,7 +1,13 @@
 "use client";
 
 import { Link } from "@/i18n/navigation";
+import Image from "@/components/ui/SmartImage";
 import { useTranslations } from "next-intl";
+
+const BANNER_IMAGE_PATH = "/uploads/beliandjolie/banniere/accueil-mp2duten.webp";
+// Voile figé issu de l'ancien réglage admin (linear, depuis la gauche, #0f0f0f, opacité 79 %).
+const BANNER_OVERLAY =
+  "linear-gradient(to right, rgba(15, 15, 15, 0.790) 0%, rgba(15, 15, 15, 0.711) 45%, transparent 100%)";
 
 interface HeroBannerProps {
   productCount: number;
@@ -16,14 +22,15 @@ export default function HeroBanner({ productCount }: HeroBannerProps) {
       className="relative w-full bg-bg-darker text-white overflow-hidden"
       style={{ minHeight: "clamp(520px, 68vh, 720px)" }}
     >
-      <div
-        className="absolute inset-0 opacity-[0.05]"
-        style={{
-          backgroundImage:
-            "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)",
-          backgroundSize: "60px 60px",
-        }}
+      <Image
+        src={BANNER_IMAGE_PATH}
+        alt="Beli & Jolie"
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover"
       />
+      <div className="absolute inset-0" style={{ background: BANNER_OVERLAY }} />
 
       <div className="relative z-10 max-w-[1400px] mx-auto px-6 lg:px-10 py-24 lg:py-32 flex flex-col justify-center min-h-[inherit]">
         <p className="text-[11px] uppercase tracking-[0.28em] text-white/45 font-body font-medium">
