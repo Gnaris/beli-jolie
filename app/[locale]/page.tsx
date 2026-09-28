@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { getTranslations, getLocale } from "next-intl/server";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCachedSiteConfig, getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
+import { getCachedSiteConfig, getCachedShopName, getCachedProductCount, getCachedCompanyInfo } from "@/lib/cached-data";
 import { buildAlternates, buildWebsiteSchema, buildSiteNavigationSchema, getSiteUrl } from "@/lib/seo";
 import { getPublishedCustomerReviews } from "@/lib/customer-reviews";
 import { parseHomeFaq, resolveHomeFaqForLocale, buildFaqJsonLd } from "@/lib/home-faq";
@@ -241,10 +241,13 @@ export default async function HomePage() {
   // ── Load site config (FAQ) + avis clients DB ──
   // Le hero et la bannière ne sont plus configurables depuis l'admin : chaque
   // tenant a un design de home hardcodé dans son layout dédié.
-  const [shopName, homeFaqRow, reviews] = await Promise.all([
+  const [shopName, homeFaqRow, reviews, companyInfo] = await Promise.all([
     getCachedShopName(),
     getCachedSiteConfig("home_faq"),
     getPublishedCustomerReviews(6),
+    // Téléphone + WhatsApp entreprise pour les boutons contact du hero BJ.
+    // Cache 5 min tenant-scopé — même donnée que /nous-contacter.
+    getCachedCompanyInfo(),
   ]);
   const faqItems = parseHomeFaq(homeFaqRow?.value);
 
@@ -460,6 +463,8 @@ export default async function HomePage() {
     faqItems: localizedFaqItems,
     jsonLdBlocks,
     canSeePrices: canSeePrices(session),
+    companyPhone: companyInfo?.phone ?? null,
+    companyWhatsapp: companyInfo?.whatsapp ?? null,
   };
 
   return layoutChoice === "issyma" ? (

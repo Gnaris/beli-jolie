@@ -1,12 +1,12 @@
-import { getTranslations } from "next-intl/server";
+import { Suspense } from "react";
+import { getTranslations, getLocale } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
-import Image from "@/components/ui/SmartImage";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { canSeePrices as canUserSeePrices } from "@/lib/price-visibility";
-import { buildProductHandle } from "@/lib/product-url";
 import IssymaShell from "@/components/issyma/IssymaShell";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
+import ProduitsIssymaGridClient from "@/components/issyma/ProduitsIssymaGridClient";
 import type { CarouselProduct } from "@/components/home/ProductCarousel";
 
 const P = ISSYMA_PALETTE;
@@ -81,21 +81,6 @@ function IconTeam() {
     </svg>
   );
 }
-function IconGarment() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 7l4-3h8l4 3-3 3-2-1v11H9V9l-2 1z"/>
-    </svg>
-  );
-}
-function IconHeart() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" />
-    </svg>
-  );
-}
-
 function FilterSection({
   title,
   currentValue,
@@ -203,109 +188,11 @@ function ColorFilterSection({
   );
 }
 
-function ProductCardIssymaCatalogue({
-  p,
-  ctaLabel,
-  pricePromptLabel,
-  canSeePrices,
-  badgeLabel,
-  refLabel,
-}: {
-  p: CarouselProduct;
-  ctaLabel: string;
-  pricePromptLabel: string;
-  canSeePrices: boolean;
-  badgeLabel: string;
-  refLabel: string;
-}) {
-  const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
-  const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
-  const displayName = p.displayName ?? p.name;
-  const image = primary?.firstImage ?? null;
-  const price = primary?.unitPrice ?? null;
-
-  return (
-    <div className="product-card group">
-      <Link href={href} className="block relative aspect-[3/4] overflow-hidden rounded-xl">
-        {image ? (
-          <Image src={image} alt={displayName} width={480} height={640} className="w-full h-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 thumb-placeholder">
-            <div
-              className="rounded-full flex items-center justify-center"
-              style={{
-                width: "38%", aspectRatio: "1/1",
-                background: "radial-gradient(60% 60% at 50% 40%, #f6ede8 0%, #e6d1cb 70%, #dcc4be 100%)",
-                color: "#c98a8a",
-                opacity: 0.6,
-              }}
-            >
-              <div style={{ width: "36%" }}>
-                <IconGarment />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Cœur favori en haut à droite */}
-        <span
-          aria-hidden
-          className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition"
-          style={{
-            background: "rgba(255, 255, 255, 0.92)",
-            color: P.wine700,
-            boxShadow: "0 3px 10px -4px rgba(50, 15, 25, 0.35)",
-          }}
-        >
-          <IconHeart />
-        </span>
-
-        {p.isBestSeller && (
-          <span
-            className="absolute top-2 left-2 text-[9px] tracking-[0.2em] uppercase font-semibold px-2 py-0.5 rounded-full"
-            style={{ background: P.cream, color: P.wine800 }}
-          >
-            {badgeLabel}
-          </span>
-        )}
-      </Link>
-
-      {/* Info sous la photo — pas de wrapper card, compact */}
-      <div className="mt-2 px-0.5">
-        <h3 className="serif text-[13px] leading-tight font-semibold line-clamp-2" style={{ color: P.ink }}>
-          {displayName}
-        </h3>
-        <p className="mt-0.5 text-[9px] tracking-[0.2em] uppercase font-semibold" style={{ color: P.muted }}>
-          {refLabel}: {p.reference}
-        </p>
-
-        <div className="mt-1.5 flex items-center justify-between gap-1.5">
-          {canSeePrices && price != null ? (
-            <span className="text-[12px] font-semibold tabular-nums" style={{ color: P.wine700 }}>
-              {price.toFixed(2).replace(".", ",")} €
-            </span>
-          ) : (
-            <span className="text-[9px] tracking-[0.15em] uppercase font-semibold" style={{ color: P.wine700 }}>
-              {pricePromptLabel}
-            </span>
-          )}
-          <Link
-            href={href}
-            className="inline-flex items-center gap-1 px-2 py-1 text-[9px] tracking-[0.15em] uppercase font-semibold rounded-full transition"
-            style={{ background: P.wine700, color: P.cream }}
-          >
-            {ctaLabel} <span aria-hidden>→</span>
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default async function ProduitsIssymaLayout({
   shopName,
   products,
   totalCount,
+  initialHasMore,
   categories,
   collections,
   colors,
@@ -316,6 +203,7 @@ export default async function ProduitsIssymaLayout({
   shopName: string;
   products: CarouselProduct[];
   totalCount: number;
+  initialHasMore: boolean;
   categories: FilterOption[];
   collections: FilterOption[];
   colors: ColorFilter[];
@@ -325,10 +213,20 @@ export default async function ProduitsIssymaLayout({
 }) {
   const t = await getTranslations("products");
   const tHome = await getTranslations("home");
+  const locale = await getLocale();
   const session = await getServerSession(authOptions);
   const canSeePrices = canUserSeePrices(session);
-  const pricePromptLabel = tHome("issyma.cardPricePro");
-  const ctaLabel = t("issymaAddToCart");
+  const gridLabels = {
+    ctaLabel:         t("issymaAddToCart"),
+    pricePromptLabel: tHome("issyma.cardPricePro"),
+    badgeLabel:       t("issymaBestSellerBadge"),
+    refLabel:         t("issymaRefLabel"),
+    loadMoreLabel:    t("loadMore"),
+    loadingLabel:     t("loading"),
+    loadErrorLabel:   t("loadError"),
+    retryLabel:       t("retry"),
+    emptyLabel:       t("issymaEmptyLabel"),
+  };
 
   const hasAnyFilter =
     !!(selectedFilters.cat || selectedFilters.collection || selectedFilters.color ||
@@ -498,7 +396,7 @@ export default async function ProduitsIssymaLayout({
 
             {/* Zone principale — fond blanc */}
             <div className="min-w-0">
-              {/* Barre recherche + tri */}
+              {/* Barre recherche */}
               <form action="/produits" method="get" className="flex items-center gap-3 mb-6">
                 <div
                   className="flex-1 flex items-center gap-2 rounded-full px-5 py-3"
@@ -517,12 +415,6 @@ export default async function ProduitsIssymaLayout({
                     style={{ color: P.ink }}
                   />
                 </div>
-                <div
-                  className="flex items-center gap-2 rounded-full px-4 py-3 text-[12px] tracking-[0.15em] uppercase font-semibold"
-                  style={{ background: P.paper, border: `1px solid ${P.borderSoft}`, color: P.wine700 }}
-                >
-                  <span>{t("issymaSortLabel")}</span>
-                </div>
               </form>
 
               {/* Compteur */}
@@ -531,34 +423,18 @@ export default async function ProduitsIssymaLayout({
                 {totalCount > 1 ? t("productsCounterPlural") : t("productsCounterSingular")}
               </p>
 
-              {/* Grille — cartes compactes, 4 colonnes en desktop */}
-              {products.length === 0 ? (
-                <div className="text-center py-20 text-[14px]" style={{ color: P.inkSoft }}>
-                  {t("issymaEmptyLabel")}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6">
-                  {products.map((p) => (
-                    <ProductCardIssymaCatalogue
-                      key={p.id}
-                      p={p}
-                      ctaLabel={ctaLabel}
-                      pricePromptLabel={pricePromptLabel}
-                      canSeePrices={canSeePrices}
-                      badgeLabel={t("issymaBestSellerBadge")}
-                      refLabel={t("issymaRefLabel")}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {products.length < totalCount && (
-                <div className="mt-10 flex justify-center">
-                  <span className="text-[11px] tracking-[0.22em] uppercase font-semibold" style={{ color: P.muted }}>
-                    {products.length} / {totalCount} produits
-                  </span>
-                </div>
-              )}
+              {/* Grille + load-more — client component pour brancher /api/products.
+                  Suspense obligatoire autour de useSearchParams (Next 16). */}
+              <Suspense>
+                <ProduitsIssymaGridClient
+                  initialProducts={products}
+                  initialHasMore={initialHasMore}
+                  totalCount={totalCount}
+                  canSeePrices={canSeePrices}
+                  locale={locale}
+                  labels={gridLabels}
+                />
+              </Suspense>
             </div>
           </div>
         </div>

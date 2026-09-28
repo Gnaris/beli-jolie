@@ -37,7 +37,7 @@ export default function FooterBeliandjolie({ shopName }: FooterProps) {
   ];
 
   return (
-    <footer className="relative bg-gradient-to-b from-[#111111] to-[#0A0A0A] text-white">
+    <footer className="relative bg-gradient-to-b from-[#0b1b34] to-[#081328] text-white">
       <div className="container-site py-10 md:py-14">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
 

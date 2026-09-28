@@ -276,57 +276,86 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
 
   return (
     <>
-      {/* ===== TOP NAVBAR - fixed ===== */}
+      {/* ===== TOP NAVBAR - fixed =====
+           Fond bleu marine (#0b1b34) + texte blanc depuis la refonte du
+           2026-09-28. Les sous-panneaux (recherche déroulante, drawer mobile)
+           restent sur fond clair pour rester lisibles ; seule la barre fixe
+           en haut passe en navy. */}
       <header
-        className={`fixed left-0 right-0 top-0 z-50 border-b transition-all duration-300 ${
-          scrolled
-            ? "bg-white/92 backdrop-blur-md border-neutral-200"
-            : "bg-white border-transparent"
+        className={`fixed left-0 right-0 top-0 z-50 border-b transition-all duration-300 bg-[#0b1b34] ${
+          scrolled ? "border-white/10" : "border-transparent"
         }`}
       >
-        {/* Mobile : bande dédiée au nom de boutique (toute la largeur) */}
-        <div className="lg:hidden border-b border-neutral-100">
-          <div className="container-site h-10 flex items-center justify-center">
+        {/* Mobile : bande dédiée au nom de boutique — rond avec initiale +
+             nom en majuscules espacées, aligné à gauche (refonte 2026-09-28).
+             Layout fluide (w-full + petit padding) au lieu de container-site
+             pour que le logo commence dès le bord gauche du viewport, sans
+             marge de centrage. */}
+        <div className="lg:hidden border-b border-white/10">
+          <div className="w-full h-11 px-4 flex items-center">
             <Link
               href="/"
-              className="font-heading font-light text-base text-black tracking-tight truncate max-w-[80vw]"
+              className="flex items-center gap-2.5 min-w-0"
+              aria-label={shopName}
             >
-              {shopName}
+              <span
+                aria-hidden
+                className="h-8 w-8 rounded-full bg-white/10 grid place-items-center font-heading font-bold text-white text-sm shrink-0"
+              >
+                {shopName.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="font-heading font-semibold tracking-[0.18em] uppercase text-white text-[13px] truncate">
+                {shopName}
+              </span>
             </Link>
           </div>
         </div>
 
-        {/* Row unique : Logo — Nav — Actions (une seule ligne comme la maquette) */}
-        <div className="container-site h-16 flex items-center gap-6 lg:gap-8">
+        {/* Row unique : Logo — Nav — Actions (une seule ligne comme la maquette).
+             Layout fluide + décalage 15% à gauche sur desktop (choix cliente
+             2026-09-28) : le contenu ne colle plus au bord mais démarre au
+             1/6 gauche du viewport, avec l'espace vide qui reste à droite. */}
+        <div className="w-full h-16 px-4 lg:pl-[15%] lg:pr-8 flex items-center gap-8 lg:gap-14">
 
           {/* Mobile hamburger — LEFT on mobile */}
           <button
             onClick={() => setMobileOpen(true)}
-            className="lg:hidden flex items-center justify-center w-9 h-9 text-text-primary hover:text-black transition-colors -ml-1"
+            className="lg:hidden flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors -ml-1"
             aria-label="Menu"
           >
             <IconMenu />
           </button>
 
-          {/* Logo (desktop only — mobile a sa propre bande au-dessus) */}
+          {/* Logo desktop — rond avec initiale + nom en majuscules espacées.
+              Le rond est purement décoratif (aria-hidden) : l'accessibilité
+              passe par l'aria-label du Link parent. */}
           <Link
             href="/"
-            className="hidden lg:block font-heading font-light text-xl text-black tracking-tight shrink-0 hover:text-neutral-700 transition-colors"
+            aria-label={shopName}
+            className="hidden lg:flex items-center gap-3 shrink-0 hover:opacity-90 transition-opacity"
           >
-            {shopName}
+            <span
+              aria-hidden
+              className="h-9 w-9 rounded-full bg-white/10 grid place-items-center font-heading font-bold text-white text-base"
+            >
+              {shopName.slice(0, 1).toUpperCase()}
+            </span>
+            <span className="font-heading font-semibold tracking-[0.2em] uppercase text-white text-sm">
+              {shopName}
+            </span>
           </Link>
 
           {/* Navigation links — INLINE avec le logo (desktop only) */}
-          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-7">
+          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-10">
             {allLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 data-nav-active={isActive(link.href) ? "true" : undefined}
-                className={`py-1 text-[13px] font-body whitespace-nowrap transition-colors duration-200 ${
+                className={`py-1 text-[15px] font-body whitespace-nowrap transition-colors duration-200 ${
                   isActive(link.href)
-                    ? "text-black font-medium"
-                    : "text-neutral-600 hover:text-black"
+                    ? "text-white font-medium"
+                    : "text-white/70 hover:text-white"
                 }`}
               >
                 {link.label}
@@ -334,35 +363,23 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
             ))}
           </nav>
 
-          {/* Right actions */}
-          <div className="flex items-center gap-3 ml-auto text-neutral-700">
+          {/* Right actions — sur desktop, TOUT le contenu du header est
+              aligné à gauche (choix cliente 2026-09-28) : logo → nav → langue
+              → icônes s'enchaînent tous côté gauche, l'espace vide se retrouve
+              à droite. Sur mobile on garde ml-auto pour que les icônes du
+              panier / favoris restent accessibles à droite du hamburger.
+              lg:mr-3 sur la langue = petit trou visuel entre langue et icônes. */}
+          <div className="flex items-center gap-3 ml-auto lg:ml-0 text-white/85">
 
             {/* Sélecteur de langue — extrait du dropdown profil */}
-            <div className="hidden lg:block shrink-0">
+            <div className="hidden lg:block shrink-0 lg:mr-3">
               <LanguageSwitcher currentLocale={locale} />
             </div>
 
-            {/* Search — icône qui ouvre un panneau */}
-            <button
-              data-search-toggle
-              onClick={() => {
-                setSearchOpen((v) => !v);
-                setTimeout(() => {
-                  const input = document.querySelector<HTMLInputElement>("input[data-header-search]");
-                  input?.focus();
-                }, 50);
-              }}
-              className="hidden sm:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
-              aria-label={t("search")}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" />
-              </svg>
-            </button>
-
             {/* Badge statut — Admin (rouge) > Vérifié / Non vérifié (sky / neutre) / Révoqué (rouge)
-                Tooltip stylisé sous le badge au survol (label + mini-description). */}
+                Tooltip stylisé sous le badge au survol (label + mini-description).
+                Placé AVANT la loupe (swap 2026-09-28) pour que le badge soit
+                plus visible côté navigation. */}
             {isAdmin ? (
               <div className="hidden lg:block relative group shrink-0" tabIndex={0}>
                 <span
@@ -413,12 +430,32 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
               </div>
             ) : null}
 
+            {/* Search — icône qui ouvre un panneau (placée APRÈS le badge
+                statut depuis le swap 2026-09-28). */}
+            <button
+              data-search-toggle
+              onClick={() => {
+                setSearchOpen((v) => !v);
+                setTimeout(() => {
+                  const input = document.querySelector<HTMLInputElement>("input[data-header-search]");
+                  input?.focus();
+                }, 50);
+              }}
+              className="hidden sm:flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors"
+              aria-label={t("search")}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </button>
+
             {/* Profil : icône seule, dropdown si connectée / lien connexion sinon */}
             {session ? (
               <div ref={profileRef} className="hidden lg:block relative shrink-0">
                 <button
                   onClick={() => setProfileOpen((v) => !v)}
-                  className="flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
+                  className="flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors"
                   aria-label={company || t("profile")}
                   title={company}
                 >
@@ -500,13 +537,13 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
               <>
                 <Link
                   href="/inscription"
-                  className="hidden lg:inline-flex items-center px-3 h-9 rounded-full bg-black text-white text-[11px] tracking-[0.18em] uppercase font-semibold hover:bg-neutral-800 transition-colors"
+                  className="hidden lg:inline-flex items-center px-3 h-9 rounded-full bg-white text-[#0b1b34] text-[11px] tracking-[0.18em] uppercase font-semibold hover:bg-white/90 transition-colors"
                 >
                   {t("register")}
                 </Link>
                 <Link
                   href="/connexion"
-                  className="hidden lg:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
+                  className="hidden lg:flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors"
                   aria-label={t("login")}
                   title={t("login")}
                 >
@@ -522,7 +559,7 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
             {showClientUI && (
               <Link
                 href="/favoris"
-                className="hidden sm:flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
+                className="hidden sm:flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors"
                 aria-label={t("favorites")}
                 title={t("favorites")}
               >
@@ -543,12 +580,12 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
               <Link
                 ref={cartIconRef}
                 href="/panier"
-                className="relative flex items-center justify-center w-9 h-9 text-neutral-700 hover:text-black transition-colors"
+                className="relative flex items-center justify-center w-9 h-9 text-white/85 hover:text-white transition-colors"
                 aria-label={t("cart")}
               >
                 <IconCart />
                 {cartCount > 0 && (
-                  <span className={`absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-black text-white text-[10px] font-medium rounded-full flex items-center justify-center leading-none${badgeBounce ? " animate-cart-bounce" : ""}`}>
+                  <span className={`absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-white text-[#0b1b34] text-[10px] font-semibold rounded-full flex items-center justify-center leading-none${badgeBounce ? " animate-cart-bounce" : ""}`}>
                     {cartCount > 9 ? "9+" : cartCount}
                   </span>
                 )}

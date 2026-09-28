@@ -119,9 +119,18 @@ export async function getAbandonedCartConfig(): Promise<AbandonedCartConfigDTO> 
 async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
   const already = await prisma.abandonedCartStage.findFirst({
     where: { tenantId, stageIndex: 1 },
-    select: { id: true },
+    select: { id: true, templateId: true },
   });
-  if (already) return;
+  if (already) {
+    // Auto-réparation (incident 2026-09-28) : l'ancienne
+    // `assignTemplateToScenario` pouvait déplacer le tag `scenarioKey` sur un
+    // template libre, laissant le vrai Stage 1 sans tag et un template orphelin
+    // avec le tag mais aucun stade. La tuile du back-office montrait alors le
+    // mauvais titre. On remet toujours le tag `ABANDONED_CART` sur le template
+    // réellement lié au Stage 1 par FK — la FK est la source de vérité.
+    await syncScenarioKeyToStage1Template(tenantId, "ABANDONED_CART", already.templateId);
+    return;
+  }
 
   // Trouve le template historique ABANDONED_CART (posé par
   // ensureDefaultScenarioTemplatesFor). Fallback : on le crée si absent.
@@ -157,6 +166,49 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
   } catch (err) {
     // Race possible entre 2 loads parallèles — on ignore.
     logger.error("[abandonedCart] ensureStage1 skip", { tenantId, error: err as Error });
+  }
+}
+
+/**
+ * Défensif : garantit que le template lié au Stage 1 porte bien
+ * `scenarioKey=<scenario>`, et qu'aucun autre template du tenant ne le porte.
+ * Sert de filet contre un état incohérent posé par un ancien code (voir
+ * assignTemplateToScenario avant refonte 2026-09-28). Idempotent, transactionnel.
+ */
+async function syncScenarioKeyToStage1Template(
+  tenantId: string,
+  scenario: "ABANDONED_CART",
+  stage1TemplateId: string,
+): Promise<void> {
+  const holder = await prisma.newsletterTemplate.findFirst({
+    where: { tenantId, scenarioKey: scenario },
+    select: { id: true },
+  });
+  if (holder && holder.id === stage1TemplateId) return; // déjà OK
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (holder && holder.id !== stage1TemplateId) {
+        await tx.newsletterTemplate.update({
+          where: { id: holder.id },
+          data: { scenarioKey: null },
+        });
+      }
+      await tx.newsletterTemplate.update({
+        where: { id: stage1TemplateId },
+        data: { scenarioKey: scenario },
+      });
+    });
+    logger.info("[abandonedCart] scenarioKey resynced to stage 1 template", {
+      tenantId,
+      scenario,
+      previousHolder: holder?.id ?? null,
+      stage1TemplateId,
+    });
+  } catch (err) {
+    logger.error("[abandonedCart] syncScenarioKeyToStage1Template", {
+      tenantId,
+      error: err as Error,
+    });
   }
 }
 

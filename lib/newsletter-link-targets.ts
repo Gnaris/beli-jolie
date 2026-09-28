@@ -12,6 +12,9 @@ export type LinkTarget =
   | { kind: "home" }
   | { kind: "cart" }
   | { kind: "products" }
+  // Raccourci « Nouveautés » : /produits filtré par ?new=1. Utile pour un
+  // lien WhatsApp/mail « viens voir les dernières arrivées ».
+  | { kind: "productsNew" }
   | { kind: "product"; id: string; name: string; reference: string; handle: string }
   | { kind: "categories" }
   | { kind: "category"; id: string; name: string; slug: string }
@@ -37,6 +40,7 @@ export function buildLinkUrl(baseUrl: string, target: LinkTarget): string {
     case "home":         return fr;
     case "cart":         return `${fr}/panier`;
     case "products":     return `${fr}/produits`;
+    case "productsNew":  return `${fr}/produits?new=1`;
     case "product":      return `${fr}/produits/${target.handle}`;
     case "categories":   return `${fr}/categories`;
     case "category":     return `${fr}/categories/${target.slug}`;
@@ -57,6 +61,7 @@ export function describeLinkTarget(target: LinkTarget): string {
     case "home":         return "Accueil";
     case "cart":         return "Panier";
     case "products":     return "Tous les produits";
+    case "productsNew":  return "Produits — Nouveautés";
     case "product":      return `Produit — ${target.name} (${target.reference})`;
     case "categories":   return "Toutes les catégories";
     case "category":     return `Catégorie — ${target.name}`;

@@ -1,13 +1,13 @@
 import { getTranslations } from "next-intl/server";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
-import HeroBanner from "@/components/home/HeroBanner";
+import HeroInfoFaq from "@/components/home/HeroInfoFaq";
 import ProductCarousel from "@/components/home/ProductCarousel";
 import CategoryGrid from "@/components/home/CategoryGrid";
 import CollectionsGrid from "@/components/home/CollectionsGrid";
 import TrustBand from "@/components/home/TrustBand";
 import ReviewsSection from "@/components/home/ReviewsSection";
-import FaqSection from "@/components/home/FaqSection";
+import MaterialQualitySection from "@/components/home/MaterialQualitySection";
 import CtaBanner from "@/components/home/CtaBanner";
 import ShowroomSection from "@/components/home/ShowroomSection";
 import type { HomeLayoutProps } from "./HomeLayoutProps";
@@ -24,6 +24,8 @@ export default async function HomeBeliandjolieLayout({
   reviews,
   faqItems,
   jsonLdBlocks,
+  companyPhone,
+  companyWhatsapp,
 }: HomeLayoutProps) {
   const t = await getTranslations("home");
 
@@ -32,9 +34,23 @@ export default async function HomeBeliandjolieLayout({
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdBlocks) }} />
       <PublicSidebar shopName={shopName} tenantSlug="beliandjolie" />
 
-      <main className="relative z-10 -mt-16">
-        {/* 1. Hero (design figé, plus de config admin) */}
-        <HeroBanner productCount={productCount} />
+      <main className="relative z-10">
+        {/* 1. Hero refondu 2026-09-28 — bloc info navy à gauche, FAQ blanche à
+              droite. Remplace l'ancienne bannière image + la section FAQ du bas
+              de page. L'adresse + les horaires du showroom viennent des mêmes
+              clés i18n que la section ShowroomSection plus bas (pas de
+              doublonnage), le nombre de références vient de la BDD (cache
+              tenant scopé) et le nombre de catégories = celles avec au moins
+              un produit vendable. */}
+        <HeroInfoFaq
+          productCount={productCount}
+          categoryCount={categories.length}
+          showroomAddress={`${t("showroomAddressLine1")}, ${t("showroomAddressLine2")}`}
+          showroomHours={t("showroomHoursValue")}
+          faqItems={faqItems}
+          companyPhone={companyPhone}
+          companyWhatsapp={companyWhatsapp}
+        />
 
         {/* 2. Nouveautés — 8 max + CTA « Voir toutes les nouveautés → » */}
         {newCards.length > 0 && (
@@ -49,6 +65,12 @@ export default async function HomeBeliandjolieLayout({
             favoriteIds={favoriteIds}
           />
         )}
+
+        {/* 2b. Section pédagogique matériaux (déplacée après les nouveautés
+             le 2026-09-28 sur demande cliente) : explique en clair « Acier
+             304L · Placage PVD 14K » et les avantages pour les clientes
+             finales, juste après avoir montré les produits frais du moment. */}
+        <MaterialQualitySection />
 
         {/* 3. Catégories */}
         {categories.length > 0 && (
@@ -86,19 +108,9 @@ export default async function HomeBeliandjolieLayout({
           />
         )}
 
-        {/* 8. FAQ (jusqu'à 8, éditables depuis l'admin + JSON-LD FAQPage
-             injecté en haut de page pour les rich results Google). */}
-        {faqItems.length > 0 && (
-          <FaqSection
-            items={faqItems}
-            eyebrow={t("faqEyebrow")}
-            title={t("faqTitle")}
-            contactTitle={t("faqContactTitle")}
-            contactDesc={t("faqContactDesc")}
-            contactCta={t("faqContactCta")}
-            contactHref="/nous-contacter"
-          />
-        )}
+        {/* La FAQ a migré tout en haut de page (colonne droite du hero
+             refondu). Le JSON-LD FAQPage reste injecté par HomePage — aucun
+             changement SEO côté rich results. */}
 
         {/* 9. Showroom — adresse + carte OpenStreetMap + CTA itinéraire.
              Coordonnées : 90 rue de la Haie Coq, 93300 Aubervilliers. */}

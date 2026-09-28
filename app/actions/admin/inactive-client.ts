@@ -111,9 +111,15 @@ export async function getInactiveClientConfig(): Promise<InactiveClientConfigDTO
 async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
   const already = await prisma.inactiveClientStage.findFirst({
     where: { tenantId, stageIndex: 1 },
-    select: { id: true },
+    select: { id: true, templateId: true },
   });
-  if (already) return;
+  if (already) {
+    // Auto-réparation (incident 2026-09-28) — voir commentaire équivalent dans
+    // abandoned-cart.ts. La FK Stage 1 est la source de vérité, on resynce le
+    // tag scenarioKey dessus.
+    await syncScenarioKeyToStage1Template(tenantId, "INACTIVE_CLIENT", already.templateId);
+    return;
+  }
 
   let template = await prisma.newsletterTemplate.findFirst({
     where: { tenantId, scenarioKey: "INACTIVE_CLIENT" },
@@ -146,6 +152,43 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
     });
   } catch (err) {
     logger.error("[inactiveClient] ensureStage1 skip", { tenantId, error: err as Error });
+  }
+}
+
+async function syncScenarioKeyToStage1Template(
+  tenantId: string,
+  scenario: "INACTIVE_CLIENT",
+  stage1TemplateId: string,
+): Promise<void> {
+  const holder = await prisma.newsletterTemplate.findFirst({
+    where: { tenantId, scenarioKey: scenario },
+    select: { id: true },
+  });
+  if (holder && holder.id === stage1TemplateId) return;
+  try {
+    await prisma.$transaction(async (tx) => {
+      if (holder && holder.id !== stage1TemplateId) {
+        await tx.newsletterTemplate.update({
+          where: { id: holder.id },
+          data: { scenarioKey: null },
+        });
+      }
+      await tx.newsletterTemplate.update({
+        where: { id: stage1TemplateId },
+        data: { scenarioKey: scenario },
+      });
+    });
+    logger.info("[inactiveClient] scenarioKey resynced to stage 1 template", {
+      tenantId,
+      scenario,
+      previousHolder: holder?.id ?? null,
+      stage1TemplateId,
+    });
+  } catch (err) {
+    logger.error("[inactiveClient] syncScenarioKeyToStage1Template", {
+      tenantId,
+      error: err as Error,
+    });
   }
 }
 

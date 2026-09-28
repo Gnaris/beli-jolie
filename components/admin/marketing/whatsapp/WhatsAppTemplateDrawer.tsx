@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
+import { useState, useTransition, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "@/components/ui/Toast";
 import CustomSelect from "@/components/ui/CustomSelect";
@@ -20,6 +20,9 @@ import {
   type WhatsAppMergeContext,
 } from "@/lib/whatsapp-message";
 import { VARIABLE_GROUP_LABELS } from "@/lib/mail-merge-variables";
+import { buildWhatsAppAiPrompt } from "@/lib/whatsapp-ai-prompt";
+import { getNewsletterEditorBaseUrl } from "@/app/actions/admin/newsletter-links";
+import LinkPickerModal from "@/components/admin/shared/LinkPickerModal";
 import WhatsAppMarkdownPreview from "./WhatsAppMarkdownPreview";
 import type { WhatsAppPreviewClient } from "./WhatsAppTemplatesPane";
 
@@ -112,17 +115,15 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
   const bodyOver = body.length > WHATSAPP_TEMPLATE_BODY_MAX;
   const canSave = title.trim().length > 0 && body.trim().length > 0 && !titleOver && !bodyOver;
 
-  function insertVariable(token: string) {
+  function insertAtCursor(insert: string) {
     const ta = bodyRef.current;
     if (!ta) {
-      setBody((b) => `${b}{${token}}`);
+      setBody((b) => `${b}${insert}`);
       return;
     }
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
-    const insert = `{${token}}`;
     setBody((b) => b.slice(0, start) + insert + b.slice(end));
-    // Repositionne le curseur après l'insertion au prochain paint
     requestAnimationFrame(() => {
       if (bodyRef.current) {
         bodyRef.current.focus();
@@ -130,6 +131,10 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
         bodyRef.current.setSelectionRange(pos, pos);
       }
     });
+  }
+
+  function insertVariable(token: string) {
+    insertAtCursor(`{${token}}`);
   }
 
   function handleSave() {
@@ -252,9 +257,12 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
 
           {/* Body */}
           <div>
-            <label className="block text-[12px] font-body font-semibold text-text-primary mb-1.5">
-              Contenu du message
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="block text-[12px] font-body font-semibold text-text-primary">
+                Contenu du message
+              </label>
+              <InsertLinkButton onInsert={insertAtCursor} />
+            </div>
             <textarea
               ref={bodyRef}
               value={body}
@@ -298,6 +306,9 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             </div>
           </div>
 
+          {/* Prompt IA — génération du contenu du message via ChatGPT/Claude. */}
+          <AiPromptSection body={body} />
+
         </div>
 
         {/* Footer sticky */}
@@ -322,5 +333,131 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
       </div>
     </>,
     document.body,
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Bouton compact : Insérer un lien (à droite du label du textarea)
+   ───────────────────────────────────────────── */
+
+function InsertLinkButton({ onInsert }: { onInsert: (text: string) => void }) {
+  const toast = useToast();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [baseUrl, setBaseUrl] = useState<string>("");
+
+  // Charge la base URL du tenant au premier ouvrir — évite un fetch inutile
+  // quand la cliente n'ouvre pas le picker.
+  useEffect(() => {
+    if (!pickerOpen || baseUrl) return;
+    getNewsletterEditorBaseUrl()
+      .then(setBaseUrl)
+      .catch(() => {
+        // Silencieux : le picker fonctionnera en URL relative (`/fr/…`) —
+        // pas idéal pour WhatsApp mais mieux que de bloquer le flow.
+      });
+  }, [pickerOpen, baseUrl]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setPickerOpen(true)}
+        className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 text-[11.5px] font-body font-medium hover:bg-emerald-100 hover:border-emerald-400 transition-colors"
+        title="Choisir un lien à insérer à la position du curseur"
+      >
+        🔗 Insérer un lien
+      </button>
+
+      {pickerOpen && (
+        <LinkPickerModal
+          currentHref=""
+          baseUrl={baseUrl}
+          onClose={() => setPickerOpen(false)}
+          onValidate={(url) => {
+            // On entoure l'URL d'un espace de chaque côté pour que WhatsApp
+            // la détecte comme URL cliquable même si elle est collée au ras
+            // d'un autre mot.
+            onInsert(` ${url} `);
+            setPickerOpen(false);
+            toast.success("Lien inséré", "Il apparaîtra cliquable dans WhatsApp.");
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Sous-section : Prompt IA (contexte du message)
+   ───────────────────────────────────────────── */
+
+function AiPromptSection({ body }: { body: string }) {
+  const toast = useToast();
+  const [description, setDescription] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
+  const prompt = useMemo(() => buildWhatsAppAiPrompt({ description }), [description]);
+
+  async function handleCopy() {
+    if (!description.trim()) {
+      toast.error(
+        "Décris ton message d'abord",
+        "Écris quelques lignes sur le contexte : à qui tu envoies, pourquoi, l'info principale à faire passer.",
+      );
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast.success("Prompt copié", "Colle-le dans ChatGPT / Claude — l'IA te renverra le texte du message.");
+    } catch {
+      toast.error("Copie manuelle", "Ouvre le prompt ci-dessous et fais Ctrl+C.");
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-[12px] font-body font-semibold text-text-primary mb-2">
+        Prompt IA
+        <span className="text-text-muted font-normal"> — décris le contexte, une IA rédige le message</span>
+      </label>
+      <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3 space-y-2">
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Ex : Message de bienvenue pour un nouveau client B2B qui vient d'être approuvé. Ton chaleureux, présenter la boutique en 1 ligne, inviter à découvrir le catalogue avec le lien, signature perso."
+          rows={4}
+          className="w-full rounded-lg border border-violet-200 bg-bg-primary px-3 py-2 text-[13px] font-body text-text-primary focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 resize-y"
+        />
+        <p className="text-[11px] font-body text-text-secondary">
+          Le prompt final listera <strong>toutes les variables disponibles</strong>{" "}
+          (<code className="rounded bg-white px-1">{`{firstName}`}</code>,{" "}
+          <code className="rounded bg-white px-1">{`{shopName}`}</code>,{" "}
+          <code className="rounded bg-white px-1">{`{adminFirstName}`}</code>…), les contraintes WhatsApp (1000 caractères, formatage <code className="rounded bg-white px-1">*gras*</code>, URL en clair) et ta description.
+          {body.trim() && (
+            <> Le corps actuel du modèle n'est pas envoyé à l'IA — décris juste ce que tu veux qu'elle rédige.</>
+          )}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1.5 px-4 h-10 rounded-lg bg-violet-600 text-white text-[13px] font-body font-semibold hover:bg-violet-700"
+          >
+            Copier le prompt pour l'IA
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPreview((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-4 h-10 rounded-lg bg-bg-primary border border-border text-text-secondary text-[13px] font-body hover:border-border-strong"
+          >
+            {showPreview ? "Masquer" : "Voir"} le prompt complet
+          </button>
+        </div>
+        {showPreview && (
+          <pre className="mt-1 max-h-[320px] overflow-auto text-[11px] font-mono leading-relaxed p-3 bg-white border border-violet-200 rounded-lg whitespace-pre-wrap text-text-primary">
+            {prompt}
+          </pre>
+        )}
+      </div>
+    </div>
   );
 }

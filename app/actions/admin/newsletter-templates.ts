@@ -19,11 +19,20 @@ import {
   missingRequiredMarketingVariables,
   missingScenarioTokens,
 } from "@/lib/mail-merge-variables";
-import { deleteFile, deleteFiles, keyFromDbPath, listFiles, newsletterTemplateImageDir } from "@/lib/storage";
+import {
+  copyFile,
+  deleteFile,
+  deleteFiles,
+  keyFromDbPath,
+  listFiles,
+  newsletterTemplateImageDir,
+} from "@/lib/storage";
 import {
   SCENARIO_KEYS,
+  SCENARIO_LABELS,
   type ScenarioKey,
 } from "@/lib/mail-scenario-defaults";
+import { formatDurationShort } from "@/lib/abandoned-cart-config";
 import { MANUAL_HTML_DEFAULT, SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
 import { findOrphanedTemplateImages } from "@/lib/newsletter-html-render";
 
@@ -183,10 +192,66 @@ export async function getNewsletterTemplate(id: string): Promise<NewsletterTempl
 }
 
 /**
+ * Défensif (incident 2026-09-28) : garantit que le tag `scenarioKey` des mails
+ * auto multi-stades (ABANDONED_CART / INACTIVE_CLIENT) reste posé sur le
+ * template réellement lié au Stage 1 par FK. L'ancienne `assignTemplateToScenario`
+ * pouvait déplacer ce tag sur un template libre, laissant la tuile afficher un
+ * mauvais nom. Idempotent — sans effet si tout est déjà cohérent.
+ */
+async function repairScenarioKeyDriftFor(tenantId: string): Promise<void> {
+  const [acStage1, icStage1] = await Promise.all([
+    prisma.abandonedCartStage.findFirst({
+      where: { tenantId, stageIndex: 1 },
+      select: { templateId: true },
+    }),
+    prisma.inactiveClientStage.findFirst({
+      where: { tenantId, stageIndex: 1 },
+      select: { templateId: true },
+    }),
+  ]);
+
+  for (const [scenario, stage1TemplateId] of [
+    ["ABANDONED_CART" as const, acStage1?.templateId ?? null],
+    ["INACTIVE_CLIENT" as const, icStage1?.templateId ?? null],
+  ]) {
+    if (!stage1TemplateId) continue;
+    const holder = await prisma.newsletterTemplate.findFirst({
+      where: { tenantId, scenarioKey: scenario },
+      select: { id: true },
+    });
+    if (holder && holder.id === stage1TemplateId) continue;
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (holder && holder.id !== stage1TemplateId) {
+          await tx.newsletterTemplate.update({
+            where: { id: holder.id },
+            data: { scenarioKey: null },
+          });
+        }
+        await tx.newsletterTemplate.update({
+          where: { id: stage1TemplateId },
+          data: { scenarioKey: scenario },
+        });
+      });
+      logger.info("[repairScenarioKeyDrift] resynced", {
+        tenantId,
+        scenario,
+        previousHolder: holder?.id ?? null,
+        stage1TemplateId,
+      });
+    } catch (err) {
+      logger.error("[repairScenarioKeyDrift]", { tenantId, scenario, error: err as Error });
+    }
+  }
+}
+
+/**
  * Seed lazy : crée les 3 modèles par défaut s'ils n'existent pas encore pour
  * le tenant. Idempotent (contrainte @@unique[tenantId, scenarioKey] côté DB).
  */
 async function ensureDefaultScenarioTemplatesFor(tenantId: string): Promise<void> {
+  // 0) Répare un éventuel drift scenarioKey (voir commentaire ci-dessus).
+  await repairScenarioKeyDriftFor(tenantId);
   // 1) Seed des scénarios manquants — nouveau format HTML par défaut.
   const existing = await prisma.newsletterTemplate.findMany({
     where: { tenantId, scenarioKey: { in: [...SCENARIO_KEYS] } },
@@ -268,42 +333,330 @@ async function ensureDefaultScenarioTemplatesFor(tenantId: string): Promise<void
 }
 
 /**
- * Assigne un modèle existant à un scénario transactionnel. Transactionnel :
- * l'éventuel modèle actuellement lié à ce scénario perd son lien (redevient
- * un modèle libre, donc supprimable).
+ * Cible d'assignation possible pour un scénario transactionnel.
+ * RESTOCK n'a qu'une cible (le mail unique). ABANDONED_CART et INACTIVE_CLIENT
+ * ont N cibles (une par stade configuré) — la cliente choisit laquelle recevoir
+ * le contenu du modèle libre.
  */
-export async function assignTemplateToScenario(
-  templateId: string,
+export interface ScenarioAssignTarget {
+  key: string; // "restock" | "abandoned:<stageId>" | "inactive:<stageId>"
+  scenario: ScenarioKey;
+  stageId: string | null;
+  stageIndex: number | null;
+  templateId: string;
+  templateName: string;
+  delaySeconds: number | null;
+  /** Libellé prêt à afficher dans la modale de sélection. */
+  label: string;
+  /** Sous-titre optionnel (délai formaté, etc.). */
+  sublabel: string | null;
+}
+
+/**
+ * Liste les cibles possibles pour appliquer un modèle libre à un scénario
+ * transactionnel. Utilisé par `NewslettersListClient` :
+ *   - Si 1 seule cible (RESTOCK)          → confirm direct puis `assignTemplateToScenario`.
+ *   - Si N cibles (ABANDONED_CART / …)    → modale de sélection puis assign.
+ */
+export async function getScenarioAssignTargets(
   scenario: ScenarioKey,
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<
+  | { success: true; targets: ScenarioAssignTarget[] }
+  | { success: false; error: string }
+> {
   try {
     const { tenant } = await requireAdmin();
     if (!SCENARIO_KEYS.includes(scenario)) {
       return { success: false, error: "Scénario inconnu." };
     }
-    const target = await prisma.newsletterTemplate.findFirst({
-      where: { id: templateId, tenantId: tenant.id },
-      select: { id: true, scenarioKey: true },
-    });
-    if (!target) return { success: false, error: "Modèle introuvable." };
-    if (target.scenarioKey === scenario) return { success: true };
 
-    await prisma.$transaction(async (tx) => {
-      // Détache l'ancien titulaire du scénario (s'il existe et n'est pas le target).
-      await tx.newsletterTemplate.updateMany({
-        where: { tenantId: tenant.id, scenarioKey: scenario, id: { not: templateId } },
-        data: { scenarioKey: null },
+    if (scenario === "RESTOCK") {
+      const tpl = await prisma.newsletterTemplate.findFirst({
+        where: { tenantId: tenant.id, scenarioKey: "RESTOCK" },
+        select: { id: true, name: true },
       });
-      // Attache le nouveau (peut avoir été lié à un autre scénario avant → on écrase).
-      await tx.newsletterTemplate.update({
-        where: { id: templateId },
-        data: { scenarioKey: scenario },
+      if (!tpl) {
+        return { success: false, error: "Modèle « Retour en stock » introuvable." };
+      }
+      return {
+        success: true,
+        targets: [
+          {
+            key: "restock",
+            scenario,
+            stageId: null,
+            stageIndex: null,
+            templateId: tpl.id,
+            templateName: tpl.name,
+            delaySeconds: null,
+            label: SCENARIO_LABELS.RESTOCK,
+            sublabel: null,
+          },
+        ],
+      };
+    }
+
+    if (scenario === "ABANDONED_CART") {
+      const stages = await prisma.abandonedCartStage.findMany({
+        where: { tenantId: tenant.id },
+        orderBy: { stageIndex: "asc" },
+        select: {
+          id: true,
+          stageIndex: true,
+          delaySeconds: true,
+          template: { select: { id: true, name: true } },
+        },
       });
+      return {
+        success: true,
+        targets: stages.map((s) => ({
+          key: `abandoned:${s.id}`,
+          scenario,
+          stageId: s.id,
+          stageIndex: s.stageIndex,
+          templateId: s.template.id,
+          templateName: s.template.name,
+          delaySeconds: s.delaySeconds,
+          label: `Stade ${s.stageIndex}`,
+          sublabel: `${formatDurationShort(s.delaySeconds)} après le dernier changement de panier`,
+        })),
+      };
+    }
+
+    // INACTIVE_CLIENT
+    const stages = await prisma.inactiveClientStage.findMany({
+      where: { tenantId: tenant.id },
+      orderBy: { stageIndex: "asc" },
+      select: {
+        id: true,
+        stageIndex: true,
+        delaySeconds: true,
+        template: { select: { id: true, name: true } },
+      },
     });
-    revalidatePath("/admin/marketing/mails");
-    return { success: true };
+    return {
+      success: true,
+      targets: stages.map((s) => ({
+        key: `inactive:${s.id}`,
+        scenario,
+        stageId: s.id,
+        stageIndex: s.stageIndex,
+        templateId: s.template.id,
+        templateName: s.template.name,
+        delaySeconds: s.delaySeconds,
+        label: `Stade ${s.stageIndex}`,
+        sublabel: `${formatDurationShort(s.delaySeconds)} sans activité`,
+      })),
+    };
   } catch (err) {
-    logger.error("[assignTemplateToScenario]", { templateId, scenario, error: err as Error });
+    logger.error("[getScenarioAssignTargets]", { scenario, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Applique le contenu (HTML + sujet + bibliothèque d'images) d'un modèle libre
+ * à un mail automatique cible.
+ *
+ * Depuis 2026-09-28 : cette action ne swap plus le tag `scenarioKey` (ancien
+ * comportement qui changeait le titre de la tuile et pouvait laisser un état
+ * incohérent avec `AbandonedCartStage.templateId`). Elle **copie** :
+ *   - le HTML source
+ *   - le sujet
+ *   - la bibliothèque d'images (fichiers + rows)
+ * dans le template déjà lié au scénario / au stade cible. Le nom du mail auto
+ * est **préservé** — la cliente garde ses libellés « Panier abandonné — Stade 2 ».
+ *
+ * Validation stricte du HTML source avant copie :
+ *   - variables marketing obligatoires ({shopName}, {shopAddress}, {unsubscribeLink}, {privacyLink})
+ *   - tokens spécifiques au scénario ({{#each cart}} pour ABANDONED_CART, etc.)
+ * → refuse la copie si un token manque, la cliente est renvoyée à son éditeur.
+ *
+ * Le modèle source reste intact dans « Mes modèles » — la cliente peut le
+ * réutiliser, le modifier, ou l'appliquer à un autre stade.
+ */
+export async function assignTemplateToScenario(
+  sourceTemplateId: string,
+  target:
+    | { scenario: "RESTOCK" }
+    | { scenario: "ABANDONED_CART"; stageId: string }
+    | { scenario: "INACTIVE_CLIENT"; stageId: string },
+): Promise<
+  | { success: true; targetTemplateId: string }
+  | { success: false; error: string; missingVariables?: string[] }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+    if (!SCENARIO_KEYS.includes(target.scenario)) {
+      return { success: false, error: "Scénario inconnu." };
+    }
+
+    const source = await prisma.newsletterTemplate.findFirst({
+      where: { id: sourceTemplateId, tenantId: tenant.id },
+      include: {
+        images: {
+          select: { name: true, path: true, alt: true, sizeBytes: true, width: true, height: true },
+        },
+      },
+    });
+    if (!source) return { success: false, error: "Modèle source introuvable." };
+
+    // ── Résolution de la cible : template du scénario ou du stade. ──
+    let targetTemplateId: string;
+    let targetLabel: string;
+    if (target.scenario === "RESTOCK") {
+      const tpl = await prisma.newsletterTemplate.findFirst({
+        where: { tenantId: tenant.id, scenarioKey: "RESTOCK" },
+        select: { id: true },
+      });
+      if (!tpl) return { success: false, error: "Mail « Retour en stock » introuvable." };
+      targetTemplateId = tpl.id;
+      targetLabel = SCENARIO_LABELS.RESTOCK;
+    } else if (target.scenario === "ABANDONED_CART") {
+      const stage = await prisma.abandonedCartStage.findFirst({
+        where: { id: target.stageId, tenantId: tenant.id },
+        select: { templateId: true, stageIndex: true },
+      });
+      if (!stage) return { success: false, error: "Stade panier abandonné introuvable." };
+      targetTemplateId = stage.templateId;
+      targetLabel = `Panier abandonné — Stade ${stage.stageIndex}`;
+    } else {
+      const stage = await prisma.inactiveClientStage.findFirst({
+        where: { id: target.stageId, tenantId: tenant.id },
+        select: { templateId: true, stageIndex: true },
+      });
+      if (!stage) return { success: false, error: "Stade relance inactivité introuvable." };
+      targetTemplateId = stage.templateId;
+      targetLabel = `Relance inactivité — Stade ${stage.stageIndex}`;
+    }
+
+    if (targetTemplateId === sourceTemplateId) {
+      return {
+        success: false,
+        error: "Ce modèle est déjà celui du mail auto — rien à copier.",
+      };
+    }
+
+    const sourceHtml = source.html ?? "";
+    if (!sourceHtml.trim()) {
+      return { success: false, error: "Le modèle source n'a pas de contenu HTML." };
+    }
+
+    // ── Validation du contenu avant copie (mentions légales + tokens scénario) ──
+    const missingMarketing = missingRequiredMarketingVariables(sourceHtml);
+    if (missingMarketing.length > 0) {
+      return {
+        success: false,
+        error: `Ton modèle « ${source.name} » n'est pas prêt pour être utilisé comme mail auto « ${targetLabel} » : il manque ces variables obligatoires : ${missingMarketing.map((v) => `{${v.token}}`).join(", ")}. Ajoute-les dans le pied de page puis réessaie.`,
+        missingVariables: missingMarketing.map((v) => v.token),
+      };
+    }
+    const missingScenario = missingScenarioTokens(sourceHtml, target.scenario);
+    if (missingScenario.length > 0) {
+      return {
+        success: false,
+        error: `Ton modèle « ${source.name} » n'a pas les éléments nécessaires pour un mail « ${targetLabel} » — il manque : ${missingScenario.map((s) => s.label).join(" · ")}. Ces tokens sont indispensables pour que le mail affiche les vraies données du client.`,
+        missingVariables: missingScenario.map((s) => s.token),
+      };
+    }
+
+    // ── Copie fichiers : chaque image source vers le dossier du template cible. ──
+    // Fait AVANT la transaction BDD pour que la BDD reste cohérente si le FS
+    // échoue partiellement (au pire on aura des fichiers orphelins nettoyés
+    // plus tard par gcOrphanedTemplateImages sur update du HTML cible).
+    const targetDir = newsletterTemplateImageDir(targetTemplateId, tenant.slug);
+    // 1) Nettoie les fichiers existants du dossier cible (les nouveaux vont les
+    //    remplacer, et l'ancien contenu HTML ne les référencera plus).
+    try {
+      const oldFiles = await listFiles(targetDir);
+      if (oldFiles.length > 0) await deleteFiles(oldFiles);
+    } catch (err) {
+      logger.error("[assignTemplateToScenario] cleanup target dir", {
+        targetTemplateId,
+        error: err as Error,
+      });
+    }
+    // 2) Copie chaque image source vers le dossier cible.
+    const copiedImages: Array<{
+      name: string;
+      path: string;
+      alt: string;
+      sizeBytes: number;
+      width: number | null;
+      height: number | null;
+    }> = [];
+    for (const img of source.images) {
+      const srcKey = keyFromDbPath(img.path);
+      const dstKey = `${targetDir}/${img.name}.webp`;
+      const dstDbPath = `/${dstKey}`;
+      try {
+        await copyFile(srcKey, dstKey);
+        copiedImages.push({
+          name: img.name,
+          path: dstDbPath,
+          alt: img.alt,
+          sizeBytes: img.sizeBytes,
+          width: img.width,
+          height: img.height,
+        });
+      } catch (err) {
+        logger.error("[assignTemplateToScenario] copy image", {
+          sourceTemplateId,
+          targetTemplateId,
+          imageName: img.name,
+          error: err as Error,
+        });
+      }
+    }
+
+    // ── Transaction : purge images BDD cibles + écrit le nouveau contenu + insère nouvelles images. ──
+    await prisma.$transaction(async (tx) => {
+      await tx.newsletterTemplateImage.deleteMany({ where: { templateId: targetTemplateId } });
+      await tx.newsletterTemplate.update({
+        where: { id: targetTemplateId },
+        data: {
+          format: "html",
+          html: sourceHtml,
+          subject: source.subject,
+        },
+      });
+      if (copiedImages.length > 0) {
+        await tx.newsletterTemplateImage.createMany({
+          data: copiedImages.map((img) => ({
+            tenantId: tenant.id,
+            templateId: targetTemplateId,
+            name: img.name,
+            path: img.path,
+            alt: img.alt,
+            sizeBytes: img.sizeBytes,
+            width: img.width,
+            height: img.height,
+          })),
+        });
+      }
+    });
+
+    logger.info("[assignTemplateToScenario] applied", {
+      sourceTemplateId,
+      targetTemplateId,
+      scenario: target.scenario,
+      imagesCopied: copiedImages.length,
+    });
+
+    revalidatePath("/admin/marketing/mails");
+    revalidatePath(`/admin/marketing/mails/newsletter/${targetTemplateId}`);
+    if (target.scenario === "ABANDONED_CART") {
+      revalidatePath("/admin/marketing/mails/panier-abandonne");
+    } else if (target.scenario === "INACTIVE_CLIENT") {
+      revalidatePath("/admin/marketing/mails/inactivite");
+    }
+    return { success: true, targetTemplateId };
+  } catch (err) {
+    logger.error("[assignTemplateToScenario]", {
+      sourceTemplateId,
+      target,
+      error: err as Error,
+    });
     return { success: false, error: (err as Error).message };
   }
 }

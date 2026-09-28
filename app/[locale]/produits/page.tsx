@@ -287,9 +287,12 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     const [rawProducts, count] = await Promise.all([
       prisma.product.findMany({
         where,
-        orderBy: isNew_
-          ? [{ lastRefreshedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-          : { createdAt: "desc" },
+        // Tri unifié `createdAt DESC` — y compris avec ?new=1. L'ancien tri par
+        // lastRefreshedAt en tête faisait remonter des vieux produits refresh
+        // devant les créations récentes ; incohérent avec l'intuition
+        // "nouveautés = récents". Les produits refresh restent visibles via le
+        // OR du WHERE, juste plus en tête forcé.
+        orderBy: { createdAt: "desc" },
         take: PER_PAGE,
         include: productInclude,
       }),
@@ -368,6 +371,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         shopName={shopName}
         products={issymaProducts}
         totalCount={totalCount}
+        initialHasMore={initialHasMore}
         categories={categories.map((c) => ({ id: c.id, name: catTr.get(c.id) ?? c.name }))}
         collections={collections.map((c) => ({ id: c.id, name: colTr.get(c.id) ?? c.name }))}
         colors={colors.map((c) => ({ id: c.id, name: colorTr.get(c.id) ?? c.name, hex: c.hex ?? null }))}

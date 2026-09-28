@@ -284,9 +284,10 @@ export async function GET(request: NextRequest) {
 
   const products = await prisma.product.findMany({
     where,
-    orderBy: isNew
-      ? [{ lastRefreshedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-      : { createdAt: "desc" },
+    // Tri unifié `createdAt DESC` — voir page.tsx pour le rationnel.
+    // Load-more DOIT utiliser le même orderBy que la 1re page sinon la
+    // pagination affiche des doublons/manques.
+    orderBy: { createdAt: "desc" },
     skip:    (page - 1) * PER_PAGE,
     take:    PER_PAGE,
     include: productInclude,

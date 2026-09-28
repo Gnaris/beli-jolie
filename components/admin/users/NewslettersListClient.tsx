@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
+import ScenarioAssignModal from "@/components/admin/users/ScenarioAssignModal";
 import {
   assignTemplateToScenario,
   createNewsletterTemplate,
@@ -24,6 +25,7 @@ import {
   duplicateNewsletterTemplate,
   resetScenarioTemplateToDefault,
   type NewsletterTemplateSummary,
+  type ScenarioAssignTarget,
 } from "@/app/actions/admin/newsletter-templates";
 import {
   SCENARIO_KEYS,
@@ -72,6 +74,13 @@ export default function NewslettersListClient({ templates }: Props) {
   const { confirm } = useConfirm();
   const [pending, startTransition] = useTransition();
   const [newName, setNewName] = useState("");
+  // Modale de sélection de stade (uniquement scénarios multi-stades) ouverte
+  // après clic sur « Utiliser pour: Panier abandonné » ou « Relance inactivité ».
+  const [assignModal, setAssignModal] = useState<{
+    templateId: string;
+    templateName: string;
+    scenario: ScenarioKey;
+  } | null>(null);
 
   const { scenarioTemplates, freeTemplates } = useMemo(() => {
     const scenarioMap = new Map<ScenarioKey, NewsletterTemplateSummary>();
@@ -132,23 +141,51 @@ export default function NewslettersListClient({ templates }: Props) {
   }
 
   async function onAssign(id: string, name: string, scenario: ScenarioKey) {
-    const currentHolder = scenarioTemplates.get(scenario);
+    // Scénarios multi-stades (Panier abandonné, Relance inactivité) : on ouvre
+    // une modale pour que la cliente choisisse quel stade recevoir le contenu.
+    // RESTOCK n'a qu'un mail cible → confirm direct.
+    if (scenario === "ABANDONED_CART" || scenario === "INACTIVE_CLIENT") {
+      setAssignModal({ templateId: id, templateName: name, scenario });
+      return;
+    }
+
     const ok = await confirm({
-      title: `Utiliser « ${name} » pour ${SCENARIO_LABELS[scenario]} ?`,
-      message: currentHolder
-        ? `Le modèle actuel (« ${currentHolder.name} ») redeviendra un modèle libre, supprimable si vous le souhaitez.`
-        : `Ce modèle sera utilisé automatiquement pour tous les envois « ${SCENARIO_LABELS[scenario]} ».`,
-      confirmLabel: "Utiliser ce modèle",
+      title: `Copier « ${name} » dans le mail auto « ${SCENARIO_LABELS[scenario]} » ?`,
+      message: `Le contenu (HTML, sujet, images) sera copié dans le mail auto. Le titre du mail auto ne change pas. Ton modèle « ${name} » reste dans « Mes modèles ».`,
+      confirmLabel: "Copier le contenu",
       type: "info",
     });
     if (ok !== true) return;
     startTransition(async () => {
-      const res = await assignTemplateToScenario(id, scenario);
+      const res = await assignTemplateToScenario(id, { scenario });
       if (!res.success) {
-        toast.error("Assignation impossible", res.error);
+        toast.error("Copie impossible", res.error);
         return;
       }
-      toast.success(`« ${name} » utilisé pour ${SCENARIO_LABELS[scenario]}`);
+      toast.success(`Contenu copié dans ${SCENARIO_LABELS[scenario]}`);
+      router.refresh();
+    });
+  }
+
+  function onModalConfirm(target: ScenarioAssignTarget) {
+    if (!assignModal) return;
+    const { templateId, templateName } = assignModal;
+    startTransition(async () => {
+      const targetArg =
+        target.scenario === "RESTOCK"
+          ? { scenario: "RESTOCK" as const }
+          : target.scenario === "ABANDONED_CART"
+            ? { scenario: "ABANDONED_CART" as const, stageId: target.stageId! }
+            : { scenario: "INACTIVE_CLIENT" as const, stageId: target.stageId! };
+      const res = await assignTemplateToScenario(templateId, targetArg);
+      if (!res.success) {
+        toast.error("Copie impossible", res.error);
+        return;
+      }
+      toast.success(
+        `« ${templateName} » copié dans ${SCENARIO_LABELS[target.scenario]} — ${target.label}`,
+      );
+      setAssignModal(null);
       router.refresh();
     });
   }
@@ -411,6 +448,17 @@ export default function NewslettersListClient({ templates }: Props) {
           </div>
         )}
       </section>
+
+      {assignModal && (
+        <ScenarioAssignModal
+          sourceTemplateId={assignModal.templateId}
+          sourceTemplateName={assignModal.templateName}
+          scenario={assignModal.scenario}
+          pending={pending}
+          onCancel={() => setAssignModal(null)}
+          onConfirm={onModalConfirm}
+        />
+      )}
     </div>
   );
 }

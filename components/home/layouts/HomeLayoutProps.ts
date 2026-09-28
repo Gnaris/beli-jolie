@@ -43,4 +43,10 @@ export interface HomeLayoutProps {
   /** Session autorisée à voir les prix (ADMIN ou CLIENT APPROVED). Utilisé
    *  pour masquer les prix aux visiteurs anonymes sur la home Issyma. */
   canSeePrices: boolean;
+  /** Téléphone entreprise (CompanyInfo.phone), utilisé pour construire les
+   *  liens `tel:` / `wa.me` du hero BJ. null si non renseigné. */
+  companyPhone: string | null;
+  /** Numéro WhatsApp entreprise (CompanyInfo.whatsapp) — fallback sur
+   *  companyPhone si null côté consommateur. */
+  companyWhatsapp: string | null;
 }

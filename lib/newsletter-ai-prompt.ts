@@ -58,21 +58,31 @@ Règles pour l'attribut \`alt\` :
 
 La cliente uploadera des images en haute résolution (retina) — pas besoin de préciser \`width="1200"\` pour du retina, l'éditeur redimensionne. Seule la largeur d'AFFICHAGE compte.
 
+**Image cliquable (FACULTATIF)** : si l'image doit renvoyer vers une page (hero → boutique, vignette produit → fiche, logo → accueil…), enveloppe-la dans un \`<a href="">\` — comme pour les CTAs texte, \`href=""\` VIDE, l'admin configure l'URL via le picker visuel après coup. Sinon (image purement décorative : séparateur, motif de fond, signature manuscrite…), laisse le \`<img>\` seul. Ne mets JAMAIS d'URL en dur dans le \`href\` d'une image cliquable.
+
 Exemples corrects :
 
 \`\`\`html
-<!-- Hero pleine largeur -->
-<img src="{{img.hero}}" alt="Vitrine automnale : bijoux dorés sur fond beige" width="600" style="display:block;max-width:100%;height:auto;">
+<!-- Hero pleine largeur, CLIQUABLE (renvoie vers la boutique) -->
+<a href="" style="text-decoration:none;">
+  <img src="{{img.hero}}" alt="Vitrine automnale : bijoux dorés sur fond beige" width="600" style="display:block;max-width:100%;height:auto;border:0;">
+</a>
 
-<!-- Bannière avec hauteur fixe -->
+<!-- Bannière avec hauteur fixe, non cliquable (décoratif) -->
 <img src="{{img.banniere-promo}}" alt="Bandeau promo -20% jusqu'à dimanche" width="600" height="240" style="display:block;max-width:100%;">
 
-<!-- Logo centré en en-tête -->
-<img src="{{img.logo}}" alt="Logo Beli & Jolie" width="160" style="display:block;height:auto;">
+<!-- Logo centré en en-tête, CLIQUABLE (renvoie vers l'accueil) -->
+<a href="" style="text-decoration:none;">
+  <img src="{{img.logo}}" alt="Logo Beli & Jolie" width="160" style="display:block;height:auto;border:0;">
+</a>
 
-<!-- Vignette produit en 3 colonnes -->
-<img src="{{img.produit-1}}" alt="Bracelet fin doré chaîne torsadée" width="180" height="180" style="display:block;max-width:100%;">
-\`\`\``;
+<!-- Vignette produit en 3 colonnes, CLIQUABLE (renvoie vers la fiche produit) -->
+<a href="" style="text-decoration:none;">
+  <img src="{{img.produit-1}}" alt="Bracelet fin doré chaîne torsadée" width="180" height="180" style="display:block;max-width:100%;border:0;">
+</a>
+\`\`\`
+
+Astuce \`border:0;\` dans le style de \`<img>\` cliquable : évite une bordure bleue automatique dans certains vieux clients mail (Outlook 2007).`;
 
 function formatVariable(v: MailVariable): string {
   const hint = v.hint ? ` — ${v.hint}` : "";
