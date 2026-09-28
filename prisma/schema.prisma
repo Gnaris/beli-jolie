@@ -135,6 +135,8 @@ model User {
   credits                    Credit[]
   promotionUsages            PromotionUsage[]
   productViews               ProductView[]                    @relation("ProductViewer")
+  catalogViews               CatalogView[]
+  catalogCartAdditions       CatalogCartAddition[]
   priceChanges               PriceHistory[]                   @relation("PriceChanger")
   adminClientCards           AdminClientCard[]                @relation("AdminCardCreator")
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
@@ -145,6 +147,8 @@ model User {
   customerReview             CustomerReview?                  @relation("CustomerReviewAuthor")
   customerReviewsModerated   CustomerReview[]                 @relation("CustomerReviewModerator")
   emailChangeTokens          EmailChangeToken[]
+  whatsAppSendsReceived      WhatsAppSend[]                   @relation("WhatsAppSendRecipient")
+  whatsAppSendsInitiated     WhatsAppSend[]                   @relation("WhatsAppSendAdmin")
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -1453,6 +1457,7 @@ model Product {
   tags                        ProductTag[]
   translations                ProductTranslation[]
   catalogs                    CatalogProduct[]
+  catalogCartAdditions        CatalogCartAddition[]
   pfsOrderItems               PfsOrderItem[]
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
@@ -2794,14 +2799,26 @@ enum CatalogStatus {
   ACTIVE // Activé (accessible via lien)
 }
 
+// Contrôle l'affichage des prix sur la page publique d'un catalogue partagé.
+// Lu côté serveur au rendu et jamais depuis l'URL — un visiteur ne peut pas
+// forcer l'affichage en modifiant le lien.
+enum CatalogPriceVisibility {
+  SHOW // Prix visibles pour tout le monde (même anonymes)
+  HIDE // Prix cachés pour tout le monde (même connectés)
+  CONNECTED_ONLY // Prix visibles uniquement si le visiteur est un client APPROVED (ou ADMIN)
+}
+
 model Catalog {
-  id        String           @id @default(cuid())
-  title     String
-  token     String           @unique @default(cuid()) // token public pour le lien
-  status    CatalogStatus    @default(INACTIVE)
-  products  CatalogProduct[]
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id              String                 @id @default(cuid())
+  title           String
+  token           String                 @unique @default(cuid()) // token public pour le lien
+  status          CatalogStatus          @default(INACTIVE)
+  priceVisibility CatalogPriceVisibility @default(SHOW)
+  products        CatalogProduct[]
+  views           CatalogView[]
+  cartAdditions   CatalogCartAddition[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
@@ -2826,6 +2843,53 @@ model CatalogProduct {
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
   @@unique([catalogId, productId])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Statistiques de fréquentation des catalogues partagés
+// ─────────────────────────────────────────────
+
+// Une ligne par visite de la page publique /catalogue/{token}.
+// La cliente veut que 3 visites d'un même visiteur = 3 vues, donc aucune
+// dédup par IP/cookie : chaque hit est enregistré.
+model CatalogView {
+  id        String   @id @default(cuid())
+  catalogId String
+  catalog   Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  // Renseigné si un utilisateur connecté visite. Null = vue anonyme.
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  viewedAt  DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([catalogId, viewedAt])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+// Une ligne par ajout au panier effectué dans le contexte d'un catalogue
+// (le visiteur est arrivé via le lien du catalogue puis a ajouté un produit
+// qui y figurait). Détecté serveur via cookie de contexte signé HMAC.
+model CatalogCartAddition {
+  id        String   @id @default(cuid())
+  catalogId String
+  catalog   Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variantId String? // ProductColor.id — null si supprimé après coup
+  quantity  Int
+  addedAt   DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([catalogId, addedAt])
+  @@index([catalogId, userId])
   @@index([tenantId])
 }
 
@@ -3697,6 +3761,8 @@ model Tenant {
   promotionUsages            PromotionUsage[]
   catalogs                   Catalog[]
   catalogProducts            CatalogProduct[]
+  catalogViews               CatalogView[]
+  catalogCartAdditions       CatalogCartAddition[]
   importJobs                 ImportJob[]
   importDrafts               ImportDraft[]
   marketplaceRefreshJobs     MarketplaceRefreshJob[]
@@ -3766,6 +3832,8 @@ model Tenant {
   inactiveClientJobs       InactiveClientJob[]
   bulkMailJobs             BulkMailJob[]
   customerReviews          CustomerReview[]
+  whatsAppTemplates        WhatsAppTemplate[]
+  whatsAppSends            WhatsAppSend[]
 
   @@index([isActive])
 }
@@ -3842,6 +3910,54 @@ model EmailSend {
   @@index([tenantId, userId, scenarioKey, sentAt])
   @@index([tenantId, scenarioKey, sentAt])
   @@index([tenantId, status, sentAt])
+}
+
+// ─────────────────────────────────────────────
+// Modèles de messages WhatsApp réutilisables + journal d'envoi.
+//
+// La cliente rédige des modèles de texte (« Bienvenue », « Relance panier »,
+// etc.) dans /admin/marketing/whatsapp. Le corps du modèle peut contenir des
+// variables {firstName}, {company}, {shopName}, etc. — mêmes noms que le
+// merge des mails (lib/mail-merge-variables.ts).
+//
+// Au clic sur l'icône WhatsApp d'un client dans /admin/clients, un mini-menu
+// propose la liste des modèles. Une fois sélectionné, on crée un WhatsAppSend
+// (journal) et on ouvre wa.me?text=… avec le body rendu.
+// ─────────────────────────────────────────────
+model WhatsAppTemplate {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title     String         @db.VarChar(80)
+  body      String         @db.Text
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  sends     WhatsAppSend[]
+
+  @@unique([tenantId, title])
+  @@index([tenantId, updatedAt])
+}
+
+// Une ligne = un clic sur un modèle depuis un client (ou envoi manuel sans
+// modèle → templateId null). Sert d'historique pour éviter de renvoyer le
+// même modèle 3 fois à la même personne.
+model WhatsAppSend {
+  id           String            @id @default(cuid())
+  tenantId     String
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateId   String?
+  template     WhatsAppTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  userId       String?
+  user         User?             @relation("WhatsAppSendRecipient", fields: [userId], references: [id], onDelete: SetNull)
+  adminId      String
+  admin        User              @relation("WhatsAppSendAdmin", fields: [adminId], references: [id], onDelete: Cascade)
+  phoneNumber  String            @db.VarChar(30)
+  renderedBody String            @db.Text
+  sentAt       DateTime          @default(now())
+
+  @@index([tenantId, userId, sentAt])
+  @@index([tenantId, templateId, sentAt])
+  @@index([tenantId, sentAt])
 }
 
 // ─────────────────────────────────────────────
@@ -3982,21 +4098,21 @@ model BulkMailJob {
 // 2026-09-09 (« Supprime avec pour être plus propre »).
 // ─────────────────────────────────────────────
 model AbandonedCartStage {
-  id           String             @id @default(cuid())
-  tenantId     String
-  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
-  delaySeconds Int // délai depuis la dernière mutation panier avant envoi
+  id            String             @id @default(cuid())
+  tenantId      String
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stageIndex    Int // 1-based, ordre du stade (1 = premier envoi)
+  delaySeconds  Int // délai depuis la dernière mutation panier avant envoi
   // Plafond de commandes non annulées (PENDING + SHIPPED) au-delà duquel
   // ce stade est SILENCIEUSEMENT sauté. null = aucune limite (comportement
   // historique). Un client qui a >= maxOrderCount commandes ne recevra pas
   // ce stade précis mais reste éligible aux stades suivants (chacun a sa
   // propre condition indépendante).
   maxOrderCount Int?
-  templateId   String             @unique
-  template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  templateId    String             @unique
+  template      NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@unique([tenantId, stageIndex])
   @@index([tenantId])
@@ -4055,20 +4171,20 @@ model AbandonedCartJob {
 // de mail dédié. Suppression d'un stade = cascade delete du template lié.
 // ─────────────────────────────────────────────
 model InactiveClientStage {
-  id           String             @id @default(cuid())
-  tenantId     String
-  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  stageIndex   Int // 1-based, ordre du stade (1 = premier envoi)
-  delaySeconds Int // délai depuis referenceAt (max lastSeen/lastOrder/createdAt) avant envoi
+  id            String             @id @default(cuid())
+  tenantId      String
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stageIndex    Int // 1-based, ordre du stade (1 = premier envoi)
+  delaySeconds  Int // délai depuis referenceAt (max lastSeen/lastOrder/createdAt) avant envoi
   // Plafond de commandes non annulées (PENDING + SHIPPED) au-delà duquel
   // ce stade est SILENCIEUSEMENT sauté. null = aucune limite. Un client
   // au-dessus du seuil verra son stade marqué "sauté" dans stagesFired
   // pour ne pas être re-évalué en boucle par le worker.
   maxOrderCount Int?
-  templateId   String             @unique
-  template     NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  templateId    String             @unique
+  template      NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   @@unique([tenantId, stageIndex])
   @@index([tenantId])

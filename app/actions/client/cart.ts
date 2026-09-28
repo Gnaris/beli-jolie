@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { bumpAbandonedCartTimer } from "@/lib/abandoned-cart-trigger";
+import { trackCatalogCartAddition } from "@/lib/catalog-tracking";
 import {
   findMissingAddressFields,
   serializeMissingFields,
@@ -496,6 +497,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
   const cappedQty = Math.min(Math.floor(quantity), effectiveStock);
   const capped = cappedQty < quantity;
 
+  const previousQty = existing?.quantity ?? 0;
   if (existing) {
     await prisma.cartItem.update({
       where: { id: existing.id },
@@ -509,6 +511,7 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
 
   revalidatePath("/panier");
   await fireAbandonedCartTrigger(userId);
+  await trackCatalogCartAddition(userId, variantId, cappedQty - previousQty);
   return { success: true as const, quantity: cappedQty, capped };
 }
 
@@ -593,6 +596,7 @@ export async function addToCart(variantId: string, quantity: number = 1) {
 
   revalidatePath("/panier");
   await fireAbandonedCartTrigger(userId);
+  await trackCatalogCartAddition(userId, variantId, quantity);
 }
 
 // ─────────────────────────────────────────────
@@ -661,6 +665,7 @@ export async function addMultipleToCart(
         });
       }
       addedCount++;
+      await trackCatalogCartAddition(userId, it.variantId, it.quantity);
     } catch (err) {
       errors.push({
         variantId: it.variantId,

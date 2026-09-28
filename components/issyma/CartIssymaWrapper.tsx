@@ -80,7 +80,7 @@ export default async function CartIssymaWrapper({
             className="serif mt-3"
             style={{
               color: P.ink,
-              fontSize: "clamp(2.4rem, 5.5vw, 4.4rem)",
+              fontSize: "clamp(1.6rem, 3vw, 2.4rem)",
               lineHeight: 1,
               letterSpacing: "-0.02em",
             }}

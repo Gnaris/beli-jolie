@@ -43,11 +43,14 @@ interface CatalogProductRow {
   product: ProductSnap;
 }
 
+type PriceVisibility = "SHOW" | "HIDE" | "CONNECTED_ONLY";
+
 interface CatalogData {
   id: string;
   title: string;
   token: string;
   status: "INACTIVE" | "ACTIVE";
+  priceVisibility: PriceVisibility;
   products: CatalogProductRow[];
 }
 
@@ -104,6 +107,7 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
   // ── État local ──────────────────────────────────────────────────────────────
   const [title, setTitle] = useState(catalog.title);
   const [status, setStatus] = useState<"INACTIVE" | "ACTIVE">(catalog.status);
+  const [priceVisibility, setPriceVisibility] = useState<PriceVisibility>(catalog.priceVisibility);
   const [selectedProducts, setSelectedProducts] = useState<CatalogProductRow[]>(catalog.products);
   const [saved, setSaved] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
@@ -133,7 +137,7 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
     });
   }
 
-  // ─── Sauvegarder les réglages (titre/statut) ─────────────────────────────
+  // ─── Sauvegarder les réglages (titre/statut/visibilité prix) ─────────────
   const handleSave = () => {
     showLoading();
     startTransition(async () => {
@@ -141,6 +145,7 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
         await updateCatalog(catalog.id, {
           title,
           status,
+          priceVisibility,
         });
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
@@ -237,7 +242,10 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
   };
 
   // Detect if there are unsaved changes
-  const hasChanges = title !== catalog.title || status !== catalog.status;
+  const hasChanges =
+    title !== catalog.title ||
+    status !== catalog.status ||
+    priceVisibility !== catalog.priceVisibility;
 
   return (
     <div className="space-y-6">
@@ -327,6 +335,18 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
               </svg>
             </a>
 
+            {/* Statistiques */}
+            <a
+              href={`/admin/catalogues/${catalog.id}/statistiques`}
+              title="Voir les statistiques"
+              className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-bg-secondary transition-colors text-text-muted hover:text-text-primary"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M3 3v18h18M8 17V9m4 8V5m4 12v-6" />
+              </svg>
+            </a>
+
             {/* Enregistrer */}
             <button
               onClick={handleSave}
@@ -359,6 +379,73 @@ export default function CatalogEditor({ catalog, categories, filterOptions }: Pr
               )}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════════
+          RÉGLAGES DU LIEN : visibilité des prix
+          ════════════════════════════════════════════════════════════════════════ */}
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 sm:p-5 shadow-sm">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-9 h-9 rounded-xl bg-bg-secondary flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V6m0 12v-2m9-6a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-heading font-semibold text-text-primary text-sm">
+              Affichage des prix sur le lien partagé
+            </h2>
+            <p className="text-xs text-text-muted font-body mt-0.5">
+              Impossible pour un visiteur de contourner ce choix en modifiant le lien.
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {([
+            {
+              value: "SHOW" as const,
+              title: "Prix visibles",
+              subtitle: "Tout le monde voit les prix, même sans être connecté.",
+            },
+            {
+              value: "HIDE" as const,
+              title: "Prix cachés",
+              subtitle: "Personne ne voit les prix, pas même les clients connectés.",
+            },
+            {
+              value: "CONNECTED_ONLY" as const,
+              title: "Seulement si connecté",
+              subtitle: "Prix visibles uniquement pour vos clients validés.",
+            },
+          ]).map((opt) => {
+            const isSelected = priceVisibility === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setPriceVisibility(opt.value)}
+                className={`text-left p-3 rounded-xl border transition-all ${
+                  isSelected
+                    ? "border-[#1A1A1A] bg-[#F9FAFB] shadow-sm"
+                    : "border-border hover:border-[#9CA3AF]"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-block w-3.5 h-3.5 rounded-full border transition-colors ${
+                      isSelected ? "border-[#1A1A1A] bg-[#1A1A1A]" : "border-[#D1D5DB] bg-white"
+                    }`}
+                  />
+                  <span className="text-sm font-heading font-medium text-text-primary">
+                    {opt.title}
+                  </span>
+                </div>
+                <p className="text-xs text-text-muted font-body mt-1 ml-5.5">{opt.subtitle}</p>
+              </button>
+            );
+          })}
         </div>
       </div>
 

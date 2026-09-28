@@ -168,7 +168,7 @@ async function main() {
   const data = JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
 
   const defaults = {
-    composition: "Acier inoxydable:100",
+    composition: "Acier inoxydable 304:100",
     pays_fabrication: "Chine",
     saison: "Toutes saisons",
     taille_unique_details: "0",

@@ -15,6 +15,8 @@ import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 import SendMailButton from "@/components/admin/users/SendMailButton";
 import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
+import PhoneContactIcons from "@/components/admin/users/PhoneContactIcons";
+import { listWhatsAppTemplates } from "@/app/actions/admin/whatsapp-templates";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
@@ -172,6 +174,8 @@ export default async function UtilisateursPage({
 }) {
   const session = await getServerSession(authOptions);
   if (!session || session.user.role !== "ADMIN") redirect("/connexion");
+
+  const whatsAppTemplates = await listWhatsAppTemplates();
 
   const params = await searchParams;
   const currentTab: "inscrits" | "fiches" = params.tab === "fiches" ? "fiches" : "inscrits";
@@ -358,6 +362,7 @@ export default async function UtilisateursPage({
             view={view}
             mails={mailsData}
             carts={cartsData}
+            whatsAppTemplates={whatsAppTemplates}
           />
         </>
       ) : (
@@ -370,6 +375,7 @@ export default async function UtilisateursPage({
             currentPage={page}
             perPage={perPage}
             search={cardsData.search}
+            whatsAppTemplates={whatsAppTemplates}
           />
         )
       )}
@@ -875,6 +881,7 @@ function RegisteredPane({
   view,
   mails,
   carts,
+  whatsAppTemplates,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -889,6 +896,7 @@ function RegisteredPane({
   view: "infos" | "mails";
   mails: Map<string, MailLastSends>;
   carts: Map<string, CartSummary>;
+  whatsAppTemplates: Awaited<ReturnType<typeof listWhatsAppTemplates>>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
@@ -1048,6 +1056,11 @@ function RegisteredPane({
                             {c.company}
                           </p>
                           <div className="mt-1 space-y-0.5">
+                            <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Tél :</span>
+                              <span className="truncate text-text-secondary tabular-nums">{c.phone || "—"}</span>
+                              <PhoneContactIcons phone={c.phone} userId={c.id} templates={whatsAppTemplates} />
+                            </p>
                             <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Email :</span>
                               <span className="truncate max-w-xs text-text-secondary">{c.email}</span>
@@ -1220,6 +1233,11 @@ function RegisteredPane({
                         </span>
                       </div>
                       <div className="mt-2 space-y-0.5 text-[11.5px] font-body text-text-muted">
+                        <p className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Tél :</span>
+                          <span className="truncate text-text-secondary tabular-nums">{c.phone || "—"}</span>
+                          <PhoneContactIcons phone={c.phone} />
+                        </p>
                         <p className="flex items-center gap-1.5 min-w-0">
                           <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Email :</span>
                           <span className="truncate text-text-secondary">{c.email}</span>

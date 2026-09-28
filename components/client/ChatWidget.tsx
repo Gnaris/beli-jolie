@@ -107,7 +107,7 @@ export default function ChatWidget({ businessHours }: Props) {
               id: m.id,
               content: m.content,
               senderRole: m.sender.role as "ADMIN" | "CLIENT",
-              senderName: `${m.sender.firstName} ${m.sender.lastName}`,
+              senderName: m.sender.role === "ADMIN" ? "Admin" : `${m.sender.firstName} ${m.sender.lastName}`,
               createdAt: typeof m.createdAt === "string" ? m.createdAt : (m.createdAt as Date).toISOString(),
             }))
           );

@@ -48,7 +48,7 @@ export default async function ClientClaimDetailPage({ params }: { params: Promis
       id: m.id,
       content: m.content,
       senderRole: m.senderRole as "ADMIN" | "CLIENT",
-      senderFirstName: m.sender.firstName ?? null,
+      senderFirstName: m.senderRole === "ADMIN" ? "Admin" : (m.sender.firstName ?? null),
       createdAt: m.createdAt.toISOString(),
       attachments: m.attachments.map((a) => ({
         id: a.id,

@@ -6,9 +6,11 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { shapeProducts, fetchImages } from "@/lib/product-shape";
 import { enrichProductsWithBestPromoPercent } from "@/lib/enrich-products-promos";
+import { resolveCatalogShowPrices } from "@/lib/catalog-price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductCard from "@/components/produits/ProductCard";
+import CatalogVisitTracker from "@/components/catalogue/CatalogVisitTracker";
 import type { Metadata } from "next";
 
 interface Props {
@@ -123,8 +125,16 @@ export default async function PublicCatalogPage({ params }: Props) {
 
   const productCount = products.length;
 
+  // La règle « prix visible / caché / si connecté » vient toujours de la BDD :
+  // impossible pour un visiteur de manipuler l'URL pour forcer l'affichage.
+  const showPricesOverride = resolveCatalogShowPrices(catalog.priceVisibility, session);
+  // En mode HIDE, on ne veut aucun message parasite « connectez-vous pour
+  // voir les prix » — la vendeuse a explicitement choisi de tout masquer.
+  const hidePriceHints = catalog.priceVisibility === "HIDE";
+
   return (
     <div className="min-h-screen bg-white relative">
+      <CatalogVisitTracker token={token} />
       <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
       <main className="relative z-10">
 
@@ -174,6 +184,8 @@ export default async function PublicCatalogPage({ params }: Props) {
                   discountPercent={p.discountPercent}
                   hasAutoPromotion={p.hasAutoPromotion}
                   clientDiscount={clientDiscount}
+                  showPricesOverride={showPricesOverride}
+                  hidePriceHints={hidePriceHints}
                 />
               ))}
             </div>

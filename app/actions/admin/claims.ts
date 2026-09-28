@@ -288,7 +288,7 @@ export async function sendAdminMessage(
       id: message.id,
       content: message.content,
       senderRole: "ADMIN",
-      senderName: message.sender.firstName ?? "Administrateur",
+      senderName: "Admin",
       createdAt: message.createdAt.toISOString(),
       attachments: message.attachments.map((a) => ({
         id: a.id,

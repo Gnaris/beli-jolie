@@ -109,7 +109,7 @@ export async function sendAdminReply(
         id: message.id,
         content: content.trim(),
         senderRole: "ADMIN",
-        senderName: session.user.name || "Admin",
+        senderName: "Admin",
         createdAt: message.createdAt.toISOString(),
         attachments: message.attachments.map((a) => ({
           id: a.id,
@@ -204,14 +204,12 @@ export async function joinConversation(conversationId: string) {
 
     if (!conversation) return { success: false, error: "Conversation introuvable." };
 
-    const adminName = session.user.name || "Un administrateur";
-
     // Add system message
     const message = await addMessage({
       conversationId,
       senderId: session.user.id,
       senderRole: "ADMIN",
-      content: `${adminName} a rejoint la conversation.`,
+      content: `Un administrateur a rejoint la conversation.`,
     });
 
     // Notify client via SSE
@@ -222,9 +220,9 @@ export async function joinConversation(conversationId: string) {
       targetRole: "CLIENT",
       messageData: {
         id: message.id,
-        content: `${adminName} a rejoint la conversation.`,
+        content: `Un administrateur a rejoint la conversation.`,
         senderRole: "ADMIN",
-        senderName: adminName,
+        senderName: "Admin",
         createdAt: message.createdAt.toISOString(),
       },
     });

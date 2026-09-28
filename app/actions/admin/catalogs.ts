@@ -28,19 +28,27 @@ export async function createCatalog(title: string) {
 }
 
 // ─────────────────────────────────────────────
-// Mettre à jour titre + statut
+// Mettre à jour titre + statut + visibilité prix
 // ─────────────────────────────────────────────
 export async function updateCatalog(
   id: string,
   data: {
     title?: string;
     status?: "INACTIVE" | "ACTIVE";
+    priceVisibility?: "SHOW" | "HIDE" | "CONNECTED_ONLY";
   }
 ) {
   await requireAdmin();
-  await prisma.catalog.update({ where: { id }, data });
+  const catalog = await prisma.catalog.update({
+    where: { id },
+    data,
+    select: { token: true },
+  });
   revalidatePath("/admin/catalogues");
   revalidatePath(`/admin/catalogues/${id}`);
+  // La visibilité prix est lue au rendu de la page publique — il faut donc
+  // invalider le cache Next.js sur le lien partagé quand on la change.
+  revalidatePath(`/catalogue/${catalog.token}`);
 }
 
 // ─────────────────────────────────────────────
@@ -133,4 +141,139 @@ export async function getCatalogWithProducts(id: string) {
       },
     },
   });
+}
+
+// ─────────────────────────────────────────────
+// Statistiques de fréquentation
+// ─────────────────────────────────────────────
+
+export interface CatalogStatsView {
+  id: string;
+  viewedAt: Date;
+  user: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string;
+    company: string | null;
+  } | null;
+}
+
+export interface CatalogStatsCartAddition {
+  id: string;
+  addedAt: Date;
+  quantity: number;
+  product: { id: string; name: string; reference: string };
+  variant: { id: string; colorName: string | null } | null;
+  user: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string;
+    company: string | null;
+  };
+}
+
+export interface CatalogStats {
+  catalog: { id: string; title: string; token: string };
+  totalViews: number;
+  anonymousViews: number;
+  connectedViews: number;
+  views: CatalogStatsView[];
+  cartAdditions: CatalogStatsCartAddition[];
+}
+
+/**
+ * Récupère les stats de fréquentation pour l'onglet « Statistiques » admin.
+ * - Compteurs globaux : total vues, anonymes, connectées.
+ * - Détail des 200 dernières visites (avec identité client si connecté).
+ * - Détail des ajouts au panier attribués à ce catalogue (produit +
+ *   couleur + quantité + client + date).
+ */
+export async function getCatalogStats(id: string): Promise<CatalogStats> {
+  await requireAdmin();
+
+  const catalog = await prisma.catalog.findUnique({
+    where: { id },
+    select: { id: true, title: true, token: true },
+  });
+  if (!catalog) throw new Error("Catalogue introuvable.");
+
+  const [totalViews, anonymousViews, views, cartAdditionsRaw] = await Promise.all([
+    prisma.catalogView.count({ where: { catalogId: id } }),
+    prisma.catalogView.count({ where: { catalogId: id, userId: null } }),
+    prisma.catalogView.findMany({
+      where: { catalogId: id },
+      orderBy: { viewedAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        viewedAt: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            company: true,
+          },
+        },
+      },
+    }),
+    prisma.catalogCartAddition.findMany({
+      where: { catalogId: id },
+      orderBy: { addedAt: "desc" },
+      take: 500,
+      select: {
+        id: true,
+        addedAt: true,
+        quantity: true,
+        variantId: true,
+        product: { select: { id: true, name: true, reference: true } },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            company: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  // Résolution du nom couleur pour chaque ajout au panier — la variante peut
+  // avoir été supprimée depuis, on tolère `null`.
+  const variantIds = cartAdditionsRaw
+    .map((a) => a.variantId)
+    .filter((v): v is string => Boolean(v));
+  const variants =
+    variantIds.length > 0
+      ? await prisma.productColor.findMany({
+          where: { id: { in: variantIds } },
+          select: { id: true, color: { select: { name: true } } },
+        })
+      : [];
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+
+  const cartAdditions: CatalogStatsCartAddition[] = cartAdditionsRaw.map((a) => ({
+    id: a.id,
+    addedAt: a.addedAt,
+    quantity: a.quantity,
+    product: a.product,
+    variant: a.variantId
+      ? { id: a.variantId, colorName: variantById.get(a.variantId)?.color?.name ?? null }
+      : null,
+    user: a.user,
+  }));
+
+  return {
+    catalog,
+    totalViews,
+    anonymousViews,
+    connectedViews: totalViews - anonymousViews,
+    views,
+    cartAdditions,
+  };
 }

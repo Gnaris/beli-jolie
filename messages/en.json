@@ -727,6 +727,7 @@
     "htPack": "excl. tax · pack of {qty}",
     "perUnitNote": "= {price} € excl. tax per unit",
     "loginToSeePrices": "Sign in to see prices",
+    "loginToAddToCart": "Sign in to add to cart",
     "createAccountToOrder": "Create an account to order",
     "decreaseQuantity": "Decrease quantity",
     "increaseQuantity": "Increase quantity",

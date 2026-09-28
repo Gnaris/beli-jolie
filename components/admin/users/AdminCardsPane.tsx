@@ -8,6 +8,8 @@ import PerPageSelect from "@/components/ui/PerPageSelect";
 import { countryFlagUrl, countryName } from "@/lib/countries";
 import { Tooltip } from "@/components/ui/Tooltip";
 import AdminCardDrawer, { type AdminClientCardForDrawer } from "./AdminCardDrawer";
+import PhoneContactIcons from "./PhoneContactIcons";
+import type { WhatsAppTemplateDTO } from "@/app/actions/admin/whatsapp-templates";
 
 interface Props {
   cards: AdminClientCardForDrawer[];
@@ -25,6 +27,7 @@ interface Props {
   currentPage: number;
   perPage: number;
   search: string;
+  whatsAppTemplates: WhatsAppTemplateDTO[];
 }
 
 const MARKETPLACES = [
@@ -88,6 +91,7 @@ export default function AdminCardsPane({
   currentPage,
   perPage,
   search,
+  whatsAppTemplates,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -272,9 +276,19 @@ export default function AdminCardsPane({
                         </td>
                         <td className="px-5 py-3.5 min-w-0">
                           <p className="text-[13.5px] font-body font-medium text-text-primary truncate max-w-xs">{c.company || "—"}</p>
-                          <p className="text-xs font-body text-text-muted truncate max-w-xs">
-                            {[c.email, c.phone].filter(Boolean).join(" · ") || "—"}
-                          </p>
+                          {c.phone && (
+                            <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0 mt-0.5">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Tél :</span>
+                              <span className="truncate text-text-secondary tabular-nums">{c.phone}</span>
+                              <PhoneContactIcons phone={c.phone} userId={null} templates={whatsAppTemplates} />
+                            </p>
+                          )}
+                          {c.email && (
+                            <p className="text-xs font-body text-text-muted truncate max-w-xs">{c.email}</p>
+                          )}
+                          {!c.email && !c.phone && (
+                            <p className="text-xs font-body text-text-muted">—</p>
+                          )}
                           {(c.city || c.countryCode) && (
                             <p className="text-[11px] font-body text-text-muted truncate max-w-xs inline-flex items-center gap-1.5 mt-0.5">
                               {c.countryCode && (() => {
@@ -404,6 +418,13 @@ export default function AdminCardsPane({
                     <div className="min-w-0 flex-1">
                       <p className="text-[14px] font-body font-semibold text-text-primary truncate">{c.firstName} {c.lastName}</p>
                       <p className="text-[12px] font-body text-text-muted truncate">{c.company || "—"}</p>
+                      {c.phone && (
+                        <p className="mt-1 flex items-center gap-1.5 text-[11.5px] font-body text-text-muted">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Tél :</span>
+                          <span className="truncate text-text-secondary tabular-nums">{c.phone}</span>
+                          <PhoneContactIcons phone={c.phone} userId={null} templates={whatsAppTemplates} />
+                        </p>
+                      )}
                       {mps.length > 0 && (
                         <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                           {mps.map((mp) => (

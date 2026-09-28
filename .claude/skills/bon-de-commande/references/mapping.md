@@ -147,6 +147,30 @@ La colonne `颜色` (« yanse ») indique la couleur.
 | 咖 | Marron | ZC — abréviation |
 | 橘黄 | Orange | A |
 
+### Couleurs confirmées 2026-09-28 (bon multi-fournisseurs A/E/G/WF/ZC — 10 fichiers)
+
+| Chinois | Couleur BDD | Fournisseur / Notes |
+|---|---|---|
+| 兰松 | Bleu | A |
+| 咖系 | Marron | A |
+| 深咖 | Marron **OU Marron foncé** | A — **règle dynamique** : Marron foncé si le produit a déjà Marron, sinon Marron |
+| 米白色 | Blanc **OU Écru** | A — **règle dynamique** : Écru si le produit a déjà Blanc, sinon Blanc |
+| 深浅紫 | Violet | A |
+| 粉色+梅红 | Rose **OU Fuchsia** | A — **règle dynamique** : Fuchsia si le produit a déjà Rose, sinon Rose |
+| 金-如样色 | Doré | WF |
+| 金-如样粉+紫 | Multicolore | WF |
+| 金-宝蓝+浅蓝 | Bleu | WF |
+| 金-深浅粉 | Rose | WF |
+| 金-米白 | Écru | WF — écru dominant (cliente a explicitement demandé Écru pour ce bicolore) |
+| 金-粉+紫 | Rose | WF |
+| 金-红+梅 | Rouge | WF |
+
+### Nouvelles catégories confirmées 2026-09-28
+
+| Chinois | Catégorie BDD | Sous-catégorie | Notes |
+|---|---|---|---|
+| 毛衣链 | **Chaîne de corps** | — | « Chaîne de pull » = sautoir/collier long. Cliente a explicitement demandé Chaîne de corps (pas Collier+Sautoir). |
+
 ### Sous-catégories confirmées 2026-08-31
 
 | Chinois | Catégorie BDD | Sous-catégorie | Notes |

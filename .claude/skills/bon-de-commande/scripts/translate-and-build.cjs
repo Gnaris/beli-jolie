@@ -65,6 +65,7 @@ const CATS = {
   "腰链":          { category: "Chaîne de taille",   sub: "" },
   "胸针":          { category: "Broche",             sub: "" },
   "耳扣":          { category: "Boucles d'oreilles", sub: "" },
+  "毛衣链":        { category: "Chaîne de corps",    sub: "" },
 };
 
 // ── Couleurs chinoises → couleur Beli & Jolie ──
@@ -284,6 +285,21 @@ const COLORS = {
   "白松":           "Blanc",
   "千金":           "Doré",
   "天河":           "Bleu",
+  // Cliente confirmée 2026-09-28 (bon multi-fournisseurs A/E/G/WF/ZC)
+  "兰松":           "Bleu",
+  "咖系":           "Marron",
+  "深浅紫":         "Violet",
+  "金-如样色":      "Doré",
+  "金-如样粉+紫":   "Multicolore",
+  "金-宝蓝+浅蓝":   "Bleu",
+  "金-深浅粉":      "Rose",
+  "金-米白":        "Écru",
+  "金-粉+紫":       "Rose",
+  "金-红+梅":       "Rouge",
+  // Règles dynamiques : résolues plus bas selon le reste du produit
+  // "深咖"     → Marron par défaut, Marron foncé si le produit a déjà Marron
+  // "米白色"   → Blanc par défaut, Écru si le produit a déjà Blanc
+  // "粉色+梅红" → Rose par défaut, Fuchsia si le produit a déjà Rose
 };
 
 const parsed = JSON.parse(fs.readFileSync(PARSED_PATH, "utf-8"));
@@ -345,13 +361,26 @@ const translated = parsed.products
   const cat = overrideResolved || CATS[p.pinmingZh];
   if (!cat) stillUnknownCats.add(p.pinmingZh || `(sans catégorie : ${p.reference})`);
   const variants = [];
-  let hasBleu = false;
-  // Première passe : résout les couleurs simples et détecte si Bleu est présent
+  // Règles dynamiques : couleur qui dépend de ce que le reste du produit contient.
+  // { marker, defaultColor, altColor, triggerColor } — si le produit a déjà
+  // "triggerColor", alors ce marker devient "altColor", sinon "defaultColor".
+  const DYNAMIC_COLORS = {
+    "白+胡兰":  { defaultColor: "Bleu",   altColor: "Marine",       triggerColor: "Bleu"   },
+    "深咖":     { defaultColor: "Marron", altColor: "Marron foncé", triggerColor: "Marron" },
+    "米白色":   { defaultColor: "Blanc",  altColor: "Écru",         triggerColor: "Blanc"  },
+    "粉色+梅红": { defaultColor: "Rose",   altColor: "Fuchsia",      triggerColor: "Rose"   },
+  };
+  // Première passe : résout les couleurs simples et détecte les couleurs présentes
+  const presentColors = new Set();
   for (const c of p.colors) {
-    let colorFR = COLORS[c.colorZh];
-    if (c.colorZh === "白+胡兰") { colorFR = "__DEFER_BAIHULAN__"; }
-    if (!colorFR) stillUnknownColors.add(c.colorZh);
-    if (colorFR === "Bleu") hasBleu = true;
+    let colorFR;
+    if (DYNAMIC_COLORS[c.colorZh]) {
+      colorFR = `__DEFER_${c.colorZh}__`;
+    } else {
+      colorFR = COLORS[c.colorZh];
+      if (!colorFR) stillUnknownColors.add(c.colorZh);
+      if (colorFR) presentColors.add(colorFR);
+    }
     variants.push({
       color: colorFR || `(?) ${c.colorZh}`,
       sale_type: "UNIT",
@@ -360,9 +389,12 @@ const translated = parsed.products
       stock: c.qty,
     });
   }
-  // Deuxième passe : résout "白+胡兰" (Marine si Bleu déjà présent, sinon Bleu)
+  // Deuxième passe : résout les couleurs dynamiques (Marron foncé si Marron déjà présent, etc.)
   for (const v of variants) {
-    if (v.color === "__DEFER_BAIHULAN__") v.color = hasBleu ? "Marine" : "Bleu";
+    const m = v.color.match(/^__DEFER_(.+)__$/);
+    if (!m) continue;
+    const rule = DYNAMIC_COLORS[m[1]];
+    v.color = presentColors.has(rule.triggerColor) ? rule.altColor : rule.defaultColor;
   }
   return {
     reference: p.reference,
@@ -524,7 +556,7 @@ if (stillUnknownCats.size || stillUnknownColors.size) {
 const data = {
   supplier: parsed.supplier,
   defaults: {
-    composition: "Acier inoxydable:100",
+    composition: "Acier inoxydable 304:100",
     pays_fabrication: "Chine",
     saison: "Toutes saisons",
     taille_unique_details: "0",

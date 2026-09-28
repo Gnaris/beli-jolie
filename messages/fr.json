@@ -727,6 +727,7 @@
     "htPack": "HT · pack de {qty}",
     "perUnitNote": "soit {price} € HT l'unité",
     "loginToSeePrices": "Connectez-vous pour voir les prix",
+    "loginToAddToCart": "Connectez-vous pour ajouter au panier",
     "createAccountToOrder": "Créer un compte pour commander",
     "decreaseQuantity": "Diminuer la quantité",
     "increaseQuantity": "Augmenter la quantité",

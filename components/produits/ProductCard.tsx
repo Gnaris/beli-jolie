@@ -63,6 +63,20 @@ interface ProductCardProps {
   onFavoriteChange?: (isFavorite: boolean) => void;
   /** Masque les badges "Nouveau" et "Promo" (utilisé sur les carrousels de la home). */
   hideStatusBadges?: boolean;
+  /**
+   * Force la visibilité des prix (utilisé par la page publique d'un
+   * catalogue partagé pour appliquer `Catalog.priceVisibility`). Quand
+   * défini, écrase la règle standard `canSeePrices(session)`. La valeur
+   * vient toujours du serveur — impossible pour un visiteur de l'altérer.
+   */
+  showPricesOverride?: boolean;
+  /**
+   * Masque le message d'invitation à se connecter / d'attente de validation
+   * quand les prix ne sont pas visibles. Utilisé par le catalogue en mode
+   * « Prix cachés » : la vendeuse veut un affichage complètement neutre,
+   * sans aucun renvoi à la connexion.
+   */
+  hidePriceHints?: boolean;
 }
 
 // Prix par unité : pour UNIT c'est unitPrice direct, pour PACK on divise par packQuantity
@@ -77,16 +91,21 @@ function variantPricePerUnit(v: VariantData): number {
 export default function ProductCard({
   id, name, reference, category, subCategory, colors, tags = [], isFavorite = false,
   isBestSeller = false, isNew = false, discountPercent, hasAutoPromotion = false, clientDiscount, filteredColorIds = [], onFavoriteChange,
-  hideStatusBadges = false,
+  hideStatusBadges = false, showPricesOverride, hidePriceHints = false,
 }: ProductCardProps) {
   const { data: session } = useSession();
   const { tp, tc } = useProductTranslation();
   const t = useTranslations("product");
-  const showPrices = canSeePrices(session);
+  const canPurchase = canSeePrices(session);
+  // Affichage du prix : peut être forcé par le catalogue (SHOW / HIDE /
+  // CONNECTED_ONLY). Hors catalogue, ça retombe sur la règle classique
+  // (APPROVED/ADMIN uniquement).
+  const showPrices = showPricesOverride ?? canPurchase;
+  const isAnonymous = !session?.user?.id;
   // Cliente connectée mais non validée : on adapte les CTA pour ne pas
   // lui proposer « Créer un compte » / « Connectez-vous » alors qu'elle
   // l'est déjà — on l'oriente vers son espace pour suivre la vérification.
-  const isPendingConnected = !showPrices && !!session?.user?.id;
+  const isPendingConnected = !canPurchase && !!session?.user?.id;
   // Compte révoqué : même flux visuel que « en attente » mais message rouge
   // (« Compte désactivé — prix indisponibles ») au lieu du bleu d'attente.
   const isRevokedConnected =
@@ -294,8 +313,17 @@ export default function ProductCard({
           </div>
         )}
 
-        {/* Prix — texte alternatif si non visible */}
-        {!showPrices && (
+        {/* Message d'invitation sous le prix.
+            Priorités :
+              - compte révoqué → bandeau rouge « désactivé »
+              - compte connecté en attente → bandeau bleu « en attente »
+              - visiteur anonyme + prix visibles → « Connectez-vous pour
+                ajouter au panier » (cas catalogue en mode « Prix visibles »)
+              - visiteur anonyme + prix cachés → « Connectez-vous pour voir
+                les prix »
+            En mode catalogue « Prix cachés » (hidePriceHints), aucun message :
+            la carte reste totalement neutre côté prix ET ajout au panier. */}
+        {!hidePriceHints && (isRevokedConnected || isPendingConnected || isAnonymous) && (
           <div>
             {isRevokedConnected ? (
               <span
@@ -328,14 +356,17 @@ export default function ProductCard({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                 </svg>
-                {t("loginToSeePrices")}
+                {showPrices ? t("loginToAddToCart") : t("loginToSeePrices")}
               </Link>
             )}
           </div>
         )}
 
-        {/* CTA principal — bouton uniquement pour clientes vérifiées */}
-        {showPrices && (
+        {/* CTA principal — bouton visible uniquement pour clientes vérifiées
+            (APPROVED / ADMIN). Ne dépend PAS de la visibilité prix du catalogue :
+            un anonyme voyant les prix ne peut pas cliquer sur « Ajouter »,
+            on lui montre le lien de connexion à la place (bloc ci-dessus). */}
+        {canPurchase && (
           <div className="mt-auto pt-1">
             <button
               type="button"
@@ -350,8 +381,9 @@ export default function ProductCard({
         )}
       </div>
 
-      {/* Modal centré : ouverture au clic sur "Ajouter au panier" */}
-      {showPrices && (
+      {/* Modal centré : ouverture au clic sur "Ajouter au panier" —
+          uniquement rendu si l'utilisatrice peut réellement commander. */}
+      {canPurchase && (
         <AddToCartModal
           isOpen={showModal}
           onClose={() => setShowModal(false)}

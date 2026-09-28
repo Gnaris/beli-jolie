@@ -134,9 +134,9 @@ function parsePO(sourcePath) {
   // pour le fournisseur Z, 编号 est le n° interne du fournisseur et non la ref).
   const HEADER_ALIASES = {
     pinming: ["货名", "品名", "说明", "类型"],
-    huohao:  ["客人条码", "货号", "条码", "编号"],
-    yanse:   ["规格", "颜色", "颜色要求", "电镀色", "plating color/电镀色", "color/电镀色"],
-    qty:     ["数量", "quantity/pcs/数量", "quantity/数量", "pcs/数量", "装箱数/pcs", "装箱数"],
+    huohao:  ["客人条码", "客户编号", "货号", "条码", "编号"],
+    yanse:   ["规格", "颜色", "颜色要求", "电镀色", "电镀颜色", "plating color/电镀色", "color/电镀色"],
+    qty:     ["数量", "出货数量", "quantity/pcs/数量", "quantity/数量", "pcs/数量", "装箱数/pcs", "装箱数"],
     price:   ["价格", "单价", "price/单价", "单价/pcs"],
     total:   ["金额", "总价", "amount/总价", "amount/  总价"],
     box:     ["箱号", "装箱号"],
