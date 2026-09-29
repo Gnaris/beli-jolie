@@ -3,7 +3,11 @@
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { renderWhatsAppMessage } from "@/lib/whatsapp-message";
+import {
+  containsEmoji,
+  renderWhatsAppMessage,
+  WHATSAPP_NO_EMOJI_ERROR,
+} from "@/lib/whatsapp-message";
 import { loadWhatsAppMergeContext } from "@/lib/whatsapp-message-server";
 
 interface SendInput {
@@ -48,9 +52,15 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
     if (input.templateId) {
       const template = await prisma.whatsAppTemplate.findUnique({
         where: { id: input.templateId },
-        select: { body: true },
+        select: { title: true, body: true },
       });
       if (template) {
+        // Filet arrière : même si un modèle historique contient encore des
+        // emojis (BDD antérieure à la règle), on refuse l'envoi. Le rendu
+        // WhatsApp casserait leur encodage via `?text=`.
+        if (containsEmoji(template.title) || containsEmoji(template.body)) {
+          return { success: false, error: WHATSAPP_NO_EMOJI_ERROR };
+        }
         templateExists = true;
         renderedBody = renderWhatsAppMessage(template.body, ctx);
       }

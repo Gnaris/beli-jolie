@@ -18,6 +18,7 @@ import {
   renderWhatsAppMessage,
   buildWhatsAppUrl,
   buildWhatsAppPreviewContext,
+  containsEmoji,
   WHATSAPP_VARIABLES,
 } from "@/lib/whatsapp-message";
 
@@ -78,6 +79,35 @@ describe("buildWhatsAppUrl", () => {
   it("échappe les caractères spéciaux (accents, &, apostrophes)", () => {
     const url = buildWhatsAppUrl("33612345678", "Bonjour à toi & bienvenue");
     expect(url).toBe("https://wa.me/33612345678?text=Bonjour%20%C3%A0%20toi%20%26%20bienvenue");
+  });
+});
+
+describe("containsEmoji", () => {
+  it("détecte les emojis 4-byte UTF-8 (👋, 👉, 🎉)", () => {
+    expect(containsEmoji("Bonjour 👋")).toBe(true);
+    expect(containsEmoji("👉 Regardez")).toBe(true);
+    expect(containsEmoji("Yes 🎉")).toBe(true);
+  });
+
+  it("détecte les emojis 3-byte du BMP (✨, ❤, ⭐)", () => {
+    expect(containsEmoji("Nouveautés ✨")).toBe(true);
+    expect(containsEmoji("Merci ❤")).toBe(true);
+    expect(containsEmoji("⭐ Coup de cœur")).toBe(true);
+  });
+
+  it("ne détecte pas les lettres accentuées et caractères courants", () => {
+    expect(containsEmoji("Bonjour à toi, ça va ?")).toBe(false);
+    expect(containsEmoji("Prix : 12,50 € (HT)")).toBe(false);
+    expect(containsEmoji("L'équipe FORCYMA")).toBe(false);
+  });
+
+  it("ne détecte pas les chiffres, ponctuation et symboles ASCII", () => {
+    expect(containsEmoji("06 12 34 56 78 — appel")).toBe(false);
+    expect(containsEmoji("#promo *gras* _italique_")).toBe(false);
+  });
+
+  it("gère une chaîne vide", () => {
+    expect(containsEmoji("")).toBe(false);
   });
 });
 

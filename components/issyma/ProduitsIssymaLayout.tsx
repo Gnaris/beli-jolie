@@ -303,96 +303,112 @@ export default async function ProduitsIssymaLayout({
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-10 lg:py-14">
           <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-8">
 
-            {/* Sidebar filtres rose poudré — collapsible sur mobile, sticky sur desktop */}
-            <details
-              open
-              className="rounded-2xl overflow-hidden self-start lg:sticky lg:top-4 lg:!block group"
-              style={{ background: P.blush50, padding: "0", border: `1px solid ${P.borderSoft}` }}
-            >
-              <summary
-                className="lg:hidden cursor-pointer flex items-center justify-between px-5 py-3 select-none"
-                style={{ color: P.ink }}
-              >
-                <span className="text-[11px] tracking-[0.28em] uppercase font-bold">{t("issymaFiltersTitle")}</span>
-                <span
-                  className="text-[11px] font-semibold group-open:rotate-180 transition-transform"
+            {/* Sidebar filtres rose poudré — repliée par défaut sur mobile (<details>),
+                toujours affichée sur desktop (<aside>). On garde deux conteneurs plutôt
+                qu'un unique <details open> : sans l'attribut `open`, le navigateur cache
+                le contenu de <details> même quand la classe `lg:block` force son display,
+                ce qui casserait la version desktop. */}
+            {(() => {
+              const filterSections = (
+                <>
+                  <FilterSection
+                    title={t("issymaFilterCategories")}
+                    currentValue={selectedFilters.cat}
+                    options={categories}
+                    paramKey="cat"
+                    selected={selectedFilters}
+                  />
+                  {collections.length > 0 && (
+                    <FilterSection
+                      title={t("issymaFilterCollection")}
+                      currentValue={selectedFilters.collection}
+                      options={collections}
+                      paramKey="collection"
+                      selected={selectedFilters}
+                    />
+                  )}
+                  <ColorFilterSection
+                    title={t("issymaFilterColor")}
+                    colors={colors}
+                    currentValue={selectedFilters.color}
+                    selected={selectedFilters}
+                  />
+                  {compositions.length > 0 && (
+                    <FilterSection
+                      title={t("issymaFilterMaterial")}
+                      currentValue={selectedFilters.composition}
+                      options={compositions}
+                      paramKey="composition"
+                      selected={selectedFilters}
+                    />
+                  )}
+                  {tags.length > 0 && (
+                    <FilterSection
+                      title={t("issymaFilterStyle")}
+                      currentValue={selectedFilters.tag}
+                      options={tags}
+                      paramKey="tag"
+                      selected={selectedFilters}
+                    />
+                  )}
+                </>
+              );
+              const clearLink = hasAnyFilter ? (
+                <Link
+                  href="/produits"
+                  className="text-[10px] tracking-[0.18em] uppercase"
                   style={{ color: P.wine700 }}
-                  aria-hidden
                 >
-                  ▾
-                </span>
-              </summary>
-              <div style={{ padding: "12px 22px 20px 22px" }}>
-              <div className="hidden lg:flex items-center justify-between mb-2">
-                <p
-                  className="text-[11px] tracking-[0.28em] uppercase font-bold"
-                  style={{ color: P.ink }}
-                >
-                  {t("issymaFiltersTitle")}
-                </p>
-                {hasAnyFilter && (
-                  <Link
-                    href="/produits"
-                    className="text-[10px] tracking-[0.18em] uppercase"
-                    style={{ color: P.wine700 }}
+                  {t("issymaFiltersClear")}
+                </Link>
+              ) : null;
+              return (
+                <>
+                  {/* Mobile : replié par défaut */}
+                  <details
+                    className="lg:hidden rounded-2xl overflow-hidden self-start group"
+                    style={{ background: P.blush50, padding: "0", border: `1px solid ${P.borderSoft}` }}
                   >
-                    {t("issymaFiltersClear")}
-                  </Link>
-                )}
-              </div>
-              {hasAnyFilter && (
-                <div className="lg:hidden mb-2 flex justify-end">
-                  <Link
-                    href="/produits"
-                    className="text-[10px] tracking-[0.18em] uppercase"
-                    style={{ color: P.wine700 }}
+                    <summary
+                      className="cursor-pointer flex items-center justify-between px-5 py-3 select-none"
+                      style={{ color: P.ink }}
+                    >
+                      <span className="text-[11px] tracking-[0.28em] uppercase font-bold">{t("issymaFiltersTitle")}</span>
+                      <span
+                        className="text-[11px] font-semibold group-open:rotate-180 transition-transform"
+                        style={{ color: P.wine700 }}
+                        aria-hidden
+                      >
+                        ▾
+                      </span>
+                    </summary>
+                    <div style={{ padding: "12px 22px 20px 22px" }}>
+                      {clearLink && <div className="mb-2 flex justify-end">{clearLink}</div>}
+                      {filterSections}
+                    </div>
+                  </details>
+
+                  {/* Desktop : toujours visible, sticky */}
+                  <aside
+                    className="hidden lg:block rounded-2xl overflow-hidden self-start lg:sticky lg:top-4"
+                    style={{ background: P.blush50, padding: "0", border: `1px solid ${P.borderSoft}` }}
                   >
-                    {t("issymaFiltersClear")}
-                  </Link>
-                </div>
-              )}
-              <FilterSection
-                title={t("issymaFilterCategories")}
-                currentValue={selectedFilters.cat}
-                options={categories}
-                paramKey="cat"
-                selected={selectedFilters}
-              />
-              {collections.length > 0 && (
-                <FilterSection
-                  title={t("issymaFilterCollection")}
-                  currentValue={selectedFilters.collection}
-                  options={collections}
-                  paramKey="collection"
-                  selected={selectedFilters}
-                />
-              )}
-              <ColorFilterSection
-                title={t("issymaFilterColor")}
-                colors={colors}
-                currentValue={selectedFilters.color}
-                selected={selectedFilters}
-              />
-              {compositions.length > 0 && (
-                <FilterSection
-                  title={t("issymaFilterMaterial")}
-                  currentValue={selectedFilters.composition}
-                  options={compositions}
-                  paramKey="composition"
-                  selected={selectedFilters}
-                />
-              )}
-              {tags.length > 0 && (
-                <FilterSection
-                  title={t("issymaFilterStyle")}
-                  currentValue={selectedFilters.tag}
-                  options={tags}
-                  paramKey="tag"
-                  selected={selectedFilters}
-                />
-              )}
-              </div>
-            </details>
+                    <div style={{ padding: "12px 22px 20px 22px" }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <p
+                          className="text-[11px] tracking-[0.28em] uppercase font-bold"
+                          style={{ color: P.ink }}
+                        >
+                          {t("issymaFiltersTitle")}
+                        </p>
+                        {clearLink}
+                      </div>
+                      {filterSections}
+                    </div>
+                  </aside>
+                </>
+              );
+            })()}
 
             {/* Zone principale — fond blanc */}
             <div className="min-w-0">

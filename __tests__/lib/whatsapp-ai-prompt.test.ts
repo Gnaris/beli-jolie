@@ -55,4 +55,9 @@ describe("buildWhatsAppAiPrompt", () => {
     expect(p.toLowerCase()).not.toContain("<table>");
     expect(p.toLowerCase()).not.toContain("styles inline");
   });
+
+  it("interdit les emojis à l'IA (WhatsApp Desktop casse leur encodage)", () => {
+    const p = buildWhatsAppAiPrompt({ description: "x" });
+    expect(p.toLowerCase()).toContain("aucun emoji");
+  });
 });

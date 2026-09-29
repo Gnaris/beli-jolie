@@ -16,7 +16,8 @@ export default function ReviewsSection({ reviews, eyebrow, title }: Props) {
   return (
     <section
       ref={sectionRef}
-      className="scroll-fade-up bg-bg-darker text-white py-20 lg:py-28"
+      className="scroll-fade-up text-white py-20 lg:py-28"
+      style={{ backgroundColor: "#0b1b34" }}
     >
       <div className="max-w-[1400px] mx-auto px-6 lg:px-10">
         <div className="text-center mb-14">

@@ -137,6 +137,10 @@ export interface PlaceOrderInput {
   privateCarrierEmail?:     string;
   privateCarrierPhone?:     string;
   privateCarrierBordereau?: string; // path retourné par uploadBordereau
+  // Transporteur privé + adresse DOM-TOM : true si le client a coché la case
+  // attestant que le colis sort du territoire, ce qui déclenche l'exonération
+  // TVA FR (cf. lib/vat.ts::resolveVatRate).
+  privateDomTomCertified?:  boolean;
   // Fusion vers commande parente : id de la commande à laquelle on rattache
   // le nouveau panier (mode "merge"). L'admin regroupera manuellement les
   // articles + ajustera le port dans un second temps.
@@ -440,6 +444,8 @@ export async function placeOrder(
       user: userPricingInput,
       activePromos,
       appliedCodePromo: null,
+      deliveryMode: input.deliveryMode,
+      domTomCertified: input.privateDomTomCertified,
     });
     const contextItems = pricingItems.map((i) => ({ ...i.promoContext, quantity: i.quantity }));
     const check = await validatePromoCode(
@@ -468,6 +474,18 @@ export async function placeOrder(
     ? activePromos.find((p) => p.id === appliedCode!.promotionId) ?? null
     : null;
 
+  // Fusion : on hérite du taux TVA de la commande parente pour cohérence
+  // facture (une commande PENDING vers DOM-TOM reste exonérée quand on lui
+  // ajoute des articles).
+  let parentTvaRate: number | null = null;
+  if (input.deliveryMode === "merge" && input.mergeIntoOrderId) {
+    const parent = await prisma.order.findFirst({
+      where: { id: input.mergeIntoOrderId, userId, status: "PENDING" },
+      select: { tvaRate: true },
+    });
+    parentTvaRate = parent?.tvaRate ?? null;
+  }
+
   const pricing = computeOrderPricing({
     items: pricingItems,
     carrierId: input.carrierId,
@@ -476,6 +494,9 @@ export async function placeOrder(
     user: userPricingInput,
     activePromos,
     appliedCodePromo,
+    deliveryMode: input.deliveryMode,
+    domTomCertified: input.privateDomTomCertified,
+    parentTvaRate,
   });
 
   const {
@@ -796,6 +817,8 @@ export async function placeOrder(
       privateCarrierEmail:     isPrivateCarrier ? (input.privateCarrierEmail?.trim() || null) : null,
       privateCarrierPhone:     isPrivateCarrier ? (input.privateCarrierPhone?.trim() || null) : null,
       privateCarrierBordereau: isPrivateCarrier ? (input.privateCarrierBordereau?.trim() || null) : null,
+      // Attestation client d'expédition DOM-TOM (exonération TVA FR sur mode privé).
+      privateDomTomCertified:  isPrivateCarrier ? !!input.privateDomTomCertified : false,
       // Fusion vers une commande parente : la nouvelle commande sera
       // regroupée manuellement par l'admin avec la commande #parent.
       mergeIntoOrderId: input.mergeIntoOrderId?.trim() || null,
@@ -1220,6 +1243,7 @@ export async function finalizeOrderFromPaymentIntent(
     privateCarrierEmail: md.privateCarrierEmail || undefined,
     privateCarrierPhone: md.privateCarrierPhone || undefined,
     privateCarrierBordereau: md.privateCarrierBordereau || undefined,
+    privateDomTomCertified: md.privateDomTomCertified === "1",
     mergeIntoOrderId: md.mergeIntoOrderId || undefined,
     promoCode: md.promoCode || undefined,
     creditToApply: md.creditToApply ? Number(md.creditToApply) : undefined,

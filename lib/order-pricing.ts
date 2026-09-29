@@ -54,6 +54,19 @@ interface OrderPricingInput {
   user: UserPricingInput;
   activePromos: ActivePromotion[];
   appliedCodePromo: ActivePromotion | null;
+  /**
+   * Mode de livraison — utilisé pour affiner la règle TVA :
+   *   - "pickup"  → toujours 20 % FR
+   *   - "merge"   → hérite de `parentTvaRate`
+   *   - "private" → sur adresse DOM-TOM, 0 % SEULEMENT si `domTomCertified`
+   *   - "delivery"→ règle standard selon pays (défaut)
+   * Non passé : déduit du `carrierId` (rétro-compat).
+   */
+  deliveryMode?: "delivery" | "pickup" | "private" | "merge";
+  /** Mode "private" DOM-TOM : true si le client a coché la case d'exonération. */
+  domTomCertified?: boolean;
+  /** Mode "merge" : taux TVA de la commande parente. */
+  parentTvaRate?: number | null;
 }
 
 /** Ligne d'affichage de la cascade — une par réduction appliquée. */
@@ -471,10 +484,20 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricingResul
   // taxable arrondie. TTC = simple addition, jamais re-arrondi.
   // Les breakdowns tvaOnCart/tvaOnShipping restent indicatifs (peuvent
   // différer d'1 ct de la somme selon les arrondis).
+  const resolvedDeliveryMode = input.deliveryMode
+    ?? (isPickup
+      ? "pickup"
+      : isPrivateCarrier
+        ? "private"
+        : input.carrierId === "merge_into_order"
+          ? "merge"
+          : "delivery");
   const tvaRate = resolveVatRate({
     countryCode: input.addressCountry,
-    isPickup,
+    deliveryMode: resolvedDeliveryMode,
     vatExempt: user.vatExempt,
+    domTomCertified: input.domTomCertified,
+    parentTvaRate: input.parentTvaRate ?? null,
   });
   const tvaOnCart = roundCent(subtotalAfterDiscount * tvaRate);
   const tvaOnShipping = roundCent(shipping.finalPrice * tvaRate);

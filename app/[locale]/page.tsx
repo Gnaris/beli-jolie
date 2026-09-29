@@ -13,6 +13,7 @@ import { getProductPrimaryColorId } from "@/lib/product-primary-color";
 import { canSeePrices } from "@/lib/price-visibility";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 import { pickCategoryCoverImages } from "@/lib/category-cover-image";
+import { getCachedHomeHeroImages } from "@/lib/home-hero-images";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import {
   loadHomeTranslationLookups,
@@ -410,6 +411,13 @@ export default async function HomePage() {
     layoutChoice === "issyma"
       ? new Map<string, string>()
       : await pickCategoryCoverImages(translatedCategories.map((c) => c.id));
+
+  // ── Images de fond du hero BJ (défilement décoratif) ───────────────────────
+  // ~60 photos produit tirées au hasard une fois par jour (cache 24 h scopé
+  // tenant). Utilisées uniquement par HomeBeliandjolieLayout — le hero
+  // Issyma a son propre visuel bordeaux. On skip donc le fetch pour Issyma.
+  const heroImages =
+    layoutChoice === "issyma" ? [] : await getCachedHomeHeroImages();
   // Pas de fallback sur l'ancienne image manuelle : si aucun produit
   // vendable n'a de photo dans la catégorie, on tombe sur le monogramme
   // (initiale sur fond noir) — plus propre qu'un PNG blanc résiduel.
@@ -465,6 +473,7 @@ export default async function HomePage() {
     canSeePrices: canSeePrices(session),
     companyPhone: companyInfo?.phone ?? null,
     companyWhatsapp: companyInfo?.whatsapp ?? null,
+    heroImages,
   };
 
   return layoutChoice === "issyma" ? (

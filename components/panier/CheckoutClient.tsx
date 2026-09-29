@@ -140,7 +140,7 @@ interface Carrier {
 // Constantes TVA
 // ─────────────────────────────────────────────
 
-import { resolveVatRate, isDomTom, isEuNonFrance, EU_COUNTRIES } from "@/lib/vat";
+import { resolveVatRate, isDomTom, isEuNonFrance, EU_COUNTRIES, buildDomTomCertificationLabel } from "@/lib/vat";
 
 type TvaT = (key: string) => string;
 
@@ -984,6 +984,8 @@ export default function CheckoutClient({
     carrierPrice:     number;
     itemsCount:       number;
     shipAddressShort: string;
+    /** Taux TVA de la commande parente (0 ou 0.20). Hérité en mode "merge". */
+    tvaRate:          number;
   }[];
   /** Masque le fil d'étapes interne (utilisé quand le wrapper l'affiche). */
   hideStepper?: boolean;
@@ -1077,6 +1079,10 @@ export default function CheckoutClient({
   const [bordereauName,          setBordereauName]          = useState<string>("");
   const [bordereauUploading,     setBordereauUploading]     = useState(false);
   const [bordereauError,         setBordereauError]         = useState("");
+  // Case à cocher affichée uniquement quand mode="private" ET adresse DOM-TOM.
+  // Cochée → exonération TVA FR ; non cochée → TVA FR par défaut (on ne peut
+  // pas prouver la sortie du territoire sans engagement du client).
+  const [privateDomTomCertified, setPrivateDomTomCertified] = useState(false);
 
   // Transporteurs
   const [carriers, setCarriers]         = useState<Carrier[]>([]);
@@ -1098,15 +1104,28 @@ export default function CheckoutClient({
         : (carriers.find((c) => c.id === selectedCarrierId) ?? null);
 
   // TVA — règles unifiées (lib/vat) :
-  // France → 20 %, DOM-TOM → 0 %,
-  // UE hors France + admin a validé l'exonération → 0 % sinon 20 %, hors UE → 0 %.
-  // Le retrait en boutique n'écrase plus l'exonération B2B intracom validée.
-  // Le transporteur privé est traité comme une livraison classique (TVA selon adresse).
+  //   - retrait boutique → toujours 20 % FR
+  //   - fusion → hérite du taux TVA de la commande parente
+  //   - transporteur privé sur DOM-TOM → 0 % SEULEMENT si le client atteste
+  //     (case cochée), sinon 20 % FR par défaut
+  //   - livraison classique → règle standard selon pays
   const isPickup = deliveryMode === "pickup";
+  const parentTvaRate = deliveryMode === "merge" ? (selectedMergeOrder?.tvaRate ?? null) : null;
+  const selectedAddrIsDomTom = isDomTom(selectedAddr?.country);
+  // Si le client sort du contexte DOM-TOM (change d'adresse), la case
+  // d'attestation n'a plus de sens : on force à décocher pour ne pas laisser
+  // un état "collé" qui exonérerait à tort après un changement d'adresse.
+  useEffect(() => {
+    if (privateDomTomCertified && !(deliveryMode === "private" && selectedAddrIsDomTom)) {
+      setPrivateDomTomCertified(false);
+    }
+  }, [deliveryMode, selectedAddrIsDomTom, privateDomTomCertified]);
   const tvaRate = resolveVatRate({
     countryCode: selectedAddr?.country ?? null,
-    isPickup,
+    deliveryMode,
     vatExempt: user.vatExempt,
+    domTomCertified: privateDomTomCertified,
+    parentTvaRate,
   });
   const tvaLabel = getTvaLabel(tvaRate, selectedAddr, isPickup, user.vatExempt, t);
 
@@ -1334,6 +1353,9 @@ export default function CheckoutClient({
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
+    // Quitter le mode privé : on décoche systématiquement l'attestation DOM-TOM
+    // pour éviter qu'elle reste "collée" si le client revient en delivery.
+    if (mode !== "private") setPrivateDomTomCertified(false);
   }
 
   // ── Upload bordereau (Transporteur Privé) ─────────────────────────────────
@@ -1441,11 +1463,19 @@ export default function CheckoutClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           addressId:     selectedAddr!.id,
+          deliveryMode,
           carrierId:     selectedCarrier!.id,
           carrierName:   selectedCarrier!.name,
           carrierPrice:  _rawCarrierPrice,
           transactionId: transactionId || undefined,
           carrierSig:    carrierApiObj?.sig,
+          // Info pour reconstitution TVA côté serveur (audit facture 2026-09-29)
+          ...(deliveryMode === "private"
+            ? { privateDomTomCertified }
+            : {}),
+          ...(deliveryMode === "merge" && selectedMergeOrderId
+            ? { mergeIntoOrderId: selectedMergeOrderId }
+            : {}),
         }),
       });
       const data = await res.json();
@@ -1483,7 +1513,7 @@ export default function CheckoutClient({
     setClientSecret(null);
     setPaymentIntentId(null);
     setStripeError("");
-  }, [selectedAddrId, selectedCarrierId, deliveryMode, privateMode, privateCarrierEmail, privateCarrierPhone, bordereauPath]);
+  }, [selectedAddrId, selectedCarrierId, deliveryMode, privateMode, privateCarrierEmail, privateCarrierPhone, bordereauPath, privateDomTomCertified, selectedMergeOrderId]);
 
   // Idem à la fermeture d'onglet / navigation : on tente une annulation du PI
   // avec `sendBeacon` (survit à la fermeture, contrairement à fetch normal).
@@ -1526,20 +1556,25 @@ export default function CheckoutClient({
       try {
         const result = await placeOrder({
           addressId:             (effectiveAddr ?? selectedAddr!).id,
+          deliveryMode,
           carrierId:             selectedCarrier!.id,
           transactionId,
           carrierName:           selectedCarrier!.name,
           carrierPrice:          effectiveCarrierPrice,
           stripePaymentIntentId: piId,
           cgvAcceptedAt:         new Date().toISOString(),
-          // Transporteur privé : on envoie soit email/tel soit le bordereau
+          // Transporteur privé : on envoie soit email/tel soit le bordereau,
+          // plus la case DOM-TOM cochée si l'adresse sort du territoire FR.
           ...(deliveryMode === "private"
-            ? privateMode === "contact"
-              ? {
-                  privateCarrierEmail: privateCarrierEmail.trim(),
-                  privateCarrierPhone: privateCarrierPhone.trim(),
-                }
-              : { privateCarrierBordereau: bordereauPath ?? undefined }
+            ? {
+                ...(privateMode === "contact"
+                  ? {
+                      privateCarrierEmail: privateCarrierEmail.trim(),
+                      privateCarrierPhone: privateCarrierPhone.trim(),
+                    }
+                  : { privateCarrierBordereau: bordereauPath ?? undefined }),
+                privateDomTomCertified,
+              }
             : {}),
           // Fusion : on transmet l'id de la commande parente pour tracer
           // l'intention côté serveur (l'admin regroupera manuellement).
@@ -1650,6 +1685,33 @@ export default function CheckoutClient({
             </div>
           </div>
         </div>
+
+        {/* Attestation DOM-TOM : n'apparaît que si l'adresse de livraison
+            choisie plus haut est un DOM-TOM. Cochée → exonération TVA FR.
+            Non cochée → TVA FR 20 % par défaut (on ne peut pas prouver la
+            sortie du territoire sans engagement du client). */}
+        {selectedAddrIsDomTom && (() => {
+          const label = buildDomTomCertificationLabel(selectedAddr?.country);
+          if (!label) return null;
+          const inputId = `private-domtom-cert${idSuffix}`;
+          return (
+            <label
+              htmlFor={inputId}
+              className="flex items-start gap-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl p-4 cursor-pointer"
+            >
+              <input
+                id={inputId}
+                type="checkbox"
+                checked={privateDomTomCertified}
+                onChange={(e) => setPrivateDomTomCertified(e.target.checked)}
+                className="mt-0.5 w-4 h-4 shrink-0 accent-[#92400E]"
+              />
+              <span className="text-xs font-body text-[#92400E] leading-relaxed">
+                {label}
+              </span>
+            </label>
+          );
+        })()}
 
         {/* Adresse expéditeur à recopier sur le bordereau */}
         {pickupInfo?.store && (

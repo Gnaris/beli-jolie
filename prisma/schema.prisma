@@ -2445,6 +2445,9 @@ model Order {
   privateCarrierEmail     String?
   privateCarrierPhone     String?
   privateCarrierBordereau String? // chemin public, ex: /uploads/bordereaux/xyz.pdf
+  // Case cochée par le client attestant que le colis part en DOM-TOM et donc
+  // est exonéré de TVA FR. Vaut uniquement pour carrierId === "private_carrier".
+  privateDomTomCertified  Boolean @default(false)
 
   // Remise commerciale client (snapshot au moment de la commande)
   clientDiscountType  ClientDiscountType?

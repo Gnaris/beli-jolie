@@ -32,7 +32,14 @@ interface HeroInfoFaqProps {
   /** Numéro WhatsApp entreprise → lien wa.me. Fallback sur companyPhone si
    *  vide. Null des deux côtés → bouton WhatsApp masqué. */
   companyWhatsapp: string | null;
+  /** Images produit à afficher en fond décoratif du hero (colonnes qui
+   *  défilent verticalement). Tirées au hasard une fois par jour côté
+   *  serveur (`getCachedHomeHeroImages`). Vide → fond blanc classique. */
+  heroImages?: string[];
 }
+
+const HERO_BG_COLUMNS = 6;
+const HERO_BG_IMAGES_PER_COL = 8;
 
 const NAVY = "#0b1b34";
 
@@ -56,6 +63,7 @@ export default function HeroInfoFaq({
   faqItems,
   companyPhone,
   companyWhatsapp,
+  heroImages = [],
 }: HeroInfoFaqProps) {
   const t = useTranslations("home");
   const { data: session } = useSession();
@@ -71,9 +79,80 @@ export default function HeroInfoFaq({
   const ctaMainLabel = isSignedIn ? t("heroInfo.ctaMyAccount") : t("heroInfo.ctaOpenAccount");
   const ctaMainHref  = isSignedIn ? "/espace-pro" : "/inscription";
 
+  // Répartit les images en 6 colonnes (round-robin) — l'ordre serveur est
+  // déjà mélangé (Fisher-Yates seedé par la date) donc la distribution
+  // est équilibrée sans nouveau shuffle côté client. Les colonnes paires
+  // remontent, impaires descendent — effet demandé par la cliente pour que
+  // le regard ne suive pas une direction unique.
+  const bgColumns = buildBackgroundColumns(heroImages);
+
   return (
-    <section className="bg-white border-b border-neutral-200">
-      <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-10 md:py-14">
+    <section className="relative bg-white border-b border-neutral-200 overflow-hidden">
+      {/* ── Fond décoratif : bijoux qui défilent ─────────────────────
+          Colonnes montantes/descendantes derrière les cartes. Purement
+          visuel (`aria-hidden` + `pointer-events-none`), ne pénalise pas
+          l'accessibilité ni la SEO. Masqué si aucune image renvoyée par
+          le serveur (nouveau tenant sans photos, cache raté, dev sans
+          uploads) → on retombe alors sur le simple fond blanc. */}
+      {bgColumns.length > 0 && (
+        <>
+          <div
+            className="absolute inset-0 grid gap-3 pointer-events-none select-none hero-fade-mask"
+            style={{
+              gridTemplateColumns: `repeat(${HERO_BG_COLUMNS}, minmax(0, 1fr))`,
+              opacity: 0.30,
+            }}
+            aria-hidden="true"
+          >
+            {bgColumns.map((col, idx) => (
+              <div key={idx} className="overflow-hidden">
+                {/* Vitesse légèrement différente d'une colonne à l'autre
+                    (90 / 110 / 130 s) pour éviter que toutes les colonnes
+                    tournent en phase — plus vivant, moins hypnotique. */}
+                <div
+                  className={idx % 2 === 0 ? "hero-col-up" : "hero-col-down"}
+                  style={{ ["--hero-scroll-speed" as string]: `${90 + (idx % 3) * 20}s` }}
+                >
+                  {/* Attention : on N'UTILISE PAS `gap-*` ici. Un gap entre
+                      enfants ne s'applique PAS après le dernier — le raccord
+                      1ʳᵉ ↔ 2ᵉ copie tomberait alors une demi-espace trop tôt
+                      et l'anim rebondirait visuellement. On met un `mb-3` sur
+                      CHAQUE image (y compris la dernière de la 2ᵉ copie), ce
+                      qui égalise l'espacement et rend la translation `-50%`
+                      exactement raccord. */}
+                  <div className="flex flex-col">
+                    {col.map((src, i) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={`a-${i}`}
+                        src={src}
+                        alt=""
+                        loading="lazy"
+                        className="w-full aspect-square object-cover rounded-lg mb-3"
+                      />
+                    ))}
+                    {/* 2ᵉ copie pour la boucle sans saut (cf. keyframes). */}
+                    {col.map((src, i) => (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        key={`b-${i}`}
+                        src={src}
+                        alt=""
+                        loading="lazy"
+                        className="w-full aspect-square object-cover rounded-lg mb-3"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Voile blanc léger pour garantir le contraste des cartes. */}
+          <div className="absolute inset-0 bg-white/20 pointer-events-none" aria-hidden="true" />
+        </>
+      )}
+
+      <div className="relative max-w-[1400px] mx-auto px-4 md:px-8 py-10 md:py-14">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-stretch">
 
           {/* ── Bloc info — navy ────────────────────────────────────── */}
@@ -278,6 +357,22 @@ export default function HeroInfoFaq({
       </div>
     </section>
   );
+}
+
+/**
+ * Répartit les images en HERO_BG_COLUMNS colonnes (round-robin) et cape
+ * chaque colonne à HERO_BG_IMAGES_PER_COL images pour éviter un DOM trop
+ * lourd. Renvoie [] si l'entrée est vide OU si aucune image ne remplit
+ * assez une colonne (< 2 tuiles → boucle visible → moche).
+ */
+function buildBackgroundColumns(images: string[]): string[][] {
+  if (images.length < HERO_BG_COLUMNS * 2) return [];
+  const cols: string[][] = Array.from({ length: HERO_BG_COLUMNS }, () => []);
+  for (let i = 0; i < images.length; i++) {
+    const c = i % HERO_BG_COLUMNS;
+    if (cols[c].length < HERO_BG_IMAGES_PER_COL) cols[c].push(images[i]);
+  }
+  return cols;
 }
 
 /* ── Sous-composants ────────────────────────────────────────────── */

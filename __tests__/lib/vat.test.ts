@@ -7,157 +7,256 @@ import {
   DOM_TOM_COUNTRIES,
   COUNTRIES,
   getCountry,
+  buildDomTomCertificationLabel,
   FR_VAT_RATE,
 } from "@/lib/vat";
 
-describe("resolveVatRate", () => {
-  describe("retrait en boutique (pickup)", () => {
-    it("applique 20 % pour un client français", () => {
+describe("resolveVatRate — retrait en boutique (mode pickup)", () => {
+  // Règle : la marchandise ne quitte pas la métropole en pickup. TVA FR 20 %
+  // toujours due, indépendamment du pays de facturation et de vatExempt.
+  it.each([
+    ["FR", false, 0.2],
+    ["FR", true, 0.2],
+    ["DE", false, 0.2],
+    ["DE", true, 0.2], // UE exonéré : la marchandise reste en FR donc 20 %
+    ["GP", false, 0.2], // adresse DOM-TOM mais retrait métropole → 20 %
+    ["CH", false, 0.2],
+    ["US", true, 0.2],
+    [null, false, 0.2],
+  ])("code=%s vatExempt=%s → %s", (code, exempt, expected) => {
+    expect(
+      resolveVatRate({
+        countryCode: code as string | null,
+        deliveryMode: "pickup",
+        vatExempt: exempt as boolean,
+      }),
+    ).toBe(expected);
+  });
+});
+
+describe("resolveVatRate — fusion (mode merge)", () => {
+  it("hérite du taux 20 % de la commande parente", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "GP", // adresse DOM-TOM
+        deliveryMode: "merge",
+        vatExempt: false,
+        parentTvaRate: 0.2,
+      }),
+    ).toBe(0.2);
+  });
+
+  it("hérite du taux 0 % de la commande parente", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "FR", // adresse FR
+        deliveryMode: "merge",
+        vatExempt: false,
+        parentTvaRate: 0,
+      }),
+    ).toBe(0);
+  });
+
+  it("fallback 20 % si parentTvaRate manquant", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "FR",
+        deliveryMode: "merge",
+        vatExempt: false,
+      }),
+    ).toBe(0.2);
+  });
+});
+
+describe("resolveVatRate — transporteur privé (mode private)", () => {
+  describe("adresse DOM-TOM", () => {
+    it("case NON cochée → 20 % FR par défaut (aucune preuve de sortie)", () => {
       expect(
-        resolveVatRate({ countryCode: "FR", isPickup: true, vatExempt: false }),
+        resolveVatRate({
+          countryCode: "GP",
+          deliveryMode: "private",
+          vatExempt: false,
+          domTomCertified: false,
+        }),
       ).toBe(0.2);
     });
 
-    it("applique 20 % à un client UE non exonéré (TVA non validée)", () => {
+    it("case cochée → 0 % (attestation d'expédition DOM-TOM)", () => {
       expect(
-        resolveVatRate({ countryCode: "DE", isPickup: true, vatExempt: false }),
-      ).toBe(0.2);
-    });
-
-    it("applique 0 % à un client UE exonéré (auto-liquidation B2B intracom)", () => {
-      // Règle métier : si l'admin a validé le numéro de TVA d'un client UE
-      // hors France, il bénéficie de l'exonération même en retrait boutique.
-      expect(
-        resolveVatRate({ countryCode: "DE", isPickup: true, vatExempt: true }),
+        resolveVatRate({
+          countryCode: "GP",
+          deliveryMode: "private",
+          vatExempt: false,
+          domTomCertified: true,
+        }),
       ).toBe(0);
     });
 
-    it("applique 0 % pour un DOM-TOM", () => {
-      expect(
-        resolveVatRate({ countryCode: "GP", isPickup: true, vatExempt: false }),
-      ).toBe(0);
-    });
+    it.each([["GP"], ["MQ"], ["GF"], ["YT"], ["RE"], ["NC"], ["PF"]])(
+      "cas cochée pour %s → 0",
+      (code) => {
+        expect(
+          resolveVatRate({
+            countryCode: code,
+            deliveryMode: "private",
+            vatExempt: false,
+            domTomCertified: true,
+          }),
+        ).toBe(0);
+      },
+    );
+  });
 
-    it("applique 0 % pour un client hors UE (Suisse)", () => {
+  describe("adresse France métropolitaine", () => {
+    it("20 % (règle standard, la case DOM-TOM n'a aucun effet)", () => {
       expect(
-        resolveVatRate({ countryCode: "CH", isPickup: true, vatExempt: false }),
-      ).toBe(0);
-    });
-
-    it("retombe sur 20 % si pays non renseigné (fallback retrait FR)", () => {
-      expect(
-        resolveVatRate({ countryCode: null, isPickup: true, vatExempt: false }),
+        resolveVatRate({
+          countryCode: "FR",
+          deliveryMode: "private",
+          vatExempt: false,
+          domTomCertified: true,
+        }),
       ).toBe(0.2);
     });
   });
 
-  describe("livraison France métropolitaine", () => {
-    it("applique 20 % à un Français non exonéré", () => {
+  describe("adresse UE hors France", () => {
+    it("vatExempt=false → 20 %", () => {
       expect(
-        resolveVatRate({ countryCode: "FR", isPickup: false, vatExempt: false }),
+        resolveVatRate({
+          countryCode: "DE",
+          deliveryMode: "private",
+          vatExempt: false,
+        }),
       ).toBe(0.2);
     });
 
-    it("applique 20 % à un Français même si vatExempt cocherait par erreur", () => {
-      // L'exonération admin ne s'applique pas aux Français.
+    it("vatExempt=true → 0 % (auto-liquidation intracom)", () => {
       expect(
-        resolveVatRate({ countryCode: "FR", isPickup: false, vatExempt: true }),
-      ).toBe(0.2);
-    });
-
-    it("est insensible à la casse", () => {
-      expect(
-        resolveVatRate({ countryCode: "fr", isPickup: false, vatExempt: false }),
-      ).toBe(0.2);
-    });
-  });
-
-  describe("livraison DOM-TOM", () => {
-    it.each([
-      ["GP", "Guadeloupe"],
-      ["MQ", "Martinique"],
-      ["GF", "Guyane"],
-      ["YT", "Mayotte"],
-      ["RE", "La Réunion"],
-      ["NC", "Nouvelle-Calédonie"],
-      ["PF", "Polynésie"],
-    ])("n'applique pas de TVA à %s (%s)", (code) => {
-      expect(
-        resolveVatRate({ countryCode: code, isPickup: false, vatExempt: false }),
+        resolveVatRate({
+          countryCode: "DE",
+          deliveryMode: "private",
+          vatExempt: true,
+        }),
       ).toBe(0);
     });
   });
+});
 
-  describe("livraison UE hors France", () => {
-    it("applique 20 % par défaut (TVA non validée)", () => {
-      expect(
-        resolveVatRate({ countryCode: "DE", isPickup: false, vatExempt: false }),
-      ).toBe(0.2);
-    });
-
-    it("applique 0 % si l'admin a validé l'exonération", () => {
-      expect(
-        resolveVatRate({ countryCode: "DE", isPickup: false, vatExempt: true }),
-      ).toBe(0);
-    });
-
-    it.each([
-      ["AT"], ["BE"], ["BG"], ["CY"], ["CZ"], ["DE"], ["DK"], ["EE"], ["ES"],
-      ["FI"], ["GR"], ["HR"], ["HU"], ["IE"], ["IT"], ["LT"], ["LU"], ["LV"],
-      ["MT"], ["NL"], ["PL"], ["PT"], ["RO"], ["SE"], ["SI"], ["SK"],
-    ])("non exonéré → 20 % pour %s", (code) => {
-      expect(
-        resolveVatRate({ countryCode: code, isPickup: false, vatExempt: false }),
-      ).toBe(0.2);
-    });
-
-    it.each([
-      ["AT"], ["DE"], ["IT"], ["ES"], ["BE"],
-    ])("exonéré → 0 % pour %s", (code) => {
-      expect(
-        resolveVatRate({ countryCode: code, isPickup: false, vatExempt: true }),
-      ).toBe(0);
-    });
+describe("resolveVatRate — livraison classique (mode delivery)", () => {
+  it.each([
+    ["FR", false, 0.2],
+    ["FR", true, 0.2],
+  ])("France métropole (%s, vatExempt=%s) → %s", (code, exempt, expected) => {
+    expect(
+      resolveVatRate({
+        countryCode: code,
+        deliveryMode: "delivery",
+        vatExempt: exempt as boolean,
+      }),
+    ).toBe(expected);
   });
 
-  describe("livraison hors UE", () => {
-    it.each([
-      ["CH", "Suisse"],
-      ["GB", "Royaume-Uni"],
-      ["US", "États-Unis"],
-      ["MA", "Maroc"],
-      ["JP", "Japon"],
-    ])("n'applique pas de TVA à %s (%s)", (code) => {
+  it.each([["GP"], ["MQ"], ["GF"], ["YT"], ["RE"], ["NC"], ["PF"]])(
+    "DOM-TOM (%s) → 0 %%",
+    (code) => {
       expect(
-        resolveVatRate({ countryCode: code, isPickup: false, vatExempt: false }),
+        resolveVatRate({
+          countryCode: code,
+          deliveryMode: "delivery",
+          vatExempt: false,
+        }),
       ).toBe(0);
-    });
+    },
+  );
 
-    it("le flag vatExempt est sans effet hors UE", () => {
-      expect(
-        resolveVatRate({ countryCode: "US", isPickup: false, vatExempt: true }),
-      ).toBe(0);
-    });
+  it("UE non exonéré → 20 %", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "DE",
+        deliveryMode: "delivery",
+        vatExempt: false,
+      }),
+    ).toBe(0.2);
   });
 
-  describe("pays inconnu / vide", () => {
-    it("0 % si countryCode est null", () => {
-      expect(
-        resolveVatRate({ countryCode: null, isPickup: false, vatExempt: false }),
-      ).toBe(0);
-    });
+  it("UE exonéré → 0 %", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "DE",
+        deliveryMode: "delivery",
+        vatExempt: true,
+      }),
+    ).toBe(0);
+  });
 
-    it("0 % si countryCode est undefined", () => {
-      expect(
-        resolveVatRate({ countryCode: undefined, isPickup: false, vatExempt: false }),
-      ).toBe(0);
-    });
+  it("Hors UE → 0 %", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "US",
+        deliveryMode: "delivery",
+        vatExempt: false,
+      }),
+    ).toBe(0);
+  });
 
-    it("0 % pour un code pays inconnu", () => {
-      expect(
-        resolveVatRate({ countryCode: "ZZ", isPickup: false, vatExempt: false }),
-      ).toBe(0);
-    });
+  it("pays inconnu → 0 %", () => {
+    expect(
+      resolveVatRate({
+        countryCode: null,
+        deliveryMode: "delivery",
+        vatExempt: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("insensible à la casse", () => {
+    expect(
+      resolveVatRate({
+        countryCode: "fr",
+        deliveryMode: "delivery",
+        vatExempt: false,
+      }),
+    ).toBe(0.2);
+  });
+});
+
+describe("resolveVatRate — rétro-compat via isPickup", () => {
+  it("isPickup=true sans deliveryMode → traité comme pickup", () => {
+    expect(
+      resolveVatRate({ countryCode: "GP", isPickup: true, vatExempt: false }),
+    ).toBe(0.2);
+  });
+
+  it("isPickup=false sans deliveryMode → traité comme delivery", () => {
+    expect(
+      resolveVatRate({ countryCode: "GP", isPickup: false, vatExempt: false }),
+    ).toBe(0);
+  });
+});
+
+describe("buildDomTomCertificationLabel", () => {
+  it("retourne le libellé pour la Guadeloupe", () => {
+    expect(buildDomTomCertificationLabel("GP")).toBe(
+      "Je certifie que mon colis sera livré en France (Guadeloupe) et que la commande sera exonérée de la TVA française métropolitaine.",
+    );
+  });
+
+  it("retourne le libellé pour Martinique", () => {
+    expect(buildDomTomCertificationLabel("MQ")).toContain("France (Martinique)");
+  });
+
+  it("null pour France métropole", () => {
+    expect(buildDomTomCertificationLabel("FR")).toBeNull();
+  });
+
+  it("null pour un pays UE", () => {
+    expect(buildDomTomCertificationLabel("DE")).toBeNull();
+  });
+
+  it("null pour null / undefined", () => {
+    expect(buildDomTomCertificationLabel(null)).toBeNull();
+    expect(buildDomTomCertificationLabel(undefined)).toBeNull();
   });
 });
 

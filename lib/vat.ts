@@ -1,15 +1,22 @@
 /**
  * Calcul du taux de TVA appliqué à une commande BtoB.
  *
- * Règles (le mode de retrait n'écrase plus l'exonération admin) :
- * - France métropolitaine → 20 %
- * - DOM-TOM → 0 %
- * - UE hors France :
- *     - Si l'admin a validé l'exonération (`vatExempt = true`) → 0 %
- *       (auto-liquidation B2B intracom, peu importe livraison ou retrait)
- *     - Sinon → 20 %
- * - Hors UE → 0 %
- * - Pays inconnu / non renseigné → fallback 20 % si retrait, 0 % sinon.
+ * Règles selon le mode de livraison :
+ * - "pickup" (retrait boutique) → 20 % FR TOUJOURS
+ *   La marchandise ne quitte pas la métropole, peu importe le pays de facturation.
+ * - "merge" (fusion dans une commande parente) → hérite de `parentTvaRate` de la
+ *   commande parente. Fallback 20 % si absent.
+ * - "private" (transporteur privé du client) :
+ *     - Livraison DOM-TOM → 0 % SEULEMENT si le client coche la case
+ *       « Je certifie que le colis sera livré en {DOM-TOM}, exonéré de TVA FR ».
+ *       Sinon 20 % FR par défaut (on ne peut pas prouver la sortie du territoire).
+ *     - Autres pays → règle standard (delivery).
+ * - "delivery" (défaut) :
+ *     - France métropolitaine → 20 %
+ *     - DOM-TOM → 0 %
+ *     - UE hors France : vatExempt admin → 0 %, sinon → 20 %
+ *     - Hors UE → 0 %
+ *     - Pays inconnu / vide → 0 %
  */
 
 /** Taux de TVA française standard (20 %). */
@@ -54,26 +61,66 @@ export function isDomTom(countryCode: string | null | undefined): boolean {
   return DOM_TOM_COUNTRIES.has(countryCode.toUpperCase());
 }
 
+export type DeliveryModeForVat = "delivery" | "pickup" | "private" | "merge";
+
 export interface VatRateInput {
   /** Code ISO-2 du pays de livraison (ou null si retrait). */
   countryCode: string | null | undefined;
-  /** True si la commande est un retrait en boutique. */
-  isPickup: boolean;
+  /** Mode de livraison choisi au checkout. */
+  deliveryMode?: DeliveryModeForVat;
+  /**
+   * @deprecated Utiliser `deliveryMode = "pickup"`. Conservé pour compat.
+   * Vaut `true` uniquement si `deliveryMode` n'est pas fourni.
+   */
+  isPickup?: boolean;
   /** True si l'admin a validé manuellement l'exonération TVA pour ce client. */
   vatExempt: boolean;
+  /**
+   * Mode "private" uniquement : true si le client a coché la case
+   * « Je certifie que mon colis sera livré en {DOM-TOM}… ».
+   * Sans cette case, on facture la TVA FR même sur adresse DOM-TOM.
+   */
+  domTomCertified?: boolean;
+  /**
+   * Mode "merge" uniquement : taux TVA de la commande parente. On s'aligne
+   * dessus pour cohérence facture.
+   */
+  parentTvaRate?: number | null;
 }
 
 /**
  * Retourne le taux de TVA à appliquer (0 ou 0.20).
  */
-export function resolveVatRate({ countryCode, isPickup, vatExempt }: VatRateInput): number {
+export function resolveVatRate({
+  countryCode,
+  deliveryMode,
+  isPickup,
+  vatExempt,
+  domTomCertified,
+  parentTvaRate,
+}: VatRateInput): number {
+  const mode: DeliveryModeForVat = deliveryMode ?? (isPickup ? "pickup" : "delivery");
   const code = countryCode?.toUpperCase() ?? "";
+
+  // 1. Retrait boutique → toujours 20 % FR (marchandise reste en métropole).
+  if (mode === "pickup") return FR_VAT_RATE;
+
+  // 2. Fusion → on hérite du taux de la commande parente pour cohérence.
+  if (mode === "merge") {
+    if (typeof parentTvaRate === "number") return parentTvaRate;
+    return FR_VAT_RATE;
+  }
+
+  // 3. Transporteur privé sur adresse DOM-TOM : exonération uniquement si le
+  //    client atteste par écrit (case cochée). Sinon TVA FR par défaut.
+  if (mode === "private" && DOM_TOM_COUNTRIES.has(code)) {
+    return domTomCertified ? 0 : FR_VAT_RATE;
+  }
+
+  // 4. Règle standard (delivery + private hors DOM-TOM).
   if (code === "FR") return FR_VAT_RATE;
   if (DOM_TOM_COUNTRIES.has(code)) return 0;
   if (EU_COUNTRIES.has(code)) return vatExempt ? 0 : FR_VAT_RATE;
-  // Pays inconnu / non renseigné : si on est en retrait boutique on retombe
-  // sur la TVA française, sinon (export) 0 %.
-  if (!code) return isPickup ? FR_VAT_RATE : 0;
   return 0;
 }
 
@@ -209,4 +256,19 @@ export function getCountry(code: string | null | undefined): Country | null {
   if (!code) return null;
   const upper = code.toUpperCase();
   return COUNTRIES.find((c) => c.code === upper) ?? null;
+}
+
+/**
+ * Libellé dynamique de la case à cocher DOM-TOM pour le mode transporteur privé.
+ * Retourne null si le pays n'est pas un DOM-TOM (case non affichée).
+ * Ex : « Je certifie que mon colis sera livré en France (Guadeloupe) et que
+ *       la commande sera exonérée de la TVA française métropolitaine. »
+ */
+export function buildDomTomCertificationLabel(
+  countryCode: string | null | undefined,
+): string | null {
+  if (!isDomTom(countryCode)) return null;
+  const country = getCountry(countryCode);
+  const name = country?.name ?? "DOM-TOM";
+  return `Je certifie que mon colis sera livré en ${name} et que la commande sera exonérée de la TVA française métropolitaine.`;
 }

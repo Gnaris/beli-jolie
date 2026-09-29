@@ -49,4 +49,8 @@ export interface HomeLayoutProps {
   /** Numéro WhatsApp entreprise (CompanyInfo.whatsapp) — fallback sur
    *  companyPhone si null côté consommateur. */
   companyWhatsapp: string | null;
+  /** Paths d'images produit à afficher en fond décoratif du hero BJ.
+   *  Tirés au hasard une fois par jour (cache 24 h tenant-scopé). Vide
+   *  sur Issyma (le layout Issyma ne l'utilise pas). */
+  heroImages: string[];
 }

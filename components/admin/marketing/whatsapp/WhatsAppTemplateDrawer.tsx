@@ -15,6 +15,8 @@ import {
   WHATSAPP_TEMPLATE_TITLE_MAX,
   WHATSAPP_TEMPLATE_BODY_MAX,
   WHATSAPP_TEMPLATE_PLACEHOLDER,
+  WHATSAPP_NO_EMOJI_ERROR,
+  containsEmoji,
   renderWhatsAppMessage,
   buildWhatsAppPreviewContext,
   type WhatsAppMergeContext,
@@ -113,7 +115,15 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
 
   const titleOver = title.length > WHATSAPP_TEMPLATE_TITLE_MAX;
   const bodyOver = body.length > WHATSAPP_TEMPLATE_BODY_MAX;
-  const canSave = title.trim().length > 0 && body.trim().length > 0 && !titleOver && !bodyOver;
+  const titleHasEmoji = containsEmoji(title);
+  const bodyHasEmoji = containsEmoji(body);
+  const canSave =
+    title.trim().length > 0 &&
+    body.trim().length > 0 &&
+    !titleOver &&
+    !bodyOver &&
+    !titleHasEmoji &&
+    !bodyHasEmoji;
 
   function insertAtCursor(insert: string) {
     const ta = bodyRef.current;
@@ -253,6 +263,11 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             <p className={`mt-1 text-[11px] font-body ${titleOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
               {title.length}/{WHATSAPP_TEMPLATE_TITLE_MAX}
             </p>
+            {titleHasEmoji && (
+              <p className="mt-1 text-[11px] font-body text-red-600 font-semibold">
+                {WHATSAPP_NO_EMOJI_ERROR}
+              </p>
+            )}
           </div>
 
           {/* Body */}
@@ -274,6 +289,11 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             <p className={`mt-1 text-[11px] font-body ${bodyOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
               {body.length}/{WHATSAPP_TEMPLATE_BODY_MAX}
             </p>
+            {bodyHasEmoji && (
+              <p className="mt-1 text-[11px] font-body text-red-600 font-semibold">
+                {WHATSAPP_NO_EMOJI_ERROR}
+              </p>
+            )}
           </div>
 
           {/* Variables */}

@@ -27,7 +27,7 @@ const FORMAT_CONSTRAINTS = `CONTRAINTES DE FORMAT :
   - \`_texte_\` → *italique*
   - \`~texte~\` → ~~barré~~
   - \`\`\`texte\`\`\` → monospace
-- Les émojis sont bienvenus (ton chaleureux, humain, direct).
+- **INTERDIT** : ne mets AUCUN emoji (pas de 👋, ✨, 👉, ❤, 🎉…). WhatsApp Desktop casse leur encodage à l'envoi et le destinataire reçoit des \`?\` bizarres. Reste sur du texte propre — le ton chaleureux passe par les mots.
 - Découpe en courts paragraphes séparés par une ligne vide — plus lisible sur mobile.`;
 
 const LINKS_CONSTRAINTS = `LIENS :
@@ -37,7 +37,7 @@ WhatsApp NE SAIT PAS créer de lien sur un mot (contrairement au mail). Seules l
 \`Cliquez ici\` (rien de cliquable, l'URL est cachée)
 
 **CORRECT** :
-\`Voir le catalogue 👉 https://beliandjolie.com/catalogue\`
+\`Voir le catalogue : https://beliandjolie.com/catalogue\`
 \`Découvrez la nouveauté : https://beliandjolie.com/produits/collier-lune\`
 
 Écris le libellé + l'URL en clair. Une URL par ligne quand il y en a plusieurs.`;
@@ -78,6 +78,7 @@ const FOOTER_INSTRUCTIONS = `RÈGLES DE LIVRAISON :
   - Le message contient au moins UNE variable client (\`{firstName}\` par exemple) — sinon il aura l'air générique.
   - Il est signé avec \`{adminFirstName}\` ou équivalent.
   - Aucune balise HTML n'est présente.
+  - **Aucun emoji** dans le texte (👋 ✨ 👉 etc. sont interdits — voir contraintes de format).
   - Les URL, s'il y en a, sont en clair (jamais \`[texte](url)\`).
   - Le total tient sous 1000 caractères.`;
 

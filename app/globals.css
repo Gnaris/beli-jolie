@@ -2717,4 +2717,43 @@ html.admin-dark .settings-tabs__tab--active,
   box-shadow: 0 1px 3px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06) inset !important;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Hero BJ — fond bijoux défilant (home)
+   ─────────────────────────────────────────────────────────────────────────
+   6 colonnes d'images qui montent/descendent en boucle infinie derrière le
+   bloc info navy + FAQ. Les 2 keyframes translatent de 0 → -50% (et
+   inversement) : comme la track contient la liste d'images DOUBLÉE, à
+   mi-parcours la 2ᵉ copie a pris exactement la place de la 1ʳᵉ → boucle
+   invisible. La vitesse est pilotée par la CSS var --hero-scroll-speed
+   (défaut 90s = lent, validé cliente). */
+
+@keyframes hero-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -50%, 0); }
+}
+.hero-col-up,
+.hero-col-down {
+  animation: hero-scroll var(--hero-scroll-speed, 90s) linear infinite;
+  will-change: transform;
+}
+/* Colonne descendante = même keyframe, joué à l'envers. Plus robuste que
+   2 keyframes séparés (Chromium optimise parfois les keyframes identiques
+   au signe près et les fait converger vers la même direction visuelle,
+   incident observé sur BJ 2026-09-29). */
+.hero-col-down {
+  animation-direction: reverse;
+}
+/* Fondu doux haut/bas pour que les images ne se coupent pas net aux
+   bords de la section. */
+.hero-fade-mask {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 8%, black 92%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, black 8%, black 92%, transparent 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-col-up,
+  .hero-col-down {
+    animation: none;
+  }
+}
+
 /* trigger */

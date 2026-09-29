@@ -65,6 +65,7 @@ export interface PaymentLinkOrderInput {
   privateCarrierEmail?: string;
   privateCarrierPhone?: string;
   privateCarrierBordereau?: string;
+  privateDomTomCertified?: boolean;
   mergeIntoOrderId?: string;
   promoCode?: string;
   /** Locale du client au checkout — sert au success_url + à `locale` Stripe. */
@@ -303,6 +304,15 @@ export async function placePaymentLinkOrder(
     shippingDiscountMinQuantity: user.shippingDiscountMinQuantity ?? null,
   };
 
+  let parentTvaRate: number | null = null;
+  if (input.deliveryMode === "merge" && input.mergeIntoOrderId) {
+    const parent = await prisma.order.findFirst({
+      where: { id: input.mergeIntoOrderId, userId, status: "PENDING" },
+      select: { tvaRate: true },
+    });
+    parentTvaRate = parent?.tvaRate ?? null;
+  }
+
   let appliedCode: AppliedCodePromo | null = null;
   if (input.promoCode && input.promoCode.trim()) {
     const preCodePricing = computeOrderPricing({
@@ -313,6 +323,9 @@ export async function placePaymentLinkOrder(
       user: userPricingInput,
       activePromos,
       appliedCodePromo: null,
+      deliveryMode: input.deliveryMode,
+      domTomCertified: input.privateDomTomCertified,
+      parentTvaRate,
     });
     const contextItems = pricingItems.map((i) => ({ ...i.promoContext, quantity: i.quantity }));
     const check = await validatePromoCode(
@@ -342,6 +355,9 @@ export async function placePaymentLinkOrder(
     user: userPricingInput,
     activePromos,
     appliedCodePromo,
+    deliveryMode: input.deliveryMode,
+    domTomCertified: input.privateDomTomCertified,
+    parentTvaRate,
   });
 
   const {
@@ -605,6 +621,7 @@ export async function placePaymentLinkOrder(
           privateCarrierEmail: isPrivateCarrier ? (input.privateCarrierEmail?.trim() || null) : null,
           privateCarrierPhone: isPrivateCarrier ? (input.privateCarrierPhone?.trim() || null) : null,
           privateCarrierBordereau: isPrivateCarrier ? (input.privateCarrierBordereau?.trim() || null) : null,
+          privateDomTomCertified: isPrivateCarrier ? !!input.privateDomTomCertified : false,
           mergeIntoOrderId: input.mergeIntoOrderId?.trim() || null,
           clientDiscountType,
           clientDiscountValue,

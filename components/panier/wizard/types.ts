@@ -143,6 +143,9 @@ export interface WizardMergeCandidate {
   carrierPrice: number;
   itemsCount: number;
   shipAddressShort: string;
+  /** Taux TVA de la commande parente (0 ou 0.20). En mode "merge" la nouvelle
+   *  commande hérite du taux pour rester cohérent avec la facture parente. */
+  tvaRate: number;
 }
 
 export type WizardProductsMeta = Record<string, ProductMeta>;

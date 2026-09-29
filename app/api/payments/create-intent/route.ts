@@ -42,6 +42,9 @@ const CreateIntentSchema = z.object({
   privateCarrierEmail: z.string().optional(),
   privateCarrierPhone: z.string().optional(),
   privateCarrierBordereau: z.string().optional(),
+  // Mode privé + adresse DOM-TOM : le client atteste que le colis sort du
+  // territoire, ce qui déclenche l'exonération TVA.
+  privateDomTomCertified: z.boolean().optional(),
   mergeIntoOrderId: z.string().optional(),
   // Consentement remplacement rupture stock — stocké en metadata pour être
   // relu par finalizeOrderFromPaymentIntent au retour PayPal.
@@ -82,6 +85,7 @@ export async function POST(req: Request) {
     privateCarrierEmail,
     privateCarrierPhone,
     privateCarrierBordereau,
+    privateDomTomCertified,
     mergeIntoOrderId,
     acceptReplacementContact,
     creditToApply: creditToApplyInput,
@@ -230,6 +234,18 @@ export async function POST(req: Request) {
     buildCartPromoContexts(cart.items),
   ]);
 
+  // Résolution parentTvaRate — nécessaire dès que le client fusionne dans une
+  // commande existante : le nouveau panier doit hériter du taux TVA de la
+  // parente (audit cohérence facture, cf. spec DOM-TOM 2026-09-29).
+  let parentTvaRate: number | null = null;
+  if (deliveryMode === "merge" && mergeIntoOrderId) {
+    const parent = await prisma.order.findFirst({
+      where: { id: mergeIntoOrderId, userId, status: "PENDING" },
+      select: { tvaRate: true },
+    });
+    parentTvaRate = parent?.tvaRate ?? null;
+  }
+
   const pricingItems = cart.items
     .map((i) => {
       const ctx = promoContexts.get(i.id);
@@ -250,6 +266,9 @@ export async function POST(req: Request) {
         user: userToPricing(user),
         activePromos,
         appliedCodePromo: null,
+        deliveryMode,
+        domTomCertified: privateDomTomCertified,
+        parentTvaRate,
       });
       return s + resolved.subtotalHT;
     }, 0);
@@ -278,6 +297,9 @@ export async function POST(req: Request) {
     user: userToPricing(user),
     activePromos,
     appliedCodePromo,
+    deliveryMode,
+    domTomCertified: privateDomTomCertified,
+    parentTvaRate,
   });
 
   // Pré-check minimum de commande (audit §14) : refuser AVANT création PI si
@@ -362,6 +384,7 @@ export async function POST(req: Request) {
         privateCarrierEmail: privateCarrierEmail ?? "",
         privateCarrierPhone: privateCarrierPhone ?? "",
         privateCarrierBordereau: privateCarrierBordereau ?? "",
+        privateDomTomCertified: privateDomTomCertified ? "1" : "0",
         mergeIntoOrderId: mergeIntoOrderId ?? "",
         acceptReplacementContact: acceptReplacementContact ? "1" : "0",
         creditToApply: String(creditApplied),

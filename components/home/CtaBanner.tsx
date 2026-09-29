@@ -13,7 +13,8 @@ export default function CtaBanner() {
   return (
     <section
       ref={sectionRef}
-      className="scroll-fade-up relative overflow-hidden bg-bg-darker text-white py-20 lg:py-28"
+      className="scroll-fade-up relative overflow-hidden text-white py-20 lg:py-28"
+      style={{ backgroundColor: "#0b1b34" }}
     >
       {/* Grille fond très discrète */}
       <div
@@ -37,14 +38,14 @@ export default function CtaBanner() {
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             href="/produits"
-            className="inline-flex items-center gap-2 px-7 py-3.5 bg-white text-bg-darker font-heading font-semibold text-sm rounded-full hover:bg-white/90 transition"
+            className="inline-flex items-center gap-2 px-7 py-3.5 bg-white text-[#0b1b34] font-heading font-semibold text-sm rounded-full hover:bg-white/90 transition"
           >
             {t("heroCta")} <span aria-hidden>→</span>
           </Link>
           {!session && (
             <Link
               href="/inscription"
-              className="inline-flex items-center gap-2 px-7 py-3.5 border border-white/25 text-white font-heading text-sm rounded-full hover:bg-white hover:text-bg-darker transition-colors"
+              className="inline-flex items-center gap-2 px-7 py-3.5 border border-white/25 text-white font-heading text-sm rounded-full hover:bg-white hover:text-[#0b1b34] transition-colors"
             >
               {t("heroRegister")}
             </Link>

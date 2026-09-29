@@ -61,6 +61,25 @@ export const WHATSAPP_TEMPLATE_TITLE_MAX = 80;
 export const WHATSAPP_TEMPLATE_BODY_MAX = 1000;
 
 /**
+ * Détecte la présence d'au moins un emoji dans une chaîne. On refuse les
+ * emojis dans les modèles WhatsApp car WhatsApp Desktop décode mal les
+ * octets UTF-8 des emojis quand ils passent par le paramètre `?text=` de
+ * `wa.me` (👋 → �). Interdire la saisie en amont évite à la cliente
+ * d'envoyer un message avec des `?` bizarres sans s'en rendre compte.
+ *
+ * Détection via la propriété Unicode `Extended_Pictographic` (couvre 👋,
+ * ✨, ❤, 👉, 🎉…). Les lettres accentuées, chiffres, ponctuation et
+ * symboles monétaires ne sont pas ciblés.
+ */
+export function containsEmoji(text: string): boolean {
+  if (!text) return false;
+  return /\p{Extended_Pictographic}/u.test(text);
+}
+
+export const WHATSAPP_NO_EMOJI_ERROR =
+  "Les emojis ne sont pas acceptés dans les modèles WhatsApp (👋 ✨ 👉…). Retirez-les pour continuer.";
+
+/**
  * Modèle par défaut, utilisé pour l'aperçu quand la cliente ouvre le drawer
  * de création d'un nouveau modèle avec un textarea vide. Ne sert PAS de
  * fallback à l'usage — un modèle vide n'est jamais persisté.
@@ -101,6 +120,11 @@ export function buildWhatsAppPreviewContext(overrides?: Partial<Record<string, s
 /**
  * Construit l'URL WhatsApp cliquable. Vide → wa.me sans query, sinon
  * wa.me?text=… URL-encodé.
+ *
+ * Attention : WhatsApp Desktop décode mal les octets UTF-8 des emojis via
+ * `?text=` (👋 → �). Pour éviter ce piège, la saisie des emojis est
+ * bloquée en amont dans le schéma de validation des modèles
+ * (`whatsAppTemplateSchema`).
  */
 export function buildWhatsAppUrl(waNumber: string, renderedMessage?: string): string {
   const base = `https://wa.me/${waNumber}`;

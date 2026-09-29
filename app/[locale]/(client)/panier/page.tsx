@@ -162,6 +162,7 @@ export default async function PanierPage() {
         shipAddress1: true,
         shipZipCode: true,
         shipCity: true,
+        tvaRate: true,
         items: { select: { id: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -339,6 +340,7 @@ export default async function PanierPage() {
         carrierPrice: Number(o.carrierPrice),
         itemsCount: o.items.length,
         shipAddressShort: `${o.shipAddress1}, ${o.shipZipCode} ${o.shipCity}`,
+        tvaRate: o.tvaRate,
       }))}
       minOrderHT={minOrderHT}
       stripeReady={stripeReady}

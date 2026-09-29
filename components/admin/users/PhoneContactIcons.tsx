@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { sendWhatsAppTemplate } from "@/app/actions/admin/whatsapp-send";
-import { buildWhatsAppUrl } from "@/lib/whatsapp-message";
+import { buildWhatsAppUrl, containsEmoji } from "@/lib/whatsapp-message";
+import { useToast } from "@/components/ui/Toast";
 import type { WhatsAppTemplateDTO } from "@/app/actions/admin/whatsapp-templates";
 
 /**
@@ -59,6 +60,7 @@ export default function PhoneContactIcons({ phone, userId = null, templates = []
   const [mounted, setMounted] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const toast = useToast();
 
   useEffect(() => setMounted(true), []);
 
@@ -116,12 +118,13 @@ export default function PhoneContactIcons({ phone, userId = null, templates = []
     setMenuOpen(false);
     startTransition(async () => {
       const res = await sendWhatsAppTemplate({ templateId, userId, phone: raw });
-      if (res.success) {
-        openWhatsAppNow(res.renderedBody);
-      } else {
-        // Fallback : ouvre WhatsApp vide plutôt que de rien faire
-        openWhatsAppNow("");
+      if (!res.success) {
+        // Le serveur peut refuser l'envoi (ex. modèle contenant un emoji).
+        // On informe la cliente au lieu d'ouvrir WhatsApp vide en silence.
+        toast.error("Envoi impossible", res.error);
+        return;
       }
+      openWhatsAppNow(res.renderedBody);
     });
   }
 
@@ -201,26 +204,60 @@ export default function PhoneContactIcons({ phone, userId = null, templates = []
                 <p className="px-3 pt-2 pb-1 text-[10px] font-body font-bold uppercase tracking-[0.14em] text-text-muted">
                   Mes modèles
                 </p>
-                {templates.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleSelectTemplate(t.id)}
-                    className="w-full text-left px-3 py-2 text-[13px] font-body text-text-primary hover:bg-bg-secondary transition-colors flex items-start gap-2"
-                  >
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-700 shrink-0 mt-0.5">
-                      <WhatsAppIcon size={11} />
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block font-semibold truncate">{t.title}</span>
-                      <span className="block text-[11px] text-text-muted truncate">
-                        {t.body.replace(/\s+/g, " ").slice(0, 60)}
-                        {t.body.length > 60 ? "…" : ""}
+                {templates.map((t) => {
+                  // Un modèle contenant un emoji est bloqué à l'envoi :
+                  // WhatsApp Desktop casse leur encodage via `?text=`. La
+                  // cliente doit modifier le modèle pour retirer les emojis
+                  // avant de pouvoir l'utiliser (voir /admin/marketing/whatsapp).
+                  const hasEmoji = containsEmoji(t.title) || containsEmoji(t.body);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        if (hasEmoji) return;
+                        handleSelectTemplate(t.id);
+                      }}
+                      disabled={hasEmoji}
+                      title={
+                        hasEmoji
+                          ? "Ce modèle contient un emoji — retirez-le dans « Gérer mes modèles » avant de pouvoir l'envoyer."
+                          : undefined
+                      }
+                      className={`w-full text-left px-3 py-2 text-[13px] font-body flex items-start gap-2 transition-colors ${
+                        hasEmoji
+                          ? "text-text-muted/60 cursor-not-allowed"
+                          : "text-text-primary hover:bg-bg-secondary"
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex items-center justify-center w-6 h-6 rounded-md shrink-0 mt-0.5 ${
+                          hasEmoji
+                            ? "bg-bg-secondary text-text-muted/40"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        <WhatsAppIcon size={11} />
                       </span>
-                    </span>
-                  </button>
-                ))}
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-semibold truncate">{t.title}</span>
+                        <span className="block text-[11px] truncate">
+                          {hasEmoji ? (
+                            <span className="text-red-600 font-semibold">
+                              Contient un emoji — non envoyable
+                            </span>
+                          ) : (
+                            <span className="text-text-muted">
+                              {t.body.replace(/\s+/g, " ").slice(0, 60)}
+                              {t.body.length > 60 ? "…" : ""}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </>
           )}

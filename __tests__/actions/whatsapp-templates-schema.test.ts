@@ -81,4 +81,42 @@ describe("whatsAppTemplateSchema", () => {
     });
     expect(res.success).toBe(false);
   });
+
+  it("refuse un body qui contient un emoji 4-byte (👋)", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Bienvenue",
+      body: "Bonjour {firstName} 👋",
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues[0]?.message).toContain("emoji");
+    }
+  });
+
+  it("refuse un body qui contient un emoji BMP (✨)", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Nouveautés",
+      body: "Nouvelles pièces en ligne ✨",
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("refuse un emoji dans le titre", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Bienvenue 👋",
+      body: "Message propre",
+    });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues[0]?.message).toContain("emoji");
+    }
+  });
+
+  it("accepte les caractères accentués et symboles courants", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Relance après visite",
+      body: "Bonjour {firstName}, à bientôt chez FORCYMA — 12,50 € offert.",
+    });
+    expect(res.success).toBe(true);
+  });
 });
