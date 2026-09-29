@@ -351,20 +351,19 @@ export default function ThemedProductFilters({
               options={[
                 { value: "", label: "Toutes les sous-catégories" },
                 { value: "__none__", label: "Sans sous-catégorie" },
-                ...(cat && subCats.length > 0
+                ...(cat
                   ? subCats.map((s) => ({ value: s.id, label: s.name }))
-                  : []),
+                  : categories.flatMap((c) =>
+                      (c.subCategories ?? []).map((s) => ({
+                        value: s.id,
+                        label: `${c.name} › ${s.name}`,
+                      }))
+                    )),
               ]}
               size="md"
               searchable
               title="Sous-catégorie"
-              disabled={!cat && subCat !== "__none__"}
             />
-            {!cat && subCat !== "__none__" && (
-              <p className="text-[11px] text-text-muted mt-1.5">
-                Choisissez d'abord une catégorie pour lister ses sous-catégories.
-              </p>
-            )}
           </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Composition</div>
