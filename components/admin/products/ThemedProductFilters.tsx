@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import CompactFiltersHeader from "./CompactFiltersHeader";
 import CustomSelect from "@/components/ui/CustomSelect";
+import MultiSelect from "@/components/ui/MultiSelect";
 import { useFilterPending } from "./FilterPendingContext";
 import { clampPerPage, MAX_PER_PAGE, MIN_PER_PAGE } from "@/lib/pagination";
 
@@ -314,100 +315,129 @@ export default function ThemedProductFilters({
 
   // ─── Popover content per theme ────────────────────────────────────────────
   function PopoverContent({ theme }: { theme: ThemeKey }) {
-    const cat = searchParams.get("cat") ?? "";
-    const subCat = searchParams.get("subCat") ?? "";
-    const tag = searchParams.get("tag") ?? "";
-    const composition = searchParams.get("composition") ?? "";
-    const hsCodeId = searchParams.get("hsCodeId") ?? "";
-    const subCats = categories.find((c) => c.id === cat)?.subCategories ?? [];
+    // Filtres Catalogue : URL multi-valeur (« id1,id2,__none__ »). On lit la
+    // chaîne brute, on la découpe en tableau. Écriture : on join, ou on écrit
+    // `null` (retire la clé URL) quand la sélection devient vide.
+    const parseMulti = (raw: string) =>
+      raw.split(",").map((v) => v.trim()).filter((v) => v.length > 0);
+    const writeMulti = (key: string) => (next: string[]) =>
+      setParam({ [key]: next.length > 0 ? next.join(",") : null });
+    const catValues = parseMulti(searchParams.get("cat") ?? "");
+    const subCatValues = parseMulti(searchParams.get("subCat") ?? "");
+    const tagValues = parseMulti(searchParams.get("tag") ?? "");
+    const compoValues = parseMulti(searchParams.get("composition") ?? "");
+    const hsCodeValues = parseMulti(searchParams.get("hsCodeId") ?? "");
+
+    // Périmètre sous-catégories : union des sous-cats des catégories cochées,
+    // sinon toutes les sous-cats du site (préfixées « Cat › Sous-cat »).
+    const catSet = new Set(catValues.filter((v) => v !== "__none__"));
+    const subCatsForShown = catSet.size > 0
+      ? categories
+          .filter((c) => catSet.has(c.id))
+          .flatMap((c) => (c.subCategories ?? []).map((s) => ({ id: s.id, label: s.name })))
+      : categories.flatMap((c) =>
+          (c.subCategories ?? []).map((s) => ({ id: s.id, label: `${c.name} › ${s.name}` }))
+        );
 
     if (theme === "catalogue") {
-      // On expose une entrée « Sans <attribut> » sur chaque select du panneau
-      // Catalogue pour retrouver d'un coup les produits à compléter. La
-      // catégorie principale reste obligatoire côté schéma — l'option reste
-      // utile en cas de donnée incohérente en base.
+      // 5 filtres en multi-sélection avec cases à cocher. « Sans <chose> »
+      // reste combinable en OR avec des IDs concrets (backend gère).
       return (
         <div className="flex flex-col gap-5">
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Catégorie</div>
-            <CustomSelect
-              value={cat}
-              onChange={(val) => setParam({ cat: val, subCat: null })}
+            <MultiSelect
+              values={catValues}
+              onChange={(next) => {
+                // Nettoyage : si on retire une catégorie, on retire aussi les
+                // sous-cats qui en dépendent (elles ne seront plus dans le
+                // périmètre après ce changement).
+                const nextSet = new Set(next.filter((v) => v !== "__none__"));
+                const keptSubCats = nextSet.size === 0
+                  ? subCatValues
+                  : subCatValues.filter((sv) => {
+                      if (sv === "__none__") return true;
+                      const parent = categories.find((c) => (c.subCategories ?? []).some((s) => s.id === sv));
+                      return !parent || nextSet.has(parent.id);
+                    });
+                setParam({
+                  cat: next.length > 0 ? next.join(",") : null,
+                  subCat: keptSubCats.length > 0 ? keptSubCats.join(",") : null,
+                });
+              }}
               options={[
-                { value: "", label: "Toutes les catégories" },
                 { value: "__none__", label: "Sans catégorie" },
                 ...categories.map((c) => ({ value: c.id, label: c.name })),
               ]}
+              placeholder="Toutes les catégories"
               size="md"
               searchable
               title="Catégorie"
+              pluralLabel="sélectionnées"
             />
           </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Sous-catégorie</div>
-            <CustomSelect
-              value={subCat}
-              onChange={(val) => setParam({ subCat: val })}
+            <MultiSelect
+              values={subCatValues}
+              onChange={writeMulti("subCat")}
               options={[
-                { value: "", label: "Toutes les sous-catégories" },
                 { value: "__none__", label: "Sans sous-catégorie" },
-                ...(cat
-                  ? subCats.map((s) => ({ value: s.id, label: s.name }))
-                  : categories.flatMap((c) =>
-                      (c.subCategories ?? []).map((s) => ({
-                        value: s.id,
-                        label: `${c.name} › ${s.name}`,
-                      }))
-                    )),
+                ...subCatsForShown.map((s) => ({ value: s.id, label: s.label })),
               ]}
+              placeholder="Toutes les sous-catégories"
               size="md"
               searchable
               title="Sous-catégorie"
+              pluralLabel="sélectionnées"
             />
           </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Composition</div>
-            <CustomSelect
-              value={composition}
-              onChange={(val) => setParam({ composition: val })}
+            <MultiSelect
+              values={compoValues}
+              onChange={writeMulti("composition")}
               options={[
-                { value: "", label: "Toutes les compositions" },
                 { value: "__none__", label: "Sans composition" },
                 ...compositions.map((c) => ({ value: c.id, label: c.name })),
               ]}
+              placeholder="Toutes les compositions"
               size="md"
               searchable
               title="Composition"
+              pluralLabel="sélectionnées"
             />
           </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Mot-clé</div>
-            <CustomSelect
-              value={tag}
-              onChange={(val) => setParam({ tag: val })}
+            <MultiSelect
+              values={tagValues}
+              onChange={writeMulti("tag")}
               options={[
-                { value: "", label: "Tous les mots-clés" },
                 { value: "__none__", label: "Sans mot-clé" },
                 ...tags.map((t) => ({ value: t.id, label: t.name })),
               ]}
+              placeholder="Tous les mots-clés"
               size="md"
               searchable
               title="Mot-clé"
+              pluralLabel="sélectionnés"
             />
           </div>
           <div>
             <div className="text-[13px] mb-2.5 font-bold uppercase tracking-[0.1em] text-text-muted">Code SH</div>
-            <CustomSelect
-              value={hsCodeId}
-              onChange={(val) => setParam({ hsCodeId: val })}
+            <MultiSelect
+              values={hsCodeValues}
+              onChange={writeMulti("hsCodeId")}
               options={[
-                { value: "", label: "Tous les codes SH" },
                 { value: "__none__", label: "Sans code SH" },
                 ...hsCodes.map((h) => ({ value: h.id, label: `${h.code} · ${h.label}` })),
               ]}
+              placeholder="Tous les codes SH"
               size="md"
               searchable
               title="Code SH"
+              pluralLabel="sélectionnés"
             />
           </div>
         </div>

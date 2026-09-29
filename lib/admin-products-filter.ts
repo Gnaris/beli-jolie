@@ -222,6 +222,30 @@ function buildExportedAtClause(
   }
 }
 
+/**
+ * Découpe une valeur URL multi-sélection (« id1,id2,id3 ») en :
+ *  - `includeNone` : `__none__` présent dans la liste (filtre « Sans <chose> »)
+ *  - `ids` : les autres identifiants réels, dédoublonnés
+ *
+ * Utilisé par les 5 filtres du panneau Catalogue (Catégorie, Sous-catégorie,
+ * Tag, Composition, Code SH) qui peuvent maintenant sélectionner plusieurs
+ * valeurs à la fois. Une chaîne vide ou `undefined` retourne `{ includeNone:
+ * false, ids: [] }` — le caller doit alors ne pas toucher la clause where.
+ */
+export function parseMultiParam(value: string | undefined): {
+  includeNone: boolean;
+  ids: string[];
+} {
+  if (!value) return { includeNone: false, ids: [] };
+  const parts = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  const includeNone = parts.includes("__none__");
+  const ids = Array.from(new Set(parts.filter((v) => v !== "__none__")));
+  return { includeNone, ids };
+}
+
 export function buildAdminProductsWhere(params: AdminProductsFilterParams): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = {};
 
@@ -254,33 +278,96 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     }
   }
 
-  // La cliente veut pouvoir filtrer « Sans catégorie » même si `categoryId`
-  // est obligatoire au schéma (contrainte FK). En pratique aucun produit ne
-  // devrait matcher — mais si un import ou une migration a laissé une donnée
-  // incohérente en base, le filtre le remonte. On force un id impossible ;
-  // Prisma refuse `null` sur un champ obligatoire en TypeScript strict.
-  if (params.cat === "__none__") {
+  // Filtres Catalogue en multi-sélection : URL sérialise `id1,id2,__none__`.
+  // `__none__` (filtre « Sans <chose> ») est combiné en OR avec les IDs réels
+  // — sinon cocher « Sans sous-cat » puis une sous-cat concrète ne retournerait
+  // rien. Sans __none__, on écrit directement à la racine (compat lecture par
+  // les tests + shape Prisma la plus simple possible). `categoryId` est
+  // obligatoire au schéma (FK) : `__none__` force un id impossible plutôt que
+  // `IS NULL` que TS strict refuse.
+
+  const catParam = parseMultiParam(params.cat);
+  if (catParam.includeNone && catParam.ids.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { categoryId: "__no_category__" },
+          catParam.ids.length === 1
+            ? { categoryId: catParam.ids[0] }
+            : { categoryId: { in: catParam.ids } },
+        ],
+      },
+    ];
+  } else if (catParam.includeNone) {
     where.categoryId = "__no_category__";
-  } else if (params.cat) {
-    where.categoryId = params.cat;
+  } else if (catParam.ids.length === 1) {
+    where.categoryId = catParam.ids[0];
+  } else if (catParam.ids.length > 1) {
+    where.categoryId = { in: catParam.ids };
   }
 
-  if (params.subCat === "__none__") {
+  const subCatParam = parseMultiParam(params.subCat);
+  if (subCatParam.includeNone && subCatParam.ids.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { subCategories: { none: {} } },
+          subCatParam.ids.length === 1
+            ? { subCategories: { some: { id: subCatParam.ids[0] } } }
+            : { subCategories: { some: { id: { in: subCatParam.ids } } } },
+        ],
+      },
+    ];
+  } else if (subCatParam.includeNone) {
     where.subCategories = { none: {} };
-  } else if (params.subCat) {
-    where.subCategories = { some: { id: params.subCat } };
+  } else if (subCatParam.ids.length === 1) {
+    where.subCategories = { some: { id: subCatParam.ids[0] } };
+  } else if (subCatParam.ids.length > 1) {
+    where.subCategories = { some: { id: { in: subCatParam.ids } } };
   }
 
-  if (params.tag === "__none__") {
+  const tagParam = parseMultiParam(params.tag);
+  if (tagParam.includeNone && tagParam.ids.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { tags: { none: {} } },
+          tagParam.ids.length === 1
+            ? { tags: { some: { tagId: tagParam.ids[0] } } }
+            : { tags: { some: { tagId: { in: tagParam.ids } } } },
+        ],
+      },
+    ];
+  } else if (tagParam.includeNone) {
     where.tags = { none: {} };
-  } else if (params.tag) {
-    where.tags = { some: { tagId: params.tag } };
+  } else if (tagParam.ids.length === 1) {
+    where.tags = { some: { tagId: tagParam.ids[0] } };
+  } else if (tagParam.ids.length > 1) {
+    where.tags = { some: { tagId: { in: tagParam.ids } } };
   }
 
-  if (params.composition === "__none__") {
+  const compoParam = parseMultiParam(params.composition);
+  if (compoParam.includeNone && compoParam.ids.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { compositions: { none: {} } },
+          compoParam.ids.length === 1
+            ? { compositions: { some: { compositionId: compoParam.ids[0] } } }
+            : { compositions: { some: { compositionId: { in: compoParam.ids } } } },
+        ],
+      },
+    ];
+  } else if (compoParam.includeNone) {
     where.compositions = { none: {} };
-  } else if (params.composition) {
-    where.compositions = { some: { compositionId: params.composition } };
+  } else if (compoParam.ids.length === 1) {
+    where.compositions = { some: { compositionId: compoParam.ids[0] } };
+  } else if (compoParam.ids.length > 1) {
+    where.compositions = { some: { compositionId: { in: compoParam.ids } } };
   }
 
   if (params.bestSeller === "1") {
@@ -493,13 +580,26 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     ];
   }
 
-  if (params.hsCodeId === "__none__") {
+  const hsParam = parseMultiParam(params.hsCodeId);
+  if (hsParam.includeNone && hsParam.ids.length > 0) {
+    where.AND = [
+      ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
+      {
+        OR: [
+          { hsCodeId: null },
+          hsParam.ids.length === 1 ? { hsCodeId: hsParam.ids[0] } : { hsCodeId: { in: hsParam.ids } },
+        ],
+      },
+    ];
+  } else if (hsParam.includeNone) {
     where.AND = [
       ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
       { hsCodeId: null },
     ];
-  } else if (params.hsCodeId) {
-    where.hsCodeId = params.hsCodeId;
+  } else if (hsParam.ids.length === 1) {
+    where.hsCodeId = hsParam.ids[0];
+  } else if (hsParam.ids.length > 1) {
+    where.hsCodeId = { in: hsParam.ids };
   }
 
   if (params.productIdsIn) {

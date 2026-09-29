@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import { useFilterPending } from "./FilterPendingContext";
 
-interface CategoryOption { id: string; name: string }
+interface CategoryOption { id: string; name: string; subCategories?: { id: string; name: string }[] }
 interface TagOption { id: string; name: string }
 interface CompositionOption { id: string; name: string }
 interface HsCodeOption { id: string; code: string; label: string }
@@ -22,7 +22,13 @@ interface Props {
   hideDetailedToggle?: boolean;
 }
 
-type Pill = { key: string; label: string; remove: string[] };
+type Pill = {
+  key: string;
+  label: string;
+  remove: string[];
+  /** Handler spécifique (utilisé pour retirer UNE valeur d'un param multi-sélection). */
+  onRemove?: () => void;
+};
 
 /**
  * Barre compacte au-dessus du panneau de filtres détaillé : pills actifs
@@ -41,6 +47,18 @@ export default function CompactFiltersHeader({
 
   // Mappe id → label pour rendre les pills lisibles
   const catLabels = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
+  // Sous-cat : « Cat › Sous-cat » quand on peut résoudre le parent, sinon le
+  // seul nom de la sous-cat — les pills restent lisibles même quand la cliente
+  // filtre sur plusieurs catégories à la fois.
+  const subCatLabels = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const c of categories) {
+      for (const s of c.subCategories ?? []) {
+        out[s.id] = `${c.name} › ${s.name}`;
+      }
+    }
+    return out;
+  }, [categories]);
   const tagLabels = useMemo(() => Object.fromEntries(tags.map((t) => [t.id, t.name])), [tags]);
   const compositionLabels = useMemo(() => Object.fromEntries(compositions.map((c) => [c.id, c.name])), [compositions]);
   const hsLabels = useMemo(() => Object.fromEntries(hsCodes.map((h) => [h.id, `${h.code} · ${h.label}`])), [hsCodes]);
@@ -58,6 +76,48 @@ export default function CompactFiltersHeader({
     startTransition(() => { router.push("/admin/produits"); });
   }, [router, startTransition]);
 
+  // Retire une valeur d'un paramètre URL multi-valeur (« id1,id2,id3 »).
+  // Si la liste devient vide, on retire la clé (pas de `key=` vide). Bonus :
+  // « cat » entraîne aussi la purge de « subCat » quand elle se vide, sinon
+  // on hériterait de sous-cats orphelines.
+  const removeOneFromMulti = useCallback((key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const raw = params.get(key) ?? "";
+    const next = raw.split(",").map((v) => v.trim()).filter((v) => v.length > 0 && v !== value);
+    if (next.length > 0) params.set(key, next.join(","));
+    else {
+      params.delete(key);
+      if (key === "cat") params.delete("subCat");
+    }
+    params.delete("page");
+    startTransition(() => {
+      router.push(`/admin/produits${params.toString() ? `?${params.toString()}` : ""}`);
+    });
+  }, [searchParams, router, startTransition]);
+
+  // Fabrique les pills pour un filtre Catalogue en multi-sélection : une pill
+  // par valeur cochée. `__none__` → « Sans <chose> », sinon « Prefix · Label ».
+  const multiPills = useCallback((
+    p: URLSearchParams,
+    key: "cat" | "subCat" | "tag" | "composition" | "hsCodeId",
+    prefix: string,
+    noneLabel: string,
+    labelMap: Record<string, string>,
+  ): Pill[] => {
+    const raw = p.get(key) ?? "";
+    if (!raw) return [];
+    const values = raw.split(",").map((v) => v.trim()).filter(Boolean);
+    return values.map((v) => {
+      const label = v === "__none__" ? noneLabel : `${prefix} · ${labelMap[v] ?? v}`;
+      return {
+        key: `${key}-${v}`,
+        label,
+        remove: [], // retrait via onclick spécifique (removeOneFromMulti)
+        onRemove: () => removeOneFromMulti(key, v),
+      } as Pill & { onRemove: () => void };
+    });
+  }, [removeOneFromMulti]);
+
   // Génère la liste des pills à partir des URL params
   const pills: Pill[] = useMemo(() => {
     const out: Pill[] = [];
@@ -67,36 +127,11 @@ export default function CompactFiltersHeader({
     if (q) {
       out.push({ key: "q", label: `Recherche · ${q.length > 24 ? q.slice(0, 24) + "…" : q}`, remove: ["q", "exactRef"] });
     }
-    const cat = p.get("cat") ?? "";
-    if (cat === "__none__") {
-      out.push({ key: "cat-none", label: "Sans catégorie", remove: ["cat", "subCat"] });
-    } else if (cat) {
-      out.push({ key: `cat-${cat}`, label: `Catégorie · ${catLabels[cat] ?? cat}`, remove: ["cat", "subCat"] });
-    }
-    const subCat = p.get("subCat") ?? "";
-    if (subCat === "__none__") {
-      out.push({ key: "subCat-none", label: "Sans sous-catégorie", remove: ["subCat"] });
-    } else if (subCat) {
-      out.push({ key: `subCat-${subCat}`, label: `Sous-cat. · ${catLabels[subCat] ?? subCat}`, remove: ["subCat"] });
-    }
-    const tag = p.get("tag") ?? "";
-    if (tag === "__none__") {
-      out.push({ key: "tag-none", label: "Sans mot-clé", remove: ["tag"] });
-    } else if (tag) {
-      out.push({ key: `tag-${tag}`, label: `Mot-clé · ${tagLabels[tag] ?? tag}`, remove: ["tag"] });
-    }
-    const composition = p.get("composition") ?? "";
-    if (composition === "__none__") {
-      out.push({ key: "comp-none", label: "Sans composition", remove: ["composition"] });
-    } else if (composition) {
-      out.push({ key: `comp-${composition}`, label: `Composition · ${compositionLabels[composition] ?? composition}`, remove: ["composition"] });
-    }
-    const hsCodeId = p.get("hsCodeId") ?? "";
-    if (hsCodeId === "__none__") {
-      out.push({ key: "hs-none", label: "Sans code SH", remove: ["hsCodeId"] });
-    } else if (hsCodeId) {
-      out.push({ key: `hs-${hsCodeId}`, label: `Code SH · ${hsLabels[hsCodeId] ?? hsCodeId}`, remove: ["hsCodeId"] });
-    }
+    out.push(...multiPills(p, "cat", "Catégorie", "Sans catégorie", catLabels));
+    out.push(...multiPills(p, "subCat", "Sous-cat.", "Sans sous-catégorie", subCatLabels));
+    out.push(...multiPills(p, "tag", "Mot-clé", "Sans mot-clé", tagLabels));
+    out.push(...multiPills(p, "composition", "Composition", "Sans composition", compositionLabels));
+    out.push(...multiPills(p, "hsCodeId", "Code SH", "Sans code SH", hsLabels));
     const minPrice = p.get("minPrice") ?? "";
     const maxPrice = p.get("maxPrice") ?? "";
     if (minPrice || maxPrice) {
@@ -190,7 +225,7 @@ export default function CompactFiltersHeader({
     if (mcExp) out.push({ key: "mc-exp", label: `Microstore exporté · ${exportLabel[mcExp] ?? mcExp}`, remove: ["microstoreExportedAt"] });
 
     return out;
-  }, [searchParams, catLabels, tagLabels, compositionLabels, hsLabels]);
+  }, [searchParams, catLabels, subCatLabels, tagLabels, compositionLabels, hsLabels, multiPills]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -242,7 +277,7 @@ export default function CompactFiltersHeader({
               {pill.label}
               <button
                 type="button"
-                onClick={() => removeKeys(pill.remove)}
+                onClick={() => pill.onRemove ? pill.onRemove() : removeKeys(pill.remove)}
                 aria-label={`Retirer le filtre ${pill.label}`}
                 className="w-4 h-4 rounded-full inline-flex items-center justify-center text-text-muted hover:bg-error-bg hover:text-error transition-colors leading-none text-[13px]"
               >
