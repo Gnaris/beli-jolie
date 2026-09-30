@@ -288,22 +288,44 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     // aligné avec le hero et la page inscription (sinon les 3 pages affichent
     // des nombres qui divergent selon la fraîcheur de leur cache respectif).
     // Avec filtres, on re-compte à chaque requête (résultat filtré uniquement).
-    const [rawProducts, count] = await Promise.all([
-      prisma.product.findMany({
+    let rawProducts: Awaited<ReturnType<typeof prisma.product.findMany>>;
+    let count: number;
+    if (isNew_) {
+      // Filtre « Nouveautés » : trie par max(createdAt, lastRefreshedAt) DESC
+      // pour que les produits rafraîchis récemment remontent en tête au même
+      // titre que les vraies créations récentes. Prisma ne sait pas exprimer
+      // GREATEST(...) DESC en `orderBy` — on récupère les IDs matchant puis on
+      // trie en mémoire (volumétrie bornée : ~quelques centaines de produits
+      // filtrés par catégorie / marque au maximum).
+      const rows = await prisma.product.findMany({
         where,
-        // Tri unifié `createdAt DESC` — y compris avec ?new=1. L'ancien tri par
-        // lastRefreshedAt en tête faisait remonter des vieux produits refresh
-        // devant les créations récentes ; incohérent avec l'intuition
-        // "nouveautés = récents". Les produits refresh restent visibles via le
-        // OR du WHERE, juste plus en tête forcé.
-        orderBy: { createdAt: "desc" },
-        take: PER_PAGE,
-        include: productInclude,
-      }),
-      hasFilters
-        ? prisma.product.count({ where })
-        : getCachedProductCount(),
-    ]);
+        select: { id: true, createdAt: true, lastRefreshedAt: true },
+      });
+      rows.sort((a, b) => {
+        const da = Math.max(a.createdAt.getTime(), a.lastRefreshedAt?.getTime() ?? 0);
+        const db = Math.max(b.createdAt.getTime(), b.lastRefreshedAt?.getTime() ?? 0);
+        return db - da;
+      });
+      count = rows.length;
+      const pageIds = rows.slice(0, PER_PAGE).map((r) => r.id);
+      rawProducts = pageIds.length > 0
+        ? await prisma.product.findMany({ where: { id: { in: pageIds } }, include: productInclude })
+        : [];
+      const idOrder = new Map(pageIds.map((id, i) => [id, i]));
+      rawProducts.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+    } else {
+      [rawProducts, count] = await Promise.all([
+        prisma.product.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          take: PER_PAGE,
+          include: productInclude,
+        }),
+        hasFilters
+          ? prisma.product.count({ where })
+          : getCachedProductCount(),
+      ]);
+    }
 
     const imageMap = await fetchImages(rawProducts.map(p => p.id));
     products = shapeProducts(rawProducts, imageMap);

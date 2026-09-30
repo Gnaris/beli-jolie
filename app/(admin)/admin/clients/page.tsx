@@ -174,6 +174,7 @@ export default async function UtilisateursPage({
     dir?: string;
     view?: string;
     fsort?: string;
+    dormant?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -377,6 +378,8 @@ export default async function UtilisateursPage({
             filterCounts={cardsData.filterCounts}
             currentFilter={cardsData.filter}
             currentSort={cardsData.sort}
+            currentDormant={cardsData.dormant}
+            dormantCounts={cardsData.dormantCounts}
             currentPage={page}
             perPage={perPage}
             search={cardsData.search}
@@ -1417,8 +1420,24 @@ function adminCardsOrderBy(sort: AdminCardsSort): Prisma.AdminClientCardOrderByW
   return [{ createdAt: "desc" }];
 }
 
+export type AdminCardsDormant = "ALL" | "7" | "14" | "30";
+
+const ADMIN_CARDS_DORMANT_DAYS: Record<Exclude<AdminCardsDormant, "ALL">, number> = {
+  "7": 7,
+  "14": 14,
+  "30": 30,
+};
+
+function parseAdminCardsDormant(raw: string | undefined): AdminCardsDormant {
+  return raw === "7" || raw === "14" || raw === "30" ? raw : "ALL";
+}
+
+function dormantCutoff(days: number): Date {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
 async function loadAdminCards(
-  params: { mp?: string; q?: string; fsort?: string },
+  params: { mp?: string; q?: string; fsort?: string; dormant?: string },
   page: number,
   perPage: number,
 ) {
@@ -1427,6 +1446,7 @@ async function loadAdminCards(
     : ("ALL" as const);
   const q = (params.q ?? "").trim();
   const sort = parseAdminCardsSort(params.fsort);
+  const dormant = parseAdminCardsDormant(params.dormant);
 
   const marketplaceFilter: Prisma.AdminClientCardWhereInput =
     filter === "PFS"
@@ -1455,7 +1475,23 @@ async function loadAdminCards(
       }
     : {};
 
-  const where: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter] };
+  const dormantFilter: Prisma.AdminClientCardWhereInput =
+    dormant === "ALL"
+      ? {}
+      : { lastOrderAt: { not: null, lt: dormantCutoff(ADMIN_CARDS_DORMANT_DAYS[dormant]) } };
+
+  const where: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter, dormantFilter] };
+
+  // Marketplace counts : combinés au filtre inactivité courant + recherche
+  // (donc quand la cliente est sur "7j", chaque badge PFS/Ankor/… reflète
+  // le sous-ensemble endormi 7j+ pour cette marketplace).
+  const searchAndDormant: Prisma.AdminClientCardWhereInput = { AND: [searchFilter, dormantFilter] };
+
+  // Compteurs inactivité : combinés au filtre marketplace + recherche.
+  const searchAndMarketplace: Prisma.AdminClientCardWhereInput = { AND: [marketplaceFilter, searchFilter] };
+  const dormantCountFilter = (days: number): Prisma.AdminClientCardWhereInput => ({
+    AND: [marketplaceFilter, searchFilter, { lastOrderAt: { not: null, lt: dormantCutoff(days) } }],
+  });
 
   const [
     cards,
@@ -1467,6 +1503,10 @@ async function loadAdminCards(
     faire,
     microstore,
     passage,
+    dormantAllCount,
+    dormant7Count,
+    dormant14Count,
+    dormant30Count,
   ] = await Promise.all([
     prisma.adminClientCard.findMany({
       where,
@@ -1475,13 +1515,17 @@ async function loadAdminCards(
       take: perPage,
     }),
     prisma.adminClientCard.count({ where }),
-    prisma.adminClientCard.count({ where: searchFilter }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasPfs: true }, searchFilter] } }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasAnkorstore: true }, searchFilter] } }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasEfashion: true }, searchFilter] } }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasFaire: true }, searchFilter] } }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasMicrostore: true }, searchFilter] } }),
-    prisma.adminClientCard.count({ where: { AND: [{ hasPassage: true }, searchFilter] } }),
+    prisma.adminClientCard.count({ where: searchAndDormant }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasPfs: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasAnkorstore: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasEfashion: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasFaire: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasMicrostore: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: { AND: [{ hasPassage: true }, searchAndDormant] } }),
+    prisma.adminClientCard.count({ where: searchAndMarketplace }),
+    prisma.adminClientCard.count({ where: dormantCountFilter(7) }),
+    prisma.adminClientCard.count({ where: dormantCountFilter(14) }),
+    prisma.adminClientCard.count({ where: dormantCountFilter(30) }),
   ]);
 
   return {
@@ -1527,6 +1571,13 @@ async function loadAdminCards(
       FAIRE: faire,
       MICROSTORE: microstore,
       PASSAGE: passage,
+    },
+    dormant,
+    dormantCounts: {
+      ALL: dormantAllCount,
+      "7": dormant7Count,
+      "14": dormant14Count,
+      "30": dormant30Count,
     },
     search: q,
   };

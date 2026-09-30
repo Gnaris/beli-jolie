@@ -13,6 +13,7 @@ import PhoneContactIcons from "./PhoneContactIcons";
 import type { WhatsAppTemplateDTO } from "@/app/actions/admin/whatsapp-templates";
 
 type AdminCardsSort = "created" | "order_desc" | "order_asc";
+type AdminCardsDormant = "ALL" | "7" | "14" | "30";
 
 const SORT_OPTIONS: SelectOption[] = [
   { value: "created", label: "Récemment ajoutées" },
@@ -34,6 +35,8 @@ interface Props {
   };
   currentFilter: "ALL" | "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE";
   currentSort: AdminCardsSort;
+  currentDormant: AdminCardsDormant;
+  dormantCounts: Record<AdminCardsDormant, number>;
   currentPage: number;
   perPage: number;
   search: string;
@@ -57,6 +60,13 @@ const FILTERS = [
   { value: "FAIRE" as const, label: "Faire" },
   { value: "MICROSTORE" as const, label: "Microstore" },
   { value: "PASSAGE" as const, label: "Passage" },
+];
+
+const DORMANT_FILTERS: { value: AdminCardsDormant; label: string }[] = [
+  { value: "ALL", label: "Toutes" },
+  { value: "7", label: "Sans commande depuis 7 j" },
+  { value: "14", label: "Sans commande depuis 14 j" },
+  { value: "30", label: "Sans commande depuis 30 j" },
 ];
 
 function formatDate(v: string | null): string {
@@ -99,6 +109,8 @@ export default function AdminCardsPane({
   filterCounts,
   currentFilter,
   currentSort,
+  currentDormant,
+  dormantCounts,
   currentPage,
   perPage,
   search,
@@ -226,6 +238,48 @@ export default function AdminCardsPane({
             Nouvelle fiche
           </button>
         </div>
+      </div>
+
+      {/* Filtre inactivité — sur une ligne dédiée pour ne pas surcharger */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          Inactivité
+        </span>
+        {DORMANT_FILTERS.map((f) => {
+          const active = currentDormant === f.value;
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("tab", "fiches");
+          if (f.value === "ALL") params.delete("dormant");
+          else params.set("dormant", f.value);
+          params.delete("page");
+          const href = `${pathname}?${params.toString()}`;
+          const count = dormantCounts[f.value];
+          return (
+            <Link
+              key={f.value}
+              href={href}
+              prefetch={false}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 text-[12px] font-body font-medium rounded-lg border transition-all ${
+                active
+                  ? "bg-amber-100 border-amber-300 text-amber-900 shadow-sm"
+                  : "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
+              }`}
+            >
+              {f.label}
+              <span
+                className={`inline-flex items-center justify-center min-w-[20px] h-4 px-1.5 rounded-full text-[10px] font-semibold ${
+                  active ? "bg-amber-200 text-amber-900" : "bg-bg-secondary text-text-muted"
+                }`}
+              >
+                {count}
+              </span>
+            </Link>
+          );
+        })}
       </div>
 
       {clientFilteredCards.length === 0 ? (

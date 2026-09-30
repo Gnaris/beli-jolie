@@ -469,8 +469,8 @@ describe("efashionUpdateProductInPlace — variantes ajoutées/supprimées", () 
     //
     // Attendu maintenant : la couleur disabled est dupliquée + upload photo +
     // publishBrouillon, puis l'`updateProduit` final la met en `visible=false`
-    // (calcul l.~698 : `visible = ONLINE && !c.disabled && stock>0`). La
-    // couleur existe chez eFashion mais reste invisible côté acheteurs.
+    // (calcul : `visible = ONLINE && !c.disabled`). La couleur existe chez
+    // eFashion mais reste invisible côté acheteurs.
     duplicateMock.mockResolvedValue({
       id_produit: 5555,
       reference: "TEST-BEIGE",

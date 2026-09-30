@@ -282,16 +282,39 @@ export async function GET(request: NextRequest) {
     ...(ordered && userOrderedRefs.length === 0 && { id: "___none___" }),
   };
 
-  const products = await prisma.product.findMany({
-    where,
-    // Tri unifié `createdAt DESC` — voir page.tsx pour le rationnel.
-    // Load-more DOIT utiliser le même orderBy que la 1re page sinon la
-    // pagination affiche des doublons/manques.
-    orderBy: { createdAt: "desc" },
-    skip:    (page - 1) * PER_PAGE,
-    take:    PER_PAGE,
-    include: productInclude,
-  });
+  // Load-more DOIT utiliser le même tri que la 1re page (page.tsx) sinon la
+  // pagination affiche des doublons/manques.
+  // - Cas standard : `createdAt DESC` via Prisma.
+  // - Cas `?new=1` : max(createdAt, lastRefreshedAt) DESC via tri mémoire.
+  //   Prisma ne sait pas exprimer GREATEST(...) DESC en `orderBy`.
+  let products: Awaited<ReturnType<typeof prisma.product.findMany>>;
+  let totalMatching = 0;
+  if (isNew) {
+    const rows = await prisma.product.findMany({
+      where,
+      select: { id: true, createdAt: true, lastRefreshedAt: true },
+    });
+    rows.sort((a, b) => {
+      const da = Math.max(a.createdAt.getTime(), a.lastRefreshedAt?.getTime() ?? 0);
+      const db = Math.max(b.createdAt.getTime(), b.lastRefreshedAt?.getTime() ?? 0);
+      return db - da;
+    });
+    totalMatching = rows.length;
+    const pageIds = rows.slice((page - 1) * PER_PAGE, page * PER_PAGE).map((r) => r.id);
+    products = pageIds.length > 0
+      ? await prisma.product.findMany({ where: { id: { in: pageIds } }, include: productInclude })
+      : [];
+    const idOrder = new Map(pageIds.map((id, i) => [id, i]));
+    products.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
+  } else {
+    products = await prisma.product.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip:    (page - 1) * PER_PAGE,
+      take:    PER_PAGE,
+      include: productInclude,
+    });
+  }
 
   const productIds = products.map((p) => p.id);
   const imageMap = await fetchImages(productIds);
@@ -310,8 +333,11 @@ export async function GET(request: NextRequest) {
   }
 
   shaped = await enrichProductsWithBestPromoPercent(shaped);
+  const hasMore = isNew
+    ? page * PER_PAGE < totalMatching
+    : products.length === PER_PAGE;
   return NextResponse.json(stripPricesIfNeeded({
     products: shaped,
-    hasMore: products.length === PER_PAGE,
+    hasMore,
   }));
 }

@@ -718,7 +718,10 @@ export async function efashionUpdateProductInPlace(
     // notamment, `variantSizes[0].quantity` est juste un marqueur descriptif
     // (souvent = 1) et n'a aucun rapport avec le vrai stock disponible.
     const totalStock = c.stock;
-    const visible = product.status === "ONLINE" && !c.disabled && totalStock > 0;
+    // Visibilité miroir de l'état BJ : ONLINE + non désactivée = visible.
+    // Le stock 0 ne masque plus la variante (choix produit 2026-10-01) — la
+    // couleur reste affichée aux acheteuses eFashion en rupture, comme sur BJ.
+    const visible = product.status === "ONLINE" && !c.disabled;
 
     // eFashion attend une entrée stock par (couleur, taille). UNIT BJ a au max
     // une taille descriptive, PACK BJ a une taille placeholder ("TU" ou la 1ʳᵉ
