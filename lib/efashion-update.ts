@@ -46,6 +46,8 @@ import {
 } from "@/lib/efashion-sync-diff";
 import { loadEfashionMarkup, computeEfashionPrice } from "@/lib/efashion-pricing";
 import { resolveEfashionDeclinaison } from "@/lib/efashion-declinaison-matcher";
+import { computeEfashionReferenceSuffixes } from "@/lib/efashion-reference-suffix";
+import { consolidateEfashionUpdateErrors } from "@/lib/efashion-error-messages";
 
 interface UpdateOpts {
   /** Si true, ignore le snapshot existant et renvoie tout — équivalent du « Resync » côté UI. */
@@ -899,7 +901,7 @@ export async function efashionUpdateProductInPlace(
   let compositionsUpdatedCount = 0;
   let imagesUpdatedCount = 0;
   let colorsDeletedCount = 0;
-  const errors: string[] = [];
+  let errors: string[] = [];
 
   // Champs basiques (visible / prix / poids) — 1 call par variant modifié.
   // ⚠️ Pour qu'un changement de `prix` ne soit pas propagé à toutes les
@@ -1742,6 +1744,28 @@ export async function efashionUpdateProductInPlace(
     return bMain - aMain; // main (1) avant non-main (0)
   });
 
+  // Désambiguïsation des refs quand plusieurs ProductColor BJ partagent une
+  // même Color (cas typique : 3 combos de tailles S/M · M/L · L/XL vendus
+  // comme des lots UNIT distincts sur la même couleur). Sans ce suffixe, les
+  // fiches eFashion héritent toutes de la même reference générée
+  // (`10037-NOIR`) et l'updateProduit se plante sur du conflit d'unicité.
+  const referenceSuffixesByEfId = new Map<number, string>();
+  {
+    const suffixInputs = linkedColors
+      .filter((lc) => lc.efashionProductId !== null)
+      .map((lc) => ({
+        key: String(lc.efashionProductId),
+        colorId: lc.colorId,
+        sizeName: lc.variantSizes[0]?.size.name ?? null,
+      }));
+    const suffixes = computeEfashionReferenceSuffixes(suffixInputs);
+    for (const lc of linkedColors) {
+      if (lc.efashionProductId === null) continue;
+      const s = suffixes.get(String(lc.efashionProductId));
+      if (s) referenceSuffixesByEfId.set(lc.efashionProductId, s);
+    }
+  }
+
   // ⚠️ Cheffe de groupe cible (= main eFashion souhaitée). Priorité à la
   // primaire BJ ; sinon on retombe sur la main actuelle observée côté eFashion.
   // Utilisé pour réécrire `id_couleur_liee` sur **toutes** les variantes — sans
@@ -1790,6 +1814,17 @@ export async function efashionUpdateProductInPlace(
         } else {
           input.reference = live.reference;
           if (live.reference_base) input.reference_base = live.reference_base;
+        }
+        // Désambiguïsation multi-ProductColor sur la même Color : ajoute un
+        // suffixe taille à la ref envoyée pour éviter le conflit d'unicité
+        // eFashion. Idempotent : si live.reference finit déjà par ce suffixe
+        // (2ᵉ synchro et suivantes), on ne le rajoute pas.
+        const dedupeSuffix = referenceSuffixesByEfId.get(variant.efashionProductId);
+        if (dedupeSuffix && input.reference) {
+          const wantedEnd = `-${dedupeSuffix}`;
+          if (!input.reference.endsWith(wantedEnd)) {
+            input.reference = `${input.reference}${wantedEnd}`;
+          }
         }
         if (live.id_collection !== null) input.id_collection = live.id_collection;
         const effectiveCategoryId = targetCategoryId ?? live.id_categorie;
@@ -1855,6 +1890,10 @@ export async function efashionUpdateProductInPlace(
 
   // Cumule les erreurs de la phase auto-création avec le reste.
   if (createErrors.length > 0) errors.push(...createErrors);
+
+  // Rend les erreurs lisibles : condense les 11 lignes « référence déjà
+  // utilisée » en 1 seul message orienté action (« utilise ↻ Rafraîchir »).
+  errors = consolidateEfashionUpdateErrors(errors, product.efashionReferenceBase);
 
   // Sauve le nouveau snapshot uniquement si on n'a pas d'erreur (sinon on
   // garderait un état faux dans la BDD et on rate les retries).
