@@ -41,7 +41,11 @@ describe("translateFaireUpdateError", () => {
     );
     expect(result).not.toBeNull();
     expect(result).toMatch(/publiée avec une seule variante/i);
-    expect(result).toMatch(/dépubli/i); // matche dépublie / dépublier / dépublié
+    // Propose d'abord la voie non destructive (délier + relier)
+    expect(result).toContain("Délier");
+    expect(result).toContain("Relier");
+    // Puis fallback Rafraîchir
+    expect(result).toMatch(/dépubli/i);
     expect(result).toContain("Rafraîchir");
   });
 
@@ -50,6 +54,7 @@ describe("translateFaireUpdateError", () => {
       "Erreur : produit doit avoir au moins une option",
     );
     expect(result).not.toBeNull();
+    expect(result).toContain("Délier");
     expect(result).toContain("Rafraîchir");
   });
 

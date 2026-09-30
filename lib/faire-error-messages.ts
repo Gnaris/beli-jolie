@@ -14,8 +14,9 @@ const DUPLICATE_VARIANTS_MESSAGE =
 
 const PUBLISHED_LOCK_MESSAGE =
   "⚠️ Faire refuse de restructurer cette fiche : elle est publiée avec une seule variante et Faire exige au moins une option (couleur/taille) pour tout produit publié. " +
-  "Pour débloquer : (1) sur ton back-office Faire, **dépublie ou archive** cette fiche, (2) reviens ici et clique **↻ Rafraîchir** (au lieu de Synchroniser) — la fiche sera recréée proprement avec l'axe couleur. " +
-  "⚠️ L'URL Faire changera (nouvel ID produit).";
+  "Deux façons de débloquer : " +
+  "**A — Non destructive (à essayer en premier)** : dans le widget marketplace, clique **Délier de Faire** puis **Relier à une fiche Faire existante** — la modale te permet de re-matcher les couleurs (utilise « Importer » sur les orphelines). " +
+  "**B — Si A ne suffit pas** : sur ton back-office Faire, **dépublie ou archive** cette fiche, puis reviens ici et clique **↻ Rafraîchir** (pas Synchroniser). La fiche sera recréée avec l'axe couleur. ⚠️ L'URL Faire change.";
 
 /**
  * Reconnaît les patterns d'erreur Faire connus et retourne un message
