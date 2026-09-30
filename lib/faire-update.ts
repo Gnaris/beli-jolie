@@ -55,6 +55,7 @@ import {
 import { loadMarketplaceMarkupConfigs } from "@/lib/marketplace-pricing";
 import { getCurrentTenantIdSafe, getTenantBaseUrl } from "@/lib/tenant";
 import { getCachedFaireMadeInExcluded } from "@/lib/cached-data";
+import { translateFaireUpdateError } from "@/lib/faire-error-messages";
 
 export type FaireUpdateResult =
   | { success: true; diff: FaireSyncDiff; noop: boolean }
@@ -969,8 +970,8 @@ export async function faireUpdateProduct(
               return {
                 success: false,
                 error:
-                  `Faire refuse de restructurer cette fiche : elle est publiée avec une seule variante et Faire exige au moins une option pour tout produit publié. ` +
-                  `Étapes pour débloquer — (1) sur ton back-office Faire, dépublie ou archive cette fiche, (2) reviens ici et relance la synchro : le code recréera une fiche propre avec l'axe couleur.`,
+                  translateFaireUpdateError("PRODUCT_NEEDS_AT_LEAST_ONE_OPTION") ??
+                  "Faire refuse de restructurer cette fiche publiée.",
               };
             }
             return {
@@ -1150,11 +1151,14 @@ export async function faireUpdateProduct(
             error: "Produit non existant sur Faire — veuillez le relier depuis la modale Faire.",
           };
         }
+        const translated = humanMsg ? translateFaireUpdateError(humanMsg) : null;
         return {
           success: false,
-          error: humanMsg
-            ? `Faire a refusé la mise à jour (HTTP ${res.status}) : ${humanMsg}`
-            : `Faire a refusé la mise à jour (HTTP ${res.status}).`,
+          error:
+            translated ??
+            (humanMsg
+              ? `Faire a refusé la mise à jour (HTTP ${res.status}) : ${humanMsg}`
+              : `Faire a refusé la mise à jour (HTTP ${res.status}).`),
         };
       }
 
@@ -1376,11 +1380,14 @@ export async function faireUpdateProduct(
         } catch {
           if (text) humanMsg = text.slice(0, 150);
         }
+        const translated = humanMsg ? translateFaireUpdateError(humanMsg) : null;
         return {
           success: false,
-          error: humanMsg
-            ? `Faire a refusé la mise à jour de la variante "${sku}" (HTTP ${res.status}) : ${humanMsg}`
-            : `Faire a refusé la mise à jour de la variante "${sku}" (HTTP ${res.status}).`,
+          error:
+            translated ??
+            (humanMsg
+              ? `Faire a refusé la mise à jour de la variante "${sku}" (HTTP ${res.status}) : ${humanMsg}`
+              : `Faire a refusé la mise à jour de la variante "${sku}" (HTTP ${res.status}).`),
         };
       }
     } catch (err) {
