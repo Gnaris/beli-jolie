@@ -8,15 +8,21 @@
  */
 
 const DUPLICATE_VARIANTS_MESSAGE =
-  "⚠️ Faire refuse la mise à jour : au moins une variante existe déjà chez Faire mais n'est pas liée à ce produit BJ. " +
-  "Pour débloquer proprement : dans le widget marketplace, clique **Délier de Faire** puis **Relier à une fiche Faire existante** — la modale re-matchera toutes les couleurs (utilise « Importer » pour les variantes orphelines). " +
-  "Relance ensuite la synchro.";
+  "⚠️ Faire bloque la mise à jour : au moins une de tes couleurs existe déjà côté Faire mais n'est pas rattachée dans BJ (une variante « orpheline »). " +
+  "Pour la rattacher proprement :\n" +
+  "1. Ouvre le widget marketplaces (icône flottante en bas à droite).\n" +
+  "2. Sur la ligne Faire, clique **Délier** puis **Relier à une fiche existante**.\n" +
+  "3. Dans la fenêtre qui s'ouvre, associe chacune de tes couleurs BJ à la fiche Faire. Sur la ou les variantes marquées « orpheline », clique **Importer** — ça les rattache automatiquement.\n" +
+  "4. Relance la synchro.";
 
 const PUBLISHED_LOCK_MESSAGE =
-  "⚠️ Faire refuse de restructurer cette fiche : elle est publiée avec une seule variante et Faire exige au moins une option (couleur/taille) pour tout produit publié. " +
-  "Deux façons de débloquer : " +
-  "**A — Non destructive (à essayer en premier)** : dans le widget marketplace, clique **Délier de Faire** puis **Relier à une fiche Faire existante** — la modale te permet de re-matcher les couleurs (utilise « Importer » sur les orphelines). " +
-  "**B — Si A ne suffit pas** : sur ton back-office Faire, **dépublie ou archive** cette fiche, puis reviens ici et clique **↻ Rafraîchir** (pas Synchroniser). La fiche sera recréée avec l'axe couleur. ⚠️ L'URL Faire change.";
+  "⚠️ Faire bloque la mise à jour : ta fiche Faire n'a qu'une variante sans couleur, et Faire refuse de la modifier tant qu'elle est publiée. " +
+  "Deux façons de débloquer, essaie A d'abord :\n\n" +
+  "**A — Sans rien casser (recommandé)** : ouvre le widget marketplaces (icône flottante en bas à droite) → sur la ligne Faire, clique **Délier**, puis **Relier à une fiche existante**. Une fenêtre s'ouvre : associe chacune de tes couleurs BJ à la fiche Faire. Si des variantes Faire apparaissent en « orphelines », clique **Importer** pour les rattacher.\n\n" +
+  "**B — Si A ne marche pas** :\n" +
+  "1. Va sur ton back-office Faire → ouvre cette fiche → clique **Dépublier** ou **Archiver**.\n" +
+  "2. Reviens ici → clique le bouton **↻ (Rafraîchir)**, pas Synchroniser.\n" +
+  "→ Ce bouton supprime la vieille fiche Faire et en crée une nouvelle à la place, cette fois avec toutes tes couleurs. ⚠️ Nouveau lien Faire (l'ancien ne marchera plus).";
 
 /**
  * Reconnaît les patterns d'erreur Faire connus et retourne un message

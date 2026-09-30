@@ -21,10 +21,10 @@ describe("translateFaireUpdateError", () => {
   it("traduit 'Duplicate variants with same options' en message action", () => {
     const result = translateFaireUpdateError("Duplicate variants with same options");
     expect(result).not.toBeNull();
-    expect(result).toMatch(/variante.*existe déjà chez Faire.*n'est pas liée/i);
+    expect(result).toMatch(/existe déjà côté Faire/i);
+    expect(result).toMatch(/orphelin/i);
     expect(result).toContain("Délier");
     expect(result).toContain("Relier");
-    expect(result).toContain("modale");
   });
 
   it("traduit aussi quand le message brut contient 'Duplicate variants' dans une phrase plus longue", () => {
@@ -40,7 +40,8 @@ describe("translateFaireUpdateError", () => {
       "Cannot delete variant: PRODUCT_NEEDS_AT_LEAST_ONE_OPTION",
     );
     expect(result).not.toBeNull();
-    expect(result).toMatch(/publiée avec une seule variante/i);
+    expect(result).toMatch(/variante sans couleur/i);
+    expect(result).toMatch(/publiée/i);
     // Propose d'abord la voie non destructive (délier + relier)
     expect(result).toContain("Délier");
     expect(result).toContain("Relier");
