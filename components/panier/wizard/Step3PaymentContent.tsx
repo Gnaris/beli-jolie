@@ -59,6 +59,7 @@ export default function Step3PaymentContent({
   onPaymentModeChange,
   bankTransfer,
   onBankTransferSubmit,
+  onPayOnPickupSubmit,
   onRequestPaymentLink,
   availableCredit,
   creditToApply,
@@ -112,10 +113,13 @@ export default function Step3PaymentContent({
   selectedMergeOrder: WizardMergeCandidate | null;
   subtotalHT: number;
   shippingHT: number;
-  paymentMode: "card" | "bank_transfer" | null;
-  onPaymentModeChange: (mode: "card" | "bank_transfer") => void;
+  paymentMode: "card" | "bank_transfer" | "pay_on_pickup" | null;
+  onPaymentModeChange: (mode: "card" | "bank_transfer" | "pay_on_pickup") => void;
   bankTransfer: { enabled: boolean; holder: string; ibanDisplay: string };
   onBankTransferSubmit: () => void;
+  /** Handler pour finaliser une commande à régler en boutique lors du retrait
+   *  (proposé uniquement quand deliveryMode === "pickup"). */
+  onPayOnPickupSubmit: () => void;
   /**
    * Callback fallback : appelé quand l'iframe Stripe est bloquée par le
    * navigateur. Crée la commande et retourne l'URL du lien Stripe hébergé.
@@ -153,6 +157,18 @@ export default function Step3PaymentContent({
       cancelLabel: tCommon("cancel"),
     });
     if (ok) onBankTransferSubmit();
+  }
+
+  // Ouvre la modale d'engagement avant de créer la commande "paiement sur place".
+  // Simple mise en garde : la commande sera à régler lors du retrait boutique.
+  async function handlePayOnPickupClick() {
+    const ok = await confirm({
+      title: t("payOnPickupConfirmTitle"),
+      message: t("payOnPickupConfirmMessage", { amount: totalTTC.toFixed(2) }),
+      confirmLabel: t("payOnPickupConfirmYes"),
+      cancelLabel: tCommon("cancel"),
+    });
+    if (ok) onPayOnPickupSubmit();
   }
 
   async function handleCreditOnlyClick() {
@@ -446,58 +462,91 @@ export default function Step3PaymentContent({
         </section>
       )}
 
-      {/* Choix carte / virement — masqué si le crédit couvre tout */}
-      {!isCoveredByCredit && (
-      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
-        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
-          {t("paymentTitle")}
-        </div>
-        <div className={`grid gap-2.5 ${bankTransfer.enabled ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
-          <label
-            className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
-              paymentMode === "card"
-                ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
-                : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
-            }`}
-          >
-            <input
-              type="radio"
-              name="payment-mode"
-              value="card"
-              checked={paymentMode === "card"}
-              onChange={() => onPaymentModeChange("card")}
-              className="mt-1"
-            />
-            <div className="flex-1">
-              <div className="font-semibold text-sm text-slate-900">{t("paymentCard")}</div>
-              <p className="text-xs text-slate-500 mt-0.5">{t("paymentCardInfo")}</p>
+      {/* Choix carte / virement / paiement sur place — masqué si le crédit couvre tout.
+          « Paiement sur place » n'apparaît qu'en mode retrait boutique. */}
+      {!isCoveredByCredit && (() => {
+        const showPayOnPickup = deliveryMode === "pickup";
+        const optionsCount = 1 + (bankTransfer.enabled ? 1 : 0) + (showPayOnPickup ? 1 : 0);
+        const gridClass =
+          optionsCount === 1
+            ? "sm:grid-cols-1"
+            : optionsCount === 2
+              ? "sm:grid-cols-2"
+              : "sm:grid-cols-2 lg:grid-cols-3";
+        return (
+          <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+            <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">
+              {t("paymentTitle")}
             </div>
-          </label>
-          {bankTransfer.enabled && (
-            <label
-              className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
-                paymentMode === "bank_transfer"
-                  ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
-                  : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
-              }`}
-            >
-              <input
-                type="radio"
-                name="payment-mode"
-                value="bank_transfer"
-                checked={paymentMode === "bank_transfer"}
-                onChange={() => onPaymentModeChange("bank_transfer")}
-                className="mt-1"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-sm text-slate-900">{t("paymentTransfer")}</div>
-                <p className="text-xs text-slate-500 mt-0.5">{t("paymentTransferInfo")}</p>
-              </div>
-            </label>
-          )}
-        </div>
-      </section>
-      )}
+            <div className={`grid gap-2.5 ${gridClass}`}>
+              <label
+                className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                  paymentMode === "card"
+                    ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
+                    : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="payment-mode"
+                  value="card"
+                  checked={paymentMode === "card"}
+                  onChange={() => onPaymentModeChange("card")}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="font-semibold text-sm text-slate-900">{t("paymentCard")}</div>
+                  <p className="text-xs text-slate-500 mt-0.5">{t("paymentCardInfo")}</p>
+                </div>
+              </label>
+              {bankTransfer.enabled && (
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                    paymentMode === "bank_transfer"
+                      ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900/10"
+                      : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="payment-mode"
+                    value="bank_transfer"
+                    checked={paymentMode === "bank_transfer"}
+                    onChange={() => onPaymentModeChange("bank_transfer")}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm text-slate-900">{t("paymentTransfer")}</div>
+                    <p className="text-xs text-slate-500 mt-0.5">{t("paymentTransferInfo")}</p>
+                  </div>
+                </label>
+              )}
+              {showPayOnPickup && (
+                <label
+                  className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                    paymentMode === "pay_on_pickup"
+                      ? "border-amber-500 bg-amber-50 ring-1 ring-amber-500/20"
+                      : "border-amber-200 bg-amber-50/40 hover:border-amber-400 hover:bg-amber-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="payment-mode"
+                    value="pay_on_pickup"
+                    checked={paymentMode === "pay_on_pickup"}
+                    onChange={() => onPaymentModeChange("pay_on_pickup")}
+                    className="mt-1"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm text-amber-900">{t("paymentPayOnPickup")}</div>
+                    <p className="text-xs text-amber-900/70 mt-0.5">{t("paymentPayOnPickupInfo")}</p>
+                  </div>
+                </label>
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Bloc Carte : Stripe PaymentElement (accordéon interne des méthodes Stripe) */}
       {!isCoveredByCredit && paymentMode === "card" && (
@@ -548,6 +597,49 @@ export default function Step3PaymentContent({
               />
             </Elements>
           )}
+
+          {orderError && (
+            <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">
+              {orderError}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Bloc Paiement sur place (retrait boutique uniquement) */}
+      {!isCoveredByCredit && paymentMode === "pay_on_pickup" && deliveryMode === "pickup" && (
+        <section className="bg-white border border-amber-200 rounded-2xl shadow-sm p-5 md:p-6">
+          <div className="mb-5">
+            <div className="text-[10px] uppercase tracking-widest text-amber-700 font-semibold mb-1">
+              {t("paymentPayOnPickup")}
+            </div>
+            <h2 className="font-heading text-lg md:text-xl font-semibold text-slate-900">
+              {t("payOnPickupChosenTitle")}
+            </h2>
+            <p className="text-sm text-slate-600 mt-2">
+              {t("payOnPickupChosenDesc")}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3">
+            <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              {t("payOnPickupDetailsAfter")}
+            </p>
+          </div>
+
+          <div className="mt-5">{consentNode}</div>
+
+          <button
+            type="button"
+            onClick={handlePayOnPickupClick}
+            disabled={!cgvAccepted || isCreatingOrder}
+            className="w-full mt-4 h-12 rounded-xl bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isCreatingOrder ? t("preparingPayment") : t("confirmPayOnPickupOrder")}
+          </button>
 
           {orderError && (
             <div className="mt-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm p-4">

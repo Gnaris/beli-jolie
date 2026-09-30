@@ -2484,11 +2484,16 @@ model Order {
   //   l'iframe est bloquée par le navigateur du client. Commande créée en
   //   PENDING avec paymentStatus="pending" ; passe à "paid" au webhook
   //   checkout.session.completed.
+  // "PAY_ON_PICKUP" = paiement sur place lors du retrait boutique (carte/espèces/
+  //   chèque). Commande PENDING avec paymentStatus="pending" ; admin confirme
+  //   le règlement au comptoir via le même bouton que le virement.
+  // "CREDIT" = commande 100 % réglée par avoir (paymentStatus="paid" direct).
   // Nullable pour compat commandes historiques (traitées comme CARD par défaut à l'affichage).
-  paymentMode String? // "CARD" | "BANK_TRANSFER" | "STRIPE_LINK"
+  paymentMode String? // "CARD" | "BANK_TRANSFER" | "STRIPE_LINK" | "PAY_ON_PICKUP" | "CREDIT"
 
-  // Horodatage + admin qui a marqué le virement comme reçu (paymentMode=BANK_TRANSFER).
-  // Utilisé pour l'audit / historique + pour l'email de confirmation.
+  // Horodatage + admin qui a marqué le paiement manuel comme reçu
+  // (paymentMode=BANK_TRANSFER ou PAY_ON_PICKUP). Utilisé pour l'audit /
+  // historique + pour l'email de confirmation.
   bankTransferConfirmedAt DateTime?
   bankTransferConfirmedBy String? // User.id de l'admin qui a confirmé
 
@@ -3933,6 +3938,11 @@ model WhatsAppTemplate {
   tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title     String         @db.VarChar(80)
   body      String         @db.Text
+  // Version anglaise auto-traduite (via API PFS) au moment du save.
+  // Sert quand le client destinataire n'est pas dans un pays francophone
+  // (cf. lib/whatsapp-locale.ts). Nullable : si la traduction échoue ou si
+  // le modèle n'a jamais été retraduit, on retombe sur `body` (FR) à l'envoi.
+  bodyEn    String?        @db.Text
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   sends     WhatsAppSend[]
@@ -3956,6 +3966,10 @@ model WhatsAppSend {
   admin        User              @relation("WhatsAppSendAdmin", fields: [adminId], references: [id], onDelete: Cascade)
   phoneNumber  String            @db.VarChar(30)
   renderedBody String            @db.Text
+  // Locale effectivement envoyée ("fr" ou "en"). Résolue au moment de l'envoi
+  // à partir du pays du destinataire (`User.addressCountry`). Sert pour
+  // l'historique — savoir que tel client anglophone a reçu la version EN.
+  sentLocale   String            @default("fr") @db.VarChar(2)
   sentAt       DateTime          @default(now())
 
   @@index([tenantId, userId, sentAt])

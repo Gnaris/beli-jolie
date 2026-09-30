@@ -83,6 +83,15 @@ export default async function AdminCommandeDetailPage({
     !!order.stripeCheckoutSessionExpiresAt &&
     order.stripeCheckoutSessionExpiresAt.getTime() <= Date.now();
 
+  // Paiement sur place (retrait boutique) : commande réservée, à régler
+  // physiquement au comptoir. Marquage "payé" manuel via le bouton virement
+  // (même API, cf. BankTransferConfirmButton — même geste : confirmer que
+  // l'argent est entré).
+  const isPayOnPickupPending =
+    order.paymentMode === "PAY_ON_PICKUP" && order.paymentStatus !== "paid" && order.status !== "CANCELLED";
+  const isPayOnPickupPaid =
+    order.paymentMode === "PAY_ON_PICKUP" && order.paymentStatus === "paid";
+
   const shipCountryCode = (order.shipCountry ?? "").toUpperCase();
   const isOutsideEu = !!shipCountryCode && !EU_COUNTRIES.has(shipCountryCode);
 
@@ -156,6 +165,16 @@ export default async function AdminCommandeDetailPage({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   Virement reçu
                 </span>
+              ) : isPayOnPickupPending ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  À régler en boutique
+                </span>
+              ) : isPayOnPickupPaid ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Payé en boutique
+                </span>
               ) : isPaymentLinkPending ? (
                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${paymentLinkExpired ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${paymentLinkExpired ? "bg-rose-500" : "bg-amber-500 animate-pulse"}`} />
@@ -184,6 +203,14 @@ export default async function AdminCommandeDetailPage({
               <BankTransferConfirmButton
                 orderId={order.id}
                 totalTTC={Number(order.totalTTC)}
+                mode="BANK_TRANSFER"
+              />
+            )}
+            {isPayOnPickupPending && (
+              <BankTransferConfirmButton
+                orderId={order.id}
+                totalTTC={Number(order.totalTTC)}
+                mode="PAY_ON_PICKUP"
               />
             )}
             <OrderStatusActions
@@ -193,6 +220,38 @@ export default async function AdminCommandeDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Encart paiement sur place — rappel que la cliente réglera au retrait */}
+      {isPayOnPickupPending && (
+        <section className="bg-white border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
+            <span className="w-1 h-6 bg-amber-500 rounded-full" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+              Paiement sur place (retrait boutique)
+            </p>
+          </div>
+          <div className="px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Montant dû au retrait</p>
+              <p className="text-lg font-semibold text-slate-900">{Number(order.totalTTC).toFixed(2)} €</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Cliente</p>
+              <p className="text-slate-900 font-medium">{order.shipFirstName} {order.shipLastName}</p>
+              {order.clientCompany && <p className="text-xs text-slate-500">{order.clientCompany}</p>}
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Moyens acceptés</p>
+              <p className="text-slate-900 font-medium">Carte, espèces ou chèque</p>
+            </div>
+          </div>
+          <div className="px-5 py-3 border-t border-amber-100 bg-white">
+            <p className="text-xs text-slate-500">
+              💡 La cliente réglera au comptoir lors du retrait. Cliquez sur « Marquer payé en boutique » une fois le règlement encaissé.
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* Encart virement en attente (rappel des infos à vérifier sur la banque) */}
       {isBankTransferPending && (

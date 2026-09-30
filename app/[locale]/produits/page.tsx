@@ -80,12 +80,13 @@ interface PageProps {
 
 export default async function ProduitsPage({ searchParams }: PageProps) {
   await getCurrentTenantId(); // bind ALS avant Prisma + caches tenant-scopés
-  const [t, session, shopName, locale, tenantSlug] = await Promise.all([
+  const [t, session, shopName, locale, tenantSlug, effectiveSlug] = await Promise.all([
     getTranslations("products"),
     getServerSession(authOptions),
     getCachedShopName(),
     getLocale(),
     getCurrentTenantSlug(),
+    getEffectiveTenantSlug(),
   ]);
   const productInclude = buildProductInclude(locale);
 
@@ -138,12 +139,15 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // anciennes URLs pendant que les liens internes migrent vers la nouvelle
   // page catégorie. Ne redirige que si `cat` est le SEUL filtre : combiné
   // à un color/composition/etc., on garde le filtre catalogue.
+  // Exception Issyma : la sidebar filtres cliente coche/décoche une catégorie
+  // sur /produits, la cliente veut rester sur /produits avec la grille filtrée
+  // (les fiches catégorie dédiées ne servent pas son parcours).
   const onlyCatFilter =
     !!cat &&
     !q && !subcat && !collection && colorIds.length === 0 && !tagId && !compositionId &&
     !bestseller_ && !isNew_ && !promo_ && !ordered_ && !notOrdered_ && !hideOos_ &&
     minPrice === null && maxPrice === null && !exactRef;
-  if (onlyCatFilter) {
+  if (onlyCatFilter && effectiveSlug !== "issyma") {
     const target = await prisma.category.findFirst({
       where: { id: cat },
       select: { slug: true },
@@ -314,7 +318,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // Dispatch tenant : Issyma reçoit son propre layout bordeaux (grille + sidebar
   // bordeaux + hero avec CTA "Créer mon compte pro" + tuiles réassurance).
   // Infinite scroll BJ-only pour l'instant (Issyma affiche la 1re page seulement).
-  const effectiveSlug = await getEffectiveTenantSlug();
   if (effectiveSlug === "issyma") {
     // Traduction des noms de filtres (Categories, Collections, Colors,
     // Compositions, Tags). En locale FR, on ne fait rien (map vide) ;

@@ -311,6 +311,19 @@ export default async function ProduitsIssymaLayout({
             {(() => {
               const filterSections = (
                 <>
+                  <div className="pt-1 pb-3 flex flex-wrap gap-2">
+                    <Link
+                      href={buildFilterHref(selectedFilters, { isNew: !selectedFilters.isNew })}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] tracking-[0.22em] uppercase font-semibold transition"
+                      style={{
+                        background: selectedFilters.isNew ? P.wine700 : "transparent",
+                        color: selectedFilters.isNew ? P.cream : P.wine700,
+                        border: `1px solid ${P.wine700}`,
+                      }}
+                    >
+                      {t("issymaFilterNew")}
+                    </Link>
+                  </div>
                   <FilterSection
                     title={t("issymaFilterCategories")}
                     currentValue={selectedFilters.cat}

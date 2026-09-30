@@ -73,9 +73,12 @@ export async function setBankTransferConfig(
 }
 
 /**
- * Marque un virement bancaire comme reçu.
- * - Refuse si la commande n'est pas en mode virement ou si déjà payée.
- * - Passe `paymentStatus` à "paid" + horodate + trace l'admin.
+ * Marque un paiement manuel (virement bancaire OU paiement sur place lors du
+ * retrait boutique) comme reçu.
+ * - Refuse si la commande n'est ni un virement ni un paiement sur place, ou si déjà payée.
+ * - Passe `paymentStatus` à "paid" + horodate + trace l'admin (même colonnes
+ *   `bankTransferConfirmedAt/By` pour les deux modes — c'est le même geste :
+ *   « l'argent est rentré, je le confirme »).
  * - Envoie l'email de confirmation client (fire-and-forget).
  */
 export async function confirmBankTransfer(
@@ -96,8 +99,8 @@ export async function confirmBankTransfer(
       },
     });
     if (!order) return { success: false, error: "Commande introuvable." };
-    if (order.paymentMode !== "BANK_TRANSFER") {
-      return { success: false, error: "Cette commande n'est pas un paiement par virement." };
+    if (order.paymentMode !== "BANK_TRANSFER" && order.paymentMode !== "PAY_ON_PICKUP") {
+      return { success: false, error: "Cette commande n'accepte pas de confirmation de paiement manuel." };
     }
     if (order.paymentStatus === "paid") {
       return { success: false, error: "Le paiement a déjà été confirmé." };

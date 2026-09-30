@@ -9,7 +9,14 @@
  *     `sortClientIdsByStats()` avant de paginer.
  */
 
-export type ClientSortKey = "created" | "orders" | "spent" | "login" | "company";
+export type ClientSortKey =
+  | "created"
+  | "orders"
+  | "spent"
+  | "login"
+  | "company"
+  | "cart_qty"
+  | "cart_total";
 export type SortDir = "asc" | "desc";
 
 export interface ClientOrderStats {
@@ -20,6 +27,14 @@ export interface ClientOrderStats {
 }
 
 export const EMPTY_CLIENT_STATS: ClientOrderStats = { count: 0, spent: 0 };
+
+/** Panier en cours (nb d'articles + total HT en euros). */
+export interface ClientCartStats {
+  itemCount: number;
+  total: number;
+}
+
+export const EMPTY_CLIENT_CART_STATS: ClientCartStats = { itemCount: 0, total: 0 };
 
 interface SortOptionMeta {
   value: ClientSortKey;
@@ -69,6 +84,20 @@ export const CLIENT_SORT_OPTIONS: readonly SortOptionMeta[] = [
     ascLabel: "A → Z",
     defaultDir: "asc",
   },
+  {
+    value: "cart_qty",
+    label: "Panier — nombre d'articles",
+    descLabel: "Du plus grand panier",
+    ascLabel: "Du plus petit panier",
+    defaultDir: "desc",
+  },
+  {
+    value: "cart_total",
+    label: "Panier — montant total",
+    descLabel: "Du plus gros montant",
+    ascLabel: "Du plus petit montant",
+    defaultDir: "desc",
+  },
 ] as const;
 
 const SORT_KEYS = new Set<string>(CLIENT_SORT_OPTIONS.map((o) => o.value));
@@ -101,6 +130,11 @@ export function dirLabel(sort: ClientSortKey, dir: SortDir): string {
 /** true = le tri a besoin des agrégats de la table Order. */
 export function isStatsSort(sort: ClientSortKey): sort is "orders" | "spent" {
   return sort === "orders" || sort === "spent";
+}
+
+/** true = le tri a besoin de la valeur du panier en cours (table Cart). */
+export function isCartSort(sort: ClientSortKey): sort is "cart_qty" | "cart_total" {
+  return sort === "cart_qty" || sort === "cart_total";
 }
 
 /**
@@ -144,6 +178,37 @@ export function sortClientIdsByStats(
 
   return [...ids].sort((a, b) => {
     const diff = valueOf(b) - valueOf(a);
+    return dir === "desc" ? diff : -diff;
+  });
+}
+
+/**
+ * Ordonne des ids clients selon la valeur de leur panier en cours.
+ *
+ * Les clients sans panier (valeur 0) sont toujours renvoyés en fin de liste,
+ * peu importe le sens du tri : sinon un tri croissant remplirait la première
+ * page avec des paniers vides — inutile pour la cliente qui veut voir « les
+ * paniers en cours ». Ex æquo (souvent 0) : ordre stable de `ids`.
+ */
+export function sortClientIdsByCart(
+  ids: readonly string[],
+  carts: ReadonlyMap<string, ClientCartStats>,
+  sort: "cart_qty" | "cart_total",
+  dir: SortDir,
+): string[] {
+  const valueOf = (id: string): number => {
+    const c = carts.get(id);
+    if (!c) return 0;
+    return sort === "cart_qty" ? c.itemCount : c.total;
+  };
+
+  return [...ids].sort((a, b) => {
+    const va = valueOf(a);
+    const vb = valueOf(b);
+    // Paniers vides en dernier dans les 2 sens.
+    if (va === 0 && vb !== 0) return 1;
+    if (vb === 0 && va !== 0) return -1;
+    const diff = vb - va;
     return dir === "desc" ? diff : -diff;
   });
 }

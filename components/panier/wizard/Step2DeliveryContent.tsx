@@ -332,6 +332,7 @@ export default function Step2DeliveryContent({
             title={t("modePickup")}
             desc={t("modePickupDesc")}
             disabled={mustMergeToProceed}
+            badge={t("pickupPayOnSiteBadge")}
           />
           <ModeTile
             active={deliveryMode === "private"}
@@ -681,6 +682,7 @@ function ModeTile({
   desc,
   disabled = false,
   id,
+  badge,
 }: {
   active: boolean;
   onClick: () => void;
@@ -689,6 +691,8 @@ function ModeTile({
   desc: string;
   disabled?: boolean;
   id?: string;
+  /** Petit rectangle jaune sous la description (ex: "paiement sur place dispo"). */
+  badge?: string;
 }) {
   return (
     <button
@@ -719,6 +723,11 @@ function ModeTile({
         {title}
       </div>
       <div className="text-xs text-slate-500 leading-snug">{desc}</div>
+      {badge && !disabled && (
+        <div className="mt-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold px-2.5 py-1.5 leading-snug">
+          {badge}
+        </div>
+      )}
     </button>
   );
 }

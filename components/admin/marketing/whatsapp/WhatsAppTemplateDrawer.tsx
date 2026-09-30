@@ -7,6 +7,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import {
   createWhatsAppTemplate,
   updateWhatsAppTemplate,
+  translateWhatsAppTemplateBody,
   type WhatsAppTemplateDTO,
 } from "@/app/actions/admin/whatsapp-templates";
 import { getWhatsAppPreviewContext } from "@/app/actions/admin/whatsapp-preview";
@@ -37,22 +38,29 @@ interface Props {
 
 const ADMIN_AS_CLIENT_ID = "__admin__";
 
+// Placeholder anglais aligné sur le placeholder FR — utilisé quand la cliente
+// ouvre le drawer d'un modèle sans version anglaise pour lui montrer à quoi
+// ça pourrait ressembler visuellement.
+const WHATSAPP_TEMPLATE_PLACEHOLDER_EN =
+  "Hi {firstName}, this is {adminFirstName} from {shopName}.";
+
 export default function WhatsAppTemplateDrawer({ template, previewOverrides, clients, onClose }: Props) {
   const [title, setTitle] = useState(template?.title ?? "");
   const [body, setBody] = useState(template?.body ?? "");
+  const [bodyEn, setBodyEn] = useState(template?.bodyEn ?? "");
   const [pending, startTransition] = useTransition();
-  // Sélection par défaut : « Moi (admin) » — on remplit les tokens client
-  // avec les infos de l'admin connecté pour que la cliente prévisualise le
-  // message tel qu'un vrai humain le recevrait, sans fetch réseau.
+  const [translating, startTranslate] = useTransition();
+  // Aperçu — sélection client + langue. La langue "fr"|"en" détermine quel
+  // corps est rendu dans le carré vert ci-dessous.
   const [previewClientId, setPreviewClientId] = useState<string>(ADMIN_AS_CLIENT_ID);
+  const [previewLocale, setPreviewLocale] = useState<"fr" | "en">("fr");
   const [liveContext, setLiveContext] = useState<WhatsAppMergeContext | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
-  // Portal SSR-safe : `mounted` reste false le temps du 1er render côté serveur,
-  // évite l'erreur « document is not defined » sur createPortal.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const toast = useToast();
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const bodyEnRef = useRef<HTMLTextAreaElement>(null);
 
   // Escape ferme
   useEffect(() => {
@@ -64,7 +72,6 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
   }, [onClose]);
 
   // Charge le contexte réel quand la cliente sélectionne un vrai client.
-  // « Moi (admin) » → skip le fetch (rendu local suffit).
   useEffect(() => {
     if (previewClientId === ADMIN_AS_CLIENT_ID) {
       setLiveContext(null);
@@ -90,12 +97,14 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
     firstName: previewOverrides.adminFirstName || "",
     lastName: previewOverrides.adminLastName || "",
     fullName: `${previewOverrides.adminFirstName ?? ""} ${previewOverrides.adminLastName ?? ""}`.trim(),
-    // La cliente représente sa propre boutique — pas besoin de faux tokens client.
     company: previewOverrides.shopName || "",
   });
 
   const previewCtx = liveContext ?? adminAsClientCtx;
-  const preview = renderWhatsAppMessage(body || WHATSAPP_TEMPLATE_PLACEHOLDER, previewCtx);
+  const activeBody = previewLocale === "en" ? bodyEn : body;
+  const activePlaceholder =
+    previewLocale === "en" ? WHATSAPP_TEMPLATE_PLACEHOLDER_EN : WHATSAPP_TEMPLATE_PLACEHOLDER;
+  const preview = renderWhatsAppMessage(activeBody || activePlaceholder, previewCtx);
 
   const selectedClient = clients.find((c) => c.id === previewClientId);
   const adminLabel = previewOverrides.adminFirstName
@@ -115,45 +124,98 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
 
   const titleOver = title.length > WHATSAPP_TEMPLATE_TITLE_MAX;
   const bodyOver = body.length > WHATSAPP_TEMPLATE_BODY_MAX;
+  const bodyEnOver = bodyEn.length > WHATSAPP_TEMPLATE_BODY_MAX;
   const titleHasEmoji = containsEmoji(title);
   const bodyHasEmoji = containsEmoji(body);
+  const bodyEnHasEmoji = containsEmoji(bodyEn);
   const canSave =
     title.trim().length > 0 &&
     body.trim().length > 0 &&
     !titleOver &&
     !bodyOver &&
+    !bodyEnOver &&
     !titleHasEmoji &&
-    !bodyHasEmoji;
+    !bodyHasEmoji &&
+    !bodyEnHasEmoji;
 
   function insertAtCursor(insert: string) {
-    const ta = bodyRef.current;
-    if (!ta) {
-      setBody((b) => `${b}${insert}`);
-      return;
-    }
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    setBody((b) => b.slice(0, start) + insert + b.slice(end));
-    requestAnimationFrame(() => {
-      if (bodyRef.current) {
-        bodyRef.current.focus();
-        const pos = start + insert.length;
-        bodyRef.current.setSelectionRange(pos, pos);
+    // Insertion pilotée par la langue d'aperçu — si la cliente est en train de
+    // regarder l'EN, on écrit dans le textarea EN, sinon dans le FR.
+    if (previewLocale === "en") {
+      const ta = bodyEnRef.current;
+      if (!ta) {
+        setBodyEn((b) => `${b}${insert}`);
+        return;
       }
-    });
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      setBodyEn((b) => b.slice(0, start) + insert + b.slice(end));
+      requestAnimationFrame(() => {
+        if (bodyEnRef.current) {
+          bodyEnRef.current.focus();
+          const pos = start + insert.length;
+          bodyEnRef.current.setSelectionRange(pos, pos);
+        }
+      });
+    } else {
+      const ta = bodyRef.current;
+      if (!ta) {
+        setBody((b) => `${b}${insert}`);
+        return;
+      }
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      setBody((b) => b.slice(0, start) + insert + b.slice(end));
+      requestAnimationFrame(() => {
+        if (bodyRef.current) {
+          bodyRef.current.focus();
+          const pos = start + insert.length;
+          bodyRef.current.setSelectionRange(pos, pos);
+        }
+      });
+    }
   }
 
   function insertVariable(token: string) {
     insertAtCursor(`{${token}}`);
   }
 
+  function handleTranslate() {
+    if (!body.trim()) {
+      toast.error("Écris d'abord le message en français", "Le contenu FR est vide.");
+      return;
+    }
+    if (bodyHasEmoji) {
+      toast.error("Retire les emojis du texte français", WHATSAPP_NO_EMOJI_ERROR);
+      return;
+    }
+    startTranslate(async () => {
+      const res = await translateWhatsAppTemplateBody(body);
+      if (res.success) {
+        setBodyEn(res.bodyEn);
+        setPreviewLocale("en");
+        toast.success("Version anglaise générée", "Tu peux la relire et la modifier avant d'enregistrer.");
+      } else {
+        toast.error("Traduction indisponible", res.error);
+      }
+    });
+  }
+
   function handleSave() {
     startTransition(async () => {
+      const payload = { title, body, bodyEn };
       const res = template
-        ? await updateWhatsAppTemplate(template.id, { title, body })
-        : await createWhatsAppTemplate({ title, body });
+        ? await updateWhatsAppTemplate(template.id, payload)
+        : await createWhatsAppTemplate(payload);
       if (res.success) {
-        toast.success(template ? "Modèle mis à jour" : "Modèle créé");
+        if (res.translationFailed) {
+          toast.success(
+            template ? "Modèle mis à jour" : "Modèle créé",
+            "Français enregistré. Traduction anglaise indisponible pour le moment — clique sur « Traduire » plus tard, ou écris-la toi-même.",
+          );
+        } else {
+          toast.success(template ? "Modèle mis à jour" : "Modèle créé");
+        }
         onClose();
       } else {
         toast.error("Échec", res.error);
@@ -161,7 +223,6 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
     });
   }
 
-  // Regroupe les variables par groupe pour l'affichage
   const grouped = WHATSAPP_VARIABLES.reduce<Record<string, typeof WHATSAPP_VARIABLES>>((acc, v) => {
     (acc[v.group] ||= []).push(v);
     return acc;
@@ -171,16 +232,12 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
 
   return createPortal(
     <>
-      {/* Backdrop — couvre tout le viewport, y compris la sidebar admin (z-40)
-          et le bouton hamburger (z-50). Portal au body → hors stacking context
-          de la sidebar. */}
       <div
         className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden
       />
 
-      {/* Drawer */}
       <div
         role="dialog"
         aria-modal="true"
@@ -213,13 +270,37 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
         <div className="p-6 space-y-6">
           {/* Aperçu en HAUT — le CustomSelect s'ouvre vers le bas et a besoin
               d'espace disponible sous lui pour afficher la liste complète des
-              clients (sinon il est écrasé quand le drawer est haut). */}
+              clients. */}
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-            <div className="flex items-center justify-between gap-3 mb-2">
+            <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
               <p className="text-[10px] font-body font-bold uppercase tracking-[0.14em] text-emerald-700">
                 Aperçu — {previewLabel}
                 {loadingContext && <span className="ml-2 text-emerald-800/60 normal-case tracking-normal">chargement…</span>}
               </p>
+              <div
+                role="tablist"
+                aria-label="Langue de l'aperçu"
+                className="inline-flex rounded-lg border border-emerald-300 bg-white overflow-hidden text-[11px] font-body font-semibold"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewLocale === "fr"}
+                  onClick={() => setPreviewLocale("fr")}
+                  className={`px-3 h-7 ${previewLocale === "fr" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"}`}
+                >
+                  FR
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={previewLocale === "en"}
+                  onClick={() => setPreviewLocale("en")}
+                  className={`px-3 h-7 ${previewLocale === "en" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"}`}
+                >
+                  EN
+                </button>
+              </div>
             </div>
             <div className="mb-3">
               <CustomSelect
@@ -270,13 +351,24 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             )}
           </div>
 
-          {/* Body */}
+          {/* Body FR */}
           <div>
-            <div className="flex items-center justify-between gap-2 mb-1.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
               <label className="block text-[12px] font-body font-semibold text-text-primary">
-                Contenu du message
+                Contenu du message <span className="text-text-muted font-normal">(français)</span>
               </label>
-              <InsertLinkButton onInsert={insertAtCursor} />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleTranslate}
+                  disabled={translating || pending || !body.trim() || bodyHasEmoji}
+                  className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg border border-sky-300 bg-sky-50 text-sky-700 text-[11.5px] font-body font-medium hover:bg-sky-100 hover:border-sky-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Traduire automatiquement en anglais — le résultat apparaît dans le champ ci-dessous"
+                >
+                  {translating ? "Traduction…" : "🌐 Traduire en anglais"}
+                </button>
+                <InsertLinkButton onInsert={insertAtCursor} />
+              </div>
             </div>
             <textarea
               ref={bodyRef}
@@ -296,10 +388,40 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             )}
           </div>
 
+          {/* Body EN */}
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+              <label className="block text-[12px] font-body font-semibold text-text-primary">
+                Version anglaise{" "}
+                <span className="text-text-muted font-normal">(clients hors zone francophone)</span>
+              </label>
+            </div>
+            <textarea
+              ref={bodyEnRef}
+              value={bodyEn}
+              onChange={(e) => setBodyEn(e.target.value)}
+              rows={6}
+              placeholder={WHATSAPP_TEMPLATE_PLACEHOLDER_EN}
+              className="w-full rounded-xl border border-border bg-bg-primary px-3 py-2 text-[14px] font-body text-text-primary focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100 resize-y"
+            />
+            <p className={`mt-1 text-[11px] font-body ${bodyEnOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
+              {bodyEn.length}/{WHATSAPP_TEMPLATE_BODY_MAX}
+            </p>
+            {bodyEnHasEmoji && (
+              <p className="mt-1 text-[11px] font-body text-red-600 font-semibold">
+                {WHATSAPP_NO_EMOJI_ERROR}
+              </p>
+            )}
+            <p className="mt-1 text-[11px] font-body text-text-muted">
+              Si vide, le message français sera envoyé même aux clients étrangers. Elle est
+              re-générée automatiquement à chaque enregistrement quand tu la laisses vide.
+            </p>
+          </div>
+
           {/* Variables */}
           <div>
             <label className="block text-[12px] font-body font-semibold text-text-primary mb-2">
-              Variables — cliquez pour insérer à la position du curseur
+              Variables — cliquez pour insérer dans le champ {previewLocale === "en" ? "anglais" : "français"}
             </label>
             <div className="space-y-3">
               {Object.entries(grouped).map(([group, vars]) => (
@@ -326,12 +448,10 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             </div>
           </div>
 
-          {/* Prompt IA — génération du contenu du message via ChatGPT/Claude. */}
           <AiPromptSection body={body} />
 
         </div>
 
-        {/* Footer sticky */}
         <div className="sticky bottom-0 bg-bg-primary border-t border-border px-6 py-4 flex flex-wrap gap-2 justify-end">
           <button
             type="button"
@@ -357,7 +477,7 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
 }
 
 /* ─────────────────────────────────────────────
-   Bouton compact : Insérer un lien (à droite du label du textarea)
+   Bouton compact : Insérer un lien
    ───────────────────────────────────────────── */
 
 function InsertLinkButton({ onInsert }: { onInsert: (text: string) => void }) {
@@ -365,16 +485,11 @@ function InsertLinkButton({ onInsert }: { onInsert: (text: string) => void }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState<string>("");
 
-  // Charge la base URL du tenant au premier ouvrir — évite un fetch inutile
-  // quand la cliente n'ouvre pas le picker.
   useEffect(() => {
     if (!pickerOpen || baseUrl) return;
     getNewsletterEditorBaseUrl()
       .then(setBaseUrl)
-      .catch(() => {
-        // Silencieux : le picker fonctionnera en URL relative (`/fr/…`) —
-        // pas idéal pour WhatsApp mais mieux que de bloquer le flow.
-      });
+      .catch(() => {});
   }, [pickerOpen, baseUrl]);
 
   return (
@@ -394,9 +509,6 @@ function InsertLinkButton({ onInsert }: { onInsert: (text: string) => void }) {
           baseUrl={baseUrl}
           onClose={() => setPickerOpen(false)}
           onValidate={(url) => {
-            // On entoure l'URL d'un espace de chaque côté pour que WhatsApp
-            // la détecte comme URL cliquable même si elle est collée au ras
-            // d'un autre mot.
             onInsert(` ${url} `);
             setPickerOpen(false);
             toast.success("Lien inséré", "Il apparaîtra cliquable dans WhatsApp.");
@@ -408,7 +520,7 @@ function InsertLinkButton({ onInsert }: { onInsert: (text: string) => void }) {
 }
 
 /* ─────────────────────────────────────────────
-   Sous-section : Prompt IA (contexte du message)
+   Sous-section : Prompt IA
    ───────────────────────────────────────────── */
 
 function AiPromptSection({ body }: { body: string }) {
@@ -453,7 +565,7 @@ function AiPromptSection({ body }: { body: string }) {
           <code className="rounded bg-white px-1">{`{shopName}`}</code>,{" "}
           <code className="rounded bg-white px-1">{`{adminFirstName}`}</code>…), les contraintes WhatsApp (1000 caractères, formatage <code className="rounded bg-white px-1">*gras*</code>, URL en clair) et ta description.
           {body.trim() && (
-            <> Le corps actuel du modèle n'est pas envoyé à l'IA — décris juste ce que tu veux qu'elle rédige.</>
+            <> Le corps actuel du modèle n&apos;est pas envoyé à l&apos;IA — décris juste ce que tu veux qu&apos;elle rédige.</>
           )}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -462,7 +574,7 @@ function AiPromptSection({ body }: { body: string }) {
             onClick={handleCopy}
             className="inline-flex items-center gap-1.5 px-4 h-10 rounded-lg bg-violet-600 text-white text-[13px] font-body font-semibold hover:bg-violet-700"
           >
-            Copier le prompt pour l'IA
+            Copier le prompt pour l&apos;IA
           </button>
           <button
             type="button"

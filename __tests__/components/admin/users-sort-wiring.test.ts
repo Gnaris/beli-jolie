@@ -90,7 +90,8 @@ describe("Page clients — refonte colonnes 2026-09-02", () => {
 
   it("charge un résumé du panier par client (nb d'articles + total HT)", () => {
     expect(PAGE).toMatch(/async function loadCartsFor\(userIds: string\[\]\)/);
-    expect(PAGE).toMatch(/type CartSummary = \{ itemCount: number; total: number \}/);
+    // Alias du type panier — nb d'articles + total HT.
+    expect(PAGE).toMatch(/type CartSummary = ClientCartStats/);
     expect(PAGE).toMatch(/prisma\.cart\.findMany/);
     // n'appelle loadCartsFor QUE sur la vue infos (pas quand on est en vue mails)
     expect(PAGE).toMatch(/view === "infos"[\s\S]{0,120}loadCartsFor/);

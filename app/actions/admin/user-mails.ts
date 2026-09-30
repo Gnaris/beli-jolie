@@ -18,13 +18,9 @@ import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
 import {
-  renderNewsletterHtml,
-  substituteVariables,
-  type NewsletterBlock,
-  type NewsletterDynamicContext,
-  type ProductLite,
-} from "@/lib/newsletter-blocks";
-import { getScenarioTemplate } from "@/app/actions/admin/newsletter-templates";
+  renderNewsletterHtmlForSend,
+  type HtmlCartItem,
+} from "@/lib/newsletter-html-render";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
 import {
@@ -379,230 +375,408 @@ export async function getClientMailContext(
 }
 
 // ═══════════════════════════════════════════════════════════
-// Envoi manuel d'un mail (Panier / Inactivité / Retour stock)
-// La Newsletter passe par une action séparée (choix de modèle).
+// Envoi manuel d'un mail (Panier / Inactivité)
+// - Newsletter → sendNewsletterToUsers (modale de choix de modèle).
+// - RESTOCK   → refusé temporairement : la refonte du scénario (stades
+//   dédiés + choix de produits couplé à la config auto) est encore à faire.
 // ═══════════════════════════════════════════════════════════
+
+const RESTOCK_DISABLED_MESSAGE =
+  "Le mail Retour en stock est en cours de finalisation — cette relance sera activée dans un prochain lot.";
+
+/** Charge le stade demandé (delay, template, images) pour un scénario à stades. */
+async function loadStageForScenario(
+  tenantId: string,
+  scenario: "ABANDONED_CART" | "INACTIVE_CLIENT",
+  stageIndex: number,
+): Promise<
+  | {
+      ok: true;
+      stage: {
+        stageIndex: number;
+        delaySeconds: number;
+        template: {
+          id: string;
+          name: string;
+          subject: string;
+          html: string | null;
+          images: { name: string; path: string }[];
+        };
+      };
+    }
+  | { ok: false; error: string }
+> {
+  if (!Number.isInteger(stageIndex) || stageIndex < 1) {
+    return { ok: false, error: "Stade invalide — choisis un stade dans la liste." };
+  }
+  const row =
+    scenario === "ABANDONED_CART"
+      ? await prisma.abandonedCartStage.findFirst({
+          where: { tenantId, stageIndex },
+          select: {
+            stageIndex: true,
+            delaySeconds: true,
+            template: {
+              select: {
+                id: true,
+                name: true,
+                subject: true,
+                html: true,
+                images: { select: { name: true, path: true } },
+              },
+            },
+          },
+        })
+      : await prisma.inactiveClientStage.findFirst({
+          where: { tenantId, stageIndex },
+          select: {
+            stageIndex: true,
+            delaySeconds: true,
+            template: {
+              select: {
+                id: true,
+                name: true,
+                subject: true,
+                html: true,
+                images: { select: { name: true, path: true } },
+              },
+            },
+          },
+        });
+  if (!row) {
+    return {
+      ok: false,
+      error: `Aucun Stade ${stageIndex} configuré pour ce scénario — vérifie tes modèles dans /admin/marketing/mails.`,
+    };
+  }
+  return { ok: true, stage: row };
+}
+
+// ─── Types partagés stade / preview ───────────────────
+
+export interface ScenarioStageSummary {
+  stageIndex: number;
+  templateId: string;
+  subject: string;
+  templateName: string;
+  delaySeconds: number;
+  /** Le HTML source contient-il du contenu ? (sert à griser les stades vides). */
+  hasContent: boolean;
+  /** {unsubscribeLink} présent dans le source — sinon envoi refusé côté serveur. */
+  hasUnsubscribeToken: boolean;
+}
+
+/**
+ * Liste les stades configurés pour un scénario donné (panier abandonné ou
+ * inactivité), triés par ordre croissant. Alimente le sélecteur « Quel stade
+ * envoyer ? » de la modale d'envoi manuel.
+ */
+export async function listStagesForScenario(
+  scenario: "ABANDONED_CART" | "INACTIVE_CLIENT",
+): Promise<
+  | { success: true; stages: ScenarioStageSummary[] }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+    const rows =
+      scenario === "ABANDONED_CART"
+        ? await prisma.abandonedCartStage.findMany({
+            where: { tenantId: tenant.id },
+            orderBy: { stageIndex: "asc" },
+            select: {
+              stageIndex: true,
+              delaySeconds: true,
+              template: {
+                select: { id: true, name: true, subject: true, html: true },
+              },
+            },
+          })
+        : await prisma.inactiveClientStage.findMany({
+            where: { tenantId: tenant.id },
+            orderBy: { stageIndex: "asc" },
+            select: {
+              stageIndex: true,
+              delaySeconds: true,
+              template: {
+                select: { id: true, name: true, subject: true, html: true },
+              },
+            },
+          });
+    const stages: ScenarioStageSummary[] = rows.map((r) => {
+      const src = r.template.html ?? "";
+      return {
+        stageIndex: r.stageIndex,
+        templateId: r.template.id,
+        subject: r.template.subject,
+        templateName: r.template.name,
+        delaySeconds: r.delaySeconds,
+        hasContent: src.trim().length > 0,
+        hasUnsubscribeToken: src.includes("{unsubscribeLink}"),
+      };
+    });
+    return { success: true, stages };
+  } catch (err) {
+    logger.error("[listStagesForScenario]", { scenario, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Aperçu HTML final d'un stade pour un client donné — même pipeline que
+ * l'envoi réel (`sendManualMail` + worker auto). Injecte le panier live pour
+ * ABANDONED_CART et le nombre de jours d'inactivité pour INACTIVE_CLIENT.
+ * Ce que la cliente voit dans l'iframe = ce que le destinataire recevra.
+ */
+export async function getScenarioStagePreviewHtml(
+  userId: string,
+  scenario: "ABANDONED_CART" | "INACTIVE_CLIENT",
+  stageIndex: number,
+): Promise<
+  | { success: true; html: string; subject: string }
+  | { success: false; error: string }
+> {
+  try {
+    const { tenant } = await requireAdmin();
+
+    const ctxRes = await getClientMailContext(userId);
+    if (!ctxRes.success) return { success: false, error: ctxRes.error };
+    const ctx = ctxRes.data;
+
+    const stageRes = await loadStageForScenario(tenant.id, scenario, stageIndex);
+    if (!stageRes.ok) return { success: false, error: stageRes.error };
+
+    const rendered = await renderStageForUser({
+      tenantId: tenant.id,
+      userId,
+      scenario,
+      stage: stageRes.stage,
+      ctx,
+    });
+    if (!rendered.ok) return { success: false, error: rendered.error };
+    return { success: true, html: rendered.html, subject: rendered.subject };
+  } catch (err) {
+    logger.error("[getScenarioStagePreviewHtml]", {
+      userId,
+      scenario,
+      stageIndex,
+      error: err as Error,
+    });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Rend le HTML final d'un stade pour un utilisateur donné en réutilisant le
+ * pipeline d'envoi automatique (`renderNewsletterHtmlForSend`). Utilisé à la
+ * fois par la preview et par l'envoi manuel — un seul chemin de rendu, pour
+ * que l'aperçu ne mente jamais sur le mail réel.
+ */
+async function renderStageForUser({
+  tenantId,
+  userId,
+  scenario,
+  stage,
+  ctx,
+}: {
+  tenantId: string;
+  userId: string;
+  scenario: "ABANDONED_CART" | "INACTIVE_CLIENT";
+  stage: {
+    stageIndex: number;
+    delaySeconds: number;
+    template: {
+      id: string;
+      name: string;
+      subject: string;
+      html: string | null;
+      images: { name: string; path: string }[];
+    };
+  };
+  ctx: ClientMailContext;
+}): Promise<
+  | { ok: true; html: string; subject: string; mergeContext: MailMergeContext }
+  | { ok: false; error: string }
+> {
+  const templateHtml = stage.template.html ?? "";
+  if (!templateHtml.trim()) {
+    return {
+      ok: false,
+      error: `Le Stade ${stage.stageIndex} n'a pas de contenu HTML — édite-le dans /admin/marketing/mails avant l'envoi.`,
+    };
+  }
+
+  const [shopName, baseUrl, companyInfo, fullUser] = await Promise.all([
+    getCachedShopName(),
+    getCurrentTenantBaseUrl(),
+    prisma.companyInfo.findFirst({
+      where: { tenantId },
+      select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
+    }),
+    prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: {
+        firstName: true, lastName: true, email: true, company: true, phone: true,
+        siret: true, vatNumber: true, addressStreet: true, addressZip: true,
+        addressCity: true, addressCountry: true,
+      },
+    }),
+  ]);
+
+  const shopAddress = companyInfo
+    ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  if (!shopName.trim() || !shopAddress.trim()) {
+    return {
+      ok: false,
+      error:
+        "Nom de boutique ou adresse manquant dans les infos entreprise. " +
+        "Ouvre Paramètres → Boutique et complète tes coordonnées avant d'envoyer ce mail.",
+    };
+  }
+
+  const shopContext: MailMergeContext = {
+    shopName,
+    shopAddress,
+    shopEmail: companyInfo?.email ?? "",
+    shopPhone: companyInfo?.phone ?? "",
+    shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
+  };
+
+  const cartItems: HtmlCartItem[] =
+    scenario === "ABANDONED_CART"
+      ? ctx.preview.cart.items.map((it) => ({
+          productName: it.productName,
+          colorName: it.colorName,
+          quantity: it.quantity,
+          totalCents: it.totalCents,
+          imagePath: it.imagePath,
+        }))
+      : [];
+  const cartTotalCents = ctx.preview.cart.totalCents;
+
+  const userContext: MailMergeContext = {
+    ...shopContext,
+    firstName: fullUser?.firstName ?? ctx.preview.firstName,
+    lastName: fullUser?.lastName ?? "",
+    fullName: `${fullUser?.firstName ?? ""} ${fullUser?.lastName ?? ""}`.trim(),
+    email: fullUser?.email ?? ctx.userEmail,
+    company: fullUser?.company ?? "",
+    phone: fullUser?.phone ?? "",
+    siret: fullUser?.siret ?? "",
+    tvaIntra: fullUser?.vatNumber ?? "",
+    address: fullUser?.addressStreet ?? "",
+    postalCode: fullUser?.addressZip ?? "",
+    city: fullUser?.addressCity ?? "",
+    country: fullUser?.addressCountry ?? "",
+    cartTotal:
+      scenario === "ABANDONED_CART"
+        ? (cartTotalCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })
+        : "",
+    cartCount: scenario === "ABANDONED_CART" ? String(cartItems.length) : "",
+    days:
+      scenario === "INACTIVE_CLIENT" && ctx.preview.daysSinceLastActivity != null
+        ? String(ctx.preview.daysSinceLastActivity)
+        : "",
+    unsubscribeLink: buildUnsubscribeUrl({
+      baseUrl,
+      userId,
+      tenantId,
+    }),
+    privacyLink: `${baseUrl}/fr/confidentialite`,
+  };
+
+  const finalSubject = interpolate(stage.template.subject, userContext);
+  const html = renderNewsletterHtmlForSend({
+    html: templateHtml,
+    images: stage.template.images,
+    baseUrl,
+    mergeContext: userContext,
+    dynamic:
+      scenario === "ABANDONED_CART"
+        ? { cart: { items: cartItems, totalCents: cartTotalCents } }
+        : undefined,
+  });
+  return { ok: true, html, subject: finalSubject, mergeContext: userContext };
+}
 
 export async function sendManualMail(
   userId: string,
   scenario: MailScenario,
-  payload?: { productIds?: string[] },
+  payload?: { productIds?: string[]; stageIndex?: number },
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   try {
     if (scenario === "NEWSLETTER") {
       return { success: false, error: "L'envoi newsletter passe par la modale de choix de modèle." };
     }
+    if (scenario === "RESTOCK") {
+      return { success: false, error: RESTOCK_DISABLED_MESSAGE };
+    }
 
     const { tenant } = await requireAdmin();
+
+    const stageIndex = payload?.stageIndex;
+    if (typeof stageIndex !== "number") {
+      return {
+        success: false,
+        error: "Choisis d'abord un stade à envoyer (Stade 1, Stade 2, …).",
+      };
+    }
 
     const contextResult = await getClientMailContext(userId);
     if (!contextResult.success) return { success: false, error: contextResult.error };
     const ctx = contextResult.data;
 
     // Filet serveur : refuse l'envoi si un blocker « statique » (opt-in, statut,
-    // cooldowns) est présent. Pour RESTOCK, on ré-évalue en aval avec les
-    // produits sélectionnés (cf. gate NO_PRODUCT_SELECTED plus bas).
+    // cooldowns) est présent — même règle que côté UI, mais on ne fait jamais
+    // confiance au client.
     const scenarioCtx = ctx.scenarios[scenario];
-    if (scenario !== "RESTOCK" && scenarioCtx.blockers.length > 0) {
+    if (scenarioCtx.blockers.length > 0) {
       return { success: false, error: scenarioCtx.blockers[0] };
     }
-    if (scenario === "RESTOCK") {
-      const staticBlockers = scenarioCtx.blockers.filter(
-        (msg) => !msg.includes("Aucun produit sélectionné"),
-      );
-      if (staticBlockers.length > 0) {
-        return { success: false, error: staticBlockers[0] };
-      }
-    }
 
-    // Charge les produits sélectionnés pour un mail RESTOCK.
-    let restockProducts: FavoritePreview[] = [];
-    if (scenario === "RESTOCK") {
-      const productIds = payload?.productIds ?? [];
-      if (productIds.length === 0) {
-        return { success: false, error: "Aucun produit sélectionné — choisissez au moins un produit à annoncer." };
-      }
-      const products = await prisma.product.findMany({
-        where: {
-          id: { in: productIds },
-          tenantId: tenant.id,
-          status: "ONLINE",
-        },
-        select: {
-          id: true,
-          name: true,
-          colors: {
-            take: 1,
-            orderBy: { isPrimary: "desc" },
-            select: {
-              stock: true,
-              unitPrice: true,
-              color: { select: { name: true } },
-              images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-            },
-          },
-        },
-      });
-      if (products.length === 0) {
-        return { success: false, error: "Aucun produit valide trouvé pour cette sélection." };
-      }
-      const outOfStock = products.filter((p) => (p.colors[0]?.stock ?? 0) <= 0);
-      if (outOfStock.length > 0) {
-        return {
-          success: false,
-          error: `« ${outOfStock[0].name} » est en rupture de stock — retirez-le de la sélection.`,
-        };
-      }
-      restockProducts = products.map((p) => {
-        const v = p.colors[0];
-        return {
-          productName: p.name,
-          colorName: v?.color?.name ?? null,
-          priceCents: v ? Math.round(Number(v.unitPrice) * 100) : 0,
-          imagePath: v?.images[0]?.path ?? null,
-        };
-      });
-    }
+    const stageRes = await loadStageForScenario(tenant.id, scenario, stageIndex);
+    if (!stageRes.ok) return { success: false, error: stageRes.error };
+    const stage = stageRes.stage;
 
-    const shopName = await getCachedShopName();
-    const baseUrl = await getCurrentTenantBaseUrl();
-    const legalLine = await buildLegalLine(tenant.id);
-
-    // Charge le user complet + companyInfo pour construire le contexte de
-    // variables. Les champs viennent de la fiche client (adresse, TVA, SIRET…)
-    // et de la config de la boutique (adresse, tél, site).
-    const [fullUser, companyInfo] = await Promise.all([
-      prisma.user.findFirst({
-        where: { id: userId, tenantId: tenant.id },
-        select: {
-          firstName: true, lastName: true, email: true, company: true, phone: true,
-          siret: true, vatNumber: true, addressStreet: true, addressZip: true,
-          addressCity: true, addressCountry: true,
-        },
-      }),
-      prisma.companyInfo.findFirst({
-        where: { tenantId: tenant.id },
-        select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
-      }),
-    ]);
-
-    const computedShopAddress = companyInfo
-      ? [companyInfo.address, [companyInfo.postalCode, companyInfo.city].filter(Boolean).join(" ")]
-          .filter(Boolean)
-          .join(", ")
-      : "";
-    // Filet RGPD/LCEN : même règle que les envois automatiques et les
-    // newsletters de masse — refuse un mail marketing manuel si les mentions
-    // légales sortiraient vides. La cliente doit compléter ses coordonnées
-    // avant d'envoyer.
-    if (!shopName.trim() || !computedShopAddress.trim()) {
+    // Filet RGPD : le mail doit contenir {unsubscribeLink} — même règle qu'à
+    // l'envoi automatique (cf. abandoned-cart-worker.ts).
+    const templateHtml = stage.template.html ?? "";
+    if (!templateHtml.includes("{unsubscribeLink}")) {
       return {
         success: false,
         error:
-          "Nom de boutique ou adresse manquant dans les infos entreprise. " +
-          "Ouvre Paramètres → Boutique et complète tes coordonnées avant d'envoyer ce mail.",
+          "Le modèle de ce stade ne contient plus le lien de désinscription obligatoire. " +
+          "Ouvre-le dans /admin/marketing/mails et remets la variable {unsubscribeLink} dans le pied de page.",
       };
     }
-    const shopContext: MailMergeContext = {
-      shopName,
-      shopAddress: computedShopAddress,
-      shopEmail: companyInfo?.email ?? "",
-      shopPhone: companyInfo?.phone ?? "",
-      shopWebsite: companyInfo?.website ?? baseUrl.replace(/^https?:\/\//, ""),
-    };
-    const userContext: MailMergeContext = {
-      ...shopContext,
-      firstName: fullUser?.firstName ?? ctx.preview.firstName,
-      lastName: fullUser?.lastName ?? "",
-      fullName: `${fullUser?.firstName ?? ""} ${fullUser?.lastName ?? ""}`.trim(),
-      email: fullUser?.email ?? ctx.userEmail,
-      company: fullUser?.company ?? "",
-      phone: fullUser?.phone ?? "",
-      siret: fullUser?.siret ?? "",
-      tvaIntra: fullUser?.vatNumber ?? "",
-      address: fullUser?.addressStreet ?? "",
-      postalCode: fullUser?.addressZip ?? "",
-      city: fullUser?.addressCity ?? "",
-      country: fullUser?.addressCountry ?? "",
-      // Variables dynamiques : ne sont renseignées que si pertinentes pour le
-      // scénario. Les blocs `cartItems`/`favoritesGrid`/`daysInactive` restent
-      // rendus via le `dynamic` context ci-dessous — ce mergeContext sert
-      // uniquement aux textes libres (sujet, blocs texte, footer message).
-      cartTotal:
-        scenario === "ABANDONED_CART"
-          ? (ctx.preview.cart.totalCents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" })
-          : "",
-      cartCount:
-        scenario === "ABANDONED_CART" ? String(ctx.preview.cart.items.length) : "",
-      days:
-        scenario === "INACTIVE_CLIENT" && ctx.preview.daysSinceLastActivity != null
-          ? String(ctx.preview.daysSinceLastActivity)
-          : "",
-      favoritesCount: scenario === "RESTOCK" ? String(restockProducts.length) : "",
-      // Mentions légales : lien de désinscription signé (token HMAC), lien
-      // politique de confidentialité (page publique).
-      unsubscribeLink: buildUnsubscribeUrl({
-        baseUrl,
-        userId,
-        tenantId: tenant.id,
-      }),
-      privacyLink: `${baseUrl}/fr/confidentialite`,
-    };
 
-    const shared = { shopName, baseUrl, legalLine, mergeContext: userContext };
-
-    // Charge le modèle newsletter lié à ce scénario (créé si absent).
-    const template = await getScenarioTemplate(tenant.id, scenario);
-
-    // Contexte dynamique injecté aux blocs (cartItems / favoritesGrid / daysInactive).
-    const dynamic: NewsletterDynamicContext = {
-      firstName: ctx.preview.firstName,
-      cart:
-        scenario === "ABANDONED_CART"
-          ? { items: ctx.preview.cart.items, totalCents: ctx.preview.cart.totalCents }
-          : undefined,
-      favorites: scenario === "RESTOCK" ? restockProducts : undefined,
-      daysInactive:
-        scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
-    };
-
-    // Charge les produits éventuellement référencés par des blocs `products`
-    // que la cliente aurait ajoutés à son modèle personnalisé.
-    const productsById = await loadProductsForTemplateBlocks(template.blocks, tenant.id);
-
-    // Substitue toutes les variables ({firstName}, {shopName}, {days}…) dans
-    // le sujet + les textes des blocs. Idempotent : tokens absents laissés tels quels.
-    const blocks = substituteVariables(template.blocks, userContext);
-    const finalSubject = interpolate(template.subject, userContext);
-    const rendered = {
-      subject: finalSubject,
-      html: renderNewsletterHtml({
-        subject: finalSubject,
-        blocks,
-        productsById,
-        shared,
-        dynamic,
-        // Marketing : pas d'habillage global auto (l'admin l'a composé via
-        // blocs, avec les mentions légales intégrées via variables obligatoires).
-        omitGlobalChrome: true,
-      }),
-    };
+    const rendered = await renderStageForUser({
+      tenantId: tenant.id,
+      userId,
+      scenario,
+      stage,
+      ctx,
+    });
+    if (!rendered.ok) return { success: false, error: rendered.error };
 
     const result = await sendMail({
       to: ctx.userEmail,
       subject: rendered.subject,
       html: rendered.html,
-      fromName: shopName,
-      listUnsubscribeUrl: userContext.unsubscribeLink,
+      fromName: rendered.mergeContext.shopName ?? "",
+      listUnsubscribeUrl: rendered.mergeContext.unsubscribeLink,
       tracking: {
         scenarioKey: scenario,
         userId,
         metadata: {
           source: "manual",
+          stageIndex,
+          templateId: stage.template.id,
           cartItems: scenario === "ABANDONED_CART" ? ctx.preview.cart.items.length : undefined,
           daysInactive: scenario === "INACTIVE_CLIENT" ? ctx.preview.daysSinceLastActivity : undefined,
-          selectedProductsCount: scenario === "RESTOCK" ? restockProducts.length : undefined,
-          selectedProductIds: scenario === "RESTOCK" ? (payload?.productIds ?? []) : undefined,
         },
       },
     });
@@ -618,7 +792,7 @@ export async function sendManualMail(
     }
 
     revalidatePath("/admin/clients");
-    return { success: true, message: `Mail envoyé à ${ctx.userEmail}.` };
+    return { success: true, message: `Mail (Stade ${stageIndex}) envoyé à ${ctx.userEmail}.` };
   } catch (err) {
     logger.error("[sendManualMail]", { userId, scenario, error: err as Error });
     return { success: false, error: (err as Error).message };
@@ -699,64 +873,3 @@ export async function searchProductsForMail(
   }
 }
 
-async function buildLegalLine(tenantId: string): Promise<string> {
-  try {
-    const info = await prisma.companyInfo.findFirst({
-      where: { tenantId },
-      select: { shopName: true, name: true, address: true, postalCode: true, city: true },
-    });
-    if (!info) return "";
-    const displayName = info.shopName?.trim() || info.name?.trim();
-    const addressLine = [info.address, [info.postalCode, info.city].filter(Boolean).join(" ")]
-      .filter(Boolean)
-      .join(", ");
-    return [displayName, addressLine].filter(Boolean).join(" · ");
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Charge la variante principale + prix + image des produits référencés par
- * les blocs `products` d'un modèle. Vide si le modèle n'en contient aucun.
- */
-async function loadProductsForTemplateBlocks(
-  blocks: NewsletterBlock[],
-  tenantId: string,
-): Promise<Map<string, ProductLite>> {
-  const ids = new Set<string>();
-  for (const b of blocks) {
-    if (b.type === "products") {
-      for (const id of b.data.productIds) ids.add(id);
-    }
-  }
-  if (ids.size === 0) return new Map();
-  const rows = await prisma.product.findMany({
-    where: { tenantId, id: { in: [...ids] } },
-    select: {
-      id: true,
-      name: true,
-      reference: true,
-      colors: {
-        take: 1,
-        orderBy: { isPrimary: "desc" },
-        select: {
-          unitPrice: true,
-          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-        },
-      },
-    },
-  });
-  const map = new Map<string, ProductLite>();
-  for (const r of rows) {
-    const variant = r.colors[0];
-    map.set(r.id, {
-      id: r.id,
-      name: r.name,
-      reference: r.reference,
-      imagePath: variant?.images[0]?.path ?? null,
-      priceCents: variant ? Math.round(Number(variant.unitPrice) * 100) : null,
-    });
-  }
-  return map;
-}

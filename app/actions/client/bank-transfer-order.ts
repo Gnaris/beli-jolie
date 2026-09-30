@@ -64,6 +64,12 @@ export interface BankTransferOrderInput {
    *  placeCreditOnlyOrder pour forcer paymentMode="CREDIT" + paymentStatus="paid"
    *  + bypass du check bank transfer enabled. */
   _creditOnlyMode?: boolean;
+  /** Paiement sur place lors du retrait boutique : réutilise la mécanique
+   *  virement (pas de PaymentIntent Stripe, stock déduit à la création,
+   *  paymentStatus="pending") mais avec paymentMode="PAY_ON_PICKUP".
+   *  Bypass le check "virement activé" côté tenant — l'option est déjà
+   *  gardée UI-side par `deliveryMode === "pickup"`. */
+  _payOnPickupMode?: boolean;
 }
 
 export interface BankTransferOrderResult {
@@ -128,12 +134,19 @@ export async function placeBankTransferOrder(
   }
 
   // Refuser si la boutique n'a pas activé le virement.
-  // Bypass en mode "credit only" — pas de virement à valider.
-  if (!input._creditOnlyMode) {
+  // Bypass en mode "credit only" et "pay on pickup" — pas de virement à valider.
+  if (!input._creditOnlyMode && !input._payOnPickupMode) {
     const btConfig = await getCachedBankTransferConfig();
     if (!btConfig.enabled) {
       return { success: false, error: "Le paiement par virement n'est pas disponible pour cette boutique." };
     }
+  }
+
+  // Sécurité serveur : le paiement sur place n'est autorisé qu'avec le
+  // retrait boutique. Le client ne peut pas contourner l'UI pour
+  // "commander sans payer" en livraison classique.
+  if (input._payOnPickupMode && input.deliveryMode !== "pickup") {
+    return { success: false, error: "Le paiement sur place n'est disponible que pour le retrait en boutique." };
   }
 
   // ── Charger les données ────────────────────────────────────────────────
@@ -571,8 +584,13 @@ export async function placeBankTransferOrder(
           userId,
           status: "PENDING",
           // Marqueurs paiement — virement classique : "pending" jusqu'à validation
-          // admin ; crédit uniquement : "paid" immédiat (aucun règlement externe).
-          paymentMode: input._creditOnlyMode ? "CREDIT" : "BANK_TRANSFER",
+          // admin ; crédit uniquement : "paid" immédiat (aucun règlement externe) ;
+          // paiement sur place : "pending" jusqu'au règlement en boutique lors du retrait.
+          paymentMode: input._creditOnlyMode
+            ? "CREDIT"
+            : input._payOnPickupMode
+              ? "PAY_ON_PICKUP"
+              : "BANK_TRANSFER",
           paymentStatus: input._creditOnlyMode ? "paid" : "pending",
           // Livraison
           shipLabel: address.label,
@@ -720,7 +738,11 @@ export async function placeBankTransferOrder(
   notifyAdminNewOrder({ orderId: order.id }).catch((err) =>
     logger.error("[placeBankTransferOrder] Notif admin error", { error: err }),
   );
-  const clientNotif = input._creditOnlyMode ? "ORDER_CREATED" : "BANK_TRANSFER_PENDING";
+  // Notif client : commande créée pour crédit-seul et paiement sur place
+  // (rien à faire côté client). Virement : email dédié avec IBAN.
+  const clientNotif = (input._creditOnlyMode || input._payOnPickupMode)
+    ? "ORDER_CREATED"
+    : "BANK_TRANSFER_PENDING";
   notifyOrderStatusChange({ orderId: order.id, newStatus: clientNotif }).catch((err) =>
     logger.error("[placeBankTransferOrder] Confirmation client error", { error: err }),
   );

@@ -5,16 +5,20 @@ import {
   defaultDirFor,
   dirLabel,
   isStatsSort,
+  isCartSort,
   buildUserOrderBy,
   sortClientIdsByStats,
+  sortClientIdsByCart,
   formatSpent,
   CLIENT_SORT_OPTIONS,
   EMPTY_CLIENT_STATS,
+  EMPTY_CLIENT_CART_STATS,
   type ClientOrderStats,
+  type ClientCartStats,
 } from "@/lib/admin-client-sort";
 
 describe("parseClientSort", () => {
-  it("accepte les 5 critères exposés dans le menu", () => {
+  it("accepte tous les critères exposés dans le menu", () => {
     for (const opt of CLIENT_SORT_OPTIONS) {
       expect(parseClientSort(opt.value)).toBe(opt.value);
     }
@@ -41,6 +45,8 @@ describe("parseSortDir / defaultDirFor", () => {
     expect(parseSortDir(undefined, "spent")).toBe("desc");
     expect(parseSortDir(undefined, "login")).toBe("desc"); // activité la plus récente
     expect(parseSortDir(undefined, "created")).toBe("desc");
+    expect(parseSortDir(undefined, "cart_qty")).toBe("desc"); // plus gros paniers d'abord
+    expect(parseSortDir(undefined, "cart_total")).toBe("desc");
   });
 
   it("ignore une valeur de sens invalide", () => {
@@ -73,6 +79,20 @@ describe("isStatsSort", () => {
     expect(isStatsSort("created")).toBe(false);
     expect(isStatsSort("login")).toBe(false);
     expect(isStatsSort("company")).toBe(false);
+    expect(isStatsSort("cart_qty")).toBe(false);
+    expect(isStatsSort("cart_total")).toBe(false);
+  });
+});
+
+describe("isCartSort", () => {
+  it("ne réclame les paniers que pour cart_qty et cart_total", () => {
+    expect(isCartSort("cart_qty")).toBe(true);
+    expect(isCartSort("cart_total")).toBe(true);
+    expect(isCartSort("orders")).toBe(false);
+    expect(isCartSort("spent")).toBe(false);
+    expect(isCartSort("created")).toBe(false);
+    expect(isCartSort("login")).toBe(false);
+    expect(isCartSort("company")).toBe(false);
   });
 });
 
@@ -149,6 +169,66 @@ describe("sortClientIdsByStats", () => {
 
   it("gère une liste vide", () => {
     expect(sortClientIdsByStats([], stats, "orders", "desc")).toEqual([]);
+  });
+});
+
+describe("sortClientIdsByCart", () => {
+  const carts = new Map<string, ClientCartStats>([
+    ["marie", { itemCount: 12, total: 380 }], // panier moyen
+    ["paul", { itemCount: 4, total: 950 }],   // peu d'articles, gros montant
+    ["sofia", { itemCount: 20, total: 210 }], // beaucoup d'articles, petit total
+  ]);
+  // theo et lea n'ont pas de panier : absents de la map
+  const ids = ["marie", "paul", "sofia", "theo", "lea"];
+
+  it("classe du plus gros panier au plus petit sur le nombre d'articles", () => {
+    expect(sortClientIdsByCart(ids, carts, "cart_qty", "desc")).toEqual([
+      "sofia",
+      "marie",
+      "paul",
+      "theo",
+      "lea",
+    ]);
+  });
+
+  it("en croissant, garde les paniers vides EN DERNIER (pas au début)", () => {
+    const result = sortClientIdsByCart(ids, carts, "cart_qty", "asc");
+    // Les 3 clients avec panier sont classés du plus petit au plus grand,
+    // puis les 2 sans panier suivent dans l'ordre stable d'entrée.
+    expect(result).toEqual(["paul", "marie", "sofia", "theo", "lea"]);
+  });
+
+  it("classe par montant total du panier", () => {
+    expect(sortClientIdsByCart(ids, carts, "cart_total", "desc")).toEqual([
+      "paul",
+      "marie",
+      "sofia",
+      "theo",
+      "lea",
+    ]);
+  });
+
+  it("croissant sur le montant : petits paniers d'abord, vides à la fin", () => {
+    const result = sortClientIdsByCart(ids, carts, "cart_total", "asc");
+    expect(result[0]).toBe("sofia"); // plus petit total actif
+    expect(result[result.length - 2]).toBe("theo"); // sans panier
+    expect(result[result.length - 1]).toBe("lea");
+  });
+
+  it("ne modifie pas le tableau d'origine", () => {
+    const original = [...ids];
+    sortClientIdsByCart(ids, carts, "cart_qty", "desc");
+    expect(ids).toEqual(original);
+  });
+
+  it("gère une liste vide", () => {
+    expect(sortClientIdsByCart([], carts, "cart_qty", "desc")).toEqual([]);
+  });
+});
+
+describe("EMPTY_CLIENT_CART_STATS", () => {
+  it("représente un client sans panier en cours", () => {
+    expect(EMPTY_CLIENT_CART_STATS).toEqual({ itemCount: 0, total: 0 });
   });
 });
 

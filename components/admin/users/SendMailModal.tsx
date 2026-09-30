@@ -8,18 +8,20 @@
  *  │ HEADER — destinataire                               │
  *  ├─────────────────────────────────────────────────────┤
  *  │ [Dropdown type de mail]                             │
- *  ├──────────────────────┬──────────────────────────────┤
- *  │ INFOS CONTEXTUELLES  │ APERÇU DU MAIL              │
- *  │ • Description        │ (rendu HTML approximatif    │
- *  │ • État client        │  de ce que verra le client) │
- *  │ • Dernier envoi      │                              │
- *  │ • Avertissements     │                              │
- *  ├──────────────────────┴──────────────────────────────┤
+ *  │ [Sélecteur de stade (Panier / Inactivité)]          │
+ *  │  ou [Sélecteur de modèle (Newsletter)]              │
+ *  ├─────────────────────────────────────────────────────┤
+ *  │ Conditions à réunir                                 │
+ *  │ Aperçu iframe (HTML réel du modèle sélectionné)     │
+ *  ├─────────────────────────────────────────────────────┤
  *  │ FOOTER — Annuler · Envoyer                          │
  *  └─────────────────────────────────────────────────────┘
  *
- * L'aperçu affiché à l'étape 2 est un rendu approximatif. Les templates HTML
- * définitifs et l'envoi réel viennent à l'étape 3.
+ * L'aperçu passe par le vrai pipeline de rendu HTML (même que le worker
+ * automatique) — plus d'ancienne maquette figée. Le scénario RESTOCK est
+ * grisé pendant que la refonte de son système de stades est en cours ; son
+ * sélecteur de produits est conservé (code dormant) pour être ré-activé
+ * quand la nouvelle config sera prête.
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
@@ -30,10 +32,12 @@ import {
   getClientMailContext,
   sendManualMail,
   searchProductsForMail,
+  listStagesForScenario,
+  getScenarioStagePreviewHtml,
   type ClientMailContext,
   type MailScenario,
-  type PreviewData,
   type RestockSearchResult,
+  type ScenarioStageSummary,
 } from "@/app/actions/admin/user-mails";
 import type { MailCondition } from "@/lib/mail-gates";
 import {
@@ -57,6 +61,9 @@ interface ScenarioMeta {
   title: string;
   emoji: string;
   description: string;
+  /** Scénario temporairement désactivé dans le dropdown (tooltip explicatif). */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 const SCENARIOS: ScenarioMeta[] = [
@@ -80,29 +87,38 @@ const SCENARIOS: ScenarioMeta[] = [
   },
   {
     key: "RESTOCK",
-    title: "Retour en stock",
+    title: "Retour en stock — bientôt disponible",
     emoji: "🔔",
-    description: "Liste des favoris du client qui sont revenus en stock + lien vers chaque produit.",
+    description: "Cette relance est en cours de finalisation — elle sera activée dans un prochain lot.",
+    disabled: true,
+    disabledReason: "En construction — cette relance sera activée dans un prochain lot.",
   },
 ];
 
 const OPTIONS: SelectOption[] = SCENARIOS.map((s) => ({
   value: s.key,
   label: `${s.emoji}  ${s.title}`,
+  disabled: s.disabled === true,
 }));
 
+const STAGE_SCENARIOS = new Set<MailScenario>(["ABANDONED_CART", "INACTIVE_CLIENT"]);
+
 // ───────────────────────────────────────────────────────
-// Rendu d'aperçu du mail selon le type
-// Utilise les VRAIES données du client (panier réel, favoris réels, dernière connexion)
+// Helpers UI
 // ───────────────────────────────────────────────────────
-function formatEuros(cents: number): string {
-  return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
-}
 
 function imageUrl(path: string | null): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   return path.startsWith("/") ? path : `/${path}`;
+}
+
+function formatStageDelay(seconds: number): string {
+  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h`;
+  const days = Math.round(seconds / 86400);
+  return `${days} jour${days > 1 ? "s" : ""}`;
 }
 
 /**
@@ -140,10 +156,8 @@ function ConditionChip({ condition }: { condition: MailCondition }) {
 }
 
 /**
- * Sélecteur de produits pour le mail RESTOCK.
- * - Search input (debounced côté parent)
- * - Liste de résultats cliquables
- * - Chips des produits déjà sélectionnés avec bouton ✕
+ * Sélecteur de produits pour le mail RESTOCK. Conservé pour la reprise
+ * future du scénario (voir CLAUDE.md — RESTOCK temporairement désactivé).
  */
 function RestockProductPicker({
   selected,
@@ -251,6 +265,128 @@ function RestockProductPicker({
 }
 
 /**
+ * Sélecteur de stade pour ABANDONED_CART / INACTIVE_CLIENT + aperçu iframe.
+ * Chaque stade renvoie au vrai modèle enregistré via /admin/marketing/mails.
+ * Aucun stade pré-sélectionné : la cliente coche explicitement lequel envoyer.
+ */
+function StagePicker({
+  scenario,
+  stages,
+  loadingStages,
+  selectedStageIndex,
+  onSelect,
+  previewHtml,
+  previewLoading,
+  previewError,
+}: {
+  scenario: "ABANDONED_CART" | "INACTIVE_CLIENT";
+  stages: ScenarioStageSummary[];
+  loadingStages: boolean;
+  selectedStageIndex: number | null;
+  onSelect: (stageIndex: number) => void;
+  previewHtml: string | null;
+  previewLoading: boolean;
+  previewError: string | null;
+}) {
+  const options: SelectOption[] = stages.map((s) => ({
+    value: String(s.stageIndex),
+    label: `Stade ${s.stageIndex} · ${s.subject} — délai auto ${formatStageDelay(s.delaySeconds)}`,
+    disabled: !s.hasContent,
+  }));
+
+  const editorHref =
+    scenario === "ABANDONED_CART"
+      ? "/admin/marketing/mails?scenario=abandoned"
+      : "/admin/marketing/mails?scenario=inactive";
+
+  if (loadingStages) {
+    return (
+      <div className="rounded-xl border border-border bg-bg-primary p-4 text-center text-[12px] text-text-muted">
+        <div className="inline-block w-4 h-4 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin mr-2 align-middle" />
+        Chargement des stades configurés…
+      </div>
+    );
+  }
+
+  if (stages.length === 0) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12.5px] text-amber-800">
+        Aucun stade configuré pour ce scénario.{" "}
+        <a href={editorHref} className="underline font-semibold" target="_blank" rel="noreferrer">
+          Configurer les stades →
+        </a>
+      </div>
+    );
+  }
+
+  const selectedStage = stages.find((s) => s.stageIndex === selectedStageIndex);
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-primary p-4 space-y-3">
+      <CustomSelect
+        value={selectedStageIndex != null ? String(selectedStageIndex) : ""}
+        onChange={(v) => {
+          const n = Number(v);
+          if (Number.isFinite(n)) onSelect(n);
+        }}
+        options={options}
+        placeholder="Sélectionner un stade à envoyer…"
+        size="md"
+      />
+      {selectedStage && (
+        <div className="text-[12px] text-text-secondary leading-relaxed space-y-1">
+          <div><span className="font-semibold">Sujet :</span> {selectedStage.subject}</div>
+          <div><span className="font-semibold">Modèle :</span> {selectedStage.templateName}</div>
+          {!selectedStage.hasUnsubscribeToken && (
+            <div className="text-red-700 font-semibold">
+              ⚠ Ce modèle n&apos;a plus {"{unsubscribeLink}"} dans son pied de page — envoi refusé tant que ce n&apos;est pas remis.
+            </div>
+          )}
+        </div>
+      )}
+      <a
+        href={editorHref}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-block text-[11px] text-violet-700 font-semibold hover:underline"
+      >
+        + Modifier ce modèle (nouvel onglet)
+      </a>
+
+      {selectedStageIndex != null && (
+        <div className="rounded-lg border border-border overflow-hidden bg-slate-100">
+          <div className="px-3 py-2 bg-slate-50 border-b border-border text-[11px] text-text-muted">
+            Aperçu du modèle — exactement ce que recevra le client.
+          </div>
+          {previewLoading ? (
+            <div className="p-10 text-center text-[12px] text-text-muted">
+              <div className="inline-block w-5 h-5 border-2 border-slate-300 border-t-slate-700 rounded-full animate-spin mr-2 align-middle" />
+              Chargement de l&apos;aperçu…
+            </div>
+          ) : previewError ? (
+            <div className="p-6 text-center text-[12px] text-red-700 leading-relaxed">
+              {previewError}
+            </div>
+          ) : previewHtml ? (
+            <iframe
+              title={`Aperçu Stade ${selectedStageIndex}`}
+              srcDoc={previewHtml}
+              className="w-full bg-white block"
+              style={{ height: 520, border: 0 }}
+              sandbox=""
+            />
+          ) : (
+            <div className="p-10 text-center text-[12px] text-red-600">
+              Aperçu indisponible.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Sélecteur de modèle newsletter + aperçu iframe du HTML final.
  * Le HTML est rendu côté serveur (getNewsletterPreviewHtml) pour être
  * EXACTEMENT le même que celui envoyé au client — pas d'approximation.
@@ -349,207 +485,6 @@ function NewsletterPicker({
   );
 }
 
-function MailPreview({
-  scenario,
-  preview,
-  restockProducts,
-}: {
-  scenario: MailScenario | null;
-  preview: PreviewData;
-  /** Produits sélectionnés par l'admin pour le mail RESTOCK (remplace preview.favoritesInStock) */
-  restockProducts?: RestockSearchResult[];
-}) {
-  if (!scenario) {
-    return (
-      <div className="rounded-xl border-2 border-dashed border-border p-8 flex items-center justify-center text-center">
-        <div>
-          <svg className="mx-auto w-10 h-10 text-text-muted mb-3" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-            <polyline points="22,6 12,13 2,6" />
-          </svg>
-          <p className="text-sm font-body text-text-muted">Choisis un type de mail pour voir l&apos;aperçu.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const name = preview.firstName;
-  const cartItems = preview.cart.items;
-  // Pour RESTOCK : on utilise la sélection admin (adaptée au format FavoritePreview).
-  const favorites = scenario === "RESTOCK"
-    ? (restockProducts ?? []).map((p) => ({
-        productName: p.name,
-        colorName: p.colorName,
-        priceCents: p.priceCents,
-        imagePath: p.imagePath,
-      }))
-    : preview.favoritesInStock;
-  const daysInactive = preview.daysSinceLastActivity;
-
-  return (
-    <div
-      className="mail-preview-root w-full max-w-full rounded-xl border border-border bg-slate-100 p-3"
-      style={{ boxSizing: "border-box", overflow: "hidden" }}
-    >
-      <style>{`
-        .mail-preview-root { min-width: 0; width: 100%; }
-        .mail-preview-root p,
-        .mail-preview-root div,
-        .mail-preview-root h1,
-        .mail-preview-root h2,
-        .mail-preview-root h3,
-        .mail-preview-root span,
-        .mail-preview-root li,
-        .mail-preview-root a {
-          box-sizing: border-box !important;
-          max-width: 100% !important;
-          min-width: 0 !important;
-          word-break: break-word !important;
-          overflow-wrap: anywhere !important;
-        }
-        .mail-preview-root p, .mail-preview-root h1, .mail-preview-root h2, .mail-preview-root h3, .mail-preview-root li {
-          white-space: normal !important;
-        }
-        .mail-preview-root img { max-width: 100% !important; height: auto !important; }
-      `}</style>
-      <div className="w-full max-w-full rounded-lg bg-white shadow-sm overflow-hidden" style={{ fontFamily: "Roboto, sans-serif", boxSizing: "border-box", textAlign: "center" }}>
-
-        {/* ═══ PANIER ABANDONNÉ ═══ */}
-        {scenario === "ABANDONED_CART" && (
-          <>
-            <div style={{ background: "linear-gradient(135deg,#d4a574,#b8895d)", padding: "32px 24px", color: "white", textAlign: "center" }}>
-              <div style={{ fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85 }}>Beli &amp; Jolie</div>
-              <h1 style={{ fontFamily: "Poppins", fontSize: "22px", fontWeight: 700, margin: "8px 0 0" }}>
-                Votre panier vous attend 🛒
-              </h1>
-            </div>
-            <div style={{ padding: "24px 20px" }}>
-              <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
-                Vous avez laissé <strong>{cartItems.length} article{cartItems.length > 1 ? "s" : ""}</strong>{" "}
-                dans votre panier.
-              </p>
-              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                Ils vous attendent toujours !
-              </p>
-              <div style={{ background: "#f8fafc", borderRadius: "10px", padding: "12px", marginBottom: "16px" }}>
-                {cartItems.map((it, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 0", borderBottom: i < cartItems.length - 1 ? "1px solid #e2e8f0" : "none" }}>
-                    {it.imagePath && (
-                      <img src={imageUrl(it.imagePath)} alt="" style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px", flexShrink: 0 }} />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.productName}</div>
-                      {it.colorName && (
-                        <div style={{ fontSize: "10.5px", color: "#64748b" }}>{it.colorName} · x{it.quantity}</div>
-                      )}
-                    </div>
-                    <div style={{ fontSize: "12px", color: "#0f172a", fontWeight: 700, whiteSpace: "nowrap" }}>{formatEuros(it.totalCents)}</div>
-                  </div>
-                ))}
-                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "2px solid #cbd5e1", paddingTop: "8px", marginTop: "8px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>Total</span>
-                  <span style={{ fontSize: "14px", fontWeight: 700, color: "#0f172a" }}>{formatEuros(preview.cart.totalCents)}</span>
-                </div>
-              </div>
-
-              <div style={{ textAlign: "center" }}>
-                <a href="#" style={{ display: "inline-block", background: "#0f172a", color: "white", padding: "12px 28px", borderRadius: "8px", fontFamily: "Poppins", fontWeight: 600, fontSize: "13px", textDecoration: "none" }}>
-                  Reprendre ma commande →
-                </a>
-              </div>
-            </div>
-            <div style={{ background: "#0f172a", color: "white", padding: "16px", textAlign: "center", fontSize: "10px", opacity: 0.7 }}>
-              Beli &amp; Jolie · Grossiste en bijoux
-            </div>
-          </>
-        )}
-
-        {/* ═══ INACTIVITÉ ═══ */}
-        {scenario === "INACTIVE_CLIENT" && (
-          <>
-            <div style={{ background: "linear-gradient(135deg,#7dd3fc,#38bdf8)", padding: "32px 24px", color: "white", textAlign: "center" }}>
-              <div style={{ fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85 }}>Beli &amp; Jolie</div>
-              <h1 style={{ fontFamily: "Poppins", fontSize: "22px", fontWeight: 700, margin: "8px 0 0" }}>On vous a pas vu depuis un moment 😴</h1>
-            </div>
-            <div style={{ padding: "24px 20px" }}>
-              <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "10px" }}>
-                Cela fait <strong>{daysInactive ?? 0} jour{(daysInactive ?? 0) > 1 ? "s" : ""}</strong>{" "}
-                qu&apos;on ne vous a pas vu sur notre boutique.
-              </p>
-              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                Nous avons plein de nouveautés à vous montrer !
-              </p>
-              <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px" }}>
-                <li style={{ padding: "6px 0", fontSize: "13px", color: "#334155", borderBottom: "1px solid #f1f5f9" }}>✨ Nouvelle collection automne</li>
-                <li style={{ padding: "6px 0", fontSize: "13px", color: "#334155", borderBottom: "1px solid #f1f5f9" }}>💎 Nouveaux modèles en stock</li>
-                <li style={{ padding: "6px 0", fontSize: "13px", color: "#334155" }}>🎁 Livraison offerte dès 200 € HT</li>
-              </ul>
-              <div style={{ textAlign: "center" }}>
-                <a href="#" style={{ display: "inline-block", background: "#0f172a", color: "white", padding: "12px 28px", borderRadius: "8px", fontFamily: "Poppins", fontWeight: 600, fontSize: "13px", textDecoration: "none" }}>
-                  Découvrir les nouveautés →
-                </a>
-              </div>
-            </div>
-            <div style={{ background: "#0f172a", color: "white", padding: "16px", textAlign: "center", fontSize: "10px", opacity: 0.7 }}>
-              Beli &amp; Jolie · Grossiste en bijoux
-            </div>
-          </>
-        )}
-
-        {/* NEWSLETTER n'utilise plus ce composant — le rendu se fait dans NewsletterPicker (iframe HTML réel) */}
-
-        {/* ═══ RETOUR EN STOCK ═══ */}
-        {scenario === "RESTOCK" && (
-          <>
-            <div style={{ background: "linear-gradient(135deg,#6ee7b7,#10b981)", padding: "32px 24px", color: "white", textAlign: "center" }}>
-              <div style={{ fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.85 }}>Beli &amp; Jolie</div>
-              <h1 style={{ fontFamily: "Poppins", fontSize: "22px", fontWeight: 700, margin: "8px 0 0" }}>
-                Vos favoris sont revenus 🔔
-              </h1>
-            </div>
-            <div style={{ padding: "24px 20px" }}>
-              <p style={{ fontSize: "14px", color: "#0f172a", marginBottom: "12px" }}>Bonjour {name},</p>
-              <p style={{ fontSize: "13px", color: "#475569", lineHeight: 1.6, marginBottom: "16px" }}>
-                Bonne nouvelle :{" "}
-                <strong>{favorites.length} de vos favoris</strong>{" "}
-                {favorites.length > 1 ? "sont de nouveau disponibles" : "est de nouveau disponible"}.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-                {favorites.slice(0, 6).map((f, i) => (
-                  <div key={i} style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "8px" }}>
-                    {f.imagePath ? (
-                      <img src={imageUrl(f.imagePath)} alt="" style={{ width: "100%", height: "70px", objectFit: "cover", borderRadius: "6px", marginBottom: "6px", display: "block" }} />
-                    ) : (
-                      <div style={{ height: "70px", background: "#f1f5f9", borderRadius: "6px", marginBottom: "6px" }} />
-                    )}
-                    <div style={{ fontSize: "11px", fontFamily: "Poppins", fontWeight: 600, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.productName}</div>
-                    {f.colorName && <div style={{ fontSize: "10px", color: "#64748b" }}>{f.colorName}</div>}
-                    <div style={{ fontSize: "11px", color: "#0f172a", fontWeight: 700, marginTop: "2px" }}>{formatEuros(f.priceCents)}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ textAlign: "center" }}>
-                <a href="#" style={{ display: "inline-block", background: "#0f172a", color: "white", padding: "12px 28px", borderRadius: "8px", fontFamily: "Poppins", fontWeight: 600, fontSize: "13px", textDecoration: "none" }}>
-                  Voir tous mes favoris →
-                </a>
-              </div>
-            </div>
-            <div style={{ background: "#0f172a", color: "white", padding: "16px", textAlign: "center", fontSize: "10px", opacity: 0.7 }}>
-              Beli &amp; Jolie · Grossiste en bijoux
-            </div>
-          </>
-        )}
-      </div>
-      <p className="text-[10px] font-body text-text-muted text-center mt-2 italic">
-        Aperçu du contenu réel qui sera envoyé — le rendu peut légèrement varier selon le client mail du destinataire.
-      </p>
-    </div>
-  );
-}
-
 // ───────────────────────────────────────────────────────
 // Modale principale
 // ───────────────────────────────────────────────────────
@@ -595,8 +530,9 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
 
   const selectedMeta = selected ? SCENARIOS.find((s) => s.key === selected) : null;
   const selectedCtx = ctx && selected ? ctx.scenarios[selected as MailScenario] : null;
+  const isStageScenario = selected ? STAGE_SCENARIOS.has(selected as MailScenario) : false;
 
-  // ─── Sélection de produits pour RESTOCK ───────────────────────
+  // ─── Sélection de produits pour RESTOCK (dormant — voir CLAUDE.md) ─────
   const [restockProducts, setRestockProducts] = useState<RestockSearchResult[]>([]);
   const [productQuery, setProductQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RestockSearchResult[]>([]);
@@ -609,6 +545,15 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
   const [newsletterTemplateId, setNewsletterTemplateId] = useState<string>("");
   const [newsletterPreviewHtml, setNewsletterPreviewHtml] = useState<string | null>(null);
   const [newsletterPreviewLoading, setNewsletterPreviewLoading] = useState(false);
+
+  // ─── Sélection du stade pour ABANDONED_CART / INACTIVE_CLIENT ─────────
+  const [stages, setStages] = useState<ScenarioStageSummary[]>([]);
+  const [stagesLoading, setStagesLoading] = useState(false);
+  const [stagesLoadedFor, setStagesLoadedFor] = useState<MailScenario | null>(null);
+  const [selectedStageIndex, setSelectedStageIndex] = useState<number | null>(null);
+  const [stagePreviewHtml, setStagePreviewHtml] = useState<string | null>(null);
+  const [stagePreviewLoading, setStagePreviewLoading] = useState(false);
+  const [stagePreviewError, setStagePreviewError] = useState<string | null>(null);
 
   // Chargement paresseux des modèles quand la cliente choisit "Newsletter"
   useEffect(() => {
@@ -625,7 +570,7 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     return () => { cancelled = true; };
   }, [selected, newsletterTemplatesLoaded]);
 
-  // Chargement de l'aperçu HTML dès qu'un modèle est choisi
+  // Chargement de l'aperçu HTML newsletter dès qu'un modèle est choisi
   useEffect(() => {
     if (!newsletterTemplateId) { setNewsletterPreviewHtml(null); return; }
     let cancelled = false;
@@ -648,7 +593,63 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     }
   }, [selected]);
 
-  // Debounce la recherche produits
+  // Chargement paresseux des stades quand on choisit ABANDONED_CART / INACTIVE_CLIENT
+  useEffect(() => {
+    if (!isStageScenario) return;
+    const scenario = selected as "ABANDONED_CART" | "INACTIVE_CLIENT";
+    if (stagesLoadedFor === scenario) return;
+    let cancelled = false;
+    setStagesLoading(true);
+    (async () => {
+      const res = await listStagesForScenario(scenario);
+      if (cancelled) return;
+      setStagesLoading(false);
+      if (res.success) {
+        setStages(res.stages);
+        setStagesLoadedFor(scenario);
+      } else {
+        setStages([]);
+        toast.error("Chargement des stades impossible", res.error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected, isStageScenario, stagesLoadedFor, toast]);
+
+  // Aperçu HTML dès qu'un stade est choisi
+  useEffect(() => {
+    if (!isStageScenario || selectedStageIndex == null) {
+      setStagePreviewHtml(null);
+      setStagePreviewError(null);
+      return;
+    }
+    const scenario = selected as "ABANDONED_CART" | "INACTIVE_CLIENT";
+    let cancelled = false;
+    setStagePreviewLoading(true);
+    setStagePreviewError(null);
+    (async () => {
+      const res = await getScenarioStagePreviewHtml(userId, scenario, selectedStageIndex);
+      if (cancelled) return;
+      setStagePreviewLoading(false);
+      if (res.success) {
+        setStagePreviewHtml(res.html);
+      } else {
+        setStagePreviewHtml(null);
+        setStagePreviewError(res.error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected, isStageScenario, selectedStageIndex, userId]);
+
+  // Reset la sélection stade si on change de scénario
+  useEffect(() => {
+    if (!isStageScenario) {
+      setSelectedStageIndex(null);
+      setStagePreviewHtml(null);
+      setStagePreviewError(null);
+    }
+  }, [isStageScenario]);
+
+  // Debounce la recherche produits (RESTOCK, dormant)
   useEffect(() => {
     if (selected !== "RESTOCK") { setSearchResults([]); return; }
     const q = productQuery.trim();
@@ -660,7 +661,6 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
       if (cancelled) return;
       setSearching(false);
       if (res.success) {
-        // Filtre ceux déjà sélectionnés
         const selectedIds = new Set(restockProducts.map((p) => p.id));
         setSearchResults(res.results.filter((r) => !selectedIds.has(r.id)));
       }
@@ -677,20 +677,57 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     }
   }, [selected]);
 
-  // Override des conditions RESTOCK / NEWSLETTER côté client (liées à la sélection UI)
+  // Conditions affichées : base + conditions dynamiques (choix stade / modèle newsletter)
   const displayedConditions = useMemo<MailCondition[]>(() => {
     if (!selectedCtx) return [];
+
     if (selected === "RESTOCK") {
-      const count = restockProducts.length;
-      const allInStock = count === 0 || restockProducts.every((p) => p.stock > 0);
-      return selectedCtx.conditions.map((c) => {
-        if (c.code === "PRODUCTS_SELECTED") return { ...c, passed: count > 0 };
-        if (c.code === "PRODUCTS_IN_STOCK") return { ...c, passed: count === 0 || allInStock };
-        return c;
-      });
+      // RESTOCK désactivé — on affiche une condition dure explicite.
+      return [
+        ...selectedCtx.conditions,
+        {
+          code: "RESTOCK_TEMPORARILY_DISABLED",
+          label: "Retour en stock — en cours de finalisation (indisponible)",
+          passed: false,
+          isSoft: false,
+        },
+      ];
     }
+
+    if (isStageScenario) {
+      const stage = selectedStageIndex != null ? stages.find((s) => s.stageIndex === selectedStageIndex) ?? null : null;
+      const extras: MailCondition[] = [
+        {
+          code: "STAGE_SELECTED",
+          label: stage
+            ? `Stade ${stage.stageIndex} sélectionné`
+            : "Choisir un stade à envoyer",
+          passed: stage != null,
+          isSoft: false,
+        },
+      ];
+      if (stage) {
+        extras.push({
+          code: "STAGE_HAS_CONTENT",
+          label: stage.hasContent
+            ? "Le stade a un modèle"
+            : "Le stade est vide (ajoute du HTML)",
+          passed: stage.hasContent,
+          isSoft: false,
+        });
+        extras.push({
+          code: "STAGE_HAS_UNSUB_TOKEN",
+          label: stage.hasUnsubscribeToken
+            ? "Lien de désinscription présent"
+            : "Le pied de page doit contenir {unsubscribeLink}",
+          passed: stage.hasUnsubscribeToken,
+          isSoft: false,
+        });
+      }
+      return [...selectedCtx.conditions, ...extras];
+    }
+
     if (selected === "NEWSLETTER") {
-      // Ajoute une condition bloquante : « modèle sélectionné » (avec au moins 1 bloc)
       const chosen = newsletterTemplates.find((t) => t.id === newsletterTemplateId);
       const hasTemplate = !!chosen;
       const hasBlocks = !!chosen && chosen.blocksCount > 0;
@@ -714,8 +751,9 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
       ];
       return [...selectedCtx.conditions, ...extra];
     }
+
     return selectedCtx.conditions;
-  }, [selectedCtx, selected, restockProducts, newsletterTemplates, newsletterTemplateId]);
+  }, [selectedCtx, selected, isStageScenario, selectedStageIndex, stages, newsletterTemplates, newsletterTemplateId]);
 
   const displayedBlockers = useMemo(
     () => displayedConditions.filter((c) => !c.passed && !c.isSoft),
@@ -755,11 +793,27 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
       return;
     }
 
+    if (isStageScenario) {
+      if (selectedStageIndex == null) return;
+      startSending(async () => {
+        const res = await sendManualMail(userId, selected as MailScenario, {
+          stageIndex: selectedStageIndex,
+        });
+        if (!res.success) {
+          toast.error("Envoi refusé", res.error);
+          return;
+        }
+        toast.success("Mail envoyé", res.message);
+        router.refresh();
+        onClose();
+      });
+      return;
+    }
+
+    // Autres scénarios (RESTOCK) : bloqués par displayedBlockers, on ne devrait
+    // jamais arriver ici. Filet ultime côté serveur : sendManualMail refuse.
     startSending(async () => {
-      const payload = selected === "RESTOCK"
-        ? { productIds: restockProducts.map((p) => p.id) }
-        : undefined;
-      const res = await sendManualMail(userId, selected as MailScenario, payload);
+      const res = await sendManualMail(userId, selected as MailScenario);
       if (!res.success) {
         toast.error("Envoi refusé", res.error);
         return;
@@ -836,35 +890,61 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     {selectedMeta.description}
                   </p>
                 )}
+                {selectedMeta?.disabled && selectedMeta.disabledReason && (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-body text-amber-800">
+                    {selectedMeta.disabledReason}
+                  </p>
+                )}
               </div>
 
-              {/* Contenu vertical : contexte → dernier envoi → avertissements → aperçu */}
+              {/* Contenu vertical : sélecteur → conditions → blocages → aperçu */}
               {selected && selectedCtx && selectedMeta ? (
                 <div className="space-y-5 min-w-0">
 
-                  {/* Sélecteur produits — uniquement pour RESTOCK */}
-                  {selected === "RESTOCK" && (
+                  {/* Sélecteur de stade — ABANDONED_CART / INACTIVE_CLIENT */}
+                  {isStageScenario && (
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                        2. Produits à annoncer
+                        2. Quel stade envoyer ?
                       </div>
-                      <RestockProductPicker
-                        selected={restockProducts}
-                        query={productQuery}
-                        onQueryChange={setProductQuery}
-                        results={searchResults}
-                        searching={searching}
-                        onAdd={(p) => {
-                          setRestockProducts((prev) => [...prev, p]);
-                          setProductQuery("");
-                          setSearchResults([]);
-                        }}
-                        onRemove={(id) => setRestockProducts((prev) => prev.filter((p) => p.id !== id))}
+                      <StagePicker
+                        scenario={selected as "ABANDONED_CART" | "INACTIVE_CLIENT"}
+                        stages={stages}
+                        loadingStages={stagesLoading}
+                        selectedStageIndex={selectedStageIndex}
+                        onSelect={setSelectedStageIndex}
+                        previewHtml={stagePreviewHtml}
+                        previewLoading={stagePreviewLoading}
+                        previewError={stagePreviewError}
                       />
                     </div>
                   )}
 
-                  {/* Sélecteur de modèle — uniquement pour NEWSLETTER */}
+                  {/* Sélecteur produits — RESTOCK (dormant, affiché grisé) */}
+                  {selected === "RESTOCK" && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
+                        2. Produits à annoncer (indisponible pour l&apos;instant)
+                      </div>
+                      <div aria-disabled className="pointer-events-none opacity-50">
+                        <RestockProductPicker
+                          selected={restockProducts}
+                          query={productQuery}
+                          onQueryChange={setProductQuery}
+                          results={searchResults}
+                          searching={searching}
+                          onAdd={(p) => {
+                            setRestockProducts((prev) => [...prev, p]);
+                            setProductQuery("");
+                            setSearchResults([]);
+                          }}
+                          onRemove={(id) => setRestockProducts((prev) => prev.filter((p) => p.id !== id))}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sélecteur de modèle — NEWSLETTER */}
                   {selected === "NEWSLETTER" && (
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
@@ -881,10 +961,10 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     </div>
                   )}
 
-                  {/* Conditions à réunir (grille) — numérotation dynamique */}
+                  {/* Conditions à réunir */}
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                      {selected === "RESTOCK" || selected === "NEWSLETTER" ? "3." : "2."} Conditions à réunir
+                      3. Conditions à réunir
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {displayedConditions.map((c) => (
@@ -893,7 +973,7 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     </div>
                   </div>
 
-                  {/* Blocages (bloque l'envoi) — utilise displayedBlockers (recomputé côté client pour RESTOCK) */}
+                  {/* Blocages (bloque l'envoi) */}
                   {isBlocked && (
                     <div>
                       <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-red-700 mb-2 flex items-center gap-1.5">
@@ -925,19 +1005,6 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
                     </div>
                   )}
 
-                  {/* Aperçu du mail (masqué si envoi bloqué OU si NEWSLETTER — l'aperçu est dans le picker) */}
-                  {!isBlocked && selected !== "NEWSLETTER" && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.18em] font-body font-bold text-text-muted mb-2">
-                        {selected === "RESTOCK" ? "4." : "3."} Aperçu du mail
-                      </div>
-                      <MailPreview
-                        scenario={selected as MailScenario}
-                        preview={ctx.preview}
-                        restockProducts={selected === "RESTOCK" ? restockProducts : undefined}
-                      />
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="rounded-2xl border-2 border-dashed border-border p-10 text-center">

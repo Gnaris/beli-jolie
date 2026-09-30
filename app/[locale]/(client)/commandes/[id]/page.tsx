@@ -102,6 +102,13 @@ export default async function CommandeDetailPage({
     order.paymentMode === "STRIPE_LINK" &&
     order.paymentStatus !== "paid" &&
     order.status !== "CANCELLED";
+
+  // Paiement sur place (retrait boutique) : commande réservée, à régler au
+  // comptoir lors du retrait. Badge amber + encart d'info dédié.
+  const isPayOnPickupPending =
+    order.paymentMode === "PAY_ON_PICKUP" &&
+    order.paymentStatus !== "paid" &&
+    order.status !== "CANCELLED";
   const [bankTransferConfig, stripeReady, stripePublishableKey] = isBankTransferPending
     ? await Promise.all([
         getCachedBankTransferConfig(),
@@ -156,6 +163,11 @@ export default async function CommandeDetailPage({
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                   {t("bankTransferPending")}
                 </span>
+              ) : isPayOnPickupPending ? (
+                <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold bg-amber-100 text-amber-800">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  {t("payOnPickupPending")}
+                </span>
               ) : (
                 <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold ${statusVisual.pill}`}>
                   <span className={`w-2 h-2 rounded-full ${statusVisual.dot}`} />
@@ -191,6 +203,35 @@ export default async function CommandeDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Encart paiement sur place — rappel du montant à régler au comptoir */}
+      {isPayOnPickupPending && (
+        <section className="bg-white border border-amber-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="px-7 sm:px-8 py-5 border-b border-amber-100 bg-amber-50 flex items-center gap-4">
+            <div className="w-1.5 h-10 bg-amber-500 rounded-full" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                {t("payOnPickupPending")}
+              </p>
+              <h2 className="font-heading text-xl sm:text-2xl font-semibold text-slate-900 mt-1">
+                {t("payOnPickupPendingDesc")}
+              </h2>
+            </div>
+          </div>
+          <div className="p-7 sm:p-8">
+            <div className="rounded-2xl bg-slate-900 text-white p-6 grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="opacity-60 text-xs mb-1">{t("payOnPickupAmountLabel")}</p>
+                <p className="font-heading text-xl font-bold">{Number(order.totalTTC).toFixed(2)} €</p>
+              </div>
+              <div>
+                <p className="opacity-60 text-xs mb-1">{t("payOnPickupMeansLabel")}</p>
+                <p className="font-semibold">{t("payOnPickupMeansValue")}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Encart lien de paiement en attente — même mécanique que le virement,
           mais paiement Stripe hors iframe (fallback si le formulaire embarqué

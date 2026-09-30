@@ -9,6 +9,7 @@ import {
   WHATSAPP_NO_EMOJI_ERROR,
 } from "@/lib/whatsapp-message";
 import { loadWhatsAppMergeContext } from "@/lib/whatsapp-message-server";
+import { pickWhatsAppBody, resolveWhatsAppLocale } from "@/lib/whatsapp-locale";
 
 interface SendInput {
   /** Modèle sélectionné, ou null pour un simple log de clic sans texte. */
@@ -23,6 +24,8 @@ interface SendResult {
   success: true;
   /** Body après substitution des variables. "" si templateId null. */
   renderedBody: string;
+  /** Locale effectivement retenue (utile pour l'UI qui souhaite l'afficher). */
+  sentLocale: "fr" | "en";
 }
 
 interface SendError {
@@ -34,6 +37,10 @@ interface SendError {
  * Rend le body d'un modèle avec les variables client/boutique/admin, log
  * l'envoi dans WhatsAppSend, et retourne le body au client pour qu'il ouvre
  * wa.me?text=… lui-même.
+ *
+ * Choix de la langue : `resolveWhatsAppLocale(user.addressCountry)`. Si la
+ * cible est "en" mais `bodyEn` est vide, on retombe sur `body` (FR) — la
+ * cliente préfère envoyer du français à un anglophone plutôt que rien.
  *
  * Le log est best-effort — un échec de persistance ne doit pas bloquer
  * l'ouverture WhatsApp côté client (on privilégie l'usage). On retourne
@@ -49,20 +56,45 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
 
     let renderedBody = "";
     let templateExists = false;
+    let sentLocale: "fr" | "en" = "fr";
+
     if (input.templateId) {
       const template = await prisma.whatsAppTemplate.findUnique({
         where: { id: input.templateId },
-        select: { title: true, body: true },
+        select: { title: true, body: true, bodyEn: true },
       });
       if (template) {
         // Filet arrière : même si un modèle historique contient encore des
         // emojis (BDD antérieure à la règle), on refuse l'envoi. Le rendu
         // WhatsApp casserait leur encodage via `?text=`.
-        if (containsEmoji(template.title) || containsEmoji(template.body)) {
+        if (
+          containsEmoji(template.title) ||
+          containsEmoji(template.body) ||
+          (template.bodyEn && containsEmoji(template.bodyEn))
+        ) {
           return { success: false, error: WHATSAPP_NO_EMOJI_ERROR };
         }
         templateExists = true;
-        renderedBody = renderWhatsAppMessage(template.body, ctx);
+
+        // Résolution locale : on lit le pays sur l'utilisateur destinataire.
+        // Envoi à un contact hors compte (userId null) → locale FR par défaut
+        // (aucun pays connu).
+        let recipientCountry: string | null | undefined = null;
+        if (input.userId) {
+          const recipient = await prisma.user.findUnique({
+            where: { id: input.userId },
+            select: { addressCountry: true },
+          });
+          recipientCountry = recipient?.addressCountry;
+        }
+        const targetLocale = resolveWhatsAppLocale(recipientCountry);
+        const picked = pickWhatsAppBody({
+          locale: targetLocale,
+          bodyFr: template.body,
+          bodyEn: template.bodyEn,
+        });
+        sentLocale = picked.sentLocale;
+        renderedBody = renderWhatsAppMessage(picked.body, ctx);
       }
     }
 
@@ -75,6 +107,7 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
           adminId,
           phoneNumber: input.phone.slice(0, 30),
           renderedBody,
+          sentLocale,
         },
       });
     } catch (logErr) {
@@ -82,7 +115,7 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
       logger.warn("[sendWhatsAppTemplate] log échoué mais rendu OK", { error: logErr as Error });
     }
 
-    return { success: true, renderedBody };
+    return { success: true, renderedBody, sentLocale };
   } catch (e) {
     logger.error("[sendWhatsAppTemplate]", { error: e as Error });
     return { success: false, error: (e as Error).message };

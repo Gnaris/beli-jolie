@@ -5,11 +5,20 @@ import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
+import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 import { countryFlagUrl, countryName } from "@/lib/countries";
 import { Tooltip } from "@/components/ui/Tooltip";
 import AdminCardDrawer, { type AdminClientCardForDrawer } from "./AdminCardDrawer";
 import PhoneContactIcons from "./PhoneContactIcons";
 import type { WhatsAppTemplateDTO } from "@/app/actions/admin/whatsapp-templates";
+
+type AdminCardsSort = "created" | "order_desc" | "order_asc";
+
+const SORT_OPTIONS: SelectOption[] = [
+  { value: "created", label: "Récemment ajoutées" },
+  { value: "order_desc", label: "Dernière commande — récente d'abord" },
+  { value: "order_asc", label: "Dernière commande — ancienne d'abord" },
+];
 
 interface Props {
   cards: AdminClientCardForDrawer[];
@@ -24,6 +33,7 @@ interface Props {
     PASSAGE: number;
   };
   currentFilter: "ALL" | "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE";
+  currentSort: AdminCardsSort;
   currentPage: number;
   perPage: number;
   search: string;
@@ -88,6 +98,7 @@ export default function AdminCardsPane({
   totalCount,
   filterCounts,
   currentFilter,
+  currentSort,
   currentPage,
   perPage,
   search,
@@ -128,6 +139,14 @@ export default function AdminCardsPane({
     const params = new URLSearchParams(searchParams.toString());
     if (next.trim()) params.set("q", next.trim());
     else params.delete("q");
+    params.delete("page");
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
+  function updateSortParam(next: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "created") params.delete("fsort");
+    else params.set("fsort", next);
     params.delete("page");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
@@ -184,6 +203,15 @@ export default function AdminCardsPane({
               onChange={(e) => updateSearchParam(e.target.value)}
               placeholder="Rechercher…"
               className="pl-9 pr-3 py-2 h-10 w-56 rounded-xl bg-bg-primary border border-border text-[13px] font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100"
+            />
+          </div>
+          <div className="min-w-[240px]">
+            <CustomSelect
+              value={currentSort}
+              onChange={updateSortParam}
+              options={SORT_OPTIONS}
+              size="sm"
+              aria-label="Trier les fiches clients"
             />
           </div>
           <PerPageSelect value={perPage} />

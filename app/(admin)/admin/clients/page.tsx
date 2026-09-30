@@ -24,14 +24,17 @@ import {
   parseClientSort,
   parseSortDir,
   isStatsSort,
+  isCartSort,
   buildUserOrderBy,
   sortClientIdsByStats,
+  sortClientIdsByCart,
   defaultDirFor,
   formatSpent,
   EMPTY_CLIENT_STATS,
   type ClientSortKey,
   type SortDir,
   type ClientOrderStats,
+  type ClientCartStats,
 } from "@/lib/admin-client-sort";
 import type { UserStatus, Prisma } from "@prisma/client";
 
@@ -170,6 +173,7 @@ export default async function UtilisateursPage({
     sort?: string;
     dir?: string;
     view?: string;
+    fsort?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -372,6 +376,7 @@ export default async function UtilisateursPage({
             totalCount={cardsData.filteredCount}
             filterCounts={cardsData.filterCounts}
             currentFilter={cardsData.filter}
+            currentSort={cardsData.sort}
             currentPage={page}
             perPage={perPage}
             search={cardsData.search}
@@ -427,7 +432,7 @@ const REGISTERED_SELECT = {
 
 // ─── Panier en cours : nb d'articles + total HT par client ───────────────────
 
-type CartSummary = { itemCount: number; total: number };
+type CartSummary = ClientCartStats;
 
 async function loadCartsFor(userIds: string[]): Promise<Map<string, CartSummary>> {
   if (userIds.length === 0) return new Map();
@@ -452,6 +457,45 @@ async function loadCartsFor(userIds: string[]): Promise<Map<string, CartSummary>
       total += it.quantity * Number(it.variant.unitPrice);
     }
     if (itemCount > 0) map.set(c.userId, { itemCount, total });
+  }
+  return map;
+}
+
+/**
+ * Charge les paniers en cours de tous les clients qui matchent `where`.
+ * Utilisé pour ordonner l'ensemble filtré par valeur du panier AVANT
+ * pagination — on ne peut pas déléguer à MySQL car le total dépend de
+ * `quantity * unitPrice` et vit dans une table liée.
+ */
+async function loadCartsForWhere(
+  where: Prisma.UserWhereInput,
+): Promise<Map<string, CartSummary>> {
+  const clientsWithCart = await prisma.user.findMany({
+    where: { ...where, cart: { items: { some: {} } } },
+    select: {
+      id: true,
+      cart: {
+        select: {
+          items: {
+            select: {
+              quantity: true,
+              variant: { select: { unitPrice: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  const map = new Map<string, CartSummary>();
+  for (const u of clientsWithCart) {
+    if (!u.cart) continue;
+    let itemCount = 0;
+    let total = 0;
+    for (const it of u.cart.items) {
+      itemCount += it.quantity;
+      total += it.quantity * Number(it.variant.unitPrice);
+    }
+    if (itemCount > 0) map.set(u.id, { itemCount, total });
   }
   return map;
 }
@@ -547,6 +591,34 @@ async function loadRegisteredClients(
   page: number,
   perPage: number,
 ): Promise<{ clients: RegisteredClient[]; stats: Map<string, ClientOrderStats> }> {
+  if (isCartSort(sort)) {
+    const [allIds, carts] = await Promise.all([
+      // Ordre secondaire stable : dernière activité récente puis inscription
+      // récente. Les ex æquo (paniers vides) suivent cet ordre naturel.
+      prisma.user.findMany({
+        where,
+        orderBy: [{ lastSeenAt: "desc" }, { createdAt: "desc" }],
+        select: { id: true },
+      }),
+      loadCartsForWhere(where),
+    ]);
+
+    const orderedIds = sortClientIdsByCart(allIds.map((u) => u.id), carts, sort, dir);
+    const pageIds = orderedIds.slice((page - 1) * perPage, page * perPage);
+
+    const rows = await prisma.user.findMany({
+      where: { id: { in: pageIds } },
+      select: REGISTERED_SELECT,
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const clients = pageIds
+      .map((id) => byId.get(id))
+      .filter((c): c is RegisteredClient => Boolean(c));
+
+    const stats = await loadOrderStatsFor(pageIds);
+    return { clients, stats };
+  }
+
   if (!isStatsSort(sort)) {
     const clients = await prisma.user.findMany({
       where,
@@ -1325,8 +1397,28 @@ function RegisteredPane({
 
 // ─── Admin cards data loader ────────────────────────────────────────────────
 
+export type AdminCardsSort = "created" | "order_desc" | "order_asc";
+
+const ADMIN_CARDS_SORT_VALUES: readonly AdminCardsSort[] = ["created", "order_desc", "order_asc"] as const;
+
+function parseAdminCardsSort(raw: string | undefined): AdminCardsSort {
+  return ADMIN_CARDS_SORT_VALUES.includes(raw as AdminCardsSort) ? (raw as AdminCardsSort) : "created";
+}
+
+function adminCardsOrderBy(sort: AdminCardsSort): Prisma.AdminClientCardOrderByWithRelationInput[] {
+  // Fiches sans dernière commande poussées en fin de liste dans les 2 sens
+  // (sinon un tri « ancienne d'abord » ferait remonter tous les nulls).
+  if (sort === "order_desc") {
+    return [{ lastOrderAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }];
+  }
+  if (sort === "order_asc") {
+    return [{ lastOrderAt: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }];
+  }
+  return [{ createdAt: "desc" }];
+}
+
 async function loadAdminCards(
-  params: { mp?: string; q?: string },
+  params: { mp?: string; q?: string; fsort?: string },
   page: number,
   perPage: number,
 ) {
@@ -1334,6 +1426,7 @@ async function loadAdminCards(
     ? (params.mp as "PFS" | "ANKORSTORE" | "EFASHION" | "FAIRE" | "MICROSTORE" | "PASSAGE")
     : ("ALL" as const);
   const q = (params.q ?? "").trim();
+  const sort = parseAdminCardsSort(params.fsort);
 
   const marketplaceFilter: Prisma.AdminClientCardWhereInput =
     filter === "PFS"
@@ -1377,7 +1470,7 @@ async function loadAdminCards(
   ] = await Promise.all([
     prisma.adminClientCard.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: adminCardsOrderBy(sort),
       skip: (page - 1) * perPage,
       take: perPage,
     }),
@@ -1425,6 +1518,7 @@ async function loadAdminCards(
     })),
     filteredCount,
     filter,
+    sort,
     filterCounts: {
       ALL: all,
       PFS: pfs,

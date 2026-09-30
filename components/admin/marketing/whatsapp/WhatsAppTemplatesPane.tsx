@@ -128,9 +128,26 @@ export default function WhatsAppTemplatesPane({ templates, previewOverrides, cli
                   className="border-b border-border last:border-0 hover:bg-bg-secondary/60 cursor-pointer transition-colors"
                 >
                   <td className="px-5 py-3.5">
-                    <p className="text-sm font-body font-semibold text-text-primary truncate max-w-xs">
-                      {t.title}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-body font-semibold text-text-primary truncate max-w-[16rem]">
+                        {t.title}
+                      </p>
+                      {t.bodyEn.trim() ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[10px] font-body font-bold uppercase tracking-wider"
+                          title="Une version anglaise est disponible — elle sera utilisée pour les clients hors zone francophone."
+                        >
+                          FR · EN
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-body font-bold uppercase tracking-wider"
+                          title="Pas de version anglaise — les clients étrangers recevront le message en français."
+                        >
+                          FR seul
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-3.5">
                     <p className="text-[12px] font-body text-text-muted truncate max-w-md">
@@ -183,7 +200,18 @@ export default function WhatsAppTemplatesPane({ templates, previewOverrides, cli
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[14px] font-body font-semibold text-text-primary truncate">{t.title}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-[14px] font-body font-semibold text-text-primary truncate">{t.title}</p>
+                  {t.bodyEn.trim() ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[10px] font-body font-bold uppercase tracking-wider">
+                      FR · EN
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-body font-bold uppercase tracking-wider">
+                      FR seul
+                    </span>
+                  )}
+                </div>
                 <p className="text-[12px] font-body text-text-muted mt-1 line-clamp-2">
                   {truncate(t.body, 120)}
                 </p>

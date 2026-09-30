@@ -119,4 +119,57 @@ describe("whatsAppTemplateSchema", () => {
     });
     expect(res.success).toBe(true);
   });
+
+  it("accepte l'absence de bodyEn (optionnel)", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Bienvenue",
+      body: "Bonjour {firstName}, bienvenue !",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyEn).toBe("");
+    }
+  });
+
+  it("accepte un bodyEn valide", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Welcome",
+      body: "Bonjour {firstName}",
+      bodyEn: "Hello {firstName}",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyEn).toBe("Hello {firstName}");
+    }
+  });
+
+  it("refuse un bodyEn qui contient un emoji", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Welcome",
+      body: "Bonjour",
+      bodyEn: "Hello ✨",
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("refuse un bodyEn trop long (> 1000)", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Welcome",
+      body: "Bonjour",
+      bodyEn: "a".repeat(1001),
+    });
+    expect(res.success).toBe(false);
+  });
+
+  it("trim les espaces bordants du bodyEn", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Welcome",
+      body: "Bonjour",
+      bodyEn: "  Hello  ",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyEn).toBe("Hello");
+    }
+  });
 });

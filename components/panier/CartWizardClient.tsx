@@ -433,9 +433,20 @@ export default function CartWizardClient({
   const [stripeError, setStripeError] = useState("");
   const paymentIntentAmountRef = useRef<number>(0);
 
-  // Choix carte / virement à l'étape 3 (null = pas encore choisi → ni PI ni UI
-  // affichés, la cliente doit d'abord picker un mode). Refonte 2026-09-18.
-  const [paymentMode, setPaymentMode] = useState<"card" | "bank_transfer" | null>(null);
+  // Choix carte / virement / paiement sur place à l'étape 3 (null = pas encore
+  // choisi → ni PI ni UI affichés, la cliente doit d'abord picker un mode).
+  // "pay_on_pickup" n'est proposé qu'en mode retrait boutique. Refonte 2026-09-18.
+  const [paymentMode, setPaymentMode] = useState<
+    "card" | "bank_transfer" | "pay_on_pickup" | null
+  >(null);
+
+  // Si la cliente sélectionne "paiement sur place" puis change d'avis pour un
+  // autre mode de livraison, on efface ce choix (l'option n'est plus valide).
+  useEffect(() => {
+    if (paymentMode === "pay_on_pickup" && deliveryMode !== "pickup") {
+      setPaymentMode(null);
+    }
+  }, [deliveryMode, paymentMode]);
 
   // Consentement remplacement rupture stock — décoché par défaut (opt-in explicite).
   // Déclaré avant le useEffect create-intent pour que la valeur soit dans metadata PI.
@@ -593,6 +604,54 @@ export default function CartWizardClient({
           : {}),
         ...(promoApplied ? { promoCode: promoApplied.code } : {}),
         creditToApply,
+      });
+      if (result.success) {
+        router.replace(`/commandes/${result.orderId}`);
+      } else {
+        setOrderError(result.error);
+        setIsCreatingOrder(false);
+      }
+    } catch (err) {
+      setOrderError((err as Error).message);
+      setIsCreatingOrder(false);
+    }
+  }
+
+  /**
+   * Commande à régler en boutique lors du retrait. Réutilise le pipeline
+   * virement (pas de PaymentIntent Stripe, stock déduit à la création,
+   * paymentStatus="pending") mais avec paymentMode="PAY_ON_PICKUP".
+   * Uniquement disponible pour deliveryMode === "pickup".
+   */
+  async function handlePayOnPickupSubmit() {
+    setOrderError("");
+    setIsCreatingOrder(true);
+    try {
+      if (deliveryMode !== "pickup") {
+        setOrderError(t("noAddress"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      if (!selectedCarrier) {
+        setOrderError(t("noCarriersAvailable"));
+        setIsCreatingOrder(false);
+        return;
+      }
+      // Retrait : pas d'adresse de livraison requise, le serveur retombe sur
+      // l'adresse société.
+      const result = await placeBankTransferOrder({
+        addressId:    selectedAddr?.id,
+        deliveryMode: "pickup",
+        carrierId:    selectedCarrier.id,
+        transactionId,
+        carrierSig:   selectedCarrier.sig ?? "",
+        carrierName:  selectedCarrier.name,
+        carrierPrice: rawCarrierPrice,
+        cgvAcceptedAt: new Date().toISOString(),
+        acceptReplacementContact,
+        ...(promoApplied ? { promoCode: promoApplied.code } : {}),
+        creditToApply,
+        _payOnPickupMode: true,
       });
       if (result.success) {
         router.replace(`/commandes/${result.orderId}`);
@@ -1023,6 +1082,7 @@ export default function CartWizardClient({
                 onPaymentModeChange={setPaymentMode}
                 bankTransfer={bankTransfer}
                 onBankTransferSubmit={handleBankTransferSubmit}
+                onPayOnPickupSubmit={handlePayOnPickupSubmit}
                 onRequestPaymentLink={handleRequestPaymentLink}
                 billingSummary={{
                   name:    `${billingInfo.company || `${billingInfo.firstName} ${billingInfo.lastName}`}`,
@@ -1096,7 +1156,7 @@ export default function CartWizardClient({
                   ? !canGoToStep3 || isValidating
                   : isCoveredByCredit
                     ? !cgvAccepted || isCreatingOrder
-                    : paymentMode === "bank_transfer"
+                    : paymentMode === "bank_transfer" || paymentMode === "pay_on_pickup"
                       ? !cgvAccepted || isCreatingOrder
                       : !cgvAccepted || !clientSecret || isCreatingOrder || paymentMode !== "card"
             }
@@ -1107,6 +1167,8 @@ export default function CartWizardClient({
                 void handleCreditOnlySubmit();
               } else if (paymentMode === "bank_transfer") {
                 void handleBankTransferSubmit();
+              } else if (paymentMode === "pay_on_pickup") {
+                void handlePayOnPickupSubmit();
               } else {
                 // L'étape 3 (mode carte) : le CTA du récap sert de raccourci
                 // pour lancer le paiement Stripe (accordéon des méthodes).
