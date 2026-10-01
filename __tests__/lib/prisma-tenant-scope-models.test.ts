@@ -72,6 +72,22 @@ describe("TENANT_SCOPED_MODELS", () => {
     }
   });
 
+  it("contient les modèles WhatsApp marketing + catalogue + newsletter (régression 2026-10-01)", () => {
+    // Fuite observée : /admin/marketing/whatsapp mélangeait les modèles de
+    // Beli & Jolie et Issyma dans la liste + dans le compteur « envoyés 30j ».
+    // Le même oubli était présent sur CatalogView / CatalogCartAddition
+    // (tracking cross-tenant) et NewsletterTemplateImage (images orphelines).
+    for (const m of [
+      "WhatsAppTemplate",
+      "WhatsAppSend",
+      "CatalogView",
+      "CatalogCartAddition",
+      "NewsletterTemplateImage",
+    ]) {
+      expect(TENANT_SCOPED_MODELS.has(m), `${m} doit être scopé`).toBe(true);
+    }
+  });
+
   // Garde-fou définitif : tout modèle du schéma qui déclare un champ
   // `tenantId` doit figurer dans TENANT_SCOPED_MODELS (sinon il n'est pas
   // filtré par l'extension et fuit entre boutiques). Nouveau modèle ajouté

@@ -149,6 +149,14 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "PfsAuditRun",
   "PfsAuditResult",
   "PfsAuditRunChange",
+  // Marketing WhatsApp
+  "WhatsAppTemplate",
+  "WhatsAppSend",
+  // Catalogue — tracking visites + ajouts panier
+  "CatalogView",
+  "CatalogCartAddition",
+  // Images embarquées dans les modèles newsletter
+  "NewsletterTemplateImage",
 ]);
 
 /**
