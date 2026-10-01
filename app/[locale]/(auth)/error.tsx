@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 /**
  * Auth pages error boundary — catches errors in connexion/inscription routes.
@@ -12,17 +13,26 @@ export default function AuthError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [autoRecovering, setAutoRecovering] = useState(false);
+
   useEffect(() => {
-    fetch("/api/internal/report-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "auth-error-boundary",
-        message: error.message || "Unknown auth error",
-        digest: error.digest,
-      }),
-    }).catch(() => {});
+    reportClientError({ source: "auth-error-boundary", error })
+      .then(({ transient }) => {
+        if (transient) {
+          setAutoRecovering(true);
+          window.location.reload();
+        }
+      })
+      .catch(() => {});
   }, [error]);
+
+  if (autoRecovering) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">

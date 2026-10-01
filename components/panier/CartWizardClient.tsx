@@ -930,7 +930,7 @@ export default function CartWizardClient({
   // ── Panier vide → écran dédié
   if (!cart || cart.items.length === 0) {
     return (
-      <div className="container-site py-14">
+      <div className="container-site py-14" translate="no">
         <div className="max-w-md mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center">
           <div className="text-4xl mb-3">🛒</div>
           <h1 className="font-heading text-xl font-semibold text-slate-900 mb-2">
@@ -988,7 +988,13 @@ export default function CartWizardClient({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 overflow-x-clip">
+    // translate="no" — Safari Translate / Google Translate mutent le DOM en
+    // place, ce qui déclenche "The object can not be found here" quand React
+    // essaie de re-render le wizard (passage étape 1→2→3, Stripe Elements qui
+    // se mount, etc.). On neutralise la traduction automatique sur toute la
+    // zone transactionnelle. Prix, boutons, totaux restent en français.
+    // La vitrine publique reste traduisible normalement.
+    <div className="min-h-screen bg-slate-50 overflow-x-clip" translate="no">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-5 md:px-6 py-6 md:py-10">
         <div className="mb-6 md:mb-8">
           <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">

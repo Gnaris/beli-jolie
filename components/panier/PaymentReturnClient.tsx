@@ -79,7 +79,10 @@ export default function PaymentReturnClient() {
   }, [searchParams, router, t]);
 
   return (
-    <main className="min-h-[60vh] flex items-center justify-center px-6 py-12">
+    <main
+      className="min-h-[60vh] flex items-center justify-center px-6 py-12"
+      translate="no"
+    >
       <div className="max-w-md w-full bg-bg-primary border border-border rounded-2xl shadow-sm p-8 text-center">
         <p className="text-[10px] uppercase tracking-[0.2em] text-text-muted font-semibold">
           {t("returnTitle")}

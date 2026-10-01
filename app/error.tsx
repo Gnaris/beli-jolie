@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 /**
  * Route-level error boundary — catches errors in page rendering.
@@ -13,26 +14,30 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [autoRecovering, setAutoRecovering] = useState(false);
+
   useEffect(() => {
-    fetch("/api/internal/report-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "route-error-boundary",
-        message: error.message || "Unknown route error",
-        digest: error.digest,
-      }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.maintenanceTriggered) {
+    reportClientError({ source: "route-error-boundary", error })
+      .then(({ transient, maintenanceTriggered }) => {
+        if (transient) {
+          setAutoRecovering(true);
+          window.location.reload();
+          return;
+        }
+        if (maintenanceTriggered) {
           window.location.href = "/maintenance";
         }
       })
-      .catch(() => {
-        window.location.href = "/maintenance";
-      });
+      .catch(() => {});
   }, [error]);
+
+  if (autoRecovering) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">

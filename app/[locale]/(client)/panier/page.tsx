@@ -35,6 +35,15 @@ export async function generateMetadata({
   return {
     title: tMeta("cartTitle"),
     robots: { index: false, follow: false },
+    // Désactive la traduction automatique du navigateur (Safari Translate,
+    // Google Translate…) sur le tunnel commande. Les traducteurs intégrés
+    // mutent le DOM en place, ce qui casse React à chaque re-render du wizard
+    // (étape 1→2→3, Stripe Elements, totaux dynamiques) → écran "Impossible
+    // de charger la page" en pleine finalisation. La vitrine publique reste
+    // traduisible normalement.
+    other: {
+      google: "notranslate",
+    },
   };
 }
 

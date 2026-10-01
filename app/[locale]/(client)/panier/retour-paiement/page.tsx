@@ -15,6 +15,11 @@ export async function generateMetadata({
   return {
     title: t("returnTitle"),
     robots: { index: false, follow: false },
+    // Même raison que /panier : React mute activement le DOM pendant la
+    // finalisation PaymentIntent, un traducteur navigateur casse tout.
+    other: {
+      google: "notranslate",
+    },
   };
 }
 

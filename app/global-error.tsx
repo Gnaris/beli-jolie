@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 /**
  * Global error boundary — catches errors that escape route-level error.tsx.
  * Reports to the health system and shows the maintenance page inline.
+ * Pas d'auto-reload ici : si l'erreur a franchi tous les boundaries parents
+ * on est en état cassé, un reload peut réintroduire la même erreur en boucle.
  */
 export default function GlobalError({
   error,
@@ -14,18 +17,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Report error to the health circuit breaker
-    fetch("/api/internal/report-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "global-error-boundary",
-        message: error.message || "Unknown global error",
-        digest: error.digest,
-      }),
-    }).catch(() => {
-      // If even this fails, we're in deep trouble — nothing more we can do
-    });
+    reportClientError({ source: "global-error-boundary", error }).catch(() => {});
   }, [error]);
 
   return (

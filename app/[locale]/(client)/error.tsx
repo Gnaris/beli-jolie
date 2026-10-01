@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 /**
  * Client area error boundary — catches errors in espace-pro, panier, commandes, favoris.
@@ -12,21 +13,30 @@ export default function ClientError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Si l'erreur est identifiée transient (hoquet navigateur type Safari
+  // Translate qui mute le DOM sous React), on recharge la page sans montrer
+  // le fallback anxiogène qui faisait abandonner le checkout.
+  const [autoRecovering, setAutoRecovering] = useState(false);
+
   useEffect(() => {
     console.error("[Client Error Boundary]", error);
-
-    fetch("/api/internal/report-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "client-error-boundary",
-        message: error.message || "Unknown client area error",
-        digest: error.digest,
-      }),
-    }).catch(() => {
-      // Silently fail — error already logged to console
-    });
+    reportClientError({ source: "client-error-boundary", error })
+      .then(({ transient }) => {
+        if (transient) {
+          setAutoRecovering(true);
+          window.location.reload();
+        }
+      })
+      .catch(() => {});
   }, [error]);
+
+  if (autoRecovering) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center px-6">
+        <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-800 rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center px-6 py-12">

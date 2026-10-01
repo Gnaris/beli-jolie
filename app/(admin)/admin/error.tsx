@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 /**
  * Admin panel error boundary — catches errors in admin routes.
- * Shows error details in development mode.
+ * Shows error details in development mode. Pas d'auto-reload sur transient :
+ * côté admin on préfère voir l'erreur pour pouvoir la diagnostiquer.
  */
 export default function AdminError({
   error,
@@ -15,18 +17,7 @@ export default function AdminError({
 }) {
   useEffect(() => {
     console.error("[Admin Error Boundary]", error);
-
-    fetch("/api/internal/report-error", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: "admin-error-boundary",
-        message: error.message || "Unknown admin error",
-        digest: error.digest,
-      }),
-    }).catch(() => {
-      // Silently fail — error already logged to console
-    });
+    reportClientError({ source: "admin-error-boundary", error }).catch(() => {});
   }, [error]);
 
   const isDev = process.env.NODE_ENV === "development";
