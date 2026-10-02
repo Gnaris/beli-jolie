@@ -36,6 +36,14 @@ import {
   type ClientOrderStats,
   type ClientCartStats,
 } from "@/lib/admin-client-sort";
+import {
+  parseAdminCardsSort,
+  isAdminCardStatsSort,
+  sortCardIdsByStats,
+  type AdminCardsSort,
+  type AdminCardOrderStats,
+} from "@/lib/admin-cards-sort";
+export type { AdminCardsSort } from "@/lib/admin-cards-sort";
 import type { UserStatus, Prisma } from "@prisma/client";
 
 // Bypass cache : on veut le lastSeenAt frais à chaque rafraîchissement
@@ -1400,14 +1408,6 @@ function RegisteredPane({
 
 // ─── Admin cards data loader ────────────────────────────────────────────────
 
-export type AdminCardsSort = "created" | "order_desc" | "order_asc";
-
-const ADMIN_CARDS_SORT_VALUES: readonly AdminCardsSort[] = ["created", "order_desc", "order_asc"] as const;
-
-function parseAdminCardsSort(raw: string | undefined): AdminCardsSort {
-  return ADMIN_CARDS_SORT_VALUES.includes(raw as AdminCardsSort) ? (raw as AdminCardsSort) : "created";
-}
-
 function adminCardsOrderBy(sort: AdminCardsSort): Prisma.AdminClientCardOrderByWithRelationInput[] {
   // Fiches sans dernière commande poussées en fin de liste dans les 2 sens
   // (sinon un tri « ancienne d'abord » ferait remonter tous les nulls).
@@ -1418,6 +1418,73 @@ function adminCardsOrderBy(sort: AdminCardsSort): Prisma.AdminClientCardOrderByW
     return [{ lastOrderAt: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }];
   }
   return [{ createdAt: "desc" }];
+}
+
+// ─── Agrégation « commandes totales » par fiche (6 marketplaces) ────────────
+// Les commandes annulées sont exclues pour refléter un CA réel. On fait un
+// groupBy par marketplace puis on fusionne côté JS.
+
+async function loadCardOrderStats(cardIds: string[]): Promise<Map<string, AdminCardOrderStats>> {
+  const map = new Map<string, AdminCardOrderStats>();
+  if (cardIds.length === 0) return map;
+
+  const idFilter = { in: cardIds };
+
+  const [pfs, efashion, ankor, faire, orderchamp, microstore] = await Promise.all([
+    prisma.pfsOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { totalHT: true },
+    }),
+    prisma.efashionOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { totalHT: true },
+    }),
+    prisma.ankorstoreOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { brandTotalAmount: true },
+    }),
+    prisma.faireOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { totalHT: true },
+    }),
+    prisma.orderchampOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { totalHT: true },
+    }),
+    prisma.microstoreOrder.groupBy({
+      by: ["adminClientCardId"],
+      where: { adminClientCardId: idFilter, status: { not: "CANCELLED" } },
+      _count: { _all: true },
+      _sum: { totalHT: true },
+    }),
+  ]);
+
+  const addRow = (cardId: string | null, count: number, sum: Prisma.Decimal | null) => {
+    if (!cardId) return;
+    const current = map.get(cardId) ?? { count: 0, amount: 0 };
+    current.count += count;
+    current.amount += sum ? Number(sum) : 0;
+    map.set(cardId, current);
+  };
+
+  for (const r of pfs) addRow(r.adminClientCardId, r._count._all, r._sum.totalHT);
+  for (const r of efashion) addRow(r.adminClientCardId, r._count._all, r._sum.totalHT);
+  for (const r of ankor) addRow(r.adminClientCardId, r._count._all, r._sum.brandTotalAmount);
+  for (const r of faire) addRow(r.adminClientCardId, r._count._all, r._sum.totalHT);
+  for (const r of orderchamp) addRow(r.adminClientCardId, r._count._all, r._sum.totalHT);
+  for (const r of microstore) addRow(r.adminClientCardId, r._count._all, r._sum.totalHT);
+
+  return map;
 }
 
 export type AdminCardsDormant = "ALL" | "7" | "14" | "30";
@@ -1493,8 +1560,42 @@ async function loadAdminCards(
     AND: [marketplaceFilter, searchFilter, { lastOrderAt: { not: null, lt: dormantCutoff(days) } }],
   });
 
+  // Les 2 tris stats-based (CA, nb de commandes) agrègent 6 tables marketplace
+  // en mémoire — on ne peut pas trier via MySQL. On charge donc tous les IDs
+  // qui matchent `where`, on calcule les stats pour tous, puis on paginate.
+  let pagedCards: Prisma.AdminClientCardGetPayload<Record<string, never>>[];
+  let pageIdsForStats: string[];
+
+  if (isAdminCardStatsSort(sort)) {
+    // Ordre secondaire (createdAt desc) conservé pour les ex æquo ; le sort JS
+    // est stable donc deux fiches à 0 commande gardent leur ordre d'arrivée.
+    const allMatchingIds = await prisma.adminClientCard.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }],
+      select: { id: true },
+    });
+    const allIds = allMatchingIds.map((c) => c.id);
+    const allStats = await loadCardOrderStats(allIds);
+    const orderedIds = sortCardIdsByStats(allIds, allStats, sort);
+    const slicedIds = orderedIds.slice((page - 1) * perPage, page * perPage);
+
+    const rows = await prisma.adminClientCard.findMany({ where: { id: { in: slicedIds } } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    pagedCards = slicedIds
+      .map((id) => byId.get(id))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+    pageIdsForStats = slicedIds;
+  } else {
+    pagedCards = await prisma.adminClientCard.findMany({
+      where,
+      orderBy: adminCardsOrderBy(sort),
+      skip: (page - 1) * perPage,
+      take: perPage,
+    });
+    pageIdsForStats = pagedCards.map((c) => c.id);
+  }
+
   const [
-    cards,
     filteredCount,
     all,
     pfs,
@@ -1507,13 +1608,8 @@ async function loadAdminCards(
     dormant7Count,
     dormant14Count,
     dormant30Count,
+    pagedStats,
   ] = await Promise.all([
-    prisma.adminClientCard.findMany({
-      where,
-      orderBy: adminCardsOrderBy(sort),
-      skip: (page - 1) * perPage,
-      take: perPage,
-    }),
     prisma.adminClientCard.count({ where }),
     prisma.adminClientCard.count({ where: searchAndDormant }),
     prisma.adminClientCard.count({ where: { AND: [{ hasPfs: true }, searchAndDormant] } }),
@@ -1526,40 +1622,48 @@ async function loadAdminCards(
     prisma.adminClientCard.count({ where: dormantCountFilter(7) }),
     prisma.adminClientCard.count({ where: dormantCountFilter(14) }),
     prisma.adminClientCard.count({ where: dormantCountFilter(30) }),
+    loadCardOrderStats(pageIdsForStats),
   ]);
 
+  const cards = pagedCards;
+
   return {
-    cards: cards.map((c) => ({
-      id: c.id,
-      firstName: c.firstName,
-      lastName: c.lastName,
-      company: c.company,
-      siret: c.siret,
-      vatNumber: c.vatNumber,
-      email: c.email,
-      phone: c.phone,
-      website: c.website,
-      addressLine: c.addressLine ?? c.address, // Fallback : legacy address si nouveau champ vide
-      postalCode: c.postalCode,
-      city: c.city,
-      countryCode: c.countryCode,
-      hasPfs: c.hasPfs,
-      hasAnkorstore: c.hasAnkorstore,
-      hasEfashion: c.hasEfashion,
-      hasFaire: c.hasFaire,
-      hasMicrostore: c.hasMicrostore,
-      hasPassage: c.hasPassage,
-      lastOrderAt: c.lastOrderAt?.toISOString() ?? null,
-      lastMessageSentAt: c.lastMessageSentAt?.toISOString() ?? null,
-      orderDiscountType: c.orderDiscountType,
-      orderDiscountValue: c.orderDiscountValue ? c.orderDiscountValue.toString() : null,
-      shippingFree: c.shippingFree,
-      shippingDiscountType: c.shippingDiscountType,
-      shippingDiscountValue: c.shippingDiscountValue ? c.shippingDiscountValue.toString() : null,
-      note: c.note,
-      pfsCustomerId: c.pfsCustomerId,
-      importedFromMarketplace: c.importedFromMarketplace,
-    })),
+    cards: cards.map((c) => {
+      const stats = pagedStats.get(c.id) ?? { count: 0, amount: 0 };
+      return {
+        id: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        company: c.company,
+        siret: c.siret,
+        vatNumber: c.vatNumber,
+        email: c.email,
+        phone: c.phone,
+        website: c.website,
+        addressLine: c.addressLine ?? c.address, // Fallback : legacy address si nouveau champ vide
+        postalCode: c.postalCode,
+        city: c.city,
+        countryCode: c.countryCode,
+        hasPfs: c.hasPfs,
+        hasAnkorstore: c.hasAnkorstore,
+        hasEfashion: c.hasEfashion,
+        hasFaire: c.hasFaire,
+        hasMicrostore: c.hasMicrostore,
+        hasPassage: c.hasPassage,
+        lastOrderAt: c.lastOrderAt?.toISOString() ?? null,
+        lastMessageSentAt: c.lastMessageSentAt?.toISOString() ?? null,
+        orderDiscountType: c.orderDiscountType,
+        orderDiscountValue: c.orderDiscountValue ? c.orderDiscountValue.toString() : null,
+        shippingFree: c.shippingFree,
+        shippingDiscountType: c.shippingDiscountType,
+        shippingDiscountValue: c.shippingDiscountValue ? c.shippingDiscountValue.toString() : null,
+        note: c.note,
+        pfsCustomerId: c.pfsCustomerId,
+        importedFromMarketplace: c.importedFromMarketplace,
+        orderCount: stats.count,
+        orderAmount: stats.amount,
+      };
+    }),
     filteredCount,
     filter,
     sort,

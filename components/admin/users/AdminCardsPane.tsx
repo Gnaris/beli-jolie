@@ -12,17 +12,43 @@ import AdminCardDrawer, { type AdminClientCardForDrawer } from "./AdminCardDrawe
 import PhoneContactIcons from "./PhoneContactIcons";
 import type { WhatsAppTemplateDTO } from "@/app/actions/admin/whatsapp-templates";
 
-type AdminCardsSort = "created" | "order_desc" | "order_asc";
+type AdminCardsSort =
+  | "created"
+  | "order_desc"
+  | "order_asc"
+  | "amount_desc"
+  | "amount_asc"
+  | "count_desc"
+  | "count_asc";
 type AdminCardsDormant = "ALL" | "7" | "14" | "30";
 
 const SORT_OPTIONS: SelectOption[] = [
   { value: "created", label: "Récemment ajoutées" },
   { value: "order_desc", label: "Dernière commande — récente d'abord" },
   { value: "order_asc", label: "Dernière commande — ancienne d'abord" },
+  { value: "amount_desc", label: "Chiffre d'affaires — du + au −" },
+  { value: "amount_asc", label: "Chiffre d'affaires — du − au +" },
+  { value: "count_desc", label: "Nombre de commandes — du + au −" },
+  { value: "count_asc", label: "Nombre de commandes — du − au +" },
 ];
 
+function formatAmountEUR(amount: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: amount >= 1000 ? 0 : 2,
+  }).format(amount);
+}
+
+// Les fiches reçues par ce composant portent en plus les agrégats commandes
+// (6 marketplaces, hors CANCELLED), calculés côté page serveur.
+export type AdminClientCardWithStats = AdminClientCardForDrawer & {
+  orderCount: number;
+  orderAmount: number;
+};
+
 interface Props {
-  cards: AdminClientCardForDrawer[];
+  cards: AdminClientCardWithStats[];
   totalCount: number;
   filterCounts: {
     ALL: number;
@@ -164,59 +190,27 @@ export default function AdminCardsPane({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Filtres + outils */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((f) => {
-            const active = currentFilter === f.value;
-            const params = new URLSearchParams(searchParams.toString());
-            params.set("tab", "fiches");
-            if (f.value === "ALL") params.delete("mp");
-            else params.set("mp", f.value);
-            params.delete("page");
-            const href = `${pathname}?${params.toString()}`;
-            const count = filterCounts[f.value];
-            return (
-              <Link
-                key={f.value}
-                href={href}
-                prefetch={false}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${
-                  active
-                    ? "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm"
-                    : "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
-                }`}
-              >
-                {f.label}
-                <span
-                  className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-semibold ${
-                    active ? "bg-white/20 text-white" : "bg-bg-secondary text-text-muted"
-                  }`}
-                >
-                  {count}
-                </span>
-              </Link>
-            );
-          })}
+    <div className="space-y-5">
+      {/* Ligne 1 — outils (recherche, tri, afficher, nouvelle fiche) */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-bg-primary border border-border rounded-2xl p-3 shadow-sm">
+        <div className="relative flex-1 sm:max-w-md">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M21 21l-4-4" />
+            </svg>
+          </span>
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => updateSearchParam(e.target.value)}
+            placeholder="Rechercher par nom, société, email, tél…"
+            className="w-full pl-9 pr-3 py-2 h-10 rounded-xl bg-bg-secondary border border-border text-[13px] font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100"
+          />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="M21 21l-4-4" />
-              </svg>
-            </span>
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => updateSearchParam(e.target.value)}
-              placeholder="Rechercher…"
-              className="pl-9 pr-3 py-2 h-10 w-56 rounded-xl bg-bg-primary border border-border text-[13px] font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100"
-            />
-          </div>
+          <span className="hidden md:inline-flex text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted">Trier</span>
           <div className="min-w-[240px]">
             <CustomSelect
               value={currentSort}
@@ -226,60 +220,116 @@ export default function AdminCardsPane({
               aria-label="Trier les fiches clients"
             />
           </div>
-          <PerPageSelect value={perPage} />
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="inline-flex items-center gap-1.5 px-4 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-violet-800 text-white text-[13px] font-semibold shadow-sm hover:opacity-90"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Nouvelle fiche
-          </button>
         </div>
+
+        <div className="flex items-center gap-2">
+          <span className="hidden md:inline-flex text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted">Afficher</span>
+          <PerPageSelect value={perPage} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setEditing("new")}
+          className="sm:ml-auto inline-flex items-center gap-1.5 px-4 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-violet-800 text-white text-[13px] font-semibold shadow-sm hover:opacity-90"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Nouvelle fiche
+        </button>
       </div>
 
-      {/* Filtre inactivité — sur une ligne dédiée pour ne pas surcharger */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          Inactivité
-        </span>
-        {DORMANT_FILTERS.map((f) => {
-          const active = currentDormant === f.value;
-          const params = new URLSearchParams(searchParams.toString());
-          params.set("tab", "fiches");
-          if (f.value === "ALL") params.delete("dormant");
-          else params.set("dormant", f.value);
-          params.delete("page");
-          const href = `${pathname}?${params.toString()}`;
-          const count = dormantCounts[f.value];
-          return (
-            <Link
-              key={f.value}
-              href={href}
-              prefetch={false}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 text-[12px] font-body font-medium rounded-lg border transition-all ${
-                active
-                  ? "bg-amber-100 border-amber-300 text-amber-900 shadow-sm"
-                  : "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
-              }`}
-            >
-              {f.label}
-              <span
-                className={`inline-flex items-center justify-center min-w-[20px] h-4 px-1.5 rounded-full text-[10px] font-semibold ${
-                  active ? "bg-amber-200 text-amber-900" : "bg-bg-secondary text-text-muted"
-                }`}
-              >
-                {count}
-              </span>
-            </Link>
-          );
-        })}
+      {/* Ligne 2 — carte filtres (marketplaces + inactivité séparés) */}
+      <div className="bg-bg-primary border border-border rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex items-start gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted min-w-[110px] pt-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            Marketplace
+          </span>
+          <div className="flex flex-wrap gap-1.5 flex-1">
+            {FILTERS.map((f) => {
+              const active = currentFilter === f.value;
+              const params = new URLSearchParams(searchParams.toString());
+              params.set("tab", "fiches");
+              if (f.value === "ALL") params.delete("mp");
+              else params.set("mp", f.value);
+              params.delete("page");
+              const href = `${pathname}?${params.toString()}`;
+              const count = filterCounts[f.value];
+              return (
+                <Link
+                  key={f.value}
+                  href={href}
+                  prefetch={false}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 text-[12px] font-body font-medium rounded-lg border transition-all ${
+                    active
+                      ? "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm"
+                      : "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
+                  }`}
+                >
+                  {f.label}
+                  <span
+                    className={`inline-flex items-center justify-center min-w-[20px] h-4 px-1.5 rounded-full text-[10px] font-semibold ${
+                      active ? "bg-white/20 text-white" : "bg-bg-secondary text-text-muted"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="border-t border-dashed border-border" />
+
+        <div className="flex items-start gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted min-w-[110px] pt-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            Inactivité
+          </span>
+          <div className="flex flex-wrap gap-1.5 flex-1">
+            {DORMANT_FILTERS.map((f) => {
+              const active = currentDormant === f.value;
+              const params = new URLSearchParams(searchParams.toString());
+              params.set("tab", "fiches");
+              if (f.value === "ALL") params.delete("dormant");
+              else params.set("dormant", f.value);
+              params.delete("page");
+              const href = `${pathname}?${params.toString()}`;
+              const count = dormantCounts[f.value];
+              return (
+                <Link
+                  key={f.value}
+                  href={href}
+                  prefetch={false}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 text-[12px] font-body font-medium rounded-lg border transition-all ${
+                    active
+                      ? "bg-amber-100 border-amber-300 text-amber-900 shadow-sm"
+                      : "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary"
+                  }`}
+                >
+                  {f.label}
+                  <span
+                    className={`inline-flex items-center justify-center min-w-[20px] h-4 px-1.5 rounded-full text-[10px] font-semibold ${
+                      active ? "bg-amber-200 text-amber-900" : "bg-bg-secondary text-text-muted"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {clientFilteredCards.length === 0 ? (
@@ -318,6 +368,7 @@ export default function AdminCardsPane({
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Client</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Société · Contact</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em]">Marketplaces</th>
+                    <th className="px-5 py-3 text-right text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap bg-violet-50/60">Commandes</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Remises</th>
                     <th className="px-5 py-3 text-left text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Date</th>
                     <th className="px-5 py-3 text-right text-[11px] font-body font-bold text-text-muted uppercase tracking-[0.12em] whitespace-nowrap">Action</th>
@@ -409,6 +460,24 @@ export default function AdminCardsPane({
                                 </span>
                               ))}
                             </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 text-right whitespace-nowrap bg-violet-50/30">
+                          {c.orderCount > 0 ? (
+                            <>
+                              <p className="text-[13.5px] font-body font-bold text-text-primary tabular-nums leading-none">
+                                {formatAmountEUR(c.orderAmount)}
+                              </p>
+                              <p className="text-[11px] font-body text-text-muted mt-1">
+                                <span className="font-semibold text-text-secondary">{c.orderCount}</span>
+                                {" "}commande{c.orderCount > 1 ? "s" : ""}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-[13.5px] font-body text-text-muted/60 tabular-nums leading-none">— €</p>
+                              <p className="text-[11px] font-body text-text-muted/60 mt-1">aucune</p>
+                            </>
                           )}
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
@@ -518,6 +587,16 @@ export default function AdminCardsPane({
                               {mp.initial}
                             </span>
                           ))}
+                        </div>
+                      )}
+                      {c.orderCount > 0 && (
+                        <div className="mt-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-violet-50 border border-violet-100">
+                          <span className="text-[12px] font-body font-bold text-text-primary tabular-nums">
+                            {formatAmountEUR(c.orderAmount)}
+                          </span>
+                          <span className="text-[11px] font-body text-text-muted">
+                            · {c.orderCount} commande{c.orderCount > 1 ? "s" : ""}
+                          </span>
                         </div>
                       )}
                     </div>
