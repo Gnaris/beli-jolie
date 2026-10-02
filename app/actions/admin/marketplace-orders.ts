@@ -19,6 +19,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireCurrentTenant } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
+import { canonicalColorKey, pickDisplayColorLabel } from "@/lib/color-aliases";
 import {
   getMarketplaceAutoSyncStates,
   setMarketplaceAutoSyncEnabled as setMarketplaceAutoSyncEnabledLib,
@@ -1223,8 +1224,8 @@ export async function getMarketplaceStats(
     colorsByPcId: Map<
       string,
       {
-        productColorId: string | null;
-        colorLabel: string | null;
+        productColorIds: Set<string>;
+        labelCandidates: Set<string>;
         quantitySold: number;
         totalHT: number;
         bySource: Map<MarketplaceSource, { quantitySold: number; totalHT: number }>;
@@ -1265,18 +1266,30 @@ export async function getMarketplaceStats(
     sourceAgg.totalHT += total;
     acc.bySource.set(source, sourceAgg);
 
-    const colorKey = productColorId ?? `label:${colorLabel ?? "?"}`;
+    // Clé de regroupement cross-marketplace : on canonise d'abord le libellé
+    // (strip "Taille unique", séparateurs, accents + alias « Marine » ↔ « Bleu
+    // marine ») pour fusionner les variantes marketplace ("Taille unique · Doré"
+    // Ankor + "Doré" PFS → une seule pastille). Fallback sur productColorId
+    // sinon « unknown » si rien d'exploitable.
+    const canonKey = canonicalColorKey(colorLabel);
+    const colorKey = canonKey
+      ? `canon:${canonKey}`
+      : productColorId
+        ? `pc:${productColorId}`
+        : "unknown";
     let colorAgg = acc.colorsByPcId.get(colorKey);
     if (!colorAgg) {
       colorAgg = {
-        productColorId,
-        colorLabel,
+        productColorIds: new Set(),
+        labelCandidates: new Set(),
         quantitySold: 0,
         totalHT: 0,
         bySource: new Map(),
       };
       acc.colorsByPcId.set(colorKey, colorAgg);
     }
+    if (productColorId) colorAgg.productColorIds.add(productColorId);
+    if (colorLabel) colorAgg.labelCandidates.add(colorLabel);
     colorAgg.quantitySold += qty;
     colorAgg.totalHT += total;
     const colorSourceAgg = colorAgg.bySource.get(source) ?? { quantitySold: 0, totalHT: 0 };
@@ -1371,7 +1384,7 @@ export async function getMarketplaceStats(
       const colorIds: string[] = [];
       for (const p of topProductAccs) {
         for (const c of p.colorsByPcId.values()) {
-          if (c.productColorId) colorIds.push(c.productColorId);
+          for (const id of c.productColorIds) colorIds.push(id);
         }
       }
       if (colorIds.length === 0) return [];
@@ -1379,7 +1392,7 @@ export async function getMarketplaceStats(
         where: { tenantId: tenant.id, id: { in: colorIds } },
         select: {
           id: true,
-          color: { select: { hex: true, patternImage: true } },
+          color: { select: { name: true, hex: true, patternImage: true } },
         },
       });
     })(),
@@ -1409,10 +1422,18 @@ export async function getMarketplaceStats(
       colors: Array.from(acc.colorsByPcId.values())
         .sort((a, b) => b.quantitySold - a.quantitySold)
         .map((c) => {
-          const meta = c.productColorId ? productColorMeta.get(c.productColorId) : null;
+          // Prend la première ProductColor BJ liée (toutes partagent le même
+          // nom canonique) pour hex/pattern/name. Si rien de lié, on retombe
+          // sur le label le plus propre vu côté marketplace.
+          const firstPcId = c.productColorIds.values().next().value as
+            | string
+            | undefined;
+          const meta = firstPcId ? productColorMeta.get(firstPcId) : null;
+          const displayLabel =
+            meta?.name ?? pickDisplayColorLabel(c.labelCandidates);
           return {
-            productColorId: c.productColorId,
-            colorLabel: c.colorLabel,
+            productColorId: firstPcId ?? null,
+            colorLabel: displayLabel,
             hex: meta?.hex ?? null,
             patternImage: meta?.patternImage ?? null,
             quantitySold: c.quantitySold,
