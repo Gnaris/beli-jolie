@@ -189,6 +189,27 @@ export default function AdminCardsPane({
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
+  // Un filtre est actif si l'une des 4 conditions est vraie : marketplace != ALL,
+  // inactivité != ALL, tri != créé par défaut, ou recherche non vide. Le bouton
+  // reset reste donc caché tant que la liste est en mode "par défaut".
+  const hasActiveFilters =
+    currentFilter !== "ALL" ||
+    currentDormant !== "ALL" ||
+    currentSort !== "created" ||
+    searchInput.trim().length > 0;
+
+  function resetAllFilters() {
+    setSearchInput("");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("mp");
+    params.delete("dormant");
+    params.delete("fsort");
+    params.delete("q");
+    params.delete("page");
+    params.set("tab", "fiches");
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }
+
   return (
     <div className="space-y-5">
       {/* Ligne 1 — outils (recherche, tri, afficher, nouvelle fiche) */}
@@ -241,6 +262,21 @@ export default function AdminCardsPane({
 
       {/* Ligne 2 — carte filtres (marketplaces + inactivité séparés) */}
       <div className="bg-bg-primary border border-border rounded-2xl p-4 shadow-sm space-y-3">
+        {hasActiveFilters && (
+          <div className="flex justify-end -mb-1">
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-body font-semibold text-text-secondary hover:text-text-primary bg-bg-secondary hover:bg-slate-200 border border-border rounded-lg transition-colors"
+              title="Réinitialiser tous les filtres"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+              Réinitialiser les filtres
+            </button>
+          </div>
+        )}
         <div className="flex items-start gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1.5 text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted min-w-[110px] pt-1.5">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
