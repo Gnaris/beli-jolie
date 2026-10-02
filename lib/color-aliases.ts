@@ -24,7 +24,7 @@ const SIZE_TOKENS = new Set([
   "os",
 ]);
 
-const SEPARATOR_REGEX = /\s*[·\-\/|]\s*/;
+const SEPARATOR_REGEX = /\s*[·,\-\/|]\s*/;
 
 function stripSizeTokens(normalized: string): string {
   const parts = normalized.split(SEPARATOR_REGEX).map((p) => p.trim());

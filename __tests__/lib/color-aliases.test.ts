@@ -11,6 +11,8 @@ describe("canonicalColorKey", () => {
   it("retire 'Taille unique' et les séparateurs (Ankor / Faire)", () => {
     expect(canonicalColorKey("Taille unique · Doré")).toBe("dore");
     expect(canonicalColorKey("Taille unique - Doré")).toBe("dore");
+    expect(canonicalColorKey("Taille unique, Doré")).toBe("dore");
+    expect(canonicalColorKey("Taille unique, Argent")).toBe("argent");
     expect(canonicalColorKey("Doré / Taille unique")).toBe("dore");
     expect(canonicalColorKey("TU · Noir")).toBe("noir");
     expect(canonicalColorKey("One Size - Argenté")).toBe("argente");
