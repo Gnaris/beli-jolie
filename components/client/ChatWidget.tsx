@@ -651,6 +651,20 @@ export default function ChatWidget({ businessHours }: Props) {
                 {unreadCount}
               </span>
             )}
+            <span
+              className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5"
+              aria-label={isOnline ? t("online") : t("offline")}
+              title={isOnline ? t("online") : t("offline")}
+            >
+              {isOnline && (
+                <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
+              )}
+              <span
+                className={`relative inline-flex h-3.5 w-3.5 rounded-full border-2 border-white ${
+                  isOnline ? "bg-green-500" : "bg-zinc-400"
+                }`}
+              />
+            </span>
           </>
         )}
       </button>
