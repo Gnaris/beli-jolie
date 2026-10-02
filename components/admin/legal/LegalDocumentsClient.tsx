@@ -8,8 +8,10 @@ import {
   toggleLegalDocument,
   getLegalDocumentVersions,
   rollbackLegalDocument,
+  resetLegalDocumentToTemplate,
 } from "@/app/actions/admin/legal-documents";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { LEGAL_VARIABLE_LIST } from "@/lib/legal-templates";
 import LegalRichTextEditor from "./LegalRichTextEditor";
 import type { LegalDocumentType } from "@prisma/client";
@@ -59,6 +61,7 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
   const [showGuide, setShowGuide] = useState(false);
   const [isPending, startTransition] = useTransition();
   const { showLoading, hideLoading } = useLoadingOverlay();
+  const { confirm } = useConfirm();
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Initialize default documents
@@ -151,6 +154,36 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
     } finally {
       setLoadingVersions(false);
     }
+  };
+
+  // Regenerate current document from the latest DEFAULT_TEMPLATES
+  const handleResetToTemplate = async () => {
+    if (!editingDoc) return;
+    const typeLabel = TYPE_LABELS[editingDoc.type].label;
+    const ok = await confirm({
+      type: "warning",
+      title: `Régénérer « ${typeLabel} » ?`,
+      message:
+        "Le texte actuellement affiché aux visiteurs sera remplacé par la version modèle la plus à jour. L'ancien contenu est automatiquement conservé dans l'historique (vous pourrez le restaurer à tout moment).",
+      confirmLabel: "Régénérer",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    setMessage(null);
+    showLoading();
+    startTransition(async () => {
+      try {
+        const result = await resetLegalDocumentToTemplate(editingDoc.type);
+        if (result.success) {
+          setMessage({ type: "success", text: "Document régénéré depuis le modèle à jour." });
+          window.location.reload();
+        } else {
+          setMessage({ type: "error", text: result.error || "Erreur lors de la régénération." });
+        }
+      } finally {
+        hideLoading();
+      }
+    });
   };
 
   // Rollback to version
@@ -255,6 +288,17 @@ export default function LegalDocumentsClient({ documents, hasCompanyInfo }: Prop
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
               </svg>
               Guide
+            </button>
+            <button
+              onClick={handleResetToTemplate}
+              disabled={isPending}
+              className="btn-secondary text-sm"
+              title="Remplacer le contenu par la version modèle à jour (l'ancien contenu est conservé dans l'historique)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              Régénérer depuis le modèle
             </button>
             <button
               onClick={handleShowVersions}

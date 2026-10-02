@@ -85,6 +85,73 @@ export async function initializeLegalDocuments(): Promise<{ success: boolean; cr
 }
 
 /**
+ * Replace the active document's content with the latest DEFAULT_TEMPLATES[type].
+ * Keeps the previous content as a historical version (changeNote explicit).
+ * Safe to call multiple times : la version précédente est toujours récupérable
+ * via « Historique » depuis la page d'édition.
+ */
+export async function resetLegalDocumentToTemplate(
+  type: LegalDocumentType
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+
+    const template = DEFAULT_TEMPLATES[type as keyof typeof DEFAULT_TEMPLATES];
+    if (!template) {
+      return { success: false, error: "Aucun modèle disponible pour ce type de document." };
+    }
+
+    const companyInfo = await prisma.companyInfo.findFirst();
+    const companySnapshot = JSON.stringify(companyInfo || {});
+
+    const existing = await prisma.legalDocument.findFirst({ where: { type } });
+
+    if (existing) {
+      await prisma.legalDocument.update({
+        where: { id: existing.id },
+        data: { content: template.content, title: template.title },
+      });
+      await prisma.legalDocumentVersion.create({
+        data: {
+          documentId: existing.id,
+          content: template.content,
+          companyInfoSnapshot: companySnapshot,
+          changeNote: "Régénération depuis le modèle à jour",
+        },
+      });
+    } else {
+      const doc = await prisma.legalDocument.create({
+        data: {
+          type,
+          title: template.title,
+          content: template.content,
+          isActive: true,
+        },
+      });
+      await prisma.legalDocumentVersion.create({
+        data: {
+          documentId: doc.id,
+          content: template.content,
+          companyInfoSnapshot: companySnapshot,
+          changeNote: "Création depuis le modèle à jour",
+        },
+      });
+    }
+
+    revalidatePath("/admin/documents-legaux");
+    revalidateTag("legal-documents", "default");
+    revalidatePath("/mentions-legales");
+    revalidatePath("/cgv");
+    revalidatePath("/confidentialite");
+    revalidatePath("/cookies");
+    revalidatePath("/cgu");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
  * Save/update a legal document's content
  */
 export async function saveLegalDocument(
