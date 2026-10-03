@@ -15,6 +15,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import {
   serializeJob,
   type ClientEnqueueInput,
@@ -52,6 +53,27 @@ export async function POST(req: NextRequest) {
   if (!validation.ok) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
+
+  // Trace temporaire (bug propagation marketplaces non voulues — 2026-10-03) :
+  // log les items enqueue + l'en-tête `referer` + un identifiant de session
+  // pour attraper le callsite UI qui crée des jobs non voulus. À retirer après
+  // diagnostic.
+  logger.info("[Marketplace Queue POST] enqueue request", {
+    referer: req.headers.get("referer") ?? null,
+    userAgent: req.headers.get("user-agent")?.slice(0, 120) ?? null,
+    items: validation.items.map((i) => ({
+      productId: i.productId,
+      reference: i.reference,
+      marketplace: i.marketplace ?? "pfs",
+      mode: i.mode ?? "refresh",
+      optionsPfs: i.options?.pfs ?? false,
+      optionsAnkor: i.options?.ankorstore ?? false,
+      optionsEfashion: i.options?.efashion ?? false,
+      optionsFaire: i.options?.faire ?? false,
+      optionsOrderchamp: i.options?.orderchamp ?? false,
+      optionsMicrostore: i.options?.microstore ?? false,
+    })),
+  });
 
   // intervalMs facultatif : absent, 0, ou négatif → pas d'étalement (démarrage immédiat).
   const rawInterval =

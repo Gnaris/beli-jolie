@@ -402,15 +402,21 @@ export interface HtmlFavorite {
  * Données injectées dans les boucles `{{#each …}}` du HTML. Absent → les
  * boucles sont expansées à vide (0 itération). Utile pour l'aperçu : afficher
  * un mail scénario sans forcément avoir les vraies données du client.
+ *
+ * Scénario RESTOCK : `favorites` liste les produits revenus en stock que le
+ * client a en favoris ; `ordered` liste ceux qu'il a déjà commandés sans les
+ * avoir en favoris. Un produit n'apparaît que dans une des deux listes au
+ * plus (dédup priorité favoris côté worker).
  */
 export interface HtmlDynamicContext {
   cart?: { items: readonly HtmlCartItem[]; totalCents: number };
   favorites?: readonly HtmlFavorite[];
+  ordered?: readonly HtmlFavorite[];
 }
 
-// Match `{{#each XXX}}…{{/each}}` où XXX = cart|favorites. `[\s\S]*?` non greedy
-// pour supporter plusieurs boucles dans le même HTML sans que la 1ʳᵉ mange les
-// suivantes. Le flag `i` tolère la casse (`{{#EACH cart}}` marche aussi).
+// Match `{{#each XXX}}…{{/each}}` où XXX = cart|favorites|ordered. `[\s\S]*?`
+// non greedy pour supporter plusieurs boucles dans le même HTML sans que la
+// 1ʳᵉ mange les suivantes. Le flag `i` tolère la casse.
 const EACH_REGEX = /\{\{\s*#each\s+([a-z]+)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/gi;
 
 /**
@@ -442,6 +448,17 @@ function maskIterationTokensInComments(html: string): string {
       .replace(/\{\{\s*#each\s+([a-z]+)\s*\}\}/gi, "«each $1»")
       .replace(/\{\{\s*\/each\s*\}\}/gi, "«/each»"),
   );
+}
+
+/** Rendu d'une ligne « produit déjà commandé » — mêmes tokens que favorites. */
+function renderOrderedLine(
+  template: string,
+  item: HtmlFavorite,
+  baseUrl: string,
+): string {
+  // Les tokens de ligne sont les mêmes que `favorites` (image/name/color/price).
+  // On factorise avec `renderFavoriteLine` directement.
+  return renderFavoriteLine(template, item, baseUrl);
 }
 
 /**
@@ -512,6 +529,8 @@ export function applyDynamicLimits(
     cartMoreText: "",
     favoritesMoreCount: "0",
     favoritesMoreText: "",
+    orderedMoreCount: "0",
+    orderedMoreText: "",
   };
   if (!dynamic) return { dynamic, extraMerge };
 
@@ -532,6 +551,13 @@ export function applyDynamicLimits(
     out.favorites = dynamic.favorites.slice(0, MAX_LOOP_ITEMS);
     extraMerge.favoritesMoreCount = String(remaining);
     extraMerge.favoritesMoreText = `… et ${remaining} autre${remaining > 1 ? "s" : ""} favori${remaining > 1 ? "s" : ""}`;
+  }
+
+  if (dynamic.ordered && dynamic.ordered.length > MAX_LOOP_ITEMS) {
+    const remaining = dynamic.ordered.length - MAX_LOOP_ITEMS;
+    out.ordered = dynamic.ordered.slice(0, MAX_LOOP_ITEMS);
+    extraMerge.orderedMoreCount = String(remaining);
+    extraMerge.orderedMoreText = `… et ${remaining} autre${remaining > 1 ? "s" : ""} produit${remaining > 1 ? "s" : ""}`;
   }
 
   return { dynamic: out, extraMerge };
@@ -559,6 +585,10 @@ export function expandIterations(
     if (k === "favorites") {
       const favs = dynamic?.favorites ?? [];
       return favs.map((f) => renderFavoriteLine(lineTemplate, f, baseUrl)).join("");
+    }
+    if (k === "ordered") {
+      const items = dynamic?.ordered ?? [];
+      return items.map((f) => renderOrderedLine(lineTemplate, f, baseUrl)).join("");
     }
     return match;
   });

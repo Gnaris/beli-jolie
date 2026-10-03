@@ -446,7 +446,6 @@ export default async function HomePage() {
       { name: t("newProducts"), path: "/produits" },
       { name: t("collections"), path: "/collections" },
       { name: t("categoriesTitle"), path: "/categories" },
-      { name: "À propos", path: "/a-propos" },
       { name: "Nous contacter", path: "/nous-contacter" },
     ],
   });

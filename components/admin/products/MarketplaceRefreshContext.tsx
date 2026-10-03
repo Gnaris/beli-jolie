@@ -380,10 +380,19 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
       }
       void (async () => {
         try {
+          // `keepalive: true` : garantit que le navigateur finalise la
+          // requête même si la page unmount (ex : save « Enregistrer et
+          // quitter » qui déclenche un `router.push` juste après
+          // `enqueuePublish`). Sans ce flag, le fetch était avorté → aucun
+          // job marketplace créé → les badges `syncRequired=true` posés par
+          // `updateProduct` restaient orange sur toutes les marketplaces, ce
+          // qui faisait croire à un push non voulu. Limite : payload < 64 kB
+          // (largement suffisant ici — jamais plus de ~6 items × ~400 o).
           const res = await fetch("/api/admin/marketplace-queue", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ items: inputs, intervalMs }),
+            keepalive: true,
           });
           if (res.ok) {
             const data = (await res.json()) as {

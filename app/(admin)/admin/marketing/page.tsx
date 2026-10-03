@@ -26,12 +26,18 @@ import {
   loadInactiveClientJobsFor,
   type InactiveClientJobInfo,
 } from "@/app/actions/admin/inactive-client";
+import {
+  loadRestockJobsFor,
+  type RestockJobInfo,
+} from "@/app/actions/admin/restock";
 import AbandonedCartCountdown from "@/components/admin/users/AbandonedCartCountdown";
 import AbandonedCartLastSent from "@/components/admin/users/AbandonedCartLastSent";
 import AbandonedCartResetButton from "@/components/admin/users/AbandonedCartResetButton";
 import InactiveClientCountdown from "@/components/admin/users/InactiveClientCountdown";
 import InactiveClientLastSent from "@/components/admin/users/InactiveClientLastSent";
 import InactiveClientResetButton from "@/components/admin/users/InactiveClientResetButton";
+import RestockCountdown from "@/components/admin/users/RestockCountdown";
+import RestockLastSent from "@/components/admin/users/RestockLastSent";
 import Pagination from "@/components/ui/Pagination";
 import PerPageSelect from "@/components/ui/PerPageSelect";
 import {
@@ -329,6 +335,13 @@ export default async function MarketingPage({
       ? await loadInactiveClientJobsFor(registeredData.clients.map((c) => c.id))
       : new Map();
 
+  // File « retour en stock » — affichée dans la colonne « Retour en stock »
+  // de la vue Mails. Un client sans job PENDING / COMPLETED n'y apparaît pas.
+  const restockJobsData: Map<string, RestockJobInfo> =
+    currentTab === "inscrits"
+      ? await loadRestockJobsFor(registeredData.clients.map((c) => c.id))
+      : new Map();
+
   // Vue Mails « Fiches » : dernier mail envoyé par fiche (indexé par ficheId).
   const lastMailByFicheId: Record<string, string | null> =
     currentTab === "fiches" && cardsData
@@ -392,6 +405,7 @@ export default async function MarketingPage({
             carts={cartsData}
             abandonedJobs={abandonedJobsData}
             inactiveJobs={inactiveJobsData}
+            restockJobs={restockJobsData}
           />
           {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
         </MailSelectionProvider>
@@ -686,6 +700,7 @@ function MailsView({
   perPage,
   abandonedJobs,
   inactiveJobs,
+  restockJobs,
 }: {
   clients: RegisteredClient[];
   totalFiltered: number;
@@ -693,6 +708,7 @@ function MailsView({
   perPage: number;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
   inactiveJobs: Map<string, InactiveClientJobInfo>;
+  restockJobs: Map<string, RestockJobInfo>;
 }) {
   const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
     { key: "ABANDONED_CART", label: "Panier abandonné", short: "Panier" },
@@ -755,6 +771,7 @@ function MailsView({
                     {MAIL_COLUMNS.map((col) => {
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
                       const inactiveJob = col.key === "INACTIVE_CLIENT" ? inactiveJobs.get(c.id) : null;
+                      const restockJob = col.key === "RESTOCK" ? restockJobs.get(c.id) : null;
                       return (
                         <td key={col.key} className="px-5 py-3.5 whitespace-nowrap">
                           {abandonedJob ? (
@@ -808,6 +825,21 @@ function MailsView({
                                   userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                 />
                               </div>
+                            </div>
+                          ) : restockJob ? (
+                            <div className="space-y-1">
+                              {restockJob.status === "PENDING" && restockJob.scheduledSendAt && (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  <RestockCountdown
+                                    nextAtIso={restockJob.scheduledSendAt.toISOString()}
+                                    entriesCount={restockJob.entriesCount}
+                                  />
+                                </div>
+                              )}
+                              {restockJob.lastSentAt && (
+                                <RestockLastSent atIso={restockJob.lastSentAt.toISOString()} />
+                              )}
                             </div>
                           ) : (
                             <p className="text-[13px] font-body text-text-muted/50">—</p>
@@ -972,6 +1004,7 @@ function RegisteredPane({
   carts,
   abandonedJobs,
   inactiveJobs,
+  restockJobs,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -987,6 +1020,7 @@ function RegisteredPane({
   carts: Map<string, CartSummary>;
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
   inactiveJobs: Map<string, InactiveClientJobInfo>;
+  restockJobs: Map<string, RestockJobInfo>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
@@ -1077,6 +1111,7 @@ function RegisteredPane({
           perPage={perPage}
           abandonedJobs={abandonedJobs}
           inactiveJobs={inactiveJobs}
+          restockJobs={restockJobs}
         />
       ) : (
         <>

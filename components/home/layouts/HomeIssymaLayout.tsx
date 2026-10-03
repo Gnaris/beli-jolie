@@ -891,7 +891,6 @@ export default async function HomeIssymaLayout({
               <div>
                 <p className="eyebrow mb-5" style={{ color: `${PALETTE.cream2}cc` }}>{t("issyma.footerHouse")}</p>
                 <ul className="space-y-3 text-sm font-light" style={{ color: `${PALETTE.cream}99` }}>
-                  <li><Link href="/a-propos"      className="hover:opacity-80 transition">{t("issyma.footerAboutLink")}</Link></li>
                   <li><Link href="/nous-contacter" className="hover:opacity-80 transition">{t("issyma.footerContact")}</Link></li>
                 </ul>
               </div>

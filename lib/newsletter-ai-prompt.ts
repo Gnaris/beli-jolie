@@ -163,7 +163,7 @@ const GRANULARITY_INSTRUCTIONS = `GRANULARITÉ DU TEXTE (édition inline) :
 Le dernier exemple reste éditable : l'admin voit un tag \`<p>\` NON annoté (car mixte) MAIS le \`<strong>Vient d'arriver</strong>\` interne EST annoté (car texte pur) — clic droit dessus édite juste ce mot. Utilise \`<strong>\` / \`<em>\` uniquement pour la MISE EN EMPHASE, pas pour découper des phrases entières.`;
 
 const LINKS_INSTRUCTIONS = `LIENS (CTAs, boutons, images cliquables) :
-Ne mets **JAMAIS** d'URLs en dur pour les liens du corps du mail (\`href="https://…"\`, \`href="/panier"\`, etc.). Chaque balise \`<a>\` DOIT avoir un attribut \`href=""\` (VIDE — deux guillemets qui se suivent). L'admin configure ensuite chaque lien via un picker visuel (arbre : Accueil / Produits / Catégories / Collections / Qui sommes-nous / Nous contacter) — la valeur vide est récrite automatiquement en URL absolue au moment de la configuration.
+Ne mets **JAMAIS** d'URLs en dur pour les liens du corps du mail (\`href="https://…"\`, \`href="/panier"\`, etc.). Chaque balise \`<a>\` DOIT avoir un attribut \`href=""\` (VIDE — deux guillemets qui se suivent). L'admin configure ensuite chaque lien via un picker visuel (arbre : Accueil / Produits / Catégories / Collections / Nous contacter) — la valeur vide est récrite automatiquement en URL absolue au moment de la configuration.
 
 **IMPORTANT — TOUTE balise \`<a>\` doit avoir \`href=""\` :** ne jamais générer une \`<a>\` sans attribut \`href\` du tout. Ça rend le lien invisible au picker de configuration.
 
@@ -255,24 +255,37 @@ Utilise \`{days}\` dans une phrase (ex. « Ça fait {days} jours qu'on ne vous a
 
   if (scenario === "RESTOCK") {
     return `CONTEXTE MAIL — RETOUR EN STOCK :
-Ce mail est envoyé quand un produit favori d'un client revient en stock. Objectif : l'avertir + lui proposer d'autres favoris qui sont aussi disponibles.
+Ce mail est envoyé automatiquement 24 h après qu'un ou plusieurs produits soient revenus en stock. Les destinataires sont les clients qui avaient mis ces produits en favoris OU qui les avaient déjà commandés par le passé. Un seul mail groupé par client est envoyé par cycle — tous les produits accumulés sur la fenêtre de 24 h partent dans le même récap.
 
-**⚠️ OBLIGATOIRE — SANS CES TOKENS LA SAUVEGARDE EST REFUSÉE :**
-- \`{{#each favorites}}…{{/each}}\` : la boucle qui affiche chaque favori.
-- \`{name}\` : nom du produit (à l'intérieur de la boucle).
-- \`{image}\` : image du produit (à l'intérieur de la boucle, dans un \`<img src="{image}">\`).
-- \`{price}\` : prix unitaire formaté (à l'intérieur de la boucle).
+Le mail propose DEUX sections distinctes, chacune nourrie par sa propre boucle :
+- **« Vos favoris sont de retour »** → boucle \`{{#each favorites}}\` : produits que le client a dans ses favoris et qui viennent de revenir en stock.
+- **« Vous aviez déjà commandé »** → boucle \`{{#each ordered}}\` : produits que le client a déjà achetés auparavant et qui reviennent en stock (hors ceux déjà dans les favoris — pas de doublon entre les 2 listes).
 
-Tokens complémentaires (recommandés) :
-- \`{color}\` : nom de la couleur (à l'intérieur de la boucle, peut être vide).
-- \`{favoritesCount}\` : nombre TOTAL de favoris disponibles.
-- \`{favoritesMoreCount}\` : nombre de favoris non affichés dans la boucle si > 8. Vaut « 0 » sinon.
-- \`{favoritesMoreText}\` : phrase prête à coller (ex. « … et 3 autres favoris »). Vaut chaîne vide sinon.
+**LES DEUX SECTIONS SONT FACULTATIVES mais FORTEMENT RECOMMANDÉES.** La cliente peut choisir d'en afficher une seule (par ex. uniquement les favoris pour un style minimaliste), mais le pattern standard est de proposer les deux. Un client peut n'avoir que des favoris, que des commandes passées, ou les deux — adapte le ton en conséquence.
 
-**Cap 8** : la boucle est tronquée à 8 items côté serveur — ajoute une ligne \`{favoritesMoreText}\` sous la boucle pour signaler les items restants.
+**⚠️ OBLIGATOIRE** : au moins UNE des deux boucles doit être présente, sinon le mail arrive vide. Dans chaque boucle, les tokens de ligne (\`{name}\`, \`{image}\`, \`{price}\`, \`{color}\`) sont les mêmes.
 
-Exemple d'usage :
+Tokens de LIGNE (à placer DANS les boucles) :
+- \`{name}\` : nom du produit.
+- \`{image}\` : image du produit (toujours dans un \`<img src="{image}">\`).
+- \`{price}\` : prix unitaire formaté (ex. « 12,80 € »).
+- \`{color}\` : nom de la couleur (peut être vide).
+
+Tokens de MAIL (hors des boucles) :
+- \`{favoritesCount}\` : nombre de favoris revenus en stock pour ce client.
+- \`{orderedCount}\` : nombre de produits déjà commandés qui reviennent en stock.
+- \`{restockTotal}\` : total des deux (nombre d'items du mail).
+- \`{favoritesMoreCount}\` / \`{favoritesMoreText}\` : si > 8 favoris, le reste est tronqué et \`{favoritesMoreText}\` donne « … et N autres favoris ». Pose-le juste sous la boucle.
+- \`{orderedMoreCount}\` / \`{orderedMoreText}\` : idem pour la liste des commandés.
+
+**Cap 8 par section** : chaque boucle est tronquée à 8 items maximum côté serveur. Prévois toujours les lignes \`{favoritesMoreText}\` et \`{orderedMoreText}\` sous les boucles pour signaler le reste.
+
+**Ton recommandé** : la section favoris met en avant l'intention explicite d'achat (« Vos coups de cœur sont de retour »), la section commandés rappelle une expérience positive passée (« Vous aviez aimé — c'est de nouveau disponible »). Les deux sections peuvent être présentées en colonnes séparées, l'une après l'autre, ou avec un titre d'intercalaire.
+
+Exemple d'usage avec les deux sections :
 \`\`\`html
+<!-- Section favoris -->
+<h2 style="font-size:16px;margin:0 0 8px 0;">Vos coups de cœur sont de retour</h2>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   {{#each favorites}}
   <tr>
@@ -286,7 +299,27 @@ Exemple d'usage :
     </td>
   </tr>
   {{/each}}
-</table>\``;
+</table>
+<p style="font-size:12px;color:#94a3b8;font-style:italic;text-align:center;">{favoritesMoreText}</p>
+
+<!-- Section déjà commandés -->
+<h2 style="font-size:16px;margin:24px 0 8px 0;">Vous aviez déjà commandé ces produits</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  {{#each ordered}}
+  <tr>
+    <td width="80" style="padding:8px;">
+      <img src="{image}" alt="{name}" width="72" height="72" style="width:72px;height:72px;display:block;object-fit:cover;border-radius:8px;">
+    </td>
+    <td style="padding:8px;font-size:13px;">
+      <div style="font-weight:600;color:#0f172a;">{name}</div>
+      <div style="font-size:11px;color:#64748b;">{color}</div>
+      <div style="font-weight:700;margin-top:4px;">{price}</div>
+    </td>
+  </tr>
+  {{/each}}
+</table>
+<p style="font-size:12px;color:#94a3b8;font-style:italic;text-align:center;">{orderedMoreText}</p>
+\`\`\``;
   }
 
   return null;

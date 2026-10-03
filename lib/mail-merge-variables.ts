@@ -65,7 +65,9 @@ export const MAIL_VARIABLES: MailVariable[] = [
   { token: "cartTotal",     label: "Total du panier",     group: "dynamique", scenarios: ["ABANDONED_CART"], previewValue: "84,50 €" },
   { token: "cartCount",     label: "Nombre d'articles",   group: "dynamique", scenarios: ["ABANDONED_CART"], previewValue: "3" },
   { token: "days",          label: "Jours d'inactivité",  group: "dynamique", scenarios: ["INACTIVE_CLIENT"], previewValue: "45" },
-  { token: "favoritesCount", label: "Nombre de favoris",  group: "dynamique", scenarios: ["RESTOCK"], previewValue: "2" },
+  { token: "favoritesCount", label: "Nombre de favoris",   group: "dynamique", scenarios: ["RESTOCK"], previewValue: "2" },
+  { token: "orderedCount",   label: "Nombre de produits déjà commandés", group: "dynamique", scenarios: ["RESTOCK"], previewValue: "3" },
+  { token: "restockTotal",   label: "Total produits revenus en stock",   group: "dynamique", scenarios: ["RESTOCK"], previewValue: "5" },
 
   // ── Mentions légales (obligatoires marketing) ──
   {

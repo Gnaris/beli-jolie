@@ -294,6 +294,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de notification « retour en stock » (pilote RestockNotificationJob).
+  // Tick 2 min : le compteur de référence est en heures, précision inutile.
+  // Scan des jobs échus par tenant (kill switch SiteConfig
+  // `restock_automation_enabled` filtré côté worker), wrappé tenantALS.run.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startRestockNotificationWorker } = await import("@/lib/restock-notification-worker");
+        startRestockNotificationWorker();
+      } catch (err) {
+        logger.error("[Restock] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

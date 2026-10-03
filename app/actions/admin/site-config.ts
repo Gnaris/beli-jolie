@@ -13,7 +13,6 @@ import { deleteFile, keyFromDbPath } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
 import { SEO_CONFIG_KEYS, type SocialPlatform } from "@/lib/seo";
-import { aboutPhotoKey } from "@/lib/about-photo";
 import type { MinOrderMode } from "@/lib/min-order";
 import { isMinOrderMode } from "@/lib/min-order";
 
@@ -330,119 +329,6 @@ export async function updateHomeFaq(input: {
     }
 
     await setSiteConfig("home_faq", JSON.stringify(cleaned));
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    revalidatePath("/", "layout");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-/**
- * Met à jour les 6 sections texte de la page « Qui sommes-nous » (SiteConfig,
- * tenant-scopé). Chaque section garde son titre fixe côté page (structure SEO
- * stable) — la cliente édite uniquement le corps de chaque section.
- *
- * Clés :
- *   about_intro           — paragraphe sous le titre hero
- *   about_history_body    — bloc « Notre histoire »
- *   about_showroom_body   — bloc « Le showroom »
- *   about_team_body       — bloc « L'équipe »
- *   about_newness_body    — bloc « Nouveautés »
- *   about_delivery_body   — section pleine largeur « Livraisons »
- *
- * Vide → retombe sur le texte générique i18n.
- */
-export async function updateAboutPage(input: {
-  intro: string;
-  historyBody: string;
-  showroomBody: string;
-  teamBody: string;
-  newnessBody: string;
-  deliveryBody: string;
-  /** Versions anglaises optionnelles — vide → fallback FR sur /en/a-propos. */
-  introEn?: string;
-  historyBodyEn?: string;
-  showroomBodyEn?: string;
-  teamBodyEn?: string;
-  newnessBodyEn?: string;
-  deliveryBodyEn?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-    const SECTION_MAX = 2000;
-    const sections: Array<[string, string]> = [
-      ["about_intro", input.intro.trim()],
-      ["about_history_body", input.historyBody.trim()],
-      ["about_showroom_body", input.showroomBody.trim()],
-      ["about_team_body", input.teamBody.trim()],
-      ["about_newness_body", input.newnessBody.trim()],
-      ["about_delivery_body", input.deliveryBody.trim()],
-      ["about_intro_en", (input.introEn ?? "").trim()],
-      ["about_history_body_en", (input.historyBodyEn ?? "").trim()],
-      ["about_showroom_body_en", (input.showroomBodyEn ?? "").trim()],
-      ["about_team_body_en", (input.teamBodyEn ?? "").trim()],
-      ["about_newness_body_en", (input.newnessBodyEn ?? "").trim()],
-      ["about_delivery_body_en", (input.deliveryBodyEn ?? "").trim()],
-    ];
-    for (const [, value] of sections) {
-      if (value.length > SECTION_MAX) {
-        return { success: false, error: `Chaque section ne doit pas dépasser ${SECTION_MAX} caractères.` };
-      }
-    }
-    await Promise.all(sections.map(([key, value]) => setSiteConfig(key, value)));
-    revalidatePath("/admin/parametres");
-    revalidateTag("site-config", "default");
-    revalidatePath("/", "layout");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
-  }
-}
-
-/**
- * Met à jour l'une des 6 photos de la page « À propos ».
- *
- * `imagePath = null` supprime le clé + purge le fichier large et sa version -md.
- */
-export async function updateAboutPhoto(
-  slot: number,
-  imagePath: string | null,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    await requireAdmin();
-
-    let key: string;
-    try {
-      key = aboutPhotoKey(slot);
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : "Emplacement invalide." };
-    }
-
-    const previousRow = await prisma.siteConfig.findFirst({
-      where: { key },
-      select: { value: true },
-    });
-    const previousPath = previousRow?.value ?? null;
-
-    if (imagePath) {
-      await setSiteConfig(key, imagePath);
-    } else {
-      await prisma.siteConfig.deleteMany({ where: { key } });
-    }
-
-    if (previousPath && previousPath !== imagePath) {
-      const mediumPath = previousPath.replace(/\.webp$/i, "-md.webp");
-      for (const dbPath of [previousPath, mediumPath]) {
-        try {
-          await deleteFile(keyFromDbPath(dbPath));
-        } catch (err) {
-          logger.warn("[updateAboutPhoto] Failed to delete old file", { path: dbPath, error: err });
-        }
-      }
-    }
-
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/", "layout");

@@ -12,7 +12,7 @@ import { logger } from "@/lib/logger";
  * Utilisée automatiquement par Next 16 comme fallback `og:image` /
  * `twitter:image` sur toutes les pages qui ne définissent pas leur propre
  * `openGraph.images` (produits ont déjà leur photo — cette image sert pour
- * home, /produits, /categories, /collections, /a-propos, etc.).
+ * home, /produits, /categories, /collections, etc.).
  *
  * Multi-tenant : le tenant est résolu via `getCurrentTenantId()` (Host header
  * → x-tenant-id → ALS). Chaque boutique a donc son propre visuel.

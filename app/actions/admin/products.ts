@@ -40,6 +40,10 @@ import {
 import { resolvePrimaryColorId, listAvailableColorIds } from "@/lib/product-primary-color";
 import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 import {
+  dropRestockEntryForProductColor,
+  enqueueRestockForProductColor,
+} from "@/lib/restock-trigger";
+import {
   validateVariants,
   validateVariantBounds,
   validateProductFields,
@@ -1795,6 +1799,34 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
   // (pas de rafale à fusionner comme sur updateVariantQuick).
   await rotatePrimaryIfNeeded(id, { immediate: true });
 
+  // Notification « retour en stock » : pour chaque variante existante dont le
+  // stock vient de passer ≤ 0 → > 0, on alimente la file. Pour la transition
+  // inverse > 0 → ≤ 0, on purge les files PENDING pour que le produit ne
+  // soit pas annoncé en retour alors qu'il est de nouveau en rupture.
+  // Fire-and-forget : le trigger log et avale les erreurs côté lib. Les
+  // variantes nouvellement créées (isNew=true) ne déclenchent pas.
+  for (let i = 0; i < variantIdMap.length; i++) {
+    const entry = variantIdMap[i];
+    if (entry.isNew) continue;
+    const oldStock = oldStockMap.get(entry.variantId) ?? 0;
+    const newStock = entry.colorInput.stock ?? 0;
+    if (oldStock <= 0 && newStock > 0) {
+      enqueueRestockForProductColor(entry.variantId, tenant.id).catch((err) =>
+        logger.error("[updateProduct] enqueueRestock fire-and-forget failed", {
+          variantId: entry.variantId,
+          error: err as Error,
+        }),
+      );
+    } else if (oldStock > 0 && newStock <= 0) {
+      dropRestockEntryForProductColor(entry.variantId, tenant.id).catch((err) =>
+        logger.error("[updateProduct] dropRestockEntry fire-and-forget failed", {
+          variantId: entry.variantId,
+          error: err as Error,
+        }),
+      );
+    }
+  }
+
   // Recalcule l'appartenance de ce produit aux collections avec règles auto.
   // Un changement de saison / catégorie / tag / composition peut le faire entrer
   // dans certaines collections et sortir d'autres. Idem si le statut passe à
@@ -2807,14 +2839,41 @@ export async function updateVariantQuick(
 
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
-    select: { productId: true, stock: true },
+    select: { productId: true, stock: true, product: { select: { tenantId: true } } },
   });
   if (!variant) throw new Error("Variante introuvable.");
+
+  const oldStock = variant.stock;
 
   await prisma.productColor.update({
     where: { id: variantId },
     data,
   });
+
+  // Notification « retour en stock » : transition ≤ 0 → > 0 alimente la file,
+  // transition > 0 → ≤ 0 purge le produit des files en attente pour qu'il
+  // ne soit pas annoncé alors qu'il est de nouveau en rupture.
+  if (data.stock !== undefined && oldStock <= 0 && data.stock > 0) {
+    enqueueRestockForProductColor(
+      variantId,
+      variant.product.tenantId ?? undefined,
+    ).catch((err) =>
+      logger.error("[updateVariantQuick] enqueueRestock fire-and-forget failed", {
+        variantId,
+        error: err as Error,
+      }),
+    );
+  } else if (data.stock !== undefined && oldStock > 0 && data.stock <= 0) {
+    dropRestockEntryForProductColor(
+      variantId,
+      variant.product.tenantId ?? undefined,
+    ).catch((err) =>
+      logger.error("[updateVariantQuick] dropRestockEntry fire-and-forget failed", {
+        variantId,
+        error: err as Error,
+      }),
+    );
+  }
 
   // Depuis 2026-08-07 : plus d'auto-archive local sur rupture totale.
 

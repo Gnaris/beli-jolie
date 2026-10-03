@@ -152,47 +152,105 @@ const INACTIVE_CLIENT_HTML = `<!doctype html>
 const RESTOCK_HTML = `<!doctype html>
 <html lang="fr">
 <head>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Retour en stock — {shopName}</title>
 </head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a;">
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f5f9;padding:24px 12px;">
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Helvetica Neue',Arial,sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f5f9;padding:32px 12px;">
     <tr><td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
-        <tr><td style="padding:32px 24px;">
-          <h1 style="font-family:'Poppins',sans-serif;font-size:22px;margin:0 0 12px;color:#0f172a;">
-            {firstName}, vos favoris sont de retour
-          </h1>
-          <p style="font-size:14px;line-height:1.6;color:#475569;margin:0 0 20px;">
-            {favoritesCount} de vos favoris chez {shopName} sont à nouveau disponibles.
-            Profitez-en avant qu'ils ne repartent !
-          </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.04);">
 
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 8px;">
+        <!-- Eyebrow + nom boutique -->
+        <tr><td style="padding:28px 32px 0 32px;">
+          <p style="margin:0;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#64748b;font-weight:700;">
+            {shopName}
+          </p>
+        </td></tr>
+
+        <!-- Hero titre -->
+        <tr><td style="padding:12px 32px 0 32px;">
+          <h1 style="margin:0;font-size:30px;line-height:1.15;letter-spacing:-0.02em;color:#0f172a;font-weight:700;">
+            C'est de retour,<br>{firstName}.
+          </h1>
+          <p style="margin:14px 0 0 0;font-size:15px;line-height:1.55;color:#475569;">
+            {restockTotal} produit(s) que vous aviez repéré(s) viennent de revenir en stock.
+          </p>
+        </td></tr>
+
+        <!-- Divider fin -->
+        <tr><td style="padding:28px 32px 0 32px;">
+          <div style="height:1px;background:#e2e8f0;line-height:1px;font-size:0;">&nbsp;</div>
+        </td></tr>
+
+        <!-- Section favoris -->
+        <tr><td style="padding:24px 32px 0 32px;">
+          <p style="margin:0 0 4px 0;font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;color:#94a3b8;font-weight:700;">
+            Vos coups de cœur
+          </p>
+          <p style="margin:0 0 16px 0;font-size:18px;color:#0f172a;font-weight:600;">
+            De nouveau disponibles
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
             {{#each favorites}}
             <tr>
-              <td width="80" style="padding:8px;vertical-align:top;">
-                <img src="{image}" alt="{name}" width="72" height="72" style="width:72px;height:72px;display:block;object-fit:cover;border-radius:8px;">
+              <td width="72" style="padding:0 14px 14px 0;vertical-align:top;">
+                <img src="{image}" alt="{name}" width="72" height="72" style="width:72px;height:72px;display:block;object-fit:cover;border-radius:12px;background:#f8fafc;">
               </td>
-              <td style="padding:8px;vertical-align:middle;font-size:13px;">
-                <div style="font-weight:600;color:#0f172a;">{name}</div>
-                <div style="font-size:11px;color:#64748b;">{color}</div>
-                <div style="font-weight:700;margin-top:4px;color:#0f172a;">{price}</div>
+              <td style="padding:0 0 14px 0;vertical-align:middle;">
+                <div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3;">{name}</div>
+                <div style="font-size:12px;color:#64748b;margin-top:2px;">{color}</div>
+                <div style="font-size:14px;font-weight:700;color:#0f172a;margin-top:6px;">{price}</div>
               </td>
             </tr>
             {{/each}}
           </table>
+          <p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;">{favoritesMoreText}</p>
+        </td></tr>
 
-          <p style="text-align:center;font-size:12px;color:#94a3b8;font-style:italic;margin:0 0 12px;">{favoritesMoreText}</p>
+        <!-- Section déjà commandés -->
+        <tr><td style="padding:24px 32px 0 32px;">
+          <p style="margin:0 0 4px 0;font-size:10.5px;letter-spacing:0.18em;text-transform:uppercase;color:#94a3b8;font-weight:700;">
+            Vous avez déjà aimé
+          </p>
+          <p style="margin:0 0 16px 0;font-size:18px;color:#0f172a;font-weight:600;">
+            Prêt à recommander
+          </p>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+            {{#each ordered}}
+            <tr>
+              <td width="72" style="padding:0 14px 14px 0;vertical-align:top;">
+                <img src="{image}" alt="{name}" width="72" height="72" style="width:72px;height:72px;display:block;object-fit:cover;border-radius:12px;background:#f8fafc;">
+              </td>
+              <td style="padding:0 0 14px 0;vertical-align:middle;">
+                <div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3;">{name}</div>
+                <div style="font-size:12px;color:#64748b;margin-top:2px;">{color}</div>
+                <div style="font-size:14px;font-weight:700;color:#0f172a;margin-top:6px;">{price}</div>
+              </td>
+            </tr>
+            {{/each}}
+          </table>
+          <p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;">{orderedMoreText}</p>
+        </td></tr>
 
-          <p style="text-align:center;margin:24px 0;">
-            <a href="" style="display:inline-block;background:#0f172a;color:#fff;padding:14px 32px;border-radius:10px;font-weight:600;text-decoration:none;">
-              Voir mes favoris
-            </a>
+        <!-- CTA -->
+        <tr><td align="center" style="padding:32px 32px 36px 32px;">
+          <a href="" style="display:inline-block;background:#0f172a;color:#ffffff;padding:14px 36px;border-radius:999px;font-size:14px;font-weight:600;letter-spacing:0.01em;text-decoration:none;">
+            Découvrir la boutique
+          </a>
+          <p style="margin:16px 0 0 0;font-size:12px;color:#94a3b8;">
+            Les stocks fondent vite — à bon entendeur.
           </p>
         </td></tr>
-        <tr><td style="background:#f8fafc;color:#64748b;padding:20px 24px;text-align:center;font-size:11px;line-height:1.6;">
-          {shopName} · {shopAddress}<br>
-          <a href="{unsubscribeLink}" style="color:#64748b;">Se désinscrire</a> · <a href="{privacyLink}" style="color:#64748b;">Politique de confidentialité</a>
+
+        <!-- Pied de page légal -->
+        <tr><td style="background:#f8fafc;padding:20px 32px;text-align:center;font-size:11px;line-height:1.6;color:#94a3b8;">
+          <p style="margin:0;">{shopName} · {shopAddress}</p>
+          <p style="margin:4px 0 0 0;">
+            <a href="{unsubscribeLink}" style="color:#64748b;text-decoration:underline;">Se désinscrire</a>
+            &nbsp;·&nbsp;
+            <a href="{privacyLink}" style="color:#64748b;text-decoration:underline;">Politique de confidentialité</a>
+          </p>
         </td></tr>
       </table>
     </td></tr>
@@ -213,7 +271,7 @@ export const SCENARIO_HTML_DEFAULTS: Record<ScenarioKey, ScenarioHtmlDefault> = 
   },
   RESTOCK: {
     name: "Retour en stock (par défaut)",
-    subject: "Vos favoris sont de retour",
+    subject: "{firstName}, vos produits préférés sont de retour",
     html: RESTOCK_HTML,
   },
 };

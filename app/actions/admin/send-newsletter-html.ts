@@ -22,6 +22,7 @@ import {
   renderNewsletterHtmlForSend,
   type HtmlCartItem,
   type HtmlDynamicContext,
+  type HtmlFavorite,
 } from "@/lib/newsletter-html-render";
 import { missingRequiredMarketingVariables } from "@/lib/mail-merge-variables";
 import { buildLegalLine } from "./send-newsletter";
@@ -239,13 +240,21 @@ async function buildRenderedHtml(params: {
     } else {
       daysForContext = 45; // valeur d'aperçu pour un self-test admin
     }
+  } else if (scenarioKey === "RESTOCK") {
+    // Pour un vrai client sélectionné : on charge ses favoris + historique
+    // commandes et on garde ceux qui sont ONLINE + stock > 0. Pour un
+    // self-test admin, les 2 listes restent vides (pas de favoris propres).
+    if (clientUserId) {
+      const live = await fetchLiveRestockForHtml(tenant.id, clientUserId);
+      dynamic.favorites = live.favorites;
+      dynamic.ordered = live.ordered;
+    }
   }
-  // RESTOCK : pas d'implémentation live pour le test — la boucle {{#each favorites}}
-  // rendra vide au test. Le worker prod fournit les vraies données.
 
   const cartTotalCents = dynamic.cart?.totalCents ?? 0;
   const cartCount = dynamic.cart?.items.length ?? 0;
   const favoritesCount = dynamic.favorites?.length ?? 0;
+  const orderedCount = dynamic.ordered?.length ?? 0;
 
   const mergeContext: MailMergeContext = {
     ...userContextBase,
@@ -263,6 +272,8 @@ async function buildRenderedHtml(params: {
     cartCount: String(cartCount),
     days: daysForContext == null ? "" : String(daysForContext),
     favoritesCount: String(favoritesCount),
+    orderedCount: String(orderedCount),
+    restockTotal: String(favoritesCount + orderedCount),
   };
 
   const html = renderNewsletterHtmlForSend({
@@ -463,4 +474,132 @@ async function fetchLiveCartForHtml(
   });
   const totalCents = items.reduce((s, it) => s + it.totalCents, 0);
   return { items, totalCents };
+}
+
+/**
+ * Charge l'aperçu RESTOCK pour un utilisateur donné : ses favoris + les
+ * produits de ses commandes passées (non annulées) qui sont actuellement
+ * ONLINE avec stock > 0. Priorité favoris : un produit à la fois favori ET
+ * déjà commandé apparaît uniquement dans la section favoris (évite les
+ * doublons visuels, aligné sur la règle du worker prod).
+ *
+ * Note : contrairement au worker réel qui ne liste QUE les produits qui
+ * viennent de revenir en stock sur la fenêtre du compteur, cet aperçu
+ * montre TOUS les favoris / commandés en stock pour que la cliente voie
+ * à quoi ressemble le mail quand il est bien rempli. Si vous voulez
+ * reproduire exactement l'envoi réel, préférez le bouton « Envoyer un
+ * test » après avoir fait baisser puis remonter un stock.
+ */
+async function fetchLiveRestockForHtml(
+  tenantId: string,
+  userId: string,
+): Promise<{ favorites: HtmlFavorite[]; ordered: HtmlFavorite[] }> {
+  // 1. Favoris du user → productIds.
+  const favorites = await prisma.favorite.findMany({
+    where: { userId, tenantId },
+    select: { productId: true },
+  });
+  const favoriteProductIds = new Set(favorites.map((f) => f.productId));
+
+  // 2. Historique commandes (non annulées) → productIds via OrderItem.
+  //    `OrderItem.productColorId` est nullable (ligne historique non liée) ;
+  //    on retombe sur Product.reference pour couvrir ces cas.
+  const orderItems = await prisma.orderItem.findMany({
+    where: {
+      order: { userId, tenantId, status: { not: "CANCELLED" } },
+    },
+    select: { productColorId: true, productRef: true },
+  });
+  const orderedVariantIds = Array.from(
+    new Set(
+      orderItems
+        .map((o) => o.productColorId)
+        .filter((v): v is string => Boolean(v)),
+    ),
+  );
+  const orderedRefs = Array.from(
+    new Set(orderItems.map((o) => o.productRef).filter(Boolean)),
+  );
+  const [orderedByVariant, orderedByRef] = await Promise.all([
+    orderedVariantIds.length === 0
+      ? Promise.resolve([] as { productId: string }[])
+      : prisma.productColor.findMany({
+          where: { id: { in: orderedVariantIds } },
+          select: { productId: true },
+        }),
+    orderedRefs.length === 0
+      ? Promise.resolve([] as { id: string }[])
+      : prisma.product.findMany({
+          where: { tenantId, reference: { in: orderedRefs } },
+          select: { id: true },
+        }),
+  ]);
+  const orderedProductIds = new Set<string>([
+    ...orderedByVariant.map((o) => o.productId),
+    ...orderedByRef.map((p) => p.id),
+  ]);
+
+  // Union des produits concernés.
+  const allProductIds = new Set<string>([
+    ...favoriteProductIds,
+    ...orderedProductIds,
+  ]);
+  if (allProductIds.size === 0) {
+    return { favorites: [], ordered: [] };
+  }
+
+  // 3. Pour chaque produit, on prend la variante ONLINE+stock>0 la mieux
+  //    classée (isPrimary d'abord, puis ordre naturel). Produits OFFLINE
+  //    ou entièrement en rupture : ignorés.
+  const products = await prisma.product.findMany({
+    where: {
+      id: { in: [...allProductIds] },
+      status: "ONLINE",
+    },
+    select: {
+      id: true,
+      name: true,
+      primaryColorId: true,
+      colors: {
+        // Décision cliente : uniquement variantes UNIT dans le mail restock
+        // (évite les doublons taille/couleur si plusieurs PACK reviennent).
+        where: { stock: { gt: 0 }, disabled: false, saleType: "UNIT" },
+        orderBy: [{ isPrimary: "desc" }],
+        take: 1,
+        select: {
+          unitPrice: true,
+          color: { select: { name: true } },
+          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
+        },
+      },
+      colorImages: {
+        orderBy: { order: "asc" },
+        take: 1,
+        select: { path: true },
+      },
+    },
+  });
+
+  const favoritesLines: HtmlFavorite[] = [];
+  const orderedLines: HtmlFavorite[] = [];
+  for (const p of products) {
+    const variant = p.colors[0];
+    if (!variant) continue; // tout en rupture / désactivé
+    const imagePath =
+      variant.images[0]?.path ?? p.colorImages[0]?.path ?? null;
+    const line: HtmlFavorite = {
+      productName: p.name,
+      colorName: variant.color?.name ?? null,
+      priceCents: Math.round(Number(variant.unitPrice) * 100),
+      imagePath,
+    };
+    // Priorité favoris : si le produit est dans les favoris du user, il
+    // va dans la section favoris. Sinon section « déjà commandés ».
+    if (favoriteProductIds.has(p.id)) {
+      favoritesLines.push(line);
+    } else if (orderedProductIds.has(p.id)) {
+      orderedLines.push(line);
+    }
+  }
+  return { favorites: favoritesLines, ordered: orderedLines };
 }

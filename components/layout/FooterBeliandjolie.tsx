@@ -27,7 +27,7 @@ export default function FooterBeliandjolie({ shopName }: FooterProps) {
   ];
 
   const infoItems = [
-    { label: t("about"),   href: "/a-propos" },
+    { label: "Qui sommes-nous", href: "/qui-sommes-nous" },
     { label: t("contact"), href: "/nous-contacter" },
     { label: t("legal"),   href: "/mentions-legales" },
     { label: t("cgv"),     href: "/cgv" },

@@ -3,10 +3,18 @@
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { stockUnitsForOrderItem } from "@/lib/stock-units";
+import {
+  dropRestockEntryForProductColor,
+  enqueueRestockForProductColor,
+} from "@/lib/restock-trigger";
 import type { StockMovementType } from "@prisma/client";
 
 /**
  * Create a stock movement and update the current stock on the variant.
+ *
+ * Déclenche aussi la détection « retour en stock » : si le stock vient de
+ * passer de ≤ 0 → > 0, on fire-and-forget `enqueueRestockForProductColor`
+ * pour alimenter la file de notifications. Non-bloquant.
  */
 export async function createStockMovement(params: {
   productColorId: string;
@@ -19,29 +27,78 @@ export async function createStockMovement(params: {
 }) {
   const { productColorId, sizeId, quantity, type, reason, orderId, createdById } = params;
 
-  const result = await prisma.$transaction(async (tx) => {
-    const movement = await tx.stockMovement.create({
-      data: {
-        productColorId,
-        sizeId: sizeId || null,
-        quantity,
-        type,
-        reason,
-        orderId,
-        createdById,
+  const { movement, stockBefore, stockAfter, tenantId } = await prisma.$transaction(
+    async (tx) => {
+      // Snapshot du stock avant mutation — sert à détecter la transition
+      // 0 → >0 pour les notifications « retour en stock ».
+      const before = await tx.productColor.findUnique({
+        where: { id: productColorId },
+        select: {
+          stock: true,
+          product: { select: { tenantId: true } },
+        },
+      });
+      const stockBefore = before?.stock ?? 0;
+
+      const created = await tx.stockMovement.create({
+        data: {
+          productColorId,
+          sizeId: sizeId || null,
+          quantity,
+          type,
+          reason,
+          orderId,
+          createdById,
+        },
+      });
+
+      await tx.productColor.update({
+        where: { id: productColorId },
+        data: { stock: { increment: quantity } },
+      });
+
+      return {
+        movement: created,
+        stockBefore,
+        stockAfter: stockBefore + quantity,
+        tenantId: before?.product.tenantId ?? null,
+      };
+    },
+  );
+
+  logger.info(
+    `[Stock] Movement ${type}: ${quantity > 0 ? "+" : ""}${quantity} on variant ${productColorId}${sizeId ? ` size ${sizeId}` : ""}`,
+  );
+
+  // Détection « retour en stock » : transition ≤ 0 → > 0. Fire-and-forget —
+  // on ne bloque pas l'appel et on avale les erreurs côté trigger. Skip pour
+  // les mouvements ORDER (sortie de stock, jamais retour).
+  if (stockBefore <= 0 && stockAfter > 0 && type !== "ORDER") {
+    enqueueRestockForProductColor(productColorId, tenantId ?? undefined).catch(
+      (err) => {
+        logger.error("[Stock] enqueueRestock fire-and-forget failed", {
+          productColorId,
+          error: err as Error,
+        });
       },
-    });
+    );
+  }
 
-    await tx.productColor.update({
-      where: { id: productColorId },
-      data: { stock: { increment: quantity } },
-    });
+  // Transition inverse : > 0 → ≤ 0. On purge les files PENDING pour que le
+  // produit ne soit pas annoncé en retour en stock alors qu'il vient d'être
+  // re-rupté. Fire-and-forget.
+  if (stockBefore > 0 && stockAfter <= 0) {
+    dropRestockEntryForProductColor(productColorId, tenantId ?? undefined).catch(
+      (err) => {
+        logger.error("[Stock] dropRestockEntry fire-and-forget failed", {
+          productColorId,
+          error: err as Error,
+        });
+      },
+    );
+  }
 
-    return movement;
-  });
-
-  logger.info(`[Stock] Movement ${type}: ${quantity > 0 ? "+" : ""}${quantity} on variant ${productColorId}${sizeId ? ` size ${sizeId}` : ""}`);
-  return result;
+  return movement;
 }
 
 /**

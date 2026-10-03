@@ -304,6 +304,45 @@ describe("expandIterations — {{#each cart}}...{{/each}}", () => {
     expect(out.slice(bracIdx, colIdx)).not.toContain("explication");
   });
 
+  it("{{#each ordered}} développe la liste des produits déjà commandés (scénario RESTOCK)", () => {
+    const ORDERED: HtmlFavorite[] = [
+      { productName: "Bague Lila", colorName: "Argent", priceCents: 1250, imagePath: "/uploads/x/bague.webp" },
+      { productName: "Bracelet Jade", colorName: null, priceCents: 1890, imagePath: null },
+    ];
+    const tpl = `<ul>{{#each ordered}}<li>{name} ({color}) — {price}</li>{{/each}}</ul>`;
+    const out = expandIterations(tpl, { ordered: ORDERED }, BASE);
+    expect(out).toContain("<li>Bague Lila (Argent)");
+    expect(out).toContain("<li>Bracelet Jade ()");
+    expect(out).toContain("12,50");
+    expect(out).toContain("18,90");
+  });
+
+  it("{{#each favorites}} et {{#each ordered}} coexistent sans se contaminer", () => {
+    const FAVS: HtmlFavorite[] = [
+      { productName: "FavA", colorName: "Rose", priceCents: 1000, imagePath: null },
+    ];
+    const ORDS: HtmlFavorite[] = [
+      { productName: "OrdA", colorName: "Bleu", priceCents: 2000, imagePath: null },
+      { productName: "OrdB", colorName: "Vert", priceCents: 3000, imagePath: null },
+    ];
+    const tpl = `F:{{#each favorites}}[{name}]{{/each}} O:{{#each ordered}}[{name}]{{/each}}`;
+    const out = expandIterations(tpl, { favorites: FAVS, ordered: ORDS }, BASE);
+    expect(out).toBe("F:[FavA] O:[OrdA][OrdB]");
+  });
+
+  it("applyDynamicLimits tronque `ordered` à MAX_LOOP_ITEMS + expose {orderedMoreText}", () => {
+    const TOO_MANY: HtmlFavorite[] = Array.from({ length: MAX_LOOP_ITEMS + 3 }, (_, i) => ({
+      productName: `P${i}`,
+      colorName: null,
+      priceCents: 100,
+      imagePath: null,
+    }));
+    const { dynamic, extraMerge } = applyDynamicLimits({ ordered: TOO_MANY });
+    expect(dynamic?.ordered).toHaveLength(MAX_LOOP_ITEMS);
+    expect(extraMerge.orderedMoreCount).toBe("3");
+    expect(extraMerge.orderedMoreText).toContain("3 autres produits");
+  });
+
   it("imagePath null → utilise le placeholder SVG (pas src vide)", () => {
     const tpl = `{{#each cart}}<img src="{image}">{{/each}}`;
     const emptyImageCart: HtmlDynamicContext = {
@@ -661,8 +700,7 @@ describe("buildLinkUrl — construction URLs cibles", () => {
     expect(buildLinkUrl(BASE, { kind: "category", id: "x", name: "Bijoux", slug: "bijoux" }))
       .toBe("https://beliandjolie.com/fr/categories/bijoux");
   });
-  it("about + contact", () => {
-    expect(buildLinkUrl(BASE, { kind: "about" })).toBe("https://beliandjolie.com/fr/a-propos");
+  it("contact", () => {
     expect(buildLinkUrl(BASE, { kind: "contact" })).toBe("https://beliandjolie.com/fr/nous-contacter");
   });
   it("trim slashes finaux du baseUrl", () => {

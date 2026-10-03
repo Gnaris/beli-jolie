@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import {
   getCachedShopName, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled,
@@ -50,8 +49,6 @@ import BrandBrandingConfig from "@/components/admin/settings/BrandBrandingConfig
 import { SEO_CONFIG_KEYS } from "@/lib/seo";
 import { parseHomeFaq } from "@/lib/home-faq";
 import { getPendingReviewsCount } from "@/app/actions/admin/customer-reviews";
-import AboutPageConfig from "@/components/admin/settings/AboutPageConfig";
-import AboutPhotosConfig from "@/components/admin/settings/AboutPhotosConfig";
 import MailForwardStatusCard from "@/components/admin/settings/MailForwardStatusCard";
 import GmailSetupTutorialCard from "@/components/admin/settings/GmailSetupTutorialCard";
 import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswordResetCard";
@@ -138,59 +135,13 @@ async function buildVitrineTile(): Promise<DashboardTile> {
   const [
     faviconConfig,
     homeFaqRow,
-    aboutIntroRow,
-    aboutHistoryRow,
-    aboutShowroomRow,
-    aboutTeamRow,
-    aboutNewnessRow,
-    aboutDeliveryRow,
-    aboutIntroEnRow,
-    aboutHistoryEnRow,
-    aboutShowroomEnRow,
-    aboutTeamEnRow,
-    aboutNewnessEnRow,
-    aboutDeliveryEnRow,
-    aboutPhoto1Row,
-    aboutPhoto2Row,
-    aboutPhoto3Row,
-    aboutPhoto4Row,
-    aboutPhoto5Row,
-    aboutPhoto6Row,
-    tAbout,
     pendingReviewsCount,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "site_favicon" } }),
     prisma.siteConfig.findFirst({ where: { key: "home_faq" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_intro" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_history_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_team_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_newness_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_intro_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_history_body_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_showroom_body_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_team_body_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_newness_body_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_delivery_body_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_1_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_2_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_3_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_4_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_5_url" } }),
-    prisma.siteConfig.findFirst({ where: { key: "about_photo_6_url" } }),
-    getTranslations("about"),
     getPendingReviewsCount().catch(() => 0),
   ]);
   const faqItems = parseHomeFaq(homeFaqRow?.value);
-  const aboutPhotos: (string | null)[] = [
-    aboutPhoto1Row?.value ?? null,
-    aboutPhoto2Row?.value ?? null,
-    aboutPhoto3Row?.value ?? null,
-    aboutPhoto4Row?.value ?? null,
-    aboutPhoto5Row?.value ?? null,
-    aboutPhoto6Row?.value ?? null,
-  ];
 
   let currentFavicon: { icon: string; appleIcon: string } | null = null;
   if (faviconConfig?.value) {
@@ -275,52 +226,6 @@ async function buildVitrineTile(): Promise<DashboardTile> {
                       )}
                     </Link>
                   </div>
-                </SettingCard>
-              </CardsStack>
-            ),
-          },
-          {
-            key: "about",
-            label: "Qui sommes-nous",
-            content: (
-              <CardsStack>
-                <SettingCard
-                  icon={Ico.slides}
-                  title="Textes de la page « Qui sommes-nous »"
-                  description="6 sections éditables affichées sur /a-propos — laissez vide pour utiliser le texte par défaut."
-                  accent="dark"
-                >
-                  <AboutPageConfig
-                    initialIntro={aboutIntroRow?.value ?? ""}
-                    initialHistoryBody={aboutHistoryRow?.value ?? ""}
-                    initialShowroomBody={aboutShowroomRow?.value ?? ""}
-                    initialTeamBody={aboutTeamRow?.value ?? ""}
-                    initialNewnessBody={aboutNewnessRow?.value ?? ""}
-                    initialDeliveryBody={aboutDeliveryRow?.value ?? ""}
-                    initialIntroEn={aboutIntroEnRow?.value ?? ""}
-                    initialHistoryBodyEn={aboutHistoryEnRow?.value ?? ""}
-                    initialShowroomBodyEn={aboutShowroomEnRow?.value ?? ""}
-                    initialTeamBodyEn={aboutTeamEnRow?.value ?? ""}
-                    initialNewnessBodyEn={aboutNewnessEnRow?.value ?? ""}
-                    initialDeliveryBodyEn={aboutDeliveryEnRow?.value ?? ""}
-                    placeholders={{
-                      intro: tAbout("intro"),
-                      historyBody: tAbout("historyBody"),
-                      showroomBody: tAbout("showroomBody"),
-                      teamBody: tAbout("teamBody"),
-                      newnessBody: tAbout("newnessBody"),
-                      deliveryBody: tAbout("deliveryBody"),
-                    }}
-                  />
-                </SettingCard>
-
-                <SettingCard
-                  icon={Ico.image}
-                  title="Photos de la page « Qui sommes-nous »"
-                  description="Jusqu'à 6 photos — largeur idéale 1200 px, format 4/5 conseillé."
-                  accent="dark"
-                >
-                  <AboutPhotosConfig initialPhotos={aboutPhotos} />
                 </SettingCard>
               </CardsStack>
             ),

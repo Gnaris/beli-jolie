@@ -244,7 +244,9 @@ export default function NewslettersListClient({ templates }: Props) {
                 ? "/admin/marketing/mails/panier-abandonne"
                 : scenario === "INACTIVE_CLIENT"
                   ? "/admin/marketing/mails/inactivite"
-                  : `/admin/marketing/mails/newsletter/${t.id}`;
+                  : scenario === "RESTOCK"
+                    ? "/admin/marketing/mails/retour-en-stock"
+                    : `/admin/marketing/mails/newsletter/${t.id}`;
             return (
               <div
                 key={t.id}
@@ -277,7 +279,9 @@ export default function NewslettersListClient({ templates }: Props) {
                       <div className="text-[12px] text-text-muted mt-0.5 truncate">
                         {scenario === "ABANDONED_CART"
                           ? "Configurer les stades + délais"
-                          : `Sujet : ${t.subject}`}
+                          : scenario === "RESTOCK"
+                            ? "Configurer le compteur + le modèle"
+                            : `Sujet : ${t.subject}`}
                       </div>
                       <div className="text-[11px] text-text-muted mt-2">
                         {t.blocksCount} bloc{t.blocksCount > 1 ? "s" : ""} · Modifié le {formatDate(t.updatedAt)}
@@ -286,19 +290,20 @@ export default function NewslettersListClient({ templates }: Props) {
                   </div>
                 </Link>
                 <div className="px-3 py-2 bg-bg-secondary border-t border-border flex justify-end gap-1">
-                  {scenario === "ABANDONED_CART" || scenario === "INACTIVE_CLIENT" ? (
-                    // Ces 2 scénarios ont une page dédiée qui pilote N stades
-                    // + config d'automation. Le « remettre par défaut » se
-                    // fait sur chaque stade depuis l'éditeur — ici on renvoie
-                    // simplement vers la page dédiée.
+                  {scenario === "ABANDONED_CART" || scenario === "INACTIVE_CLIENT" || scenario === "RESTOCK" ? (
+                    // Scénarios automatiques pilotés depuis leur page dédiée
+                    // (délais / compteur + config d'automation). Le « remettre
+                    // par défaut » se fait depuis l'éditeur.
                     <Link
                       href={
                         scenario === "ABANDONED_CART"
                           ? "/admin/marketing/mails/panier-abandonne"
-                          : "/admin/marketing/mails/inactivite"
+                          : scenario === "INACTIVE_CLIENT"
+                            ? "/admin/marketing/mails/inactivite"
+                            : "/admin/marketing/mails/retour-en-stock"
                       }
                       className="px-2.5 py-1.5 rounded-md text-[11px] font-body font-semibold text-text-secondary hover:bg-bg-primary"
-                      title="Ouvrir la page dédiée qui gère les stades + l'automation"
+                      title="Ouvrir la page dédiée"
                     >
                       → Voir la page dédiée
                     </Link>

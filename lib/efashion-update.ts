@@ -431,15 +431,38 @@ export async function efashionUpdateProductInPlace(
         "Impossible de lire l'état eFashion (vendeur) — création de nouvelles couleurs ignorée.",
       );
     } else {
-      // Choix de la couleur source pour le duplicate : ordre de priorité
-      //   1. La main actuelle vue côté eFashion (la plus à jour)
-      //   2. La `primaryEfashionProductId` du snapshot précédent
-      //   3. La première couleur déjà liée localement (fallback ultime)
+      // Choix de la couleur source pour le duplicate — ordre de priorité :
+      //   1. La couleur primaire BJ (`product.primaryColorId`) SI elle est déjà
+      //      liée côté eFashion. Garantit que la nouvelle variante atterrit
+      //      dans le MÊME groupe que l'ancre visuelle de la fiche BJ.
+      //   2. La main actuelle vue côté eFashion.
+      //   3. La `primaryEfashionProductId` du snapshot précédent.
+      //   4. La première couleur déjà liée localement (fallback ultime).
+      //
+      // Avant 2026-10-03 : priorité (2) → (3) → (4). Problème observé sur
+      // 15223-2 (Issyma) : la primaire BJ (Camel) n'étant pas encore liée, le
+      // code prenait la main live (Beige). Camel s'est alors dupliquée dans le
+      // groupe de Beige. Puis la bascule main plus bas (ligne 1050+) a
+      // démouvoir Beige pour promouvoir Camel — fenêtre « sans main » pendant
+      // laquelle BF (non-main rattachée à Beige) s'est retrouvée orpheline,
+      // affichée par eFashion dans un groupe séparé. Prioriser la main liée à
+      // la primaire BJ évite de bouger la main plus bas quand c'est inutile.
       let sourceEfId: number | null = null;
-      for (const [efId, live] of liveById) {
-        if (live.main) {
-          sourceEfId = efId;
-          break;
+      const primaryColorIdForSource = product.primaryColorId;
+      if (primaryColorIdForSource) {
+        const primaryLinked = unitColors.find(
+          (c) => c.colorId === primaryColorIdForSource && c.efashionProductId !== null,
+        );
+        if (primaryLinked?.efashionProductId != null) {
+          sourceEfId = primaryLinked.efashionProductId;
+        }
+      }
+      if (sourceEfId === null) {
+        for (const [efId, live] of liveById) {
+          if (live.main) {
+            sourceEfId = efId;
+            break;
+          }
         }
       }
       if (sourceEfId === null && previousSnapshot?.primaryEfashionProductId) {
@@ -571,20 +594,34 @@ export async function efashionUpdateProductInPlace(
             // côté catalogue acheteurs. Les attributs (prix, stock, visible…)
             // spécifiques à cette couleur sont alignés par la suite du flow
             // via efashionUpdateProduit/saveProduitStocks.
+            let publishBrouillonOk = true;
             try {
               await efashionPublishBrouillon({
                 idProduit: newEfId,
                 idVendeur: efashionVendorId,
               });
             } catch (err) {
-              logger.warn(
-                "[eFashion update] publishBrouillon a planté (non bloquant — la fiche reste en brouillon)",
+              publishBrouillonOk = false;
+              const msg = err instanceof Error ? err.message : String(err);
+              // Avant 2026-10-03 : warn silencieux + premel laissé à null ⇒
+              // le heal step (ligne ~684 : `live?.premel === "1"`) ne couvrait
+              // PAS cette variante au tour suivant → bloquée en brouillon
+              // (= « Hors ligne » côté eFashion) pour toujours. Reproduit sur
+              // 15223-2/Camel (Issyma). Fix : (1) remonter l'erreur à la
+              // cliente via createErrors + (2) poser `premel="1"` plus bas
+              // pour que le heal du MÊME push la republie.
+              logger.error(
+                "[eFashion update] publishBrouillon a planté — nouvelle variante reste en brouillon",
                 {
                   productId,
                   newEfId,
                   couleurName,
-                  error: err instanceof Error ? err.message : String(err),
+                  error: msg,
                 },
+              );
+              createErrors.push(
+                `Couleur « ${couleurName} » créée côté eFashion mais publishBrouillon a planté : ${msg}. ` +
+                  `Le heal step tentera de la republier automatiquement — si elle reste hors ligne, relancez la synchro.`,
               );
             }
 
@@ -609,10 +646,12 @@ export async function efashionUpdateProductInPlace(
               // toujours en `visible=false` (attendu — sera basculée par le
               // updateProduit final si target.visible=true).
               visible: false,
-              // publishBrouillon a soit réussi (=> "0"), soit throw et été
-              // catché en warn — dans le doute on laisse null. Le heal step
-              // en aval ignore les null pour ne pas re-publier à tort.
-              premel: null,
+              // publishBrouillon OK → "0" (publié). Plantage → "1" (= bloqué
+              // en brouillon) pour que le heal step du MÊME push la republie
+              // au lieu de la laisser invisible côté catalogue acheteurs.
+              // Avant 2026-10-03 on laissait `null` dans le doute, ce qui
+              // faisait sauter le heal (filtre `live?.premel === "1"`).
+              premel: publishBrouillonOk ? "0" : "1",
             });
 
             colorsCreatedCount++;
@@ -1049,6 +1088,46 @@ export async function efashionUpdateProductInPlace(
     }
     if (bjPrimaryEfId !== null && currentMainEfId !== null && bjPrimaryEfId !== currentMainEfId) {
       try {
+        // 0. Pré-rattachement défensif de toutes les variantes NON-main vers
+        //    le futur main. Sans ça, pendant la fenêtre entre l'étape 1 (ancien
+        //    main → main:false) et l'étape 2 (nouveau main → main:true), le
+        //    groupe se retrouve sans main — et les non-main qui pointaient vers
+        //    l'ancien main (via `id_couleur_liee`) deviennent orphelines côté
+        //    eFashion et finissent affichées dans un groupe séparé.
+        //    Bug reproduit sur 15223-2 (Issyma, 2026-10-03) : BF (non-main liée
+        //    à Beige) s'est retrouvée dans un groupe séparé après activation de
+        //    Camel. On repointe BF (et toute autre non-main hors ancien+nouveau
+        //    main) vers bjPrimaryEfId AVANT la bascule.
+        for (const [efId, live] of liveById) {
+          if (efId === currentMainEfId) continue;
+          if (efId === bjPrimaryEfId) continue;
+          if (live.main) continue;
+          const target = targetVariants.find((v) => v.efashionProductId === efId);
+          try {
+            await efashionUpdateProduit({
+              id_produit: efId,
+              id_couleur_liee: bjPrimaryEfId,
+              id_vendeur_marque: live.id_vendeur_marque ?? 3228,
+              prix: target?.prix ?? 0,
+              prixReduit: null,
+              main: false,
+            });
+            logger.info("[eFashion update] Pré-rattachement non-main vers futur main", {
+              productId,
+              efId,
+              futureMain: bjPrimaryEfId,
+            });
+          } catch (err) {
+            // Non bloquant : si une non-main refuse, la bascule main continue.
+            // Le pire cas est le comportement d'avant 2026-10-03.
+            logger.warn("[eFashion update] Pré-rattachement non-main a échoué (non bloquant)", {
+              productId,
+              efId,
+              futureMain: bjPrimaryEfId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
         // 1. Désactiver le main actuel.
         const oldLive = liveById.get(currentMainEfId);
         const oldTarget = targetVariants.find((v) => v.efashionProductId === currentMainEfId);

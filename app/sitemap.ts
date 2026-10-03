@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { VALID_LOCALES, DEFAULT_LOCALE } from "@/i18n/locales";
-import { getCurrentTenantId } from "@/lib/tenant";
+import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { buildProductHandle } from "@/lib/product-url";
 import { PUBLIC_SELLABLE_COLORS_CLAUSE } from "@/lib/public-product-visibility";
 
@@ -11,7 +11,6 @@ const STATIC_PATHS: { path: string; changeFrequency: "daily" | "weekly" | "month
   { path: "/produits", changeFrequency: "daily", priority: 0.9 },
   { path: "/categories", changeFrequency: "weekly", priority: 0.8 },
   { path: "/collections", changeFrequency: "weekly", priority: 0.8 },
-  { path: "/a-propos", changeFrequency: "monthly", priority: 0.6 },
   { path: "/nous-contacter", changeFrequency: "monthly", priority: 0.5 },
   { path: "/cgu", changeFrequency: "yearly", priority: 0.3 },
   { path: "/cgv", changeFrequency: "yearly", priority: 0.3 },
@@ -33,6 +32,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // (résolu par le middleware via le Host header). Sans ça, le sitemap contient
   // les produits des 2 boutiques.
   await getCurrentTenantId();
+  const tenantSlug = await getCurrentTenantSlug();
   // Base URL = host courant (multi-tenant), sinon fallback NEXTAUTH_URL.
   let baseUrl = (process.env.NEXTAUTH_URL || "https://example.com").replace(/\/$/, "");
   try {
@@ -44,8 +44,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
   const now = new Date();
 
+  // /qui-sommes-nous existe uniquement sur Beli & Jolie (slug tenant
+  // `beli-jolie`), page codée en dur propre à cette boutique. On l'injecte
+  // conditionnellement pour qu'Issyma n'expose pas une URL qui renvoie 404.
+  const staticPaths =
+    tenantSlug === "beli-jolie"
+      ? [
+          ...STATIC_PATHS,
+          { path: "/qui-sommes-nous", changeFrequency: "monthly" as const, priority: 0.6 },
+        ]
+      : STATIC_PATHS;
+
   // ── Pages statiques : 1 entrée par page (avec alternates pour les 7 locales) ──
-  const staticPages: MetadataRoute.Sitemap = STATIC_PATHS.flatMap(({ path, changeFrequency, priority }) =>
+  const staticPages: MetadataRoute.Sitemap = staticPaths.flatMap(({ path, changeFrequency, priority }) =>
     VALID_LOCALES.map((locale) => ({
       url: `${baseUrl}/${locale}${path}`,
       lastModified: now,

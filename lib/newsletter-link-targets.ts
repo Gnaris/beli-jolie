@@ -20,7 +20,6 @@ export type LinkTarget =
   | { kind: "category"; id: string; name: string; slug: string }
   | { kind: "collections" }
   | { kind: "collection"; id: string; name: string; slug: string }
-  | { kind: "about" }
   | { kind: "contact" }
   // URL libre entrée par l'admin (domaine inclus). Renvoyée telle quelle par
   // `buildLinkUrl` sans injection de `/fr` ni de baseUrl — c'est la cliente
@@ -46,7 +45,6 @@ export function buildLinkUrl(baseUrl: string, target: LinkTarget): string {
     case "category":     return `${fr}/categories/${target.slug}`;
     case "collections":  return `${fr}/collections`;
     case "collection":   return `${fr}/collections/${target.slug}`;
-    case "about":        return `${fr}/a-propos`;
     case "contact":      return `${fr}/nous-contacter`;
     case "custom":       return target.url.trim();
   }
@@ -67,7 +65,6 @@ export function describeLinkTarget(target: LinkTarget): string {
     case "category":     return `Catégorie — ${target.name}`;
     case "collections":  return "Toutes les collections";
     case "collection":   return `Collection — ${target.name}`;
-    case "about":        return "Qui sommes-nous";
     case "contact":      return "Nous contacter";
     case "custom":       return `Lien personnalisé — ${target.url.trim()}`;
   }

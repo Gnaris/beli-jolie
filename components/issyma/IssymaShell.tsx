@@ -56,7 +56,6 @@ export default async function IssymaShell({
                   {t("issyma.footerHouse")}
                 </p>
                 <ul className="space-y-3 text-sm font-light" style={{ color: `${P.cream}99` }}>
-                  <li><Link href="/a-propos" className="hover:opacity-80 transition">{t("issyma.footerAboutLink")}</Link></li>
                   <li><Link href="/nous-contacter" className="hover:opacity-80 transition">{t("issyma.footerContact")}</Link></li>
                 </ul>
               </div>

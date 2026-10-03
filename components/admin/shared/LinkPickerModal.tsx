@@ -27,7 +27,7 @@ import {
   type LinkTarget,
 } from "@/lib/newsletter-link-targets";
 
-type PickerParent = "home" | "cart" | "products" | "categories" | "collections" | "about" | "contact" | "custom";
+type PickerParent = "home" | "cart" | "products" | "categories" | "collections" | "contact" | "custom";
 
 export interface LinkPickerModalProps {
   /** URL actuellement associée à l'élément — sert à pré-remplir l'input « URL libre » si custom. Vide accepté. */
@@ -292,7 +292,6 @@ export default function LinkPickerModal({
               </div>
             )}
           </div>
-          {parentButton("about", "Qui sommes-nous", "ℹ️", false, { kind: "about" })}
           {parentButton("contact", "Nous contacter", "📞", false, { kind: "contact" })}
 
           {/* Lien personnalisé : URL libre (domaine inclus). Utilisé pour les

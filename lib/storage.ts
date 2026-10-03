@@ -376,11 +376,6 @@ export function newsletterTemplateImageDir(templateId: string, tenantSlug?: stri
   return tenantSlug ? withTenantSlug(base, tenantSlug) : base;
 }
 
-/** Directory key for the 6 photos of the /a-propos public page. */
-export function aboutPhotoDir(tenantSlug?: string): string {
-  return tenantSlug ? withTenantSlug("uploads/a-propos", tenantSlug) : "uploads/a-propos";
-}
-
 /** Directory key for color pattern images. */
 export function colorPatternDir(tenantSlug?: string): string {
   return tenantSlug ? withTenantSlug("uploads/motifs-couleurs", tenantSlug) : "uploads/motifs-couleurs";

@@ -49,6 +49,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { pfsAdminFetchMaterialComposition, normalizeDictKey } from "@/lib/pfs-admin-api";
 import { clampStock } from "@/lib/product-variant-validation";
+import { rotatePrimaryIfNeeded } from "@/lib/rotate-primary-service";
 
 // ─── Types publics ─────────────────────────────────────────────────────────
 
@@ -876,7 +877,7 @@ function buildVariantPullPatch(a: ParsedAction, ctx: ApplyContext, patch: LocalP
   patch.variants.set(local.id, existing);
 }
 
-async function commitLocalPatch(
+export async function commitLocalPatch(
   productId: string,
   local: LocalRow,
   patch: LocalPatch,
@@ -926,6 +927,18 @@ async function commitLocalPatch(
       await tx.productColor.update({ where: { id: variantId }, data: upd });
     }
   });
+
+  // Si un pull a touché le stock ou la visibilité d'une variante, la couleur
+  // principale peut être devenue morte (rupture ou désactivée). On évalue la
+  // rotation en mode immédiat : l'audit auto enchaîne juste après avec une
+  // propagation RESYNC vers les autres marketplaces, qui doit partir avec la
+  // bonne primaryColorId (sinon 1ʳᵉ image poussée = celle de la variante morte).
+  const needsRotationCheck = Array.from(patch.variants.values()).some(
+    (v) => v.stock !== undefined || v.disabled !== undefined,
+  );
+  if (needsRotationCheck) {
+    await rotatePrimaryIfNeeded(productId, { immediate: true });
+  }
 }
 
 // ─── Push produit-level ────────────────────────────────────────────────────
