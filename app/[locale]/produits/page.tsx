@@ -411,6 +411,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           tag: tagId || undefined,
           bestseller: bestseller_,
           isNew: isNew_,
+          minPrice: minPriceParam || undefined,
+          maxPrice: maxPriceParam || undefined,
         }}
       />
     );

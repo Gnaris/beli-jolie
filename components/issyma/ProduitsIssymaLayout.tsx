@@ -7,6 +7,7 @@ import { canSeePrices as canUserSeePrices } from "@/lib/price-visibility";
 import IssymaShell from "@/components/issyma/IssymaShell";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
 import ProduitsIssymaGridClient from "@/components/issyma/ProduitsIssymaGridClient";
+import IssymaPriceFilter from "@/components/issyma/IssymaPriceFilter";
 import type { CarouselProduct } from "@/components/home/ProductCarousel";
 
 const P = ISSYMA_PALETTE;
@@ -31,6 +32,8 @@ interface SelectedFilters {
   q?: string;
   bestseller?: boolean;
   isNew?: boolean;
+  minPrice?: string;
+  maxPrice?: string;
 }
 
 function buildFilterHref(current: SelectedFilters, patch: Partial<SelectedFilters>) {
@@ -44,6 +47,8 @@ function buildFilterHref(current: SelectedFilters, patch: Partial<SelectedFilter
   if (merged.tag) params.set("tag", merged.tag);
   if (merged.bestseller) params.set("bestseller", "1");
   if (merged.isNew) params.set("new", "1");
+  if (merged.minPrice) params.set("minPrice", merged.minPrice);
+  if (merged.maxPrice) params.set("maxPrice", merged.maxPrice);
   const qs = params.toString();
   return `/produits${qs ? `?${qs}` : ""}`;
 }
@@ -215,6 +220,8 @@ export default async function ProduitsIssymaLayout({
   const tHome = await getTranslations("home");
   const locale = await getLocale();
   const session = await getServerSession(authOptions);
+  // Le filtre « Prix » ne s'affiche qu'aux clients qui voient réellement les
+  // prix sur les cartes. Visiteur public ou compte PENDING → section cachée.
   const canSeePrices = canUserSeePrices(session);
   const gridLabels = {
     ctaLabel:         t("issymaAddToCart"),
@@ -231,7 +238,21 @@ export default async function ProduitsIssymaLayout({
   const hasAnyFilter =
     !!(selectedFilters.cat || selectedFilters.collection || selectedFilters.color ||
        selectedFilters.composition || selectedFilters.tag || selectedFilters.q ||
-       selectedFilters.bestseller || selectedFilters.isNew);
+       selectedFilters.bestseller || selectedFilters.isNew ||
+       selectedFilters.minPrice || selectedFilters.maxPrice);
+
+  // Params à préserver quand on applique / efface la fourchette de prix.
+  // On garde string-only (le composant client est agnostique de nos flags).
+  const pricePreserveParams: Record<string, string | undefined> = {
+    q:           selectedFilters.q,
+    cat:         selectedFilters.cat,
+    collection:  selectedFilters.collection,
+    color:       selectedFilters.color,
+    composition: selectedFilters.composition,
+    tag:         selectedFilters.tag,
+    bestseller:  selectedFilters.bestseller ? "1" : undefined,
+    new:         selectedFilters.isNew ? "1" : undefined,
+  };
 
   return (
     <IssymaShell shopName={shopName}>
@@ -362,6 +383,18 @@ export default async function ProduitsIssymaLayout({
                       options={tags}
                       paramKey="tag"
                       selected={selectedFilters}
+                    />
+                  )}
+                  {canSeePrices && (
+                    <IssymaPriceFilter
+                      title={t("issymaFilterPrice")}
+                      minLabel={t("issymaFilterPriceMin")}
+                      maxLabel={t("issymaFilterPriceMax")}
+                      applyLabel={t("issymaFilterPriceApply")}
+                      clearLabel={t("issymaFilterPriceClear")}
+                      initialMin={selectedFilters.minPrice ?? ""}
+                      initialMax={selectedFilters.maxPrice ?? ""}
+                      preserveParams={pricePreserveParams}
                     />
                   )}
                 </>
