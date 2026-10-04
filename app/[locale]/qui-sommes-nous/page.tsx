@@ -17,7 +17,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   await getCurrentTenantId();
   const slug = await getCurrentTenantSlug();
-  if (slug !== "beli-jolie") return {};
+  if (slug !== "beliandjolie") return {};
   const { locale } = await params;
   const alternates = await buildAlternates("/qui-sommes-nous", locale);
   return {
@@ -31,7 +31,7 @@ export async function generateMetadata({
 export default async function QuiSommesNousPage() {
   await getCurrentTenantId();
   const tenantSlug = await getCurrentTenantSlug();
-  if (tenantSlug !== "beli-jolie") notFound();
+  if (tenantSlug !== "beliandjolie") notFound();
 
   const [shopName, productCount] = await Promise.all([
     getCachedShopName(),
@@ -39,7 +39,7 @@ export default async function QuiSommesNousPage() {
   ]);
   // Formatage à la française : 2500 → "2 500" (espace fine insécable).
   const productCountFmt = new Intl.NumberFormat("fr-FR").format(productCount);
-  const IMG = "/uploads/beli-jolie/qui-sommes-nous";
+  const IMG = "/uploads/beliandjolie/qui-sommes-nous";
 
   return (
     <div className="min-h-screen bg-bg-primary relative">

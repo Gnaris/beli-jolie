@@ -45,10 +45,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
 
   // /qui-sommes-nous existe uniquement sur Beli & Jolie (slug tenant
-  // `beli-jolie`), page codée en dur propre à cette boutique. On l'injecte
+  // `beliandjolie`), page codée en dur propre à cette boutique. On l'injecte
   // conditionnellement pour qu'Issyma n'expose pas une URL qui renvoie 404.
   const staticPaths =
-    tenantSlug === "beli-jolie"
+    tenantSlug === "beliandjolie"
       ? [
           ...STATIC_PATHS,
           { path: "/qui-sommes-nous", changeFrequency: "monthly" as const, priority: 0.6 },
