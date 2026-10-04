@@ -37,8 +37,8 @@ export function buildDefaultCategorySeo(ctx: DefaultsContext): CategorySeoConten
   if (locale === "en") {
     return {
       title: `Wholesale ${lowerName} — ${shopName}`,
-      intro: `Discover the ${shopName} wholesale selection of ${lowerName} for independent boutiques and concept stores. Professional pricing, accessible minimum order, delivery within 48–72 h across France and Europe.`,
-      secondary: `Our ${lowerName} are hand-picked from certified European and Asian manufacturers. Sizes and colours are refreshed every season — each product page shows the current stock in real time.`,
+      intro: `Discover the ${shopName} wholesale selection of ${lowerName} for independent boutiques and concept stores. Professional pricing, accessible minimum order, dispatch within 24–48 business hours. Transit time depends on the carrier and destination.`,
+      secondary: `Our ${lowerName} selection is built with our manufacturers and partners based on current trends and the needs of professional boutiques. Sizes and colours are refreshed every season — each product page shows the current stock in real time.`,
       // FAQ vide par défaut : la section n'apparaît sur la page publique que
       // si l'admin a saisi au moins 1 question. Évite les FAQ génériques qui
       // se ressemblent d'une catégorie à l'autre (mauvais SEO).
@@ -48,8 +48,8 @@ export function buildDefaultCategorySeo(ctx: DefaultsContext): CategorySeoConten
 
   return {
     title: `Grossiste ${lowerName} — ${shopName}`,
-    intro: `Découvrez la sélection ${shopName} de ${lowerName} pour boutiques indépendantes et concept stores. Prix professionnels, minimum de commande accessible, livraison sous 48-72 h en France et en Europe.`,
-    secondary: `Nos ${lowerName} sont sélectionné·es auprès de fabricants européens et asiatiques certifiés. Tailles et coloris renouvelés chaque saison — chaque fiche produit indique le stock disponible en temps réel.`,
+    intro: `Découvrez la sélection ${shopName} de ${lowerName} pour boutiques indépendantes et concept stores. Prix professionnels, minimum de commande accessible, préparation sous 24–48 h ouvrées. Le délai de transport dépend du transporteur et de la destination.`,
+    secondary: `Notre sélection de ${lowerName} est composée avec nos fabricants et partenaires selon les tendances et les besoins des boutiques professionnelles. Tailles et coloris renouvelés chaque saison — chaque fiche produit indique le stock disponible en temps réel.`,
     faq: [],
   };
 }

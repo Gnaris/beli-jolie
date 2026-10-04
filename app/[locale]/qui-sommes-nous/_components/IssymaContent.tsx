@@ -1,47 +1,99 @@
 import Image from "next/image";
 import { Link } from "@/i18n/navigation";
+import { getLocale, getTranslations } from "next-intl/server";
+import { ISSYMA_PALETTE } from "@/components/issyma/theme";
+import {
+  DEFAULT_BUSINESS_HOURS,
+  formatScheduleForDisplay,
+  type BusinessHoursSchedule,
+} from "@/lib/business-hours";
+import { getCachedBusinessHours, getCachedCompanyInfo } from "@/lib/cached-data";
 
 const IMG = "/uploads/issyma/qui-sommes-nous";
+const P = ISSYMA_PALETTE;
 
-export default function IssymaContent() {
+type AddressLines = {
+  line1: string | null;
+  line2: string | null;
+};
+
+function buildAddressLines(
+  info: { address: string | null; city: string | null; postalCode: string | null } | null,
+): AddressLines {
+  const line1 = info?.address?.trim() || null;
+  const cityParts = [info?.postalCode?.trim(), info?.city?.trim()].filter(
+    (part): part is string => Boolean(part && part.length > 0),
+  );
+  const line2 = cityParts.length > 0 ? cityParts.join(" ") : null;
+  return { line1, line2 };
+}
+
+function buildMapsHref(info: { address: string | null; city: string | null; postalCode: string | null } | null): string {
+  const parts = [info?.address, info?.postalCode, info?.city].filter(
+    (part): part is string => Boolean(part && part.trim().length > 0),
+  );
+  const query = parts.length > 0 ? parts.join(" ") : "CIFA Aubervilliers";
+  return `https://maps.google.com/?q=${encodeURIComponent(query)}`;
+}
+
+export default async function IssymaContent() {
+  const [t, locale, companyInfo, businessHoursRaw] = await Promise.all([
+    getTranslations("qsnIssyma"),
+    getLocale(),
+    getCachedCompanyInfo(),
+    getCachedBusinessHours(),
+  ]);
+
+  const schedule: BusinessHoursSchedule = businessHoursRaw ?? DEFAULT_BUSINESS_HOURS;
+  const scheduleRows = formatScheduleForDisplay(schedule, locale);
+  const addressLines = buildAddressLines(companyInfo);
+  const mapsHref = buildMapsHref(companyInfo);
+
   return (
-    <main className="relative z-10 bg-bg-primary">
+    <main className="relative z-10" style={{ background: P.paper }}>
       {/* 1 · HERO split 50/50 */}
       <section className="relative overflow-hidden">
         <div className="grid lg:grid-cols-12 min-h-[82vh]">
-          <div className="lg:col-span-6 flex items-center bg-bg-primary">
+          <div className="lg:col-span-6 flex items-center" style={{ background: P.paper }}>
             <div className="px-6 md:px-10 lg:px-16 py-16 lg:py-0 max-w-xl">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                À propos de nous
-              </p>
+              <p className="eyebrow mb-6">{t("heroEyebrow")}</p>
               <h1
-                className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
-                style={{ fontSize: "clamp(2.5rem, 5.2vw, 4.75rem)", letterSpacing: "-0.03em" }}
+                className="serif font-extrabold tracking-tight leading-[0.95]"
+                style={{
+                  fontSize: "clamp(2.5rem, 5.2vw, 4.75rem)",
+                  letterSpacing: "-0.03em",
+                  color: P.ink,
+                }}
               >
-                Une histoire
+                {t("heroTitle1")}
                 <br />
-                <span className="italic font-light">au service des boutiques.</span>
+                <span className="italic font-light" style={{ color: P.wine700 }}>
+                  {t("heroTitle2")}
+                </span>
               </h1>
-              <p className="mt-8 text-text-secondary text-lg leading-relaxed max-w-md font-body">
-                <strong className="text-text-primary font-semibold">ISSYMA — FORCYMA</strong> est un
-                grossiste en prêt-à-porter féminin dédié aux professionnels de la mode. Nous
-                sélectionnons avec passion des collections tendance, accessibles et de qualité pour
-                accompagner les boutiques et détaillants dans leur réussite au quotidien.
+              <p
+                className="mt-8 text-lg leading-relaxed max-w-md"
+                style={{ color: P.inkSoft }}
+              >
+                <strong style={{ color: P.ink }} className="font-semibold">
+                  {t("heroDescLead")}
+                </strong>
+                {t("heroDescRest")}
               </p>
               <div className="mt-10 flex flex-wrap items-center gap-4">
                 <Link
                   href="/inscription"
-                  className="inline-flex items-center gap-2 rounded-full bg-bg-dark text-text-inverse text-sm font-heading font-semibold px-6 py-3 hover:opacity-90 transition"
+                  className="btn-wine inline-flex items-center gap-2 rounded-full text-sm font-semibold px-6 py-3"
                 >
-                  Créer un compte professionnel <span aria-hidden>→</span>
+                  {t("heroCta")} <span aria-hidden>→</span>
                 </Link>
               </div>
             </div>
           </div>
-          <div className="lg:col-span-6 relative min-h-[400px] lg:min-h-0 bg-bg-tertiary">
+          <div className="lg:col-span-6 relative min-h-[400px] lg:min-h-0" style={{ background: P.blush50 }}>
             <Image
               src={`${IMG}/boutique-interior.png`}
-              alt="Intérieur du showroom ISSYMA – FORCYMA au CIFA d'Aubervilliers"
+              alt={t("heroImageAlt")}
               fill
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-cover"
@@ -52,40 +104,40 @@ export default function IssymaContent() {
       </section>
 
       {/* 2 · 4 FEATURE TILES — flat, icon only */}
-      <section className="bg-bg-primary border-y border-border">
+      <section style={{ background: P.paper, borderTop: `1px solid ${P.borderSoft}`, borderBottom: `1px solid ${P.borderSoft}` }}>
         <div className="max-w-[1300px] mx-auto px-6 lg:px-10 py-20 lg:py-24">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-14">
             <FeatureTile
               icon={<IconHanger />}
-              title="Plus de 400 références"
-              body="Un large choix de modèles sans cesse renouvelés."
+              title={t("feature1Title")}
+              body={t("feature1Body")}
             />
             <FeatureTile
               icon={<IconTag />}
-              title="Vente à l'unité"
-              body="Pas d'obligation de palettes, flexibilité totale pour les professionnels."
+              title={t("feature2Title")}
+              body={t("feature2Body")}
             />
             <FeatureTile
               icon={<IconClockArrow />}
-              title="Préparation 24-48 h"
-              body="Vos commandes rapidement préparées et expédiées."
+              title={t("feature3Title")}
+              body={t("feature3Body")}
             />
             <FeatureTile
               icon={<IconGlobe />}
-              title="France & Europe"
-              body="Expédition en France et dans toute l'Europe."
+              title={t("feature4Title")}
+              body={t("feature4Body")}
             />
           </div>
         </div>
       </section>
 
       {/* 3 · PASSION POUR LA MODE — image gauche + texte droite */}
-      <section className="bg-bg-primary">
+      <section style={{ background: P.paper }}>
         <div className="max-w-[1400px] mx-auto grid lg:grid-cols-12">
-          <div className="lg:col-span-6 relative min-h-[500px] bg-bg-tertiary">
+          <div className="lg:col-span-6 relative min-h-[500px]" style={{ background: P.blush50 }}>
             <Image
               src={`${IMG}/collections-mailles.png`}
-              alt="Collections ISSYMA – FORCYMA, pièces en maille et portants"
+              alt={t("passionImageAlt")}
               fill
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-cover"
@@ -93,69 +145,73 @@ export default function IssymaContent() {
           </div>
           <div className="lg:col-span-6 px-6 md:px-10 lg:px-20 py-20 lg:py-32 flex items-center">
             <div className="max-w-xl">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                Notre philosophie
-              </p>
+              <p className="eyebrow mb-6">{t("passionEyebrow")}</p>
               <h2
-                className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
-                style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
+                className="serif font-extrabold tracking-tight leading-[0.95]"
+                style={{
+                  fontSize: "clamp(2rem, 4vw, 3rem)",
+                  letterSpacing: "-0.03em",
+                  color: P.ink,
+                }}
               >
-                Une passion pour la mode
+                {t("passionTitle1")}
                 <br />
-                <span className="italic font-light">et pour les professionnels.</span>
+                <span className="italic font-light" style={{ color: P.wine700 }}>
+                  {t("passionTitle2")}
+                </span>
               </h2>
-              <p className="mt-8 text-text-secondary leading-relaxed font-body">
-                ISSYMA — FORCYMA sélectionne les meilleures tendances au fil des saisons. Pour chaque
-                collection, nous choisissons des pièces soigneusement sourcées et des matières de
-                qualité à des prix compétitifs.
+              <p className="mt-8 leading-relaxed" style={{ color: P.inkSoft }}>
+                {t("passionP1")}
               </p>
-              <p className="mt-4 text-text-secondary leading-relaxed font-body">
-                Notre objectif : vous permettre de proposer à votre clientèle de petites comme de
-                grandes pépites, saison après saison.
+              <p className="mt-4 leading-relaxed" style={{ color: P.inkSoft }}>
+                {t("passionP2")}
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 4 · SHOWROOM — bande gris chaud, texte gauche + image droite */}
-      <section id="showroom" className="bg-bg-tertiary">
+      {/* 4 · SHOWROOM — bande rose poudré, texte gauche + image droite */}
+      <section id="showroom" style={{ background: P.blush50 }}>
         <div className="max-w-[1400px] mx-auto grid lg:grid-cols-12">
           <div className="lg:col-span-6 px-6 md:px-10 lg:px-20 py-20 lg:py-32 flex items-center">
             <div className="max-w-xl">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                Le showroom
-              </p>
+              <p className="eyebrow mb-6">{t("showroomEyebrow")}</p>
               <h2
-                className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
-                style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
+                className="serif font-extrabold tracking-tight leading-[0.95]"
+                style={{
+                  fontSize: "clamp(2rem, 4vw, 3rem)",
+                  letterSpacing: "-0.03em",
+                  color: P.ink,
+                }}
               >
-                Découvrez nos collections
+                {t("showroomTitle1")}
                 <br />
-                <span className="italic font-light">en showroom.</span>
+                <span className="italic font-light" style={{ color: P.wine700 }}>
+                  {t("showroomTitle2")}
+                </span>
               </h2>
-              <p className="mt-8 text-text-secondary leading-relaxed font-body">
-                Nous vous accueillons au{" "}
-                <strong className="text-text-primary">CIFA d&apos;Aubervilliers</strong> pour
-                découvrir nos collections en vrai, les toucher, les essayer et échanger avec notre
-                équipe. Une expérience privilégiée pour affiner vos sélections commerciales.
+              <p className="mt-8 leading-relaxed" style={{ color: P.inkSoft }}>
+                {t("showroomDescLead")}
+                <strong style={{ color: P.ink }}>{t("showroomDescStrong")}</strong>
+                {t("showroomDescRest")}
               </p>
               <div className="mt-10 flex flex-wrap gap-3">
                 <a
-                  href="https://maps.google.com/?q=CIFA+Aubervilliers+Lot+143"
+                  href={mapsHref}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full border border-border bg-bg-primary text-text-primary text-sm font-heading font-semibold px-6 py-3 hover:bg-bg-secondary transition"
+                  className="btn-outline-wine inline-flex items-center gap-2 rounded-full text-sm font-semibold px-6 py-3"
                 >
-                  Voir l&apos;itinéraire <span aria-hidden>→</span>
+                  {t("showroomItinerary")} <span aria-hidden>→</span>
                 </a>
               </div>
             </div>
           </div>
-          <div className="lg:col-span-6 relative min-h-[500px] bg-bg-secondary">
+          <div className="lg:col-span-6 relative min-h-[500px]" style={{ background: P.cream }}>
             <Image
               src={`${IMG}/boutique-interior.png`}
-              alt="Showroom ISSYMA – FORCYMA, pièces disposées en boutique"
+              alt={t("showroomImageAlt")}
               fill
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-cover"
@@ -165,12 +221,12 @@ export default function IssymaContent() {
       </section>
 
       {/* 5 · NOTRE ÉQUIPE — photo gauche + texte & 3 mini-cards droite */}
-      <section className="bg-bg-primary border-t border-border">
+      <section style={{ background: P.paper, borderTop: `1px solid ${P.borderSoft}` }}>
         <div className="max-w-[1400px] mx-auto grid lg:grid-cols-12">
-          <div className="lg:col-span-6 relative min-h-[520px] bg-bg-tertiary">
+          <div className="lg:col-span-6 relative min-h-[520px]" style={{ background: P.blush50 }}>
             <Image
               src={`${IMG}/team-boutique.png`}
-              alt="L'équipe ISSYMA – FORCYMA accueillant des professionnelles autour d'une sélection"
+              alt={t("teamImageAlt")}
               fill
               sizes="(max-width: 1024px) 100vw, 50vw"
               className="object-cover"
@@ -178,35 +234,38 @@ export default function IssymaContent() {
           </div>
           <div className="lg:col-span-6 px-6 md:px-10 lg:px-20 py-20 lg:py-28 flex items-center">
             <div className="max-w-xl w-full">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                Notre équipe
-              </p>
+              <p className="eyebrow mb-6">{t("teamEyebrow")}</p>
               <h2
-                className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
-                style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
+                className="serif font-extrabold tracking-tight leading-[0.95]"
+                style={{
+                  fontSize: "clamp(2rem, 4vw, 3rem)",
+                  letterSpacing: "-0.03em",
+                  color: P.ink,
+                }}
               >
-                Une équipe <span className="italic font-light">à votre écoute.</span>
+                {t("teamTitle1")}{" "}
+                <span className="italic font-light" style={{ color: P.wine700 }}>
+                  {t("teamTitle2")}
+                </span>
               </h2>
-              <p className="mt-8 text-text-secondary leading-relaxed font-body">
-                Notre équipe vous accompagne au quotidien : conseil, suivi des collections,
-                informations sur les nouveautés. Nous mettons notre savoir-faire au service de la
-                mode féminine pour que vos clientes trouvent toujours leur bonheur.
+              <p className="mt-8 leading-relaxed" style={{ color: P.inkSoft }}>
+                {t("teamDesc")}
               </p>
               <div className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-6">
                 <TeamMini
                   icon={<IconHeart />}
-                  title="Conseil personnalisé"
-                  body="Un suivi humain et des réponses adaptées."
+                  title={t("team1Title")}
+                  body={t("team1Body")}
                 />
                 <TeamMini
                   icon={<IconChat />}
-                  title="Suivi régulier"
-                  body="Un contact direct avec notre équipe."
+                  title={t("team2Title")}
+                  body={t("team2Body")}
                 />
                 <TeamMini
                   icon={<IconShield />}
-                  title="Service après-vente"
-                  body="Une équipe disponible pour vos retours."
+                  title={t("team3Title")}
+                  body={t("team3Body")}
                 />
               </div>
             </div>
@@ -215,50 +274,53 @@ export default function IssymaContent() {
       </section>
 
       {/* 6 · NOUVEAUTÉS — texte gauche + mosaïque de 4 vignettes droite */}
-      <section className="bg-bg-secondary border-y border-border">
+      <section style={{ background: P.blush50, borderTop: `1px solid ${P.borderSoft}`, borderBottom: `1px solid ${P.borderSoft}` }}>
         <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-24 lg:py-28 grid lg:grid-cols-12 gap-10 lg:gap-16 items-center">
           <div className="lg:col-span-5">
-            <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">
-              Nos collections toujours renouvelées
-            </p>
+            <p className="eyebrow mb-4">{t("newsEyebrow")}</p>
             <h2
-              className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
-              style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
+              className="serif font-extrabold tracking-tight leading-[0.95]"
+              style={{
+                fontSize: "clamp(2rem, 4vw, 3rem)",
+                letterSpacing: "-0.03em",
+                color: P.ink,
+              }}
             >
-              Des nouveautés <span className="italic font-light">chaque semaine.</span>
+              {t("newsTitle1")}{" "}
+              <span className="italic font-light" style={{ color: P.wine700 }}>
+                {t("newsTitle2")}
+              </span>
             </h2>
-            <p className="mt-8 text-text-secondary leading-relaxed font-body">
-              Nous renouvelons régulièrement notre catalogue avec les dernières pièces des grandes
-              marques et nos nouvelles créations. Que vous recherchiez une pièce intemporelle ou le
-              dernier it-item, vous le trouverez dans la boutique.
+            <p className="mt-8 leading-relaxed" style={{ color: P.inkSoft }}>
+              {t("newsDesc")}
             </p>
             <Link
               href="/produits"
-              className="mt-8 inline-flex items-center gap-2 rounded-full bg-bg-dark text-text-inverse text-sm font-heading font-semibold px-6 py-3 hover:opacity-90 transition"
+              className="btn-wine mt-8 inline-flex items-center gap-2 rounded-full text-sm font-semibold px-6 py-3"
             >
-              Voir les nouveautés <span aria-hidden>→</span>
+              {t("newsCta")} <span aria-hidden>→</span>
             </Link>
           </div>
           <div className="lg:col-span-7">
             <div className="grid grid-cols-2 gap-3 md:gap-4">
               <NewsThumb
                 src={`${IMG}/collections-mailles.png`}
-                alt="Portants de pièces en maille"
+                alt={t("newsAlt1")}
                 position="left center"
               />
               <NewsThumb
                 src={`${IMG}/team-boutique.png`}
-                alt="Blouse bordeaux en vitrine"
+                alt={t("newsAlt2")}
                 position="center center"
               />
               <NewsThumb
                 src={`${IMG}/collections-mailles.png`}
-                alt="Pulls en maille empilés"
+                alt={t("newsAlt3")}
                 position="right center"
               />
               <NewsThumb
                 src={`${IMG}/boutique-interior.png`}
-                alt="Détail d'un présentoir au showroom"
+                alt={t("newsAlt4")}
                 position="30% center"
               />
             </div>
@@ -266,66 +328,86 @@ export default function IssymaContent() {
         </div>
       </section>
 
-      {/* 7 · INFOS PRATIQUES — 3 colonnes, icon only */}
-      <section className="bg-bg-primary">
+      {/* 7 · INFOS PRATIQUES — adresse (BDD) + horaires (7 jours) + accès */}
+      <section style={{ background: P.paper }}>
         <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-20 lg:py-24">
-          <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-12 text-center">
-            Nos informations pratiques
-          </p>
+          <p className="eyebrow mb-12 text-center">{t("practicalEyebrow")}</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10 lg:gap-14">
             <InfoTile
               icon={<IconPin />}
-              title="CIFA — Lot 143"
-              lines={["6 rue de la Haie Coq", "93300 Aubervilliers"]}
-            />
+              title={t("practicalAddressTitle")}
+            >
+              <div className="font-body text-[15px] leading-relaxed space-y-0.5" style={{ color: P.ink }}>
+                <p>{addressLines.line1 ?? t("practicalAddressFallbackLine1")}</p>
+                <p>{addressLines.line2 ?? t("practicalAddressFallbackLine2")}</p>
+              </div>
+            </InfoTile>
             <InfoTile
               icon={<IconClockArrow />}
-              title="Horaires d'ouverture"
-              lines={["Lun — Ven · 9 h — 18 h", "Sam · 10 h — 16 h"]}
-            />
+              title={t("practicalHoursTitle")}
+            >
+              <ul className="space-y-1 text-[14px] font-body" style={{ color: P.ink }}>
+                {scheduleRows.map((row) => (
+                  <li key={row.day} className="flex items-center justify-between gap-4">
+                    <span style={{ color: P.inkSoft }}>{row.day}</span>
+                    <span>{row.hours}</span>
+                  </li>
+                ))}
+              </ul>
+            </InfoTile>
             <InfoTile
               icon={<IconMetro />}
-              title="Accès"
-              lines={["Facilement accessible", "en transports en commun"]}
-            />
+              title={t("practicalAccessTitle")}
+            >
+              <div className="font-body text-[15px] leading-relaxed space-y-0.5" style={{ color: P.ink }}>
+                <p>{t("practicalAccessLine1")}</p>
+                <p>{t("practicalAccessLine2")}</p>
+              </div>
+            </InfoTile>
           </div>
         </div>
       </section>
 
-      {/* 8 · CTA FINAL — section sombre */}
-      <section id="cta" className="bg-bg-dark text-text-inverse">
-        <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-24 lg:py-32 text-center">
-          <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-6">
-            Professionnels de la mode
+      {/* 8 · CTA FINAL — wine-panel bordeaux */}
+      <section id="cta" className="wine-panel" style={{ color: P.cream }}>
+        <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-24 lg:py-32 text-center relative z-10">
+          <p
+            className="text-[11px] uppercase mb-6"
+            style={{ color: `${P.cream}99`, letterSpacing: "0.4em" }}
+          >
+            {t("ctaEyebrow")}
           </p>
           <h2
-            className="font-heading font-extrabold text-text-inverse tracking-tight leading-[0.95]"
-            style={{ fontSize: "clamp(2.25rem, 5vw, 4rem)", letterSpacing: "-0.03em" }}
+            className="serif font-extrabold tracking-tight leading-[0.95]"
+            style={{
+              fontSize: "clamp(2.25rem, 5vw, 4rem)",
+              letterSpacing: "-0.03em",
+              color: P.cream,
+            }}
           >
-            Prêt à découvrir{" "}
-            <span className="italic font-light">le catalogue&nbsp;?</span>
+            {t("ctaTitle1")}{" "}
+            <span className="italic font-light">{t("ctaTitle2")}</span>
           </h2>
-          <p className="mt-8 text-white/80 text-lg leading-relaxed max-w-2xl mx-auto font-body">
-            Accédez à l&apos;ensemble de nos références et bénéficiez de prix de gros grâce à votre
-            compte professionnel.
+          <p
+            className="mt-8 text-lg leading-relaxed max-w-2xl mx-auto"
+            style={{ color: `${P.cream}cc` }}
+          >
+            {t("ctaDesc")}
           </p>
           <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/inscription"
-              className="inline-flex items-center gap-2 rounded-full bg-white text-text-primary text-sm font-heading font-semibold px-7 py-4 hover:bg-white/90 transition"
+              className="btn-cream inline-flex items-center gap-2 rounded-full text-sm font-semibold px-7 py-4"
             >
-              Créer un compte professionnel <span aria-hidden>→</span>
+              {t("ctaButton")} <span aria-hidden>→</span>
             </Link>
             <Link
               href="/produits"
-              className="inline-flex items-center gap-2 rounded-full border border-white/30 text-text-inverse text-sm font-heading font-semibold px-7 py-4 hover:bg-white/10 transition"
+              className="btn-outline-cream inline-flex items-center gap-2 rounded-full text-sm font-semibold px-7 py-4"
             >
-              Voir le catalogue
+              {t("ctaSecondary")}
             </Link>
           </div>
-          <p className="mt-8 text-white/50 text-xs uppercase tracking-[0.3em]">
-            KBIS validé sous 24 h · 100 % gratuit
-          </p>
         </div>
       </section>
     </main>
@@ -347,9 +429,15 @@ function FeatureTile({
 }) {
   return (
     <div>
-      <div className="text-text-primary mb-5">{icon}</div>
-      <h3 className="font-heading font-semibold text-text-primary text-base mb-2">{title}</h3>
-      <p className="text-text-secondary text-[14px] leading-relaxed font-body">{body}</p>
+      <div className="mb-5" style={{ color: P.wine700 }}>
+        {icon}
+      </div>
+      <h3 className="serif font-semibold text-base mb-2" style={{ color: P.ink }}>
+        {title}
+      </h3>
+      <p className="text-[14px] leading-relaxed" style={{ color: P.inkSoft }}>
+        {body}
+      </p>
     </div>
   );
 }
@@ -365,9 +453,15 @@ function TeamMini({
 }) {
   return (
     <div>
-      <div className="text-text-primary mb-3">{icon}</div>
-      <h3 className="font-heading font-semibold text-text-primary text-sm mb-1">{title}</h3>
-      <p className="text-text-secondary text-[13px] leading-relaxed font-body">{body}</p>
+      <div className="mb-3" style={{ color: P.wine700 }}>
+        {icon}
+      </div>
+      <h3 className="serif font-semibold text-sm mb-1" style={{ color: P.ink }}>
+        {title}
+      </h3>
+      <p className="text-[13px] leading-relaxed" style={{ color: P.inkSoft }}>
+        {body}
+      </p>
     </div>
   );
 }
@@ -375,21 +469,24 @@ function TeamMini({
 function InfoTile({
   icon,
   title,
-  lines,
+  children,
 }: {
   icon: React.ReactNode;
   title: string;
-  lines: string[];
+  children: React.ReactNode;
 }) {
   return (
     <div>
-      <div className="text-text-primary mb-5">{icon}</div>
-      <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-3">{title}</p>
-      <div className="text-text-primary font-body text-[15px] leading-relaxed space-y-0.5">
-        {lines.map((line, i) => (
-          <p key={i}>{line}</p>
-        ))}
+      <div className="mb-5" style={{ color: P.wine700 }}>
+        {icon}
       </div>
+      <p
+        className="text-[11px] uppercase mb-3"
+        style={{ color: P.wine700, letterSpacing: "0.3em", fontWeight: 600 }}
+      >
+        {title}
+      </p>
+      {children}
     </div>
   );
 }
@@ -404,7 +501,10 @@ function NewsThumb({
   position: string;
 }) {
   return (
-    <div className="relative aspect-square overflow-hidden rounded-2xl bg-bg-tertiary">
+    <div
+      className="relative aspect-square overflow-hidden rounded-2xl"
+      style={{ background: P.cream }}
+    >
       <Image
         src={src}
         alt={alt}

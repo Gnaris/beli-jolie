@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
+import { getTranslations } from "next-intl/server";
 import { getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
 import { getCurrentTenantId } from "@/lib/tenant";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import IssymaShell from "@/components/issyma/IssymaShell";
 import IssymaContent from "./_components/IssymaContent";
 
 export const revalidate = 7200;
@@ -33,10 +35,10 @@ export async function generateMetadata({
 
   if (slug === "issyma") {
     const alternates = await buildAlternates("/qui-sommes-nous", locale);
+    const t = await getTranslations({ locale, namespace: "qsnIssyma" });
     return {
-      title: "Qui sommes-nous — ISSYMA · FORCYMA",
-      description:
-        "ISSYMA — FORCYMA, grossiste en prêt-à-porter féminin au CIFA d'Aubervilliers. Collections tendance, vente à l'unité, préparation 24-48 h, expédition France & Europe. Compte professionnel gratuit.",
+      title: t("metaTitle"),
+      description: t("metaDescription"),
       alternates,
     };
   }
@@ -51,11 +53,9 @@ export default async function QuiSommesNousPage() {
   if (tenantSlug === "issyma") {
     const shopName = await getCachedShopName();
     return (
-      <div className="min-h-screen bg-bg-primary relative">
-        <PublicSidebar shopName={shopName} tenantSlug={tenantSlug} />
+      <IssymaShell shopName={shopName}>
         <IssymaContent />
-        <Footer shopName={shopName} />
-      </div>
+      </IssymaShell>
     );
   }
 
