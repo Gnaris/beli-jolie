@@ -224,7 +224,7 @@ export default async function ProduitsIssymaLayout({
   // prix sur les cartes. Visiteur public ou compte PENDING → section cachée.
   const canSeePrices = canUserSeePrices(session);
   const gridLabels = {
-    ctaLabel:         t("issymaAddToCart"),
+    ctaLabel:         t("issymaViewProduct"),
     pricePromptLabel: tHome("issyma.cardPricePro"),
     badgeLabel:       t("issymaBestSellerBadge"),
     refLabel:         t("issymaRefLabel"),
