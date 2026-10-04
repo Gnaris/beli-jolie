@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import IssymaShell from "@/components/issyma/IssymaShell";
 import ProductGridIssyma from "@/components/issyma/ProductGridIssyma";
+import Pagination from "@/components/ui/Pagination";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
 import type { CarouselProduct } from "@/components/home/ProductCarousel";
 
@@ -30,6 +31,11 @@ export default async function CategoryDetailIssymaLayout({
   seoSecondary,
   subCategories,
   products,
+  totalProducts,
+  totalPages,
+  currentPage,
+  productsPerPage,
+  prefetchImageUrls,
   relatedCategories,
 }: {
   shopName: string;
@@ -41,6 +47,11 @@ export default async function CategoryDetailIssymaLayout({
   seoSecondary: string;
   subCategories: CategoryDetailIssymaSubCategory[];
   products: CarouselProduct[];
+  totalProducts: number;
+  totalPages: number;
+  currentPage: number;
+  productsPerPage: number;
+  prefetchImageUrls: string[];
   relatedCategories: CategoryDetailIssymaRelated[];
 }) {
   const t = await getTranslations("categoryDetail");
@@ -68,7 +79,7 @@ export default async function CategoryDetailIssymaLayout({
           <div className={`grid ${heroMosaic.length >= 4 ? "lg:grid-cols-[1.35fr_1fr]" : "grid-cols-1"} gap-8 lg:gap-12 items-start`}>
             <div>
               <p className="eyebrow" style={{ color: `${P.cream2}cc` }}>
-                {t("eyebrow", { count: products.length })}
+                {t("eyebrow", { count: totalProducts })}
               </p>
               <h1
                 className="serif mt-6"
@@ -142,16 +153,29 @@ export default async function CategoryDetailIssymaLayout({
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-16 lg:py-20">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-12">
             <div>
-              <p className="eyebrow mb-4"><span className="wine-underline" />{tHome("issyma.newProductsEyebrow" as never)}</p>
+              <p className="eyebrow mb-4"><span className="wine-underline" />{tHome("issyma.catEyebrow")}</p>
               <h2 className="serif text-3xl sm:text-4xl leading-tight" style={{ color: P.ink }}>
                 {t("productsHeading", { name: categoryName })}
               </h2>
             </div>
             <p className="text-[12px] tracking-[0.22em] uppercase font-semibold" style={{ color: P.muted }}>
-              {t("productsCount", { count: products.length })}
+              {t("productsCount", { count: totalProducts })}
             </p>
           </div>
           <ProductGridIssyma products={products} emptyLabel={t("empty")} />
+          {totalPages > 1 && (
+            <div className="mt-10 rounded-2xl bg-white overflow-hidden" style={{ border: `1px solid ${P.borderSoft}` }}>
+              <Pagination
+                totalItems={totalProducts}
+                perPage={productsPerPage}
+                currentPage={currentPage}
+                itemLabel={t("paginationItemLabel")}
+                showLoadingOverlay
+                prefetchRange={5}
+                prefetchImageUrls={prefetchImageUrls}
+              />
+            </div>
+          )}
         </div>
       </section>
 

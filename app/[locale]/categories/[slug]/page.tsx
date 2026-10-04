@@ -439,6 +439,11 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
           slug: sub.slug ?? null,
         }))}
         products={issymaProducts}
+        totalProducts={totalProducts}
+        totalPages={totalPages}
+        currentPage={currentPage}
+        productsPerPage={PRODUCTS_PER_PAGE}
+        prefetchImageUrls={prefetchImageUrls}
         relatedCategories={relatedWithProducts.map((rc) => ({
           id: rc.id,
           slug: rc.slug,
