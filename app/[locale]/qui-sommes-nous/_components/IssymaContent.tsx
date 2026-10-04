@@ -7,7 +7,7 @@ import {
   formatScheduleForDisplay,
   type BusinessHoursSchedule,
 } from "@/lib/business-hours";
-import { getCachedBusinessHours, getCachedCompanyInfo } from "@/lib/cached-data";
+import { getCachedBusinessHours, getCachedCompanyInfo, getCachedProductCount } from "@/lib/cached-data";
 
 const IMG = "/uploads/issyma/qui-sommes-nous";
 const P = ISSYMA_PALETTE;
@@ -37,11 +37,12 @@ function buildMapsHref(info: { address: string | null; city: string | null; post
 }
 
 export default async function IssymaContent() {
-  const [t, locale, companyInfo, businessHoursRaw] = await Promise.all([
+  const [t, locale, companyInfo, businessHoursRaw, productCount] = await Promise.all([
     getTranslations("qsnIssyma"),
     getLocale(),
     getCachedCompanyInfo(),
     getCachedBusinessHours(),
+    getCachedProductCount(),
   ]);
 
   const schedule: BusinessHoursSchedule = businessHoursRaw ?? DEFAULT_BUSINESS_HOURS;
@@ -109,7 +110,7 @@ export default async function IssymaContent() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-14">
             <FeatureTile
               icon={<IconHanger />}
-              title={t("feature1Title")}
+              title={t("feature1Title", { count: productCount })}
               body={t("feature1Body")}
             />
             <FeatureTile

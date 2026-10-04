@@ -390,6 +390,7 @@ export function ProductCardIssyma({
 
 export default async function HomeIssymaLayout({
   shopName,
+  productCount,
   newCards,
   bestSellerCards,
   categories,
@@ -451,7 +452,7 @@ export default async function HomeIssymaLayout({
                 </h1>
                 <p className="mt-8 max-w-lg text-[15px] leading-[1.7] font-light"
                    style={{ color: `${PALETTE.cream}cc` }}>
-                  {t("issyma.desc")}
+                  {t("issyma.desc", { count: productCount })}
                 </p>
                 <div className="mt-10 flex flex-wrap gap-3">
                   <Link
