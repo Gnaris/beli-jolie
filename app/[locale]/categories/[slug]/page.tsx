@@ -162,10 +162,7 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
       colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
       categoryId: category.id,
     },
-    orderBy: [
-      { lastRefreshedAt: { sort: "desc", nulls: "last" } },
-      { createdAt: "desc" },
-    ],
+    orderBy: { createdAt: "desc" },
     skip,
     take: PRODUCTS_PER_PAGE,
     select: {
@@ -214,10 +211,7 @@ export default async function CategoryDetailPage({ params, searchParams }: PageP
             colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
             categoryId: category.id,
           },
-          orderBy: [
-            { lastRefreshedAt: { sort: "desc", nulls: "last" } },
-            { createdAt: "desc" },
-          ],
+          orderBy: { createdAt: "desc" },
           skip: surroundingSkip,
           take: surroundingTake,
           select: { id: true },
