@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import Image from "next/image";
 import { getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
-import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
+import { getCurrentTenantId } from "@/lib/tenant";
+import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
+import IssymaContent from "./_components/IssymaContent";
 
 export const revalidate = 7200;
 
@@ -16,21 +18,47 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   await getCurrentTenantId();
-  const slug = await getCurrentTenantSlug();
-  if (slug !== "beliandjolie") return {};
+  const slug = await getEffectiveTenantSlug();
   const { locale } = await params;
-  const alternates = await buildAlternates("/qui-sommes-nous", locale);
-  return {
-    title: "Qui sommes-nous — Beli & Jolie",
-    description:
-      "Beli & Jolie : grossiste en bijoux fantaisie en acier inoxydable 304 avec placage PVD or 14 carats. Boutique et réserve à Aubervilliers. Guide complet des matières, du PVD et du placage or.",
-    alternates,
-  };
+
+  if (slug === "beliandjolie") {
+    const alternates = await buildAlternates("/qui-sommes-nous", locale);
+    return {
+      title: "Qui sommes-nous — Beli & Jolie",
+      description:
+        "Beli & Jolie : grossiste en bijoux fantaisie en acier inoxydable 304 avec placage PVD or 14 carats. Boutique et réserve à Aubervilliers. Guide complet des matières, du PVD et du placage or.",
+      alternates,
+    };
+  }
+
+  if (slug === "issyma") {
+    const alternates = await buildAlternates("/qui-sommes-nous", locale);
+    return {
+      title: "Qui sommes-nous — ISSYMA · FORCYMA",
+      description:
+        "ISSYMA — FORCYMA, grossiste en prêt-à-porter féminin au CIFA d'Aubervilliers. Collections tendance, vente à l'unité, préparation 24-48 h, expédition France & Europe. Compte professionnel gratuit.",
+      alternates,
+    };
+  }
+
+  return {};
 }
 
 export default async function QuiSommesNousPage() {
   await getCurrentTenantId();
-  const tenantSlug = await getCurrentTenantSlug();
+  const tenantSlug = await getEffectiveTenantSlug();
+
+  if (tenantSlug === "issyma") {
+    const shopName = await getCachedShopName();
+    return (
+      <div className="min-h-screen bg-bg-primary relative">
+        <PublicSidebar shopName={shopName} tenantSlug={tenantSlug} />
+        <IssymaContent />
+        <Footer shopName={shopName} />
+      </div>
+    );
+  }
+
   if (tenantSlug !== "beliandjolie") notFound();
 
   const [shopName, productCount] = await Promise.all([
