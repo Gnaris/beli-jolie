@@ -94,7 +94,10 @@ async function humanizeError(err: unknown): Promise<string> {
  *  - Le produit est marqué `microstoreEnabled = false` (marketplace décochée).
  *  - Toutes les variantes sont des PACK (Microstore ne vend qu'à l'unité).
  */
-export async function pushProductToMicrostore(productId: string): Promise<ActionResult> {
+export async function pushProductToMicrostore(
+  productId: string,
+  opts: { syncPhotos?: boolean } = {},
+): Promise<ActionResult> {
   await requireAdmin();
 
   // Refuse d'emblée si la gestion produits, le token QR ou la Station de
@@ -171,34 +174,35 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
 
   // Chaîne l'envoi des photos via la Station de Transfert — SYNCHRONE.
   //
-  // Historiquement fire-and-forget, mais le fire-and-forget en Server Action
-  // Next 16 est peu fiable : la promise détachée peut être coupée par le
-  // runtime avant même de démarrer, aucun log, aucun job créé, widget vide
-  // (bug reporté 2026-08-25). On attend donc la fin de l'upload et on remonte
-  // l'erreur dans le toast si ça foire — la cliente sait ce qui se passe.
-  // Durée typique : 3-10s pour un produit à 2-3 couleurs.
-  //
-  // On appelle le CORE (pas la server action) pour éviter un second passage
-  // par `requireAdmin` (déjà validé en tête de cette action).
+  // Depuis 2026-10-06 : conditionné à `opts.syncPhotos`. Les call-sites qui
+  // ont vraiment besoin de ré-aligner les images (bouton Synchroniser badge
+  // MC, liaison manuelle) passent `syncPhotos:true`. Une simple modif stock
+  // via le modal variants rapide passe par le bulk sans ce flag et ne touche
+  // plus aux photos. On force systématiquement (`force:true`) pour outrepasser
+  // le flag persisté `microstorePhotosDirty` qui ne nous sert plus de signal.
   let photosResult: Awaited<ReturnType<typeof sendProductPhotosToMicrostoreCore>> | null = null;
-  try {
-    const stored = await getStoredPictureStation();
-    if (stored) {
-      photosResult = await sendProductPhotosToMicrostoreCore(product.reference);
-      if (!photosResult.success) {
-        logger.warn("[Microstore] photos sync failed after fiche push", {
-          productId,
-          reference: product.reference,
-          error: photosResult.error,
+  if (opts.syncPhotos === true) {
+    try {
+      const stored = await getStoredPictureStation();
+      if (stored) {
+        photosResult = await sendProductPhotosToMicrostoreCore(product.reference, {
+          force: true,
         });
+        if (!photosResult.success) {
+          logger.warn("[Microstore] photos sync failed after fiche push", {
+            productId,
+            reference: product.reference,
+            error: photosResult.error,
+          });
+        }
       }
+    } catch (err) {
+      logger.error("[Microstore] photos sync threw", { error: err, productId });
+      photosResult = {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
-  } catch (err) {
-    logger.error("[Microstore] photos sync threw", { error: err, productId });
-    photosResult = {
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
   }
 
   revalidateTag("products", "default");
@@ -227,6 +231,7 @@ export async function pushProductToMicrostore(productId: string): Promise<Action
  */
 export async function bulkPushProductsToMicrostore(
   productIds: string[],
+  opts: { syncPhotos?: boolean } = {},
 ): Promise<ActionResult> {
   await requireAdmin();
 
@@ -342,14 +347,17 @@ export async function bulkPushProductsToMicrostore(
     rowsSent: result.rowsSent,
   });
 
-  // Chaîne le bulk photos en fire-and-forget (mode « importation en masse »
-  // Microstore : 1 seul POST pictureStations avec toutes les images). Si la
-  // Station n'est pas configurée, no-op silencieux.
+  // Chaîne le bulk photos en fire-and-forget UNIQUEMENT si l'appelant l'a
+  // demandé explicitement (depuis 2026-10-06). Les propagations qui ne
+  // concernent que stock/prix/poids passent `syncPhotos:false` et ne touchent
+  // plus aux images. Seules les actions explicites de ré-alignement (bouton
+  // Synchroniser badge MC, liaison manuelle) passent `syncPhotos:true` et
+  // forcent le bulk photos.
   //
   // ⚠ Même piège que le push unitaire : on appelle le CORE (pas la server
   // action) car la réponse HTTP est déjà partie et `requireAdmin()` planterait
   // silencieusement. Fix 2026-08-25.
-  if (pushedIds.length > 0) {
+  if (pushedIds.length > 0 && opts.syncPhotos === true) {
     // CRITIQUE multi-tenant : capture le tenantId AVANT l'IIFE fire-and-forget,
     // sinon les jobs MicrostoreUploadJob sont créés sans tenantId → invisibles
     // dans le widget « Photos Microstore » (qui scope par tenant).
@@ -358,7 +366,7 @@ export async function bulkPushProductsToMicrostore(
       const stored = await getStoredPictureStation();
       if (!stored) return;
       try {
-        const bulkRes = await bulkSendPhotosToMicrostoreCore(pushedIds);
+        const bulkRes = await bulkSendPhotosToMicrostoreCore(pushedIds, { force: true });
         if (!bulkRes.success) {
           logger.warn("[Microstore] bulk photos sync failed after fiche push", {
             productIds: pushedIds,

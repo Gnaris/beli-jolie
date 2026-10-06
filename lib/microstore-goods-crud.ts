@@ -210,6 +210,14 @@ async function callMicrostorePost<T>(
  * Sortie identique aux HAR mobile (Dart/Flutter) : `stock_1` + `num_1` égaux,
  * 4 grilles tarifaires + 4 `sale_N=1`. Le champ `id` n'est ajouté que s'il est
  * défini (sinon Microstore crée un nouveau SKU).
+ *
+ * ⚠ Les champs `pic_url` et `imgs` sont volontairement OMIS depuis l'incident
+ * 2026-10-06 : les envoyer avec `null`/`[""]`/`[]` dans un /goods/update faisait
+ * écraser les images existantes côté Microstore (perte totale sur WF7, puis
+ * irrattrapable quand le PATCH images subséquent était sauté par le garde-fou
+ * `microstorePhotosDirty`). Les images sont gérées exclusivement par un canal
+ * séparé (`PATCH /goods/{id}` via `lib/microstore-photos-sync.ts`) — jamais
+ * dans ce payload de données.
  */
 export function serializeSkuForApi(sku: MicrostoreSkuInput): Record<string, unknown> {
   const stockStr = String(sku.stock);
@@ -219,8 +227,6 @@ export function serializeSkuForApi(sku: MicrostoreSkuInput): Record<string, unkn
     color_id: String(sku.color_id),
     color_name: sku.color_name,
     color_alias: sku.color_alias || "",
-    pic_url: null,
-    imgs: sku.id ? [""] : [],
     goods_sn: sku.goodsSn ?? "",
     bhb_status: sku.bhbStatus ?? (sku.id ? 0 : 1),
     stock_1: stockStr,

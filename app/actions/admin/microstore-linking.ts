@@ -231,7 +231,12 @@ export async function linkMicrostoreProductManually(
         error: "Marketplace Microstore décochée sur ce produit — synchro non lancée.",
       };
     } else {
-      const pushRes = await pushProductToMicrostore(bjProductId);
+      // Liaison manuelle = la cliente rattache une fiche Microstore existante
+      // à ce produit BJ et veut un alignement complet (fiche + photos). On
+      // force `syncPhotos` sinon le PATCH images serait sauté par le garde-fou
+      // `microstorePhotosDirty` et les visuels resteraient ceux de l'ancienne
+      // fiche Microstore (ou absents après l'incident 2026-10-06).
+      const pushRes = await pushProductToMicrostore(bjProductId, { syncPhotos: true });
       sync = {
         ran: true,
         success: pushRes.success,

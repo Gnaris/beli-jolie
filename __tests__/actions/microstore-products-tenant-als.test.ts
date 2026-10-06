@@ -86,17 +86,61 @@ import {
   bulkPushProductsToMicrostore,
 } from "@/app/actions/admin/microstore-products";
 
-beforeEach(() => {
+beforeEach(async () => {
   runSpy.mockClear();
   (loadExportProducts as ReturnType<typeof vi.fn>).mockReset();
   (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockReset();
   (prisma.product.findMany as ReturnType<typeof vi.fn>).mockReset();
   (prisma.product.updateMany as ReturnType<typeof vi.fn>).mockReset();
   (prisma.product.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+  // Clear le mock photos entre tests, sinon un test qui active syncPhotos
+  // laisse l'historique d'appel au test suivant qui vérifie l'absence d'appel.
+  const { sendProductPhotosToMicrostoreCore, bulkSendPhotosToMicrostoreCore } = await import(
+    "@/lib/microstore-photos-sync"
+  );
+  (sendProductPhotosToMicrostoreCore as ReturnType<typeof vi.fn>).mockClear();
+  (bulkSendPhotosToMicrostoreCore as ReturnType<typeof vi.fn>).mockClear();
 });
 
-describe("pushProductToMicrostore — appel photos synchrone (pas de fire-and-forget)", () => {
-  it("appelle sendProductPhotosToMicrostoreCore de façon synchrone après le push produit", async () => {
+describe("pushProductToMicrostore — opt-in photos via syncPhotos", () => {
+  it("appelle sendProductPhotosToMicrostoreCore avec force:true quand syncPhotos=true", async () => {
+    (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "p1",
+      reference: "REF-1",
+      microstoreEnabled: true,
+      countryIsoCode: "FR",
+    });
+    (loadExportProducts as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "p1",
+        reference: "REF-1",
+        variants: [{ saleType: "UNIT", colorNames: ["Or"] }],
+      },
+    ]);
+    const { sendProductPhotosToMicrostoreCore } = await import(
+      "@/lib/microstore-photos-sync"
+    );
+    const { getStoredPictureStation } = await import(
+      "@/lib/microstore-picture-station"
+    );
+    (getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+
+    const res = await pushProductToMicrostore("p1", { syncPhotos: true });
+    expect(res.success).toBe(true);
+
+    // `force:true` est obligatoire ici — on contourne le flag persisté
+    // `microstorePhotosDirty` qui n'est plus notre source de vérité (incident
+    // 2026-10-06 : des images Microstore ont été écrasées sans réparation).
+    expect(sendProductPhotosToMicrostoreCore).toHaveBeenCalledWith("REF-1", {
+      force: true,
+    });
+  });
+
+  it("ne touche PAS aux photos par défaut (syncPhotos absent = modif stock/prix seule)", async () => {
     (prisma.product.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "p1",
       reference: "REF-1",
@@ -124,10 +168,7 @@ describe("pushProductToMicrostore — appel photos synchrone (pas de fire-and-fo
 
     const res = await pushProductToMicrostore("p1");
     expect(res.success).toBe(true);
-
-    // Synchrone : l'appel a déjà eu lieu au moment où pushProductToMicrostore
-    // rend la main. Pas besoin d'attendre une microtask.
-    expect(sendProductPhotosToMicrostoreCore).toHaveBeenCalledWith("REF-1");
+    expect(sendProductPhotosToMicrostoreCore).not.toHaveBeenCalled();
   });
 
   it("renvoie succès + warning si le push photos échoue (fiche produit OK malgré tout)", async () => {
@@ -147,7 +188,6 @@ describe("pushProductToMicrostore — appel photos synchrone (pas de fire-and-fo
     const { sendProductPhotosToMicrostoreCore } = await import(
       "@/lib/microstore-photos-sync"
     );
-    // La Station de transfert doit être configurée pour que le core soit appelé.
     const { getStoredPictureStation } = await import(
       "@/lib/microstore-picture-station"
     );
@@ -161,14 +201,14 @@ describe("pushProductToMicrostore — appel photos synchrone (pas de fire-and-fo
       error: "Aucune couleur Microstore équivalente.",
     });
 
-    const res = await pushProductToMicrostore("p1");
+    const res = await pushProductToMicrostore("p1", { syncPhotos: true });
     expect(res.success).toBe(true);
     expect(res.error).toMatch(/photos non uploadées.*couleur/i);
   });
 });
 
 describe("bulkPushProductsToMicrostore — wrapper tenantALS autour du fire-and-forget bulk photos", () => {
-  it("appelle tenantALS.run avec le tenantId courant avant de chaîner le bulk photos", async () => {
+  it("appelle tenantALS.run avec le tenantId courant quand syncPhotos=true", async () => {
     (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         id: "p1",
@@ -196,13 +236,48 @@ describe("bulkPushProductsToMicrostore — wrapper tenantALS autour du fire-and-
       },
     ]);
 
-    const res = await bulkPushProductsToMicrostore(["p1", "p2"]);
+    const res = await bulkPushProductsToMicrostore(["p1", "p2"], { syncPhotos: true });
     expect(res.success).toBe(true);
 
     await new Promise((r) => setImmediate(r));
 
     expect(runSpy).toHaveBeenCalledTimes(1);
     expect(runSpy.mock.calls[0]?.[0]).toBe("tenant-beliandjolie-xyz");
+  });
+
+  it("ne lance pas le bulk photos quand syncPhotos est absent (modif stock pure)", async () => {
+    (prisma.product.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "p1",
+        reference: "REF-1",
+        microstoreEnabled: true,
+        countryIsoCode: "FR",
+      },
+      {
+        id: "p2",
+        reference: "REF-2",
+        microstoreEnabled: true,
+        countryIsoCode: "FR",
+      },
+    ]);
+    (loadExportProducts as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "p1",
+        reference: "REF-1",
+        variants: [{ saleType: "UNIT", colorNames: ["Or"] }],
+      },
+      {
+        id: "p2",
+        reference: "REF-2",
+        variants: [{ saleType: "UNIT", colorNames: ["Argent"] }],
+      },
+    ]);
+
+    await bulkPushProductsToMicrostore(["p1", "p2"]);
+    await new Promise((r) => setImmediate(r));
+
+    // Aucun ALS.run → aucun bulk photos lancé. Fiche poussée seule.
+    expect(runSpy).not.toHaveBeenCalled();
   });
 
   it("ne wrappe rien si aucun produit n'a été poussé (rien à envoyer côté photos)", async () => {
@@ -223,7 +298,7 @@ describe("bulkPushProductsToMicrostore — wrapper tenantALS autour du fire-and-
       },
     ]);
 
-    await bulkPushProductsToMicrostore(["p1"]);
+    await bulkPushProductsToMicrostore(["p1"], { syncPhotos: true });
     await new Promise((r) => setImmediate(r));
 
     expect(runSpy).not.toHaveBeenCalled();

@@ -63,6 +63,16 @@ export interface MarketplaceRefreshOptions {
   orderchamp?: boolean; // Refresh Orderchamp (productRepublish — garde le même ID)
   microstore?: boolean; // Legacy — laissé pour compat propagation modal, non traité ici.
   /**
+   * Spécifique au worker Microstore : force l'envoi photos après push produit.
+   * - true  → `sendProductPhotosToMicrostoreCore(ref, { force:true })` chaîné
+   *           après `/goods/update` (bouton Synchroniser badge MC + liaison).
+   * - false/absent → push fiche seule, pas de photos (modif stock/prix).
+   * Décision prise au call-site pour ne plus dépendre du flag persisté
+   * `Product.microstorePhotosDirty` (fragile, cause d'incident 2026-10-06
+   * où une synchro MC a wipé toutes les images faute de réparation PATCH).
+   */
+  microstoreSyncPhotos?: boolean;
+  /**
    * Vrai quand ce job a été enqueue par la propagation post-audit PFS auto.
    * Sert au drawer marketplaces à router ces jobs vers l'onglet dédié
    * « Audit PFS » plutôt que « Rafraîchissement ». Défaut absent = false.

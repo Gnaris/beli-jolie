@@ -2610,6 +2610,13 @@ export default function ProductForm({
             // Microstore : passe désormais par la file marketplace comme les
             // autres (avant 2026-08-25 c'était un fire-and-forget + toast).
             // Le nudge photos reste pour couvrir le fire-and-forget images.
+            //
+            // `microstoreSyncPhotos:true` ici car la cliente a fait un save
+            // explicite depuis la fiche produit ET coché Microstore dans la
+            // modale de propagation — elle attend que la fiche MICROSTORE soit
+            // 100 % alignée sur la boutique (y compris les photos). Les modifs
+            // stock-seulement passent par `updateVariantQuick` + modal
+            // Propager qui, elle, ne touche pas aux photos.
             if (options.microstore) {
               nudgeWidget("microstore-upload");
               inputs.push({
@@ -2617,7 +2624,16 @@ export default function ProductForm({
                 reference: payload.reference,
                 productName: payload.name,
                 firstImage: firstImagePath,
-                options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+                options: {
+                  local: false,
+                  pfs: false,
+                  ankorstore: false,
+                  efashion: false,
+                  faire: false,
+                  orderchamp: false,
+                  microstore: true,
+                  microstoreSyncPhotos: true,
+                },
                 mode: "publish",
                 marketplace: "microstore",
               });

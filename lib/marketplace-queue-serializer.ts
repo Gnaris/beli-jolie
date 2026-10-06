@@ -37,6 +37,19 @@ export interface ClientEnqueueInput {
     faire?: boolean;
     orderchamp?: boolean;
     microstore?: boolean;
+    /**
+     * Spécifique Microstore : décide si le push produit doit chaîner un envoi
+     * photos (`sendProductPhotosToMicrostoreCore` avec `force:true`). Pour
+     * éviter que n'importe quelle synchro mette la pression sur la Station
+     * de Transfert, c'est l'appelant qui décide — pas un flag persisté.
+     *
+     * - true  → upload photos TOUJOURS (force). Utilisé par le bouton
+     *           "Synchroniser" du badge MC + menu 3 points + liaison manuelle,
+     *           dont le but est de ré-aligner Microstore sur la boutique.
+     * - false (ou absent) → pas d'upload photos. Utilisé après une modif
+     *           stock/prix qui ne touche pas aux images.
+     */
+    microstoreSyncPhotos?: boolean;
   };
   mode?: ClientMode;
   marketplace?: ClientMarketplace;
@@ -265,6 +278,7 @@ export function validateEnqueueInput(
         faire: options.faire === true,
         orderchamp: options.orderchamp === true,
         microstore: options.microstore === true,
+        microstoreSyncPhotos: options.microstoreSyncPhotos === true,
       },
       mode,
       marketplace,

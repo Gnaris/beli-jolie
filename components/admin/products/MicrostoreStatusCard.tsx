@@ -237,8 +237,8 @@ export function MicrostoreStatusCard({
         ? "Créer cette fiche sur Microstore ?"
         : "Renvoyer les infos à Microstore ?",
       message: isFirstTime
-        ? "Ce produit n'existe pas encore sur Microstore. Une nouvelle fiche y sera créée (nom, prix, poids, stock, couleurs, catégorie, description). Les photos seront à ajouter manuellement côté Microstore ensuite."
-        : "La fiche existante sur Microstore sera mise à jour avec vos dernières modifications (nom, prix, poids, stock, couleurs, catégorie, description). Les photos ne sont pas concernées.",
+        ? "Ce produit n'existe pas encore sur Microstore. Une nouvelle fiche y sera créée (nom, prix, poids, stock, couleurs, catégorie, description) et les photos de la boutique seront envoyées derrière."
+        : "La fiche existante sur Microstore sera remise à jour avec vos dernières modifications (nom, prix, poids, stock, couleurs, catégorie, description) ET ses photos seront réenvoyées depuis la boutique pour qu'elles correspondent.",
       confirmLabel: "Envoyer maintenant",
     });
     if (!ok) return;
@@ -255,7 +255,19 @@ export function MicrostoreStatusCard({
         reference,
         productName,
         firstImage: null,
-        options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+        options: {
+          local: false,
+          pfs: false,
+          ankorstore: false,
+          efashion: false,
+          faire: false,
+          orderchamp: false,
+          microstore: true,
+          // Bouton explicite « Synchroniser vers Microstore » : la cliente
+          // attend que la fiche ET les photos soient ré-alignées sur la
+          // boutique. Force l'upload photos derrière le /goods/update.
+          microstoreSyncPhotos: true,
+        },
         mode: "publish",
         marketplace: "microstore",
         intent: microstoreProductId != null ? "update" : "create",

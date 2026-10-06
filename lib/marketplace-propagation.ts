@@ -30,6 +30,14 @@ export interface MarketplacePropagateOptions {
   faire?: boolean;
   orderchamp?: boolean;
   microstore?: boolean;
+  /**
+   * Force l'envoi des photos Microstore après le push produit. Décision prise
+   * par l'appelant selon le contexte (resync badge MC = true, propagation
+   * stock/prix = false). Si absent, défaut false — l'inverse serait dangereux
+   * (incident 2026-10-06 : un `/goods/update` envoyé sans PATCH images
+   * subséquent écrasait les photos côté Microstore).
+   */
+  microstoreSyncPhotos?: boolean;
 }
 
 export interface MarketplaceEnqueueInput {
@@ -45,6 +53,7 @@ export interface MarketplaceEnqueueInput {
     faire?: boolean;
     orderchamp?: boolean;
     microstore?: boolean;
+    microstoreSyncPhotos?: boolean;
   };
   mode: "publish" | "refresh" | "resync";
   marketplace: "pfs" | "ankorstore" | "efashion" | "faire" | "orderchamp" | "microstore";
@@ -184,6 +193,7 @@ export function buildMarketplaceInputs(
           faire: false,
           orderchamp: false,
           microstore: true,
+          microstoreSyncPhotos: options.microstoreSyncPhotos === true,
         },
         mode,
         marketplace: "microstore",

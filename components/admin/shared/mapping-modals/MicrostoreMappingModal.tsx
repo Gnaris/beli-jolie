@@ -93,7 +93,10 @@ export default function MicrostoreMappingModal({
           reference: p.reference,
           productName: p.productName,
           firstImage: null,
-          options: { local: false, pfs: false, microstore: true },
+          // syncPhotos:false — on resync les métadonnées (catégorie/saison/
+          // couleur), pas d'image à ré-aligner. Évite un upload inutile et
+          // tout risque d'écrasement d'images côté Microstore.
+          options: { local: false, pfs: false, microstore: true, microstoreSyncPhotos: false },
           mode: "resync",
           marketplace: "microstore",
           intent: "update",

@@ -86,6 +86,8 @@ export interface QueueJobPayload {
     faire?: boolean;
     orderchamp?: boolean;
     microstore?: boolean;
+    /** Microstore uniquement — force l'envoi photos après push produit. */
+    microstoreSyncPhotos?: boolean;
   };
   /**
    * Actions ciblées produites par le tooltip PFS Verify. Quand présent, le
@@ -1338,14 +1340,23 @@ async function runMicrostoreJob(job: JobRow, payload: QueueJobPayload): Promise<
       await markMicrostoreSuccess(job.id);
       await markStep(job.id, { kind: "SAVE_IDS", status: "done", message: "Identifiants sauvegardés" });
 
-      // Chaîne l'envoi photos via la Station de Transfert (fire-and-forget).
-      // Le worker tourne déjà sous `tenantALS.run(...)` en amont, donc pas
-      // besoin de re-binder l'ALS. La progression est suivie via le widget
-      // « Photos Microstore » (MicrostoreUploadJob), pas via ce job de queue.
-      // Ajouté le 2026-08-25 pour couvrir le chemin modale d'enregistrement
-      // qui, jusque-là, poussait le produit sans jamais envoyer les photos.
+      // Chaîne l'envoi photos UNIQUEMENT si l'appelant l'a demandé explicitement.
+      //
+      // Historique : jusqu'au 2026-10-06, on chaînait systématiquement l'envoi
+      // photos et c'était le flag persisté `microstorePhotosDirty` qui filtrait
+      // dans `sendProductPhotosToMicrostoreCore`. Fragile : flag coincé à true
+      // → upload inutile à chaque save stock ; flag coincé à false → aucune
+      // réparation possible quand `/goods/update` écrasait les images côté
+      // Microstore (incident WF7 2026-10-06, images perdues).
+      //
+      // Depuis, la décision est prise au call-site (bouton badge MC, menu 3
+      // points, liaison manuelle, propagation après modif image) via
+      // `options.microstoreSyncPhotos`. Les modifs stock/prix NE déclenchent
+      // plus d'upload photos. Et le push demandé par l'appelant force toujours
+      // (`force:true`) pour outrepasser le flag persisté.
       const productReference = (product as { reference?: string } | null)?.reference;
-      if (productReference) {
+      const shouldSyncPhotos = payload.options.microstoreSyncPhotos === true;
+      if (productReference && shouldSyncPhotos) {
         void (async () => {
           try {
             const { getStoredPictureStation } = await import(
@@ -1356,7 +1367,9 @@ async function runMicrostoreJob(job: JobRow, payload: QueueJobPayload): Promise<
             const { sendProductPhotosToMicrostoreCore } = await import(
               "@/lib/microstore-photos-sync"
             );
-            const psRes = await sendProductPhotosToMicrostoreCore(productReference);
+            const psRes = await sendProductPhotosToMicrostoreCore(productReference, {
+              force: true,
+            });
             if (!psRes.success) {
               logger.warn("[Marketplace Queue] Microstore photos sync failed", {
                 productId: job.productId,

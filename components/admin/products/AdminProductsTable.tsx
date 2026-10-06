@@ -3431,6 +3431,10 @@ function ProductRow({
           faire: false,
           orderchamp: false,
           microstore: true,
+          // Synchro depuis le badge MC / menu 3 points : la cliente veut
+          // que la fiche ET les photos soient ré-alignées sur la boutique.
+          // Force l'upload photos après le /goods/update.
+          microstoreSyncPhotos: true,
         },
         mode: !!product.microstoreLastPushedAt ? "resync" : "publish",
         marketplace: "microstore",
@@ -5234,11 +5238,12 @@ export default function AdminProductsTable({
           });
         }
       }
-      // Microstore : action groupée = 1 seul push photos à la fin
-      // (demande cliente 2026-08-28). On appelle directement
-      // `bulkPushProductsToMicrostore` — boucle sur les fiches + UN seul
-      // POST bulk pictureStations. Plus jamais de HTTP 500 par collision
-      // entre plusieurs pushs Microstore parallèles.
+      // Microstore : propagation après modif stock/prix/poids via le modal
+      // de variantes rapide. Depuis 2026-10-06 on NE touche PAS aux photos
+      // ici (`syncPhotos:false`) — rien d'image n'a bougé, et renvoyer les
+      // photos à chaque save stock aurait fait du bruit + risque de wipe en
+      // cas d'erreur côté marketplace. Les photos restent gérées par le
+      // bouton Synchroniser du badge MC ou le widget « Photos Microstore ».
       if (options.microstore && microstoreProducts.length > 0) {
         nudgeRailWidget("microstore-upload");
         const toPushIds = microstoreProducts.map((p) => p.id);
@@ -5246,7 +5251,7 @@ export default function AdminProductsTable({
           const { bulkPushProductsToMicrostore } = await import(
             "@/app/actions/admin/microstore-products"
           );
-          const res = await bulkPushProductsToMicrostore(toPushIds);
+          const res = await bulkPushProductsToMicrostore(toPushIds, { syncPhotos: false });
           if (!res.success && res.error) {
             toast.error("Envoi Microstore partiellement échoué", res.error);
           }
@@ -5595,6 +5600,9 @@ export default function AdminProductsTable({
       //    UN seul POST bulk pictureStations. Sans ça, la file marketplace
       //    enqueuait N jobs individuels qui envoyaient chacun leurs photos
       //    en fire-and-forget → Microstore répondait HTTP 500 sur collision.
+      //    `syncPhotos:true` ici car on publie des brouillons (1ʳᵉ fois sur
+      //    la vitrine H5) — les photos DOIVENT accompagner la fiche sinon
+      //    le produit s'affichera sans visuel côté Microstore.
       if (
         decision.publishMicrostore &&
         hasMicrostoreConfig &&
@@ -5607,7 +5615,7 @@ export default function AdminProductsTable({
             const { bulkPushProductsToMicrostore } = await import(
               "@/app/actions/admin/microstore-products"
             );
-            const res = await bulkPushProductsToMicrostore(toPushIds);
+            const res = await bulkPushProductsToMicrostore(toPushIds, { syncPhotos: true });
             if (!res.success && res.error) {
               toast.error("Envoi Microstore partiellement échoué", res.error);
             }
@@ -6349,7 +6357,11 @@ export default function AdminProductsTable({
         microstore: microstoreTargets,
       };
       inputs.push(
-        ...buildMarketplaceInputs(microstorePublishCandidates, { microstore: true }, "publish"),
+        ...buildMarketplaceInputs(
+          microstorePublishCandidates,
+          { microstore: true, microstoreSyncPhotos: true },
+          "publish",
+        ),
       );
     }
     if (inputs.length > 0) enqueuePfs(inputs);
@@ -6443,8 +6455,8 @@ export default function AdminProductsTable({
         type: "info",
         title: `Synchroniser ${count} produit${plural} sur Microstore ?`,
         message:
-          `Les fiches Microstore seront créées si absentes ou mises à jour (nom, prix, stock, couleurs, catégorie, description). ` +
-          `Les photos ne sont pas envoyées — à ajouter manuellement côté Microstore si besoin.`,
+          `Les fiches Microstore seront créées si absentes ou mises à jour (nom, prix, stock, couleurs, catégorie, description) ` +
+          `ET leurs photos seront réenvoyées depuis la boutique pour qu'elles correspondent exactement.`,
         confirmLabel: "Oui, synchroniser",
         cancelLabel: "Annuler",
       });
@@ -6457,7 +6469,16 @@ export default function AdminProductsTable({
           reference: p.reference,
           productName: p.name,
           firstImage: p.firstImage,
-          options: { local: false, pfs: false, ankorstore: false, efashion: false, faire: false, orderchamp: false, microstore: true },
+          options: {
+            local: false,
+            pfs: false,
+            ankorstore: false,
+            efashion: false,
+            faire: false,
+            orderchamp: false,
+            microstore: true,
+            microstoreSyncPhotos: true,
+          },
           mode: "publish" as const,
           marketplace: "microstore" as const,
         })),

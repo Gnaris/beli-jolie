@@ -33,7 +33,6 @@ describe("serializeSkuForApi", () => {
     expect(out.price_1).toBe("56.98");
     expect(out.goods_sn).toBe("2039760025443");
     expect(out.bhb_status).toBe(1);
-    expect(out.imgs).toEqual([""]); // SKU existant → un placeholder image
   });
 
   it("omet l'id pour un nouveau SKU (create)", () => {
@@ -46,9 +45,38 @@ describe("serializeSkuForApi", () => {
     };
     const out = serializeSkuForApi(sku) as Record<string, unknown>;
     expect(out.id).toBeUndefined();
-    expect(out.imgs).toEqual([]); // nouveau SKU → pas de placeholder
     expect(out.bhb_status).toBe(1); // nouveau → 1 par défaut (actif H5)
     expect(out.goods_sn).toBe("");
+  });
+
+  // Non-régression incident 2026-10-06 : images Microstore effacées côté
+  // marketplace. Chaque /goods/update envoyait `pic_url:null` + `imgs:[""]`
+  // sur chaque SKU, ce qui écrasait les images existantes côté Microstore.
+  // Dépendait d'un PATCH images subséquent pour « réparer », PATCH qui
+  // était sauté quand le flag `microstorePhotosDirty` disait photos clean.
+  // Résultat : images disparues sans trace. Fix = ne jamais envoyer ces
+  // champs dans le payload data (les images passent par un canal dédié).
+  it("n'envoie JAMAIS pic_url ni imgs (sinon /goods/update écrase les images Microstore)", () => {
+    const existingSku = serializeSkuForApi({
+      id: 25443,
+      color_id: 7,
+      color_name: "Blanc",
+      stock: 1,
+      price: 10,
+      orderBy: 1,
+    }) as Record<string, unknown>;
+    expect(existingSku).not.toHaveProperty("pic_url");
+    expect(existingSku).not.toHaveProperty("imgs");
+
+    const newSku = serializeSkuForApi({
+      color_id: 7,
+      color_name: "Blanc",
+      stock: 1,
+      price: 10,
+      orderBy: 1,
+    }) as Record<string, unknown>;
+    expect(newSku).not.toHaveProperty("pic_url");
+    expect(newSku).not.toHaveProperty("imgs");
   });
 
   it("force color_id en string (l'API accepte les 2 mais les HAR envoient string)", () => {
