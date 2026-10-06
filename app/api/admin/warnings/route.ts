@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { fetchAdminWarnings } from "@/lib/admin-warnings";
+import { fetchAdminWarnings } from "@/lib/admin-warnings-server";
 
 export async function GET() {
   const session = await getServerSession(authOptions);

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { ADMIN_THEME_COOKIE, parseAdminTheme, adminThemeBodyClass } from "@/lib/admin-theme";
 import { getCachedShopName } from "@/lib/cached-data";
-import { fetchAdminWarnings } from "@/lib/admin-warnings";
+import { fetchAdminWarnings } from "@/lib/admin-warnings-server";
 import { isOnboardingCompleted } from "@/lib/onboarding";
 import type { Metadata } from "next";
 import AdminShellsLive from "@/components/admin/AdminShellsLive";

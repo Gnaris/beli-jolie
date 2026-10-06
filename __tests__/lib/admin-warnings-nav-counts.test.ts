@@ -29,7 +29,7 @@ const mockPrisma = vi.hoisted(() => ({
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 vi.mock("@/i18n/locales", () => ({ NON_DEFAULT_LOCALES: [] }));
 
-import { fetchAdminWarnings } from "@/lib/admin-warnings";
+import { fetchAdminWarnings } from "@/lib/admin-warnings-server";
 
 describe("fetchAdminWarnings — compteurs navigation admin", () => {
   beforeEach(() => {
