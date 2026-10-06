@@ -42,6 +42,40 @@ vi.mock("@/lib/prisma", () => ({
     siteConfig: { findFirst: vi.fn() },
   },
 }));
+vi.mock("@/lib/microstore-attributes", () => ({
+  microstoreListColors: vi.fn(),
+}));
+
+// Mock partiel de node:fs/promises : on garde `readFile` réelle par défaut
+// (le test « N'IMPORTE PAS auth-helpers » lit le fichier source du module),
+// mais on la rend overridable via vi.mocked() dans les tests qui simulent
+// un upload d'image. `vi.importActual` est obligatoire : sans ça, les autres
+// fonctions (`readdir`, `writeFile`, `stat`…) deviendraient undefined et
+// casseraient tout le reste de la suite.
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>(
+    "node:fs/promises",
+  );
+  return {
+    ...actual,
+    default: actual,
+    readFile: vi.fn(actual.readFile),
+  };
+});
+
+// Mock minimal de sharp : notre `prepareMicrostoreJpeg` appelle
+// `sharp(buffer).rotate().jpeg({...}).toBuffer()`. On renvoie un buffer bidon
+// pour éviter de dépendre de la lib native dans ces tests unitaires.
+vi.mock("sharp", () => {
+  const sharpStub = vi.fn(() => ({
+    rotate: () => ({
+      jpeg: () => ({
+        toBuffer: async () => Buffer.from("jpeg-bytes"),
+      }),
+    }),
+  }));
+  return { default: sharpStub };
+});
 
 async function loadCore() {
   return await import("@/lib/microstore-photos-sync");
@@ -381,5 +415,179 @@ describe("withMicrostorePhotoLock — sérialisation par tenant", () => {
     expect(events[1]).toBe("start:T2");
     expect(events[2]).toBe("end:T2");
     expect(events[3]).toBe("end:T1");
+  });
+});
+
+/**
+ * Mapping couleur BJ ↔ Microstore (ajout 2026-10-06) : le bulk POST
+ * `/api/v3/pictureStations` matche les photos aux SKU Microstore via
+ * `itemRef + colorName` (case + accent sensitive). Historiquement on envoyait
+ * le nom BJ brut — risque de perte silencieuse quand les noms divergent.
+ * Désormais on résout via `Color.microstoreColorId` (mapping manuel
+ * /admin/couleurs), et on refuse d'envoyer les photos d'une couleur non
+ * mappée pour éviter que la cliente ne découvre tard un trou de données.
+ */
+describe("bulkSendPhotosToMicrostoreCore — résolution colorName via mapping", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function stubBaseMocks() {
+    const preflight = await import("@/lib/microstore-preflight");
+    (preflight.assertMicrostorePushAllowed as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+    });
+    const ps = await import("@/lib/microstore-picture-station");
+    (ps.getStoredPictureStation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      key: "K",
+      expiresAt: new Date(Date.now() + 3600_000),
+      shortUrl: null,
+    });
+    (ps.getMicrostorePictureStationCompany as ReturnType<typeof vi.fn>).mockResolvedValue({
+      companyId: 3976,
+      companyName: "BJ",
+    });
+    (ps.uploadImageToMicrostoreOss as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_k: string, _c: number, _b: Buffer, filename: string) => ({
+        publicUrl: `https://dcdn.microstore.app/3976/${filename}`,
+        key: `3976/${filename}`,
+      }),
+    );
+    (ps.bulkImportMicrostorePictures as ReturnType<typeof vi.fn>).mockResolvedValue({
+      successCount: 1,
+      failedCount: 0,
+      causes: [],
+    });
+    (ps.getMicrostoreGoodsByItemRef as ReturnType<typeof vi.fn>).mockResolvedValue({
+      goodsId: 1,
+      itemRef: "A1",
+    });
+    (ps.patchMicrostoreGoodsImages as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  }
+
+  async function stubFsBuffer() {
+    const fs = await import("node:fs/promises");
+    (fs.readFile as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      Buffer.from("fake-image-bytes"),
+    );
+  }
+
+  it("utilise le nom Microstore mappé dans goodsImageSetting.colorName, pas le nom BJ", async () => {
+    await stubBaseMocks();
+    await stubFsBuffer();
+
+    const attrs = await import("@/lib/microstore-attributes");
+    (attrs.microstoreListColors as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "42", name: "Or" }, // nom côté Microstore
+      { id: "43", name: "Argent" },
+    ]);
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([
+        {
+          id: "p1",
+          reference: "A1234",
+          name: "Boucles d'oreilles",
+          primaryColorId: "c1",
+          colors: [
+            {
+              isPrimary: true,
+              color: { id: "c1", name: "doré", microstoreColorId: 42 },
+            },
+          ],
+          colorImages: [{ path: "/uploads/a.jpg", order: 0, colorId: "c1" }],
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "p1", microstorePhotosDirty: true }]);
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { bulkSendPhotosToMicrostoreCore } = await loadCore();
+    await bulkSendPhotosToMicrostoreCore(["p1"]);
+
+    const ps = await import("@/lib/microstore-picture-station");
+    const bulkCall = (ps.bulkImportMicrostorePictures as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(bulkCall).toBeTruthy();
+    const pictures = bulkCall[1] as Array<{ goodsImageSetting: { colorName: string } }>;
+    expect(pictures.length).toBeGreaterThan(0);
+    // Vérif clé : colorName côté Microstore (= "Or"), PAS le nom BJ ("doré").
+    expect(pictures[0].goodsImageSetting.colorName).toBe("Or");
+  });
+
+  it("skippe les photos des couleurs BJ non mappées + renvoie unmappedColors", async () => {
+    await stubBaseMocks();
+    await stubFsBuffer();
+
+    const attrs = await import("@/lib/microstore-attributes");
+    (attrs.microstoreListColors as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "42", name: "Or" },
+    ]);
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([
+        {
+          id: "p1",
+          reference: "A1234",
+          name: "Boucles",
+          primaryColorId: "c1",
+          colors: [
+            // Couleur BJ sans mapping (microstoreColorId null) : à skipper.
+            {
+              isPrimary: true,
+              color: { id: "c1", name: "bleu nuit", microstoreColorId: null },
+            },
+          ],
+          colorImages: [{ path: "/uploads/a.jpg", order: 0, colorId: "c1" }],
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "p1", microstorePhotosDirty: true }]);
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { bulkSendPhotosToMicrostoreCore } = await loadCore();
+    const res = await bulkSendPhotosToMicrostoreCore(["p1"]);
+
+    // Aucun upload OSS ni appel bulk pictureStations : la seule couleur du
+    // produit est non mappée.
+    const ps = await import("@/lib/microstore-picture-station");
+    expect(ps.uploadImageToMicrostoreOss).not.toHaveBeenCalled();
+    expect(ps.bulkImportMicrostorePictures).not.toHaveBeenCalled();
+
+    expect(res.success).toBe(false);
+    expect(res.unmappedColors).toBeDefined();
+    expect(res.unmappedColors).toContainEqual({
+      reference: "A1234",
+      colorName: "bleu nuit",
+    });
+    expect(res.error).toMatch(/sans correspondance|mapp/i);
+  });
+
+  it("échoue en bloc si microstoreListColors throw (bibliothèque inaccessible)", async () => {
+    await stubBaseMocks();
+    const attrs = await import("@/lib/microstore-attributes");
+    (attrs.microstoreListColors as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("Session Microstore expirée"),
+    );
+    const { prisma } = await import("@/lib/prisma");
+    (prisma.product.findMany as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([
+        {
+          id: "p1",
+          reference: "A1234",
+          name: "Boucles",
+          primaryColorId: null,
+          colors: [],
+          colorImages: [],
+        },
+      ])
+      .mockResolvedValueOnce([{ id: "p1", microstorePhotosDirty: true }]);
+    (prisma.siteConfig.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    const { bulkSendPhotosToMicrostoreCore } = await loadCore();
+    const res = await bulkSendPhotosToMicrostoreCore(["p1"]);
+
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/bibliothèque couleurs/i);
+    // On n'est pas allé plus loin : aucun upload tenté.
+    const ps = await import("@/lib/microstore-picture-station");
+    expect(ps.uploadImageToMicrostoreOss).not.toHaveBeenCalled();
+    expect(ps.bulkImportMicrostorePictures).not.toHaveBeenCalled();
   });
 });

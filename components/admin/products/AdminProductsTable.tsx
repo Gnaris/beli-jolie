@@ -6447,9 +6447,14 @@ export default function AdminProductsTable({
     const plural = count > 1 ? "s" : "";
     const label = MARKETPLACE_LABEL[marketplace] ?? marketplace;
 
-    // Microstore : passe désormais par la même file que les autres, via un
-    // job publish par produit. Le worker choisit create vs update selon
-    // microstoreProductId. Retour visuel dans le tiroir Marketplaces.
+    // Microstore : on court-circuite la file marketplace pour appeler
+    // directement bulkPushProductsToMicrostore. Raison : l'API BOSS Microstore
+    // accepte un batch de N fiches en 1 call (`/goods/import_v1` ou
+    // `/goods/add+update` selon état), et le POST `/api/v3/pictureStations`
+    // regroupe TOUTES les photos de TOUS les produits en 1 appel. Passer par
+    // la file N fois serait du mono-produit, N PATCH `/api/goods/{id}` séquentiels
+    // → beaucoup plus lent et plus de risque de HTTP 500 collision Microstore.
+    // Suivi visuel : tiroir « Photos Microstore » (bas droite, FAB emerald).
     if (marketplace === "microstore") {
       const ok = await confirm({
         type: "info",
@@ -6462,27 +6467,21 @@ export default function AdminProductsTable({
       });
       if (ok !== true) return;
       nudgeRailWidget("microstore-upload");
-      const products = allProducts.filter((p) => ids.includes(p.id));
-      enqueuePfs(
-        products.map((p) => ({
-          productId: p.id,
-          reference: p.reference,
-          productName: p.name,
-          firstImage: p.firstImage,
-          options: {
-            local: false,
-            pfs: false,
-            ankorstore: false,
-            efashion: false,
-            faire: false,
-            orderchamp: false,
-            microstore: true,
-            microstoreSyncPhotos: true,
-          },
-          mode: "publish" as const,
-          marketplace: "microstore" as const,
-        })),
-      );
+      runMicrostoreBulkPush(ids, async () => {
+        const { bulkPushProductsToMicrostore } = await import(
+          "@/app/actions/admin/microstore-products"
+        );
+        const res = await bulkPushProductsToMicrostore(ids, { syncPhotos: true });
+        if (!res.success && res.error) {
+          toast.error("Synchronisation Microstore partielle", res.error);
+        } else {
+          toast.success(
+            `${count} produit${plural} synchronisé${plural} sur Microstore`,
+            "Suivi des photos dans la fenêtre « Photos Microstore » en bas à droite.",
+          );
+        }
+        router.refresh();
+      });
       return;
     }
 
@@ -6531,7 +6530,7 @@ export default function AdminProductsTable({
       `${count} produit${plural} en cours de synchro sur ${label}`,
       "Suivi dans la fenêtre en bas à droite.",
     );
-  }, [allProducts, enqueuePfs, toast, confirm]);
+  }, [allProducts, enqueuePfs, toast, confirm, nudgeRailWidget, runMicrostoreBulkPush, router]);
 
   const handleBulkTranslateAll = useCallback(async () => {
     const ids = Array.from(selectedIds);

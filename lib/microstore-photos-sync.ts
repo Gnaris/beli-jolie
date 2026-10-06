@@ -36,6 +36,7 @@ import {
 } from "@/lib/microstore-upload-jobs";
 import { assertMicrostorePushAllowed } from "@/lib/microstore-preflight";
 import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+import { microstoreListColors } from "@/lib/microstore-attributes";
 
 /**
  * File d'attente par tenant sur les envois photos Microstore.
@@ -202,6 +203,10 @@ export interface BulkSendPhotosResult {
   skippedProducts: string[];
   coversPatched: number;
   coversFailed: number;
+  /** Couleurs BJ (par produit) qui n'ont pas de mapping Microstore et dont
+   *  les photos n'ont PAS été envoyées. Permet à l'UI de prévenir la cliente
+   *  qu'il manque un mapping côté /admin/couleurs. */
+  unmappedColors?: Array<{ reference: string; colorName: string }>;
 }
 
 /**
@@ -698,7 +703,9 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
           where: { saleType: "UNIT" },
           select: {
             isPrimary: true,
-            color: { select: { id: true, name: true } },
+            color: {
+              select: { id: true, name: true, microstoreColorId: true },
+            },
           },
         },
         colorImages: {
@@ -719,6 +726,44 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
     }),
   ]);
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";
+
+  // Résolution colorName via mapping manuel BJ ↔ Microstore. Historiquement
+  // on envoyait le nom BJ brut dans `goodsImageSetting.colorName`, et le
+  // matching serveur Microstore est case + accent sensitive (ex « doré » ≠
+  // « Doré »). Sur un catalogue BJ qui a toujours poussé lui-même les
+  // colorNames côté Microstore, ça marchait. Mais la cliente peut vouloir
+  // mapper « doré » (BJ) vers « Or » (lib Microstore) : d'où le mapping.
+  //
+  // On fetch 1 seule fois la bibliothèque couleurs Microstore, on construit
+  // la map microstoreColorId→name, et on utilise cette source. Les couleurs
+  // BJ non mappées (microstoreColorId == null) sont REFUSÉES — la cliente
+  // doit les mapper via /admin/couleurs (badge « M »).
+  let microstoreColorNameById = new Map<number, string>();
+  try {
+    const list = await microstoreListColors();
+    for (const c of list) {
+      const idNum = Number(c.id);
+      if (!Number.isNaN(idNum) && c.name) {
+        microstoreColorNameById.set(idNum, c.name);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("[Microstore/PS] bulk : chargement bibliothèque couleurs échoué", {
+      error: err,
+    });
+    return {
+      success: false,
+      error: `Impossible de lire la bibliothèque couleurs Microstore : ${message}`,
+      attempted: productIds.length,
+      photosUploaded: 0,
+      successCount: 0,
+      failedCount: productIds.length,
+      skippedProducts: [],
+      coversPatched: 0,
+      coversFailed: 0,
+    };
+  }
 
   // Index le flag dirty par productId pour le filtre ci-dessous.
   const dirtyByProductId = new Map<string, boolean>();
@@ -800,10 +845,22 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
   const pictures: MicrostoreBulkPictureEntry[] = [];
   const productsWithUpload = new Set<string>();
   const skippedProducts: string[] = [];
+  const unmappedColors: NonNullable<BulkSendPhotosResult["unmappedColors"]> = [];
   const coverByProduct = new Map<
     string,
     { reference: string; primaryUrl: string | null; fallbackUrl: string | null }
   >();
+
+  type ColorRow = {
+    isPrimary: boolean;
+    color: { id: string; name: string; microstoreColorId: number | null } | null;
+  };
+
+  function resolveMicrostoreColorName(pc: ColorRow): string | null {
+    const mid = pc.color?.microstoreColorId;
+    if (mid == null) return null;
+    return microstoreColorNameById.get(mid) ?? null;
+  }
 
   for (const product of products) {
     const imagesByColorId = new Map<string, string[]>();
@@ -833,10 +890,14 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
 
     const jobId = jobIdByProductId.get(product.id) ?? null;
     let plannedForProduct = 0;
-    for (const pc of sortedColors) {
+    for (const pc of sortedColors as ColorRow[]) {
       const colorId = pc.color?.id || "";
       const colorName = pc.color?.name || "";
       if (!colorName) continue;
+      // Les couleurs sans mapping Microstore sont comptées à 0 photo prévue
+      // — on les skipera dans la boucle principale et on logera un warning.
+      const mstName = resolveMicrostoreColorName(pc);
+      if (!mstName) continue;
       const localPaths = imagesByColorId.get(colorId) ?? [];
       if (localPaths.length === 0) continue;
       const isPrimary = colorId === primaryColorId;
@@ -846,12 +907,29 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
     await markMicrostoreUploadJobStarted(jobId, plannedForProduct);
 
     let anyForProduct = false;
-    for (const pc of sortedColors) {
+    for (const pc of sortedColors as ColorRow[]) {
       const colorName = pc.color?.name || "";
       const colorId = pc.color?.id || "";
       if (!colorName) continue;
       const isPrimaryColor = colorId === primaryColorId;
       const localPaths = imagesByColorId.get(colorId) ?? [];
+
+      // Résolution colorName via mapping manuel (/admin/couleurs → badge M).
+      // Sans mapping, on refuse d'envoyer les photos pour cette couleur :
+      // Microstore matche par `itemRef + colorName` (case + accent sensitive)
+      // et un fallback "nom BJ" risque d'envoyer les photos dans le vide.
+      const microstoreColorName = resolveMicrostoreColorName(pc);
+      if (!microstoreColorName) {
+        if (localPaths.length > 0) {
+          unmappedColors.push({ reference: product.reference, colorName });
+          logger.warn("[Microstore/PS] bulk : couleur non mappée, photos ignorées", {
+            reference: product.reference,
+            colorName,
+            microstoreColorId: pc.color?.microstoreColorId ?? null,
+          });
+        }
+        continue;
+      }
 
       for (let idx = 0; idx < localPaths.length; idx++) {
         const rel = localPaths[idx];
@@ -878,12 +956,12 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
           );
 
           pictures.push({
-            name: `${product.reference} ${colorName} ${idx + 1}`,
+            name: `${product.reference} ${microstoreColorName} ${idx + 1}`,
             fileName: filename,
             image: uploaded.publicUrl,
             goodsImageSetting: {
               itemRef: product.reference,
-              colorName,
+              colorName: microstoreColorName,
               order: idx + 1,
             },
           });
@@ -906,12 +984,12 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
               originalFilename,
             );
             pictures.push({
-              name: `${product.reference} ${colorName} ${idx + 2} (originale)`,
+              name: `${product.reference} ${microstoreColorName} ${idx + 2} (originale)`,
               fileName: originalFilename,
               image: originalUpload.publicUrl,
               goodsImageSetting: {
                 itemRef: product.reference,
-                colorName,
+                colorName: microstoreColorName,
                 order: idx + 2,
               },
             });
@@ -942,7 +1020,10 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
   if (pictures.length === 0) {
     return {
       success: false,
-      error: "Aucune photo à envoyer sur cette sélection.",
+      error:
+        unmappedColors.length > 0
+          ? `Aucune photo envoyée : ${unmappedColors.length} couleur(s) sans correspondance Microstore. Mappez-les dans /admin/couleurs.`
+          : "Aucune photo à envoyer sur cette sélection.",
       attempted: productIds.length,
       photosUploaded: 0,
       successCount: 0,
@@ -950,6 +1031,7 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
       skippedProducts,
       coversPatched: 0,
       coversFailed: 0,
+      unmappedColors: unmappedColors.length > 0 ? unmappedColors : undefined,
     };
   }
 
@@ -1068,5 +1150,6 @@ async function bulkSendPhotosToMicrostoreCoreUnlocked(
     skippedProducts,
     coversPatched,
     coversFailed,
+    unmappedColors: unmappedColors.length > 0 ? unmappedColors : undefined,
   };
 }
