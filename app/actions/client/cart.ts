@@ -471,19 +471,23 @@ export async function setCartItemQuantity(variantId: string, quantity: number) {
     return { success: true as const, quantity: 0, capped: false };
   }
 
-  // Vérifier statut produit + stock
+  // Vérifier statut produit + variante active + stock
   const variant = await prisma.productColor.findUnique({
     where: { id: variantId },
     select: {
       stock: true,
       saleType: true,
       packQuantity: true,
+      disabled: true,
       product: { select: { status: true } },
     },
   });
   if (!variant) return { success: false as const, error: "Variante introuvable." };
   if (variant.product.status !== "ONLINE") {
     return { success: false as const, error: "Ce produit n'est plus disponible à la vente." };
+  }
+  if (variant.disabled) {
+    return { success: false as const, error: "Cette couleur n'est plus disponible à la vente." };
   }
 
   const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
@@ -558,12 +562,16 @@ export async function addToCart(variantId: string, quantity: number = 1) {
       stock: true,
       saleType: true,
       packQuantity: true,
+      disabled: true,
       product: { select: { status: true } },
     },
   });
   if (!variant) throw new Error("Variante introuvable.");
   if (variant.product.status !== "ONLINE") {
     throw new Error("Ce produit n'est plus disponible à la vente.");
+  }
+  if (variant.disabled) {
+    throw new Error("Cette couleur n'est plus disponible à la vente.");
   }
 
   const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
@@ -632,12 +640,16 @@ export async function addMultipleToCart(
           stock: true,
           saleType: true,
           packQuantity: true,
+          disabled: true,
           product: { select: { status: true } },
         },
       });
       if (!variant) throw new Error("Variante introuvable.");
       if (variant.product.status !== "ONLINE") {
         throw new Error("Ce produit n'est plus disponible.");
+      }
+      if (variant.disabled) {
+        throw new Error("Cette couleur n'est plus disponible.");
       }
 
       const effectiveStock = variant.saleType === "PACK" && variant.packQuantity
@@ -695,6 +707,7 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
           stock: true,
           saleType: true,
           packQuantity: true,
+          disabled: true,
           product: { select: { status: true } },
         },
       },
@@ -711,9 +724,13 @@ export async function updateCartItem(cartItemId: string, quantity: number) {
 
   const v = item.variant;
   // On laisse toujours diminuer/supprimer (`quantity <= 0` couvert plus haut),
-  // mais on refuse d'augmenter une ligne si le produit n'est plus en ligne.
+  // mais on refuse d'augmenter une ligne si le produit n'est plus en ligne
+  // ou si la couleur a été désactivée depuis l'ajout au panier.
   if (v.product.status !== "ONLINE") {
     throw new Error("Ce produit n'est plus disponible à la vente.");
+  }
+  if (v.disabled) {
+    throw new Error("Cette couleur n'est plus disponible à la vente.");
   }
   const effectiveStock = v.saleType === "PACK" && v.packQuantity
     ? Math.floor(v.stock / v.packQuantity)

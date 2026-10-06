@@ -29,6 +29,11 @@ vi.mock("next-auth", () => ({
 vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// Hors contexte requête HTTP : court-circuite getCurrentTenantId pour que le
+// trigger panier abandonné soit un no-op pendant les tests.
+vi.mock("@/lib/tenant", () => ({ getCurrentTenantId: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/lib/catalog-tracking", () => ({ trackCatalogCartAddition: vi.fn() }));
+vi.mock("next-intl/server", () => ({ getLocale: vi.fn().mockResolvedValue("fr") }));
 
 import { addToCart, updateCartItem } from "@/app/actions/client/cart";
 
@@ -130,6 +135,79 @@ describe("Garde APPROVED — statut du compte client", () => {
 
     await expect(addToCart("var-1", 1)).resolves.toBeUndefined();
     expect(mockPrisma.cartItem.create).toHaveBeenCalledOnce();
+  });
+});
+
+describe("addToCart — refus si couleur désactivée", () => {
+  it("refuse une variante disabled même si produit ONLINE", async () => {
+    mockPrisma.productColor.findUnique.mockResolvedValue({
+      stock: 10,
+      saleType: "UNIT",
+      packQuantity: null,
+      disabled: true,
+      product: { status: "ONLINE" },
+    });
+
+    await expect(addToCart("var-1", 1)).rejects.toThrow(
+      /couleur.*n'est plus disponible/i,
+    );
+    expect(mockPrisma.cartItem.create).not.toHaveBeenCalled();
+    expect(mockPrisma.cartItem.update).not.toHaveBeenCalled();
+  });
+
+  it("accepte une variante disabled=false sur produit ONLINE", async () => {
+    mockPrisma.productColor.findUnique.mockResolvedValue({
+      stock: 10,
+      saleType: "UNIT",
+      packQuantity: null,
+      disabled: false,
+      product: { status: "ONLINE" },
+    });
+    mockPrisma.cart.findUnique.mockResolvedValue({ id: "cart-1" });
+    mockPrisma.cartItem.findUnique.mockResolvedValue(null);
+
+    await expect(addToCart("var-1", 1)).resolves.toBeUndefined();
+    expect(mockPrisma.cartItem.create).toHaveBeenCalledOnce();
+  });
+});
+
+describe("updateCartItem — refus d'augmenter si couleur désactivée", () => {
+  it("refuse d'augmenter la quantité d'une variante disabled", async () => {
+    mockPrisma.cartItem.findFirst.mockResolvedValue({
+      id: "ci-1",
+      quantity: 1,
+      variant: {
+        stock: 10,
+        saleType: "UNIT",
+        packQuantity: null,
+        disabled: true,
+        product: { status: "ONLINE" },
+      },
+    });
+
+    await expect(updateCartItem("ci-1", 2)).rejects.toThrow(
+      /couleur.*n'est plus disponible/i,
+    );
+    expect(mockPrisma.cartItem.update).not.toHaveBeenCalled();
+  });
+
+  it("autorise la suppression (qty=0) même si la variante est disabled", async () => {
+    mockPrisma.cartItem.findFirst.mockResolvedValue({
+      id: "ci-1",
+      quantity: 2,
+      variant: {
+        stock: 10,
+        saleType: "UNIT",
+        packQuantity: null,
+        disabled: true,
+        product: { status: "ONLINE" },
+      },
+    });
+
+    await expect(updateCartItem("ci-1", 0)).resolves.toBeUndefined();
+    expect(mockPrisma.cartItem.delete).toHaveBeenCalledWith({
+      where: { id: "ci-1" },
+    });
   });
 });
 

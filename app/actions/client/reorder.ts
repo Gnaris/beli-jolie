@@ -77,6 +77,10 @@ export async function reorderFromOrder(orderId: string, mode: "replace" | "merge
       warnings.push(`${item.productName} — produit indisponible`);
       continue;
     }
+    if (variant.disabled) {
+      warnings.push(`${item.productName} — couleur indisponible`);
+      continue;
+    }
 
     const { available, currentStock } = await checkStockAvailability(variantId, item.quantity);
     let qty = item.quantity;

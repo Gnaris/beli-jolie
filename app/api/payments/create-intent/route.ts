@@ -108,6 +108,8 @@ export async function POST(req: Request) {
                 packQuantity: true,
                 weight: true,
                 stock: true,
+                disabled: true,
+                color: { select: { name: true } },
                 product: {
                   select: {
                     id: true,
@@ -174,6 +176,17 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error: `Le produit « ${offline.variant.product.name} » n'est plus disponible. Retirez-le du panier pour continuer.`,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Même garde-fou côté variante (couleur désactivée depuis l'ajout au panier).
+  const disabled = cart.items.find((i) => i.variant.disabled);
+  if (disabled) {
+    return NextResponse.json(
+      {
+        error: `La couleur « ${disabled.variant.color?.name ?? ""} » du produit « ${disabled.variant.product.name} » n'est plus disponible. Retirez-la du panier pour continuer.`,
       },
       { status: 400 },
     );

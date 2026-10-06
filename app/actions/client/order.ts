@@ -358,6 +358,18 @@ export async function placeOrder(
     );
   }
 
+  // Même garde-fou au niveau variante : une couleur désactivée depuis l'ajout
+  // au panier (incident DRR29PPZ 06/10/2026, chemise 91820 Bordeaux).
+  const disabledItem = cart.items.find((item) => item.variant.disabled);
+  if (disabledItem) {
+    return refundAndAbort(
+      input.stripePaymentIntentId,
+      userId,
+      "variant_disabled",
+      `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${disabledItem.variant.product.name} » n'est plus disponible à la vente.`,
+    );
+  }
+
   // ── Fetch images for each cart item via ProductColorImage ─────────────────
   const pairs = [
     ...new Map(

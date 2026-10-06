@@ -223,6 +223,14 @@ export async function placeBankTransferOrder(
     };
   }
 
+  const disabledItem = cart.items.find((item) => item.variant.disabled);
+  if (disabledItem) {
+    return {
+      success: false,
+      error: `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${disabledItem.variant.product.name} » n'est plus disponible à la vente.`,
+    };
+  }
+
   const shortStock = cart.items.find((i) => i.variant.stock < stockUnitsForCartLine(i));
   if (shortStock) {
     const packQty = shortStock.variant.packQuantity ?? 1;
