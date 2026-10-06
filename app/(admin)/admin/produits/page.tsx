@@ -15,7 +15,8 @@ import PfsAuditButton from "@/components/admin/products/PfsAuditButton";
 import LowStockPdfButton from "@/components/admin/products/LowStockPdfButton";
 import { requireCurrentTenant } from "@/lib/tenant";
 import ProductStatusTabs from "@/components/admin/products/ProductStatusTabs";
-import { getCachedAdminWarnings, getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasOrderchampConfig, getCachedOrderchampEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
+import { getCachedPfsEnabled, getCachedTags, getCachedCompositions, getCachedHasAnkorstoreConfig, getCachedAnkorstoreEnabled, getCachedHasEfashionConfig, getCachedEfashionEnabled, getCachedHasFaireConfig, getCachedFaireEnabled, getCachedHasOrderchampConfig, getCachedOrderchampEnabled, getCachedHasMicrostoreConfig, getCachedMicrostoreEnabled, getCachedSizes, getCachedProductSectionCounts, getCachedAllCategoriesWithSubs, getCachedAllCollectionsWithProductCount, getCachedAllTags, getCachedHsCodes, getCachedSeasons } from "@/lib/cached-data";
+import { fetchAdminWarnings } from "@/lib/admin-warnings";
 import { getPfsAnnexes } from "@/lib/pfs-annexes";
 import { pickFirstImage } from "@/lib/pick-first-image";
 import { countColorsMissingImage } from "@/lib/colors-missing-image";
@@ -288,7 +289,7 @@ async function TabsWithWarnings({ activeTab, params }: { activeTab: TabKey; para
     unusedTagsCount,
     untranslatedCategoriesCount,
     untranslatedSubCategoriesCount,
-  } = await getCachedAdminWarnings();
+  } = await fetchAdminWarnings();
 
   const tabWarnings: Record<string, number> = {};
   if (untranslatedCount > 0) tabWarnings["produits"] = untranslatedCount;

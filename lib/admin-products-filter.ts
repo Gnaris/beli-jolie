@@ -131,7 +131,7 @@ export interface AdminProductsFilterParams {
   /**
    * Filtre « Statut de traduction » — vérifie la présence de traductions pour
    * chaque locale non-FR (cf. `NON_DEFAULT_LOCALES`). Cohérent avec le comptage
-   * `getCachedAdminWarnings.untranslatedCount` :
+   * `fetchAdminWarnings.untranslatedCount` :
    *   - "untranslated" = au moins une locale non-FR manquante
    *   - "translated"   = traduction présente pour chaque locale non-FR
    *   - vide/absent    = pas de filtre

@@ -4,11 +4,12 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { ADMIN_THEME_COOKIE, parseAdminTheme, adminThemeBodyClass } from "@/lib/admin-theme";
-import { getCachedAdminWarnings, getCachedShopName } from "@/lib/cached-data";
+import { getCachedShopName } from "@/lib/cached-data";
+import { fetchAdminWarnings } from "@/lib/admin-warnings";
 import { isOnboardingCompleted } from "@/lib/onboarding";
 import type { Metadata } from "next";
-import AdminMobileNav from "@/components/admin/AdminMobileNav";
-import AdminDesktopShell from "@/components/admin/AdminDesktopShell";
+import AdminShellsLive from "@/components/admin/AdminShellsLive";
+import { LiveAdminWarningsProvider } from "@/components/admin/LiveAdminWarningsProvider";
 import AdminHtmlThemeSync from "@/components/admin/AdminHtmlThemeSync";
 
 import { DeeplConfigProvider } from "@/components/admin/DeeplConfigContext";
@@ -54,17 +55,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ? session.user.name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
     : "A";
 
-  // Fetch all layout data in parallel
+  // Fetch all layout data in parallel. `fetchAdminWarnings` est LIVE (non cachée) :
+  // les pastilles de la navigation sont ensuite rafraîchies toutes les 25 s côté
+  // navigateur via `LiveAdminWarningsProvider` + `/api/admin/warnings`.
   const [
     shopName,
-    warnings,
+    initialWarnings,
     pfsCreds,
     autoTranslateConfig,
     microstoreExpirations,
     cookieStore,
   ] = await Promise.all([
     getCachedShopName(),
-    getCachedAdminWarnings(),
+    fetchAdminWarnings(),
     getCachedPfsCredentials(),
     getCachedSiteConfig("auto_translate_enabled"),
     getMicrostoreSessionExpirations(),
@@ -74,39 +77,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const adminTheme = parseAdminTheme(cookieStore.get(ADMIN_THEME_COOKIE)?.value ?? null);
   const themeClass = adminThemeBodyClass(adminTheme);
 
-  const {
-    untranslatedCount,
-    unusedColorsCount,
-    unusedCompositionsCount,
-    unusedTagsCount,
-    untranslatedCategoriesCount,
-    untranslatedSubCategoriesCount,
-    pendingOrdersCount,
-    pendingUsersCount,
-    openClaimsCount,
-    pendingReviewsCount,
-  } = warnings;
-
   const translationEnabled = !!(pfsCreds.email && pfsCreds.password);
   const autoTranslateEnabled = translationEnabled && autoTranslateConfig?.value === "true";
-  const totalAttributeWarnings = untranslatedCount + unusedColorsCount + unusedCompositionsCount + unusedTagsCount + untranslatedCategoriesCount + untranslatedSubCategoriesCount;
-
-  const warningCounts: Record<string, { count: number; tooltip: string; title?: string; reasons?: string[]; hint?: string } | undefined> = {};
-
-  // ─── Parent Produits : uniquement les traductions manquantes ───────────
-  // (le compteur "sans mapping marketplace" a été retiré — trop bruyant et
-  // souvent hors sujet, on laisse l'admin voir les alertes sur chaque page.)
-  if (totalAttributeWarnings > 0) {
-    warningCounts["/admin/produits"] = {
-      count: totalAttributeWarnings,
-      tooltip: `${totalAttributeWarnings} traduction${totalAttributeWarnings > 1 ? "s" : ""} manquante${totalAttributeWarnings > 1 ? "s" : ""}`,
-      title: `${totalAttributeWarnings} traduction${totalAttributeWarnings > 1 ? "s" : ""} à compléter`,
-      hint: "Détail par ligne dans le sous-menu.",
-    };
-  }
 
   return (
     <DeeplConfigProvider enabled={translationEnabled} autoTranslateEnabled={autoTranslateEnabled}>
+    <LiveAdminWarningsProvider initial={initialWarnings}>
     <MarketplaceLinkProvider>
     <MarketplaceRefreshProvider>
     <MicrostoreBulkPushProvider>
@@ -124,37 +100,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <AdminHtmlThemeSync theme={adminTheme} />
     <div id="admin-theme-wrapper" data-admin-theme={adminTheme} className={`min-h-screen flex bg-white pb-24 ${themeClass}`}>
 
-      <AdminDesktopShell
+      <AdminShellsLive
         shopName={shopName}
         userName={session.user.name ?? "Admin"}
         initials={initials}
-        warnings={warningCounts}
-        pendingOrdersCount={pendingOrdersCount}
-        pendingUsersCount={pendingUsersCount}
-        openClaimsCount={openClaimsCount}
-        pendingReviewsCount={pendingReviewsCount}
       >
-        <AdminMobileNav
-          userName={session.user.name ?? "Admin"}
-          initials={initials}
-          warnings={{
-            ...Object.fromEntries(
-              Object.entries(warningCounts)
-                .filter(([, w]) => w && w.count > 0)
-                .map(([href, w]) => [href, w!.count]),
-            ),
-            "/admin/commandes": pendingOrdersCount,
-            "/admin/clients": pendingUsersCount,
-            "/admin/service-client": openClaimsCount,
-            "/admin/avis": pendingReviewsCount,
-          }}
-          shopName={shopName}
-        />
-
-        <main className="flex-1 p-4 md:p-6 lg:p-8 lg:bg-white lg:min-h-screen">
-          {children}
-        </main>
-      </AdminDesktopShell>
+        {children}
+      </AdminShellsLive>
 
       <AdminChatWidgetLoader />
     </div>
@@ -168,6 +120,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     </MicrostoreBulkPushProvider>
     </MarketplaceRefreshProvider>
     </MarketplaceLinkProvider>
+    </LiveAdminWarningsProvider>
     </DeeplConfigProvider>
   );
 }

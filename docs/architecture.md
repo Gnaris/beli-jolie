@@ -119,8 +119,15 @@ Admin: via `/admin/parametres` → `AdminPasswordResetButton`. Rules: 8 chars, 1
 
 `getCachedSiteConfig(key)` (5min), `getCachedCategories/Collections/Colors/Tags/ManufacturingCountries/Seasons/Sizes` (1h),
 `getCachedSizesByCategory(categoryId)`, `getCachedProductCount` (5min), `getCachedBestsellerRefs(limit)` (10min),
-`getCachedAdminWarnings()` (5min), `getCachedDashboardStats()` (5min).
+`getCachedDashboardStats()` (5min).
 Rule: `unstable_cache` + unique key array + tags. Invalidate with `revalidateTag(tag, "default")`.
+
+**Compteurs navigation admin — LIVE (depuis 2026-10-06)** — `fetchAdminWarnings()` (`lib/admin-warnings.ts`)
+remplace l'ancien `getCachedAdminWarnings` (5 min). Les 11 count() tournent en parallèle, lus en direct
+à chaque chargement de page admin. Rafraîchissement périodique côté navigateur via
+`<LiveAdminWarningsProvider>` + `GET /api/admin/warnings` (poll ~25 s, pause quand onglet caché,
+dedup si valeurs inchangées). Les pastilles bougent sans recharger la page quand une commande tombe,
+un client s'inscrit, un SAV s'ouvre ou une traduction finit en fond.
 
 ## Integrations
 

@@ -1076,62 +1076,10 @@ export const getCachedBestsellerRefs = tenantScopedCacheWithTid<[number?], strin
   { revalidate: 600, tags: ["orders"] }
 );
 
-// ─── Admin layout warning counts (7 queries, cache 5min) ────────────────────
-const NON_FR_LOCALES = NON_DEFAULT_LOCALES;
-
-export const getCachedAdminWarnings = tenantScopedCacheWithTid(
-  "admin-warnings",
-  async (tid) => {
-    const scoped = tid === "global" ? {} : { tenantId: tid };
-    const [
-      totalProducts,
-      fullyTranslatedProducts,
-      unusedColorsCount,
-      unusedCompositionsCount,
-      unusedTagsCount,
-      untranslatedCategoriesCount,
-      untranslatedSubCategoriesCount,
-      pendingOrdersCount,
-      pendingUsersCount,
-      openClaimsCount,
-      pendingReviewsCount,
-    ] = await Promise.all([
-      prisma.product.count({ where: scoped }),
-      prisma.product.count({
-        where: {
-          ...scoped,
-          AND: NON_FR_LOCALES.map((locale) => ({ translations: { some: { locale } } })),
-        },
-      }),
-      prisma.color.count({ where: { ...scoped, translations: { none: {} } } }),
-      prisma.composition.count({ where: { ...scoped, translations: { none: {} } } }),
-      prisma.tag.count({ where: { ...scoped, translations: { none: {} } } }),
-      prisma.category.count({ where: { ...scoped, translations: { none: {} } } }),
-      prisma.subCategory.count({ where: { ...scoped, translations: { none: {} } } }),
-      prisma.order.count({ where: { ...scoped, status: "PENDING" } }),
-      prisma.user.count({ where: { ...scoped, role: "CLIENT", status: "PENDING" } }),
-      prisma.claim.count({ where: { ...scoped, status: "OPEN" } }),
-      prisma.customerReview.count({ where: { ...scoped, status: "PENDING" } }),
-    ]);
-
-    const untranslatedCount = totalProducts - fullyTranslatedProducts;
-
-    return {
-      untranslatedCount,
-      unusedColorsCount,
-      unusedCompositionsCount,
-      unusedTagsCount,
-      untranslatedCategoriesCount,
-      untranslatedSubCategoriesCount,
-      pendingOrdersCount,
-      pendingUsersCount,
-      openClaimsCount,
-      pendingReviewsCount,
-    };
-  },
-  ["admin-warnings"],
-  { revalidate: 300, tags: ["products", "categories", "colors", "tags", "compositions", "orders", "users", "claims", "customer-reviews-admin"] }
-);
+// ─── Admin layout warning counts ────────────────────────────────────────────
+// Depuis 2026-10-06, les compteurs sont lus en LIVE (plus de cache 5min) et
+// rafraîchis côté navigateur toutes les ~25s. Voir `lib/admin-warnings.ts`
+// pour la fonction `fetchAdminWarnings()` et son hook client associé.
 
 // ─── Dashboard aggregate stats (expensive, cache 5min) ──────────────────────
 export const getCachedDashboardStats = tenantScopedCacheWithTid(
