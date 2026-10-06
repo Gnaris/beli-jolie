@@ -85,7 +85,7 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
     { label: t("products"),    href: "/produits" },
     { label: t("categories"),  href: "/categories" },
     { label: t("collections"), href: "/collections" },
-    { label: "Qui sommes-nous", href: "/qui-sommes-nous" },
+    { label: t("about"),       href: "/qui-sommes-nous" },
     { label: t("contact"),     href: "/nous-contacter" },
   ];
 
