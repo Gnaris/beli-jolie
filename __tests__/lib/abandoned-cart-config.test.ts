@@ -8,11 +8,10 @@ import {
   toSeconds,
   formatCountdown,
   formatDurationShort,
-  templateHasUnsubscribeLink,
+  htmlHasUnsubscribeLink,
   validateStages,
 } from "@/lib/abandoned-cart-config";
 import { decideResumeAction, pickNextStage } from "@/lib/abandoned-cart-trigger";
-import type { NewsletterBlock } from "@/lib/newsletter-blocks";
 
 describe("abandoned-cart-config — conversions unité", () => {
   it("toSeconds convertit correctement chaque unité", () => {
@@ -93,45 +92,21 @@ describe("abandoned-cart-config — validateStages", () => {
   });
 });
 
-describe("abandoned-cart-config — templateHasUnsubscribeLink", () => {
-  const footerBlock = (content: string): NewsletterBlock => ({
-    id: "f",
-    type: "footer",
-    data: { content },
-  });
-
-  it("détecte {unsubscribeLink} dans un bloc footer dédié", () => {
+describe("abandoned-cart-config — htmlHasUnsubscribeLink", () => {
+  it("détecte {unsubscribeLink} dans un HTML", () => {
     expect(
-      templateHasUnsubscribeLink([
-        footerBlock(`Se désinscrire : {${UNSUBSCRIBE_TOKEN}}`),
-      ]),
+      htmlHasUnsubscribeLink(`<p>Se désinscrire : {${UNSUBSCRIBE_TOKEN}}</p>`),
     ).toBe(true);
   });
 
-  it("tolère la convention historique : token dans un bloc heading", () => {
-    // SCENARIO_DEFAULTS.ABANDONED_CART utilise encore des blocs `heading`
-    // pour le pied de page — on ne veut pas casser les modèles legacy.
-    expect(
-      templateHasUnsubscribeLink([
-        {
-          id: "h",
-          type: "heading",
-          data: {
-            title: "",
-            body: `Se désinscrire : {${UNSUBSCRIBE_TOKEN}}`,
-            align: "center" as const,
-          },
-        },
-      ]),
-    ).toBe(true);
+  it("refuse si la variable est absente du HTML", () => {
+    expect(htmlHasUnsubscribeLink("<p>Se désinscrire : ici.</p>")).toBe(false);
   });
 
-  it("refuse si la variable est totalement absente du template", () => {
-    expect(templateHasUnsubscribeLink([footerBlock("Se désinscrire : ici.")])).toBe(false);
-  });
-
-  it("refuse un template vide", () => {
-    expect(templateHasUnsubscribeLink([])).toBe(false);
+  it("refuse un HTML vide ou null", () => {
+    expect(htmlHasUnsubscribeLink("")).toBe(false);
+    expect(htmlHasUnsubscribeLink(null)).toBe(false);
+    expect(htmlHasUnsubscribeLink(undefined)).toBe(false);
   });
 });
 

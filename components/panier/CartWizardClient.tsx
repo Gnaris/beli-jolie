@@ -517,7 +517,13 @@ export default function CartWizardClient({
       .then((data) => {
         if (cancelled) return;
         if (data.error) {
-          setStripeError(data.error);
+          // Mapping des erreurs serveur (texte FR en dur côté API) vers les
+          // clés i18n client. Pour toute nouvelle erreur serveur à localiser,
+          // ajouter une entrée ici + la clé correspondante dans checkout.*.
+          const SERVER_ERROR_MAP: Record<string, string> = {
+            "Adresse introuvable.": t("errorAddressNotFound"),
+          };
+          setStripeError(SERVER_ERROR_MAP[data.error] ?? data.error);
           return;
         }
         setClientSecret(data.clientSecret);

@@ -14,8 +14,10 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { SCENARIO_LABELS } from "@/lib/mail-scenario-defaults";
-import { SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
+import {
+  SCENARIO_HTML_DEFAULTS,
+  SCENARIO_LABELS,
+} from "@/lib/newsletter-html-defaults";
 import {
   extractLastSentFromFired,
   MAX_STAGES,
@@ -132,8 +134,6 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
         tenantId,
         name: def.name,
         subject: def.subject,
-        format: "html",
-        blocks: [],
         html: def.html,
         scenarioKey: "INACTIVE_CLIENT",
       },
@@ -239,8 +239,6 @@ export async function addInactiveClientStage(): Promise<
           tenantId: tenant.id,
           name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade ${newStageIndex}`,
           subject: seedSubject,
-          format: "html",
-          blocks: [],
           html: seedHtml,
           scenarioKey: null,
         },
@@ -413,8 +411,6 @@ export async function applyInactiveClientDefaultDesigns(): Promise<
           data: {
             name: `${SCENARIO_LABELS.INACTIVE_CLIENT} — Stade ${s.stageIndex}`,
             subject: def.subject,
-            format: "html",
-            blocks: [],
             html: def.html,
           },
         });

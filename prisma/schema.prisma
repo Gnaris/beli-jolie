@@ -115,6 +115,12 @@ model User {
   minimumOrderOverrideHt        Decimal?            @db.Decimal(12, 2)
   lastLoginAt                   DateTime?
   lastSeenAt                    DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
+  // Cache de la vérification « ce numéro a-t-il WhatsApp ? » (Baileys reverse-engineered).
+  //   - null      : pas encore vérifié (lazy — vérifié à l'ouverture d'une fiche client/commande)
+  //   - true/false: résultat connu, pas de re-check avant quelques mois
+  // whatsappCheckedAt : horodatage pour pouvoir invalider le cache plus tard si besoin.
+  hasWhatsapp                   Boolean?
+  whatsappCheckedAt             DateTime?
   // Présence Service Client : id de la conversation actuellement ouverte par
   // le client (chat flottant ou réclamation). Mis à jour à chaque heartbeat
   // et remis à null quand le client ferme le widget / quitte la page.
@@ -2588,6 +2594,11 @@ model OrderItem {
   order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   productName String
+  // Snapshot localisé du nom produit : JSON { en: "Steel bracelet set", de: "…", it: "…", es: "…" }
+  // Rempli à la création à partir des ProductTranslation existantes. Null si
+  // aucune traduction n'était disponible ou pour les commandes antérieures à
+  // cette feature. Lecture : helper `resolveOrderItemName(item, locale)`.
+  productNameI18n Json?
   productRef  String
   colorName   String // Composition couleur (UNIT) ou vide (PACK — détails dans packDetails)
   saleType    String // "UNIT" | "PACK"
@@ -3840,8 +3851,9 @@ model Tenant {
   pfsAuditRunChanges PfsAuditRunChange[]
 
   emailSends               EmailSend[]
-  newsletterTemplates      NewsletterTemplate[]
-  newsletterTemplateImages NewsletterTemplateImage[]
+  newsletterTemplates       NewsletterTemplate[]
+  newsletterTemplateImages  NewsletterTemplateImage[]
+  newsletterTemplateLocales NewsletterTemplateLocale[]
   abandonedCartStages      AbandonedCartStage[]
   abandonedCartJobs        AbandonedCartJob[]
   inactiveClientStages     InactiveClientStage[]
@@ -3992,24 +4004,25 @@ model WhatsAppSend {
 // « Nouvelle collection X »…) puis choisit lequel envoyer au moment de
 // cliquer « Envoyer newsletter » sur une sélection de clients.
 //
-// Deux formats coexistent, distingués par le champ `format` :
-//   - "blocks" (défaut) : ancien éditeur visuel drag-and-drop. La structure
-//     est dans `blocks` (tableau JSON typé). Utilisé par les 3 modèles de
-//     scénario auto (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK).
-//   - "html"            : nouvel éditeur HTML/CSS libre. Le source est dans
-//     `html`. Les images embarquées sont dans la relation `images`, référencées
-//     dans le HTML par le token {{img.nom}} — remplacé au rendu par l'URL
-//     absolue de l'image.
+// Depuis 2026-10-07 : format HTML brut uniquement. L'ancien format
+// « blocks » (éditeur drag-and-drop) a été entièrement retiré — les templates
+// existants ont été convertis en HTML une bonne fois pour toutes via
+// `scripts/migrate-newsletter-blocks-to-html.ts` avant la suppression des
+// colonnes `format` et `blocks`.
+//
+// Multi-langue : les colonnes `subject` + `html` portent la version FR par
+// défaut. Chaque langue supplémentaire (EN/DE/ES/IT) est stockée dans
+// `NewsletterTemplateLocale`. À l'envoi, la langue est résolue à partir du
+// pays du destinataire (`lib/user-locale.ts`), avec cascade : locale cible →
+// EN → FR (jamais d'envoi vide).
 // ─────────────────────────────────────────────
 model NewsletterTemplate {
   id          String    @id @default(cuid())
   tenantId    String
   tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String    @db.VarChar(200) // Nom interne (ex. « Nouveautés d'automne 2026 »)
-  subject     String    @db.VarChar(500) // Sujet du mail (ex. « ✨ Découvrez nos nouveautés »)
-  format      String    @default("blocks") @db.VarChar(20) // "blocks" | "html"
-  blocks      Json      @default("[]") // Structure des blocs (format="blocks")
-  html        String?   @db.LongText // Source HTML brut (format="html")
+  subject     String    @db.VarChar(500) // Sujet du mail en FR (défaut)
+  html        String?   @db.LongText    // Source HTML brut en FR (défaut)
   // Si posé, ce modèle est le modèle actif d'un scénario transactionnel
   // (ABANDONED_CART, INACTIVE_CLIENT, RESTOCK). Un seul modèle par scénario
   // par tenant. Non supprimable tant que ce champ est posé.
@@ -4024,9 +4037,33 @@ model NewsletterTemplate {
   abandonedCartStage  AbandonedCartStage?
   inactiveClientStage InactiveClientStage?
   images              NewsletterTemplateImage[]
+  locales             NewsletterTemplateLocale[]
 
   @@unique([tenantId, scenarioKey])
   @@index([tenantId, updatedAt])
+}
+
+// ─────────────────────────────────────────────
+// Versions non-FR d'un modèle newsletter (EN / DE / ES / IT).
+// FR vit directement sur `NewsletterTemplate.subject` + `html`.
+// Chaque autre langue a sa propre ligne ici. `html` est nullable : une
+// ligne existe dès que la cliente ouvre l'onglet, même sans contenu — ça
+// évite les créations fantômes et permet un fallback propre (si vide ou
+// absent, l'envoi retombe sur EN puis FR).
+// ─────────────────────────────────────────────
+model NewsletterTemplateLocale {
+  id         String             @id @default(cuid())
+  tenantId   String
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  templateId String
+  template   NewsletterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  locale     String             @db.VarChar(2) // "en" | "de" | "es" | "it"
+  subject    String             @db.VarChar(500)
+  html       String?            @db.LongText
+  updatedAt  DateTime           @updatedAt
+
+  @@unique([templateId, locale])
+  @@index([tenantId])
 }
 
 // ─────────────────────────────────────────────

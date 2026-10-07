@@ -26,6 +26,7 @@ import { getCachedShopName } from "@/lib/cached-data";
 import { renderNewsletterHtmlForSend } from "@/lib/newsletter-html-render";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
+import { resolveTemplateForCountry } from "@/lib/newsletter-locale-resolve";
 import {
   INACTIVE_WORKER_POLL_INTERVAL_MS,
   computeReferenceAt,
@@ -478,15 +479,28 @@ async function processUser(params: {
     return;
   }
 
-  // Filet dur RGPD : template doit contenir {unsubscribeLink} dans le HTML.
-  const templateHtml = stage.template.html ?? "";
-  if (!templateHtml.includes("{unsubscribeLink}")) {
-    logger.error("[inactiveClient] skip send: unsubscribe missing", {
+  // Résolution langue selon pays destinataire + cascade (locale → EN → FR).
+  const resolved = await resolveTemplateForCountry(
+    stage.template.id,
+    user.addressCountry ?? null,
+  );
+  if (!resolved) {
+    logger.error("[inactiveClient] skip send: template unresolvable", {
       tenantId,
       stageIndex: stage.stageIndex,
       templateId: stage.template.id,
     });
-    return; // au prochain tick on revérifie ; laisse le temps à la cliente de corriger
+    return;
+  }
+  // Filet dur RGPD : la version résolue doit contenir {unsubscribeLink}.
+  if (!resolved.html.includes("{unsubscribeLink}")) {
+    logger.error("[inactiveClient] skip send: unsubscribe missing", {
+      tenantId,
+      stageIndex: stage.stageIndex,
+      templateId: stage.template.id,
+      locale: resolved.locale,
+    });
+    return;
   }
 
   // Nombre de jours d'inactivité affichable (null = pas de lastSeenAt).
@@ -524,12 +538,11 @@ async function processUser(params: {
     privacyLink: `${baseUrl}/fr/confidentialite`,
   };
 
-  const finalSubject = interpolate(stage.template.subject, userContext);
-  // Rendu HTML uniquement (blocs retirés 2026-09-22). `{days}` est déjà
-  // substitué via `mergeContext` — pas de contexte dynamique nécessaire ici.
+  const finalSubject = interpolate(resolved.subject, userContext);
+  // `{days}` est substitué via `mergeContext` — pas de contexte dynamique.
   const html = renderNewsletterHtmlForSend({
-    html: templateHtml,
-    images: stage.template.images,
+    html: resolved.html,
+    images: resolved.images,
     baseUrl,
     mergeContext: userContext,
   });

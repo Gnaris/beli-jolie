@@ -13,6 +13,11 @@
  * Le nombre d'items est plafonné à 8 : au-delà, la section devient trop
  * longue et Google réduit la valeur SEO d'une FAQPage trop verbeuse.
  */
+export interface HomeFaqTranslation {
+  question?: string;
+  answer?: string;
+}
+
 export interface HomeFaqItem {
   /** Identifiant stable (clés React côté éditeur). */
   id: string;
@@ -20,9 +25,15 @@ export interface HomeFaqItem {
   question: string;
   /** Réponse FR — obligatoire, sinon l'item est ignoré. */
   answer: string;
-  /** Version anglaise optionnelle — vide → fallback sur la version FR. */
+  /** Version anglaise optionnelle — vide → fallback sur la version FR.
+   *  Historique : avant l'ajout de DE/IT/ES, seul l'EN était stocké via ces
+   *  deux champs plats. On garde ces clés pour ne pas casser les FAQ déjà
+   *  en base et pour la rétrocompat des composants qui lisent `questionEn`. */
   questionEn?: string;
   answerEn?: string;
+  /** Traductions pour toutes les locales non-FR. Si une entrée existe pour
+   *  `translations.en`, elle gagne sur `questionEn/answerEn`. */
+  translations?: Partial<Record<string, HomeFaqTranslation>>;
 }
 
 export const MAX_HOME_FAQ_ITEMS = 8;
@@ -53,6 +64,19 @@ export const DEFAULT_HOME_FAQ_ITEMS: HomeFaqItem[] = [
   },
 ];
 
+function parseTranslations(raw: unknown): Partial<Record<string, HomeFaqTranslation>> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Partial<Record<string, HomeFaqTranslation>> = {};
+  for (const [locale, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    const q = typeof v.question === "string" ? v.question.trim() : "";
+    const a = typeof v.answer === "string" ? v.answer.trim() : "";
+    if (q || a) out[locale] = { ...(q && { question: q }), ...(a && { answer: a }) };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function parseHomeFaq(raw: string | null | undefined): HomeFaqItem[] {
   if (!raw) return [];
   try {
@@ -74,6 +98,8 @@ export function parseHomeFaq(raw: string | null | undefined): HomeFaqItem[] {
         const aEn = typeof r.answerEn === "string" ? r.answerEn.trim() : "";
         if (qEn) item.questionEn = qEn;
         if (aEn) item.answerEn = aEn;
+        const translations = parseTranslations(r.translations);
+        if (translations) item.translations = translations;
         return item;
       })
       .filter((r) => r.question && r.answer);
@@ -83,11 +109,13 @@ export function parseHomeFaq(raw: string | null | undefined): HomeFaqItem[] {
 }
 
 /**
- * Résout la version localisée de chaque item : si `locale === "en"` et que la
- * traduction EN existe pour question ET answer, on l'utilise. Sinon fallback
- * sur la version FR. Retourne un nouveau tableau avec `question`/`answer` déjà
- * dans la bonne langue — les layouts consomment ce résultat sans se soucier
- * de la locale.
+ * Résout la version localisée de chaque item. Priorité :
+ *   1. `translations[locale]` (nouveau format, utilisé pour DE/IT/ES et aussi
+ *      pour EN quand la cliente édite via la nouvelle UI).
+ *   2. `questionEn`/`answerEn` plats (legacy, uniquement pour locale === "en").
+ *   3. Fallback FR.
+ * Retourne un nouveau tableau avec `question`/`answer` déjà dans la bonne
+ * langue — les layouts consomment ce résultat sans se soucier de la locale.
  */
 export function resolveHomeFaqForLocale(
   items: HomeFaqItem[],
@@ -95,12 +123,18 @@ export function resolveHomeFaqForLocale(
 ): HomeFaqItem[] {
   if (locale === "fr" || !items.length) return items;
   return items.map((it) => {
-    const useEn = locale === "en" && (it.questionEn?.trim() || it.answerEn?.trim());
-    if (!useEn) return it;
+    const t = it.translations?.[locale];
+    const translatedQ = t?.question?.trim();
+    const translatedA = t?.answer?.trim();
+    const legacyEnQ = locale === "en" ? it.questionEn?.trim() : "";
+    const legacyEnA = locale === "en" ? it.answerEn?.trim() : "";
+    const finalQ = translatedQ || legacyEnQ || "";
+    const finalA = translatedA || legacyEnA || "";
+    if (!finalQ && !finalA) return it;
     return {
       ...it,
-      question: it.questionEn?.trim() || it.question,
-      answer: it.answerEn?.trim() || it.answer,
+      question: finalQ || it.question,
+      answer: finalA || it.answer,
     };
   });
 }

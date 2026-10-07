@@ -3,8 +3,9 @@
  * Schedule stored in SiteConfig as JSON with key "business_hours".
  *
  * Localisation : les helpers d'affichage acceptent un paramètre `locale`
- * facultatif (défaut "fr"). Toute page publique sous `/en/…` doit passer "en"
- * pour éviter que "Lundi" ou "Fermé" fuient sur la version anglaise.
+ * facultatif (défaut "fr"). Toute page publique sous `/en/…`, `/de/…`, `/it/…`
+ * ou `/es/…` doit passer sa locale pour éviter que "Lundi" ou "Fermé" fuient
+ * sur une version non-FR.
  */
 
 export interface DaySchedule {
@@ -18,20 +19,27 @@ export interface BusinessHoursSchedule {
   days: Record<string, DaySchedule>; // keys "0"-"6" (0=Sunday, matches JS getDay())
 }
 
-type SupportedLocale = "fr" | "en";
+type SupportedLocale = "fr" | "en" | "de" | "it" | "es";
 
 const DAY_NAMES: Record<SupportedLocale, string[]> = {
   fr: ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"],
   en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  de: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"],
+  it: ["Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"],
+  es: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"],
 };
 
 const CLOSED_LABEL: Record<SupportedLocale, string> = {
   fr: "Fermé",
   en: "Closed",
+  de: "Geschlossen",
+  it: "Chiuso",
+  es: "Cerrado",
 };
 
 function normalizeLocale(input: string | undefined): SupportedLocale {
-  return input === "en" ? "en" : "fr";
+  if (input === "en" || input === "de" || input === "it" || input === "es") return input;
+  return "fr";
 }
 
 /** Monday-Friday 9-18, Saturday-Sunday closed, Europe/Paris */
@@ -158,12 +166,19 @@ function formatHourShortEn(t: string): string {
   return m === 0 ? `${h12} ${suffix}` : `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-/** Label for today's hours in the schedule timezone: "9h — 18h" or "Fermé" (FR) / "9 AM — 6 PM" or "Closed" (EN) */
+/** Format 24h standard "9:00" / "9:30" — utilisé pour DE/IT/ES qui n'ont pas
+ *  de convention courte universelle style "9h" FR ou "9 AM" EN. */
+function formatHourShort24(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+/** Label for today's hours in the schedule timezone: "9h — 18h" or "Fermé" (FR) / "9 AM — 6 PM" or "Closed" (EN) / "9:00 — 18:00" (DE/IT/ES) */
 export function getTodayHoursLabel(schedule: BusinessHoursSchedule, locale?: string): string {
   const loc = normalizeLocale(locale);
   const { dayOfWeek } = getNowInTimezone(schedule.timezone);
   const day = schedule.days[String(dayOfWeek)];
   if (!day || day.closed) return CLOSED_LABEL[loc];
-  const fmt = loc === "en" ? formatHourShortEn : formatHourShortFr;
+  const fmt = loc === "fr" ? formatHourShortFr : loc === "en" ? formatHourShortEn : formatHourShort24;
   return `${fmt(day.open)} — ${fmt(day.close)}`;
 }

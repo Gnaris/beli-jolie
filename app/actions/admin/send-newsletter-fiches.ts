@@ -50,13 +50,12 @@ export async function sendNewsletterToFiches({
     // 1. Modèle
     const template = await prisma.newsletterTemplate.findFirst({
       where: { id: templateId, tenantId: tenant.id },
-      select: { id: true, name: true, subject: true, blocks: true },
+      select: { id: true, name: true, subject: true, html: true },
     });
     if (!template) return { success: false, error: "Modèle introuvable." };
 
-    const blocks = Array.isArray(template.blocks) ? template.blocks : [];
-    if (blocks.length === 0) {
-      return { success: false, error: "Le modèle sélectionné est vide (aucun bloc)." };
+    if (!template.html || !template.html.trim()) {
+      return { success: false, error: "Le modèle sélectionné est vide (pas de contenu HTML)." };
     }
 
     // 2. Fiches — filtre email non vide

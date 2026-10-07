@@ -29,12 +29,8 @@ import { logger } from "@/lib/logger";
 import { sendMail } from "@/lib/email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { getCachedShopName } from "@/lib/cached-data";
-import {
-  renderNewsletterHtml,
-  substituteVariables,
-  type ProductLite,
-  type NewsletterBlock,
-} from "@/lib/newsletter-blocks";
+import { renderNewsletterHtmlForSend } from "@/lib/newsletter-html-render";
+import { resolveTemplateForCountry } from "@/lib/newsletter-locale-resolve";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 
 // ─────────────────────────────────────────────
@@ -241,12 +237,22 @@ async function processJobBody(jobId: string): Promise<void> {
     id: string;
     name: string;
     subject: string;
-    blocks: unknown;
+    html: string | null;
+    images: Array<{ name: string; path: string; alt: string }>;
   } | null = null;
   if (job.templateId) {
     template = await prisma.newsletterTemplate.findFirst({
       where: { id: job.templateId },
-      select: { id: true, name: true, subject: true, blocks: true },
+      select: {
+        id: true,
+        name: true,
+        subject: true,
+        html: true,
+        images: {
+          orderBy: { createdAt: "asc" },
+          select: { name: true, path: true, alt: true },
+        },
+      },
     });
   }
   if (!template) {
@@ -254,17 +260,13 @@ async function processJobBody(jobId: string): Promise<void> {
     return;
   }
 
-  const blocks = Array.isArray(template.blocks) ? (template.blocks as NewsletterBlock[]) : [];
-
   // Contexte partagé boutique (mêmes règles que sendNewsletterToUsers)
-  const [shopName, baseUrl, companyInfo, legalLine, productsById] = await Promise.all([
+  const [shopName, baseUrl, companyInfo] = await Promise.all([
     getCachedShopName(),
     getCurrentTenantBaseUrl(),
     prisma.companyInfo.findFirst({
       select: { address: true, postalCode: true, city: true, email: true, phone: true, website: true },
     }),
-    buildLegalLine(),
-    loadProductsForBlocks(blocks),
   ]);
 
   const computedShopAddress = companyInfo
@@ -358,14 +360,29 @@ async function processJobBody(jobId: string): Promise<void> {
       privacyLink: `${baseUrl}/fr/confidentialite`,
     };
 
-    const interpolatedBlocks = substituteVariables(blocks, ficheContext);
-    const interpolatedSubject = interpolate(template.subject, ficheContext);
-    const html = renderNewsletterHtml({
-      subject: interpolatedSubject,
-      blocks: interpolatedBlocks,
-      productsById,
-      omitGlobalChrome: true,
-      shared: { shopName, baseUrl, legalLine, mergeContext: ficheContext },
+    // Résolution de la langue selon le pays de la fiche (cascade : locale
+    // cible → EN → FR). Fallback FR si pas de pays côté fiche.
+    const resolved = await resolveTemplateForCountry(
+      template.id,
+      fiche.countryCode ?? null,
+    );
+    if (!resolved) {
+      recipients[i] = {
+        ...recipients[i],
+        status: "FAILED",
+        attemptedAt: new Date().toISOString(),
+        error: "Modèle introuvable au moment de l'envoi.",
+      };
+      failedCount++;
+      await persistRecipients(job.id, recipients, sentCount, failedCount);
+      continue;
+    }
+    const interpolatedSubject = interpolate(resolved.subject, ficheContext);
+    const html = renderNewsletterHtmlForSend({
+      html: resolved.html,
+      images: resolved.images,
+      baseUrl,
+      mergeContext: ficheContext,
     });
 
     const result = await sendMail({
@@ -497,61 +514,3 @@ async function failJob(jobId: string, message: string): Promise<void> {
   });
 }
 
-// ─────────────────────────────────────────────
-// Helpers partagés avec send-newsletter-fiches
-// ─────────────────────────────────────────────
-
-async function loadProductsForBlocks(
-  blocks: NewsletterBlock[],
-): Promise<Map<string, ProductLite>> {
-  const productIds = blocks
-    .filter((b): b is Extract<NewsletterBlock, { type: "products" }> => b.type === "products")
-    .flatMap((b) => b.data.productIds);
-  const uniqueProductIds = [...new Set(productIds)];
-  const productsById = new Map<string, ProductLite>();
-  if (uniqueProductIds.length === 0) return productsById;
-
-  const products = await prisma.product.findMany({
-    where: { id: { in: uniqueProductIds } },
-    select: {
-      id: true,
-      name: true,
-      reference: true,
-      colors: {
-        take: 1,
-        orderBy: { isPrimary: "desc" },
-        select: {
-          unitPrice: true,
-          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-        },
-      },
-    },
-  });
-  for (const p of products) {
-    const v = p.colors[0];
-    productsById.set(p.id, {
-      id: p.id,
-      name: p.name,
-      reference: p.reference,
-      imagePath: v?.images[0]?.path ?? null,
-      priceCents: v ? Math.round(Number(v.unitPrice) * 100) : null,
-    });
-  }
-  return productsById;
-}
-
-async function buildLegalLine(): Promise<string> {
-  try {
-    const info = await prisma.companyInfo.findFirst({
-      select: { shopName: true, name: true, address: true, postalCode: true, city: true },
-    });
-    if (!info) return "";
-    const displayName = info.shopName?.trim() || info.name?.trim();
-    const addressLine = [info.address, [info.postalCode, info.city].filter(Boolean).join(" ")]
-      .filter(Boolean)
-      .join(", ");
-    return [displayName, addressLine].filter(Boolean).join(" · ");
-  } catch {
-    return "";
-  }
-}

@@ -24,11 +24,13 @@ export async function generateMetadata({
   const { locale } = await params;
 
   if (slug === "beliandjolie") {
-    const alternates = await buildAlternates("/qui-sommes-nous", locale);
+    const [alternates, t] = await Promise.all([
+      buildAlternates("/qui-sommes-nous", locale),
+      getTranslations({ locale, namespace: "qsnBeli" }),
+    ]);
     return {
-      title: "Qui sommes-nous — Beli & Jolie",
-      description:
-        "Beli & Jolie : grossiste en bijoux fantaisie en acier inoxydable 304 avec placage PVD or 14 carats. Boutique et réserve à Aubervilliers. Guide complet des matières, du PVD et du placage or.",
+      title: t("metaTitle"),
+      description: t("metaDescription"),
       alternates,
     };
   }
@@ -46,9 +48,14 @@ export async function generateMetadata({
   return {};
 }
 
-export default async function QuiSommesNousPage() {
+export default async function QuiSommesNousPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
   await getCurrentTenantId();
   const tenantSlug = await getEffectiveTenantSlug();
+  const { locale } = await params;
 
   if (tenantSlug === "issyma") {
     const shopName = await getCachedShopName();
@@ -61,13 +68,18 @@ export default async function QuiSommesNousPage() {
 
   if (tenantSlug !== "beliandjolie") notFound();
 
-  const [shopName, productCount] = await Promise.all([
+  const [shopName, productCount, t] = await Promise.all([
     getCachedShopName(),
     getCachedProductCount(),
+    getTranslations({ locale, namespace: "qsnBeli" }),
   ]);
-  // Formatage à la française : 2500 → "2 500" (espace fine insécable).
-  const productCountFmt = new Intl.NumberFormat("fr-FR").format(productCount);
+  // Formatage à la locale : 2500 → "2 500" (fr), "2,500" (en), etc.
+  const productCountFmt = new Intl.NumberFormat(locale).format(productCount);
   const IMG = "/uploads/beliandjolie/qui-sommes-nous";
+
+  const strong = (chunks: React.ReactNode) => <strong className="text-text-primary font-semibold">{chunks}</strong>;
+  const italic = (chunks: React.ReactNode) => <em className="italic font-light">{chunks}</em>;
+  const emTag = (chunks: React.ReactNode) => <em>{chunks}</em>;
 
   return (
     <div className="min-h-screen bg-bg-primary relative">
@@ -80,29 +92,25 @@ export default async function QuiSommesNousPage() {
             <div className="lg:col-span-6 flex items-center bg-bg-primary">
               <div className="px-6 md:px-10 lg:px-16 py-16 lg:py-0 max-w-xl">
                 <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                  La maison
+                  {t("heroEyebrow")}
                 </p>
                 <h1
                   className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                   style={{ fontSize: "clamp(2.75rem, 6vw, 5.5rem)", letterSpacing: "-0.03em" }}
                 >
-                  Grossiste
+                  {t("heroTitle1")}
                   <br />
-                  en bijoux
+                  {t("heroTitle2")}
                   <br />
-                  <span className="italic font-light">fantaisie.</span>
+                  <span className="italic font-light">{t("heroTitleItalic")}</span>
                 </h1>
                 <p className="mt-8 text-text-secondary text-lg leading-relaxed max-w-md font-body">
-                  Fournisseur de bijoux fantaisie en{" "}
-                  <strong className="text-text-primary font-semibold">
-                    acier inoxydable 304 avec placage PVD or 14 carats
-                  </strong>
-                  . Boutique et réserve à Aubervilliers.
+                  {t.rich("heroSubtitle", { strong })}
                 </p>
                 <div className="mt-10 flex items-center gap-4">
                   <div className="h-px flex-1 bg-text-primary max-w-[60px]" />
                   <p className="text-xs uppercase tracking-[0.3em] text-text-muted">
-                    Suivez le fil
+                    {t("heroScrollLabel")}
                   </p>
                 </div>
               </div>
@@ -110,7 +118,7 @@ export default async function QuiSommesNousPage() {
             <div className="lg:col-span-6 relative min-h-[400px] lg:min-h-0 bg-bg-tertiary">
               <Image
                 src={`${IMG}/facade.jpg`}
-                alt="Façade de la boutique Beli & Jolie à Aubervilliers"
+                alt={t("heroImageAlt")}
                 fill
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
@@ -118,7 +126,7 @@ export default async function QuiSommesNousPage() {
               />
               <div className="absolute bottom-6 right-6 bg-bg-primary/95 backdrop-blur rounded-full px-4 py-2 border border-border shadow-sm">
                 <p className="text-[11px] uppercase tracking-[0.2em] text-text-muted">
-                  Aubervilliers · depuis 2022
+                  {t("heroBadge")}
                 </p>
               </div>
             </div>
@@ -129,47 +137,42 @@ export default async function QuiSommesNousPage() {
         <section className="bg-bg-primary border-y border-border">
           <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-24 lg:py-32">
             <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6 text-center">
-              Notre approche
+              {t("approcheEyebrow")}
             </p>
             <p
               className="font-heading font-extrabold text-text-primary text-center tracking-tight leading-[0.95]"
               style={{ fontSize: "clamp(1.75rem, 3.5vw, 3rem)", letterSpacing: "-0.03em" }}
             >
-              Un catalogue clair, des prix affichés,
+              {t("approcheTitle1")}
               <br />
-              <span className="italic font-light">
-                et un vrai contact quand vous avez besoin de nous.
-              </span>
+              <span className="italic font-light">{t("approcheTitleItalic")}</span>
             </p>
             <div className="mt-16 grid md:grid-cols-3 gap-10 text-left">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-3">— 01</p>
                 <h3 className="font-heading font-semibold text-text-primary text-lg mb-2">
-                  Stock disponible immédiatement
+                  {t("approche1Title")}
                 </h3>
                 <p className="text-text-secondary text-[15px] leading-relaxed font-body">
-                  Tout ce qui est en ligne est physiquement en réserve, à Aubervilliers. Commandé
-                  avant 15 h, expédié le lendemain.
+                  {t("approche1Body")}
                 </p>
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-3">— 02</p>
                 <h3 className="font-heading font-semibold text-text-primary text-lg mb-2">
-                  Prix grossiste affichés
+                  {t("approche2Title")}
                 </h3>
                 <p className="text-text-secondary text-[15px] leading-relaxed font-body">
-                  Dès la création de votre compte pro, vous accédez à l&apos;ensemble des tarifs.
-                  Pas de demande de devis, pas de palier caché.
+                  {t("approche2Body")}
                 </p>
               </div>
               <div>
                 <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-3">— 03</p>
                 <h3 className="font-heading font-semibold text-text-primary text-lg mb-2">
-                  Contact direct
+                  {t("approche3Title")}
                 </h3>
                 <p className="text-text-secondary text-[15px] leading-relaxed font-body">
-                  Un numéro de téléphone pour nous joindre. Si on ne décroche pas sur le moment,
-                  on vous rappelle dans la journée.
+                  {t("approche3Body")}
                 </p>
               </div>
             </div>
@@ -180,13 +183,13 @@ export default async function QuiSommesNousPage() {
         <section className="bg-bg-dark text-text-inverse">
           <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-24 lg:py-32">
             <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-16 text-center">
-              La maison en chiffres
+              {t("chiffresEyebrow")}
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-16 md:gap-24">
-              <BigStat value={productCountFmt} label="références" sub="en stock permanent" />
-              <BigStat value="120" label="nouveautés" sub="arrivent chaque mois" />
-              <BigStat value="24" suffix="h" label="expédition" sub="commande avant 15 h" />
-              <BigStat value="3" suffix="ans" label="au service" sub="des boutiques pros" />
+              <BigStat value={productCountFmt} label={t("chiffresRefLabel")} sub={t("chiffresRefSub")} />
+              <BigStat value={t("chiffresNewValue")} label={t("chiffresNewLabel")} sub={t("chiffresNewSub")} />
+              <BigStat value={t("chiffresExpValue")} suffix={t("chiffresExpSuffix")} label={t("chiffresExpLabel")} sub={t("chiffresExpSub")} />
+              <BigStat value={t("chiffresYearsValue")} suffix={t("chiffresYearsSuffix")} label={t("chiffresYearsLabel")} sub={t("chiffresYearsSub")} />
             </div>
           </div>
         </section>
@@ -197,7 +200,7 @@ export default async function QuiSommesNousPage() {
             <div className="lg:col-span-6 relative min-h-[500px] bg-bg-tertiary">
               <Image
                 src={`${IMG}/boutique-vue-ensemble.jpg`}
-                alt="Intérieur de la boutique Beli & Jolie, vue d'ensemble"
+                alt={t("maisonImageAlt")}
                 fill
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
@@ -206,29 +209,26 @@ export default async function QuiSommesNousPage() {
             <div className="lg:col-span-6 px-6 md:px-10 lg:px-20 py-20 lg:py-32 flex items-center">
               <div className="max-w-xl">
                 <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-                  La maison
+                  {t("maisonEyebrow")}
                 </p>
                 <h2
                   className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                   style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
                 >
-                  Une adresse à Aubervilliers.
+                  {t("maisonTitle1")}
                   <br />
-                  <span className="italic font-light">Pas un entrepôt.</span>
+                  <span className="italic font-light">{t("maisonTitleItalic")}</span>
                 </h2>
                 <p className="mt-8 text-text-secondary leading-relaxed font-body">
-                  Au cœur du quartier du textile, notre boutique accueille acheteuses pros et
-                  commerçantes de passage. Chaque référence du catalogue en ligne est exposée en
-                  permanence, prête à être touchée, essayée, comparée.
+                  {t("maisonP1")}
                 </p>
                 <p className="mt-4 text-text-secondary leading-relaxed font-body">
-                  Vous venez une heure, vous repartez avec votre sélection le jour même — ou vous
-                  nous laissez l&apos;envoyer en 24 h.
+                  {t("maisonP2")}
                 </p>
                 <div className="mt-10 flex items-center gap-4">
                   <div className="h-px w-10 bg-text-primary" />
                   <p className="text-text-muted text-xs uppercase tracking-[0.3em]">
-                    90 rue de la Haie Coq · 93300
+                    {t("maisonAddress")}
                   </p>
                 </div>
               </div>
@@ -242,45 +242,25 @@ export default async function QuiSommesNousPage() {
             <div className="flex items-end justify-between mb-10 lg:mb-14">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-3">
-                  Reportage
+                  {t("alleesEyebrow")}
                 </p>
                 <h2
                   className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                   style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
                 >
-                  Dans les allées.
+                  {t("alleesTitle")}
                 </h2>
               </div>
               <p className="hidden md:block text-text-muted text-xs uppercase tracking-[0.2em]">
-                250 m² · {productCountFmt} références
+                {t("alleesInfo", { count: productCountFmt })}
               </p>
             </div>
             <div className="grid grid-cols-6 grid-rows-3 gap-3 md:gap-4 h-[520px] md:h-[640px]">
-              <MosaicPhoto
-                src={`${IMG}/allee-centrale.jpg`}
-                alt="Allée centrale de la boutique"
-                className="col-span-4 row-span-2"
-              />
-              <MosaicPhoto
-                src={`${IMG}/vitrine-bijoux.jpg`}
-                alt="Vitrine de bijoux dorés"
-                className="col-span-2 row-span-1"
-              />
-              <MosaicPhoto
-                src={`${IMG}/allee-laterale.jpg`}
-                alt="Allée latérale avec étagères"
-                className="col-span-2 row-span-2"
-              />
-              <MosaicPhoto
-                src={`${IMG}/bagues-acier.jpg`}
-                alt="Présentoir de bagues en acier inoxydable"
-                className="col-span-2 row-span-1"
-              />
-              <MosaicPhoto
-                src={`${IMG}/allee-vers-entree.jpg`}
-                alt="Vue vers l'entrée de la boutique"
-                className="col-span-2 row-span-1"
-              />
+              <MosaicPhoto src={`${IMG}/allee-centrale.jpg`} alt={t("alleesAlt1")} className="col-span-4 row-span-2" />
+              <MosaicPhoto src={`${IMG}/vitrine-bijoux.jpg`} alt={t("alleesAlt2")} className="col-span-2 row-span-1" />
+              <MosaicPhoto src={`${IMG}/allee-laterale.jpg`} alt={t("alleesAlt3")} className="col-span-2 row-span-2" />
+              <MosaicPhoto src={`${IMG}/bagues-acier.jpg`} alt={t("alleesAlt4")} className="col-span-2 row-span-1" />
+              <MosaicPhoto src={`${IMG}/allee-vers-entree.jpg`} alt={t("alleesAlt5")} className="col-span-2 row-span-1" />
             </div>
           </div>
         </section>
@@ -290,46 +270,32 @@ export default async function QuiSommesNousPage() {
           <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-24 lg:py-32">
             <div className="max-w-2xl mb-14 lg:mb-20">
               <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">
-                L&apos;arrière-boutique
+                {t("arriereEyebrow")}
               </p>
               <h2
                 className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                 style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
               >
-                Ce que vous ne verrez pas en magasin.
+                {t("arriereTitle1")}
                 <br />
-                <span className="italic font-light">Mais qui part chez vous.</span>
+                <span className="italic font-light">{t("arriereTitleItalic")}</span>
               </h2>
               <p className="mt-6 text-text-secondary leading-relaxed max-w-xl font-body">
-                Derrière le rideau, notre réserve. Deux allées d&apos;étagères compartimentées,
-                chaque pochette identifiée, chaque référence prête à être prélevée. C&apos;est ce
-                qui permet d&apos;expédier avant le lendemain soir, même sur les gros volumes.
+                {t("arriereBody")}
               </p>
             </div>
             <div className="grid md:grid-cols-2 gap-3 md:gap-6">
               <div className="rounded-2xl overflow-hidden bg-bg-tertiary aspect-[4/5] md:aspect-[3/4] relative">
-                <Image
-                  src={`${IMG}/reserve-1.jpg`}
-                  alt="Vue de la réserve, allée d'étagères compartimentées"
-                  fill
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  className="object-cover"
-                />
+                <Image src={`${IMG}/reserve-1.jpg`} alt={t("arriereAlt1")} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
               </div>
               <div className="rounded-2xl overflow-hidden bg-bg-tertiary aspect-[4/5] md:aspect-[3/4] relative">
-                <Image
-                  src={`${IMG}/reserve-2.jpg`}
-                  alt="Réserve de stock, pochettes identifiées"
-                  fill
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  className="object-cover"
-                />
+                <Image src={`${IMG}/reserve-2.jpg`} alt={t("arriereAlt2")} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
               </div>
             </div>
             <div className="mt-10 flex flex-wrap gap-10 pt-10 border-t border-border">
-              <SmallStat value={productCountFmt} label="références identifiées" />
-              <SmallStat value="24 h" label="de la commande au colis" />
-              <SmallStat value="0" label="intermédiaire, 0 dropshipping" />
+              <SmallStat value={productCountFmt} label={t("arriereStat1Label")} />
+              <SmallStat value={t("arriereStat2Value")} label={t("arriereStat2Label")} />
+              <SmallStat value={t("arriereStat3Value")} label={t("arriereStat3Label")} />
             </div>
           </div>
         </section>
@@ -338,555 +304,175 @@ export default async function QuiSommesNousPage() {
         <section id="guide-matieres" className="bg-bg-secondary border-y border-border">
           <div className="max-w-[1200px] mx-auto px-6 lg:px-10 py-24 lg:py-32">
             <header className="max-w-3xl mx-auto text-center mb-16">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">Guide</p>
+              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">{t("guideEyebrow")}</p>
               <h2
                 className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                 style={{ fontSize: "clamp(2.25rem, 4.5vw, 3.5rem)", letterSpacing: "-0.03em" }}
               >
-                Nos matières, <span className="italic font-light">décryptées.</span>
+                {t("guideTitle1")} <span className="italic font-light">{t("guideTitleItalic")}</span>
               </h2>
               <p className="mt-8 text-text-secondary text-lg leading-relaxed font-body">
-                Tous les bijoux Beli &amp; Jolie sont en{" "}
-                <strong className="text-text-primary font-semibold">
-                  acier inoxydable 304 avec placage PVD or 14 carats
-                </strong>
-                . Si cette ligne ne vous dit pas grand-chose, cet article est fait pour vous. On
-                vous explique ce que ça veut dire, pourquoi on a choisi cette technologie, et
-                comment elle se compare aux autres matières du marché.
+                {t.rich("guideIntro", { strong })}
               </p>
-              <p className="mt-4 text-text-muted text-sm font-body">
-                Temps de lecture : 7 minutes · Mis à jour en 2026
-              </p>
+              <p className="mt-4 text-text-muted text-sm font-body">{t("guideReadingTime")}</p>
             </header>
 
             {/* Sommaire ancré */}
             <aside className="max-w-3xl mx-auto bg-bg-primary border border-border rounded-2xl p-6 lg:p-8 mb-16">
-              <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-4">
-                Dans cet article
-              </p>
+              <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-4">{t("guideTocTitle")}</p>
               <ol className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-text-secondary text-sm font-body">
-                <TocItem n="01" href="#inox" label="L'acier inoxydable, c'est quoi ?" />
-                <TocItem n="02" href="#acier-304" label="L'acier 304 : la référence" />
-                <TocItem n="03" href="#pvd" label="Le placage PVD, la technologie clé" />
-                <TocItem n="04" href="#carats" label="9K, 14K, 18K, 24K : les carats" />
-                <TocItem n="05" href="#autres" label="Laiton, argent, titane, vermeil" />
-                <TocItem n="06" href="#choix" label="Pourquoi 304 + PVD 14K ?" />
-                <TocItem n="07" href="#entretien" label="Entretien de vos bijoux" />
-                <TocItem n="08" href="#faq-matieres" label="Questions fréquentes" />
+                <TocItem n="01" href="#inox" label={t("guideToc01")} />
+                <TocItem n="02" href="#acier-304" label={t("guideToc02")} />
+                <TocItem n="03" href="#pvd" label={t("guideToc03")} />
+                <TocItem n="04" href="#carats" label={t("guideToc04")} />
+                <TocItem n="05" href="#autres" label={t("guideToc05")} />
+                <TocItem n="06" href="#choix" label={t("guideToc06")} />
+                <TocItem n="07" href="#entretien" label={t("guideToc07")} />
+                <TocItem n="08" href="#faq-matieres" label={t("guideToc08")} />
               </ol>
             </aside>
 
             <article className="max-w-3xl mx-auto space-y-16 text-text-secondary text-[17px] leading-[1.75] font-body">
-              <GuideSection
-                id="inox"
-                n="01"
-                title="L'acier inoxydable, c'est quoi exactement ?"
-              >
-                <p>
-                  L&apos;<strong className="text-text-primary">acier inoxydable</strong> (ou «
-                  inox ») est un alliage composé de fer, de chrome (minimum 10,5 %) et de carbone.
-                  Le chrome crée en surface une fine couche d&apos;oxyde invisible qui empêche le
-                  métal de rouiller — même en présence d&apos;eau, de transpiration ou de produits
-                  ménagers.
-                </p>
-                <p className="mt-4">
-                  Pour la bijouterie, cette propriété change tout : contrairement au laiton ou au
-                  cuivre, un bijou en acier inox{" "}
-                  <strong className="text-text-primary">
-                    ne noircit pas sur la peau, ne tache pas les vêtements et ne provoque pas
-                    d&apos;allergies au nickel
-                  </strong>{" "}
-                  (dans ses qualités les plus pures).
-                </p>
-                <p className="mt-4">
-                  Il existe plusieurs centaines de nuances d&apos;acier inoxydable, chacune
-                  optimisée pour un usage précis. Celle qui s&apos;est imposée en bijouterie
-                  fantaisie, c&apos;est le <strong className="text-text-primary">304</strong>.
-                </p>
+              <GuideSection id="inox" n="01" title={t("inoxTitle")}>
+                <p>{t.rich("inoxP1", { strong })}</p>
+                <p className="mt-4">{t.rich("inoxP2", { strong })}</p>
+                <p className="mt-4">{t.rich("inoxP3", { strong })}</p>
               </GuideSection>
 
-              <GuideSection
-                id="acier-304"
-                n="02"
-                title="L'acier 304 : la référence en bijouterie"
-              >
-                <p>
-                  L&apos;<strong className="text-text-primary">acier inoxydable 304</strong> est
-                  la nuance d&apos;acier la plus utilisée en bijouterie fantaisie, et plus
-                  largement dans toutes les industries exigeantes : alimentaire, cuisine
-                  professionnelle, matériel médical. Composé de 18 % de chrome et 8 % de nickel,
-                  il offre une excellente résistance à l&apos;oxydation, se travaille finement
-                  (gravure, polissage, formes complexes) et accepte parfaitement les traitements
-                  de surface comme le PVD.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  Un acier compatible avec toutes les peaux
-                </h4>
-                <p>
-                  Le nickel contenu dans le 304 est présent sous{" "}
-                  <strong className="text-text-primary">
-                    forme stable, encapsulée dans la matrice métallique
-                  </strong>
-                  . Il est compatible avec la très grande majorité des peaux. Et dès qu&apos;un
-                  bijou est plaqué (comme c&apos;est systématiquement le cas chez nous), le
-                  placage isole totalement la peau du substrat : il n&apos;y a plus de contact
-                  direct avec l&apos;acier.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  Résistance et longévité
-                </h4>
-                <p>
-                  Le 304 résiste très bien à l&apos;eau, à l&apos;humidité, aux produits ménagers
-                  et à la transpiration normale. Dans le cadre d&apos;un bijou plaqué PVD, c&apos;est
-                  le substrat idéal : stable chimiquement, facile à finir, et compatible avec un
-                  placage haute qualité qui prolonge largement la durée de vie du bijou.
-                </p>
-
+              <GuideSection id="acier-304" n="02" title={t("acier304Title")}>
+                <p>{t.rich("acier304P1", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("acier304H1")}</h4>
+                <p>{t.rich("acier304P2", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("acier304H2")}</h4>
+                <p>{t("acier304P3")}</p>
                 <div className="bg-bg-primary border border-border rounded-2xl p-6 mt-8">
-                  <p className="text-text-muted text-xs uppercase tracking-[0.2em] mb-3">
-                    À retenir
-                  </p>
+                  <p className="text-text-muted text-xs uppercase tracking-[0.2em] mb-3">{t("acier304RetainTitle")}</p>
                   <ul className="space-y-2 text-[15px]">
-                    <RetainItem>
-                      Le <strong className="text-text-primary">304</strong> est l&apos;acier le
-                      plus utilisé en bijouterie fantaisie dans le monde.
-                    </RetainItem>
-                    <RetainItem>
-                      Compatible avec la très grande majorité des peaux, y compris sensibles.
-                    </RetainItem>
-                    <RetainItem>
-                      Combiné à un{" "}
-                      <strong className="text-text-primary">placage PVD de qualité</strong>, il
-                      offre une longévité remarquable (voir section suivante).
-                    </RetainItem>
+                    <RetainItem>{t.rich("acier304Retain1", { strong })}</RetainItem>
+                    <RetainItem>{t("acier304Retain2")}</RetainItem>
+                    <RetainItem>{t.rich("acier304Retain3", { strong })}</RetainItem>
                   </ul>
                 </div>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">
-                  Et les autres aciers ?
-                </h4>
-                <p>
-                  On croise parfois les termes « acier 316 » ou « acier chirurgical ». Il
-                  s&apos;agit d&apos;autres nuances d&apos;acier inoxydable, utilisées
-                  historiquement pour des applications très spécifiques (industrie marine,
-                  médical). En bijouterie fantaisie, ces appellations sont souvent mises en avant
-                  comme argument marketing — mais dans l&apos;usage quotidien d&apos;un bijou
-                  plaqué, la différence pour la cliente est{" "}
-                  <strong className="text-text-primary">imperceptible</strong>. Ce qui fait
-                  vraiment la différence sur la durée de vie, c&apos;est la qualité du placage.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">
-                  Et le titane ?
-                </h4>
-                <p>
-                  Le titane est plus léger et quasiment incassable. Il est principalement utilisé
-                  en piercing médical et en lunetterie haut de gamme. En bijouterie fantaisie, il
-                  reste rare car il est{" "}
-                  <strong className="text-text-primary">difficile à travailler finement</strong>{" "}
-                  (gravure, moulage) et son prix de matière première est bien plus élevé. On en
-                  trouve surtout sur des bracelets homme et des alliances.
-                </p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">{t("acier304H3")}</h4>
+                <p>{t.rich("acier304P4", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">{t("acier304H4")}</h4>
+                <p>{t.rich("acier304P5", { strong })}</p>
               </GuideSection>
 
-              <GuideSection
-                id="pvd"
-                n="03"
-                title="Le placage PVD — la vraie différence avec le reste du marché"
-              >
-                <p>
-                  <strong className="text-text-primary">PVD</strong> signifie{" "}
-                  <em>Physical Vapor Deposition</em> (dépôt physique en phase vapeur). C&apos;est
-                  une technologie de placage sous vide, à haute température (environ 400 °C), qui
-                  vaporise des atomes d&apos;or (ou d&apos;autres métaux) et les projette sur la
-                  surface du bijou. Le dépôt est si fin qu&apos;il se mesure en microns, mais si
-                  dense qu&apos;il devient{" "}
-                  <strong className="text-text-primary">quasi-moléculairement lié</strong> au
-                  support.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">
-                  PVD vs. placage électrolytique (galvanique)
-                </h4>
-                <p>
-                  Le placage traditionnel, dit{" "}
-                  <strong className="text-text-primary">galvanique</strong> ou{" "}
-                  <strong className="text-text-primary">électrolytique</strong>, trempe le bijou
-                  dans un bain d&apos;or liquide traversé par un courant électrique. Simple,
-                  rapide, bon marché — mais le dépôt reste superficiel et s&apos;use rapidement :
-                </p>
+              <GuideSection id="pvd" n="03" title={t("pvdTitle")}>
+                <p>{t.rich("pvdP1", { strong, em: emTag })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">{t("pvdH1")}</h4>
+                <p>{t.rich("pvdP2", { strong })}</p>
                 <div className="overflow-x-auto mt-6">
                   <table className="w-full text-[15px] border-collapse">
                     <thead>
                       <tr className="border-y-2 border-text-primary">
-                        <th className="text-left py-3 pr-4 font-heading font-semibold text-text-primary">
-                          Critère
-                        </th>
-                        <th className="text-left py-3 px-4 font-heading font-semibold text-text-primary">
-                          Galvanique
-                        </th>
-                        <th className="text-left py-3 pl-4 font-heading font-semibold text-text-primary">
-                          PVD
-                        </th>
+                        <th className="text-left py-3 pr-4 font-heading font-semibold text-text-primary">{t("pvdTableCriterion")}</th>
+                        <th className="text-left py-3 px-4 font-heading font-semibold text-text-primary">{t("pvdTableGalvanic")}</th>
+                        <th className="text-left py-3 pl-4 font-heading font-semibold text-text-primary">{t("pvdTablePvd")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      <PvdRow label="Épaisseur" galv="0,5 — 3 microns" pvd="0,3 — 1 micron, mais ultra dense" />
-                      <PvdRow
-                        label="Durée de vie"
-                        galv="6 mois à 2 ans"
-                        pvd={<strong className="text-text-primary">3 à 10 ans</strong>}
-                      />
-                      <PvdRow
-                        label="Résistance à l'usure"
-                        galv="Faible"
-                        pvd={<strong className="text-text-primary">4 à 8× supérieure</strong>}
-                      />
-                      <PvdRow label="Résistance à l'eau / mer" galv="Médiocre" pvd="Excellente" />
-                      <PvdRow
-                        label="Impact environnemental"
-                        galv="Bains chimiques, eaux usées polluées"
-                        pvd="Procédé sous vide, propre"
-                      />
-                      <PvdRow label="Coût de production" galv="Faible" pvd="2 à 3× plus cher" />
+                      <PvdRow label={t("pvdRow1Label")} galv={t("pvdRow1Galv")} pvd={t("pvdRow1Pvd")} />
+                      <PvdRow label={t("pvdRow2Label")} galv={t("pvdRow2Galv")} pvd={t.rich("pvdRow2Pvd", { strong })} />
+                      <PvdRow label={t("pvdRow3Label")} galv={t("pvdRow3Galv")} pvd={t.rich("pvdRow3Pvd", { strong })} />
+                      <PvdRow label={t("pvdRow4Label")} galv={t("pvdRow4Galv")} pvd={t("pvdRow4Pvd")} />
+                      <PvdRow label={t("pvdRow5Label")} galv={t("pvdRow5Galv")} pvd={t("pvdRow5Pvd")} />
+                      <PvdRow label={t("pvdRow6Label")} galv={t("pvdRow6Galv")} pvd={t("pvdRow6Pvd")} />
                     </tbody>
                   </table>
                 </div>
-                <p className="mt-6">
-                  Concrètement : un bijou plaqué PVD porté quotidiennement garde son éclat{" "}
-                  <strong className="text-text-primary">plusieurs années</strong>. Un bijou
-                  galvanique, lui, montre ses premiers signes d&apos;usure au bout de quelques
-                  mois (zones ternies sur les angles, le fermoir, les points de contact avec la
-                  peau).
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">
-                  Le PVD, c&apos;est aussi une protection pour l&apos;acier
-                </h4>
-                <p>
-                  Un point rarement expliqué dans les fiches techniques :{" "}
-                  <strong className="text-text-primary">
-                    dès qu&apos;un acier est recouvert d&apos;un placage PVD de qualité, le
-                    substrat n&apos;est plus en contact avec l&apos;extérieur
-                  </strong>
-                  . L&apos;eau chlorée, l&apos;eau de mer, la transpiration, les cosmétiques —
-                  rien de tout cela ne touche l&apos;acier derrière le placage. Le PVD agit comme
-                  une barrière physique étanche, un peu comme une peinture de protection sur une
-                  carrosserie.
-                </p>
-                <p className="mt-4">
-                  Résultat pratique :{" "}
-                  <strong className="text-text-primary">
-                    la qualité du placage PVD devient le vrai facteur de longévité
-                  </strong>
-                  . Épaisseur, uniformité, maîtrise du procédé — c&apos;est ce qui fait qu&apos;un
-                  bijou garde son éclat 3, 5 ou 10 ans. C&apos;est sur cette qualité de placage
-                  que nous avons concentré tous nos efforts d&apos;approvisionnement.
-                </p>
+                <p className="mt-6">{t.rich("pvdP3", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">{t("pvdH2")}</h4>
+                <p>{t.rich("pvdP4", { strong })}</p>
+                <p className="mt-4">{t.rich("pvdP5", { strong })}</p>
               </GuideSection>
 
-              <GuideSection
-                id="carats"
-                n="04"
-                title="Les carats : pourquoi 14K, et pas 18K ou 24K ?"
-              >
-                <p>
-                  Le <strong className="text-text-primary">carat</strong> (noté K ou kt, à ne pas
-                  confondre avec le carat des pierres précieuses) mesure la pureté de l&apos;or.
-                  L&apos;or pur fait 24 carats, soit 100 % d&apos;or. En-dessous, on parle
-                  d&apos;un alliage : l&apos;or est mélangé avec d&apos;autres métaux (cuivre,
-                  argent, palladium, zinc) pour le durcir et modifier sa couleur.
-                </p>
-
+              <GuideSection id="carats" n="04" title={t("caratsTitle")}>
+                <p>{t.rich("caratsP1", { strong })}</p>
                 <div className="overflow-x-auto mt-6">
                   <table className="w-full text-[15px] border-collapse">
                     <thead>
                       <tr className="border-y-2 border-text-primary">
-                        <th className="text-left py-3 pr-4 font-heading font-semibold text-text-primary">
-                          Carat
-                        </th>
-                        <th className="text-left py-3 px-4 font-heading font-semibold text-text-primary">
-                          % d&apos;or
-                        </th>
-                        <th className="text-left py-3 pl-4 font-heading font-semibold text-text-primary">
-                          Usage courant
-                        </th>
+                        <th className="text-left py-3 pr-4 font-heading font-semibold text-text-primary">{t("caratsTableCarat")}</th>
+                        <th className="text-left py-3 px-4 font-heading font-semibold text-text-primary">{t("caratsTablePct")}</th>
+                        <th className="text-left py-3 pl-4 font-heading font-semibold text-text-primary">{t("caratsTableUsage")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      <CaratRow
-                        k="24K"
-                        pct="99,9 %"
-                        usage="Lingots d'investissement. Trop mou pour la bijouterie portée."
-                      />
-                      <CaratRow
-                        k="22K"
-                        pct="91,6 %"
-                        usage="Standard Asie, Moyen-Orient. Jaune très soutenu."
-                      />
-                      <CaratRow k="18K" pct="75 %" usage="Standard européen de la haute joaillerie." />
-                      <CaratRow
-                        k="14K"
-                        pct={<strong className="text-text-primary">58,5 %</strong>}
-                        usage={
-                          <strong className="text-text-primary">
-                            Standard US, Canada, nord Europe. Résistant, teinte équilibrée.
-                          </strong>
-                        }
-                        highlight
-                      />
-                      <CaratRow
-                        k="9K"
-                        pct="37,5 %"
-                        usage="Minimum légal pour l'appellation « or » en France. Teinte pâle."
-                      />
+                      <CaratRow k={t("caratsRow1K")} pct={t("caratsRow1Pct")} usage={t("caratsRow1Usage")} />
+                      <CaratRow k={t("caratsRow2K")} pct={t("caratsRow2Pct")} usage={t("caratsRow2Usage")} />
+                      <CaratRow k={t("caratsRow3K")} pct={t("caratsRow3Pct")} usage={t("caratsRow3Usage")} />
+                      <CaratRow k={t("caratsRow4K")} pct={t.rich("caratsRow4Pct", { strong })} usage={t.rich("caratsRow4Usage", { strong })} highlight />
+                      <CaratRow k={t("caratsRow5K")} pct={t("caratsRow5Pct")} usage={t("caratsRow5Usage")} />
                     </tbody>
                   </table>
                 </div>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">
-                  Pourquoi le 14K pour un placage ?
-                </h4>
-                <p>
-                  Pour un placage PVD, le carat ne mesure pas la quantité d&apos;or déposée mais{" "}
-                  <strong className="text-text-primary">la teinte visuelle finale</strong>. Le PVD
-                  14K reproduit la couleur or jaune du 14 carats : un jaune soutenu mais pas trop
-                  vif, chaud mais pas rosé. C&apos;est l&apos;équilibre que recherchent 80 % des
-                  acheteuses occidentales — ni trop « asiatique jaune pur », ni trop « rose gold ».
-                </p>
-                <p className="mt-4">
-                  Le PVD 18K existe aussi (teinte plus pâle, légèrement verdâtre) et le PVD rose
-                  gold (ajout de cuivre). Mais le 14K reste{" "}
-                  <strong className="text-text-primary">
-                    la teinte la plus universelle en bijouterie fantaisie
-                  </strong>
-                  .
-                </p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-10 mb-3">{t("caratsH1")}</h4>
+                <p>{t.rich("caratsP2", { strong })}</p>
+                <p className="mt-4">{t.rich("caratsP3", { strong })}</p>
               </GuideSection>
 
-              <GuideSection id="autres" n="05" title="Les autres matières que vous croiserez">
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  Le laiton (plaqué or ou brut)
-                </h4>
-                <p>
-                  Alliage de cuivre (60-70 %) et de zinc (30-40 %). C&apos;est la matière la plus
-                  répandue en bijouterie fantaisie bas de gamme. Avantages : bon marché, facile à
-                  travailler, se dore joliment. Inconvénients :{" "}
-                  <strong className="text-text-primary">
-                    noircit au contact de la peau
-                  </strong>{" "}
-                  (oxydation du cuivre),{" "}
-                  <strong className="text-text-primary">
-                    peut provoquer des allergies
-                  </strong>{" "}
-                  (chez 10 à 20 % de la population pour le cuivre), et le placage galvanique
-                  s&apos;use en 6 à 18 mois. Si vous entendez « bijou plaqué or 3 microns »,
-                  c&apos;est généralement du laiton galvanisé.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  Le zamak
-                </h4>
-                <p>
-                  Alliage zinc-aluminium-magnésium-cuivre, utilisé pour les bijoux moulés très
-                  fins (breloques détaillées, charms). Avantage : permet des formes impossibles
-                  autrement. Inconvénient :{" "}
-                  <strong className="text-text-primary">cassant, s&apos;oxyde rapidement</strong>,
-                  de qualité très variable selon le fournisseur.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  L&apos;argent 925 (sterling)
-                </h4>
-                <p>
-                  92,5 % d&apos;argent, 7,5 % de cuivre. Matière noble, hypoallergénique,
-                  intemporelle. Son défaut : il{" "}
-                  <strong className="text-text-primary">noircit (sulfuration)</strong> au contact
-                  de l&apos;air et de la peau, demandant un polissage régulier. Son prix est 5 à
-                  15× supérieur à l&apos;acier plaqué.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  Le vermeil
-                </h4>
-                <p>
-                  Argent 925 recouvert d&apos;une couche d&apos;or d&apos;au moins{" "}
-                  <strong className="text-text-primary">5 microns</strong>, obligatoire par la loi
-                  française. Allie la noblesse de l&apos;argent et l&apos;éclat de l&apos;or.
-                  Luxueux, mais fragile (l&apos;or étant mou, le vermeil se raye) et coûteux.
-                </p>
-
-                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">
-                  L&apos;or massif
-                </h4>
-                <p>
-                  Bijouterie fine, prix élevés, revente possible chez un bijoutier. On distingue
-                  l&apos;or jaune, blanc (allié avec palladium), rose (allié avec cuivre). Rare en
-                  gros volumes, inaccessible pour la plupart des revendeuses fantaisie.
-                </p>
+              <GuideSection id="autres" n="05" title={t("autresTitle")}>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("autresLaitonTitle")}</h4>
+                <p>{t.rich("autresLaitonBody", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("autresZamakTitle")}</h4>
+                <p>{t.rich("autresZamakBody", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("autresArgentTitle")}</h4>
+                <p>{t.rich("autresArgentBody", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("autresVermeilTitle")}</h4>
+                <p>{t.rich("autresVermeilBody", { strong })}</p>
+                <h4 className="font-heading font-semibold text-text-primary text-lg mt-8 mb-3">{t("autresOrMassifTitle")}</h4>
+                <p>{t("autresOrMassifBody")}</p>
               </GuideSection>
 
-              <GuideSection
-                id="choix"
-                n="06"
-                title="Pourquoi nous avons choisi l'acier 304 + PVD 14K"
-              >
-                <p>
-                  Nous avons fait le choix de ne proposer qu&apos;une seule qualité : l&apos;
-                  <strong className="text-text-primary">
-                    acier inoxydable 304 avec placage PVD or 14 carats
-                  </strong>
-                  . Trois raisons :
-                </p>
-
+              <GuideSection id="choix" n="06" title={t("choixTitle")}>
+                <p>{t.rich("choixIntro", { strong })}</p>
                 <div className="grid md:grid-cols-3 gap-5 mt-8">
-                  <ChoixCard
-                    n="01"
-                    title="Compatible avec toutes les peaux"
-                    body="Le substrat acier est entièrement isolé par le placage PVD : aucun contact direct avec la peau, pas de réaction au nickel. Zéro retour SAV pour allergie depuis que nous avons basculé."
-                  />
-                  <ChoixCard
-                    n="02"
-                    title="Durable grâce au PVD"
-                    body="Le placage PVD de qualité tient 3 à 10 ans sans s'écailler. Vos clientes reviennent pour de nouveaux modèles, pas pour des rachats forcés."
-                  />
-                  <ChoixCard
-                    n="03"
-                    title="Accessible"
-                    body="Un prix de gros compatible avec les marges d'une boutique indépendante. Pas de ticket d'entrée joaillerie, pas de minimum absurde."
-                  />
+                  <ChoixCard n="01" title={t("choix1Title")} body={t("choix1Body")} />
+                  <ChoixCard n="02" title={t("choix2Title")} body={t("choix2Body")} />
+                  <ChoixCard n="03" title={t("choix3Title")} body={t("choix3Body")} />
                 </div>
-
-                <p className="mt-8">
-                  Notre priorité d&apos;approvisionnement, c&apos;est la{" "}
-                  <strong className="text-text-primary">qualité du placage PVD</strong>{" "}
-                  (épaisseur, uniformité, procédé). C&apos;est ce qui fait vraiment la différence
-                  sur la durée de vie du bijou en vitrine comme au poignet de vos clientes.
-                </p>
-                <p className="mt-4">
-                  Nous ne proposons <strong className="text-text-primary">pas</strong> d&apos;or
-                  massif ni de vermeil, parce que ce n&apos;est pas notre cœur de cible. Nous
-                  nous adressons à des revendeuses qui veulent un produit{" "}
-                  <strong className="text-text-primary">
-                    fiable, revendable, régulièrement renouvelé
-                  </strong>
-                  , pas une pièce d&apos;investissement.
-                </p>
+                <p className="mt-8">{t.rich("choixConclusion1", { strong })}</p>
+                <p className="mt-4">{t.rich("choixConclusion2", { strong })}</p>
               </GuideSection>
 
-              <GuideSection
-                id="entretien"
-                n="07"
-                title="Entretien : les bons gestes à transmettre à vos clientes"
-              >
-                <p>
-                  Un bijou en acier 304 + PVD 14K peut durer{" "}
-                  <strong className="text-text-primary">10 ans ou plus</strong> si quelques règles
-                  sont respectées. Voici celles que nous recommandons :
-                </p>
-
+              <GuideSection id="entretien" n="07" title={t("entretienTitle")}>
+                <p>{t.rich("entretienIntro", { strong })}</p>
                 <div className="space-y-4 mt-8">
-                  <EntretienRow
-                    n="1."
-                    title="À retirer avant"
-                    body="Douche, piscine, mer, sauna, séance de sport. L'eau chlorée et la transpiration intense accélèrent l'usure du placage, même PVD."
-                  />
-                  <EntretienRow
-                    n="2."
-                    title="Toujours en dernier"
-                    body={
-                      <>
-                        Mettre les bijoux <em>après</em> la crème, le parfum, le maquillage et la
-                        laque. Les parfums alcoolisés et les cosmétiques sont les premiers
-                        responsables du ternissement.
-                      </>
-                    }
-                  />
-                  <EntretienRow
-                    n="3."
-                    title="Rangement à l'abri"
-                    body="Dans leur pochette d'origine ou une boîte à bijoux, à l'abri de la lumière directe et de l'humidité. Pas en vrac avec d'autres bijoux (frottements = rayures)."
-                  />
-                  <EntretienRow
-                    n="4."
-                    title="Nettoyage doux"
-                    body={
-                      <>
-                        Chiffon microfibre sec pour la poussière. Pour un nettoyage en profondeur
-                        : eau tiède + une goutte de savon de Marseille, puis sécher.{" "}
-                        <strong className="text-text-primary">Jamais</strong> de dentifrice,
-                        d&apos;alcool, d&apos;ammoniaque ou de produit pour l&apos;argenterie.
-                      </>
-                    }
-                  />
+                  <EntretienRow n={t("entretien1N")} title={t("entretien1Title")} body={t("entretien1Body")} />
+                  <EntretienRow n={t("entretien2N")} title={t("entretien2Title")} body={t.rich("entretien2Body", { em: emTag })} />
+                  <EntretienRow n={t("entretien3N")} title={t("entretien3Title")} body={t("entretien3Body")} />
+                  <EntretienRow n={t("entretien4N")} title={t("entretien4Title")} body={t.rich("entretien4Body", { strong })} />
                 </div>
               </GuideSection>
 
-              <GuideSection id="faq-matieres" n="08" title="Questions fréquentes sur les matières">
+              <GuideSection id="faq-matieres" n="08" title={t("faqMatieresTitle")}>
                 <div className="divide-y divide-border border-y border-border bg-bg-primary rounded-2xl overflow-hidden mt-6">
-                  <GuideFaq q="Est-ce que mes bijoux peuvent noircir ?">
-                    Non. L&apos;acier inoxydable ne noircit pas et ne tache pas la peau,
-                    contrairement au laiton ou au cuivre. Et même en cas d&apos;usure du placage,
-                    le substrat acier reste chimiquement stable. Si vous constatez un ternissement,
-                    c&apos;est généralement dû à un dépôt de cosmétiques — un chiffon microfibre
-                    et de l&apos;eau tiède savonneuse suffisent.
-                  </GuideFaq>
-                  <GuideFaq q="Et pour les allergies au nickel ?">
-                    L&apos;acier 304 contient techniquement un peu de nickel, mais sous forme
-                    stable, encapsulée dans la matrice métallique. En plus, le placage PVD isole
-                    totalement le substrat de la peau — il n&apos;y a donc pas de contact direct
-                    avec l&apos;acier. La norme européenne EN 1811 impose une migration de nickel
-                    inférieure à 0,5 µg/cm²/semaine : nos bijoux sont très largement sous ce seuil.
-                  </GuideFaq>
-                  <GuideFaq q="Puis-je porter mes bijoux à la piscine ou à la mer ?">
-                    Techniquement, oui : le placage PVD forme une barrière étanche qui protège
-                    totalement le bijou de l&apos;eau chlorée ou saline. En pratique, nous
-                    recommandons quand même de retirer vos bijoux avant la baignade, par simple
-                    précaution — comme pour tout bijou de qualité. Vos pièces vous dureront
-                    d&apos;autant plus longtemps.
-                  </GuideFaq>
-                  <GuideFaq q="Puis-je prendre une douche avec ?">
-                    Techniquement oui — l&apos;acier et le PVD résistent à l&apos;eau. Mais le
-                    shampoing, le savon et le calcaire laissent des dépôts qui ternissent
-                    l&apos;éclat. On recommande donc de les retirer, par principe de précaution.
-                  </GuideFaq>
-                  <GuideFaq q="Comment distinguer un placage PVD d'un galvanique ?">
-                    Visuellement, c&apos;est quasi impossible neuf. La différence apparaît à
-                    l&apos;usage : au bout de 6 mois de port quotidien, un galvanique commence à
-                    montrer des zones ternies sur les angles, le PVD reste intact. Un fournisseur
-                    sérieux documente systématiquement son procédé.
-                  </GuideFaq>
-                  <GuideFaq q="Les bijoux PVD contiennent-ils vraiment de l'or ?">
-                    Oui — le placage PVD 14K dépose une fine couche d&apos;or réel (allié selon le
-                    carat choisi). La quantité d&apos;or est faible (quelques milligrammes par
-                    bijou), ce qui explique pourquoi un bijou plaqué, même PVD, n&apos;a pas de
-                    valeur de revente comme un bijou en or massif.
-                  </GuideFaq>
+                  <GuideFaq q={t("faqMatieres1Q")}>{t("faqMatieres1A")}</GuideFaq>
+                  <GuideFaq q={t("faqMatieres2Q")}>{t("faqMatieres2A")}</GuideFaq>
+                  <GuideFaq q={t("faqMatieres3Q")}>{t("faqMatieres3A")}</GuideFaq>
+                  <GuideFaq q={t("faqMatieres4Q")}>{t("faqMatieres4A")}</GuideFaq>
+                  <GuideFaq q={t("faqMatieres5Q")}>{t("faqMatieres5A")}</GuideFaq>
+                  <GuideFaq q={t("faqMatieres6Q")}>{t("faqMatieres6A")}</GuideFaq>
                 </div>
               </GuideSection>
             </article>
 
             {/* Encart conclusion */}
             <div className="max-w-3xl mx-auto mt-20 bg-bg-dark text-text-inverse rounded-3xl p-10 md:p-14 text-center">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-4">
-                En résumé
-              </p>
+              <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-4">{t("resumeEyebrow")}</p>
               <p
                 className="font-heading font-extrabold text-text-inverse tracking-tight leading-[1.05]"
                 style={{ fontSize: "clamp(1.5rem, 2.6vw, 2rem)", letterSpacing: "-0.03em" }}
               >
-                Tous nos bijoux :{" "}
-                <span className="italic font-light">acier inoxydable 304 + PVD or 14K</span>.
-                <br />
-                Durables, compatibles avec toutes les peaux, revendables en toute tranquillité.
+                {t.rich("resumeTitle", { italic })}
               </p>
               <Link
                 href="/produits"
                 className="mt-8 inline-flex items-center gap-2 rounded-full bg-white text-text-primary text-sm font-heading font-semibold px-6 py-3 hover:bg-white/90 transition"
               >
-                Voir notre catalogue <span aria-hidden>→</span>
+                {t("resumeCta")} <span aria-hidden>→</span>
               </Link>
             </div>
           </div>
@@ -896,51 +482,34 @@ export default async function QuiSommesNousPage() {
         <section id="showroom" className="bg-bg-primary">
           <div className="max-w-[1400px] mx-auto grid lg:grid-cols-12">
             <div className="lg:col-span-7 relative min-h-[500px] bg-bg-tertiary">
-              <Image
-                src={`${IMG}/allee-principale.jpg`}
-                alt="Allée principale de la boutique Beli & Jolie"
-                fill
-                sizes="(max-width: 1024px) 100vw, 58vw"
-                className="object-cover"
-              />
+              <Image src={`${IMG}/allee-principale.jpg`} alt={t("showroomImageAlt")} fill sizes="(max-width: 1024px) 100vw, 58vw" className="object-cover" />
             </div>
             <div className="lg:col-span-5 bg-bg-dark text-text-inverse px-6 md:px-10 lg:px-16 py-20 lg:py-28 flex items-center">
               <div className="max-w-sm">
-                <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-6">
-                  Venir nous voir
-                </p>
+                <p className="text-[11px] uppercase tracking-[0.4em] text-white/50 mb-6">{t("showroomEyebrow")}</p>
                 <h2
                   className="font-heading font-extrabold text-text-inverse tracking-tight leading-[0.95]"
                   style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
                 >
-                  Toucher avant d&apos;acheter.
+                  {t("showroomTitle")}
                 </h2>
-                <p className="mt-6 text-white/80 leading-relaxed font-body">
-                  Boutique ouverte sans rendez-vous. On vous reçoit, on vous laisse flâner, et on
-                  reste disponibles pour vous conseiller si besoin.
-                </p>
+                <p className="mt-6 text-white/80 leading-relaxed font-body">{t("showroomBody")}</p>
                 <dl className="mt-10 space-y-5 text-sm border-t border-white/20 pt-8 font-body">
                   <div>
-                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">
-                      Adresse
-                    </dt>
-                    <dd>90 rue de la Haie Coq — 93300 Aubervilliers</dd>
+                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">{t("showroomAddressLabel")}</dt>
+                    <dd>{t("showroomAddressValue")}</dd>
                   </div>
                   <div>
-                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">
-                      Horaires
-                    </dt>
+                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">{t("showroomHoursLabel")}</dt>
                     <dd>
-                      Lun — Ven · 9 h — 18 h
+                      {t("showroomHoursWeek")}
                       <br />
-                      Sam · 10 h — 16 h
+                      {t("showroomHoursSat")}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">
-                      Téléphone
-                    </dt>
-                    <dd>07 82 75 81 58</dd>
+                    <dt className="text-white/50 uppercase tracking-[0.2em] text-[10px] mb-1">{t("showroomPhoneLabel")}</dt>
+                    <dd>{t("showroomPhoneValue")}</dd>
                   </div>
                 </dl>
                 <div className="mt-10 flex flex-wrap gap-3">
@@ -950,13 +519,10 @@ export default async function QuiSommesNousPage() {
                     rel="noreferrer"
                     className="rounded-full bg-white text-text-primary text-sm font-heading font-semibold px-5 py-3 hover:bg-white/90"
                   >
-                    Itinéraire ↗
+                    {t("showroomCtaDirections")}
                   </a>
-                  <a
-                    href="tel:0782758158"
-                    className="rounded-full border border-white/30 text-text-inverse text-sm font-heading font-semibold px-5 py-3 hover:bg-white/10"
-                  >
-                    Nous appeler
+                  <a href="tel:0782758158" className="rounded-full border border-white/30 text-text-inverse text-sm font-heading font-semibold px-5 py-3 hover:bg-white/10">
+                    {t("showroomCtaCall")}
                   </a>
                 </div>
               </div>
@@ -968,41 +534,24 @@ export default async function QuiSommesNousPage() {
         <section className="bg-bg-secondary border-y border-border">
           <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-24 lg:py-28 grid lg:grid-cols-12 gap-10">
             <div className="lg:col-span-4">
-              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">
-                Vos questions
-              </p>
+              <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-4">{t("faqPratiqueEyebrow")}</p>
               <h2
                 className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
                 style={{ fontSize: "clamp(2rem, 4vw, 3rem)", letterSpacing: "-0.03em" }}
               >
-                On vous répond, sans détour.
+                {t("faqPratiqueTitle")}
               </h2>
-              <p className="mt-6 text-text-secondary leading-relaxed font-body">
-                Vous ne trouvez pas la réponse ? Appelez-nous. On préfère vraiment.
-              </p>
-              <a
-                href="tel:0782758158"
-                className="mt-6 inline-flex items-center gap-2 text-text-primary font-heading font-semibold hover:underline"
-              >
-                07 82 75 81 58 →
+              <p className="mt-6 text-text-secondary leading-relaxed font-body">{t("faqPratiqueBody")}</p>
+              <a href="tel:0782758158" className="mt-6 inline-flex items-center gap-2 text-text-primary font-heading font-semibold hover:underline">
+                {t("faqPratiquePhone")}
               </a>
             </div>
             <div className="lg:col-span-8">
               <div className="divide-y divide-border border-y border-border bg-bg-primary">
-                <PracticalFaq q="Les articles sont-ils vendus à l'unité ?">
-                  Oui, nos modèles peuvent être commandés à l&apos;unité, sans lot ni pack imposé.
-                </PracticalFaq>
-                <PracticalFaq q="Pourquoi les prix ne sont-ils pas affichés ?">
-                  Nos tarifs grossiste sont réservés aux professionnels. Créez gratuitement votre
-                  compte pour consulter les prix et les stocks.
-                </PracticalFaq>
-                <PracticalFaq q="Sous quel délai les commandes sont-elles préparées ?">
-                  Les commandes en ligne passées avant 15 h sont généralement expédiées le
-                  lendemain ouvré (sous 24 h).
-                </PracticalFaq>
-                <PracticalFaq q="Livrez-vous en France et en Europe ?">
-                  Oui, nous livrons en France, dans les DOM-TOM et dans plusieurs pays européens.
-                </PracticalFaq>
+                <PracticalFaq q={t("faqPratique1Q")}>{t("faqPratique1A")}</PracticalFaq>
+                <PracticalFaq q={t("faqPratique2Q")}>{t("faqPratique2A")}</PracticalFaq>
+                <PracticalFaq q={t("faqPratique3Q")}>{t("faqPratique3A")}</PracticalFaq>
+                <PracticalFaq q={t("faqPratique4Q")}>{t("faqPratique4A")}</PracticalFaq>
               </div>
             </div>
           </div>
@@ -1011,33 +560,28 @@ export default async function QuiSommesNousPage() {
         {/* 10 · CTA FINAL */}
         <section id="cta" className="bg-bg-primary">
           <div className="max-w-[1100px] mx-auto px-6 lg:px-10 py-24 lg:py-32 text-center">
-            <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">
-              Et maintenant ?
-            </p>
+            <p className="text-[11px] uppercase tracking-[0.4em] text-text-muted mb-6">{t("ctaEyebrow")}</p>
             <h2
               className="font-heading font-extrabold text-text-primary tracking-tight leading-[0.95]"
               style={{ fontSize: "clamp(2.5rem, 5.5vw, 4.5rem)", letterSpacing: "-0.03em" }}
             >
-              Rejoignez les boutiques
-              <br className="hidden md:block" /> qui commandent chez nous.
+              {t("ctaTitle1")}
+              <br className="hidden md:block" /> {t("ctaTitle2")}
             </h2>
             <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
               <Link
                 href="/inscription"
                 className="inline-flex items-center gap-2 rounded-full bg-bg-dark text-text-inverse text-sm font-heading font-semibold px-7 py-4 hover:opacity-90 transition"
               >
-                Créer mon compte pro <span aria-hidden>→</span>
+                {t("ctaRegister")} <span aria-hidden>→</span>
               </Link>
               <a
                 href="#showroom"
                 className="inline-flex items-center gap-2 rounded-full border border-border text-text-primary text-sm font-heading font-semibold px-7 py-4 hover:bg-bg-secondary transition"
               >
-                Venir à la boutique
+                {t("ctaShowroom")}
               </a>
             </div>
-            <p className="mt-8 text-text-muted text-xs uppercase tracking-[0.3em]">
-              KBIS validé sous 24 h · 100 % gratuit
-            </p>
           </div>
         </section>
       </main>
@@ -1101,15 +645,7 @@ function SmallStat({ value, label }: { value: string; label: string }) {
   );
 }
 
-function MosaicPhoto({
-  src,
-  alt,
-  className,
-}: {
-  src: string;
-  alt: string;
-  className: string;
-}) {
+function MosaicPhoto({ src, alt, className }: { src: string; alt: string; className: string }) {
   return (
     <div className={`${className} rounded-2xl overflow-hidden bg-bg-tertiary relative`}>
       <Image src={src} alt={alt} fill sizes="(max-width: 768px) 100vw, 50vw" className="object-cover" />
@@ -1141,9 +677,7 @@ function GuideSection({
   return (
     <section id={id} className="scroll-mt-24">
       <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-3">— {n}</p>
-      <h3 className="font-heading font-bold text-text-primary text-2xl md:text-3xl mb-6 tracking-tight">
-        {title}
-      </h3>
+      <h3 className="font-heading font-bold text-text-primary text-2xl md:text-3xl mb-6 tracking-tight">{title}</h3>
       {children}
     </section>
   );
@@ -1238,13 +772,7 @@ function GuideFaq({ q, children }: { q: string; children: React.ReactNode }) {
     <details className="group">
       <summary className="list-none cursor-pointer p-5 flex items-center justify-between hover:bg-bg-secondary">
         <span className="font-heading font-semibold text-text-primary">{q}</span>
-        <svg
-          className="w-4 h-4 text-text-muted transition-transform group-open:rotate-180"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          viewBox="0 0 24 24"
-        >
+        <svg className="w-4 h-4 text-text-muted transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </summary>
@@ -1258,13 +786,7 @@ function PracticalFaq({ q, children }: { q: string; children: React.ReactNode })
     <details className="group">
       <summary className="list-none cursor-pointer p-6 flex items-center justify-between hover:bg-bg-secondary">
         <span className="font-heading font-semibold text-text-primary text-lg">{q}</span>
-        <svg
-          className="w-4 h-4 text-text-muted transition-transform group-open:rotate-180"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          viewBox="0 0 24 24"
-        >
+        <svg className="w-4 h-4 text-text-muted transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </summary>

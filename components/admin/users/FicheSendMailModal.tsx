@@ -79,14 +79,13 @@ export default function FicheSendMailModal({ ficheId, ficheLabel, ficheEmail, on
   const options: SelectOption[] = useMemo(
     () => templates.map((t) => ({
       value: t.id,
-      label: `📢  ${t.name} — ${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""}`,
-      disabled: t.blocksCount === 0,
+      label: `📢  ${t.name}`,
     })),
     [templates],
   );
 
   const selectedTpl = templates.find((t) => t.id === templateId);
-  const canSend = !!templateId && !sending && !!selectedTpl && selectedTpl.blocksCount > 0;
+  const canSend = !!templateId && !sending && !!selectedTpl;
 
   function onSend() {
     if (!templateId) return;

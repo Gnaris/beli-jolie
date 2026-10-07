@@ -38,13 +38,10 @@ export async function POST(
 
   const template = await prisma.newsletterTemplate.findFirst({
     where: { id: templateId, tenantId: tenant.id },
-    select: { id: true, format: true },
+    select: { id: true },
   });
   if (!template) {
     return NextResponse.json({ error: "Modèle introuvable." }, { status: 404 });
-  }
-  if (template.format !== "html") {
-    return NextResponse.json({ error: "La bibliothèque d'images est réservée aux modèles HTML." }, { status: 400 });
   }
 
   const formData = await request.formData();

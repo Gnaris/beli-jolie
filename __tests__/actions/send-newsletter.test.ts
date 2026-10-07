@@ -69,13 +69,8 @@ const baseTemplate = {
   tenantId: "tenant-1",
   name: "Nouveautés été",
   subject: "Notre nouvelle collection",
-  blocks: [
-    {
-      id: "b1",
-      type: "heading",
-      data: { title: "Bonjour", body: "Voici les nouveautés.", align: "center" },
-    },
-  ],
+  html: "<p>Bonjour. Voici les nouveautés.</p>",
+  images: [],
   lastSentAt: null,
 };
 
@@ -187,8 +182,7 @@ describe("getNewsletterPreviewHtml", () => {
     expect(res.success).toBe(true);
     if (!res.success) return;
     expect(res.subject).toBe("Notre nouvelle collection");
-    expect(res.html).toContain("<!doctype html>");
-    expect(res.html).toContain("Bonjour"); // le titre du bloc heading est bien rendu
+    expect(res.html).toContain("Bonjour");
   });
 
   it("refuse un modèle introuvable", async () => {

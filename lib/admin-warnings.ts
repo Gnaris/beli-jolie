@@ -42,6 +42,30 @@ export function sumAttributeWarnings(counts: AdminWarningsCounts): number {
   );
 }
 
+/**
+ * Détail humain des traductions manquantes, utilisé par l'info-bulle du parent
+ * « Produits » dans la sidebar admin. Chaque ligne ne figure que si le compteur
+ * correspondant est > 0 — évite d'afficher « 0 produits sans traduction » dans
+ * la liste. Les libellés accordent singulier/pluriel.
+ *
+ * Pourquoi ici (et pas inline dans AdminShellsLive) : extrait pour pouvoir
+ * tester la logique sans rendre tout le shell admin.
+ */
+export function buildAttributeWarningReasons(counts: AdminWarningsCounts): string[] {
+  const pluralize = (n: number, singular: string, plural: string) =>
+    `${n} ${n > 1 ? plural : singular} sans traduction`;
+
+  const catTotal = counts.untranslatedCategoriesCount + counts.untranslatedSubCategoriesCount;
+  const rows: Array<{ count: number; label: string }> = [
+    { count: counts.untranslatedCount,       label: pluralize(counts.untranslatedCount,       "produit",     "produits")     },
+    { count: catTotal,                       label: pluralize(catTotal,                       "catégorie",   "catégories")   },
+    { count: counts.unusedColorsCount,       label: pluralize(counts.unusedColorsCount,       "couleur",     "couleurs")     },
+    { count: counts.unusedCompositionsCount, label: pluralize(counts.unusedCompositionsCount, "composition", "compositions") },
+    { count: counts.unusedTagsCount,         label: pluralize(counts.unusedTagsCount,         "mot-clé",     "mots-clés")    },
+  ];
+  return rows.filter((r) => r.count > 0).map((r) => r.label);
+}
+
 export const ADMIN_WARNINGS_ZERO: AdminWarningsCounts = {
   untranslatedCount: 0,
   unusedColorsCount: 0,

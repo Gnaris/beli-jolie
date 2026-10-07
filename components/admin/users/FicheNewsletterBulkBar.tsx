@@ -19,7 +19,7 @@ import { useMailSelection } from "./MailSelectionContext";
 import { useRightRail } from "@/components/admin/widgets-rail";
 
 interface Props {
-  templates: Array<{ id: string; name: string; subject: string; blocksCount: number }>;
+  templates: Array<{ id: string; name: string; subject: string }>;
 }
 
 export default function FicheNewsletterBulkBar({ templates }: Props) {
@@ -34,8 +34,7 @@ export default function FicheNewsletterBulkBar({ templates }: Props) {
 
   const options: SelectOption[] = templates.map((t) => ({
     value: t.id,
-    label: `📢  ${t.name} — ${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""}`,
-    disabled: t.blocksCount === 0,
+    label: `📢  ${t.name}`,
   }));
 
   const selectedTemplate = templates.find((t) => t.id === templateId);

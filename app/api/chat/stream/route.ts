@@ -31,10 +31,13 @@ export async function GET() {
         // Filter: ADMIN gets all ADMIN-targeted events, CLIENT gets only their own
         if (userRole === "ADMIN" && event.targetRole !== "ADMIN") return;
         if (userRole === "CLIENT" && (event.targetRole !== "CLIENT" || event.userId !== userId)) return;
-        // Isolation multi-tenant : ne jamais laisser un event d'un autre tenant
-        // réveiller le widget chat (sinon le son sonne côté BJ quand Issyma
-        // reçoit un message et vice-versa).
-        if (requestTenantId && event.tenantId && event.tenantId !== requestTenantId) return;
+        // Isolation multi-tenant — fail-closed : si on connaît notre tenant,
+        // on refuse tout event qui n'a pas EXACTEMENT ce tenantId. Avant,
+        // un event sans tenantId (ALS pas bindée au moment de l'émission)
+        // passait à travers → le son du chat sonnait côté BJ pour un
+        // message reçu sur Issyma. Le filtre strict empêche cette fuite
+        // même quand l'émetteur oublie de poser le tenantId.
+        if (requestTenantId && event.tenantId !== requestTenantId) return;
 
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));

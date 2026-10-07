@@ -259,8 +259,6 @@ async function ensureTemplateExistsFor(tenantId: string): Promise<void> {
         tenantId,
         name: def.name,
         subject: def.subject,
-        format: "html",
-        blocks: [],
         html: def.html,
         scenarioKey: "RESTOCK",
       },

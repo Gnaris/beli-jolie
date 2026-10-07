@@ -33,6 +33,7 @@ import {
 } from "@/lib/newsletter-html-render";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
+import { resolveTemplateForCountry } from "@/lib/newsletter-locale-resolve";
 import {
   RESTOCK_AUTOMATION_ENABLED_SITE_CONFIG_KEY,
   parseEntries,
@@ -380,10 +381,26 @@ async function processJob(
     privacyLink: `${baseUrl}/fr/confidentialite`,
   };
 
-  const finalSubject = interpolate(template.subject, userContext);
+  // Résolution de la langue d'envoi selon le pays du destinataire + cascade
+  // de secours (locale cible → EN → FR) si la version choisie est vide.
+  const resolved = await resolveTemplateForCountry(
+    template.id,
+    user.addressCountry ?? null,
+  );
+  if (!resolved) {
+    logger.error("[restock] template unresolvable", { tenantId, templateId: template.id });
+    await prisma.restockNotificationJob
+      .update({
+        where: { id: job.id },
+        data: { scheduledSendAt: new Date(now.getTime() + 3600_000), lastEvaluatedAt: now },
+      })
+      .catch(() => undefined);
+    return;
+  }
+  const finalSubject = interpolate(resolved.subject, userContext);
   const html = renderNewsletterHtmlForSend({
-    html: template.html ?? "",
-    images: template.images,
+    html: resolved.html,
+    images: resolved.images,
     baseUrl,
     mergeContext: userContext,
     dynamic: {

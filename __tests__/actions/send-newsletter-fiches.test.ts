@@ -46,13 +46,7 @@ const baseTemplate = {
   id: "tpl-1",
   name: "Nouveautés été",
   subject: "Notre nouvelle collection",
-  blocks: [
-    {
-      id: "b1",
-      type: "heading",
-      data: { title: "Bonjour {firstName}", body: "Nouveautés en boutique.", align: "center" },
-    },
-  ],
+  html: "<p>Bonjour {firstName}. Nouveautés en boutique.</p>",
 };
 
 function makeFiche(overrides: Partial<{
@@ -177,10 +171,10 @@ describe("sendNewsletterToFiches", () => {
     expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
-  it("refuse quand le modèle est vide (aucun bloc)", async () => {
+  it("refuse quand le modèle est vide (HTML vide)", async () => {
     mockPrisma.newsletterTemplate.findFirst.mockResolvedValue({
       ...baseTemplate,
-      blocks: [],
+      html: "",
     });
     const res = await sendNewsletterToFiches({
       templateId: "tpl-1",

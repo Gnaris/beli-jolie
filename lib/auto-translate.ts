@@ -9,10 +9,13 @@
 
 import { prisma } from "@/lib/prisma";
 import { translateTextStrict, type Locale } from "@/lib/translate";
-import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
+import { AUTO_TRANSLATE_LOCALES } from "@/i18n/locales";
 
 
-const TARGET_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
+// Volontairement différent de NON_DEFAULT_LOCALES : l'auto-traduction fire-and-
+// forget ne cible QUE l'anglais pour ne pas quadrupler les appels PFS à chaque
+// création. DE/IT/ES se remplissent via les boutons « Traduire » manuels.
+const TARGET_LOCALES: Locale[] = AUTO_TRANSLATE_LOCALES;
 
 /** Check if auto-translate is enabled in SiteConfig */
 export async function isAutoTranslateEnabled(): Promise<boolean> {

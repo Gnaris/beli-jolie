@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getLocale, getTranslations } from "next-intl/server";
 import OrdersTableClient from "@/components/client/orders/OrdersTableClient";
+import { resolveOrderItemName, buildTranslationLookupByRef } from "@/lib/order-item-i18n";
 
 export async function generateMetadata(): Promise<Metadata> {
   const shopName = await getCachedShopName();
@@ -59,6 +60,8 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
         items: {
           select: {
             productName: true,
+            productNameI18n: true,
+            productRef: true,
             colorName: true,
             imagePath: true,
             quantity: true,
@@ -85,6 +88,10 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
     }),
   ]);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  // Lookup fallback (traductions dynamiques via ProductTranslation).
+  const allRefs = orders.flatMap((o) => o.items.map((i) => i.productRef));
+  const translationLookup = await buildTranslationLookupByRef(prisma, allRefs, locale);
 
   const countsByStatus: Record<string, number> = { PENDING: 0, VALIDATED: 0, SHIPPED: 0, CANCELLED: 0 };
   for (const g of statusGroups) countsByStatus[g.status] = g._count._all;
@@ -117,7 +124,7 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       trackingUrl,
       totalItems,
       items: order.items.map((item) => ({
-        productName: item.productName,
+        productName: resolveOrderItemName(item, locale, translationLookup),
         colorName: item.colorName,
         imagePath: item.imagePath,
         quantity: item.quantity,

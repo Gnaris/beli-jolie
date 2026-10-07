@@ -86,9 +86,6 @@ async function buildRenderedHtml(params: {
     },
   });
   if (!template) return { success: false, error: "Modèle introuvable." };
-  if (template.format !== "html") {
-    return { success: false, error: "Ce modèle n'est pas au format HTML." };
-  }
   const scenarioKey = template.scenarioKey;
 
   const sourceHtml = params.htmlOverride ?? template.html ?? "";

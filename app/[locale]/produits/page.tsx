@@ -165,11 +165,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // Deux textes distincts, éditables dans Admin → Paramètres → SEO :
   //  - `produits_seo_intro` : phrase courte en haut de page (au-dessus des filtres)
   //  - `produits_seo_text` : paragraphe long affiché en bas (utile pour Google)
-  // Chacun a sa variante `_en` saisie par l'admin. Locale visiteur `en` →
-  // lit d'abord `_en`, fallback FR si vide (évite qu'une boutique partiellement
-  // traduite affiche du vide).
-  const wantEn = locale === "en";
-  const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow, seoTextRowEn, seoIntroRowEn] = await Promise.all([
+  // Chacun a sa variante par locale (`_en`, `_de`, `_it`, `_es`). Locale visiteur
+  // non-FR → lit d'abord la variante localisée, fallback FR si vide (évite qu'une
+  // boutique partiellement traduite affiche du vide).
+  const wantLocalized = locale !== "fr";
+  const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow, seoTextRowLoc, seoIntroRowLoc] = await Promise.all([
     getCachedCategories(),
     getCachedCollections(),
     getCachedColors(),
@@ -177,13 +177,13 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     getCachedCompositions(),
     getCachedSiteConfig("produits_seo_text"),
     getCachedSiteConfig("produits_seo_intro"),
-    wantEn ? getCachedSiteConfig("produits_seo_text_en") : Promise.resolve(null),
-    wantEn ? getCachedSiteConfig("produits_seo_intro_en") : Promise.resolve(null),
+    wantLocalized ? getCachedSiteConfig(`produits_seo_text_${locale}`) : Promise.resolve(null),
+    wantLocalized ? getCachedSiteConfig(`produits_seo_intro_${locale}`) : Promise.resolve(null),
   ]);
   const seoIntroSource =
-    (wantEn && seoIntroRowEn?.value?.trim()) || seoIntroRow?.value?.trim() || "";
+    (wantLocalized && seoIntroRowLoc?.value?.trim()) || seoIntroRow?.value?.trim() || "";
   const seoTextSource =
-    (wantEn && seoTextRowEn?.value?.trim()) || seoTextRow?.value?.trim() || "";
+    (wantLocalized && seoTextRowLoc?.value?.trim()) || seoTextRow?.value?.trim() || "";
   // Les textes ne s'affichent qu'en l'absence de filtres — évite de polluer
   // les pages de résultats filtrées.
   const produitsSeoIntro = !hasFilters ? seoIntroSource : "";

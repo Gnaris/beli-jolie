@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useTranslations } from "next-intl";
 import {
   submitCustomerReview,
   updateMyCustomerReview,
@@ -25,12 +26,6 @@ interface Props {
   initialReview: MyReviewInitial | null;
 }
 
-const STATUS_LABEL: Record<MyReviewInitial["status"], string> = {
-  PENDING: "En attente de validation",
-  APPROVED: "Publié sur la boutique",
-  REJECTED: "Non publié",
-};
-
 const STATUS_STYLE: Record<
   MyReviewInitial["status"],
   { bg: string; text: string; dot: string }
@@ -41,6 +36,12 @@ const STATUS_STYLE: Record<
 };
 
 export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props) {
+  const t = useTranslations("review");
+  const statusLabel: Record<MyReviewInitial["status"], string> = {
+    PENDING: t("statusPending"),
+    APPROVED: t("statusApproved"),
+    REJECTED: t("statusRejected"),
+  };
   const [review, setReview] = useState<MyReviewInitial | null>(initialReview);
   const [editing, setEditing] = useState(!initialReview && hasEligibleOrder);
   const [rating, setRating] = useState<number>(initialReview?.rating ?? 5);
@@ -67,8 +68,8 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
       if (result.success) {
         toast({
           type: "success",
-          title: review ? "Avis modifié" : "Avis envoyé",
-          message: "Notre équipe va le valider avant publication.",
+          title: review ? t("toastEdited") : t("toastSent"),
+          message: t("toastValidate"),
         });
         // Simuler la mise à jour locale (on ne re-fetche pas — le tag est
         // révalidé serveur pour les prochaines pages).
@@ -83,28 +84,28 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
         });
         setEditing(false);
       } else {
-        toast({ type: "error", title: "Erreur", message: result.error ?? "Erreur" });
+        toast({ type: "error", title: t("toastError"), message: result.error ?? t("toastError") });
       }
     });
   }
 
   async function handleDelete() {
     const ok = await confirm({
-      title: "Supprimer votre avis ?",
-      message: "Cette action est définitive.",
-      confirmLabel: "Supprimer",
+      title: t("deleteConfirmTitle"),
+      message: t("deleteConfirmMessage"),
+      confirmLabel: t("delete"),
       type: "danger",
     });
     if (!ok) return;
     startTransition(async () => {
       const result = await deleteMyCustomerReview();
       if (result.success) {
-        toast({ type: "success", title: "Avis supprimé", message: "" });
+        toast({ type: "success", title: t("toastDeleted"), message: "" });
         setReview(null);
         setEditing(hasEligibleOrder);
         resetForm(null);
       } else {
-        toast({ type: "error", title: "Erreur", message: result.error ?? "Erreur" });
+        toast({ type: "error", title: t("toastError"), message: result.error ?? t("toastError") });
       }
     });
   }
@@ -114,10 +115,10 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.24em] text-text-muted font-body font-medium">
-            Votre avis
+            {t("eyebrow")}
           </p>
           <h2 className="font-heading text-lg font-semibold text-text-primary mt-1">
-            Déposer un avis
+            {t("title")}
           </h2>
         </div>
         {review && (
@@ -125,7 +126,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
             className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLE[review.status].bg} ${STATUS_STYLE[review.status].text}`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[review.status].dot}`} />
-            {STATUS_LABEL[review.status]}
+            {statusLabel[review.status]}
           </span>
         )}
       </div>
@@ -133,8 +134,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
       {/* Cas 1 : pas de commande éligible → placeholder */}
       {!hasEligibleOrder && !review && (
         <p className="text-sm text-text-secondary font-body leading-relaxed">
-          Vous pourrez laisser un avis dès que votre première commande aura été
-          expédiée. Merci pour votre confiance !
+          {t("placeholder")}
         </p>
       )}
 
@@ -152,15 +152,14 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
 
           {review.status === "REJECTED" && review.moderationNote && (
             <div className="mt-4 rounded-xl bg-rose-50 border border-rose-100 px-4 py-3 text-xs text-rose-800 font-body">
-              <p className="font-semibold mb-1">Motif du refus</p>
+              <p className="font-semibold mb-1">{t("rejectReason")}</p>
               <p>{review.moderationNote}</p>
             </div>
           )}
 
           {isFrozen && (
             <p className="text-xs text-text-muted font-body mt-4">
-              Votre avis a été modéré ; pour toute demande de modification,
-              contactez notre équipe.
+              {t("frozenNotice")}
             </p>
           )}
 
@@ -174,7 +173,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
                 }}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition"
               >
-                Modifier
+                {t("edit")}
               </button>
               <button
                 type="button"
@@ -182,7 +181,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
                 disabled={pending}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-body font-medium text-rose-700 hover:bg-rose-50 transition disabled:opacity-50"
               >
-                Supprimer
+                {t("delete")}
               </button>
             </div>
           )}
@@ -194,7 +193,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-body font-medium text-text-primary mb-2">
-              Votre note
+              {t("rateLabel")}
             </label>
             <div className="flex items-center gap-1">
               {[1, 2, 3, 4, 5].map((star) => (
@@ -203,7 +202,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
                   type="button"
                   onClick={() => setRating(star)}
                   className="p-1"
-                  aria-label={`${star} étoile${star > 1 ? "s" : ""}`}
+                  aria-label={star === 1 ? t("starAriaOne", { count: star }) : t("starAriaOther", { count: star })}
                 >
                   <StarIcon filled={star <= rating} large />
                 </button>
@@ -216,19 +215,19 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
 
           <div>
             <label htmlFor="my-review-text" className="block text-sm font-body font-medium text-text-primary mb-1.5">
-              Votre témoignage
+              {t("textLabel")}
             </label>
             <textarea
               id="my-review-text"
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, REVIEW_TEXT_MAX))}
               rows={5}
-              placeholder="Racontez votre expérience en quelques phrases…"
+              placeholder={t("textPlaceholder")}
               className="field-input resize-y min-h-[120px]"
             />
             <div className="flex items-center justify-between mt-1">
               <p className="text-[11px] text-text-muted font-body">
-                Minimum {REVIEW_TEXT_MIN} caractères.
+                {t("minChars", { count: REVIEW_TEXT_MIN })}
               </p>
               <p className="text-[11px] text-text-muted font-body tabular-nums">
                 {text.length} / {REVIEW_TEXT_MAX}
@@ -237,8 +236,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
           </div>
 
           <p className="text-xs text-text-muted font-body">
-            Votre avis sera vérifié par notre équipe avant d&apos;être publié
-            sur la page d&apos;accueil. Nom affiché : votre prénom + initiale.
+            {t("verifyNotice")}
           </p>
 
           <div className="flex flex-wrap gap-3 justify-end">
@@ -252,7 +250,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
                 disabled={pending}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-border text-sm font-body font-medium text-text-primary hover:bg-bg-secondary transition disabled:opacity-50"
               >
-                Annuler
+                {t("cancel")}
               </button>
             )}
             <button
@@ -261,7 +259,7 @@ export default function MyReviewCard({ hasEligibleOrder, initialReview }: Props)
               disabled={!canSave || pending}
               className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-bg-dark text-white text-sm font-heading font-semibold hover:bg-bg-darker transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {pending ? "Envoi…" : review ? "Enregistrer les modifications" : "Envoyer mon avis"}
+              {pending ? t("sending") : review ? t("saveChanges") : t("send")}
             </button>
           </div>
         </div>

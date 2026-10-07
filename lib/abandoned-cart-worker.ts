@@ -32,6 +32,7 @@ import {
 } from "@/lib/newsletter-html-render";
 import { interpolate, type MailMergeContext } from "@/lib/mail-merge-variables";
 import { buildUnsubscribeUrl } from "@/lib/newsletter-unsubscribe-token";
+import { resolveTemplateForCountry } from "@/lib/newsletter-locale-resolve";
 import { WORKER_POLL_INTERVAL_MS } from "@/lib/abandoned-cart-config";
 import { pickNextStage } from "@/lib/abandoned-cart-trigger";
 import {
@@ -379,16 +380,36 @@ async function processJob(
     }
   }
 
-  // Filet RGPD : le mail doit contenir {unsubscribeLink} dans le source HTML.
-  const templateHtml = stage.template.html ?? "";
-  if (!templateHtml.includes("{unsubscribeLink}")) {
-    logger.error("[abandonedCart] skip send: unsubscribe missing", {
+  // Résolution de la langue du mail selon le pays du destinataire + cascade
+  // de secours si la version choisie est vide (locale cible → EN → FR).
+  const resolved = await resolveTemplateForCountry(
+    stage.template.id,
+    user.addressCountry ?? null,
+  );
+  if (!resolved) {
+    logger.error("[abandonedCart] skip send: template unresolvable", {
       tenantId,
       stageIndex: stage.stageIndex,
       templateId: stage.template.id,
     });
-    // Filet dur : on n'envoie pas + on retarde le job de 1 h pour laisser à
-    // la cliente le temps de corriger. Ne cancel pas (elle peut réparer).
+    await prisma.abandonedCartJob.update({
+      where: { id: job.id },
+      data: {
+        nextStageAt: new Date(now.getTime() + 3600_000),
+        lastEvaluatedAt: now,
+      },
+    });
+    return;
+  }
+
+  // Filet RGPD : le mail doit contenir {unsubscribeLink} dans le source HTML.
+  if (!resolved.html.includes("{unsubscribeLink}")) {
+    logger.error("[abandonedCart] skip send: unsubscribe missing", {
+      tenantId,
+      stageIndex: stage.stageIndex,
+      templateId: stage.template.id,
+      locale: resolved.locale,
+    });
     await prisma.abandonedCartJob.update({
       where: { id: job.id },
       data: {
@@ -490,12 +511,11 @@ async function processJob(
     privacyLink: `${baseUrl}/fr/confidentialite`,
   };
 
-  const finalSubject = interpolate(stage.template.subject, userContext);
-  // Rendu HTML uniquement (blocs retirés 2026-09-22). Boucle {{#each cart}}
-  // développée automatiquement + images de la bibliothèque substituées.
+  const finalSubject = interpolate(resolved.subject, userContext);
+  // Rendu HTML : boucle {{#each cart}} développée + images substituées.
   const html = renderNewsletterHtmlForSend({
-    html: templateHtml,
-    images: stage.template.images,
+    html: resolved.html,
+    images: resolved.images,
     baseUrl,
     mergeContext: userContext,
     dynamic: { cart: { items: cartItems, totalCents } },

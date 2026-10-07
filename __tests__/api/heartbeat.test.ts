@@ -25,8 +25,15 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       update: vi.fn(),
+      findUnique: vi.fn(),
     },
   },
+}));
+
+// Le heartbeat émet un event admin quand il détecte offline→online. On mocke
+// l'ALS/logger via le bus pour ne pas crasher les tests qui n'ont pas de tenant.
+vi.mock("@/lib/admin-events", () => ({
+  emitAdminEvent: vi.fn(),
 }));
 
 import { getServerSession } from "next-auth";
@@ -45,6 +52,9 @@ function buildRequest(body?: unknown): NextRequest {
 describe("POST /api/heartbeat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Par défaut : aucun lastSeenAt précédent (= transition offline→online).
+    // Les tests qui veulent tester la non-émission peuvent surcharger.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as never);
   });
 
   it("retourne 204 sans toucher la BDD pour un anonyme", async () => {
@@ -122,5 +132,34 @@ describe("POST /api/heartbeat", () => {
     const res = await POST(buildRequest());
     expect(res.status).toBe(204);
     expect(prisma.user.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("émet CLIENT_STATUS seulement sur transition offline→online", async () => {
+    const { emitAdminEvent } = await import("@/lib/admin-events");
+
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "client-42", role: "CLIENT", status: "APPROVED" },
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+
+    // Cas 1 : lastSeenAt = il y a 10 s → client encore en ligne (fenêtre 60 s)
+    // → PAS d'émission.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      lastSeenAt: new Date(Date.now() - 10_000),
+    } as never);
+    await POST(buildRequest());
+    expect(emitAdminEvent).not.toHaveBeenCalled();
+
+    // Cas 2 : lastSeenAt = jamais → nouveau client qui arrive → émission.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      lastSeenAt: null,
+    } as never);
+    await POST(buildRequest());
+    expect(emitAdminEvent).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(emitAdminEvent).mock.calls[0][0]).toMatchObject({
+      type: "CLIENT_STATUS",
+      userId: "client-42",
+      online: true,
+    });
   });
 });

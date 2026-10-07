@@ -10,6 +10,7 @@ import { notifyNewClientRegistration } from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
+import { emitAdminEvent } from "@/lib/admin-events";
 import { checkVies } from "@/lib/vies";
 import { getCompanyZone } from "@/lib/vat";
 import {
@@ -309,6 +310,9 @@ export async function POST(request: NextRequest) {
     );
 
     revalidateTag("users", "default");
+
+    // Push temps réel vers /admin/clients ouvert dans un onglet admin
+    emitAdminEvent({ type: "CLIENT_NEW", userId: newUser.id });
 
     const message = "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
 

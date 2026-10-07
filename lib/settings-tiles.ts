@@ -13,7 +13,7 @@ export const SETTINGS_TILES = [
   "vitrine", "societe", "horaires",
   "paiement", "livraison", "regles",
   "marketplaces", "contenu",
-  "messagerie", "traduction", "compte", "maintenance",
+  "messagerie", "whatsapp", "traduction", "compte", "maintenance",
 ] as const;
 
 export type SettingsTileKey = (typeof SETTINGS_TILES)[number];
@@ -47,6 +47,7 @@ const TILES: Record<SettingsTileKey, TileMeta> = {
   marketplaces: { key: "marketplaces", title: "Marketplaces",         description: "PFS, Ankorstore, eFashion, Faire, Microstore.",            group: "canaux",   accent: "sky",    wide: true },
   contenu:      { key: "contenu",      title: "Contenu & Google",     description: "Carrousels d'accueil, textes SEO.",                        group: "canaux",   accent: "violet" },
   messagerie:   { key: "messagerie",   title: "Messagerie pro",       description: "Transfert Gmail, tuto Send-As, mot de passe boîte pro.",   group: "outils",   accent: "rose" },
+  whatsapp:     { key: "whatsapp",     title: "WhatsApp",             description: "Vérification automatique des numéros clients.",           group: "outils",   accent: "emerald" },
   traduction:   { key: "traduction",   title: "Traduction auto",      description: "Fiches produit traduites FR → EN via PFS.",                group: "outils",   accent: "violet" },
   compte:       { key: "compte",       title: "Compte admin",         description: "Mot de passe admin, OTP actions sensibles, thème.",        group: "outils",   accent: "violet" },
   maintenance:  { key: "maintenance",  title: "Mode maintenance",     description: "Coupe temporairement l'accès à la boutique publique.",     group: "outils",   accent: "amber" },

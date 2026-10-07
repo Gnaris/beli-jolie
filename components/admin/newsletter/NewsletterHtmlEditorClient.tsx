@@ -29,11 +29,13 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import CustomSelect from "@/components/ui/CustomSelect";
 import {
   updateNewsletterTemplateHtml,
+  updateNewsletterTemplateLocale,
   listPreviewClients,
   type NewsletterTemplateFull,
   type NewsletterTemplateImageLite,
   type PreviewClientLite,
 } from "@/app/actions/admin/newsletter-templates";
+import { MAIL_LOCALES, type MailLocale } from "@/lib/user-locale";
 import {
   getNewsletterHtmlPreview,
   sendTestNewsletterHtmlEmail,
@@ -65,7 +67,7 @@ import { HtmlSourceEditor } from "@/components/admin/newsletter/HtmlSourceEditor
 import LinkPickerModal from "@/components/admin/shared/LinkPickerModal";
 import { getNewsletterEditorBaseUrl } from "@/app/actions/admin/newsletter-links";
 import { buildAiPrompt } from "@/lib/newsletter-ai-prompt";
-import type { ScenarioKey } from "@/lib/mail-scenario-defaults";
+import type { ScenarioKey } from "@/lib/newsletter-html-defaults";
 import {
   buildPreviewContext,
   interpolate,
@@ -123,10 +125,59 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
   const [isPending, startTransition] = useTransition();
 
   const [name, setName] = useState(template.name);
-  const [subject, setSubject] = useState(template.subject);
-  const [html, setHtml] = useState(template.html ?? "");
   const [images, setImages] = useState<NewsletterTemplateImageLite[]>(template.images);
   const [isDirty, setIsDirty] = useState(false);
+
+  // ─── Multi-langue (2026-10-07) ─────────────────────────────────────────
+  // La version FR vit sur `template.subject` + `template.html`.
+  // Les versions EN/DE/ES/IT vivent dans `template.locales[locale]`.
+  // L'éditeur affiche UNE langue à la fois (`activeLocale`), on garde un
+  // buffer local par langue pour que la cliente puisse switcher sans perdre
+  // les modifs non enregistrées. Le dirty flag couvre toutes langues
+  // confondues — un seul bouton Enregistrer sauve la langue active.
+  const [activeLocale, setActiveLocale] = useState<MailLocale>("fr");
+  const [localeBuffers, setLocaleBuffers] = useState<
+    Record<MailLocale, { subject: string; html: string }>
+  >(() => ({
+    fr: { subject: template.subject, html: template.html ?? "" },
+    en: {
+      subject: template.locales.en?.subject ?? "",
+      html: template.locales.en?.html ?? "",
+    },
+    de: {
+      subject: template.locales.de?.subject ?? "",
+      html: template.locales.de?.html ?? "",
+    },
+    es: {
+      subject: template.locales.es?.subject ?? "",
+      html: template.locales.es?.html ?? "",
+    },
+    it: {
+      subject: template.locales.it?.subject ?? "",
+      html: template.locales.it?.html ?? "",
+    },
+  }));
+  const subject = localeBuffers[activeLocale].subject;
+  const html = localeBuffers[activeLocale].html;
+  const setSubject = useCallback(
+    (next: string) => {
+      setLocaleBuffers((prev) => ({
+        ...prev,
+        [activeLocale]: { ...prev[activeLocale], subject: next },
+      }));
+    },
+    [activeLocale],
+  );
+  const setHtml = useCallback(
+    (updater: string | ((prev: string) => string)) => {
+      setLocaleBuffers((prev) => {
+        const current = prev[activeLocale].html;
+        const next = typeof updater === "function" ? updater(current) : updater;
+        return { ...prev, [activeLocale]: { ...prev[activeLocale], html: next } };
+      });
+    },
+    [activeLocale],
+  );
 
   const markDirty = useCallback(() => setIsDirty(true), []);
 
@@ -298,16 +349,30 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
 
   const handleSave = useCallback(() => {
     startTransition(async () => {
-      const res = await updateNewsletterTemplateHtml(template.id, { name, subject, html });
-      if (res.success) {
-        setIsDirty(false);
-        toast.success("Modèle enregistré.");
-        router.refresh();
+      // FR = colonnes `subject` + `html` sur NewsletterTemplate. Autres langues
+      // = ligne dans NewsletterTemplateLocale (upsert). On ne sauve QUE la
+      // langue active : la cliente peut travailler onglet par onglet.
+      if (activeLocale === "fr") {
+        const res = await updateNewsletterTemplateHtml(template.id, { name, subject, html });
+        if (res.success) {
+          setIsDirty(false);
+          toast.success("Modèle enregistré.");
+          router.refresh();
+        } else {
+          toast.error("Impossible d'enregistrer", res.error);
+        }
       } else {
-        toast.error("Impossible d'enregistrer", res.error);
+        const res = await updateNewsletterTemplateLocale(template.id, activeLocale, { subject, html });
+        if (res.success) {
+          setIsDirty(false);
+          toast.success(`Version ${activeLocale.toUpperCase()} enregistrée.`);
+          router.refresh();
+        } else {
+          toast.error("Impossible d'enregistrer", res.error);
+        }
       }
     });
-  }, [template.id, name, subject, html, toast, router]);
+  }, [activeLocale, template.id, name, subject, html, toast, router]);
 
   const handleSendTest = useCallback(async () => {
     if (!previewTarget) {
@@ -744,6 +809,13 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
           </div>
         </div>
       </header>
+
+      {/* ─── Onglets de langue (FR par défaut + EN/DE/ES/IT) ─── */}
+      <LocaleTabs
+        active={activeLocale}
+        onChange={setActiveLocale}
+        buffers={localeBuffers}
+      />
 
       {/* ─── Barre d'aperçu client + envoi test ─── */}
       <PreviewTargetBar
@@ -1674,6 +1746,67 @@ function MarkdownFencesBanner({ html, onClean }: { html: string; onClean: () => 
       >
         Nettoyer
       </button>
+    </div>
+  );
+}
+
+// ─── Onglets de langue (2026-10-07) ───
+// Affiche 5 pastilles FR/EN/DE/ES/IT au-dessus de l'aperçu. Un petit point
+// vert à côté de la langue signale qu'une version existe pour cette langue
+// (sujet ou HTML non vide dans le buffer). La version FR est toujours
+// considérée comme présente par défaut.
+function LocaleTabs({
+  active,
+  onChange,
+  buffers,
+}: {
+  active: MailLocale;
+  onChange: (l: MailLocale) => void;
+  buffers: Record<MailLocale, { subject: string; html: string }>;
+}) {
+  const LABELS: Record<MailLocale, { flag: string; label: string }> = {
+    fr: { flag: "🇫🇷", label: "Français" },
+    en: { flag: "🇬🇧", label: "Anglais" },
+    de: { flag: "🇩🇪", label: "Allemand" },
+    es: { flag: "🇪🇸", label: "Espagnol" },
+    it: { flag: "🇮🇹", label: "Italien" },
+  };
+  return (
+    <div className="shrink-0 bg-bg-primary border-b border-border px-4 sm:px-6">
+      <div className="flex items-center gap-1 py-2 overflow-x-auto">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted shrink-0 mr-3">
+          Langue
+        </div>
+        {MAIL_LOCALES.map((loc) => {
+          const buf = buffers[loc];
+          const hasContent = buf.html.trim().length > 0;
+          const isActive = active === loc;
+          return (
+            <button
+              key={loc}
+              type="button"
+              onClick={() => onChange(loc)}
+              title={LABELS[loc].label}
+              className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition-colors ${
+                isActive
+                  ? "bg-bg-dark text-text-inverse border-bg-dark"
+                  : "bg-bg-primary text-text-secondary border-border hover:bg-bg-secondary"
+              }`}
+            >
+              <span aria-hidden>{LABELS[loc].flag}</span>
+              <span className="font-medium">{loc.toUpperCase()}</span>
+              {hasContent && (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isActive ? "bg-emerald-300" : "bg-emerald-500"
+                  }`}
+                  aria-label="Version remplie"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

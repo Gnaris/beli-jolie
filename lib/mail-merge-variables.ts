@@ -5,12 +5,12 @@
  *
  * Convention : tokens en camelCase, une seule paire d'accolades, pas d'espaces
  * (`{firstName}`, pas `{ first Name }`). Convention alignée sur les tokens
- * `{firstName}` et `{days}` déjà utilisés dans `mail-scenario-defaults.ts`.
+ * `{firstName}` et `{days}` déjà utilisés dans les modèles HTML par défaut.
  *
  * Ce module est PUR (0 dépendance serveur) — safe pour import client.
  */
 
-import type { ScenarioKey } from "@/lib/mail-scenario-defaults";
+import type { ScenarioKey } from "@/lib/newsletter-html-defaults";
 
 /* ─────────────────────────────────────────────
    Liste des variables

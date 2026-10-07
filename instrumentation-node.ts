@@ -311,6 +311,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Session Baileys WhatsApp partagée (vérification « a WhatsApp oui/non »).
+  // Si une session a déjà été appairée (fichiers dans `private/whatsapp-session/`),
+  // on la remonte automatiquement. Sinon, no-op jusqu'à ce que la cliente
+  // tape un numéro dans /admin/parametres → onglet WhatsApp.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startWhatsappSession } = await import("@/lib/whatsapp-session");
+        await startWhatsappSession();
+      } catch (err) {
+        logger.error("[WhatsApp] Démarrage de la session échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 10_000);
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

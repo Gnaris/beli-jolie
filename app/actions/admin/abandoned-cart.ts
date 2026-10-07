@@ -145,8 +145,6 @@ async function ensureStage1ExistsFor(tenantId: string): Promise<void> {
         tenantId,
         name: def.name,
         subject: def.subject,
-        format: "html",
-        blocks: [],
         html: def.html,
         scenarioKey: "ABANDONED_CART",
       },
@@ -262,8 +260,6 @@ export async function addAbandonedCartStage(): Promise<
           tenantId: tenant.id,
           name: `Panier abandonné — Stade ${newStageIndex}`,
           subject: seedSubject,
-          format: "html",
-          blocks: [],
           html: seedHtml,
           scenarioKey: null,
         },
@@ -754,4 +750,4 @@ export async function resetAbandonedCartStagesForUser(
 // Note : les fichiers "use server" ne peuvent PAS re-exporter de types
 // (Next.js traite tout export comme une server action). Les composants qui
 // ont besoin de `ScenarioKey` importent directement depuis
-// `@/lib/mail-scenario-defaults`.
+// `@/lib/newsletter-html-defaults`.

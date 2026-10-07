@@ -1,7 +1,7 @@
 /**
  * Rendu des modèles newsletter au format "html" (éditeur HTML/CSS libre).
  *
- * Contrairement au format "blocks" (voir `lib/newsletter-blocks.ts`), la
+ * Depuis 2026-10-07 (purge du format legacy « blocks »), c'est le seul chemin de rendu. La
  * cliente écrit directement du HTML dans l'éditeur — pas de structure JSON,
  * pas de composition automatique. Ce module se contente :
  *

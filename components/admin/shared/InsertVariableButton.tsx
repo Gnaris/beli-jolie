@@ -20,7 +20,7 @@ import {
   type MailVariable,
   type VariableGroup,
 } from "@/lib/mail-merge-variables";
-import type { ScenarioKey } from "@/lib/mail-scenario-defaults";
+import type { ScenarioKey } from "@/lib/newsletter-html-defaults";
 
 interface Props {
   /** Réf vers l'input/textarea où insérer le token. */

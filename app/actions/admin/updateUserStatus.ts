@@ -10,6 +10,7 @@ import {
   notifyClientAccountRejected,
   notifyClientAccountRevoked,
 } from "@/lib/notifications";
+import { checkWhatsappNumberFireAndForget } from "@/lib/whatsapp-check";
 import type { UserStatus } from "@prisma/client";
 
 /**
@@ -35,10 +36,19 @@ export async function updateUserStatus(
     }
 
     // On récupère email/firstName pour pouvoir prévenir le client par email
-    // après l'update.
+    // après l'update, + phone + hasWhatsapp pour déclencher l'auto-check
+    // WhatsApp sur la transition PENDING → APPROVED.
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, role: true, email: true, firstName: true, status: true },
+      select: {
+        id: true,
+        role: true,
+        email: true,
+        firstName: true,
+        status: true,
+        phone: true,
+        hasWhatsapp: true,
+      },
     });
 
     if (!user) {
@@ -69,6 +79,13 @@ export async function updateUserStatus(
             error: err,
           }),
         );
+
+        // Approbation d'un nouveau compte : vérifier en arrière-plan si son
+        // numéro a WhatsApp (fire-and-forget, no-op silencieux si la session
+        // Baileys n'est pas appairée ou si le numéro est déjà en cache).
+        if (user.hasWhatsapp === null && user.phone) {
+          void checkWhatsappNumberFireAndForget(user.phone, user.id);
+        }
       } else if (status === "REJECTED") {
         // On distingue :
         //  - PENDING → REJECTED : première demande d'inscription refusée

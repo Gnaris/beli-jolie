@@ -54,7 +54,7 @@ next-env.d.ts
 docs/superpowers/
 
 # uploads (fichiers utilisateurs)
-/private/uploads/
+/private/
 /public/uploads/
 
 # paquets de déploiement VPS (générés localement, ne pas committer)

@@ -9,6 +9,7 @@ import OrdersTabsNav from "@/components/admin/orders/OrdersTabsNav";
 import OrderStatusFilterMobile from "@/components/admin/orders/OrderStatusFilterMobile";
 import MarketplacesOrdersView from "@/components/admin/orders/marketplace/MarketplacesOrdersView";
 import { getMarketplaceSyncMeta } from "@/app/actions/admin/marketplace-orders";
+import LiveAdminRefresh from "@/components/admin/LiveAdminRefresh";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -154,6 +155,10 @@ export default async function AdminCommandesPage({
 
   return (
     <div className="space-y-6">
+      <LiveAdminRefresh
+        events={["ORDER_NEW"]}
+        toasts={{ ORDER_NEW: "Nouvelle commande" }}
+      />
       <OrdersTabsNav boutiqueCount={totalBoutique} marketplacesCount={totalMarketplaces} />
       {/* ── HERO ── */}
       <section className="relative rounded-3xl border border-border p-6 md:p-8 overflow-hidden bg-slate-100">

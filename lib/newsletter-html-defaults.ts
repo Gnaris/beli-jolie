@@ -8,10 +8,29 @@
  * Tous incluent les 4 tokens marketing obligatoires (RGPD/LCEN) dans le
  * pied de page — validation passe dès la 1ʳᵉ ouverture.
  *
- * Module pur — safe pour import client et serveur.
+ * Module pur — safe pour import client et serveur. Source de vérité unique
+ * pour les 3 scénarios transactionnels (clé, libellé, HTML par défaut).
  */
 
-import type { ScenarioKey } from "@/lib/mail-scenario-defaults";
+export type ScenarioKey = "ABANDONED_CART" | "INACTIVE_CLIENT" | "RESTOCK";
+
+export const SCENARIO_KEYS: readonly ScenarioKey[] = [
+  "ABANDONED_CART",
+  "INACTIVE_CLIENT",
+  "RESTOCK",
+] as const;
+
+export const SCENARIO_LABELS: Record<ScenarioKey, string> = {
+  ABANDONED_CART: "Panier abandonné",
+  INACTIVE_CLIENT: "Relance inactivité",
+  RESTOCK: "Retour en stock",
+};
+
+export const SCENARIO_DEFAULT_NAMES: Record<ScenarioKey, string> = {
+  ABANDONED_CART: "Panier abandonné (par défaut)",
+  INACTIVE_CLIENT: "Relance inactivité (par défaut)",
+  RESTOCK: "Retour en stock (par défaut)",
+};
 
 export interface ScenarioHtmlDefault {
   name: string;

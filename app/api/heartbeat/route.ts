@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { emitAdminEvent } from "@/lib/admin-events";
+import { ONLINE_WINDOW_MS } from "@/lib/online-status";
 
 /**
  * POST /api/heartbeat — ping de présence client.
@@ -44,17 +46,37 @@ export async function POST(req: NextRequest) {
     // Body absent / invalide → simple heartbeat sans mise à jour de la conv.
   }
 
+  const now = new Date();
   const data: { lastSeenAt: Date; activeConversationId?: string | null } = {
-    lastSeenAt: new Date(),
+    lastSeenAt: now,
   };
   if (activeConversationId !== undefined) {
     data.activeConversationId = activeConversationId;
   }
 
+  // Récupère l'ancien lastSeenAt pour détecter une transition hors-ligne →
+  // en ligne. On ne veut pas émettre CLIENT_STATUS à chaque ping (toutes les
+  // 30 s par client en ligne), seulement quand l'état bascule.
+  const previous = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { lastSeenAt: true },
+  });
+
   await prisma.user.update({
     where: { id: session.user.id },
     data,
   });
+
+  const wasOffline =
+    !previous?.lastSeenAt ||
+    now.getTime() - previous.lastSeenAt.getTime() >= ONLINE_WINDOW_MS;
+  if (wasOffline) {
+    emitAdminEvent({
+      type: "CLIENT_STATUS",
+      userId: session.user.id,
+      online: true,
+    });
+  }
 
   return new NextResponse(null, { status: 204 });
 }

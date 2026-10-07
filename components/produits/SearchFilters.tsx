@@ -130,6 +130,7 @@ function ColorMultiSelect({
   onClear: () => void;
   label: string;
 }) {
+  const t = useTranslations("products");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -183,7 +184,7 @@ function ColorMultiSelect({
             onClick={onClear}
             className="text-[10px] text-text-muted hover:text-text-primary underline font-body transition-colors"
           >
-            Tout effacer
+            {t("colorClearAll")}
           </button>
         </div>
       )}
@@ -198,7 +199,7 @@ function ColorMultiSelect({
           value={search}
           onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          placeholder="Rechercher une couleur..."
+          placeholder={t("colorSearchPlaceholder")}
           className="w-full pl-8 pr-8 py-2 min-h-[44px] border border-border bg-bg-primary rounded-lg text-xs font-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-dark transition-all"
         />
         {search && (
@@ -206,7 +207,7 @@ function ColorMultiSelect({
             type="button"
             onClick={() => { setSearch(""); setOpen(false); }}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
-            aria-label="Effacer la recherche"
+            aria-label={t("clearSearchAria")}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -220,7 +221,7 @@ function ColorMultiSelect({
         <div className="mt-1 bg-bg-primary border border-border rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto animate-[customSelectDown_0.15s_ease-out]">
           {filtered.length === 0 ? (
             <p className="px-3 py-2 text-xs text-text-muted font-body">
-              Aucune couleur trouvée
+              {t("colorNoneFound")}
             </p>
           ) : (
             filtered.map((c) => {
@@ -353,7 +354,7 @@ export default function SearchFilters({
             className="w-4 h-4 rounded border-border text-text-primary accent-[#1A1A1A]"
           />
           <span className="text-xs text-text-secondary font-body">
-            Référence exacte
+            {t("exactReference")}
           </span>
         </label>
       </section>

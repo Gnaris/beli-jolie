@@ -24,6 +24,7 @@ import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
 import { getCachedBankTransferConfig } from "@/lib/bank-transfer-config";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
+import { emitAdminEvent } from "@/lib/admin-events";
 import {
   buildFallbackAddressFromUser,
   isFallbackAddressAllowed,
@@ -740,6 +741,8 @@ export async function placeBankTransferOrder(
     logger.error("[placeBankTransferOrder] Transaction error", { error: err });
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
   }
+
+  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
 
   // ── Emails : notif admin + confirmation client (virement en attente
   //    OU commande reçue selon mode) ──────────────────────────────────

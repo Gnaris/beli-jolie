@@ -408,8 +408,7 @@ function NewsletterPicker({
 }) {
   const options: SelectOption[] = templates.map((t) => ({
     value: t.id,
-    label: `📢  ${t.name} — ${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""}`,
-    disabled: t.blocksCount === 0,
+    label: `📢  ${t.name}`,
   }));
   const selectedTpl = templates.find((t) => t.id === selectedId);
 
@@ -730,7 +729,7 @@ export default function SendMailModal({ userId, userLabel, userEmail, onClose }:
     if (selected === "NEWSLETTER") {
       const chosen = newsletterTemplates.find((t) => t.id === newsletterTemplateId);
       const hasTemplate = !!chosen;
-      const hasBlocks = !!chosen && chosen.blocksCount > 0;
+      const hasBlocks = !!chosen;
       const extra: MailCondition[] = [
         {
           code: "NEWSLETTER_TEMPLATE_SELECTED",

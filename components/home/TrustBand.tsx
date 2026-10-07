@@ -41,12 +41,12 @@ export default function TrustBand() {
     <section ref={sectionRef} className="scroll-fade-up bg-bg-primary py-20 lg:py-24">
       <div className="max-w-[1400px] mx-auto px-6 lg:px-10">
         <div className="max-w-xl mb-14">
-          <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-2">Notre engagement</p>
+          <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted mb-2">{t("trustCommitmentEyebrow")}</p>
           <h2
             className="font-heading font-bold text-text-primary"
             style={{ fontSize: "clamp(1.75rem, 3vw, 2.5rem)", letterSpacing: "-0.02em" }}
           >
-            Pourquoi les boutiques nous choisissent.
+            {t("trustCommitmentHeading")}
           </h2>
         </div>
 

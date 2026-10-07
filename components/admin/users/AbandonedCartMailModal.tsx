@@ -4,13 +4,13 @@
  * Modale plein écran pour éditer les mails des stades du panier abandonné.
  *
  * Bandeau en haut avec les chips « Stade 1 · 2 · 3… » pour switcher entre les
- * stades sans changer d'URL. En dessous, l'éditeur newsletter classique
- * (`NewsletterEditorClient`) monté avec `onLeave` = fermer la modale.
+ * stades sans changer d'URL. En dessous, l'éditeur newsletter HTML
+ * (`NewsletterHtmlEditorClient`) monté avec `onLeave` = fermer la modale.
  *
  * Le switch entre stades recharge le template complet via `getNewsletterTemplate`
  * (server action) — pas de router.push, pas de URL change. Si l'éditeur a des
  * modifs non-sauvegardées, un `dirty guard` propre est délégué à
- * NewsletterEditorClient (modale « quitter sans enregistrer » interne).
+ * NewsletterHtmlEditorClient (modale « quitter sans enregistrer » interne).
  */
 
 import { useEffect, useState } from "react";

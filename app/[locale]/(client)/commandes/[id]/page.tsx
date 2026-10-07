@@ -18,6 +18,7 @@ import { getTrackingUrl } from "@/app/[locale]/(client)/commandes/page";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 import { buildProductHandle } from "@/lib/product-url";
+import { resolveOrderItemName, buildTranslationLookupByRef } from "@/lib/order-item-i18n";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -85,6 +86,15 @@ export default async function CommandeDetailPage({
     const handle = buildProductHandle(it.productName, it.productRef);
     if (handle) productLinks[it.productRef] = `/${locale}/produits/${handle}`;
   }
+
+  // Résolution des noms produits selon la locale demandée. 2ᵉ niveau de
+  // fallback (lookup ProductTranslation) chargé en un seul round-trip pour
+  // bénéficier aux commandes antérieures à la feature snapshot i18n.
+  const translationLookup = await buildTranslationLookupByRef(
+    prisma,
+    order.items.map((it) => it.productRef),
+    locale,
+  );
 
   const totalArticles = order.items.reduce((s, i) => s + i.quantity, 0);
   const trackingUrl = order.eeTrackingId ? getTrackingUrl(order.carrierName ?? "", order.eeTrackingId) : null;
@@ -427,7 +437,7 @@ export default async function CommandeDetailPage({
         readOnly={true}
         items={order.items.map((item) => ({
           id: item.id,
-          productName: item.productName,
+          productName: resolveOrderItemName(item, locale, translationLookup),
           productRef: item.productRef,
           colorName: item.colorName,
           imagePath: item.imagePath,

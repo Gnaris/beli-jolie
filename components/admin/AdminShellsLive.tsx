@@ -16,7 +16,7 @@ import React from "react";
 import AdminDesktopShell from "./AdminDesktopShell";
 import AdminMobileNav from "./AdminMobileNav";
 import { useLiveAdminWarnings } from "./LiveAdminWarningsProvider";
-import { sumAttributeWarnings } from "@/lib/admin-warnings";
+import { buildAttributeWarningReasons, sumAttributeWarnings } from "@/lib/admin-warnings";
 
 interface Props {
   shopName: string;
@@ -46,13 +46,42 @@ export default function AdminShellsLive({
   > = {};
 
   if (totalAttributeWarnings > 0) {
-    const plural = totalAttributeWarnings > 1 ? "s" : "";
+    // Détail par type dans l'info-bulle — évite le total opaque qui envoyait
+    // la cliente filtrer les produits (filtre à 0) alors que le trou était
+    // par exemple sur les mots-clés.
+    const reasons = buildAttributeWarningReasons(counts);
+
+    const pluralTotal = totalAttributeWarnings > 1 ? "s" : "";
     warningCounts["/admin/produits"] = {
       count: totalAttributeWarnings,
-      tooltip: `${totalAttributeWarnings} traduction${plural} manquante${plural}`,
-      title: `${totalAttributeWarnings} traduction${plural} à compléter`,
-      hint: "Détail par ligne dans le sous-menu.",
+      tooltip: `${totalAttributeWarnings} traduction${pluralTotal} manquante${pluralTotal}`,
+      title: `${totalAttributeWarnings} traduction${pluralTotal} à compléter`,
+      reasons,
+      hint: "Ouvrez le sous-menu « Produits » : la pastille indique où cliquer.",
     };
+
+    // Pastille sur chaque sous-entrée concernée du menu « Produits ». Les hrefs
+    // doivent matcher PRODUCT_SUBNAV dans AdminDesktopShell / AdminMobileNav.
+    // On n'écrit PAS sur /admin/produits ici : la clé est déjà prise par le
+    // parent (sum). La sous-entrée « Tous les produits » partage ce href et
+    // affichera donc la même pastille — acceptable (même destination).
+    const subEntries: [string, number, string][] = [
+      ["/admin/categories",   counts.untranslatedCategoriesCount + counts.untranslatedSubCategoriesCount, "catégorie"],
+      ["/admin/couleurs",     counts.unusedColorsCount,                                                   "couleur"],
+      ["/admin/compositions", counts.unusedCompositionsCount,                                             "composition"],
+      ["/admin/mots-cles",    counts.unusedTagsCount,                                                     "mot-clé"],
+    ];
+    for (const [href, count, singular] of subEntries) {
+      if (count <= 0) continue;
+      const plural = count > 1 ? "s" : "";
+      const label = singular === "mot-clé" ? (count > 1 ? "mots-clés" : "mot-clé") : `${singular}${plural}`;
+      warningCounts[href] = {
+        count,
+        tooltip: `${count} ${label} sans traduction`,
+        title: `${count} ${label} sans traduction`,
+        hint: "Cliquez pour compléter la traduction anglaise.",
+      };
+    }
   }
 
   const mobileWarnings: Record<string, number> = {

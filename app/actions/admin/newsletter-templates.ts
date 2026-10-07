@@ -7,14 +7,13 @@
  *
  * Un modèle peut aussi être *lié à un scénario transactionnel*
  * (ABANDONED_CART / INACTIVE_CLIENT / RESTOCK) — dans ce cas il est utilisé
- * automatiquement à l'envoi du mail correspondant. Voir `mail-scenario-defaults.ts`.
+ * automatiquement à l'envoi du mail correspondant. Voir `newsletter-html-defaults.ts`.
  */
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { getFooterContent, type NewsletterBlock } from "@/lib/newsletter-blocks";
 import {
   missingRequiredMarketingVariables,
   missingScenarioTokens,
@@ -28,22 +27,20 @@ import {
   newsletterTemplateImageDir,
 } from "@/lib/storage";
 import {
+  MANUAL_HTML_DEFAULT,
+  SCENARIO_HTML_DEFAULTS,
   SCENARIO_KEYS,
   SCENARIO_LABELS,
   type ScenarioKey,
-} from "@/lib/mail-scenario-defaults";
+} from "@/lib/newsletter-html-defaults";
 import { formatDurationShort } from "@/lib/abandoned-cart-config";
-import { MANUAL_HTML_DEFAULT, SCENARIO_HTML_DEFAULTS } from "@/lib/newsletter-html-defaults";
 import { findOrphanedTemplateImages } from "@/lib/newsletter-html-render";
-
-export type NewsletterTemplateFormat = "blocks" | "html";
+import { MAIL_LOCALES, type MailLocale } from "@/lib/user-locale";
 
 export interface NewsletterTemplateSummary {
   id: string;
   name: string;
   subject: string;
-  format: NewsletterTemplateFormat;
-  blocksCount: number;
   updatedAt: Date;
   createdAt: Date;
   lastSentAt: Date | null;
@@ -60,10 +57,17 @@ export interface NewsletterTemplateImageLite {
   height: number | null;
 }
 
+export interface NewsletterTemplateLocaleContent {
+  subject: string;
+  html: string | null;
+}
+
 export interface NewsletterTemplateFull extends NewsletterTemplateSummary {
-  blocks: NewsletterBlock[];
   html: string | null;
   images: NewsletterTemplateImageLite[];
+  /** Versions non-FR du modèle. Clé absente = la cliente n'a pas encore
+   *  ouvert cet onglet de langue → l'envoi tombe en cascade EN puis FR. */
+  locales: Partial<Record<Exclude<MailLocale, "fr">, NewsletterTemplateLocaleContent>>;
 }
 
 export async function listNewsletterTemplates(): Promise<NewsletterTemplateSummary[]> {
@@ -95,15 +99,13 @@ export async function listNewsletterTemplates(): Promise<NewsletterTemplateSumma
     },
     orderBy: { updatedAt: "desc" },
     select: {
-      id: true, name: true, subject: true, format: true, blocks: true, updatedAt: true, createdAt: true, lastSentAt: true, scenarioKey: true,
+      id: true, name: true, subject: true, updatedAt: true, createdAt: true, lastSentAt: true, scenarioKey: true,
     },
   });
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     subject: r.subject,
-    format: (r.format === "html" ? "html" : "blocks") as NewsletterTemplateFormat,
-    blocksCount: Array.isArray(r.blocks) ? r.blocks.length : 0,
     updatedAt: r.updatedAt,
     createdAt: r.createdAt,
     lastSentAt: r.lastSentAt,
@@ -113,65 +115,24 @@ export async function listNewsletterTemplates(): Promise<NewsletterTemplateSumma
 
 export async function getNewsletterTemplate(id: string): Promise<NewsletterTemplateFull | null> {
   const { tenant } = await requireAdmin();
-  let row = await prisma.newsletterTemplate.findFirst({
+  const row = await prisma.newsletterTemplate.findFirst({
     where: { id, tenantId: tenant.id },
     include: {
       images: {
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, path: true, alt: true, sizeBytes: true, width: true, height: true },
       },
+      locales: {
+        select: { locale: true, subject: true, html: true },
+      },
     },
   });
   if (!row) return null;
 
-  // Auto-migration inline pour TOUT template encore en format blocks — la
-  // politique produit ne conserve plus que l'éditeur HTML depuis 2026-09-22.
-  // Scénarios : on charge le HTML par défaut adapté (cart / days / favorites).
-  // Templates libres (newsletters manuelles anciennes) + stages 2+ orphelins :
-  // on charge le HTML manuel de base pour que la cliente ne perde pas l'accès
-  // au modèle (contenu bloc perdu mais elle peut recomposer ou reset).
-  // Idempotent : dès que format="html", cette branche est skip.
-  if (row.format !== "html") {
-    let seedHtml: string;
-    let seedSubject: string;
-    if (row.scenarioKey && SCENARIO_KEYS.includes(row.scenarioKey as ScenarioKey)) {
-      const scenario = row.scenarioKey as ScenarioKey;
-      const def = SCENARIO_HTML_DEFAULTS[scenario];
-      seedHtml = def.html;
-      seedSubject = def.subject;
-    } else {
-      // Détecter si le template est un stage 2+ d'un scénario auto pour
-      // appliquer le bon HTML (cart / days / favorites) selon le stage lié.
-      const [ac, ic] = await Promise.all([
-        prisma.abandonedCartStage.findFirst({ where: { templateId: id }, select: { stageIndex: true } }),
-        prisma.inactiveClientStage.findFirst({ where: { templateId: id }, select: { stageIndex: true } }),
-      ]);
-      if (ac) {
-        seedHtml = SCENARIO_HTML_DEFAULTS.ABANDONED_CART.html;
-        seedSubject = SCENARIO_HTML_DEFAULTS.ABANDONED_CART.subject;
-      } else if (ic) {
-        seedHtml = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT.html;
-        seedSubject = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT.subject;
-      } else {
-        // Newsletter manuelle héritée format blocks — HTML manuel neutre.
-        seedHtml = MANUAL_HTML_DEFAULT;
-        seedSubject = row.subject;
-      }
-    }
-    try {
-      row = await prisma.newsletterTemplate.update({
-        where: { id },
-        data: { format: "html", html: seedHtml, subject: seedSubject },
-        include: {
-          images: {
-            orderBy: { createdAt: "asc" },
-            select: { id: true, name: true, path: true, alt: true, sizeBytes: true, width: true, height: true },
-          },
-        },
-      });
-      logger.info("[getNewsletterTemplate] auto-migrated blocks→html", { id, scenarioKey: row.scenarioKey });
-    } catch (err) {
-      logger.error("[getNewsletterTemplate] migration failed", { id, error: err as Error });
+  const locales: NewsletterTemplateFull["locales"] = {};
+  for (const l of row.locales) {
+    if (l.locale === "en" || l.locale === "de" || l.locale === "es" || l.locale === "it") {
+      locales[l.locale] = { subject: l.subject, html: l.html };
     }
   }
 
@@ -179,11 +140,9 @@ export async function getNewsletterTemplate(id: string): Promise<NewsletterTempl
     id: row.id,
     name: row.name,
     subject: row.subject,
-    format: (row.format === "html" ? "html" : "blocks") as NewsletterTemplateFormat,
-    blocks: Array.isArray(row.blocks) ? (row.blocks as unknown as NewsletterBlock[]) : [],
     html: row.html ?? null,
-    blocksCount: Array.isArray(row.blocks) ? row.blocks.length : 0,
     images: row.images,
+    locales,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
     lastSentAt: row.lastSentAt,
@@ -250,12 +209,10 @@ async function repairScenarioKeyDriftFor(tenantId: string): Promise<void> {
  * le tenant. Idempotent (contrainte @@unique[tenantId, scenarioKey] côté DB).
  */
 async function ensureDefaultScenarioTemplatesFor(tenantId: string): Promise<void> {
-  // 0) Répare un éventuel drift scenarioKey (voir commentaire ci-dessus).
   await repairScenarioKeyDriftFor(tenantId);
-  // 1) Seed des scénarios manquants — nouveau format HTML par défaut.
   const existing = await prisma.newsletterTemplate.findMany({
     where: { tenantId, scenarioKey: { in: [...SCENARIO_KEYS] } },
-    select: { id: true, scenarioKey: true, format: true },
+    select: { id: true, scenarioKey: true },
   });
   const already = new Set(existing.map((e) => e.scenarioKey).filter(Boolean) as string[]);
   const missing = SCENARIO_KEYS.filter((k) => !already.has(k));
@@ -267,8 +224,6 @@ async function ensureDefaultScenarioTemplatesFor(tenantId: string): Promise<void
           tenantId,
           name: html.name,
           subject: html.subject,
-          format: "html",
-          blocks: [],
           html: html.html,
           scenarioKey: scenario,
         },
@@ -277,59 +232,6 @@ async function ensureDefaultScenarioTemplatesFor(tenantId: string): Promise<void
       logger.error("[ensureDefaultScenarioTemplates] seed skip", { tenantId, scenario, error: err as Error });
     }
   }
-
-  // 2) Auto-migration blocks→html en batch pour ce tenant. Politique produit
-  //    (2026-09-22) : plus aucun template n'est éditable en blocks. On migre :
-  //     - les 3 templates scénario (scenarioKey posé) → défaut HTML du scénario
-  //     - les stages 2+ (scenarioKey=null mais liés via FK AbandonedCartStage /
-  //       InactiveClientStage) → défaut HTML du scénario correspondant
-  //    Migration silencieuse : la cliente n'a rien à faire, ses modèles restent
-  //    accessibles. Le HTML par défaut est propre et fonctionnel.
-  const stillBlocks = await prisma.newsletterTemplate.findMany({
-    where: { tenantId, format: { not: "html" } },
-    select: { id: true, scenarioKey: true, subject: true },
-  });
-  if (stillBlocks.length === 0) return;
-  const [acStages, icStages] = await Promise.all([
-    prisma.abandonedCartStage.findMany({
-      where: { tenantId, templateId: { in: stillBlocks.map((t) => t.id) } },
-      select: { templateId: true },
-    }),
-    prisma.inactiveClientStage.findMany({
-      where: { tenantId, templateId: { in: stillBlocks.map((t) => t.id) } },
-      select: { templateId: true },
-    }),
-  ]);
-  const acStageTemplateIds = new Set(acStages.map((s) => s.templateId));
-  const icStageTemplateIds = new Set(icStages.map((s) => s.templateId));
-
-  for (const t of stillBlocks) {
-    let seedHtml: string;
-    let seedSubject: string;
-    if (t.scenarioKey && SCENARIO_KEYS.includes(t.scenarioKey as ScenarioKey)) {
-      const def = SCENARIO_HTML_DEFAULTS[t.scenarioKey as ScenarioKey];
-      seedHtml = def.html;
-      seedSubject = def.subject;
-    } else if (acStageTemplateIds.has(t.id)) {
-      seedHtml = SCENARIO_HTML_DEFAULTS.ABANDONED_CART.html;
-      seedSubject = SCENARIO_HTML_DEFAULTS.ABANDONED_CART.subject;
-    } else if (icStageTemplateIds.has(t.id)) {
-      seedHtml = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT.html;
-      seedSubject = SCENARIO_HTML_DEFAULTS.INACTIVE_CLIENT.subject;
-    } else {
-      seedHtml = MANUAL_HTML_DEFAULT;
-      seedSubject = t.subject;
-    }
-    try {
-      await prisma.newsletterTemplate.update({
-        where: { id: t.id },
-        data: { format: "html", html: seedHtml, subject: seedSubject },
-      });
-    } catch (err) {
-      logger.error("[ensureDefaultScenarioTemplates] batch migrate", { tenantId, templateId: t.id, error: err as Error });
-    }
-  }
-  logger.info("[ensureDefaultScenarioTemplates] batch blocks→html done", { tenantId, count: stillBlocks.length });
 }
 
 /**
@@ -615,7 +517,6 @@ export async function assignTemplateToScenario(
       await tx.newsletterTemplate.update({
         where: { id: targetTemplateId },
         data: {
-          format: "html",
           html: sourceHtml,
           subject: source.subject,
         },
@@ -662,7 +563,7 @@ export async function assignTemplateToScenario(
 }
 
 /**
- * Remet le modèle actif d'un scénario à son design par défaut (blocs + sujet).
+ * Remet le modèle actif d'un scénario à son design HTML par défaut.
  * Le nom du modèle n'est PAS modifié — la cliente peut avoir renommé son
  * modèle sans vouloir perdre ce nom.
  */
@@ -674,9 +575,6 @@ export async function resetScenarioTemplateToDefault(
     if (!SCENARIO_KEYS.includes(scenario)) {
       return { success: false, error: "Scénario inconnu." };
     }
-    // Depuis 2026-09-22 : les scénarios ne s'éditent plus qu'en HTML. Le
-    // reset applique le défaut HTML — la référence blocs (SCENARIO_DEFAULTS)
-    // n'est plus consultée pour les scénarios auto.
     const def = SCENARIO_HTML_DEFAULTS[scenario];
     const existing = await prisma.newsletterTemplate.findFirst({
       where: { tenantId: tenant.id, scenarioKey: scenario },
@@ -688,8 +586,6 @@ export async function resetScenarioTemplateToDefault(
           tenantId: tenant.id,
           name: def.name,
           subject: def.subject,
-          format: "html",
-          blocks: [],
           html: def.html,
           scenarioKey: scenario,
         },
@@ -698,7 +594,6 @@ export async function resetScenarioTemplateToDefault(
       await prisma.newsletterTemplate.update({
         where: { id: existing.id },
         data: {
-          format: "html",
           subject: def.subject,
           html: def.html,
         },
@@ -725,19 +620,28 @@ export async function getScenarioTemplate(
   await ensureDefaultScenarioTemplatesFor(tenantId);
   const row = await prisma.newsletterTemplate.findFirst({
     where: { tenantId, scenarioKey: scenario },
+    include: {
+      locales: {
+        select: { locale: true, subject: true, html: true },
+      },
+    },
   });
   if (!row) {
     throw new Error(`Aucun modèle actif pour le scénario ${scenario}.`);
+  }
+  const locales: NewsletterTemplateFull["locales"] = {};
+  for (const l of row.locales) {
+    if (l.locale === "en" || l.locale === "de" || l.locale === "es" || l.locale === "it") {
+      locales[l.locale] = { subject: l.subject, html: l.html };
+    }
   }
   return {
     id: row.id,
     name: row.name,
     subject: row.subject,
-    format: (row.format === "html" ? "html" : "blocks") as NewsletterTemplateFormat,
-    blocks: Array.isArray(row.blocks) ? (row.blocks as unknown as NewsletterBlock[]) : [],
     html: row.html ?? null,
-    blocksCount: Array.isArray(row.blocks) ? row.blocks.length : 0,
     images: [],
+    locales,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
     lastSentAt: row.lastSentAt,
@@ -760,8 +664,6 @@ export async function createNewsletterTemplate(
         tenantId: tenant.id,
         name: trimmed,
         subject: "Nouveautés chez nous",
-        format: "html",
-        blocks: [],
         html: MANUAL_HTML_DEFAULT,
       },
     });
@@ -792,12 +694,9 @@ export async function updateNewsletterTemplateHtml(
     const { tenant } = await requireAdmin();
     const existing = await prisma.newsletterTemplate.findFirst({
       where: { id, tenantId: tenant.id },
-      select: { id: true, format: true, html: true, scenarioKey: true },
+      select: { id: true, html: true, scenarioKey: true },
     });
     if (!existing) return { success: false, error: "Modèle introuvable." };
-    if (existing.format !== "html") {
-      return { success: false, error: "Ce modèle n'est pas en format HTML." };
-    }
 
     const finalHtml = data.html ?? existing.html ?? "";
     const missing = missingRequiredMarketingVariables(finalHtml);
@@ -858,6 +757,79 @@ export async function updateNewsletterTemplateHtml(
 }
 
 /**
+ * Sauvegarde d'une version non-FR (EN/DE/ES/IT) d'un modèle de mail.
+ * Les tokens marketing + scénario sont vérifiés comme pour la version FR —
+ * un mail allemand sans {unsubscribeLink} est aussi illégal qu'un mail
+ * français. Si la ligne locale n'existe pas, on la crée (upsert).
+ *
+ * Appel typique depuis l'éditeur quand la cliente est sur un onglet non-FR
+ * et clique « Enregistrer ».
+ */
+export async function updateNewsletterTemplateLocale(
+  id: string,
+  locale: Exclude<MailLocale, "fr">,
+  data: { subject: string; html: string },
+): Promise<{ success: true } | { success: false; error: string; missingVariables?: string[] }> {
+  try {
+    const { tenant } = await requireAdmin();
+    if (!MAIL_LOCALES.includes(locale)) {
+      return { success: false, error: "Langue cible invalide." };
+    }
+
+    const existing = await prisma.newsletterTemplate.findFirst({
+      where: { id, tenantId: tenant.id },
+      select: { id: true, scenarioKey: true },
+    });
+    if (!existing) return { success: false, error: "Modèle introuvable." };
+
+    const finalHtml = data.html ?? "";
+    const finalSubject = (data.subject ?? "").trim();
+
+    // On tolère l'enregistrement d'une version vide (= "pas encore traduit")
+    // pour que la cliente puisse préparer son texte sans tout saisir d'un
+    // coup. Validation stricte uniquement si contenu non vide.
+    if (finalHtml.trim().length > 0) {
+      const missing = missingRequiredMarketingVariables(finalHtml);
+      if (missing.length > 0) {
+        return {
+          success: false,
+          error: `Ces variables obligatoires manquent dans le HTML ${locale.toUpperCase()} : ${missing.map((v) => `{${v.token}}`).join(", ")}.`,
+          missingVariables: missing.map((v) => v.token),
+        };
+      }
+      const scenarioKey = existing.scenarioKey as ScenarioKey | null;
+      const scenarioMissing = missingScenarioTokens(finalHtml, scenarioKey);
+      if (scenarioMissing.length > 0) {
+        return {
+          success: false,
+          error: `Il manque : ${scenarioMissing.map((s) => s.label).join(" · ")} dans la version ${locale.toUpperCase()}.`,
+          missingVariables: scenarioMissing.map((s) => s.token),
+        };
+      }
+    }
+
+    await prisma.newsletterTemplateLocale.upsert({
+      where: { templateId_locale: { templateId: id, locale } },
+      update: { subject: finalSubject || "Newsletter", html: finalHtml || null },
+      create: {
+        tenantId: tenant.id,
+        templateId: id,
+        locale,
+        subject: finalSubject || "Newsletter",
+        html: finalHtml || null,
+      },
+    });
+
+    revalidatePath("/admin/marketing/mails");
+    revalidatePath(`/admin/marketing/mails/newsletter/${id}`);
+    return { success: true };
+  } catch (err) {
+    logger.error("[updateNewsletterTemplateLocale]", { id, locale, error: err as Error });
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
  * Supprime de la bibliothèque du template les images qui ne sont plus
  * référencées dans son HTML (fichier disque + entrée BDD).
  *
@@ -889,58 +861,6 @@ async function gcOrphanedTemplateImages(templateId: string, html: string): Promi
     }
   }
   logger.info("[gcOrphanedTemplateImages] cleaned", { templateId, removed: orphans.length });
-}
-
-export async function updateNewsletterTemplate(
-  id: string,
-  data: { name?: string; subject?: string; blocks?: NewsletterBlock[] },
-): Promise<{ success: true } | { success: false; error: string; missingVariables?: string[] }> {
-  try {
-    const { tenant } = await requireAdmin();
-    const existing = await prisma.newsletterTemplate.findFirst({
-      where: { id, tenantId: tenant.id },
-      select: { id: true, subject: true, blocks: true },
-    });
-    if (!existing) return { success: false, error: "Modèle introuvable." };
-
-    // Validation « mentions légales » : tous les modèles enregistrés dans cette
-    // table sont marketing (les mails système passent par shared.ts direct).
-    // Règle : les 4 variables obligatoires DOIVENT figurer dans le bloc
-    // « Pied de page » (bloc `footer`). Le mail ne peut pas être enregistré
-    // sans ce bloc, ni si son contenu ne contient pas les 4 variables.
-    const finalBlocks = (data.blocks ??
-      (Array.isArray(existing.blocks) ? (existing.blocks as unknown as NewsletterBlock[]) : []));
-    const footerContent = getFooterContent(finalBlocks);
-    if (footerContent === null) {
-      return {
-        success: false,
-        error: "Ajoutez un bloc « Pied de page » — il doit contenir les mentions légales (nom + adresse boutique + désinscription + politique de confidentialité).",
-      };
-    }
-    const missing = missingRequiredMarketingVariables(footerContent);
-    if (missing.length > 0) {
-      return {
-        success: false,
-        error: `Ces variables obligatoires manquent dans le pied de page : ${missing.map((v) => `{${v.token}}`).join(", ")}. Elles doivent figurer dans le bloc « Pied de page » — elles seront remplacées à l'envoi par la vraie info.`,
-        missingVariables: missing.map((v) => v.token),
-      };
-    }
-
-    await prisma.newsletterTemplate.update({
-      where: { id },
-      data: {
-        ...(data.name !== undefined ? { name: data.name.trim() || "Modèle sans titre" } : {}),
-        ...(data.subject !== undefined ? { subject: data.subject.trim() || "Nouveautés" } : {}),
-        ...(data.blocks !== undefined ? { blocks: data.blocks as unknown as object } : {}),
-      },
-    });
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath(`/admin/marketing/mails/${id}`);
-    return { success: true };
-  } catch (err) {
-    logger.error("[updateNewsletterTemplate]", { id, error: err as Error });
-    return { success: false, error: (err as Error).message };
-  }
 }
 
 export async function deleteNewsletterTemplate(
@@ -1024,8 +944,6 @@ export async function duplicateNewsletterTemplate(
         tenantId: tenant.id,
         name: `${source.name} (copie)`,
         subject: source.subject,
-        format: source.format,
-        blocks: source.blocks as unknown as object,
         html: source.html,
         scenarioKey: null,
       },
@@ -1036,56 +954,6 @@ export async function duplicateNewsletterTemplate(
     logger.error("[duplicateNewsletterTemplate]", { id, error: err as Error });
     return { success: false, error: (err as Error).message };
   }
-}
-
-/**
- * Recherche de produits pour l'éditeur (bloc « Grille produits »).
- * Retourne les infos minimales : id, nom, référence, image, prix.
- */
-export async function searchProductsForNewsletter(
-  query: string,
-): Promise<Array<{ id: string; name: string; reference: string; imagePath: string | null; priceCents: number | null }>> {
-  const { tenant } = await requireAdmin();
-  const q = query.trim();
-  const rows = await prisma.product.findMany({
-    where: {
-      tenantId: tenant.id,
-      status: "ONLINE",
-      ...(q
-        ? {
-            OR: [
-              { name: { contains: q } },
-              { reference: { contains: q } },
-            ],
-          }
-        : {}),
-    },
-    take: 30,
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      reference: true,
-      colors: {
-        take: 1,
-        orderBy: { isPrimary: "desc" },
-        select: {
-          unitPrice: true,
-          images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
-        },
-      },
-    },
-  });
-  return rows.map((r) => {
-    const variant = r.colors[0];
-    return {
-      id: r.id,
-      name: r.name,
-      reference: r.reference,
-      imagePath: variant?.images[0]?.path ?? null,
-      priceCents: variant ? Math.round(Number(variant.unitPrice) * 100) : null,
-    };
-  });
 }
 
 /**

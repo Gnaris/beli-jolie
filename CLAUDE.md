@@ -100,6 +100,21 @@ Depuis 2026-08-25, Microstore utilise l'API native `/goods/add` + `/goods/update
 - **Backfill IDs Microstore** : `scripts/backfill-microstore-goods-ids.ts` (dry-run par défaut, `--apply` pour écrire). À exécuter après le déploiement prod pour retrouver les IDs des produits déjà poussés en CSV.
 - **CSV legacy** : `/goods/import_v1` conservé dans `microstore-products.ts` (fonctions dépréciées `MICROSTORE_API_HEADERS` + `productToMicrostoreApiRows`) uniquement pour rollback d'urgence.
 
+### Vérification WhatsApp (Baileys reverse-engineered, 2026-10-07)
+Icône verte à côté du numéro client sur `/admin/clients` + fiche commande = « ce numéro a WhatsApp (vérifié) ». Session **unique globale** (1 numéro WhatsApp partagé entre BJ + Issyma — pas de scoping tenant) via `baileys` v7 (lib non officielle reverse-engineered, risque de ban Meta atténué par cache + rate-limit). Pairing par **code à 8 chiffres** uniquement (pas de QR) depuis `/admin/parametres` → tuile verte « WhatsApp ».
+
+- **Modules** : `lib/whatsapp-session.ts` (singleton socket + reconnexion auto), `lib/whatsapp-check.ts` (cache BDD + rate-limit journalier 100/jour global via fichier `private/whatsapp-session/daily-counter.json`), `app/actions/admin/whatsapp-pairing.ts` (start/stop/status).
+- **Prisma** : `User.hasWhatsapp Boolean?` + `User.whatsappCheckedAt DateTime?` — `null` = jamais vérifié (lazy), `true/false` = résultat connu (pas de re-check avant plusieurs mois).
+- **Session persistée** : `private/whatsapp-session/` (hors uploads, pas de serving public). `instrumentation-node.ts` remonte la session au boot si `creds.json` existe.
+- **2 déclencheurs de vérification** :
+  1. **Clic sur icône orange « Non vérifié »** (clients déjà inscrits, non vérifiés) → server action `verifyWhatsappForClient(userId, phone)` → spinner + mise à jour locale + persistance BDD.
+  2. **Auto sur `PENDING → APPROVED`** (nouveau client approuvé par admin) → fire-and-forget `checkWhatsappNumberFireAndForget` dans `updateUserStatus`.
+- **UI 3 états** sur `PhoneContactIcons` : 🟢 Valide (vert + mini-point + menu modèles — vérifié WhatsApp), 🟠 Non vérifié (orange, cliquable → vérification à la demande avec spinner), ⚪ Invalide (grisé — vérifié pas WhatsApp OU ligne fixe OU numéro absent).
+- **Jamais de check automatique sur un listing** : la fiche commande/client détail n'auto-vérifie plus (consomme trop du quota 100/jour). Seul le clic manuel ou l'approbation d'un nouveau compte déclenche la vérif.
+- **Rate-limit GLOBAL** (pas par tenant, puisque session partagée) : 100 vérifs/jour UTC, reset auto à minuit. Au-delà → `"ratelimited"`, pas de retry.
+- **Baileys dans `serverExternalPackages`** (`next.config.ts`). Dynamic import pour sortir du bundle.
+- **Risque Meta** : si Meta durcit, numéro appairé peut être banni → tuile UI passe en `logged_out`, cliente peut re-pairer. Recommandation : numéro **dédié** (2ᵉ SIM), pas le WhatsApp perso.
+
 ### Marketplaces (PFS + Ankorstore + eFashion + Faire + Orderchamp + Microstore)
 - **IDs** : `Product.pfsProductId`/`ankorsProductId`/`efashionReferenceBase`/`faireProductId`/`orderchampProductId` + `ProductColor.pfsVariantId`/`ankorsVariantId`/`orderchampVariantId`. `null` = non publié.
 - **`*SyncRequired`** : posé par `updateProduct` (champ clé modifié) + worker images (`lib/image-queue.ts`). Reset par sync réussie ou `clearSyncRequiredFlag()`. Badge orange dans `MarketplaceStatusButtons` + `AdminProductsTable`. Priorité : loading > syncRequired > online > offline.

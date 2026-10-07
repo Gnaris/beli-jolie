@@ -8,6 +8,8 @@ import OrderStatusActions from "@/components/admin/orders/OrderStatusActions";
 import OrderContent from "@/components/admin/orders/OrderContent";
 import OrderQuickActions from "@/components/admin/orders/OrderQuickActions";
 import BankTransferConfirmButton from "@/components/admin/orders/BankTransferConfirmButton";
+import PhoneContactIcons from "@/components/admin/users/PhoneContactIcons";
+import { listWhatsAppTemplates } from "@/app/actions/admin/whatsapp-templates";
 import { EU_COUNTRIES } from "@/lib/vat";
 import { roundCent } from "@/lib/money";
 import { syncStripeCheckoutSessionStatus } from "@/app/actions/client/payment-link-order";
@@ -42,10 +44,18 @@ export default async function AdminCommandeDetailPage({
     include: {
       items: { orderBy: { createdAt: "asc" } },
       itemModifications: true,
+      user: { select: { hasWhatsapp: true } },
     },
   });
 
   if (!order) notFound();
+
+  // Modèles WhatsApp pour l'icône de contact (identique à /admin/clients).
+  // La vérification « a WhatsApp oui/non » est désormais déclenchée au CLIC
+  // sur l'icône orange « Non vérifié » (pas en auto au chargement de la fiche),
+  // + auto sur approbation du compte client. Voir composant PhoneContactIcons
+  // et action verifyWhatsappForClient.
+  const whatsAppTemplates = await listWhatsAppTemplates();
 
   // Récup des pastilles couleur (hex + patternImage) pour la colonne « Couleur »
   const distinctColorNames = Array.from(
@@ -403,6 +413,9 @@ export default async function AdminCommandeDetailPage({
             phone={order.clientPhone}
             siret={order.clientSiret ?? undefined}
             vatNumber={order.clientVatNumber ?? undefined}
+            userId={order.userId}
+            whatsAppTemplates={whatsAppTemplates}
+            hasWhatsapp={order.user?.hasWhatsapp ?? null}
           />
           <InfoColumn
             title="Livraison"
@@ -416,6 +429,9 @@ export default async function AdminCommandeDetailPage({
             country={order.shipCountry}
             email={order.clientEmail}
             phone={order.clientPhone}
+            userId={order.userId}
+            whatsAppTemplates={whatsAppTemplates}
+            hasWhatsapp={order.user?.hasWhatsapp ?? null}
           />
         </div>
       </section>
@@ -568,6 +584,9 @@ function InfoColumn({
   phone,
   siret,
   vatNumber,
+  userId,
+  whatsAppTemplates,
+  hasWhatsapp,
 }: {
   title: string;
   company?: string;
@@ -582,6 +601,9 @@ function InfoColumn({
   phone: string;
   siret?: string;
   vatNumber?: string;
+  userId?: string | null;
+  whatsAppTemplates?: Awaited<ReturnType<typeof listWhatsAppTemplates>>;
+  hasWhatsapp?: boolean | null;
 }) {
   return (
     <div className="p-5 space-y-3">
@@ -612,6 +634,12 @@ function InfoColumn({
           <a href={`tel:${phone}`} className="text-slate-700 hover:underline">
             {phone}
           </a>
+          <PhoneContactIcons
+            phone={phone}
+            userId={userId ?? null}
+            templates={whatsAppTemplates ?? []}
+            hasWhatsapp={hasWhatsapp ?? null}
+          />
         </p>
       </div>
 

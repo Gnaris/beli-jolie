@@ -18,7 +18,7 @@ import {
 import {
   SCENARIO_LABELS,
   type ScenarioKey,
-} from "@/lib/mail-scenario-defaults";
+} from "@/lib/newsletter-html-defaults";
 
 interface Props {
   sourceTemplateId: string;

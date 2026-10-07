@@ -109,6 +109,7 @@ import type { OrderItemPDF } from "@/lib/pdf-order";
 import { createEasyExpressShipment, fetchEasyExpressLabel } from "@/lib/easy-express";
 import { getStripeInstance } from "@/lib/stripe";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
+import { emitAdminEvent } from "@/lib/admin-events";
 import {
   buildFallbackAddressFromUser,
   isFallbackAddressAllowed,
@@ -677,7 +678,27 @@ export async function placeOrder(
 
   const orderNumber = await generateOrderNumber();
 
-  const orderItems: OrderItemPDF[] = cart.items.map((item) => {
+  // Snapshot i18n du nom produit : au moment de la commande, on fige les
+  // traductions existantes pour que la fiche commande puisse être affichée
+  // dans n'importe quelle langue même si le produit est renommé/supprimé
+  // plus tard. Lecture : `resolveOrderItemName(item, locale)`.
+  const productIds = Array.from(new Set(cart.items.map((i) => i.variant.productId)));
+  const translationsByProductId = new Map<string, Record<string, string>>();
+  if (productIds.length > 0) {
+    const rows = await prisma.productTranslation.findMany({
+      where: { productId: { in: productIds } },
+      select: { productId: true, locale: true, name: true },
+    });
+    for (const r of rows) {
+      const name = r.name?.trim();
+      if (!name) continue;
+      const entry = translationsByProductId.get(r.productId) ?? {};
+      entry[r.locale] = name;
+      translationsByProductId.set(r.productId, entry);
+    }
+  }
+
+  const orderItems: (OrderItemPDF & { productNameI18n: Record<string, string> | null })[] = cart.items.map((item) => {
     const unitPrice = resolveItemFinalPrice(item.id);
     const imgKey = `${item.variant.productId}__${item.variant.colorId}`;
 
@@ -738,8 +759,11 @@ export async function placeOrder(
         : null,
     });
 
+    const i18n = translationsByProductId.get(item.variant.productId) ?? null;
+
     return {
       productName:  item.variant.product.name,
+      productNameI18n: i18n && Object.keys(i18n).length > 0 ? i18n : null,
       productRef:   item.variant.product.reference,
       categoryName: item.variant.product.category?.name ?? null,
       colorName:    displayColorName,
@@ -868,6 +892,7 @@ export async function placeOrder(
       items: {
         create: orderItems.map((item) => ({
           productName: item.productName,
+          productNameI18n: item.productNameI18n ?? undefined,
           productRef:  item.productRef,
           colorName:   item.colorName,
           saleType:    item.saleType,
@@ -1052,6 +1077,10 @@ export async function placeOrder(
   } else {
     logger.warn("[placeOrder] Easy-Express", { error: eeResult.error });
   }
+
+  // Push temps réel vers /admin/commandes ouvert dans un onglet admin.
+  // tenantId capturé via ALS (contexte requête courant).
+  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
 
   // ── Emails (fire-and-forget) ─────────────────
   // Notif admin (mail léger sans PDF — voir lib/notifications.ts) + confirmation client.

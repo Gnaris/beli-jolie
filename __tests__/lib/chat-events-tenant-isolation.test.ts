@@ -52,7 +52,9 @@ describe("chat-events / isolation multi-tenant", () => {
 
     subscribeChatEvents((event) => {
       if (event.targetRole !== "ADMIN") return;
-      if (requestTenantId && event.tenantId && event.tenantId !== requestTenantId) return;
+      // Filtre fail-closed : si on connaît notre tenant, on refuse tout
+      // event qui n'a pas EXACTEMENT ce tenantId (y compris undefined).
+      if (requestTenantId && event.tenantId !== requestTenantId) return;
       beliJolieAdminReceived.push(event);
     });
 
@@ -78,5 +80,30 @@ describe("chat-events / isolation multi-tenant", () => {
 
     expect(beliJolieAdminReceived).toHaveLength(1);
     expect(beliJolieAdminReceived[0].conversationId).toBe("conv-bj");
+  });
+
+  it("fail-closed : un event sans tenantId NE DOIT PAS atteindre un admin scopé par tenant (bug son chat 2026-10-07)", () => {
+    // Scénario réel : un émetteur appelle emitChatEvent sans que l'ALS soit
+    // bindée (ex : ALS non peuplée par le callsite). Résultat : event.tenantId
+    // undefined. Avant le fix, le filtre `event.tenantId && …` tombait sur
+    // undefined → false → event laissé passer sur TOUS les tenants.
+    const requestTenantId = "beliandjolie";
+    const beliJolieAdminReceived: ChatEvent[] = [];
+
+    subscribeChatEvents((event) => {
+      if (event.targetRole !== "ADMIN") return;
+      if (requestTenantId && event.tenantId !== requestTenantId) return;
+      beliJolieAdminReceived.push(event);
+    });
+
+    // Pas de tenantALS.run — l'event est émis hors ALS, tenantId undefined.
+    emitChatEvent({
+      type: "NEW_MESSAGE",
+      conversationId: "conv-orpheline",
+      userId: "client-x",
+      targetRole: "ADMIN",
+    });
+
+    expect(beliJolieAdminReceived).toHaveLength(0);
   });
 });

@@ -4,7 +4,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright", "imapflow"],
+  serverExternalPackages: ["pdfkit", "sharp", "exceljs", "playwright", "imapflow", "baileys"],
 
   // Whitelist des hosts autorisés à taper le dev server (HMR + assets).
   // Next.js 16 bloque tout host non-`localhost` par défaut. Sans cette liste,

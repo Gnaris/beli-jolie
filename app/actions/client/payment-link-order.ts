@@ -34,6 +34,7 @@ import {
   notifyAdminNewOrder,
   notifyClientPaymentLink,
 } from "@/lib/notifications";
+import { emitAdminEvent } from "@/lib/admin-events";
 import {
   buildFallbackAddressFromUser,
   isFallbackAddressAllowed,
@@ -835,6 +836,8 @@ export async function placePaymentLinkOrder(
       error: err as Error,
     });
   }
+
+  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
 
   notifyAdminNewOrder({ orderId: order.id }).catch((err) =>
     logger.error("[placePaymentLinkOrder] Notif admin error", { error: err }),

@@ -13,7 +13,7 @@
  */
 
 import { MAIL_VARIABLES, type MailVariable } from "@/lib/mail-merge-variables";
-import type { ScenarioKey } from "@/lib/mail-scenario-defaults";
+import type { ScenarioKey } from "@/lib/newsletter-html-defaults";
 
 const HEADER = `Tu es un expert en emails HTML transactionnels. Génère-moi un modèle de mail HTML **compatible tous les clients mail** (Gmail, Outlook, Apple Mail, Yahoo).`;
 

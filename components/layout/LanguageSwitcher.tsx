@@ -4,8 +4,7 @@ import { useState, useTransition, useRef, useEffect, useLayoutEffect } from "rea
 import { createPortal } from "react-dom";
 import { usePathname as useRawPathname } from "next/navigation";
 import { stripLocalePrefix, detectLocaleInPath } from "@/lib/locale-path";
-
-type Locale = "fr" | "en";
+import { VALID_LOCALES, type Locale } from "@/i18n/locales";
 
 function Flag({ code, className = "" }: { code: Locale; className?: string }) {
   const common = { viewBox: "0 0 24 16", className: `rounded-sm shrink-0 ${className}` };
@@ -28,13 +27,45 @@ function Flag({ code, className = "" }: { code: Locale; className?: string }) {
           <path d="M12 0v16M0 8h24" stroke="#C8102E" strokeWidth="2" />
         </svg>
       );
+    case "de":
+      return (
+        <svg {...common}>
+          <rect width="24" height="5.333" y="0" fill="#000000" />
+          <rect width="24" height="5.333" y="5.333" fill="#DD0000" />
+          <rect width="24" height="5.334" y="10.666" fill="#FFCE00" />
+        </svg>
+      );
+    case "it":
+      return (
+        <svg {...common}>
+          <rect width="8" height="16" fill="#009246" />
+          <rect x="8" width="8" height="16" fill="#FFFFFF" />
+          <rect x="16" width="8" height="16" fill="#CE2B37" />
+        </svg>
+      );
+    case "es":
+      return (
+        <svg {...common}>
+          <rect width="24" height="4" y="0" fill="#AA151B" />
+          <rect width="24" height="8" y="4" fill="#F1BF00" />
+          <rect width="24" height="4" y="12" fill="#AA151B" />
+        </svg>
+      );
   }
 }
 
-const LANGUAGES: { code: Locale; label: string }[] = [
-  { code: "fr", label: "Français" },
-  { code: "en", label: "English" },
-];
+const LANGUAGE_LABELS: Record<Locale, string> = {
+  fr: "Français",
+  en: "English",
+  de: "Deutsch",
+  it: "Italiano",
+  es: "Español",
+};
+
+const LANGUAGES: { code: Locale; label: string }[] = VALID_LOCALES.map((code) => ({
+  code,
+  label: LANGUAGE_LABELS[code],
+}));
 
 const MENU_WIDTH = 180;
 const MENU_GAP = 6;

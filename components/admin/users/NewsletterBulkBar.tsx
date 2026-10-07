@@ -17,7 +17,7 @@ import { sendNewsletterToUsers } from "@/app/actions/admin/send-newsletter";
 import { useMailSelection } from "./MailSelectionContext";
 
 interface Props {
-  templates: Array<{ id: string; name: string; subject: string; blocksCount: number }>;
+  templates: Array<{ id: string; name: string; subject: string }>;
 }
 
 export default function NewsletterBulkBar({ templates }: Props) {
@@ -33,8 +33,7 @@ export default function NewsletterBulkBar({ templates }: Props) {
 
   const options: SelectOption[] = templates.map((t) => ({
     value: t.id,
-    label: `📢  ${t.name} — ${t.blocksCount} bloc${t.blocksCount > 1 ? "s" : ""}`,
-    disabled: t.blocksCount === 0,
+    label: `📢  ${t.name}`,
   }));
 
   const selectedTemplate = templates.find((t) => t.id === templateId);

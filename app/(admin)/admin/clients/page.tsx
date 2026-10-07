@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { isOnline, getOnlineThreshold } from "@/lib/online-status";
 import { initialsOf, avatarGradientFor } from "@/lib/user-avatar";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
+import LiveAdminRefresh from "@/components/admin/LiveAdminRefresh";
 import UsersTabs from "@/components/admin/users/UsersTabs";
 import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
 import UsersSortControl from "@/components/admin/users/UsersSortControl";
@@ -16,6 +17,7 @@ import SendMailButton from "@/components/admin/users/SendMailButton";
 import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
 import PhoneContactIcons from "@/components/admin/users/PhoneContactIcons";
+import OnlineDurationBadge from "@/components/admin/users/OnlineDurationBadge";
 import { listWhatsAppTemplates } from "@/app/actions/admin/whatsapp-templates";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import Pagination from "@/components/ui/Pagination";
@@ -290,6 +292,10 @@ export default async function UtilisateursPage({
   return (
     <div className="space-y-6">
       <AutoRefresh intervalMs={10_000} />
+      <LiveAdminRefresh
+        events={["CLIENT_NEW", "CLIENT_STATUS"]}
+        toasts={{ CLIENT_NEW: "Nouvelle inscription" }}
+      />
 
       {/* HERO */}
       <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm bg-slate-100">
@@ -421,6 +427,7 @@ type RegisteredClient = {
   lastSeenAt: Date | null;
   createdAt: Date;
   acceptsNewsletter: boolean;
+  hasWhatsapp: boolean | null;
 };
 
 const REGISTERED_SELECT = {
@@ -439,6 +446,7 @@ const REGISTERED_SELECT = {
   lastSeenAt: true,
   createdAt: true,
   acceptsNewsletter: true,
+  hasWhatsapp: true,
 } as const;
 
 // ─── Panier en cours : nb d'articles + total HT par client ───────────────────
@@ -1142,7 +1150,7 @@ function RegisteredPane({
                             <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Tél :</span>
                               <span className="truncate text-text-secondary tabular-nums">{c.phone || "—"}</span>
-                              <PhoneContactIcons phone={c.phone} userId={c.id} templates={whatsAppTemplates} />
+                              <PhoneContactIcons phone={c.phone} userId={c.id} templates={whatsAppTemplates} hasWhatsapp={c.hasWhatsapp} />
                             </p>
                             <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-text-muted/80 shrink-0">Email :</span>
@@ -1189,22 +1197,18 @@ function RegisteredPane({
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           {online ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-body font-medium text-emerald-700">
-                              <span className="relative inline-flex w-2 h-2">
-                                <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-70" />
-                                <span className="relative w-2 h-2 rounded-full bg-emerald-500" />
-                              </span>
-                              En ligne
-                            </span>
+                            <OnlineDurationBadge lastLoginAt={c.lastLoginAt} />
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-body text-text-muted">
-                              <span className="w-2 h-2 rounded-full bg-text-muted/40" />
-                              Hors ligne
-                            </span>
+                            <>
+                              <span className="inline-flex items-center gap-1.5 text-xs font-body text-text-muted">
+                                <span className="w-2 h-2 rounded-full bg-text-muted/40" />
+                                Hors ligne
+                              </span>
+                              <p className="text-[11px] font-body mt-0.5 text-text-muted">
+                                {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
+                              </p>
+                            </>
                           )}
-                          <p className={`text-[11px] font-body mt-0.5 ${online ? "text-text-secondary" : "text-text-muted"}`}>
-                            {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
-                          </p>
                           <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-body text-text-muted" title={`Inscrit le ${inscription.date} à ${inscription.time}`}>
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -1360,13 +1364,7 @@ function RegisteredPane({
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[11.5px] font-body">
                         {online ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
-                            <span className="relative inline-flex w-2 h-2">
-                              <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-70" />
-                              <span className="relative w-2 h-2 rounded-full bg-emerald-500" />
-                            </span>
-                            En ligne · {formatTimeAgo(c.lastSeenAt ?? c.lastLoginAt)}
-                          </span>
+                          <OnlineDurationBadge lastLoginAt={c.lastLoginAt} variant="inline" />
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-text-muted">
                             <span className="w-2 h-2 rounded-full bg-text-muted/40" />

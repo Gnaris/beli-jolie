@@ -4,6 +4,7 @@
  * Next.js server actions, API routes, and middleware.
  */
 import { getCurrentTenantIdSync } from "@/lib/tenant-als";
+import { logger } from "@/lib/logger";
 
 export type ChatEventType = "NEW_MESSAGE" | "MESSAGE_READ" | "CONVERSATION_CLOSED" | "CONVERSATION_DELETED" | "CLAIM_STATUS_CHANGED" | "TYPING_START" | "TYPING_STOP";
 
@@ -68,6 +69,16 @@ function getListeners(): Set<Listener> {
 
 export function emitChatEvent(event: Omit<ChatEvent, "timestamp">) {
   const tenantId = event.tenantId ?? getCurrentTenantIdSync() ?? undefined;
+  if (!tenantId && typeof process !== "undefined" && process.env.NODE_ENV !== "test") {
+    // Garde-fou : un event sans tenantId est maintenant filtré par le stream
+    // (fail-closed), mais on logge pour repérer les émetteurs qui oublient
+    // de binder l'ALS avant l'appel. Sans ce log, un callsite défaillant
+    // couperait silencieusement les notifications légitimes.
+    logger.warn("[chat-events] emitChatEvent sans tenantId — l'event sera filtré par le stream", {
+      type: event.type,
+      conversationId: event.conversationId,
+    });
+  }
   const full: ChatEvent = { ...event, tenantId, timestamp: Date.now() };
   const listeners = getListeners();
   for (const listener of listeners) {

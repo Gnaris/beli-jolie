@@ -8,8 +8,6 @@
  *   - détection de la présence du lien de désinscription obligatoire
  */
 
-import { collectBlocksText, type NewsletterBlock } from "@/lib/newsletter-blocks";
-
 export type DelayUnit = "seconds" | "minutes" | "hours" | "days";
 
 export const DELAY_UNIT_LABELS: Record<DelayUnit, { singular: string; plural: string }> = {
@@ -193,24 +191,16 @@ export function validateStages(stages: StageLike[]): StageValidationError[] {
 // ─── Validation « lien de désinscription obligatoire » ─────────────────
 
 /**
- * Le token du merge tag qu'on impose dans le footer de chaque template de
- * stade. Aligné avec `lib/mail-merge-variables.ts` (`requiredMarketing: true`).
+ * Le token du merge tag qu'on impose dans chaque HTML de stade. Aligné avec
+ * `lib/mail-merge-variables.ts` (`requiredMarketing: true`).
  */
 export const UNSUBSCRIBE_TOKEN = "unsubscribeLink";
 
 /**
- * Vérifie qu'un template contient la variable `{unsubscribeLink}` — obligation
- * CNIL/LCEN pour tout mail marketing. On tolère 2 conventions :
- *   - bloc « Pied de page » dédié (`type: "footer"`, convention actuelle)
- *   - blocs `heading` dans le pied (convention historique, encore présente
- *     dans `SCENARIO_DEFAULTS` seedés)
- *
- * Concrètement : on cherche le token dans TOUT le contenu textuel visible du
- * mail via `collectBlocksText`. Si l'admin modifie ensuite le template via
- * l'éditeur newsletter, la validation plus stricte de cet éditeur (bloc
- * footer obligatoire) s'appliquera à la sauvegarde.
+ * Vérifie qu'un HTML de template contient la variable `{unsubscribeLink}` —
+ * obligation CNIL/LCEN pour tout mail marketing.
  */
-export function templateHasUnsubscribeLink(blocks: NewsletterBlock[]): boolean {
-  const haystack = collectBlocksText(blocks);
-  return haystack.includes(`{${UNSUBSCRIBE_TOKEN}}`);
+export function htmlHasUnsubscribeLink(html: string | null | undefined): boolean {
+  if (!html) return false;
+  return html.includes(`{${UNSUBSCRIBE_TOKEN}}`);
 }
