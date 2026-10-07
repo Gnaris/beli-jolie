@@ -1,16 +1,14 @@
 /**
  * lib/whatsapp-session.ts
  *
- * Singleton Baileys socket pour la vérification « a WhatsApp oui/non ».
+ * Session Baileys pour la vérification « a WhatsApp oui/non », **scopée par tenant**.
  *
- * - Session **partagée** (1 numéro WhatsApp secondaire pour les 2 boutiques BJ + Issyma).
- * - Stockage sur disque dans `private/whatsapp-session/` (hors `uploads/`).
+ * - 1 session par boutique → chaque tenant doit appairer son propre numéro.
+ * - Store `Map<tenantId, WhatsappStore>` sur `globalThis` (survit aux HMR dev).
+ * - Fichiers de session isolés dans `private/whatsapp-session/{tenantSlug}/`.
  * - Pairing par **code à 8 chiffres** uniquement (pas de QR).
- * - Reconnexion automatique si la session existe au démarrage (`instrumentation-node.ts`).
- *
- * Singleton persiste sur `globalThis` pour survivre aux HMR Next.js dev :
- * sans ca, chaque rechargement a chaud reset le socket a null et l'UI retombe
- * sur « Non appairee », meme si Baileys tourne toujours en fond.
+ * - Au boot (`instrumentation-node.ts`), on remonte toutes les sessions
+ *   déjà appairées en scannant le dossier parent.
  */
 
 import { promises as fs } from "node:fs";
@@ -42,18 +40,26 @@ interface WhatsappStore {
   state: WhatsappSessionState;
   starting: boolean;
   reconnectTimer: NodeJS.Timeout | null;
+  tenantSlug: string;
 }
 
-// Persistance du singleton sur globalThis pour survivre aux HMR Next.js dev.
-// Sans ca, chaque rechargement a chaud reset `sock` a null et l'UI retombe
-// sur « Non appairee », meme si le socket Baileys reel tourne toujours en fond.
-// (Meme pattern que Prisma Client dans un projet Next.js.)
-const GLOBAL_KEY = Symbol.for("beliandjolie.whatsapp.session.store");
+const GLOBAL_KEY = Symbol.for("beliandjolie.whatsapp.sessions.by-tenant");
 
-function getStore(): WhatsappStore {
+type StoreMap = Map<string, WhatsappStore>;
+
+function stores(): StoreMap {
   const g = globalThis as Record<symbol, unknown>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = {
+    g[GLOBAL_KEY] = new Map<string, WhatsappStore>();
+  }
+  return g[GLOBAL_KEY] as StoreMap;
+}
+
+function getStore(tenantId: string, tenantSlug: string): WhatsappStore {
+  const map = stores();
+  let s = map.get(tenantId);
+  if (!s) {
+    s = {
       sock: null,
       state: {
         status: "disconnected",
@@ -62,32 +68,43 @@ function getStore(): WhatsappStore {
         pairingCodeExpiresAt: null,
         connectedSince: null,
         lastError: null,
-      } satisfies WhatsappSessionState,
+      },
       starting: false,
       reconnectTimer: null,
-    } satisfies WhatsappStore;
+      tenantSlug,
+    };
+    map.set(tenantId, s);
+  } else if (s.tenantSlug !== tenantSlug) {
+    // Rename de slug — garde la session, mais met à jour le slug pour que
+    // les prochains appels disque pointent au bon endroit.
+    s.tenantSlug = tenantSlug;
   }
-  return g[GLOBAL_KEY] as WhatsappStore;
+  return s;
 }
 
-const SESSION_DIR = path.resolve(process.cwd(), "private", "whatsapp-session");
+const PARENT_DIR = path.resolve(process.cwd(), "private", "whatsapp-session");
 
-export function getWhatsappSessionState(): WhatsappSessionState {
-  return { ...getStore().state };
+function sessionDir(tenantSlug: string): string {
+  return path.join(PARENT_DIR, tenantSlug);
 }
 
-export async function startWhatsappSession(): Promise<void> {
-  const store = getStore();
+export function getWhatsappSessionState(tenantId: string, tenantSlug: string): WhatsappSessionState {
+  return { ...getStore(tenantId, tenantSlug).state };
+}
+
+export async function startWhatsappSession(tenantId: string, tenantSlug: string): Promise<void> {
+  const store = getStore(tenantId, tenantSlug);
   if (store.sock || store.starting) return;
   store.starting = true;
   try {
-    await fs.mkdir(SESSION_DIR, { recursive: true });
-    const hasCreds = await hasExistingSession();
+    const dir = sessionDir(tenantSlug);
+    await fs.mkdir(dir, { recursive: true });
+    const hasCreds = await hasExistingSession(tenantSlug);
     if (!hasCreds) {
       store.state = { ...store.state, status: "disconnected" };
       return;
     }
-    await bootSocket({ requestPairingFor: null });
+    await bootSocket({ tenantId, tenantSlug, requestPairingFor: null });
   } catch (err) {
     logger.error("[WhatsApp] Demarrage de la session echoue", { error: err as Error });
     store.state = { ...store.state, status: "error", lastError: (err as Error).message };
@@ -97,21 +114,24 @@ export async function startWhatsappSession(): Promise<void> {
 }
 
 export async function requestWhatsappPairingCode(
+  tenantId: string,
+  tenantSlug: string,
   phoneNumber: string,
 ): Promise<{ code: string; expiresAt: Date }> {
   const normalized = normalizeInternational(phoneNumber);
   if (!normalized) throw new Error("Numero de telephone invalide");
 
-  const store = getStore();
+  const store = getStore(tenantId, tenantSlug);
 
   // On repart TOUJOURS d'un etat propre avant de redemander un code :
   // close socket + wipe disque. Sinon, si une session precedente est deja
   // enregistree (creds.json sur disque), Baileys voit creds.registered=true
   // et skip silencieusement l'appel requestPairingCode -> cryptic error.
-  await closeSocket();
+  await closeSocket(tenantId, tenantSlug);
+  const dir = sessionDir(tenantSlug);
   try {
-    await fs.rm(SESSION_DIR, { recursive: true, force: true });
-    await fs.mkdir(SESSION_DIR, { recursive: true });
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.mkdir(dir, { recursive: true });
   } catch (err) {
     logger.warn("[WhatsApp] Nettoyage avant pairing echoue", { error: err as Error });
   }
@@ -124,7 +144,7 @@ export async function requestWhatsappPairingCode(
     lastError: null,
   };
 
-  await bootSocket({ requestPairingFor: normalized });
+  await bootSocket({ tenantId, tenantSlug, requestPairingFor: normalized });
 
   if (!store.state.pairingCode || !store.state.pairingCodeExpiresAt) {
     throw new Error("Echec de la generation du code d'appairage");
@@ -132,12 +152,13 @@ export async function requestWhatsappPairingCode(
   return { code: store.state.pairingCode, expiresAt: store.state.pairingCodeExpiresAt };
 }
 
-export async function disconnectWhatsappSession(): Promise<void> {
-  const store = getStore();
-  await closeSocket();
+export async function disconnectWhatsappSession(tenantId: string, tenantSlug: string): Promise<void> {
+  const store = getStore(tenantId, tenantSlug);
+  await closeSocket(tenantId, tenantSlug);
+  const dir = sessionDir(tenantSlug);
   try {
-    await fs.rm(SESSION_DIR, { recursive: true, force: true });
-    await fs.mkdir(SESSION_DIR, { recursive: true });
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.mkdir(dir, { recursive: true });
   } catch (err) {
     logger.warn("[WhatsApp] Suppression du dossier de session echouee", {
       error: err as Error,
@@ -153,8 +174,12 @@ export async function disconnectWhatsappSession(): Promise<void> {
   };
 }
 
-export async function checkWhatsappNumberRaw(phoneNumber: string): Promise<boolean | null> {
-  const store = getStore();
+export async function checkWhatsappNumberRaw(
+  tenantId: string,
+  tenantSlug: string,
+  phoneNumber: string,
+): Promise<boolean | null> {
+  const store = getStore(tenantId, tenantSlug);
   if (!store.sock || store.state.status !== "connected") return null;
   const normalized = normalizeInternational(phoneNumber);
   if (!normalized) return null;
@@ -171,9 +196,34 @@ export async function checkWhatsappNumberRaw(phoneNumber: string): Promise<boole
   }
 }
 
-async function hasExistingSession(): Promise<boolean> {
+/**
+ * Liste les slugs qui ont déjà une session Baileys sur disque. Utilisé par
+ * `instrumentation-node.ts` au boot pour remonter chaque session dans son
+ * `tenantALS.run(...)`.
+ */
+export async function listPersistedWhatsappSessionSlugs(): Promise<string[]> {
   try {
-    const creds = path.join(SESSION_DIR, "creds.json");
+    const entries = await fs.readdir(PARENT_DIR, { withFileTypes: true });
+    const slugs: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const credsPath = path.join(PARENT_DIR, entry.name, "creds.json");
+      try {
+        await fs.access(credsPath);
+        slugs.push(entry.name);
+      } catch {
+        // Pas de creds.json dans ce sous-dossier → rien à remonter.
+      }
+    }
+    return slugs;
+  } catch {
+    return [];
+  }
+}
+
+async function hasExistingSession(tenantSlug: string): Promise<boolean> {
+  try {
+    const creds = path.join(sessionDir(tenantSlug), "creds.json");
     await fs.access(creds);
     return true;
   } catch {
@@ -181,12 +231,17 @@ async function hasExistingSession(): Promise<boolean> {
   }
 }
 
-async function bootSocket(opts: { requestPairingFor: string | null }): Promise<void> {
+async function bootSocket(opts: {
+  tenantId: string;
+  tenantSlug: string;
+  requestPairingFor: string | null;
+}): Promise<void> {
   const baileys = (await import("baileys")) as unknown as Baileys;
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = baileys;
 
-  await fs.mkdir(SESSION_DIR, { recursive: true });
-  const { state: authState, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
+  const dir = sessionDir(opts.tenantSlug);
+  await fs.mkdir(dir, { recursive: true });
+  const { state: authState, saveCreds } = await useMultiFileAuthState(dir);
 
   const silentLogger = {
     level: "silent" as const,
@@ -199,7 +254,7 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
     child: () => silentLogger,
   };
 
-  const store = getStore();
+  const store = getStore(opts.tenantId, opts.tenantSlug);
   store.sock = makeWASocket({
     auth: authState,
     logger: silentLogger as unknown as Parameters<typeof makeWASocket>[0]["logger"],
@@ -230,9 +285,9 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
         phoneNumber: extractOwnJid(sock) ?? store.state.phoneNumber,
       };
       if (isNewLogin) {
-        logger.info("[WhatsApp] Nouvel appairage reussi");
+        logger.info(`[WhatsApp] Nouvel appairage reussi pour ${opts.tenantSlug}`);
       } else {
-        logger.info("[WhatsApp] Session reconnectee");
+        logger.info(`[WhatsApp] Session reconnectee pour ${opts.tenantSlug}`);
       }
     } else if (connection === "connecting") {
       store.state = { ...store.state, status: "connecting" };
@@ -240,8 +295,10 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
       const err = lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
       const code = err?.output?.statusCode;
       if (code === DisconnectReason.loggedOut) {
-        logger.warn("[WhatsApp] Session invalidee par Meta - deconnexion forcee");
-        void disconnectWhatsappSession().then(() => {
+        logger.warn(
+          `[WhatsApp] Session invalidee par Meta pour ${opts.tenantSlug} - deconnexion forcee`,
+        );
+        void disconnectWhatsappSession(opts.tenantId, opts.tenantSlug).then(() => {
           store.state = { ...store.state, status: "logged_out" };
         });
       } else {
@@ -251,7 +308,11 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
         if (store.reconnectTimer) clearTimeout(store.reconnectTimer);
         store.reconnectTimer = setTimeout(() => {
           store.reconnectTimer = null;
-          void bootSocket({ requestPairingFor: null }).catch((e) => {
+          void bootSocket({
+            tenantId: opts.tenantId,
+            tenantSlug: opts.tenantSlug,
+            requestPairingFor: null,
+          }).catch((e) => {
             logger.error("[WhatsApp] Reconnexion echouee", { error: e as Error });
           });
         }, 5_000);
@@ -276,7 +337,7 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
         pairingCodeExpiresAt: new Date(Date.now() + 60_000),
         lastError: null,
       };
-      logger.info("[WhatsApp] Code d'appairage genere");
+      logger.info(`[WhatsApp] Code d'appairage genere pour ${opts.tenantSlug}`);
     } catch (err) {
       logger.error("[WhatsApp] requestPairingCode a echoue", { error: err as Error });
       store.state = {
@@ -284,7 +345,7 @@ async function bootSocket(opts: { requestPairingFor: string | null }): Promise<v
         status: "error",
         lastError: (err as Error).message,
       };
-      await closeSocket();
+      await closeSocket(opts.tenantId, opts.tenantSlug);
       throw err;
     }
   }
@@ -316,8 +377,8 @@ function waitForSocketReady(s: WASocket): Promise<void> {
   });
 }
 
-async function closeSocket(): Promise<void> {
-  const store = getStore();
+async function closeSocket(tenantId: string, tenantSlug: string): Promise<void> {
+  const store = getStore(tenantId, tenantSlug);
   // Toute reconnexion planifiee devient obsolete.
   if (store.reconnectTimer) {
     clearTimeout(store.reconnectTimer);

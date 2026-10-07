@@ -4,17 +4,14 @@
  * Vérification « ce numéro a-t-il WhatsApp ? » avec cache BDD + rate-limit journalier.
  *
  * Pyramide de garde-fous (dans l'ordre d'évaluation) :
- *   1. Session Baileys prête ?           sinon → "unknown" (silencieux, pas de counter)
- *   2. Numéro valide (pas une ligne fixe) ? sinon → "unknown"
- *   3. Cache BDD valide (User.hasWhatsapp)  → "yes" | "no"
- *   4. Rate-limit journalier atteint ?     → "ratelimited"
+ *   1. Session Baileys prête (pour ce tenant) ? sinon → "unknown" (silencieux, pas de counter)
+ *   2. Numéro valide (pas une ligne fixe) ?     sinon → "unknown"
+ *   3. Cache BDD valide (User.hasWhatsapp)       → "yes" | "no"
+ *   4. Rate-limit journalier atteint (tenant) ?  → "ratelimited"
  *   5. Vrai appel Baileys `onWhatsApp(...)` + persist résultat en BDD + incr counter
  *
- * Le rate-limit est GLOBAL (variable in-memory + fichier disque backup) car la
- * session Baileys est partagée entre les 2 tenants (BJ + Issyma). Mettre un
- * compteur par tenant défoncerait la limite réelle Meta.
- *
- * Reset auto à minuit UTC. Max par défaut : 100 vérifications / jour (voir MAX_PER_DAY).
+ * Rate-limit **par tenant** : chaque boutique a son propre quota 100/jour UTC.
+ * Isolation stricte multi-tenant (BJ et Issyma ne partagent plus rien).
  */
 
 import { promises as fs } from "node:fs";
@@ -26,29 +23,30 @@ import { checkWhatsappNumberRaw } from "@/lib/whatsapp-session";
 export type WhatsappCheckOutcome = "yes" | "no" | "unknown" | "ratelimited";
 
 const MAX_PER_DAY = 100;
-const COUNTER_FILE = path.resolve(
-  process.cwd(),
-  "private",
-  "whatsapp-session",
-  "daily-counter.json",
-);
+
+function counterFile(tenantSlug: string): string {
+  return path.resolve(process.cwd(), "private", "whatsapp-session", tenantSlug, "daily-counter.json");
+}
 
 interface CounterSnapshot {
   dateUtc: string; // YYYY-MM-DD
   value: number;
 }
 
-let counterCache: CounterSnapshot | null = null;
+const counterCacheByTenant = new Map<string, CounterSnapshot>();
 
 /**
- * Vérifie si `phone` a WhatsApp, en remontant le résultat au `User`.
+ * Vérifie si `phone` a WhatsApp pour un tenant donné, en remontant le résultat
+ * au `User`.
  *
  * - Si `userId` est fourni ET qu'on obtient un résultat ferme (`yes`/`no`),
  *   le résultat est écrit en BDD (`User.hasWhatsapp` + `whatsappCheckedAt`).
  * - Si le cache BDD est frais, on le renvoie sans toucher à Baileys.
- * - Si rate-limited, on renvoie `"ratelimited"` sans consommer de slot.
+ * - Si rate-limited pour ce tenant, on renvoie `"ratelimited"` sans consommer de slot.
  */
 export async function checkWhatsappNumber(
+  tenantId: string,
+  tenantSlug: string,
   phone: string | null | undefined,
   userId?: string | null,
 ): Promise<WhatsappCheckOutcome> {
@@ -66,14 +64,14 @@ export async function checkWhatsappNumber(
     }
   }
 
-  // 2. Rate-limit global (variable in-memory + fichier disque backup).
-  const counter = await readCounter();
+  // 2. Rate-limit par tenant.
+  const counter = await readCounter(tenantId, tenantSlug);
   if (counter.value >= MAX_PER_DAY) {
     return "ratelimited";
   }
 
   // 3. Vrai appel Baileys. `null` = session pas prête → on ne consomme pas de slot.
-  const result = await checkWhatsappNumberRaw(raw);
+  const result = await checkWhatsappNumberRaw(tenantId, tenantSlug, raw);
   if (result === null) return "unknown";
 
   // 4. Persist en BDD si on a un userId.
@@ -91,38 +89,43 @@ export async function checkWhatsappNumber(
   }
 
   // 5. Incrémenter le counter uniquement sur un vrai appel API.
-  await incrementCounter();
+  await incrementCounter(tenantId, tenantSlug);
 
   return result ? "yes" : "no";
 }
 
 /** Petit helper réutilisable pour un lazy-check côté page serveur. */
 export async function checkWhatsappNumberFireAndForget(
+  tenantId: string,
+  tenantSlug: string,
   phone: string | null | undefined,
   userId: string | null | undefined,
 ): Promise<void> {
   if (!userId) return;
   try {
-    await checkWhatsappNumber(phone, userId);
+    await checkWhatsappNumber(tenantId, tenantSlug, phone, userId);
   } catch (err) {
     logger.warn("[WhatsApp] fire-and-forget a echoue", { error: err as Error });
   }
 }
 
-/** Expose l'etat du counter pour l'UI admin (étape 1b/4 : debug + info). */
-export async function getWhatsappDailyCounter(): Promise<{
-  used: number;
-  limit: number;
-  dateUtc: string;
-}> {
-  const counter = await readCounter();
+/** Expose l'etat du counter pour l'UI admin. */
+export async function getWhatsappDailyCounter(
+  tenantId: string,
+  tenantSlug: string,
+): Promise<{ used: number; limit: number; dateUtc: string }> {
+  const counter = await readCounter(tenantId, tenantSlug);
   return { used: counter.value, limit: MAX_PER_DAY, dateUtc: counter.dateUtc };
 }
 
 /** Reset manuel (utile pour tests ou commande admin). */
-export async function resetWhatsappDailyCounter(): Promise<void> {
-  counterCache = { dateUtc: todayUtc(), value: 0 };
-  await persistCounter(counterCache);
+export async function resetWhatsappDailyCounter(
+  tenantId: string,
+  tenantSlug: string,
+): Promise<void> {
+  const snap = { dateUtc: todayUtc(), value: 0 };
+  counterCacheByTenant.set(tenantId, snap);
+  await persistCounter(tenantSlug, snap);
 }
 
 /* ─────────────────────── Internes ─────────────────────── */
@@ -131,38 +134,42 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function readCounter(): Promise<CounterSnapshot> {
+async function readCounter(tenantId: string, tenantSlug: string): Promise<CounterSnapshot> {
   const today = todayUtc();
-  if (counterCache && counterCache.dateUtc === today) return counterCache;
+  const cached = counterCacheByTenant.get(tenantId);
+  if (cached && cached.dateUtc === today) return cached;
 
   // Soit le cache in-memory est perime (changement de jour), soit on vient
   // de boot le process → on relit le fichier disque.
   try {
-    const buf = await fs.readFile(COUNTER_FILE, "utf-8");
+    const buf = await fs.readFile(counterFile(tenantSlug), "utf-8");
     const parsed = JSON.parse(buf) as CounterSnapshot;
     if (parsed.dateUtc === today) {
-      counterCache = parsed;
+      counterCacheByTenant.set(tenantId, parsed);
       return parsed;
     }
   } catch {
     // Fichier absent ou corrompu → on repart de zero.
   }
 
-  counterCache = { dateUtc: today, value: 0 };
-  await persistCounter(counterCache);
-  return counterCache;
+  const fresh: CounterSnapshot = { dateUtc: today, value: 0 };
+  counterCacheByTenant.set(tenantId, fresh);
+  await persistCounter(tenantSlug, fresh);
+  return fresh;
 }
 
-async function incrementCounter(): Promise<void> {
-  const current = await readCounter();
-  counterCache = { dateUtc: current.dateUtc, value: current.value + 1 };
-  await persistCounter(counterCache);
+async function incrementCounter(tenantId: string, tenantSlug: string): Promise<void> {
+  const current = await readCounter(tenantId, tenantSlug);
+  const next = { dateUtc: current.dateUtc, value: current.value + 1 };
+  counterCacheByTenant.set(tenantId, next);
+  await persistCounter(tenantSlug, next);
 }
 
-async function persistCounter(snap: CounterSnapshot): Promise<void> {
+async function persistCounter(tenantSlug: string, snap: CounterSnapshot): Promise<void> {
   try {
-    await fs.mkdir(path.dirname(COUNTER_FILE), { recursive: true });
-    await fs.writeFile(COUNTER_FILE, JSON.stringify(snap), "utf-8");
+    const file = counterFile(tenantSlug);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify(snap), "utf-8");
   } catch (err) {
     logger.warn("[WhatsApp] Persistance du counter echouee", {
       error: err as Error,

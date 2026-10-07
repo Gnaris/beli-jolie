@@ -15,6 +15,7 @@ import { setSiteConfig, unsetSiteConfig } from "@/lib/site-config-write";
 import { SEO_CONFIG_KEYS, type SocialPlatform } from "@/lib/seo";
 import type { MinOrderMode } from "@/lib/min-order";
 import { isMinOrderMode } from "@/lib/min-order";
+import { NON_DEFAULT_LOCALES, LOCALE_LABELS } from "@/i18n/locales";
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
@@ -272,14 +273,18 @@ function labelForSocial(key: SocialPlatform): string {
  * Liste vide = section « Questions fréquentes » masquée sur la homepage.
  * Max 8 items (au-delà, la section devient trop verbeuse et Google réduit
  * la valeur SEO d'une FAQPage trop longue).
+ *
+ * Les traductions non-FR sont stockées dans `translations[locale]` pour les
+ * 4 langues cibles (en/de/it/es). `resolveHomeFaqForLocale` lit en priorité
+ * cette map ; les anciennes FAQ au format plat `questionEn/answerEn` restent
+ * lisibles via le fallback legacy côté lib — aucune migration nécessaire.
  */
 export async function updateHomeFaq(input: {
   items: Array<{
     question: string;
     answer: string;
-    /** Version anglaise optionnelle. Vide → fallback FR sur la home /en. */
-    questionEn?: string;
-    answerEn?: string;
+    /** Traductions optionnelles par locale (en/de/it/es). Vide → fallback FR. */
+    translations?: Partial<Record<string, { question?: string; answer?: string }>>;
   }>;
 }): Promise<{ success: boolean; error?: string }> {
   try {
@@ -299,14 +304,11 @@ export async function updateHomeFaq(input: {
       id: string;
       question: string;
       answer: string;
-      questionEn: string;
-      answerEn: string;
+      translations?: Record<string, { question?: string; answer?: string }>;
     }> = [];
     for (const [i, it] of input.items.entries()) {
       const question = String(it?.question ?? "").trim();
       const answer = String(it?.answer ?? "").trim();
-      const questionEn = String(it?.questionEn ?? "").trim();
-      const answerEn = String(it?.answerEn ?? "").trim();
       if (!question) {
         return { success: false, error: `Question n°${i + 1} : le libellé (FR) est obligatoire.` };
       }
@@ -319,13 +321,29 @@ export async function updateHomeFaq(input: {
       if (answer.length > ANSWER_MAX) {
         return { success: false, error: `Question n°${i + 1} : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
       }
-      if (questionEn.length > QUESTION_MAX) {
-        return { success: false, error: `Question n°${i + 1} (EN) : ne doit pas dépasser ${QUESTION_MAX} caractères.` };
+
+      const translations: Record<string, { question?: string; answer?: string }> = {};
+      for (const locale of NON_DEFAULT_LOCALES) {
+        const raw = it?.translations?.[locale];
+        if (!raw) continue;
+        const q = String(raw.question ?? "").trim();
+        const a = String(raw.answer ?? "").trim();
+        if (q.length > QUESTION_MAX) {
+          return { success: false, error: `Question n°${i + 1} (${LOCALE_LABELS[locale] ?? locale}) : ne doit pas dépasser ${QUESTION_MAX} caractères.` };
+        }
+        if (a.length > ANSWER_MAX) {
+          return { success: false, error: `Question n°${i + 1} (${LOCALE_LABELS[locale] ?? locale}) : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
+        }
+        if (q || a) {
+          translations[locale] = {};
+          if (q) translations[locale].question = q;
+          if (a) translations[locale].answer = a;
+        }
       }
-      if (answerEn.length > ANSWER_MAX) {
-        return { success: false, error: `Question n°${i + 1} (EN) : la réponse ne doit pas dépasser ${ANSWER_MAX} caractères.` };
-      }
-      cleaned.push({ id: `faq-${i}`, question, answer, questionEn, answerEn });
+
+      const entry: (typeof cleaned)[number] = { id: `faq-${i}`, question, answer };
+      if (Object.keys(translations).length > 0) entry.translations = translations;
+      cleaned.push(entry);
     }
 
     await setSiteConfig("home_faq", JSON.stringify(cleaned));

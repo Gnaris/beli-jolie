@@ -8,7 +8,8 @@ const findUniqueMock = vi.fn();
 const updateMock = vi.fn();
 
 vi.mock("@/lib/whatsapp-session", () => ({
-  checkWhatsappNumberRaw: (phone: string) => checkMock(phone as unknown as never),
+  checkWhatsappNumberRaw: (_tenantId: string, _slug: string, phone: string) =>
+    checkMock(phone as unknown as never),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -46,6 +47,9 @@ import {
   resetWhatsappDailyCounter,
   getWhatsappDailyCounter,
 } from "@/lib/whatsapp-check";
+
+const TID = "tenant-test";
+const SLUG = "beliandjolie";
 
 describe("isLikelyLandline", () => {
   it("detecte les fixes francais 01-05 et 09", () => {
@@ -99,20 +103,20 @@ describe("checkWhatsappNumber — routing", () => {
   });
 
   afterEach(() => {
-    void resetWhatsappDailyCounter();
+    void resetWhatsappDailyCounter(TID, SLUG);
   });
 
   it("renvoie 'unknown' pour une ligne fixe sans toucher Baileys", async () => {
-    const res = await checkWhatsappNumber("0123456789", "user-1");
+    const res = await checkWhatsappNumber(TID, SLUG, "0123456789", "user-1");
     expect(res).toBe("unknown");
     expect(checkMock).not.toHaveBeenCalled();
     expect(findUniqueMock).not.toHaveBeenCalled();
   });
 
   it("renvoie 'unknown' pour un numero vide", async () => {
-    expect(await checkWhatsappNumber("", "user-1")).toBe("unknown");
-    expect(await checkWhatsappNumber(null, "user-1")).toBe("unknown");
-    expect(await checkWhatsappNumber(undefined, "user-1")).toBe("unknown");
+    expect(await checkWhatsappNumber(TID, SLUG, "", "user-1")).toBe("unknown");
+    expect(await checkWhatsappNumber(TID, SLUG, null, "user-1")).toBe("unknown");
+    expect(await checkWhatsappNumber(TID, SLUG, undefined, "user-1")).toBe("unknown");
     expect(checkMock).not.toHaveBeenCalled();
   });
 
@@ -121,7 +125,7 @@ describe("checkWhatsappNumber — routing", () => {
       hasWhatsapp: true,
       whatsappCheckedAt: new Date(),
     });
-    const res = await checkWhatsappNumber("0612345678", "user-1");
+    const res = await checkWhatsappNumber(TID, SLUG, "0612345678", "user-1");
     expect(res).toBe("yes");
     expect(checkMock).not.toHaveBeenCalled();
   });
@@ -131,7 +135,7 @@ describe("checkWhatsappNumber — routing", () => {
       hasWhatsapp: false,
       whatsappCheckedAt: new Date(),
     });
-    const res = await checkWhatsappNumber("0612345678", "user-1");
+    const res = await checkWhatsappNumber(TID, SLUG, "0612345678", "user-1");
     expect(res).toBe("no");
     expect(checkMock).not.toHaveBeenCalled();
   });
@@ -140,7 +144,7 @@ describe("checkWhatsappNumber — routing", () => {
     findUniqueMock.mockResolvedValueOnce({ hasWhatsapp: null, whatsappCheckedAt: null });
     checkMock.mockResolvedValueOnce(true);
 
-    const res = await checkWhatsappNumber("0612345678", "user-1");
+    const res = await checkWhatsappNumber(TID, SLUG, "0612345678", "user-1");
     expect(res).toBe("yes");
     expect(checkMock).toHaveBeenCalledTimes(1);
     expect(updateMock).toHaveBeenCalledWith({
@@ -153,25 +157,49 @@ describe("checkWhatsappNumber — routing", () => {
     findUniqueMock.mockResolvedValueOnce({ hasWhatsapp: null, whatsappCheckedAt: null });
     checkMock.mockResolvedValueOnce(null);
 
-    const res = await checkWhatsappNumber("0612345678", "user-1");
+    const res = await checkWhatsappNumber(TID, SLUG, "0612345678", "user-1");
     expect(res).toBe("unknown");
     expect(updateMock).not.toHaveBeenCalled();
   });
 
   it("renvoie 'ratelimited' quand le compteur journalier est atteint", async () => {
     // On remplit le compteur en simulant 100 appels prealables.
-    await resetWhatsappDailyCounter();
+    await resetWhatsappDailyCounter(TID, SLUG);
     findUniqueMock.mockResolvedValue({ hasWhatsapp: null, whatsappCheckedAt: null });
     checkMock.mockResolvedValue(true);
     for (let i = 0; i < 100; i++) {
-      await checkWhatsappNumber("0612345678", `user-${i}`);
+      await checkWhatsappNumber(TID, SLUG, "0612345678", `user-${i}`);
     }
 
     findUniqueMock.mockResolvedValueOnce({ hasWhatsapp: null, whatsappCheckedAt: null });
-    const res = await checkWhatsappNumber("0612345678", "user-101");
+    const res = await checkWhatsappNumber(TID, SLUG, "0612345678", "user-101");
     expect(res).toBe("ratelimited");
-    const counter = await getWhatsappDailyCounter();
+    const counter = await getWhatsappDailyCounter(TID, SLUG);
     expect(counter.used).toBe(100);
     expect(counter.limit).toBe(100);
+  });
+
+  it("isole le compteur entre tenants (BJ ratelimited n'impacte pas Issyma)", async () => {
+    await resetWhatsappDailyCounter(TID, SLUG);
+    await resetWhatsappDailyCounter("tenant-issyma", "issyma");
+
+    findUniqueMock.mockResolvedValue({ hasWhatsapp: null, whatsappCheckedAt: null });
+    checkMock.mockResolvedValue(true);
+
+    for (let i = 0; i < 100; i++) {
+      await checkWhatsappNumber(TID, SLUG, "0612345678", `bj-${i}`);
+    }
+
+    const bjBlocked = await checkWhatsappNumber(TID, SLUG, "0612345678", "bj-overflow");
+    expect(bjBlocked).toBe("ratelimited");
+
+    // Issyma reste disponible — compteur independant.
+    findUniqueMock.mockResolvedValueOnce({ hasWhatsapp: null, whatsappCheckedAt: null });
+    checkMock.mockResolvedValueOnce(true);
+    const issymaOk = await checkWhatsappNumber("tenant-issyma", "issyma", "0612345678", "iss-1");
+    expect(issymaOk).toBe("yes");
+
+    const issymaCounter = await getWhatsappDailyCounter("tenant-issyma", "issyma");
+    expect(issymaCounter.used).toBe(1);
   });
 });

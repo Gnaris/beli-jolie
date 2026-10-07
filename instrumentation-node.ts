@@ -311,17 +311,39 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
-  // Session Baileys WhatsApp partagée (vérification « a WhatsApp oui/non »).
-  // Si une session a déjà été appairée (fichiers dans `private/whatsapp-session/`),
-  // on la remonte automatiquement. Sinon, no-op jusqu'à ce que la cliente
-  // tape un numéro dans /admin/parametres → onglet WhatsApp.
+  // Sessions Baileys WhatsApp **par tenant** (vérification « a WhatsApp oui/non »).
+  // On scanne `private/whatsapp-session/{slug}/` et pour chaque sous-dossier
+  // contenant un `creds.json`, on remonte la session dans son ALS tenant.
+  // Les tenants sans session appairée sont ignorés (no-op jusqu'à ce que la
+  // cliente tape un numéro dans /admin/parametres → onglet WhatsApp).
   setTimeout(() => {
     void (async () => {
       try {
-        const { startWhatsappSession } = await import("@/lib/whatsapp-session");
-        await startWhatsappSession();
+        const [{ startWhatsappSession, listPersistedWhatsappSessionSlugs }, { prisma }, { tenantALS }] =
+          await Promise.all([
+            import("@/lib/whatsapp-session"),
+            import("@/lib/prisma"),
+            import("@/lib/tenant-als"),
+          ]);
+        const slugs = await listPersistedWhatsappSessionSlugs();
+        if (slugs.length === 0) return;
+        const tenants = await prisma.tenant.findMany({
+          where: { slug: { in: slugs }, isActive: true },
+          select: { id: true, slug: true },
+        });
+        for (const t of tenants) {
+          void tenantALS.run(t.id, () => startWhatsappSession(t.id, t.slug));
+        }
+        // Slugs sur disque sans tenant actif correspondant → on logge pour
+        // qu'un humain decide (orphan apres rename / suppression de tenant).
+        const seen = new Set(tenants.map((t) => t.slug));
+        for (const slug of slugs) {
+          if (!seen.has(slug)) {
+            logger.warn(`[WhatsApp] Session persistee sans tenant actif (${slug}) - ignoree`);
+          }
+        }
       } catch (err) {
-        logger.error("[WhatsApp] Démarrage de la session échoué", {
+        logger.error("[WhatsApp] Démarrage des sessions échoué", {
           error: err as Error,
         });
       }

@@ -8,41 +8,72 @@ import {
   useDeeplEnabled,
 } from "@/components/admin/DeeplConfigContext";
 import { MAX_HOME_FAQ_ITEMS, DEFAULT_HOME_FAQ_ITEMS, type HomeFaqItem } from "@/lib/home-faq";
+import { NON_DEFAULT_LOCALES, LOCALE_LABELS, LOCALE_FULL_NAMES, type Locale } from "@/i18n/locales";
 
 interface Props {
   initialItems: HomeFaqItem[];
+}
+
+type TabLang = "fr" | Locale;
+
+interface Translation {
+  question: string;
+  answer: string;
 }
 
 interface DraftItem {
   key: string;
   question: string;
   answer: string;
-  questionEn: string;
-  answerEn: string;
-  /** Onglet actif dans l'UI ("fr" ou "en"). Non persisté. */
-  activeLang: "fr" | "en";
+  /** Traductions par locale (en/de/it/es). Vide = fallback FR sur /xx. */
+  translations: Record<string, Translation>;
+  /** Onglet actif dans l'UI. Non persisté. */
+  activeLang: TabLang;
 }
 
 const QUESTION_MAX = 200;
 const ANSWER_MAX = 800;
 
+const LOCALE_FLAGS: Record<TabLang, string> = {
+  fr: "🇫🇷",
+  en: "🇬🇧",
+  de: "🇩🇪",
+  it: "🇮🇹",
+  es: "🇪🇸",
+};
+
 function nextKey() {
   return `faq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function emptyTranslation(): Translation {
+  return { question: "", answer: "" };
+}
+
 function toDraft(it: HomeFaqItem): DraftItem {
+  const translations: Record<string, Translation> = {};
+  for (const locale of NON_DEFAULT_LOCALES) {
+    const fromMap = it.translations?.[locale];
+    // Legacy : les anciennes FAQ n'avaient que `questionEn/answerEn` plats, à
+    // remettre dans `translations.en` pour que l'UI les montre dans l'onglet EN.
+    const legacyEn = locale === "en" ? { question: it.questionEn ?? "", answer: it.answerEn ?? "" } : null;
+    const q = fromMap?.question ?? legacyEn?.question ?? "";
+    const a = fromMap?.answer ?? legacyEn?.answer ?? "";
+    translations[locale] = { question: q, answer: a };
+  }
   return {
     key: nextKey(),
     question: it.question,
     answer: it.answer,
-    questionEn: it.questionEn ?? "",
-    answerEn: it.answerEn ?? "",
+    translations,
     activeLang: "fr",
   };
 }
 
 function emptyDraft(): DraftItem {
-  return { key: nextKey(), question: "", answer: "", questionEn: "", answerEn: "", activeLang: "fr" };
+  const translations: Record<string, Translation> = {};
+  for (const locale of NON_DEFAULT_LOCALES) translations[locale] = emptyTranslation();
+  return { key: nextKey(), question: "", answer: "", translations, activeLang: "fr" };
 }
 
 export default function HomeFaqConfig({ initialItems }: Props) {
@@ -56,15 +87,15 @@ export default function HomeFaqConfig({ initialItems }: Props) {
   );
   const [saved, setSaved] = useState(initialItems.length > 0);
   const [saving, setSaving] = useState(false);
-  // Suivi des champs en cours d'auto-traduction : clé draft + nom du champ EN
-  // ciblé ("questionEn" / "answerEn"). Sert à afficher un mini-spinner sur
-  // l'onglet EN correspondant + à éviter les traductions concurrentes.
+  // Suivi des champs en cours d'auto-traduction : clé draft + "field:locale"
+  // (ex. "faq-xyz:question:de"). Sert à afficher un mini-spinner sur l'onglet
+  // correspondant + à éviter les traductions concurrentes.
   const [translating, setTranslating] = useState<Set<string>>(new Set());
   const { toast } = useToast();
   // Même contrat que `useAutoTranslateOnBlur` (utilisé partout dans l'admin) :
   // on ne déclenche l'auto-traduction que si (1) le toggle admin est ON et
   // (2) le fournisseur PFS est bien configuré. Sinon, la cliente saisit à la
-  // main via l'onglet 🇬🇧 English.
+  // main via l'onglet de chaque langue.
   const autoTranslateEnabled = useAutoTranslateEnabled();
   const translationProviderConfigured = useDeeplEnabled();
 
@@ -72,37 +103,54 @@ export default function HomeFaqConfig({ initialItems }: Props) {
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   }
 
+  function updateTranslationField(key: string, locale: Locale, field: keyof Translation, value: string) {
+    const max = field === "question" ? QUESTION_MAX : ANSWER_MAX;
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.key !== key) return d;
+        const current = d.translations[locale] ?? emptyTranslation();
+        return {
+          ...d,
+          translations: {
+            ...d.translations,
+            [locale]: { ...current, [field]: value.slice(0, max) },
+          },
+        };
+      }),
+    );
+  }
+
   /**
-   * Traduit un texte FR via l'API PFS et remplit le champ EN correspondant
-   * SI celui-ci est encore vide. Appelée sur `onBlur` des inputs FR : ça
-   * n'écrase jamais une saisie manuelle et ne fait rien si la cliente
-   * commence par vider le champ FR.
+   * Appel PFS unique qui renvoie les 4 langues cibles (en/de/it/es) et remplit
+   * TOUTES les traductions vides pour le champ ciblé. Déclenché sur `onBlur`
+   * des inputs FR : une saisie manuelle existante n'est jamais écrasée.
    */
   async function autoTranslateOnBlur(
     draftKey: string,
     frenchText: string,
-    targetField: "questionEn" | "answerEn",
+    targetField: keyof Translation,
   ) {
-    // Respecte les mêmes toggles que le reste de l'admin (Paramètres →
-    // Traduction) : si la cliente a coupé l'auto-traduction ou si le compte
-    // PFS n'est pas configuré, on skippe et elle saisit à la main.
     if (!autoTranslateEnabled || !translationProviderConfigured) return;
 
     const trimmed = frenchText.trim();
-    if (trimmed.length < 2) return; // trop court, la traduction n'a pas de sens
+    if (trimmed.length < 2) return;
 
-    // Snapshot du draft courant — on ne veut pas écraser une saisie manuelle EN.
+    // Snapshot du draft courant — on identifie les locales encore vides pour
+    // le champ ciblé et pas déjà en cours de traduction.
     const draft = drafts.find((d) => d.key === draftKey);
     if (!draft) return;
-    const currentEn = draft[targetField];
-    if (currentEn && currentEn.trim().length > 0) return;
 
-    const spinnerKey = `${draftKey}:${targetField}`;
-    if (translating.has(spinnerKey)) return; // déjà en cours
+    const localesToFill = NON_DEFAULT_LOCALES.filter((locale) => {
+      const current = draft.translations[locale]?.[targetField] ?? "";
+      const spinnerKey = `${draftKey}:${targetField}:${locale}`;
+      return current.trim().length === 0 && !translating.has(spinnerKey);
+    });
+    if (localesToFill.length === 0) return;
 
+    const spinnerKeys = localesToFill.map((l) => `${draftKey}:${targetField}:${l}`);
     setTranslating((prev) => {
       const next = new Set(prev);
-      next.add(spinnerKey);
+      for (const k of spinnerKeys) next.add(k);
       return next;
     });
 
@@ -114,27 +162,34 @@ export default function HomeFaqConfig({ initialItems }: Props) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { translations?: Record<string, string> };
-      const translatedEn = data.translations?.en?.trim();
-      if (!translatedEn) return;
+      const translations = data.translations ?? {};
 
       // Re-vérifie au moment du set : la cliente a pu commencer à taper
-      // manuellement dans le champ EN pendant l'appel API — on ne l'écrase pas.
+      // manuellement dans un champ pendant l'appel API — on ne l'écrase pas.
       setDrafts((prev) =>
         prev.map((d) => {
           if (d.key !== draftKey) return d;
-          const existing = d[targetField];
-          if (existing && existing.trim().length > 0) return d;
-          const max = targetField === "questionEn" ? QUESTION_MAX : ANSWER_MAX;
-          return { ...d, [targetField]: translatedEn.slice(0, max) };
+          const nextTranslations = { ...d.translations };
+          for (const locale of localesToFill) {
+            const translated = translations[locale]?.trim();
+            if (!translated) continue;
+            const existing = nextTranslations[locale]?.[targetField] ?? "";
+            if (existing.trim().length > 0) continue;
+            const max = targetField === "question" ? QUESTION_MAX : ANSWER_MAX;
+            nextTranslations[locale] = {
+              ...(nextTranslations[locale] ?? emptyTranslation()),
+              [targetField]: translated.slice(0, max),
+            };
+          }
+          return { ...d, translations: nextTranslations };
         }),
       );
     } catch {
-      // Échec silencieux : la cliente peut toujours saisir manuellement.
-      // Pas de toast pour ne pas polluer l'UI sur chaque blur raté.
+      // Échec silencieux : la cliente peut saisir manuellement.
     } finally {
       setTranslating((prev) => {
         const next = new Set(prev);
-        next.delete(spinnerKey);
+        for (const k of spinnerKeys) next.delete(k);
         return next;
       });
     }
@@ -165,12 +220,25 @@ export default function HomeFaqConfig({ initialItems }: Props) {
     setSaving(true);
     try {
       const result = await updateHomeFaq({
-        items: drafts.map((d) => ({
-          question: d.question,
-          answer: d.answer,
-          questionEn: d.questionEn,
-          answerEn: d.answerEn,
-        })),
+        items: drafts.map((d) => {
+          const translations: Record<string, { question?: string; answer?: string }> = {};
+          for (const locale of NON_DEFAULT_LOCALES) {
+            const t = d.translations[locale];
+            if (!t) continue;
+            const q = t.question.trim();
+            const a = t.answer.trim();
+            if (q || a) {
+              translations[locale] = {};
+              if (q) translations[locale].question = q;
+              if (a) translations[locale].answer = a;
+            }
+          }
+          return {
+            question: d.question,
+            answer: d.answer,
+            translations,
+          };
+        }),
       });
       if (result.success) {
         setSaved(true);
@@ -185,6 +253,8 @@ export default function HomeFaqConfig({ initialItems }: Props) {
     }
   }
 
+  const tabLangs: TabLang[] = ["fr", ...NON_DEFAULT_LOCALES];
+
   return (
     <div className="space-y-6">
       <p className="text-xs text-text-muted font-body">
@@ -195,11 +265,11 @@ export default function HomeFaqConfig({ initialItems }: Props) {
       </p>
       {autoTranslateEnabled && translationProviderConfigured ? (
         <p className="text-xs text-sky-800 font-body bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
-          💡 <span className="font-semibold">Traduction automatique</span> : dès que vous quittez un champ français (question ou réponse), l&apos;anglais correspondant est rempli automatiquement s&apos;il est vide. Vous pouvez toujours retoucher la version 🇬🇧 English à la main.
+          💡 <span className="font-semibold">Traduction automatique</span> : dès que vous quittez un champ français (question ou réponse), les versions 🇬🇧 EN · 🇩🇪 DE · 🇮🇹 IT · 🇪🇸 ES sont remplies automatiquement si elles sont vides. Vous pouvez retoucher chaque langue à la main.
         </p>
       ) : (
         <p className="text-xs text-text-muted font-body bg-bg-secondary border border-border rounded-lg px-3 py-2">
-          ℹ️ <span className="font-semibold">Traduction automatique désactivée.</span> Pour la ré-activer, allez dans <em>Paramètres → Traduction</em> et vérifiez que le compte est configuré. En attendant, saisissez les traductions anglaises à la main via l&apos;onglet 🇬🇧 English.
+          ℹ️ <span className="font-semibold">Traduction automatique désactivée.</span> Pour la ré-activer, allez dans <em>Paramètres → Traduction</em> et vérifiez que le compte est configuré. En attendant, saisissez les traductions à la main dans chaque onglet de langue.
         </p>
       )}
 
@@ -273,19 +343,21 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                 </div>
               </div>
 
-              {/* Onglets FR / EN : la version anglaise est facultative — si vide,
-                  la version française est affichée sur /en. Un mini spinner
-                  apparaît sur l'onglet EN pendant l'auto-traduction. */}
-              <div className="flex gap-1.5 border-b border-border">
-                {(["fr", "en"] as const).map((lang) => {
+              {/* Onglets FR / EN / DE / IT / ES. Chaque langue non-FR est
+                  facultative — si vide, la version française est affichée sur
+                  la locale correspondante. Un mini spinner apparaît sur
+                  l'onglet pendant l'auto-traduction. */}
+              <div className="flex gap-1.5 border-b border-border flex-wrap">
+                {tabLangs.map((lang) => {
                   const isActive = d.activeLang === lang;
                   const hasContent = lang === "fr"
                     ? d.question.length > 0 && d.answer.length > 0
-                    : d.questionEn.length > 0 && d.answerEn.length > 0;
-                  const isTranslating = lang === "en" && (
-                    translating.has(`${d.key}:questionEn`) ||
-                    translating.has(`${d.key}:answerEn`)
+                    : (d.translations[lang]?.question.length ?? 0) > 0 && (d.translations[lang]?.answer.length ?? 0) > 0;
+                  const isTranslating = lang !== "fr" && (
+                    translating.has(`${d.key}:question:${lang}`) ||
+                    translating.has(`${d.key}:answer:${lang}`)
                   );
+                  const label = lang === "fr" ? "Français" : LOCALE_LABELS[lang] ?? lang.toUpperCase();
                   return (
                     <button
                       key={lang}
@@ -297,8 +369,8 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                           : "border-transparent text-text-muted hover:text-text-secondary"
                       }`}
                     >
-                      {lang === "fr" ? "🇫🇷 Français" : "🇬🇧 English"}
-                      {lang === "en" && isTranslating && (
+                      {LOCALE_FLAGS[lang]} {label}
+                      {lang !== "fr" && isTranslating && (
                         <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] font-normal text-sky-700">
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="animate-spin">
                             <path d="M12 2v4" strokeLinecap="round"/>
@@ -311,10 +383,10 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                           Traduction…
                         </span>
                       )}
-                      {lang === "en" && !isTranslating && !hasContent && (
+                      {lang !== "fr" && !isTranslating && !hasContent && (
                         <span className="ml-1.5 text-[10px] font-normal text-text-muted">
                           {autoTranslateEnabled && translationProviderConfigured
-                            ? "(auto-rempli au blur)"
+                            ? "(auto)"
                             : "(facultatif)"}
                         </span>
                       )}
@@ -333,7 +405,7 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                       type="text"
                       value={d.question}
                       onChange={(e) => updateField(d.key, { question: e.target.value.slice(0, QUESTION_MAX) })}
-                      onBlur={(e) => autoTranslateOnBlur(d.key, e.target.value, "questionEn")}
+                      onBlur={(e) => autoTranslateOnBlur(d.key, e.target.value, "question")}
                       placeholder="Ex : Les articles sont-ils vendus à l'unité ?"
                       className="field-input"
                     />
@@ -349,7 +421,7 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                     <textarea
                       value={d.answer}
                       onChange={(e) => updateField(d.key, { answer: e.target.value.slice(0, ANSWER_MAX) })}
-                      onBlur={(e) => autoTranslateOnBlur(d.key, e.target.value, "answerEn")}
+                      onBlur={(e) => autoTranslateOnBlur(d.key, e.target.value, "answer")}
                       rows={3}
                       placeholder="Ex : Oui, nos modèles peuvent être commandés à l'unité, sans lot imposé."
                       className="field-input resize-y min-h-[80px]"
@@ -360,42 +432,49 @@ export default function HomeFaqConfig({ initialItems }: Props) {
                   </div>
                 </>
               ) : (
-                <>
-                  <p className="text-[11px] text-text-muted font-body -mt-2">
-                    Optionnel : si laissé vide, la version française s&apos;affiche sur la page d&apos;accueil en anglais.
-                  </p>
-                  <div>
-                    <label className="block text-sm font-body font-medium text-text-primary mb-1.5">
-                      Question (English)
-                    </label>
-                    <input
-                      type="text"
-                      value={d.questionEn}
-                      onChange={(e) => updateField(d.key, { questionEn: e.target.value.slice(0, QUESTION_MAX) })}
-                      placeholder="Ex: Do you sell items individually?"
-                      className="field-input"
-                    />
-                    <p className="text-[11px] text-text-muted font-body mt-1 text-right tabular-nums">
-                      {d.questionEn.length} / {QUESTION_MAX}
-                    </p>
-                  </div>
+                (() => {
+                  const locale = d.activeLang as Locale;
+                  const t = d.translations[locale] ?? emptyTranslation();
+                  const languageName = LOCALE_FULL_NAMES[locale] ?? locale;
+                  return (
+                    <>
+                      <p className="text-[11px] text-text-muted font-body -mt-2">
+                        Optionnel : si laissé vide, la version française s&apos;affiche sur la page d&apos;accueil en {languageName.toLowerCase()}.
+                      </p>
+                      <div>
+                        <label className="block text-sm font-body font-medium text-text-primary mb-1.5">
+                          Question ({languageName})
+                        </label>
+                        <input
+                          type="text"
+                          value={t.question}
+                          onChange={(e) => updateTranslationField(d.key, locale, "question", e.target.value)}
+                          placeholder="…"
+                          className="field-input"
+                        />
+                        <p className="text-[11px] text-text-muted font-body mt-1 text-right tabular-nums">
+                          {t.question.length} / {QUESTION_MAX}
+                        </p>
+                      </div>
 
-                  <div>
-                    <label className="block text-sm font-body font-medium text-text-primary mb-1.5">
-                      Answer (English)
-                    </label>
-                    <textarea
-                      value={d.answerEn}
-                      onChange={(e) => updateField(d.key, { answerEn: e.target.value.slice(0, ANSWER_MAX) })}
-                      rows={3}
-                      placeholder="Ex: Yes, our items can be ordered individually, no minimum quantity required."
-                      className="field-input resize-y min-h-[80px]"
-                    />
-                    <p className="text-[11px] text-text-muted font-body mt-1 text-right tabular-nums">
-                      {d.answerEn.length} / {ANSWER_MAX}
-                    </p>
-                  </div>
-                </>
+                      <div>
+                        <label className="block text-sm font-body font-medium text-text-primary mb-1.5">
+                          Réponse ({languageName})
+                        </label>
+                        <textarea
+                          value={t.answer}
+                          onChange={(e) => updateTranslationField(d.key, locale, "answer", e.target.value)}
+                          rows={3}
+                          placeholder="…"
+                          className="field-input resize-y min-h-[80px]"
+                        />
+                        <p className="text-[11px] text-text-muted font-body mt-1 text-right tabular-nums">
+                          {t.answer.length} / {ANSWER_MAX}
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()
               )}
             </div>
           ))}

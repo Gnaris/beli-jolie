@@ -304,7 +304,7 @@ function emailWelcome(): { subject: string; html: string } {
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
           ${step("1", "Explorez le catalogue", "Plus de 9 000 références en acier inoxydable, réassorties chaque semaine.")}
           ${step("2", "Enregistrez vos favoris", "Cœur sur un produit → vous êtes averti dès qu'il revient en stock.")}
-          ${step("3", "Passez votre 1<sup>re</sup> commande", "Livraison offerte dès 200 € · expédition sous 24 h.")}
+          ${step("3", "Passez votre 1<sup>re</sup> commande", "Livraison offerte dès 200 € · préparation sous 24-48 h ouvrées.")}
         </table>
 
         <div style="height:1px;background:${C.slate200};margin:32px 0;"></div>

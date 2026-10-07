@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   GROUP_ORDER,
   getTileMeta,
-  isSettingsTile,
   type SettingsTileKey,
   type TileAccent,
   type TileStatus,
@@ -98,9 +97,11 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
   const [activeKey, setActiveKey] = useState<SettingsTileKey | null>(
     initialOpen ?? tiles[0]?.key ?? null,
   );
+  // Clé de la section en train de sortir (anim swipe out). null quand aucune
+  // transition en cours.
+  const [prevKey, setPrevKey] = useState<SettingsTileKey | null>(null);
   const [search, setSearch] = useState("");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const sectionRefs = useRef<Map<SettingsTileKey, HTMLElement>>(new Map());
 
   const needle = useMemo(() => normalizeText(search.trim()), [search]);
 
@@ -115,42 +116,27 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
     };
   }, [needle]);
 
-  // Scroll initial vers la section demandée par ?open=/?tab= + nettoyage de l'URL
+  // Nettoyage de l'URL (?open= / ?tab=) après le mount — la section demandée
+  // est déjà sélectionnée via le state initial.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (initialOpen) {
-      const el = sectionRefs.current.get(initialOpen);
-      if (el) {
-        requestAnimationFrame(() => {
-          el.scrollIntoView({ behavior: "auto", block: "start" });
-        });
-      }
       const url = new URL(window.location.href);
       url.searchParams.delete("tab");
       url.searchParams.delete("open");
-      window.history.replaceState(null, "", url.toString() + (initialOpen ? `#${initialOpen}` : ""));
+      window.history.replaceState(null, "", url.toString() + `#${initialOpen}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Scroll-spy : met en surbrillance la section visible dans la nav gauche
+  // Fin de l'animation de sortie : on démonte la section précédente ~340 ms
+  // après le changement (320 ms d'anim + petite marge). La clé change
+  // à chaque transition pour relancer le timer proprement.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .map((e) => e.target as HTMLElement);
-        if (visible.length === 0) return;
-        visible.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-        const key = visible[0].id;
-        if (key && isSettingsTile(key)) setActiveKey(key);
-      },
-      { rootMargin: "-20% 0px -70% 0px", threshold: 0 },
-    );
-    sectionRefs.current.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, [tiles, search]);
+    if (prevKey === null) return;
+    const t = window.setTimeout(() => setPrevKey(null), 340);
+    return () => window.clearTimeout(t);
+  }, [prevKey, activeKey]);
 
   const kpi = useMemo(() => {
     let ok = 0, warn = 0, off = 0;
@@ -196,11 +182,25 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
   }, [visibleTilesByGroup]);
 
   const handleNavClick = (key: SettingsTileKey) => {
-    setActiveKey(key);
     setMobileNavOpen(false);
-    const el = sectionRefs.current.get(key);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (key === activeKey) return;
+    // Mémorise la section sortante pour lancer son anim "out" en parallèle
+    // de l'anim "in" de la nouvelle section. Si une transition est déjà en
+    // cours (prevKey existe encore), on la remplace — la plus ancienne saute.
+    setPrevKey(activeKey);
+    setActiveKey(key);
   };
+
+  const activeTile = useMemo(
+    () => tiles.find((t) => t.key === activeKey) ?? null,
+    [tiles, activeKey],
+  );
+  const prevTile = useMemo(
+    () => (prevKey ? tiles.find((t) => t.key === prevKey) ?? null : null),
+    [tiles, prevKey],
+  );
+  const activeParity = activeTile ? parityByKey.get(activeTile.key) ?? 0 : 0;
+  const prevParity = prevTile ? parityByKey.get(prevTile.key) ?? 0 : 0;
 
   return (
     <div className="space-y-6">
@@ -225,8 +225,7 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
               </span>
               <h1 className="page-title mt-3">Vos paramètres, section par section</h1>
               <p className="page-subtitle font-body max-w-2xl">
-                Tout est affiché sur la même page. Cliquez un libellé à gauche pour aller
-                directement à sa section.
+                Cliquez un libellé à gauche pour afficher la section correspondante.
               </p>
             </div>
             <KpiStrip ok={kpi.ok} warn={kpi.warn} off={kpi.off} />
@@ -328,35 +327,11 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
           </div>
         </aside>
 
-        {/* Contenu : toutes les sections empilées */}
-        <main className="space-y-6 min-w-0">
-          {GROUP_ORDER.map((g) => {
-            const groupTiles = visibleTilesByGroup.get(g.key);
-            if (!groupTiles || groupTiles.length === 0) return null;
-            const acc = GROUP_BAR_ACCENT[g.accent];
-            return (
-              <div key={g.key} className="space-y-6">
-                <div className="flex items-center gap-3 px-1 pt-1">
-                  <span className={`w-[3px] h-5 rounded-full bg-gradient-to-b ${acc.bar}`} />
-                  <h2 className={`text-[11px] font-body font-bold uppercase tracking-[0.18em] ${acc.text}`}>
-                    {g.label}
-                  </h2>
-                </div>
-                {groupTiles.map((tile) => (
-                  <SectionCard
-                    key={tile.key}
-                    tile={tile}
-                    parity={parityByKey.get(tile.key) ?? 0}
-                    registerRef={(el) => {
-                      if (el) sectionRefs.current.set(tile.key, el);
-                      else sectionRefs.current.delete(tile.key);
-                    }}
-                  />
-                ))}
-              </div>
-            );
-          })}
-          {totalVisible === 0 && (
+        {/* Contenu : UNE SEULE section à la fois, avec animation swipe entre
+            deux onglets. L'ancienne glisse hors écran vers la droite + fade,
+            la nouvelle arrive depuis la droite + fade in, en parallèle. */}
+        <main className="min-w-0">
+          {totalVisible === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-bg-secondary/40 py-12 text-center">
               <p className="text-sm text-text-muted">
                 Aucun réglage ne correspond à « <span className="font-semibold text-text-primary">{search}</span> ».
@@ -369,7 +344,28 @@ export default function SettingsDashboard({ tiles, initialOpen }: Props) {
                 Effacer la recherche
               </button>
             </div>
-          )}
+          ) : activeTile ? (
+            <div className="relative overflow-hidden">
+              {/* Ancienne section — superposée en absolute pendant la transition.
+                  pointer-events-none pour ne pas gêner les clics sur la nouvelle. */}
+              {prevTile && (
+                <div
+                  key={`prev-${prevTile.key}-${activeTile.key}`}
+                  className="absolute inset-0 pointer-events-none settings-swap-out"
+                  aria-hidden
+                >
+                  <SectionCard tile={prevTile} parity={prevParity} />
+                </div>
+              )}
+              {/* Nouvelle section — en flow normal, pilote la hauteur du conteneur. */}
+              <div
+                key={`active-${activeTile.key}`}
+                className="settings-swap-in"
+              >
+                <SectionCard tile={activeTile} parity={activeParity} />
+              </div>
+            </div>
+          ) : null}
           <div className="h-24" aria-hidden />
         </main>
       </div>
@@ -388,9 +384,15 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
         </svg>
       </span>
       <input
-        type="search"
+        type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && value) {
+            e.preventDefault();
+            onChange("");
+          }
+        }}
         placeholder="Rechercher…"
         aria-label="Rechercher un réglage"
         className="w-full pl-8 pr-7 py-1.5 rounded-lg border border-border bg-bg-primary text-[12.5px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-slate-900/15 focus:border-slate-900/40"
@@ -415,11 +417,9 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
 function SectionCard({
   tile,
   parity,
-  registerRef,
 }: {
   tile: DashboardTile;
   parity: number;
-  registerRef: (el: HTMLElement | null) => void;
 }) {
   const meta = getTileMeta(tile.key);
   const style = ACCENT_SECTION_STYLES[meta.accent];
@@ -427,8 +427,7 @@ function SectionCard({
   return (
     <section
       id={tile.key}
-      ref={registerRef}
-      className={`relative overflow-hidden rounded-2xl border border-border shadow-sm scroll-mt-6 ${cardBg}`}
+      className={`relative overflow-hidden rounded-2xl border border-border shadow-sm ${cardBg}`}
     >
       <span className={`absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r ${style.topBar}`} />
       <div className={`absolute -top-10 -right-10 w-28 h-28 rounded-full blur-3xl pointer-events-none ${style.halo}`} />

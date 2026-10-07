@@ -11,6 +11,8 @@ import {
   notifyClientAccountRevoked,
 } from "@/lib/notifications";
 import { checkWhatsappNumberFireAndForget } from "@/lib/whatsapp-check";
+import { requireCurrentTenant } from "@/lib/tenant";
+import { tenantALS } from "@/lib/tenant-als";
 import type { UserStatus } from "@prisma/client";
 
 /**
@@ -82,9 +84,16 @@ export async function updateUserStatus(
 
         // Approbation d'un nouveau compte : vérifier en arrière-plan si son
         // numéro a WhatsApp (fire-and-forget, no-op silencieux si la session
-        // Baileys n'est pas appairée ou si le numéro est déjà en cache).
+        // Baileys n'est pas appairée pour ce tenant ou si le numéro est déjà
+        // en cache). Le fire-and-forget détache le contexte request Next.js,
+        // on wrap donc tenantALS.run pour que le worker voie le bon tenant.
         if (user.hasWhatsapp === null && user.phone) {
-          void checkWhatsappNumberFireAndForget(user.phone, user.id);
+          const tenant = await requireCurrentTenant();
+          const phone = user.phone;
+          const uid = user.id;
+          void tenantALS.run(tenant.id, () =>
+            checkWhatsappNumberFireAndForget(tenant.id, tenant.slug, phone, uid),
+          );
         }
       } else if (status === "REJECTED") {
         // On distingue :

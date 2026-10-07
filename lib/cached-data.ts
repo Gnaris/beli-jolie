@@ -232,6 +232,129 @@ export const getCachedCompositions = tenantScopedCacheWithTid(
   { revalidate: 60 * 60, tags: ["compositions"] }
 );
 
+// ─── Attributs filtrables côté vitrine publique ────────────────────────────────
+// Variantes `getCachedPublic*` : ne retournent QUE les attributs qui ont au
+// moins 1 produit publiquement visible (status ONLINE + ≥1 variante active en
+// stock, cf. PUBLIC_SELLABLE_COLORS_CLAUSE). Les versions `getCached*`
+// historiques restent utilisées côté admin (qui veut tout voir, y compris
+// OFFLINE/ARCHIVED). Les tags d'invalidation incluent "products" pour que
+// toute modif statut/stock purge aussi la liste de filtres.
+export const getCachedPublicCategories = tenantScopedCacheWithTid(
+  "filter-public-categories",
+  async (tid) =>
+    prisma.category.findMany({
+      where: {
+        products: {
+          some: {
+            status: "ONLINE",
+            colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+            ...(tid === "global" ? {} : { tenantId: tid }),
+          },
+        },
+      },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      include: {
+        subCategories: {
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, slug: true },
+        },
+      },
+    }),
+  ["filter-public-categories"],
+  { revalidate: 60, tags: ["categories", "products"] }
+);
+
+export const getCachedPublicCollections = tenantScopedCacheWithTid(
+  "filter-public-collections",
+  async (tid) =>
+    prisma.collection.findMany({
+      where: {
+        ...(tid === "global" ? {} : { tenantId: tid }),
+        products: {
+          some: {
+            product: {
+              status: "ONLINE",
+              colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+              ...(tid === "global" ? {} : { tenantId: tid }),
+            },
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ["filter-public-collections"],
+  { revalidate: 60, tags: ["collections", "products"] }
+);
+
+export const getCachedPublicColors = tenantScopedCacheWithTid(
+  "filter-public-colors",
+  async (tid) =>
+    prisma.color.findMany({
+      where: {
+        productColors: {
+          some: {
+            disabled: false,
+            stock: { gt: 0 },
+            product: {
+              status: "ONLINE",
+              ...(tid === "global" ? {} : { tenantId: tid }),
+            },
+          },
+        },
+      },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, hex: true, patternImage: true },
+    }),
+  ["filter-public-colors"],
+  { revalidate: 60, tags: ["colors", "products"] }
+);
+
+export const getCachedPublicTags = tenantScopedCacheWithTid(
+  "filter-public-tags",
+  async (tid) =>
+    prisma.tag.findMany({
+      where: {
+        products: {
+          some: {
+            product: {
+              status: "ONLINE",
+              colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+              ...(tid === "global" ? {} : { tenantId: tid }),
+            },
+          },
+        },
+      },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ["filter-public-tags"],
+  { revalidate: 60, tags: ["tags", "products"] }
+);
+
+export const getCachedPublicCompositions = tenantScopedCacheWithTid(
+  "filter-public-compositions",
+  async (tid) =>
+    prisma.composition.findMany({
+      where: {
+        ...(tid === "global" ? {} : { tenantId: tid }),
+        products: {
+          some: {
+            product: {
+              status: "ONLINE",
+              colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
+              ...(tid === "global" ? {} : { tenantId: tid }),
+            },
+          },
+        },
+      },
+      orderBy: [{ position: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
+    }),
+  ["filter-public-compositions"],
+  { revalidate: 60, tags: ["compositions", "products"] }
+);
+
 // ─── SiteConfig (clé unique — used heavily, short TTL) ─────────────────────────
 // Each key gets its own cache entry, scoped par tenant courant.
 const _siteConfigCache = tenantScopedCacheWithTid(

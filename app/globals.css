@@ -2723,4 +2723,32 @@ html.admin-dark .settings-tabs__tab--active,
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   SettingsDashboard — animation swipe entre sections (section unique
+   affichée, on fait glisser l'ancienne hors écran vers la droite +
+   fade pendant que la nouvelle entre depuis la droite + fade).
+   ───────────────────────────────────────────────────────────────────── */
+@keyframes settings-swap-out {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+@keyframes settings-swap-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.settings-swap-out {
+  animation: settings-swap-out 320ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+.settings-swap-in {
+  animation: settings-swap-in 320ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-swap-out,
+  .settings-swap-in {
+    animation-duration: 1ms;
+  }
+}
+
 /* trigger */

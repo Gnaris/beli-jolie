@@ -147,6 +147,25 @@ export default function RegisterForm({
     setDraftRestored(true);
   }, []);
 
+  // Petit coup de pouce aux clients UE (hors France) qui oublient souvent
+  // les 2 lettres de code pays devant leur numéro de TVA (BE, DE, IT…).
+  // On préremplit avec le code pays choisi à l'étape 1 — la cliente peut
+  // tout effacer, c'est juste une aide. On ne touche plus dès qu'elle a
+  // commencé à taper quelque chose au-delà du simple préfixe.
+  useEffect(() => {
+    if (!draftRestored) return;
+    const country = fields.addressCountry.toUpperCase();
+    if (!country) return;
+    if (getCompanyZone(country) !== "EU") return;
+    const current = fields.vatNumber;
+    const isEmpty = current.length === 0;
+    const isJustPrefix = /^[A-Z]{2}$/.test(current);
+    if ((isEmpty || isJustPrefix) && current !== country) {
+      setFields((prev) => ({ ...prev, vatNumber: country }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields.addressCountry, draftRestored]);
+
   useEffect(() => {
     if (!draftRestored) return;
     const timer = setTimeout(() => {

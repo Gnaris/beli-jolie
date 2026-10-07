@@ -16,6 +16,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
       update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
   },
 }));
@@ -23,6 +24,7 @@ vi.mock("@/lib/prisma", () => ({
 import { getServerSession } from "next-auth";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/admin/vies-check/route";
+import { prisma } from "@/lib/prisma";
 
 function makeReq(vat?: string | null, userId?: string): NextRequest {
   const url = new URL("http://localhost/api/admin/vies-check");
@@ -63,18 +65,52 @@ describe("GET /api/admin/vies-check", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects malformed vat (too short)", async () => {
+  it("accepte un numéro trop court et laisse VIES remonter l'erreur", async () => {
     mockAdmin();
     const res = await GET(makeReq("BE"));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.valid).toBe(false);
+    expect(body.serviceError).toMatch(/format|invalide/i);
   });
 
-  it("rejects non-EU country code", async () => {
+  it("accepte un code pays non UE et laisse VIES remonter l'erreur", async () => {
     mockAdmin();
     const res = await GET(makeReq("US123456789"));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toMatch(/Format invalide|pays/i);
+    expect(body.valid).toBe(false);
+    expect(body.serviceError).toMatch(/format|invalide|pays/i);
+  });
+
+  it("ajoute automatiquement le préfixe pays depuis l'adresse du client", async () => {
+    mockAdmin();
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ addressCountry: "BE" } as never);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ isValid: true, name: "ACME", address: "Rue X", requestDate: "2026-04-17T10:00:00Z" }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await GET(makeReq("0506978319", "user-123"));
+    expect(res.status).toBe(200);
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("/ms/BE/vat/0506978319");
+  });
+
+  it("ne retouche pas le numéro s'il commence déjà par un code pays", async () => {
+    mockAdmin();
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ addressCountry: "FR" } as never);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ isValid: true }), { status: 200 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await GET(makeReq("BE0506978319", "user-123"));
+    expect(res.status).toBe(200);
+
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    expect(calledUrl).toContain("/ms/BE/vat/0506978319");
   });
 
   it("accepts spaces/dots in input (normalizes)", async () => {

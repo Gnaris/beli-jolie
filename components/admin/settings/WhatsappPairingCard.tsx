@@ -23,7 +23,7 @@ interface Props {
 }
 
 /**
- * Carte de pairing WhatsApp (session Baileys partagée, 1 numéro pour toutes les boutiques).
+ * Carte de pairing WhatsApp (session Baileys propre à la boutique courante — chaque tenant appaire son propre numéro).
  *
  * Flow :
  *  1. La cliente saisit son numéro WhatsApp secondaire (format international ou "0X XX XX XX XX").
@@ -144,9 +144,9 @@ export default function WhatsappPairingCard({ initialState }: Props) {
             </button>
           </div>
           <p className="text-[11.5px] text-text-muted leading-relaxed">
-            Prenez un numéro <strong>dédié à la boutique</strong> (2ᵉ carte SIM
+            Prenez un numéro <strong>dédié à cette boutique</strong> (2ᵉ carte SIM
             ou numéro VoIP). En cas de ban Meta, votre WhatsApp perso reste
-            intact. Ce numéro est partagé entre Beli & Jolie et Issyma.
+            intact. Chaque boutique utilise son propre numéro.
           </p>
         </div>
       )}

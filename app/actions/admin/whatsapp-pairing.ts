@@ -1,6 +1,7 @@
 "use server";
 
 import { requireAdmin } from "@/lib/auth-helpers";
+import { requireCurrentTenant } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import {
   disconnectWhatsappSession,
@@ -11,12 +12,12 @@ import {
 import { checkWhatsappNumber, type WhatsappCheckOutcome } from "@/lib/whatsapp-check";
 
 /**
- * Server actions pour piloter la session WhatsApp partagée depuis
- * `/admin/parametres` → onglet « WhatsApp ».
+ * Server actions pour piloter la session WhatsApp **de la boutique courante**
+ * depuis `/admin/parametres` → onglet « WhatsApp ».
  *
- * Session UNIQUE pour tous les tenants (BJ + Issyma) — pas de scoping tenant
- * sur ces actions ; `requireAdmin()` suffit (toute admin peut piloter la
- * session partagee).
+ * Chaque tenant a sa propre session Baileys isolée — une admin ne peut
+ * piloter que la session de la boutique sur laquelle elle est connectée
+ * (résolue via le `Host:` courant → `requireCurrentTenant()`).
  */
 
 export interface WhatsappStatusResult {
@@ -46,16 +47,18 @@ function serialize(state: WhatsappSessionState): SerializedState {
 
 export async function getWhatsappStatus(): Promise<WhatsappStatusResult> {
   await requireAdmin();
-  return { success: true, state: serialize(getWhatsappSessionState()) };
+  const { id, slug } = await requireCurrentTenant();
+  return { success: true, state: serialize(getWhatsappSessionState(id, slug)) };
 }
 
 export async function startWhatsappPairing(
   phoneNumber: string,
 ): Promise<{ success: true; state: SerializedState } | { success: false; error: string }> {
   await requireAdmin();
+  const { id, slug } = await requireCurrentTenant();
   try {
-    await requestWhatsappPairingCode(phoneNumber);
-    return { success: true, state: serialize(getWhatsappSessionState()) };
+    await requestWhatsappPairingCode(id, slug, phoneNumber);
+    return { success: true, state: serialize(getWhatsappSessionState(id, slug)) };
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
@@ -63,8 +66,9 @@ export async function startWhatsappPairing(
 
 export async function stopWhatsappSession(): Promise<{ success: true; state: SerializedState }> {
   await requireAdmin();
-  await disconnectWhatsappSession();
-  return { success: true, state: serialize(getWhatsappSessionState()) };
+  const { id, slug } = await requireCurrentTenant();
+  await disconnectWhatsappSession(id, slug);
+  return { success: true, state: serialize(getWhatsappSessionState(id, slug)) };
 }
 
 /**
@@ -80,7 +84,8 @@ export async function verifyWhatsappForClient(
   phone: string,
 ): Promise<{ outcome: WhatsappCheckOutcome }> {
   await requireAdmin();
-  const outcome = await checkWhatsappNumber(phone, userId);
+  const { id, slug } = await requireCurrentTenant();
+  const outcome = await checkWhatsappNumber(id, slug, phone, userId);
   if (outcome === "yes" || outcome === "no") {
     revalidatePath("/admin/clients");
     revalidatePath(`/admin/clients/${userId}`);

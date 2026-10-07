@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { checkVies, parseVatNumber } from "@/lib/vies";
+import { checkVies } from "@/lib/vies";
 
 /**
  * GET /api/admin/vies-check?vat=BE0506978319&userId=xxx
@@ -21,18 +21,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Paramètre 'vat' manquant." }, { status: 400 });
   }
 
-  const parsed = parseVatNumber(raw);
-  if (!parsed) {
-    return NextResponse.json(
-      { error: "Format invalide : 2 lettres de pays + numéro (ex: BE0506978319)." },
-      { status: 400 }
-    );
+  const userId = request.nextUrl.searchParams.get("userId");
+
+  // Beaucoup de clients UE oublient les 2 lettres de code pays devant leur
+  // numéro de TVA. Si l'entrée ne commence pas par 2 lettres, on complète
+  // automatiquement avec le pays d'adresse du client — VIES peut alors
+  // répondre. On lance la vérification dans tous les cas (le résultat
+  // "format invalide" éventuel est remonté par VIES lui-même).
+  const cleaned = raw.replace(/[^A-Z0-9]/g, "");
+  const hasCountryPrefix = /^[A-Z]{2}/.test(cleaned);
+  let vatToCheck = cleaned;
+
+  if (!hasCountryPrefix && userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { addressCountry: true },
+    }).catch(() => null);
+    if (user?.addressCountry) {
+      vatToCheck = user.addressCountry.toUpperCase() + cleaned;
+    }
   }
 
-  const result = await checkVies(raw);
+  const result = await checkVies(vatToCheck);
 
   // Sauvegarde en DB si userId fourni
-  const userId = request.nextUrl.searchParams.get("userId");
   if (userId) {
     await prisma.user.update({
       where: { id: userId },

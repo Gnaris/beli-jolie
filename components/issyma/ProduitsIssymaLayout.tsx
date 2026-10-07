@@ -434,21 +434,31 @@ export default async function ProduitsIssymaLayout({
                     </div>
                   </details>
 
-                  {/* Desktop : toujours visible, sticky */}
+                  {/* Desktop : toujours visible, sticky.
+                      Hauteur max = viewport − 80px top (navbar fixe 64px + 16px
+                      respiration) − 16px bas. Scroll interne sur la liste des
+                      filtres : l'en-tête (titre + "Effacer") reste visible,
+                      seul le corps défile si les sections débordent. */}
                   <aside
-                    className="hidden lg:block rounded-2xl overflow-hidden self-start lg:sticky lg:top-4"
-                    style={{ background: P.blush50, padding: "0", border: `1px solid ${P.borderSoft}` }}
+                    className="hidden lg:flex lg:flex-col rounded-2xl self-start lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]"
+                    style={{ background: P.blush50, border: `1px solid ${P.borderSoft}` }}
                   >
-                    <div style={{ padding: "12px 22px 20px 22px" }}>
-                      <div className="flex items-center justify-between mb-2">
-                        <p
-                          className="text-[11px] tracking-[0.28em] uppercase font-bold"
-                          style={{ color: P.ink }}
-                        >
-                          {t("issymaFiltersTitle")}
-                        </p>
-                        {clearLink}
-                      </div>
+                    <div
+                      className="shrink-0 flex items-center justify-between"
+                      style={{ padding: "12px 22px 8px 22px" }}
+                    >
+                      <p
+                        className="text-[11px] tracking-[0.28em] uppercase font-bold"
+                        style={{ color: P.ink }}
+                      >
+                        {t("issymaFiltersTitle")}
+                      </p>
+                      {clearLink}
+                    </div>
+                    <div
+                      className="overflow-y-auto flex-1 min-h-0"
+                      style={{ padding: "0 22px 20px 22px" }}
+                    >
                       {filterSections}
                     </div>
                   </aside>

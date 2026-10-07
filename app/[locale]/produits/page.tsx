@@ -6,7 +6,7 @@ import { getTranslations, getLocale } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { parseDisplayConfig, getOrderedProductIds } from "@/lib/product-display";
-import { getCachedCategories, getCachedCollections, getCachedColors, getCachedTags, getCachedSiteConfig, getCachedShopName, getCachedCompositions, getCachedProductCount } from "@/lib/cached-data";
+import { getCachedPublicCategories, getCachedPublicCollections, getCachedPublicColors, getCachedPublicTags, getCachedPublicCompositions, getCachedSiteConfig, getCachedShopName, getCachedProductCount } from "@/lib/cached-data";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { buildAlternates } from "@/lib/seo";
 import PublicSidebar from "@/components/layout/PublicSidebar";
@@ -170,11 +170,11 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   // boutique partiellement traduite affiche du vide).
   const wantLocalized = locale !== "fr";
   const [categories, collections, colors, tags, compositions, seoTextRow, seoIntroRow, seoTextRowLoc, seoIntroRowLoc] = await Promise.all([
-    getCachedCategories(),
-    getCachedCollections(),
-    getCachedColors(),
-    getCachedTags(),
-    getCachedCompositions(),
+    getCachedPublicCategories(),
+    getCachedPublicCollections(),
+    getCachedPublicColors(),
+    getCachedPublicTags(),
+    getCachedPublicCompositions(),
     getCachedSiteConfig("produits_seo_text"),
     getCachedSiteConfig("produits_seo_intro"),
     wantLocalized ? getCachedSiteConfig(`produits_seo_text_${locale}`) : Promise.resolve(null),

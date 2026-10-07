@@ -104,15 +104,15 @@ function buildName(cat) {
 
 function buildDescription(cat) {
   const map = {
-    "Boucles d'oreilles": "Boucles d'oreilles en acier inoxydable, hypoallergéniques et résistantes à l'eau. Bijou femme léger et durable au design moderne, idéal pour un usage quotidien ou en cadeau.",
-    "Collier":            "Collier en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme délicat et durable, parfait pour un look chic au quotidien ou en cadeau.",
-    "Collier en Y":       "Collier en Y en acier inoxydable, hypoallergénique et résistant à l'eau. Tombée élégante en pointe, idéal pour sublimer un décolleté avec un style moderne.",
-    "Piercing Oreille":   "Piercing d'oreille en acier inoxydable, hypoallergénique et résistant à l'eau. Petit bijou discret et résistant, adapté au port quotidien.",
-    "Bracelet jonc":      "Bracelet jonc en acier inoxydable, hypoallergénique et résistant à l'eau. Forme rigide ajustable au poignet, parfait pour un style minimaliste et intemporel.",
-    "Bague ajustable":    "Bague ajustable en acier inoxydable, hypoallergénique et résistante à l'eau. Anneau ouvert qui s'adapte à toutes les tailles de doigt, idéal pour offrir.",
-    "Bracelet":           "Bracelet en acier inoxydable, hypoallergénique et résistant à l'eau. Bijou femme léger et durable, parfait pour un look moderne au quotidien.",
+    "Boucles d'oreilles": "Boucles d'oreilles en acier inoxydable, résistantes à l'eau. Bijou femme léger et durable au design moderne, idéal pour un usage quotidien ou en cadeau.",
+    "Collier":            "Collier en acier inoxydable, résistant à l'eau. Bijou femme délicat et durable, parfait pour un look chic au quotidien ou en cadeau.",
+    "Collier en Y":       "Collier en Y en acier inoxydable, résistant à l'eau. Tombée élégante en pointe, idéal pour sublimer un décolleté avec un style moderne.",
+    "Piercing Oreille":   "Piercing d'oreille en acier inoxydable, résistant à l'eau. Petit bijou discret et résistant, adapté au port quotidien.",
+    "Bracelet jonc":      "Bracelet jonc en acier inoxydable, résistant à l'eau. Forme rigide ajustable au poignet, parfait pour un style minimaliste et intemporel.",
+    "Bague ajustable":    "Bague ajustable en acier inoxydable, résistante à l'eau. Anneau ouvert qui s'adapte à toutes les tailles de doigt, idéal pour offrir.",
+    "Bracelet":           "Bracelet en acier inoxydable, résistant à l'eau. Bijou femme léger et durable, parfait pour un look moderne au quotidien.",
   };
-  return map[cat] || `${cat} en acier inoxydable, hypoallergénique et résistant à l'eau.`;
+  return map[cat] || `${cat} en acier inoxydable, résistant à l'eau.`;
 }
 
 // ── Normalisation prix : "4,,9" → 4.9, "3.5" → 3.5, "3,5" → 3.5 ──
