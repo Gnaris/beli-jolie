@@ -14,7 +14,14 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 const DEBOUNCE_MS = 300;
 
-export default function UsersSearchBar({ initialValue }: { initialValue: string }) {
+export default function UsersSearchBar({
+  initialValue,
+  fullWidth = false,
+}: {
+  initialValue: string;
+  /** Si vrai, la barre occupe toute la largeur disponible (pas de cap `sm:w-72`). */
+  fullWidth?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -41,7 +48,7 @@ export default function UsersSearchBar({ initialValue }: { initialValue: string 
   }, [value]);
 
   return (
-    <div className="relative w-full sm:w-72">
+    <div className={`relative ${fullWidth ? "w-full" : "w-full sm:w-72"}`}>
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">
         <svg
           width="14"

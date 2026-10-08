@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isOnline, getOnlineThreshold } from "@/lib/online-status";
+import { isOnline } from "@/lib/online-status";
 import { initialsOf, avatarGradientFor } from "@/lib/user-avatar";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import LiveAdminRefresh from "@/components/admin/LiveAdminRefresh";
-import UsersTabs from "@/components/admin/users/UsersTabs";
+import UsersSidebarNav from "@/components/admin/users/UsersSidebarNav";
 import AdminCardsPane from "@/components/admin/users/AdminCardsPane";
 import UsersSortControl from "@/components/admin/users/UsersSortControl";
 import UsersSearchBar from "@/components/admin/users/UsersSearchBar";
@@ -18,6 +18,15 @@ import EmailJournalButton from "@/components/admin/users/EmailJournalButton";
 import MailRowCheckbox from "@/components/admin/users/MailRowCheckbox";
 import PhoneContactIcons from "@/components/admin/users/PhoneContactIcons";
 import OnlineDurationBadge from "@/components/admin/users/OnlineDurationBadge";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { countryFlagUrl, countryName } from "@/lib/countries";
+import UsersGeoFilters, { type CountryStat } from "@/components/admin/users/UsersGeoFilters";
+import {
+  buildGeoFilterWhere,
+  parseGeoCountries,
+  parseGeoZone,
+  type ClientGeoZone,
+} from "@/lib/admin-client-geo-filter";
 import { listWhatsAppTemplates } from "@/app/actions/admin/whatsapp-templates";
 import { listNewsletterTemplates } from "@/app/actions/admin/newsletter-templates";
 import Pagination from "@/components/ui/Pagination";
@@ -92,77 +101,6 @@ function parsePage(raw: string | undefined): number {
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
 }
 
-// ─── Tuile KPI ─────────────────────────────────────────────────────────────
-function KpiTile({
-  label, value, sub, icon, accent, pulse = false,
-}: {
-  label: string;
-  value: number;
-  sub: string;
-  icon: React.ReactNode;
-  accent: "neutral" | "emerald" | "amber" | "sky" | "violet";
-  pulse?: boolean;
-}) {
-  const accentMap = {
-    neutral: {
-      cardBg: "bg-bg-primary",
-      iconBg: "bg-bg-secondary border border-border", iconText: "text-text-primary",
-      border: "border-border", valueText: "text-text-primary",
-      glow: "before:bg-slate-300/25",
-      labelText: "text-text-muted",
-    },
-    emerald: {
-      cardBg: "bg-gradient-to-br from-emerald-50 via-bg-primary to-bg-primary",
-      iconBg: "bg-emerald-100 border border-emerald-200", iconText: "text-emerald-700",
-      border: "border-emerald-200/70", valueText: "text-emerald-700",
-      glow: "before:bg-emerald-300/40",
-      labelText: "text-emerald-700",
-    },
-    amber: {
-      cardBg: "bg-gradient-to-br from-amber-50 via-bg-primary to-bg-primary",
-      iconBg: "bg-amber-100 border border-amber-200", iconText: "text-amber-700",
-      border: "border-amber-200/70", valueText: "text-amber-700",
-      glow: "before:bg-amber-300/40",
-      labelText: "text-amber-700",
-    },
-    sky: {
-      cardBg: "bg-gradient-to-br from-sky-50 via-bg-primary to-bg-primary",
-      iconBg: "bg-sky-100 border border-sky-200", iconText: "text-sky-700",
-      border: "border-sky-200/70", valueText: "text-sky-700",
-      glow: "before:bg-sky-300/40",
-      labelText: "text-sky-700",
-    },
-    violet: {
-      cardBg: "bg-gradient-to-br from-violet-50 via-bg-primary to-bg-primary",
-      iconBg: "bg-violet-100 border border-violet-200", iconText: "text-violet-700",
-      border: "border-violet-200/70", valueText: "text-violet-700",
-      glow: "before:bg-violet-300/40",
-      labelText: "text-violet-700",
-    },
-  }[accent];
-
-  return (
-    <div className={`relative overflow-hidden border ${accentMap.border} ${accentMap.cardBg} rounded-2xl p-4 sm:p-5 shadow-sm before:content-[''] before:absolute before:-top-10 before:-right-10 before:w-28 before:h-28 before:rounded-full before:blur-3xl ${accentMap.glow}`}>
-      <div className="relative flex items-start justify-between mb-3">
-        <p className={`text-[10px] sm:text-[11px] font-body font-bold uppercase tracking-[0.14em] ${accentMap.labelText}`}>{label}</p>
-        <span className={`inline-flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${accentMap.iconBg} ${accentMap.iconText}`}>
-          {icon}
-        </span>
-      </div>
-      <p className={`relative font-heading text-2xl sm:text-3xl font-bold tabular-nums leading-none flex items-center gap-2 ${accentMap.valueText}`}>
-        {pulse && value > 0 && (
-          <span className="relative inline-flex w-2.5 h-2.5">
-            <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-70" />
-            <span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-emerald-500" />
-          </span>
-        )}
-        {value}
-      </p>
-      <p className="relative text-[11px] sm:text-xs font-body text-text-muted mt-1.5">{sub}</p>
-    </div>
-  );
-}
-
 const FILTERS: { value: string; label: string }[] = [
   { value: "ALL",      label: "Tous" },
   { value: "PENDING",  label: "En attente" },
@@ -185,6 +123,8 @@ export default async function UtilisateursPage({
     view?: string;
     fsort?: string;
     dormant?: string;
+    zone?: string;
+    countries?: string;
   }>;
 }) {
   const session = await getServerSession(authOptions);
@@ -206,6 +146,9 @@ export default async function UtilisateursPage({
   const sort = parseClientSort(params.sort);
   const dir = parseSortDir(params.dir, sort);
   const registeredSearch = (params.q ?? "").trim();
+  const geoZone = parseGeoZone(params.zone);
+  const geoCountries = parseGeoCountries(params.countries);
+  const geoWhere = buildGeoFilterWhere(geoZone, geoCountries);
   // Page clients : uniquement la vue « Infos ». La vue « Mails » vit
   // désormais sur /admin/marketing (page dédiée dans la sidebar). L'annotation
   // large `as ...` garde les blocs de rendu de secours pour le jour où on
@@ -213,16 +156,13 @@ export default async function UtilisateursPage({
   // et refuse toute comparaison `view === "mails"` en aval.
   const view = "infos" as "infos" | "mails";
 
-  const onlineThreshold = getOnlineThreshold();
-
-  // Common counters (KPI + tab badges)
-  const [pendingCount, approvedCount, rejectedCount, totalCount, onlineCount, cardsTotalCount] =
+  // Compteurs utilisés par les badges de la nav et les filtres de statut.
+  const [pendingCount, approvedCount, rejectedCount, totalCount, cardsTotalCount] =
     await Promise.all([
       prisma.user.count({ where: { role: "CLIENT", status: "PENDING" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
       prisma.user.count({ where: { role: "CLIENT", status: "REJECTED" } }),
       prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({ where: { role: "CLIENT", lastSeenAt: { gte: onlineThreshold } } }),
       prisma.adminClientCard.count({}),
     ]);
 
@@ -243,12 +183,14 @@ export default async function UtilisateursPage({
 
   const registeredWhere: Prisma.UserWhereInput =
     filterStatus === "ALL"
-      ? { role: "CLIENT", ...searchFilter }
-      : { role: "CLIENT", status: filterStatus as UserStatus, ...searchFilter };
+      ? { role: "CLIENT", ...searchFilter, ...geoWhere }
+      : { role: "CLIENT", status: filterStatus as UserStatus, ...searchFilter, ...geoWhere };
 
-  // Count filtré = respecte AUSSI la recherche (les compteurs KPI restent globaux
-  // pour donner une vue d'ensemble ; seul le total de la liste change).
-  const filteredRegisteredCount = registeredSearch
+  // Count filtré = respecte AUSSI recherche + filtres géo. Les compteurs KPI
+  // restent globaux pour donner une vue d'ensemble ; seul le total de la liste
+  // bouge quand on applique un filtre.
+  const hasExtraFilter = registeredSearch !== "" || geoZone !== null || geoCountries.length > 0;
+  const filteredRegisteredCount = hasExtraFilter
     ? await prisma.user.count({ where: registeredWhere })
     : filterStatus === "ALL"
       ? totalCount
@@ -257,6 +199,20 @@ export default async function UtilisateursPage({
         : filterStatus === "APPROVED"
           ? approvedCount
           : rejectedCount;
+
+  // Liste des pays disponibles pour le multi-select, calculée AVANT application
+  // du filtre `countries` : on veut toujours proposer l'éventail complet des
+  // pays présents dans la sélection (statut + recherche + zone) pour que la
+  // cliente puisse construire sa sélection librement sans que le filtre pays
+  // ne masque ses propres options.
+  const availableCountries: CountryStat[] = currentTab === "inscrits"
+    ? await loadAvailableCountries({
+        role: "CLIENT",
+        ...(filterStatus === "ALL" ? {} : { status: filterStatus as UserStatus }),
+        ...searchFilter,
+        ...buildGeoFilterWhere(geoZone, []),
+      })
+    : [];
 
   const counts: Record<string, number> = {
     ALL:      totalCount,
@@ -297,93 +253,33 @@ export default async function UtilisateursPage({
         toasts={{ CLIENT_NEW: "Nouvelle inscription" }}
       />
 
-      {/* HERO */}
-      <section className="relative overflow-hidden rounded-3xl border border-border shadow-sm bg-slate-100">
-        <div className="relative p-6 sm:p-8">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            <div>
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 backdrop-blur border border-border text-[11px] font-body font-bold uppercase tracking-[0.18em] text-text-primary">
-                <span className="w-1.5 h-1.5 rounded-full bg-text-primary shadow-[0_0_0_3px_rgba(24,24,27,0.14)]" />
-                Clients pro
-              </span>
-              <h1 className="page-title mt-4">Gestion des clients</h1>
-              <p className="page-subtitle font-body max-w-2xl">
-                Comptes professionnels inscrits sur le site + votre répertoire personnel de fiches clients.
-              </p>
-            </div>
-          </div>
-
-          <div className="relative mt-6 sm:mt-8 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiTile
-              label="Total clients"
-              value={totalCount}
-              sub="Comptes enregistrés"
-              accent="neutral"
-              icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-              }
-            />
-            <KpiTile
-              label="En ligne maintenant"
-              value={onlineCount}
-              sub="Actifs dans la dernière minute"
-              accent="neutral"
-              pulse
-              icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
-                </svg>
-              }
-            />
-            <KpiTile
-              label="À valider"
-              value={pendingCount}
-              sub="Nouvelles inscriptions"
-              accent="neutral"
-              icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-                </svg>
-              }
-            />
-            <KpiTile
-              label="Mes fiches"
-              value={cardsTotalCount}
-              sub="Répertoire personnel admin"
-              accent="neutral"
-              icon={
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                </svg>
-              }
-            />
-          </div>
-        </div>
-      </section>
-
-      <UsersTabs currentTab={currentTab} registeredCount={totalCount} cardsCount={cardsTotalCount} basePath="/admin/clients" />
+      <UsersSidebarNav
+        currentTab={currentTab}
+        registeredCount={totalCount}
+        cardsCount={cardsTotalCount}
+        basePath="/admin/clients"
+      />
 
       {currentTab === "inscrits" ? (
-        <>
-          <RegisteredPane
-            clients={registeredData.clients}
-            stats={registeredData.stats}
-            filterStatus={filterStatus}
-            counts={counts}
-            totalFiltered={filteredRegisteredCount}
-            page={page}
-            perPage={perPage}
-            sort={sort}
-            dir={dir}
-            search={registeredSearch}
-            view={view}
-            mails={mailsData}
-            carts={cartsData}
-            whatsAppTemplates={whatsAppTemplates}
-          />
-        </>
+        <RegisteredPane
+          clients={registeredData.clients}
+          stats={registeredData.stats}
+          filterStatus={filterStatus}
+          counts={counts}
+          totalFiltered={filteredRegisteredCount}
+          page={page}
+          perPage={perPage}
+          sort={sort}
+          dir={dir}
+          search={registeredSearch}
+          view={view}
+          mails={mailsData}
+          carts={cartsData}
+          whatsAppTemplates={whatsAppTemplates}
+          geoZone={geoZone}
+          geoCountries={geoCountries}
+          availableCountries={availableCountries}
+        />
       ) : (
         cardsData && (
           <AdminCardsPane
@@ -448,6 +344,29 @@ const REGISTERED_SELECT = {
   acceptsNewsletter: true,
   hasWhatsapp: true,
 } as const;
+
+// ─── Pays disponibles pour le filtre multi-select ───────────────────────────
+
+/**
+ * Retourne la liste des pays où au moins un client (matchant `where`) est
+ * enregistré, avec le nombre de clients par pays. Trié par count décroissant.
+ * Les clients sans `addressCountry` ne sont pas inclus — le filtre pays n'a
+ * pas de sens sur eux.
+ */
+async function loadAvailableCountries(where: Prisma.UserWhereInput): Promise<CountryStat[]> {
+  const grouped = await prisma.user.groupBy({
+    by: ["addressCountry"],
+    where: { ...where, addressCountry: { not: null } },
+    _count: { _all: true },
+  });
+  const stats: CountryStat[] = [];
+  for (const row of grouped) {
+    if (!row.addressCountry) continue;
+    stats.push({ code: row.addressCountry.toUpperCase(), count: row._count._all });
+  }
+  stats.sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+  return stats;
+}
 
 // ─── Panier en cours : nb d'articles + total HT par client ───────────────────
 
@@ -973,6 +892,9 @@ function RegisteredPane({
   mails,
   carts,
   whatsAppTemplates,
+  geoZone,
+  geoCountries,
+  availableCountries,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -988,64 +910,79 @@ function RegisteredPane({
   mails: Map<string, MailLastSends>;
   carts: Map<string, CartSummary>;
   whatsAppTemplates: Awaited<ReturnType<typeof listWhatsAppTemplates>>;
+  geoZone: ClientGeoZone | null;
+  geoCountries: string[];
+  availableCountries: CountryStat[];
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
   return (
     <>
-      {/* Barre de recherche */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="hidden sm:block" />
-        <UsersSearchBar initialValue={search} />
-      </div>
+      {/* Barre d'outils : recherche + filtres regroupés dans une seule carte */}
+      <div className="bg-bg-primary border border-border rounded-2xl shadow-sm p-4 sm:p-5 space-y-4">
+        {/* Recherche pleine largeur */}
+        <UsersSearchBar initialValue={search} fullWidth />
 
-      {/* Filtres + tri + par page */}
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((filter) => {
-            const isActive = filterStatus === filter.value;
-            const count = counts[filter.value];
-            const isPendingChip = filter.value === "PENDING";
-            const isRejectedChip = filter.value === "REJECTED";
+        {/* Statuts (gauche) + Tri + Par page (droite) */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pt-1 border-t border-border/60">
+          <div className="flex flex-wrap items-center gap-2 pt-3">
+            <span className="text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-muted mr-1">
+              Statut
+            </span>
+            {FILTERS.map((filter) => {
+              const isActive = filterStatus === filter.value;
+              const count = counts[filter.value];
+              const isPendingChip = filter.value === "PENDING";
+              const isRejectedChip = filter.value === "REJECTED";
 
-            let chipClass = "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary";
-            let countClass = "bg-bg-secondary text-text-muted";
+              let chipClass = "bg-bg-primary border-border text-text-secondary hover:border-border-strong hover:text-text-primary";
+              let countClass = "bg-bg-secondary text-text-muted";
 
-            if (isActive) {
-              if (isPendingChip) {
-                chipClass = "bg-gradient-to-br from-amber-600 to-amber-700 border-amber-600 text-white shadow-sm";
-                countClass = "bg-white/20 text-white";
-              } else if (isRejectedChip) {
-                chipClass = "bg-gradient-to-br from-red-600 to-red-700 border-red-600 text-white shadow-sm";
-                countClass = "bg-white/20 text-white";
-              } else {
-                chipClass = "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm";
-                countClass = "bg-white/20 text-white";
+              if (isActive) {
+                if (isPendingChip) {
+                  chipClass = "bg-gradient-to-br from-amber-600 to-amber-700 border-amber-600 text-white shadow-sm";
+                  countClass = "bg-white/20 text-white";
+                } else if (isRejectedChip) {
+                  chipClass = "bg-gradient-to-br from-red-600 to-red-700 border-red-600 text-white shadow-sm";
+                  countClass = "bg-white/20 text-white";
+                } else {
+                  chipClass = "bg-gradient-to-br from-text-primary to-text-secondary border-text-primary text-white shadow-sm";
+                  countClass = "bg-white/20 text-white";
+                }
+              } else if (isPendingChip && count > 0) {
+                chipClass = "bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300";
+                countClass = "bg-amber-100 text-amber-800";
               }
-            } else if (isPendingChip && count > 0) {
-              chipClass = "bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-300";
-              countClass = "bg-amber-100 text-amber-800";
-            }
 
-            return (
-              <Link
-                key={filter.value}
-                href={buildListHref({ status: filter.value, perPage, sort, dir, view })}
-                prefetch={false}
-                className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
-              >
-                {filter.label}
-                <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-semibold ${countClass}`}>
-                  {count}
-                </span>
-              </Link>
-            );
-          })}
+              return (
+                <Link
+                  key={filter.value}
+                  href={buildListHref({ status: filter.value, perPage, sort, dir, view })}
+                  prefetch={false}
+                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-[13px] font-body font-medium rounded-xl border transition-all ${chipClass}`}
+                >
+                  {filter.label}
+                  <span className={`inline-flex items-center justify-center min-w-[22px] h-5 px-1.5 rounded-full text-[11px] font-semibold ${countClass}`}>
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-2 w-full lg:w-auto lg:pt-3">
+            <UsersSortControl sort={sort} dir={dir} />
+            <PerPageSelect value={perPage} />
+          </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 sm:gap-2 w-full xl:w-auto">
-          <UsersSortControl sort={sort} dir={dir} />
-          <PerPageSelect value={perPage} />
+        {/* Filtres géographiques (zone + pays) */}
+        <div className="pt-3 border-t border-border/60">
+          <UsersGeoFilters
+            currentZone={geoZone}
+            selectedCountries={geoCountries}
+            availableCountries={availableCountries}
+          />
         </div>
       </div>
 
@@ -1143,8 +1080,22 @@ function RegisteredPane({
                           </div>
                         </td>
                         <td className="px-5 py-3.5 min-w-0">
-                          <p className="text-[13.5px] font-body font-semibold text-text-primary truncate max-w-xs">
-                            {c.company}
+                          <p className="flex items-center gap-1.5 text-[13.5px] font-body font-semibold text-text-primary max-w-xs min-w-0">
+                            {c.addressCountry && (() => {
+                              const label = countryName(c.addressCountry) || c.addressCountry;
+                              return (
+                                <Tooltip content={label}>
+                                  <img
+                                    src={countryFlagUrl(c.addressCountry)}
+                                    alt={label}
+                                    width={16}
+                                    height={12}
+                                    className="rounded-[2px] shadow-[0_0_0_1px_rgba(15,23,42,0.08)] object-cover shrink-0"
+                                  />
+                                </Tooltip>
+                              );
+                            })()}
+                            <span className="truncate">{c.company}</span>
                           </p>
                           <div className="mt-1 space-y-0.5">
                             <p className="flex items-center gap-1.5 text-[11.5px] font-body text-text-muted min-w-0">
@@ -1307,7 +1258,23 @@ function RegisteredPane({
                           <p className="text-[14px] font-body font-semibold text-text-primary truncate">
                             {c.firstName} {c.lastName}
                           </p>
-                          <p className="text-[12px] font-body text-text-muted truncate">{c.company}</p>
+                          <p className="flex items-center gap-1.5 text-[12px] font-body text-text-muted min-w-0">
+                            {c.addressCountry && (() => {
+                              const label = countryName(c.addressCountry) || c.addressCountry;
+                              return (
+                                <Tooltip content={label}>
+                                  <img
+                                    src={countryFlagUrl(c.addressCountry)}
+                                    alt={label}
+                                    width={14}
+                                    height={10}
+                                    className="rounded-[2px] shadow-[0_0_0_1px_rgba(15,23,42,0.08)] object-cover shrink-0"
+                                  />
+                                </Tooltip>
+                              );
+                            })()}
+                            <span className="truncate">{c.company}</span>
+                          </p>
                         </div>
                         <span className={`badge ${
                           c.status === "APPROVED" ? "badge-success" :
