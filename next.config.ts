@@ -67,14 +67,20 @@ const nextConfig: NextConfig = {
     // notre CSP. On assouplit uniquement en dev — la prod reste stricte.
     const devScriptExtras =
       process.env.NODE_ENV === "development" ? " 'unsafe-" + "eval'" : "";
+    // Domaines Google Tag Manager + Google Analytics 4 — nécessaires pour
+    // charger gtm.js, les pixels GA4 et les beacons de mesure.
+    const GOOGLE_SCRIPT = "https://www.googletagmanager.com";
+    const GOOGLE_IMG = "https://www.googletagmanager.com https://www.google-analytics.com https://*.g.doubleclick.net";
+    const GOOGLE_CONNECT = "https://www.googletagmanager.com https://www.google-analytics.com https://*.analytics.google.com https://*.g.doubleclick.net";
+    const GOOGLE_FRAME = "https://www.googletagmanager.com";
     const csp = [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${devScriptExtras} https://js.stripe.com`,
+      `script-src 'self' 'unsafe-inline'${devScriptExtras} https://js.stripe.com ${GOOGLE_SCRIPT}`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com https://easy-express.fr https://flagcdn.com",
+      `img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com https://easy-express.fr https://flagcdn.com ${GOOGLE_IMG}`,
       "font-src 'self'",
-      "connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com",
-      "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://mail.beliandjolie.com https://www.openstreetmap.org",
+      `connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com ${GOOGLE_CONNECT}`,
+      `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://mail.beliandjolie.com https://www.openstreetmap.org ${GOOGLE_FRAME}`,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
