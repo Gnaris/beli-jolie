@@ -18,6 +18,7 @@ import { getCurrentTenantId } from "@/lib/tenant";
 import { ADMIN_THEME_COOKIE, parseAdminTheme } from "@/lib/admin-theme";
 import ChatWidgetLoader from "@/components/client/ChatWidgetLoader";
 import HeartbeatLoader from "@/components/client/HeartbeatLoader";
+import GtmAnalytics from "@/components/analytics/GtmAnalytics";
 import "./globals.css";
 
 /* ─────────────────────────────────────────────
@@ -172,6 +173,9 @@ export default async function RootLayout({
                     {children}
                     <ChatWidgetLoader businessHours={businessHours} />
                     <HeartbeatLoader />
+                    {/* GTM + bannière cookies : site public uniquement.
+                        Rend `null` quand la boutique n'a pas d'ID GTM configuré. */}
+                    {!isAdminRoute && <GtmAnalytics />}
                     {/* AdminChatWidgetLoader est désormais monté uniquement dans
                         le layout /admin (via le rail droit) — sortir cette ligne
                         évitait un doublon qui plantait sur les pages publiques

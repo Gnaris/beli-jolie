@@ -2109,5 +2109,13 @@
     "ctaTitle2": "that order from us.",
     "ctaRegister": "Create my pro account",
     "ctaShowroom": "Come to the store"
+  },
+  "cookieBanner": {
+    "ariaLabel": "Cookie preferences",
+    "title": "Your cookie preferences.",
+    "message": "We use cookies to measure audience and improve your experience. You can refuse without any impact on browsing.",
+    "learnMore": "Learn more",
+    "accept": "Accept",
+    "refuse": "Refuse"
   }
 }

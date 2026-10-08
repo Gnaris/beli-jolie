@@ -2109,5 +2109,13 @@
     "ctaTitle2": "que piden en nuestra casa.",
     "ctaRegister": "Crear mi cuenta pro",
     "ctaShowroom": "Venir a la tienda"
+  },
+  "cookieBanner": {
+    "ariaLabel": "Preferencias de cookies",
+    "title": "Sus preferencias de cookies.",
+    "message": "Utilizamos cookies para medir la audiencia y mejorar su experiencia. Puede rechazar sin impacto en la navegación.",
+    "learnMore": "Más información",
+    "accept": "Aceptar",
+    "refuse": "Rechazar"
   }
 }

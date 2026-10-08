@@ -2109,5 +2109,13 @@
     "ctaTitle2": "die bei uns bestellen.",
     "ctaRegister": "Mein Pro-Konto erstellen",
     "ctaShowroom": "Zum Geschäft kommen"
+  },
+  "cookieBanner": {
+    "ariaLabel": "Cookie-Einstellungen",
+    "title": "Ihre Cookie-Einstellungen.",
+    "message": "Wir verwenden Cookies, um Besucher zu messen und Ihre Erfahrung zu verbessern. Sie können ablehnen, ohne dass dies Ihre Navigation beeinträchtigt.",
+    "learnMore": "Mehr erfahren",
+    "accept": "Akzeptieren",
+    "refuse": "Ablehnen"
   }
 }

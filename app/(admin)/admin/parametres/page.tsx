@@ -46,6 +46,8 @@ import TranslationProviderStatus from "@/components/admin/settings/TranslationPr
 import BusinessHoursConfig from "@/components/admin/settings/BusinessHoursConfig";
 import SeoTextsConfig from "@/components/admin/settings/SeoTextsConfig";
 import BrandBrandingConfig from "@/components/admin/settings/BrandBrandingConfig";
+import AnalyticsConfig from "@/components/admin/settings/AnalyticsConfig";
+import { GTM_CONTAINER_ID_KEY } from "@/lib/analytics";
 import { SEO_CONFIG_KEYS } from "@/lib/seo";
 import { parseHomeFaq } from "@/lib/home-faq";
 import { getPendingReviewsCount } from "@/app/actions/admin/customer-reviews";
@@ -864,6 +866,7 @@ async function buildContenuTile(): Promise<DashboardTile> {
     shopName,
     siteUrl,
     brandingRows,
+    gtmRow,
   ] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "home_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
@@ -879,7 +882,9 @@ async function buildContenuTile(): Promise<DashboardTile> {
       where: { key: { in: brandingKeys } },
       select: { key: true, value: true },
     }),
+    prisma.siteConfig.findFirst({ where: { key: GTM_CONTAINER_ID_KEY } }),
   ]);
+  const initialGtmId = gtmRow?.value?.trim() ?? "";
   const brandingMap = new Map(brandingRows.map((r) => [r.key, r.value ?? ""]));
   const initialSocials: Record<string, string> = {};
   for (const k of SEO_CONFIG_KEYS.socials) {
@@ -897,6 +902,7 @@ async function buildContenuTile(): Promise<DashboardTile> {
   const seoConfigured = !!(homeText || produitsRow?.value?.trim());
   const summaryBits: string[] = [];
   summaryBits.push(seoConfigured ? "SEO en place" : "SEO vide");
+  summaryBits.push(initialGtmId ? "GTM actif" : "GTM désactivé");
 
   const status: TileStatus = seoConfigured
     ? { tone: "ok", label: "Configurés" }
@@ -950,6 +956,14 @@ async function buildContenuTile(): Promise<DashboardTile> {
             initialOgImageUrl={brandingMap.get(SEO_CONFIG_KEYS.ogImage) ?? ""}
             initialSocials={initialSocials}
           />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.sparkles}
+          title="Google Tag Manager"
+          description="Suivez le parcours de vos visiteurs sur votre boutique. Branchez Google Analytics, Meta Pixel ou tout autre outil sans toucher au code."
+        >
+          <AnalyticsConfig initialGtmId={initialGtmId} />
         </SettingCard>
 
         <SettingCard
