@@ -6,7 +6,9 @@
  * - 1 session par boutique → chaque tenant doit appairer son propre numéro.
  * - Store `Map<tenantId, WhatsappStore>` sur `globalThis` (survit aux HMR dev).
  * - Fichiers de session isolés dans `private/whatsapp-session/{tenantSlug}/`.
- * - Pairing par **code à 8 chiffres** uniquement (pas de QR).
+ * - 2 modes de pairing au choix de la cliente :
+ *     a) code à 8 chiffres (saisie du numero + saisie du code sur le telephone)
+ *     b) QR code (scan depuis WhatsApp -> Appareils connectes -> Scanner)
  * - Au boot (`instrumentation-node.ts`), on remonte toutes les sessions
  *   déjà appairées en scannant le dossier parent.
  */
@@ -31,6 +33,13 @@ export interface WhatsappSessionState {
   phoneNumber: string | null;
   pairingCode: string | null;
   pairingCodeExpiresAt: Date | null;
+  /**
+   * QR code encode en data URL (`data:image/png;base64,...`). Non-null
+   * uniquement quand on est en mode QR et qu'un QR frais a ete emis par
+   * Baileys. Baileys rafraichit le QR toutes les ~20s pendant 5 cycles
+   * puis ferme la connexion si personne n'a scanne.
+   */
+  qrCode: string | null;
   connectedSince: Date | null;
   lastError: string | null;
 }
@@ -67,6 +76,7 @@ function getStore(tenantId: string, tenantSlug: string): WhatsappStore {
         phoneNumber: null,
         pairingCode: null,
         pairingCodeExpiresAt: null,
+        qrCode: null,
         connectedSince: null,
         lastError: null,
       },
@@ -129,6 +139,44 @@ export async function requestWhatsappPairingCode(
   // close socket + wipe disque. Sinon, si une session precedente est deja
   // enregistree (creds.json sur disque), Baileys voit creds.registered=true
   // et skip silencieusement l'appel requestPairingCode -> cryptic error.
+  await resetStoreForPairing(tenantId, tenantSlug);
+
+  await bootSocket({ tenantId, tenantSlug, requestPairingFor: normalized });
+
+  if (!store.state.pairingCode || !store.state.pairingCodeExpiresAt) {
+    throw new Error("Echec de la generation du code d'appairage");
+  }
+  return { code: store.state.pairingCode, expiresAt: store.state.pairingCodeExpiresAt };
+}
+
+/**
+ * Mode QR : demarre une session Baileys sans telephone. Baileys emet
+ * ensuite des QR codes successifs via `connection.update` (champ `qr`).
+ * On les transforme en data URL PNG et on les stocke dans `state.qrCode`.
+ * La cliente ouvre WhatsApp -> Appareils connectes -> Scanner un QR code.
+ *
+ * Note : Baileys rafraichit automatiquement le QR toutes les ~20s (5 cycles
+ * max) puis ferme la connexion si personne n'a scanne. Le polling cote UI
+ * se chargera d'afficher le QR a jour.
+ */
+export async function requestWhatsappQrPairing(
+  tenantId: string,
+  tenantSlug: string,
+): Promise<void> {
+  await resetStoreForPairing(tenantId, tenantSlug);
+  const store = getStore(tenantId, tenantSlug);
+  // Statut provisoire : la UI peut afficher un spinner le temps que le
+  // premier QR arrive de Baileys (~1-2s apres l'ouverture WS).
+  store.state = {
+    ...store.state,
+    status: "awaiting_pairing",
+    phoneNumber: null,
+  };
+  await bootSocket({ tenantId, tenantSlug, requestPairingFor: null, qrMode: true });
+}
+
+async function resetStoreForPairing(tenantId: string, tenantSlug: string): Promise<void> {
+  const store = getStore(tenantId, tenantSlug);
   await closeSocket(tenantId, tenantSlug);
   const dir = sessionDir(tenantSlug);
   try {
@@ -142,16 +190,10 @@ export async function requestWhatsappPairingCode(
     phoneNumber: null,
     pairingCode: null,
     pairingCodeExpiresAt: null,
+    qrCode: null,
     connectedSince: null,
     lastError: null,
   };
-
-  await bootSocket({ tenantId, tenantSlug, requestPairingFor: normalized });
-
-  if (!store.state.pairingCode || !store.state.pairingCodeExpiresAt) {
-    throw new Error("Echec de la generation du code d'appairage");
-  }
-  return { code: store.state.pairingCode, expiresAt: store.state.pairingCodeExpiresAt };
 }
 
 export async function disconnectWhatsappSession(tenantId: string, tenantSlug: string): Promise<void> {
@@ -171,6 +213,7 @@ export async function disconnectWhatsappSession(tenantId: string, tenantSlug: st
     phoneNumber: null,
     pairingCode: null,
     pairingCodeExpiresAt: null,
+    qrCode: null,
     connectedSince: null,
     lastError: null,
   };
@@ -280,6 +323,7 @@ async function bootSocket(opts: {
   tenantId: string;
   tenantSlug: string;
   requestPairingFor: string | null;
+  qrMode?: boolean;
 }): Promise<void> {
   const baileys = (await import("baileys")) as unknown as Baileys;
   const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = baileys;
@@ -318,13 +362,36 @@ async function bootSocket(opts: {
     // fraichement appairee.
     if (store.sock !== sock) return;
 
-    const { connection, lastDisconnect, isNewLogin } = update;
+    const { connection, lastDisconnect, isNewLogin, qr } = update;
+
+    // QR code emis par Baileys (mode qrMode). Rafraichi toutes les ~20s
+    // tant que personne ne scanne. On encode en data URL PNG pour que le
+    // composant React l'affiche directement via <img src=…>.
+    if (qr && opts.qrMode) {
+      void renderQrToDataUrl(qr)
+        .then((dataUrl) => {
+          if (store.sock !== sock) return;
+          store.state = {
+            ...store.state,
+            status: "awaiting_pairing",
+            qrCode: dataUrl,
+            pairingCode: null,
+            pairingCodeExpiresAt: null,
+            lastError: null,
+          };
+        })
+        .catch((err) => {
+          logger.warn("[WhatsApp] Encodage QR echoue", { error: err as Error });
+        });
+    }
+
     if (connection === "open") {
       store.state = {
         ...store.state,
         status: "connected",
         pairingCode: null,
         pairingCodeExpiresAt: null,
+        qrCode: null,
         connectedSince: new Date(),
         lastError: null,
         phoneNumber: extractOwnJid(sock) ?? store.state.phoneNumber,
@@ -449,6 +516,16 @@ function extractOwnJid(s: WASocket | null): string | null {
   if (!me) return null;
   const match = /^(\d+)[:@]/.exec(me);
   return match?.[1] ?? null;
+}
+
+async function renderQrToDataUrl(payload: string): Promise<string> {
+  const QRCode = (await import("qrcode")).default;
+  return QRCode.toDataURL(payload, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    scale: 8,
+    color: { dark: "#0f172a", light: "#ffffff" },
+  });
 }
 
 function normalizeInternational(raw: string): string | null {

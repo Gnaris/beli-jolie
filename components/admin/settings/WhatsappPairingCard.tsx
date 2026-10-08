@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import {
   getWhatsappStatus,
   startWhatsappPairing,
+  startWhatsappQrPairing,
   stopWhatsappSession,
 } from "@/app/actions/admin/whatsapp-pairing";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -14,9 +15,12 @@ interface SerializedState {
   phoneNumber: string | null;
   pairingCode: string | null;
   pairingCodeExpiresAt: string | null;
+  qrCode: string | null;
   connectedSince: string | null;
   lastError: string | null;
 }
+
+type PairingMode = "code" | "qr";
 
 interface Props {
   initialState: SerializedState;
@@ -37,6 +41,7 @@ interface Props {
 export default function WhatsappPairingCard({ initialState }: Props) {
   const [state, setState] = useState<SerializedState>(initialState);
   const [phoneInput, setPhoneInput] = useState("");
+  const [mode, setMode] = useState<PairingMode>("code");
   const [pending, startTransition] = useTransition();
   const [now, setNow] = useState(() => Date.now());
   const toast = useToast();
@@ -90,6 +95,17 @@ export default function WhatsappPairingCard({ initialState }: Props) {
     });
   }
 
+  function handleStartQrPairing() {
+    startTransition(async () => {
+      const res = await startWhatsappQrPairing();
+      if (!res.success) {
+        toast.error("Échec de l'appairage", res.error);
+        return;
+      }
+      setState(res.state);
+    });
+  }
+
   async function handleDisconnect() {
     const ok = await confirm({
       type: "warning",
@@ -122,32 +138,128 @@ export default function WhatsappPairingCard({ initialState }: Props) {
         state.status === "logged_out" ||
         state.status === "error") && (
         <div className="space-y-3">
-          <label className="block text-xs font-body font-semibold text-text-primary">
-            Numéro WhatsApp à appairer
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="tel"
-              value={phoneInput}
-              onChange={(e) => setPhoneInput(e.target.value)}
-              placeholder="+33 6 12 34 56 78"
-              disabled={pending}
-              className="flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg text-sm font-body focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 bg-bg-primary text-text-primary disabled:opacity-60"
-            />
+          {/* Toggle méthode d'appairage */}
+          <div className="inline-flex items-center rounded-lg border border-border bg-bg-secondary p-1 text-xs font-heading font-semibold">
             <button
               type="button"
-              onClick={handleStartPairing}
-              disabled={pending || !phoneInput.trim()}
-              className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-sm font-heading font-semibold transition"
+              onClick={() => setMode("code")}
+              disabled={pending}
+              className={`px-3 py-1.5 rounded-md transition ${
+                mode === "code"
+                  ? "bg-bg-primary text-text-primary shadow-sm"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
             >
-              {pending ? "..." : "Appairer"}
+              Code à 8 chiffres
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("qr")}
+              disabled={pending}
+              className={`px-3 py-1.5 rounded-md transition ${
+                mode === "qr"
+                  ? "bg-bg-primary text-text-primary shadow-sm"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              QR code
             </button>
           </div>
+
+          {mode === "code" ? (
+            <>
+              <label className="block text-xs font-body font-semibold text-text-primary">
+                Numéro WhatsApp à appairer
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="tel"
+                  value={phoneInput}
+                  onChange={(e) => setPhoneInput(e.target.value)}
+                  placeholder="+33 6 12 34 56 78"
+                  disabled={pending}
+                  className="flex-1 min-w-0 px-3 py-2.5 border border-border rounded-lg text-sm font-body focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 bg-bg-primary text-text-primary disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={handleStartPairing}
+                  disabled={pending || !phoneInput.trim()}
+                  className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-sm font-heading font-semibold transition"
+                >
+                  {pending ? "..." : "Appairer"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleStartQrPairing}
+                disabled={pending}
+                className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-sm font-heading font-semibold transition"
+              >
+                {pending ? "..." : "Afficher le QR code"}
+              </button>
+              <span className="text-[11.5px] text-text-muted">
+                Pas besoin de saisir le numéro — vous scannerez depuis WhatsApp.
+              </span>
+            </div>
+          )}
+
           <p className="text-[11.5px] text-text-muted leading-relaxed">
             Prenez un numéro <strong>dédié à cette boutique</strong> (2ᵉ carte SIM
             ou numéro VoIP). En cas de ban Meta, votre WhatsApp perso reste
             intact. Chaque boutique utilise son propre numéro.
           </p>
+        </div>
+      )}
+
+      {/* QR code à scanner */}
+      {state.status === "awaiting_pairing" && state.qrCode && (
+        <div className="rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50 p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-heading font-bold text-xl">
+              ①
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-body font-semibold text-emerald-900">
+                Scannez ce QR code avec WhatsApp
+              </p>
+              <p className="text-[11.5px] text-emerald-800 mt-0.5">
+                Le QR se renouvelle automatiquement toutes les ~20 s. Si vous
+                n'arrivez pas à le scanner à temps, attendez le suivant.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-center py-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={state.qrCode}
+              alt="QR code WhatsApp"
+              className="w-56 h-56 rounded-lg border border-emerald-200 bg-white p-2"
+            />
+          </div>
+
+          <div className="flex items-start gap-3 pt-2 border-t border-emerald-200">
+            <div className="shrink-0 w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center font-heading font-bold text-xl">
+              ②
+            </div>
+            <div className="flex-1 text-[13px] font-body text-emerald-900 leading-relaxed">
+              Ouvrez WhatsApp sur votre téléphone →{" "}
+              <strong>Réglages</strong> → <strong>Appareils connectés</strong>{" "}
+              → <strong>Connecter un appareil</strong> → scannez ce QR.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            disabled={pending}
+            className="text-[12px] text-emerald-700 hover:text-emerald-900 underline"
+          >
+            Annuler l'appairage
+          </button>
         </div>
       )}
 

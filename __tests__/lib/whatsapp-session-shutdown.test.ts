@@ -31,6 +31,7 @@ interface MockStore {
     phoneNumber: string | null;
     pairingCode: string | null;
     pairingCodeExpiresAt: Date | null;
+    qrCode: string | null;
     connectedSince: Date | null;
     lastError: string | null;
   };
@@ -59,6 +60,7 @@ function makeStore(tenantSlug: string, status: string): MockStore {
       phoneNumber: "33612345678",
       pairingCode: null,
       pairingCodeExpiresAt: null,
+      qrCode: null,
       connectedSince: new Date(),
       lastError: null,
     },
@@ -150,5 +152,20 @@ describe("getWhatsappSessionState (sanity)", () => {
     expect(state.status).toBe("disconnected");
     expect(state.pairingCode).toBeNull();
     expect(state.connectedSince).toBeNull();
+  });
+
+  it("expose un champ qrCode (null par defaut)", () => {
+    const state = getWhatsappSessionState("tenant-qr", "slug-qr");
+    expect(state).toHaveProperty("qrCode");
+    expect(state.qrCode).toBeNull();
+  });
+
+  it("retourne un snapshot (modifier le resultat n'affecte pas le store interne)", () => {
+    const first = getWhatsappSessionState("t1", "s1");
+    first.pairingCode = "deadbeef";
+    first.qrCode = "data:image/png;base64,xxx";
+    const second = getWhatsappSessionState("t1", "s1");
+    expect(second.pairingCode).toBeNull();
+    expect(second.qrCode).toBeNull();
   });
 });

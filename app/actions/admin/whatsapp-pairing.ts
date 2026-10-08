@@ -7,6 +7,7 @@ import {
   disconnectWhatsappSession,
   getWhatsappSessionState,
   requestWhatsappPairingCode,
+  requestWhatsappQrPairing,
   type WhatsappSessionState,
 } from "@/lib/whatsapp-session";
 import { checkWhatsappNumber, type WhatsappCheckOutcome } from "@/lib/whatsapp-check";
@@ -30,6 +31,7 @@ interface SerializedState {
   phoneNumber: string | null;
   pairingCode: string | null;
   pairingCodeExpiresAt: string | null;
+  qrCode: string | null;
   connectedSince: string | null;
   lastError: string | null;
 }
@@ -40,6 +42,7 @@ function serialize(state: WhatsappSessionState): SerializedState {
     phoneNumber: state.phoneNumber,
     pairingCode: state.pairingCode,
     pairingCodeExpiresAt: state.pairingCodeExpiresAt?.toISOString() ?? null,
+    qrCode: state.qrCode,
     connectedSince: state.connectedSince?.toISOString() ?? null,
     lastError: state.lastError,
   };
@@ -58,6 +61,19 @@ export async function startWhatsappPairing(
   const { id, slug } = await requireCurrentTenant();
   try {
     await requestWhatsappPairingCode(id, slug, phoneNumber);
+    return { success: true, state: serialize(getWhatsappSessionState(id, slug)) };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export async function startWhatsappQrPairing(): Promise<
+  { success: true; state: SerializedState } | { success: false; error: string }
+> {
+  await requireAdmin();
+  const { id, slug } = await requireCurrentTenant();
+  try {
+    await requestWhatsappQrPairing(id, slug);
     return { success: true, state: serialize(getWhatsappSessionState(id, slug)) };
   } catch (err) {
     return { success: false, error: (err as Error).message };
