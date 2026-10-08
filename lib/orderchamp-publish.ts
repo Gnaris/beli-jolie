@@ -636,6 +636,13 @@ export async function orderchampPublishProduct(
             PRODUCT_PUBLISH_MUTATION,
             { input: { id: created.id, storefrontId } },
             "productPublish/postCreate",
+            // Non-idempotent côté OC : un retry après 5xx / erreur réseau crée
+            // une variante listing fantôme à chaque passage (incident J119A,
+            // A1675A 2026-10-08 — listing avec 2× la même variante → erreur
+            // « Variants duplicate » côté OC). Si le réseau coupe pile sur la
+            // réponse, on perd la confirmation mais pas la création — mieux
+            // vaut remonter l'erreur à l'opérateur qu'empiler des doublons.
+            { disableRetry: true },
           );
           const pubErrs = extractUserErrors(pub.productPublish);
           if (pubErrs.length > 0) {

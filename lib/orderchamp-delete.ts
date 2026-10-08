@@ -121,6 +121,9 @@ export async function orderchampRepublishProductVisibility(
       PRODUCT_PUBLISH_MUTATION,
       { input: { id: orderchampProductId } },
       "productPublish",
+      // Non-idempotent — un retry crée des variantes listing dupliquées
+      // (incident 2026-10-08). Voir orderchamp-publish.ts.
+      { disableRetry: true },
     );
     const errs = extractUserErrors(data.productPublish);
     if (errs.length > 0) {
