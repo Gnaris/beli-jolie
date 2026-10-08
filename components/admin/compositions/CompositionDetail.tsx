@@ -1,6 +1,6 @@
 "use client";
 
-import CompositionTranslationsLocked from "./CompositionTranslationsLocked";
+import AttributeTranslationsLocked from "@/components/admin/AttributeTranslationsLocked";
 import CompositionMarketplaceMappingCards from "./CompositionMarketplaceMappingCards";
 import { compositionInitials } from "@/lib/composition-filters";
 import { formatDate } from "@/lib/format-date";
@@ -133,7 +133,7 @@ export default function CompositionDetail({
       <section className="relative bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)] overflow-hidden">
         <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-300 to-sky-500" />
         <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary mb-3.5">Traductions</h3>
-        <CompositionTranslationsLocked translations={composition.translations} />
+        <AttributeTranslationsLocked translations={composition.translations} />
       </section>
 
       {/* Marketplaces */}

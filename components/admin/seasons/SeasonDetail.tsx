@@ -1,6 +1,6 @@
 "use client";
 
-import SeasonTranslationsLocked from "./SeasonTranslationsLocked";
+import AttributeTranslationsLocked from "@/components/admin/AttributeTranslationsLocked";
 import SeasonMarketplaceMappingCards from "./SeasonMarketplaceMappingCards";
 import { extractYear, seasonEmoji, seasonGradient } from "@/lib/season-filters";
 import { formatDate } from "@/lib/format-date";
@@ -148,7 +148,7 @@ export default function SeasonDetail({
       <section className="relative bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)] overflow-hidden">
         <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-300 to-emerald-500" />
         <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary mb-3.5">Traductions</h3>
-        <SeasonTranslationsLocked translations={season.translations} />
+        <AttributeTranslationsLocked translations={season.translations} />
       </section>
 
       {/* Marketplaces */}

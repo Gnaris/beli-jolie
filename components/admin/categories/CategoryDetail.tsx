@@ -1,6 +1,6 @@
 "use client";
 
-import CategoryTranslationsLocked from "./CategoryTranslationsLocked";
+import AttributeTranslationsLocked from "@/components/admin/AttributeTranslationsLocked";
 import SubCategoryChips from "./SubCategoryChips";
 import MarketplaceMappingCards from "./MarketplaceMappingCards";
 import CategoryImageUploader from "./CategoryImageUploader";
@@ -156,7 +156,7 @@ export default function CategoryDetail({
       {/* Translations */}
       <section className="bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)]">
         <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary mb-3.5">Traductions</h3>
-        <CategoryTranslationsLocked translations={category.translations} />
+        <AttributeTranslationsLocked translations={category.translations} />
       </section>
 
       {/* Sub-categories */}

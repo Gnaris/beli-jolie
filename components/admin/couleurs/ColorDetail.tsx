@@ -1,6 +1,6 @@
 "use client";
 
-import ColorTranslationsLocked from "./ColorTranslationsLocked";
+import AttributeTranslationsLocked from "@/components/admin/AttributeTranslationsLocked";
 import ColorMarketplaceMappingCards from "./ColorMarketplaceMappingCards";
 import { formatDate } from "@/lib/format-date";
 
@@ -163,7 +163,7 @@ export default function ColorDetail({
       {/* Translations */}
       <section className="bg-bg-primary border border-border rounded-2xl p-3 md:p-4 shadow-[var(--shadow-sm)]">
         <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-text-secondary mb-3.5">Traductions</h3>
-        <ColorTranslationsLocked translations={color.translations} />
+        <AttributeTranslationsLocked translations={color.translations} />
       </section>
 
       {/* Marketplaces */}
