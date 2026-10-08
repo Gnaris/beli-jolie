@@ -350,6 +350,31 @@ if (!g[GUARD]) {
     })();
   }, 10_000);
 
+  // Arret propre des sessions WhatsApp sur SIGTERM/SIGINT (declenches par
+  // `pm2 restart`/`pm2 stop`). Sans ca, Baileys meurt brutalement -> Meta
+  // percoit la coupure comme suspecte et peut invalider la session.
+  // PM2 envoie SIGINT par defaut, puis SIGKILL apres kill_timeout (5s cote
+  // VPS). shutdownAllWhatsappSessions est timeboxee a 2.5s.
+  let shutdownStarted = false;
+  const onShutdownSignal = async (signal: NodeJS.Signals) => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    logger.info(`[Shutdown] Signal ${signal} recu - arret propre des sessions WhatsApp`);
+    try {
+      const { shutdownAllWhatsappSessions } = await import("@/lib/whatsapp-session");
+      await shutdownAllWhatsappSessions();
+    } catch (err) {
+      logger.error("[Shutdown] Arret des sessions WhatsApp echoue", { error: err as Error });
+    }
+    // Rendre la main a PM2. Pas de process.exit explicite : le close frame
+    // Baileys est envoye, les creds persistes, le socket WS peut encore
+    // avoir des handles en vie - PM2 enverra SIGKILL si l'event loop ne
+    // draine pas, c'est OK (on a deja fait ce qu'il fallait cote Meta).
+    process.exit(0);
+  };
+  process.on("SIGTERM", (sig) => void onShutdownSignal(sig));
+  process.on("SIGINT", (sig) => void onShutdownSignal(sig));
+
   process.on("uncaughtException", (err: Error) => {
     logger.error("Plantage non rattrapé", {
       event: "Plantage non rattrapé",

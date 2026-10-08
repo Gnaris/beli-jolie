@@ -37,8 +37,12 @@ else
 fi
 
 # --- 2) Restart PM2 ---------------------------------------------------------
-log "pm2 restart $PM2_APP"
-pm2 restart "$PM2_APP" --update-env
+# kill-timeout 5s : laisse le handler SIGINT/SIGTERM d'instrumentation-node.ts
+# fermer proprement les sessions Baileys WhatsApp (shutdownAllWhatsappSessions)
+# avant que PM2 n'envoie SIGKILL. Sans ca, Meta percoit la coupure comme
+# suspecte et peut invalider la session -> ré-appairage obligatoire.
+log "pm2 restart $PM2_APP (kill-timeout 5s pour arret propre WhatsApp)"
+pm2 restart "$PM2_APP" --update-env --kill-timeout 5000
 
 # --- 3) Health check --------------------------------------------------------
 log "Attente 5s puis health check…"

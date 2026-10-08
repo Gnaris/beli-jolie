@@ -41,6 +41,7 @@ interface WhatsappStore {
   starting: boolean;
   reconnectTimer: NodeJS.Timeout | null;
   tenantSlug: string;
+  shuttingDown: boolean;
 }
 
 const GLOBAL_KEY = Symbol.for("beliandjolie.whatsapp.sessions.by-tenant");
@@ -72,6 +73,7 @@ function getStore(tenantId: string, tenantSlug: string): WhatsappStore {
       starting: false,
       reconnectTimer: null,
       tenantSlug,
+      shuttingDown: false,
     };
     map.set(tenantId, s);
   } else if (s.tenantSlug !== tenantSlug) {
@@ -221,6 +223,49 @@ export async function listPersistedWhatsappSessionSlugs(): Promise<string[]> {
   }
 }
 
+/**
+ * Arret propre de TOUTES les sessions WhatsApp du process (toutes boutiques
+ * confondues). Appele depuis `instrumentation-node.ts` sur SIGTERM/SIGINT
+ * (ex: `pm2 restart beliandjolie` au moment d'un push en prod).
+ *
+ * Objectif : envoyer un close frame WebSocket propre a Meta pour que la
+ * session soit percue comme un offline normal plutot qu'une coupure
+ * brutale. Les creds restent sur disque, le prochain boot reprend la
+ * session telle quelle sans ré-appairage.
+ *
+ * Timebox 2.5s : au-dela, PM2 va envoyer SIGKILL (kill_timeout cote PM2
+ * configure a 5s), on preferre rendre la main avant.
+ */
+export async function shutdownAllWhatsappSessions(): Promise<void> {
+  const map = stores();
+  if (map.size === 0) return;
+
+  const deadlineMs = 2_500;
+  const started = Date.now();
+
+  for (const store of map.values()) {
+    store.shuttingDown = true;
+    if (store.reconnectTimer) {
+      clearTimeout(store.reconnectTimer);
+      store.reconnectTimer = null;
+    }
+    if (store.sock) {
+      try {
+        store.sock.end(undefined);
+      } catch {
+        // noop
+      }
+    }
+  }
+
+  // Petite fenetre pour laisser Baileys flusher le close frame + saveCreds
+  // pendant.
+  const remaining = Math.max(0, deadlineMs - (Date.now() - started));
+  if (remaining > 0) {
+    await new Promise((resolve) => setTimeout(resolve, Math.min(remaining, 1_500)));
+  }
+}
+
 async function hasExistingSession(tenantSlug: string): Promise<boolean> {
   try {
     const creds = path.join(sessionDir(tenantSlug), "creds.json");
@@ -301,6 +346,11 @@ async function bootSocket(opts: {
         void disconnectWhatsappSession(opts.tenantId, opts.tenantSlug).then(() => {
           store.state = { ...store.state, status: "logged_out" };
         });
+      } else if (store.shuttingDown) {
+        // Arret propre en cours (SIGTERM/SIGINT) : pas de reconnexion, pas
+        // de log parasite. On laisse le socket mourir en douceur, Meta
+        // percoit un offline propre plutot qu'une coupure franche.
+        store.state = { ...store.state, status: "disconnected" };
       } else {
         store.state = { ...store.state, status: "connecting" };
         // Annule tout timer de reconnexion precedent pour eviter d'avoir
