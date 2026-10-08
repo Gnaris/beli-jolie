@@ -1096,6 +1096,7 @@ async function buildWhatsappTile(): Promise<DashboardTile> {
     phoneNumber: session.phoneNumber,
     pairingCode: session.pairingCode,
     pairingCodeExpiresAt: session.pairingCodeExpiresAt?.toISOString() ?? null,
+    qrCode: session.qrCode,
     connectedSince: session.connectedSince?.toISOString() ?? null,
     lastError: session.lastError,
   };
