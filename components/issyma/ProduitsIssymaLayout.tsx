@@ -204,6 +204,8 @@ export default async function ProduitsIssymaLayout({
   compositions,
   tags,
   selectedFilters,
+  produitsSeoIntro = "",
+  produitsSeoText = "",
 }: {
   shopName: string;
   products: CarouselProduct[];
@@ -215,6 +217,12 @@ export default async function ProduitsIssymaLayout({
   compositions: FilterOption[];
   tags: FilterOption[];
   selectedFilters: SelectedFilters;
+  /** Phrase d'accroche FR + locale (SiteConfig `produits_seo_intro[_{locale}]`).
+   *  Rendue sous le hero. Vide → bloc caché. Déjà résolue côté page serveur. */
+  produitsSeoIntro?: string;
+  /** Paragraphe éditorial long (SiteConfig `produits_seo_text[_{locale}]`).
+   *  Rendu en bas de page, nourrit Google avec les mots-clés cibles. */
+  produitsSeoText?: string;
 }) {
   const t = await getTranslations("products");
   const tHome = await getTranslations("home");
@@ -277,6 +285,14 @@ export default async function ProduitsIssymaLayout({
               <p className="mt-2 text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: P.muted }}>
                 {t("issymaHeroSubtitle")}
               </p>
+              {produitsSeoIntro && (
+                <div
+                  className="mt-3 max-w-xl text-[13px] leading-relaxed font-body whitespace-pre-line"
+                  style={{ color: P.muted }}
+                >
+                  {produitsSeoIntro}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col items-start lg:items-end gap-4">
@@ -511,6 +527,22 @@ export default async function ProduitsIssymaLayout({
           </div>
         </div>
       </section>
+
+      {/* Texte SEO long — bloc discret couleur crème, aligne avec la charte bordeaux
+          Issyma. Rendu seulement en l'absence de filtres (sinon on noie une page de
+          résultats avec un paragraphe générique). */}
+      {produitsSeoText && !hasAnyFilter && (
+        <section style={{ background: P.cream, borderTop: `1px solid ${P.borderSoft}` }}>
+          <div className="max-w-[900px] mx-auto px-6 lg:px-10 py-12 lg:py-16">
+            <div
+              className="text-[13px] sm:text-[14px] leading-relaxed font-body whitespace-pre-line"
+              style={{ color: P.muted }}
+            >
+              {produitsSeoText}
+            </div>
+          </div>
+        </section>
+      )}
     </IssymaShell>
   );
 }

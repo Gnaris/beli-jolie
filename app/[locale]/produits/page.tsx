@@ -402,6 +402,8 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
         colors={colors.map((c) => ({ id: c.id, name: colorTr.get(c.id) ?? c.name, hex: c.hex ?? null }))}
         compositions={compositions.map((c) => ({ id: c.id, name: compTr.get(c.id) ?? c.name }))}
         tags={tags.map((tg) => ({ id: tg.id, name: tagTr.get(tg.id) ?? tg.name }))}
+        produitsSeoIntro={produitsSeoIntro}
+        produitsSeoText={produitsSeoText}
         selectedFilters={{
           q: q || undefined,
           cat: cat || undefined,
