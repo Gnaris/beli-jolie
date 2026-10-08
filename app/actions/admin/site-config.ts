@@ -133,23 +133,33 @@ export async function updateBusinessHours(schedule: {
  *  - `produits_seo_intro` : phrase courte en haut de /produits (au-dessus des filtres).
  *  - `produits_seo_text` : paragraphe long affiché en bas de /produits.
  *
- * Clés SiteConfig EN (traduction manuelle) :
- *  - `seo_tagline_en`, `home_seo_text_en`, `produits_seo_intro_en`, `produits_seo_text_en`
- *    Lue quand la locale visiteur = `en`. Vide → fallback sur la version FR
- *    (évite qu'une boutique multilingue partiellement traduite affiche du vide).
+ * Clés par locale (traduction manuelle) :
+ *  - `<key>_<locale>` pour chaque locale non-FR (en, de, es, it). Lue quand la
+ *    locale visiteur correspond. Vide → fallback sur la version FR (évite
+ *    qu'une boutique multilingue partiellement traduite affiche du vide).
  *
  * Une chaîne vide supprime simplement le bloc / retombe sur le défaut.
  */
+type SeoTextsLocalized = {
+  homeText?: string;
+  produitsText?: string;
+  produitsIntroText?: string;
+  tagline?: string;
+};
+
 export async function updateSeoTexts(input: {
+  // Version FR (source)
   homeText: string;
   produitsText: string;
   produitsIntroText?: string;
   tagline?: string;
-  // Versions anglaises (facultatives, séparément saisies dans l'UI).
+  // Rétrocompat : anciennes clés plates `*En`. Fusionnées dans `translations.en`.
   homeTextEn?: string;
   produitsTextEn?: string;
   produitsIntroTextEn?: string;
   taglineEn?: string;
+  // Nouvelle API : map par locale (en, de, es, it).
+  translations?: Partial<Record<string, SeoTextsLocalized>>;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     await requireAdmin();
@@ -157,32 +167,72 @@ export async function updateSeoTexts(input: {
     const produits = input.produitsText.trim();
     const produitsIntro = (input.produitsIntroText ?? "").trim();
     const tagline = (input.tagline ?? "").trim();
-    const homeEn = (input.homeTextEn ?? "").trim();
-    const produitsEn = (input.produitsTextEn ?? "").trim();
-    const produitsIntroEn = (input.produitsIntroTextEn ?? "").trim();
-    const taglineEn = (input.taglineEn ?? "").trim();
     const MAX = 5000;
     const INTRO_MAX = 400;
     const TAGLINE_MAX = 80;
-    if (home.length > MAX || produits.length > MAX || homeEn.length > MAX || produitsEn.length > MAX) {
+
+    // Normalise toutes les locales non-FR dans une map unique. Les anciennes
+    // props `*En` (callers existants) sont fusionnées dans translations.en
+    // pour ne rien perdre.
+    const perLocale: Record<string, SeoTextsLocalized> = {};
+    for (const loc of NON_DEFAULT_LOCALES) {
+      perLocale[loc] = input.translations?.[loc] ?? {};
+    }
+    if (
+      input.homeTextEn !== undefined ||
+      input.produitsTextEn !== undefined ||
+      input.produitsIntroTextEn !== undefined ||
+      input.taglineEn !== undefined
+    ) {
+      perLocale.en = {
+        homeText: input.homeTextEn ?? perLocale.en.homeText,
+        produitsText: input.produitsTextEn ?? perLocale.en.produitsText,
+        produitsIntroText: input.produitsIntroTextEn ?? perLocale.en.produitsIntroText,
+        tagline: input.taglineEn ?? perLocale.en.tagline,
+      };
+    }
+
+    // Validation longueurs (FR + chaque locale)
+    if (home.length > MAX || produits.length > MAX) {
       return { success: false, error: `Le texte ne doit pas dépasser ${MAX} caractères.` };
     }
-    if (produitsIntro.length > INTRO_MAX || produitsIntroEn.length > INTRO_MAX) {
+    if (produitsIntro.length > INTRO_MAX) {
       return { success: false, error: `L'accroche ne doit pas dépasser ${INTRO_MAX} caractères.` };
     }
-    if (tagline.length > TAGLINE_MAX || taglineEn.length > TAGLINE_MAX) {
+    if (tagline.length > TAGLINE_MAX) {
       return { success: false, error: `La baseline ne doit pas dépasser ${TAGLINE_MAX} caractères.` };
     }
-    await Promise.all([
+    for (const loc of NON_DEFAULT_LOCALES) {
+      const t = perLocale[loc];
+      const hText = (t.homeText ?? "").trim();
+      const pText = (t.produitsText ?? "").trim();
+      const pIntro = (t.produitsIntroText ?? "").trim();
+      const tag = (t.tagline ?? "").trim();
+      if (hText.length > MAX || pText.length > MAX) {
+        return { success: false, error: `Le texte (${LOCALE_LABELS[loc] ?? loc}) ne doit pas dépasser ${MAX} caractères.` };
+      }
+      if (pIntro.length > INTRO_MAX) {
+        return { success: false, error: `L'accroche (${LOCALE_LABELS[loc] ?? loc}) ne doit pas dépasser ${INTRO_MAX} caractères.` };
+      }
+      if (tag.length > TAGLINE_MAX) {
+        return { success: false, error: `La baseline (${LOCALE_LABELS[loc] ?? loc}) ne doit pas dépasser ${TAGLINE_MAX} caractères.` };
+      }
+    }
+
+    const writes: Promise<unknown>[] = [
       setSiteConfig("home_seo_text", home),
       setSiteConfig("produits_seo_text", produits),
       setSiteConfig("produits_seo_intro", produitsIntro),
       setSiteConfig("seo_tagline", tagline),
-      setSiteConfig("home_seo_text_en", homeEn),
-      setSiteConfig("produits_seo_text_en", produitsEn),
-      setSiteConfig("produits_seo_intro_en", produitsIntroEn),
-      setSiteConfig("seo_tagline_en", taglineEn),
-    ]);
+    ];
+    for (const loc of NON_DEFAULT_LOCALES) {
+      const t = perLocale[loc];
+      writes.push(setSiteConfig(`home_seo_text_${loc}`, (t.homeText ?? "").trim()));
+      writes.push(setSiteConfig(`produits_seo_text_${loc}`, (t.produitsText ?? "").trim()));
+      writes.push(setSiteConfig(`produits_seo_intro_${loc}`, (t.produitsIntroText ?? "").trim()));
+      writes.push(setSiteConfig(`seo_tagline_${loc}`, (t.tagline ?? "").trim()));
+    }
+    await Promise.all(writes);
     revalidatePath("/admin/parametres");
     revalidateTag("site-config", "default");
     revalidatePath("/", "layout");

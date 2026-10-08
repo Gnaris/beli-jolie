@@ -27,21 +27,21 @@ import type { HomeLayoutProps } from "@/components/home/layouts/HomeLayoutProps"
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
-  const wantEn = locale === "en";
-  const [shopName, tMeta, siteUrl, alternates, taglineRow, taglineRowEn] = await Promise.all([
+  const wantLocalized = locale !== "fr";
+  const [shopName, tMeta, siteUrl, alternates, taglineRow, taglineRowLoc] = await Promise.all([
     getCachedShopName(),
     getTranslations({ locale, namespace: "meta" }),
     getSiteUrl(),
     buildAlternates("/", locale),
     getCachedSiteConfig("seo_tagline"),
-    wantEn ? getCachedSiteConfig("seo_tagline_en") : Promise.resolve(null),
+    wantLocalized ? getCachedSiteConfig(`seo_tagline_${locale}`) : Promise.resolve(null),
   ]);
   // Le title de la home = tagline configurable par tenant (Paramètres SEO).
-  // Locale EN : priorité à la version anglaise si saisie, sinon fallback FR.
+  // Locale non-FR : priorité à la version localisée si saisie, sinon fallback FR.
   // Fallback ultime = message i18n générique. Le template `%s | shopName` du
   // layout racine ajoute automatiquement le suffixe — on ne le réécrit pas ici.
   const tagline =
-    (wantEn && taglineRowEn?.value?.trim()) || taglineRow?.value?.trim() || "";
+    (wantLocalized && taglineRowLoc?.value?.trim()) || taglineRow?.value?.trim() || "";
   const homeTitle = tagline || tMeta("homeTitle");
   return {
     title: homeTitle,

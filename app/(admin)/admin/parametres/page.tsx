@@ -848,16 +848,19 @@ async function buildMarketplacesTile(): Promise<DashboardTile> {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildContenuTile(): Promise<DashboardTile> {
   const { getSiteUrl } = await import("@/lib/seo");
+  const { NON_DEFAULT_LOCALES } = await import("@/i18n/locales");
   const brandingKeys = [SEO_CONFIG_KEYS.logo, SEO_CONFIG_KEYS.ogImage, ...SEO_CONFIG_KEYS.socials];
+  // Clés FR (sources) + variantes par locale non-FR (en/de/es/it).
+  const SEO_FIELDS = ["home_seo_text", "produits_seo_text", "produits_seo_intro", "seo_tagline"] as const;
+  const localizedKeys = NON_DEFAULT_LOCALES.flatMap((loc) =>
+    SEO_FIELDS.map((f) => `${f}_${loc}`),
+  );
   const [
     homeRow,
     produitsRow,
     produitsIntroRow,
     taglineRow,
-    homeRowEn,
-    produitsRowEn,
-    produitsIntroRowEn,
-    taglineRowEn,
+    localizedRows,
     shopName,
     siteUrl,
     brandingRows,
@@ -866,10 +869,10 @@ async function buildContenuTile(): Promise<DashboardTile> {
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_text" } }),
     prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro" } }),
     prisma.siteConfig.findFirst({ where: { key: "seo_tagline" } }),
-    prisma.siteConfig.findFirst({ where: { key: "home_seo_text_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "produits_seo_text_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "produits_seo_intro_en" } }),
-    prisma.siteConfig.findFirst({ where: { key: "seo_tagline_en" } }),
+    prisma.siteConfig.findMany({
+      where: { key: { in: localizedKeys } },
+      select: { key: true, value: true },
+    }),
     getCachedShopName(),
     getSiteUrl(),
     prisma.siteConfig.findMany({
@@ -916,10 +919,24 @@ async function buildContenuTile(): Promise<DashboardTile> {
             initialProduitsText={produitsRow?.value ?? ""}
             initialProduitsIntroText={produitsIntroRow?.value ?? ""}
             initialTagline={taglineRow?.value ?? ""}
-            initialHomeTextEn={homeRowEn?.value ?? ""}
-            initialProduitsTextEn={produitsRowEn?.value ?? ""}
-            initialProduitsIntroTextEn={produitsIntroRowEn?.value ?? ""}
-            initialTaglineEn={taglineRowEn?.value ?? ""}
+            initialTranslations={(() => {
+              const map = new Map(localizedRows.map((r) => [r.key, r.value ?? ""]));
+              const out: Record<string, {
+                homeText: string;
+                produitsText: string;
+                produitsIntroText: string;
+                tagline: string;
+              }> = {};
+              for (const loc of NON_DEFAULT_LOCALES) {
+                out[loc] = {
+                  homeText: map.get(`home_seo_text_${loc}`) ?? "",
+                  produitsText: map.get(`produits_seo_text_${loc}`) ?? "",
+                  produitsIntroText: map.get(`produits_seo_intro_${loc}`) ?? "",
+                  tagline: map.get(`seo_tagline_${loc}`) ?? "",
+                };
+              }
+              return out;
+            })()}
           />
         </SettingCard>
 

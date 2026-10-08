@@ -1,6 +1,6 @@
 /**
  * Tests for updateSeoTexts (server action) — gating admin, validation longueur,
- * upsert des 8 clés SiteConfig (4 FR + 4 EN).
+ * upsert des 20 clés SiteConfig (4 FR + 4 × 4 locales non-FR : en, de, es, it).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -49,32 +49,46 @@ describe("updateSeoTexts", () => {
     expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
   });
 
-  it("upsert les huit clés SiteConfig pour un admin (4 FR + 4 EN)", async () => {
+  it("upsert les 20 clés SiteConfig pour un admin (4 FR + 4 locales × 4 champs)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({
       homeText: "  Bienvenue chez nous  ",
       produitsText: "Notre catalogue.",
       produitsIntroText: "  Accroche courte  ",
       tagline: "  Grossiste maroquinerie  ",
+      // rétrocompat: props `*En` sont fusionnées dans translations.en
       homeTextEn: "  Welcome  ",
       produitsTextEn: "Our catalog.",
       produitsIntroTextEn: "  Short intro  ",
       taglineEn: "  Wholesaler leathergoods  ",
+      translations: {
+        de: {
+          homeText: "Willkommen",
+          produitsText: "Unser Katalog.",
+          produitsIntroText: "Kurze Einleitung",
+          tagline: "B2B Großhändler",
+        },
+      },
     });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(8);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(20);
+    // FR source
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text", "Bienvenue chez nous");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text", "Notre catalogue.");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro", "Accroche courte");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline", "Grossiste maroquinerie");
+    // EN (via rétrocompat des props plates)
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_en", "Welcome");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text_en", "Our catalog.");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro_en", "Short intro");
     expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_en", "Wholesaler leathergoods");
+    // DE (via translations.de)
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_de", "Willkommen");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_de", "B2B Großhändler");
     expect(mockRevalidate.revalidateTag).toHaveBeenCalledWith("site-config", "default");
   });
 
-  it("écrit les clés _en vides quand l'anglais n'est pas fourni (fallback FR côté front)", async () => {
+  it("écrit les clés localisées vides quand aucune traduction n'est fournie (fallback FR côté front)", async () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({
       homeText: "FR",
@@ -83,10 +97,12 @@ describe("updateSeoTexts", () => {
       tagline: "Baseline FR",
     });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_en", "");
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text_en", "");
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro_en", "");
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_en", "");
+    for (const loc of ["en", "de", "it", "es"]) {
+      expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(`home_seo_text_${loc}`, "");
+      expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(`produits_seo_text_${loc}`, "");
+      expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(`produits_seo_intro_${loc}`, "");
+      expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith(`seo_tagline_${loc}`, "");
+    }
   });
 
   it("écrit seo_tagline vide quand la baseline n'est pas fournie", async () => {
@@ -138,7 +154,7 @@ describe("updateSeoTexts", () => {
     mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
     const result = await updateSeoTexts({ homeText: "", produitsText: "" });
     expect(result.success).toBe(true);
-    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(8);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledTimes(20);
   });
 
   it("rejette un texte anglais trop long", async () => {
@@ -156,5 +172,52 @@ describe("updateSeoTexts", () => {
     const result = await updateSeoTexts({ homeText: "", produitsText: "", produitsIntroTextEn: long });
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/400/);
+  });
+
+  it("rejette un texte allemand trop long", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const huge = "a".repeat(5001);
+    const result = await updateSeoTexts({
+      homeText: "",
+      produitsText: "",
+      translations: { de: { homeText: huge, produitsText: "", produitsIntroText: "", tagline: "" } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/5000/);
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
+  });
+
+  it("rejette une baseline espagnole trop longue", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const long = "b".repeat(81);
+    const result = await updateSeoTexts({
+      homeText: "",
+      produitsText: "",
+      translations: { es: { homeText: "", produitsText: "", produitsIntroText: "", tagline: long } },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/80/);
+    expect(mockSiteConfigWrite.setSiteConfig).not.toHaveBeenCalled();
+  });
+
+  it("écrit toutes les clés localisées fournies via translations", async () => {
+    mockGetServerSession.mockResolvedValueOnce({ user: { role: "ADMIN" } });
+    const result = await updateSeoTexts({
+      homeText: "FR",
+      produitsText: "FR2",
+      translations: {
+        it: {
+          homeText: "IT home",
+          produitsText: "IT prod",
+          produitsIntroText: "IT intro",
+          tagline: "IT tag",
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("home_seo_text_it", "IT home");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_text_it", "IT prod");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("produits_seo_intro_it", "IT intro");
+    expect(mockSiteConfigWrite.setSiteConfig).toHaveBeenCalledWith("seo_tagline_it", "IT tag");
   });
 });
