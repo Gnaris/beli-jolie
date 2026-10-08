@@ -7,7 +7,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { recalculateAllRulesForProduct } from "@/lib/collection-rules";
-import { invalidateProductTranslations, translateTextStrict } from "@/lib/translate";
+import { invalidateProductTranslations } from "@/lib/translate";
+import { translatePhrases, PFS_TRANSLATION_LOCALES } from "@/lib/pfs-translate";
 import { emitProductEvent } from "@/lib/product-events";
 import { autoTranslateProduct, autoTranslateTag } from "@/lib/auto-translate";
 import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
@@ -3234,10 +3235,14 @@ export async function saveProductTranslations(
 }
 
 /**
- * Traduit en anglais le nom + description des produits sélectionnés depuis la
- * barre d'action bulk (menu "Plus"). Force l'écrasement des ProductTranslation
- * existantes pour la locale "en" — l'utilisatrice a explicitement demandé
- * "on remplace" pour repartir de la version FR courante.
+ * Traduit le nom + description des produits sélectionnés depuis la barre
+ * d'action bulk (menu "Plus") vers TOUTES les locales non-FR ouvertes sur le
+ * site (en, de, it, es). Force l'écrasement des ProductTranslation existantes
+ * — l'utilisatrice a explicitement demandé "on remplace" pour repartir de la
+ * version FR courante.
+ *
+ * Utilise `translatePhrases` qui renvoie les 5 langues PFS en un seul appel,
+ * donc 1 appel API par lot de 10 produits (vs 1 par locale × produit).
  *
  * Ne dépend PAS du flag `auto_translate_enabled` (SiteConfig) car c'est une
  * action manuelle.
@@ -3253,44 +3258,85 @@ export async function bulkTranslateProducts(
     select: { id: true, name: true, description: true },
   });
 
+  // Locales ciblées = toutes les non-FR supportées par PFS (en, de, it, es).
+  const targetLocales = NON_DEFAULT_LOCALES.filter((l) =>
+    (PFS_TRANSLATION_LOCALES as readonly string[]).includes(l),
+  );
+
   let translated = 0;
   let failed = 0;
   let skipped = 0;
 
-  const CONCURRENCY = 5;
-  for (let i = 0; i < products.length; i += CONCURRENCY) {
-    const chunk = products.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      chunk.map(async (p) => {
-        const nameFr = p.name.trim();
-        if (!nameFr) {
-          skipped++;
-          return;
-        }
-        try {
-          const descFr = (p.description ?? "").trim();
-          const [translatedName, translatedDesc] = await Promise.all([
-            translateTextStrict(nameFr, "fr", "en"),
-            descFr ? translateTextStrict(descFr, "fr", "en") : Promise.resolve(""),
-          ]);
-          if (translatedName === null) {
-            failed++;
-            return;
-          }
-          const finalName = translatedName.trim();
-          const finalDesc = translatedDesc === null ? "" : (translatedDesc ?? "");
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < products.length; i += BATCH_SIZE) {
+    const batch = products.slice(i, i + BATCH_SIZE);
+
+    // Prépare le batch : skippe les produits sans nom FR.
+    const toTranslate: typeof batch = [];
+    for (const p of batch) {
+      if (!p.name.trim()) {
+        skipped++;
+        continue;
+      }
+      toTranslate.push(p);
+    }
+    if (toTranslate.length === 0) continue;
+
+    // 1 call PFS pour toutes les phrases du batch (nom + description de chaque
+    // produit) → PFS renvoie les 5 langues en une fois.
+    const phrases: Record<string, string> = {};
+    for (const p of toTranslate) {
+      phrases[`n_${p.id}`] = p.name.trim();
+      const desc = (p.description ?? "").trim();
+      if (desc) phrases[`d_${p.id}`] = desc;
+    }
+
+    let result: Awaited<ReturnType<typeof translatePhrases>> = null;
+    try {
+      result = await translatePhrases(phrases);
+    } catch (err) {
+      logger.error("[bulkTranslateProducts] batch PFS échoué", { error: err });
+    }
+
+    if (!result) {
+      failed += toTranslate.length;
+      continue;
+    }
+
+    // Persistance : 1 upsert ProductTranslation par (produit, locale).
+    for (const p of toTranslate) {
+      try {
+        const nameByLocale = result[`n_${p.id}`] ?? {};
+        const descByLocale = result[`d_${p.id}`] ?? {};
+        let anyWritten = false;
+        for (const locale of targetLocales) {
+          const localizedName =
+            nameByLocale[locale as (typeof PFS_TRANSLATION_LOCALES)[number]]?.trim() ?? "";
+          if (!localizedName) continue;
+          const localizedDesc =
+            descByLocale[locale as (typeof PFS_TRANSLATION_LOCALES)[number]]?.trim() ?? "";
           await prisma.productTranslation.upsert({
-            where: { productId_locale: { productId: p.id, locale: "en" } },
-            update: { name: finalName, description: finalDesc },
-            create: { productId: p.id, locale: "en", name: finalName, description: finalDesc },
+            where: { productId_locale: { productId: p.id, locale } },
+            update: { name: localizedName, description: localizedDesc },
+            create: {
+              productId: p.id,
+              locale,
+              name: localizedName,
+              description: localizedDesc,
+            },
           });
+          anyWritten = true;
+        }
+        if (anyWritten) {
           translated++;
-        } catch (err) {
-          logger.error("[bulkTranslateProducts] échec", { error: err, productId: p.id });
+        } else {
           failed++;
         }
-      }),
-    );
+      } catch (err) {
+        logger.error("[bulkTranslateProducts] persist échoué", { error: err, productId: p.id });
+        failed++;
+      }
+    }
   }
 
   revalidateTag("products", "default");

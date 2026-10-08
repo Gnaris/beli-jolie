@@ -9,7 +9,11 @@ import {
   WHATSAPP_NO_EMOJI_ERROR,
 } from "@/lib/whatsapp-message";
 import { loadWhatsAppMergeContext } from "@/lib/whatsapp-message-server";
-import { pickWhatsAppBody, resolveWhatsAppLocale } from "@/lib/whatsapp-locale";
+import {
+  pickWhatsAppBody,
+  resolveWhatsAppLocale,
+  type WhatsAppLocale,
+} from "@/lib/whatsapp-locale";
 
 interface SendInput {
   /** Modèle sélectionné, ou null pour un simple log de clic sans texte. */
@@ -25,7 +29,7 @@ interface SendResult {
   /** Body après substitution des variables. "" si templateId null. */
   renderedBody: string;
   /** Locale effectivement retenue (utile pour l'UI qui souhaite l'afficher). */
-  sentLocale: "fr" | "en";
+  sentLocale: WhatsAppLocale;
 }
 
 interface SendError {
@@ -38,9 +42,9 @@ interface SendError {
  * l'envoi dans WhatsAppSend, et retourne le body au client pour qu'il ouvre
  * wa.me?text=… lui-même.
  *
- * Choix de la langue : `resolveWhatsAppLocale(user.addressCountry)`. Si la
- * cible est "en" mais `bodyEn` est vide, on retombe sur `body` (FR) — la
- * cliente préfère envoyer du français à un anglophone plutôt que rien.
+ * Choix de la langue : `resolveWhatsAppLocale(user.addressCountry)` → fr, en,
+ * de, it ou es. Si la version ciblée est vide, cascade de fallback dans
+ * `pickWhatsAppBody` : locale cible → EN → FR.
  *
  * Le log est best-effort — un échec de persistance ne doit pas bloquer
  * l'ouverture WhatsApp côté client (on privilégie l'usage). On retourne
@@ -56,12 +60,19 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
 
     let renderedBody = "";
     let templateExists = false;
-    let sentLocale: "fr" | "en" = "fr";
+    let sentLocale: WhatsAppLocale = "fr";
 
     if (input.templateId) {
       const template = await prisma.whatsAppTemplate.findUnique({
         where: { id: input.templateId },
-        select: { title: true, body: true, bodyEn: true },
+        select: {
+          title: true,
+          body: true,
+          bodyEn: true,
+          bodyDe: true,
+          bodyIt: true,
+          bodyEs: true,
+        },
       });
       if (template) {
         // Filet arrière : même si un modèle historique contient encore des
@@ -70,7 +81,10 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
         if (
           containsEmoji(template.title) ||
           containsEmoji(template.body) ||
-          (template.bodyEn && containsEmoji(template.bodyEn))
+          (template.bodyEn && containsEmoji(template.bodyEn)) ||
+          (template.bodyDe && containsEmoji(template.bodyDe)) ||
+          (template.bodyIt && containsEmoji(template.bodyIt)) ||
+          (template.bodyEs && containsEmoji(template.bodyEs))
         ) {
           return { success: false, error: WHATSAPP_NO_EMOJI_ERROR };
         }
@@ -92,6 +106,9 @@ export async function sendWhatsAppTemplate(input: SendInput): Promise<SendResult
           locale: targetLocale,
           bodyFr: template.body,
           bodyEn: template.bodyEn,
+          bodyDe: template.bodyDe,
+          bodyIt: template.bodyIt,
+          bodyEs: template.bodyEs,
         });
         sentLocale = picked.sentLocale;
         renderedBody = renderWhatsAppMessage(picked.body, ctx);

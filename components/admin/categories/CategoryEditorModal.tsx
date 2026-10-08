@@ -6,7 +6,7 @@
  * dans des mini-modals dédiés ouverts depuis la fiche catégorie (une carte
  * marketplace = un mini-modal). Cette modale ne gère plus que :
  *   - le nom en français (obligatoire)
- *   - la traduction anglaise (auto ou manuelle)
+ *   - les traductions (anglais, allemand, italien, espagnol — auto ou manuel)
  */
 
 import { useEffect, useState } from "react";
@@ -15,7 +15,9 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import { createCategoryQuick } from "@/app/actions/admin/quick-create";
 import TranslateButton from "@/components/admin/TranslateButton";
-import TranslatingInput from "@/components/admin/TranslatingInput";
+import TranslationFieldsBlock, {
+  CATEGORY_LOCALE_PLACEHOLDERS,
+} from "@/components/admin/TranslationFieldsBlock";
 import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 
 export interface CategoryEditorEditMode {
@@ -193,7 +195,7 @@ export default function CategoryEditorModal({
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Anglais</p>
+              <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Traductions</p>
               {!autoTranslateEnabled && (
                 <TranslateButton
                   text={frName}
@@ -202,23 +204,16 @@ export default function CategoryEditorModal({
                 />
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-bg-tertiary text-text-secondary text-[10.5px] font-semibold">
-                🇬🇧 EN
-              </span>
-              <TranslatingInput
-                translating={isTranslating("en")}
-                type="text"
-                value={names["en"] ?? ""}
-                onChange={(e) => setNames((prev) => ({ ...prev, en: e.target.value }))}
-                placeholder="Ex : Ring, Necklace, Earrings…"
-                className="field-input w-full text-sm"
-              />
-            </div>
+            <TranslationFieldsBlock
+              names={names}
+              setNames={setNames}
+              isTranslating={isTranslating}
+              placeholders={CATEGORY_LOCALE_PLACEHOLDERS}
+            />
             <p className="text-[11px] text-text-muted mt-1.5">
               {autoTranslateEnabled
-                ? "Traduite automatiquement quand tu quittes le champ français — tu peux la corriger à la main."
-                : "Utilisée pour les visiteurs anglophones du site."}
+                ? "L'anglais se remplit tout seul quand tu quittes le champ français. Tu peux cliquer sur « Traduire » pour les autres langues ou les saisir à la main."
+                : "Clique sur « Traduire » pour remplir les 4 langues d'un coup, ou saisis-les à la main."}
             </p>
           </div>
 

@@ -3,8 +3,8 @@ import { translateTextStrict } from "@/lib/translate";
 import { logger } from "@/lib/logger";
 
 /**
- * Traduction FR → EN d'un corps de modèle WhatsApp, en préservant les
- * variables `{token}` (firstName, shopName, adminFirstName…).
+ * Traduction FR → {EN,DE,IT,ES} d'un corps de modèle WhatsApp, en préservant
+ * les variables `{token}` (firstName, shopName, adminFirstName…).
  *
  * Pourquoi une protection : PFS traduit du texte naturel. Si on lui envoie
  * "Bonjour {firstName}, c'est {adminFirstName}." il peut :
@@ -23,6 +23,9 @@ import { logger } from "@/lib/logger";
  * défaillante et on retourne `null` (l'appelant décide : garder le FR seul,
  * afficher un warning, etc.).
  */
+
+/** Locales cibles supportées par l'auto-traduction WhatsApp. */
+export type WhatsAppTargetLocale = "en" | "de" | "it" | "es";
 
 const SENTINEL_OPEN = "⟦"; // ⟦
 const SENTINEL_CLOSE = "⟧"; // ⟧
@@ -75,24 +78,27 @@ export function restoreVariables(translated: string, tokens: string[]): string |
 }
 
 /**
- * Traduit un corps de modèle WhatsApp français vers l'anglais, en préservant
- * les variables `{token}`.
+ * Traduit un corps de modèle WhatsApp français vers une locale cible
+ * (en/de/it/es), en préservant les variables `{token}`.
  *
  * Retourne `null` si :
  *   - l'API PFS échoue après retry ;
  *   - la traduction a corrompu les sentinelles (perdu / dupliqué / renommé).
  *
- * L'appelant décide alors : ne pas persister `bodyEn` (le send tombera sur
- * FR par fallback), afficher un toast, etc.
+ * L'appelant décide alors : ne pas persister cette version (le send tombera
+ * en cascade sur EN puis FR), afficher un toast, etc.
  */
-export async function translateWhatsAppBodyToEnglish(sourceFr: string): Promise<string | null> {
+export async function translateWhatsAppBody(
+  sourceFr: string,
+  targetLocale: WhatsAppTargetLocale,
+): Promise<string | null> {
   const trimmed = sourceFr.trim();
   if (trimmed.length === 0) return null;
 
   const { masked, tokens } = protectVariables(trimmed);
 
   try {
-    const translated = await translateTextStrict(masked, "fr", "en");
+    const translated = await translateTextStrict(masked, "fr", targetLocale);
     if (translated === null) return null;
 
     const restored = restoreVariables(translated, tokens);
@@ -101,12 +107,21 @@ export async function translateWhatsAppBodyToEnglish(sourceFr: string): Promise<
         source: trimmed.slice(0, 120),
         translated: translated.slice(0, 120),
         tokenCount: tokens.length,
+        targetLocale,
       });
       return null;
     }
     return restored;
   } catch (e) {
-    logger.warn("[whatsapp-translate] échec traduction", { error: e as Error });
+    logger.warn("[whatsapp-translate] échec traduction", { error: e as Error, targetLocale });
     return null;
   }
+}
+
+/**
+ * Alias historique — préserver la compat avec les callers qui n'ont pas
+ * encore été migrés vers `translateWhatsAppBody(src, locale)`.
+ */
+export function translateWhatsAppBodyToEnglish(sourceFr: string): Promise<string | null> {
+  return translateWhatsAppBody(sourceFr, "en");
 }

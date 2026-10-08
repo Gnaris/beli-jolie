@@ -3,9 +3,11 @@
  * ("Plus > Tout traduire") sur la page /admin/produits.
  *
  * Comportements couverts :
- *  - traduit chaque produit sélectionné (nom + description) vers l'anglais et
- *    upsert la ProductTranslation existante (force overwrite),
- *  - compte séparément traduit / échec (translateTextStrict → null) / ignoré
+ *  - traduit chaque produit sélectionné (nom + description) vers TOUTES les
+ *    locales non-FR du site (en, de, it, es) en 1 seul appel PFS par batch,
+ *  - upsert la ProductTranslation existante par (productId, locale) (force
+ *    overwrite),
+ *  - compte séparément traduit / échec (translatePhrases → null) / ignoré
  *    (nom vide côté FR),
  *  - liste vide → retour {0,0,0} sans appel translate ni upsert.
  */
@@ -27,12 +29,18 @@ vi.mock("@/lib/auth", () => ({ authOptions: {} }));
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
   revalidateTag: vi.fn(),
+  unstable_cache: <T,>(fn: T) => fn,
 }));
 
-const translateTextStrictMock = vi.fn();
 vi.mock("@/lib/translate", () => ({
   invalidateProductTranslations: vi.fn(),
-  translateTextStrict: (...args: unknown[]) => translateTextStrictMock(...args),
+  translateTextStrict: vi.fn(),
+}));
+
+const translatePhrasesMock = vi.fn();
+vi.mock("@/lib/pfs-translate", () => ({
+  translatePhrases: (...args: unknown[]) => translatePhrasesMock(...args),
+  PFS_TRANSLATION_LOCALES: ["fr", "en", "de", "es", "it"] as const,
 }));
 
 // Bruit de fond — modules importés par products.ts non exercés ici.
@@ -56,7 +64,7 @@ vi.mock("@/lib/product-primary-color", () => ({
 vi.mock("@/lib/pfs-color-conflicts", () => ({
   validateOverridesNotMatchingPrincipal: vi.fn(),
 }));
-vi.mock("@/i18n/locales", () => ({ NON_DEFAULT_LOCALES: ["en"] }));
+vi.mock("@/i18n/locales", () => ({ NON_DEFAULT_LOCALES: ["en", "de", "it", "es"] }));
 
 import { prisma } from "@/lib/prisma";
 import { bulkTranslateProducts } from "@/app/actions/admin/products";
@@ -68,45 +76,56 @@ describe("bulkTranslateProducts", () => {
   beforeEach(() => {
     findManyMock.mockReset();
     upsertMock.mockReset().mockResolvedValue({});
-    translateTextStrictMock.mockReset();
+    translatePhrasesMock.mockReset();
   });
 
   it("liste vide → aucun appel translate ni upsert", async () => {
     const res = await bulkTranslateProducts([]);
     expect(res).toEqual({ translated: 0, failed: 0, skipped: 0 });
     expect(findManyMock).not.toHaveBeenCalled();
-    expect(translateTextStrictMock).not.toHaveBeenCalled();
+    expect(translatePhrasesMock).not.toHaveBeenCalled();
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
-  it("traduit chaque produit et upsert en 'en' (force overwrite via update)", async () => {
+  it("traduit chaque produit vers EN+DE+IT+ES et upsert par locale", async () => {
     findManyMock.mockResolvedValue([
       { id: "p1", name: "Bague émeraude", description: "Une bague fine." },
-      { id: "p2", name: "Collier or", description: "Chaîne dorée." },
     ]);
-    // translateTextStrict est appelé 4 fois : name+description × 2 produits.
-    translateTextStrictMock
-      .mockResolvedValueOnce("Emerald ring")
-      .mockResolvedValueOnce("A thin ring.")
-      .mockResolvedValueOnce("Gold necklace")
-      .mockResolvedValueOnce("Gold-plated chain.");
+    translatePhrasesMock.mockResolvedValueOnce({
+      n_p1: {
+        en: "Emerald ring",
+        de: "Smaragdring",
+        it: "Anello smeraldo",
+        es: "Anillo esmeralda",
+      },
+      d_p1: {
+        en: "A thin ring.",
+        de: "Ein feiner Ring.",
+        it: "Un anello fine.",
+        es: "Un anillo fino.",
+      },
+    });
 
-    const res = await bulkTranslateProducts(["p1", "p2"]);
+    const res = await bulkTranslateProducts(["p1"]);
 
-    expect(res).toEqual({ translated: 2, failed: 0, skipped: 0 });
-    expect(upsertMock).toHaveBeenCalledTimes(2);
-    // Le premier upsert (ordre garanti par Promise.all + slice concurrency=5).
-    const firstCall = upsertMock.mock.calls.find(
-      ([arg]) => arg.where.productId_locale.productId === "p1",
+    expect(res).toEqual({ translated: 1, failed: 0, skipped: 0 });
+    // 1 upsert par locale (4 locales non-FR).
+    expect(upsertMock).toHaveBeenCalledTimes(4);
+    const locales = upsertMock.mock.calls.map(
+      ([arg]) => arg.where.productId_locale.locale,
+    );
+    expect(locales.sort()).toEqual(["de", "en", "es", "it"]);
+
+    // Vérifie que la payload DE est correcte.
+    const deCall = upsertMock.mock.calls.find(
+      ([arg]) => arg.where.productId_locale.locale === "de",
     )?.[0];
-    expect(firstCall).toBeDefined();
-    expect(firstCall.where.productId_locale.locale).toBe("en");
-    expect(firstCall.update).toEqual({ name: "Emerald ring", description: "A thin ring." });
-    expect(firstCall.create).toEqual({
+    expect(deCall.update).toEqual({ name: "Smaragdring", description: "Ein feiner Ring." });
+    expect(deCall.create).toEqual({
       productId: "p1",
-      locale: "en",
-      name: "Emerald ring",
-      description: "A thin ring.",
+      locale: "de",
+      name: "Smaragdring",
+      description: "Ein feiner Ring.",
     });
   });
 
@@ -118,40 +137,63 @@ describe("bulkTranslateProducts", () => {
     const res = await bulkTranslateProducts(["p1"]);
 
     expect(res).toEqual({ translated: 0, failed: 0, skipped: 1 });
-    expect(translateTextStrictMock).not.toHaveBeenCalled();
+    expect(translatePhrasesMock).not.toHaveBeenCalled();
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
-  it("translate name → null (retry exhausted) → produit compté 'failed', pas d'upsert", async () => {
+  it("translatePhrases → null (retry exhausted) → tout le batch compté 'failed'", async () => {
+    findManyMock.mockResolvedValue([
+      { id: "p1", name: "Bague émeraude", description: "Une bague fine." },
+      { id: "p2", name: "Collier or", description: "Chaîne dorée." },
+    ]);
+    translatePhrasesMock.mockResolvedValueOnce(null);
+
+    const res = await bulkTranslateProducts(["p1", "p2"]);
+
+    expect(res).toEqual({ translated: 0, failed: 2, skipped: 0 });
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
+  it("description vide côté FR → traduction du nom seul, desc=''", async () => {
+    findManyMock.mockResolvedValue([
+      { id: "p1", name: "Bague émeraude", description: null },
+    ]);
+    translatePhrasesMock.mockResolvedValueOnce({
+      n_p1: {
+        en: "Emerald ring",
+        de: "Smaragdring",
+        it: "Anello smeraldo",
+        es: "Anillo esmeralda",
+      },
+    });
+
+    const res = await bulkTranslateProducts(["p1"]);
+
+    expect(res).toEqual({ translated: 1, failed: 0, skipped: 0 });
+    // La clé d_p1 n'a pas été envoyée (description vide).
+    const sentPhrases = translatePhrasesMock.mock.calls[0][0] as Record<string, string>;
+    expect(Object.keys(sentPhrases)).toEqual(["n_p1"]);
+    // Chaque locale est upsert avec description="".
+    expect(upsertMock).toHaveBeenCalledTimes(4);
+    for (const call of upsertMock.mock.calls) {
+      expect(call[0].update.description).toBe("");
+      expect(call[0].create.description).toBe("");
+    }
+  });
+
+  it("produit sans aucune locale renvoyée par PFS → compté 'failed'", async () => {
     findManyMock.mockResolvedValue([
       { id: "p1", name: "Bague émeraude", description: "Une bague fine." },
     ]);
-    translateTextStrictMock
-      .mockResolvedValueOnce(null) // name → null = échec dur
-      .mockResolvedValueOnce("A thin ring.");
+    translatePhrasesMock.mockResolvedValueOnce({
+      // PFS renvoie une entrée vide (aucune traduction).
+      n_p1: {},
+      d_p1: {},
+    });
 
     const res = await bulkTranslateProducts(["p1"]);
 
     expect(res).toEqual({ translated: 0, failed: 1, skipped: 0 });
     expect(upsertMock).not.toHaveBeenCalled();
-  });
-
-  it("description vide côté FR → upsert avec description='' sans appel translate pour la desc", async () => {
-    findManyMock.mockResolvedValue([
-      { id: "p1", name: "Bague émeraude", description: null },
-    ]);
-    translateTextStrictMock.mockResolvedValueOnce("Emerald ring");
-
-    const res = await bulkTranslateProducts(["p1"]);
-
-    expect(res).toEqual({ translated: 1, failed: 0, skipped: 0 });
-    // 1 seul appel translate (pour le nom).
-    expect(translateTextStrictMock).toHaveBeenCalledTimes(1);
-    expect(upsertMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: { name: "Emerald ring", description: "" },
-        create: expect.objectContaining({ description: "" }),
-      }),
-    );
   });
 });

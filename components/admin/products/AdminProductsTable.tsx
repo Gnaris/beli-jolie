@@ -6538,8 +6538,8 @@ export default function AdminProductsTable({
     const plural = ids.length > 1 ? "s" : "";
     const ok = await confirm({
       type: "info",
-      title: `Traduire ${ids.length} produit${plural} en anglais ?`,
-      message: `Le nom et la description en anglais seront remplacés par une nouvelle traduction depuis le français. La traduction utilise le compte PFS.`,
+      title: `Traduire ${ids.length} produit${plural} dans toutes les langues ?`,
+      message: `Le nom et la description seront traduits depuis le français vers l'anglais, l'allemand, l'italien et l'espagnol via le compte PFS. Les traductions existantes seront remplacées.`,
       confirmLabel: "Oui, traduire",
       cancelLabel: "Annuler",
     });

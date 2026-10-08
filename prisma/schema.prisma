@@ -3959,11 +3959,15 @@ model WhatsAppTemplate {
   tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title     String         @db.VarChar(80)
   body      String         @db.Text
-  // Version anglaise auto-traduite (via API PFS) au moment du save.
-  // Sert quand le client destinataire n'est pas dans un pays francophone
-  // (cf. lib/whatsapp-locale.ts). Nullable : si la traduction échoue ou si
-  // le modèle n'a jamais été retraduit, on retombe sur `body` (FR) à l'envoi.
+  // Versions traduites (via API PFS) au moment du save, ou éditées à la main.
+  // Servent quand le pays du destinataire pointe vers une autre locale
+  // (cf. lib/whatsapp-locale.ts). Nullable : si la trad échoue ou si le
+  // modèle n'a jamais été retraduit, l'envoi retombe en cascade sur EN
+  // puis FR plutôt que d'envoyer un message vide.
   bodyEn    String?        @db.Text
+  bodyDe    String?        @db.Text
+  bodyIt    String?        @db.Text
+  bodyEs    String?        @db.Text
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   sends     WhatsAppSend[]

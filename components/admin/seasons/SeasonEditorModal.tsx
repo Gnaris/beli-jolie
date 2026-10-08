@@ -4,7 +4,7 @@
  * SeasonEditorModal — modale allégée dédiée à la création / renommage d'une
  * saison. Depuis 2026-08-25, les mappings marketplace ont été extraits dans
  * des mini-modals dédiés ouverts depuis la fiche. Ne gère plus que le nom FR
- * + traduction EN.
+ * + traductions (EN, DE, IT, ES).
  */
 
 import { useEffect, useState } from "react";
@@ -13,7 +13,9 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import { createSeasonQuick } from "@/app/actions/admin/quick-create";
 import TranslateButton from "@/components/admin/TranslateButton";
-import TranslatingInput from "@/components/admin/TranslatingInput";
+import TranslationFieldsBlock, {
+  SEASON_LOCALE_PLACEHOLDERS,
+} from "@/components/admin/TranslationFieldsBlock";
 import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 
 export interface SeasonEditorEditMode {
@@ -185,7 +187,7 @@ export default function SeasonEditorModal({
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Anglais</p>
+              <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Traductions</p>
               {!autoTranslateEnabled && (
                 <TranslateButton
                   text={frName}
@@ -194,19 +196,12 @@ export default function SeasonEditorModal({
                 />
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-bg-tertiary text-text-secondary text-[10.5px] font-semibold">
-                🇬🇧 EN
-              </span>
-              <TranslatingInput
-                translating={isTranslating("en")}
-                type="text"
-                value={names["en"] ?? ""}
-                onChange={(e) => setNames((prev) => ({ ...prev, en: e.target.value }))}
-                placeholder="Ex : Spring/Summer 2026, Timeless…"
-                className="field-input w-full text-sm"
-              />
-            </div>
+            <TranslationFieldsBlock
+              names={names}
+              setNames={setNames}
+              isTranslating={isTranslating}
+              placeholders={SEASON_LOCALE_PLACEHOLDERS}
+            />
           </div>
 
           <div className="rounded-2xl bg-bg-secondary border border-border p-4 flex gap-3">

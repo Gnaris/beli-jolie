@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   protectVariables,
   restoreVariables,
+  translateWhatsAppBody,
   translateWhatsAppBodyToEnglish,
 } from "@/lib/whatsapp-translate";
 
@@ -132,5 +133,58 @@ describe("translateWhatsAppBodyToEnglish", () => {
     vi.mocked(translateTextStrict).mockResolvedValue("Simple message.");
     const out = await translateWhatsAppBodyToEnglish("Message simple.");
     expect(out).toBe("Simple message.");
+  });
+});
+
+describe("translateWhatsAppBody — locales multiples", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("passe la locale cible 'de' à PFS et restaure les variables", async () => {
+    vi.mocked(translateTextStrict).mockResolvedValue("Hallo ⟦0⟧, hier ist ⟦1⟧.");
+    const out = await translateWhatsAppBody(
+      "Bonjour {firstName}, c'est {adminFirstName}.",
+      "de",
+    );
+    expect(out).toBe("Hallo {firstName}, hier ist {adminFirstName}.");
+    expect(translateTextStrict).toHaveBeenCalledWith(
+      "Bonjour ⟦0⟧, c'est ⟦1⟧.",
+      "fr",
+      "de",
+    );
+  });
+
+  it("passe la locale cible 'it'", async () => {
+    vi.mocked(translateTextStrict).mockResolvedValue("Ciao ⟦0⟧.");
+    const out = await translateWhatsAppBody("Bonjour {firstName}.", "it");
+    expect(out).toBe("Ciao {firstName}.");
+    expect(translateTextStrict).toHaveBeenCalledWith("Bonjour ⟦0⟧.", "fr", "it");
+  });
+
+  it("passe la locale cible 'es'", async () => {
+    vi.mocked(translateTextStrict).mockResolvedValue("Hola ⟦0⟧.");
+    const out = await translateWhatsAppBody("Bonjour {firstName}.", "es");
+    expect(out).toBe("Hola {firstName}.");
+    expect(translateTextStrict).toHaveBeenCalledWith("Bonjour ⟦0⟧.", "fr", "es");
+  });
+
+  it("retourne null si PFS échoue pour une locale non-EN", async () => {
+    vi.mocked(translateTextStrict).mockResolvedValue(null);
+    const out = await translateWhatsAppBody("Bonjour {firstName}", "de");
+    expect(out).toBeNull();
+  });
+
+  it("retourne null pour un texte vide quelle que soit la locale", async () => {
+    const out = await translateWhatsAppBody("   ", "it");
+    expect(out).toBeNull();
+    expect(translateTextStrict).not.toHaveBeenCalled();
+  });
+
+  it("translateWhatsAppBodyToEnglish délègue à translateWhatsAppBody avec 'en'", async () => {
+    vi.mocked(translateTextStrict).mockResolvedValue("Hello ⟦0⟧.");
+    const out = await translateWhatsAppBodyToEnglish("Bonjour {firstName}.");
+    expect(out).toBe("Hello {firstName}.");
+    expect(translateTextStrict).toHaveBeenCalledWith("Bonjour ⟦0⟧.", "fr", "en");
   });
 });

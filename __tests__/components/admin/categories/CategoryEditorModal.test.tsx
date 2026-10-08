@@ -149,4 +149,59 @@ describe("CategoryEditorModal (allégé)", () => {
     fireEvent.click(screen.getByRole("button", { name: /Fermer/ }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("affiche un input pour chaque langue non-fr (en, de, it, es)", () => {
+    render(<CategoryEditorModal open onClose={() => {}} />);
+    expect(screen.getByTestId("translation-input-en")).toBeInTheDocument();
+    expect(screen.getByTestId("translation-input-de")).toBeInTheDocument();
+    expect(screen.getByTestId("translation-input-it")).toBeInTheDocument();
+    expect(screen.getByTestId("translation-input-es")).toBeInTheDocument();
+  });
+
+  it("pré-remplit les 4 langues depuis editMode.translations", () => {
+    render(
+      <CategoryEditorModal
+        open
+        onClose={() => {}}
+        editMode={{
+          id: "c1",
+          name: "Bague",
+          translations: { en: "Ring", de: "Ring-DE", it: "Anello", es: "Anillo" },
+          onSave: async () => {},
+        }}
+      />,
+    );
+    expect(screen.getByTestId("translation-input-en")).toHaveValue("Ring");
+    expect(screen.getByTestId("translation-input-de")).toHaveValue("Ring-DE");
+    expect(screen.getByTestId("translation-input-it")).toHaveValue("Anello");
+    expect(screen.getByTestId("translation-input-es")).toHaveValue("Anillo");
+  });
+
+  it("édition : envoie les 4 traductions au onSave", async () => {
+    const onSave = vi.fn(async () => {});
+    render(
+      <CategoryEditorModal
+        open
+        onClose={() => {}}
+        editMode={{
+          id: "c1",
+          name: "Bague",
+          translations: {},
+          onSave,
+        }}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("translation-input-en"), { target: { value: "Ring" } });
+    fireEvent.change(screen.getByTestId("translation-input-de"), { target: { value: "Ring-DE" } });
+    fireEvent.change(screen.getByTestId("translation-input-it"), { target: { value: "Anello" } });
+    fireEvent.change(screen.getByTestId("translation-input-es"), { target: { value: "Anillo" } });
+    fireEvent.click(screen.getByRole("button", { name: /Enregistrer/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith("Bague", {
+      en: "Ring",
+      de: "Ring-DE",
+      it: "Anello",
+      es: "Anillo",
+    });
+  });
 });

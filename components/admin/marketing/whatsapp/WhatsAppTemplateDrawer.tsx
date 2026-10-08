@@ -9,6 +9,7 @@ import {
   updateWhatsAppTemplate,
   translateWhatsAppTemplateBody,
   type WhatsAppTemplateDTO,
+  type SaveTranslationReport,
 } from "@/app/actions/admin/whatsapp-templates";
 import { getWhatsAppPreviewContext } from "@/app/actions/admin/whatsapp-preview";
 import {
@@ -25,6 +26,7 @@ import {
 import { VARIABLE_GROUP_LABELS } from "@/lib/mail-merge-variables";
 import { buildWhatsAppAiPrompt } from "@/lib/whatsapp-ai-prompt";
 import { getNewsletterEditorBaseUrl } from "@/app/actions/admin/newsletter-links";
+import type { WhatsAppTargetLocale } from "@/lib/whatsapp-translate";
 import LinkPickerModal from "@/components/admin/shared/LinkPickerModal";
 import WhatsAppMarkdownPreview from "./WhatsAppMarkdownPreview";
 import type { WhatsAppPreviewClient } from "./WhatsAppTemplatesPane";
@@ -38,29 +40,68 @@ interface Props {
 
 const ADMIN_AS_CLIENT_ID = "__admin__";
 
-// Placeholder anglais aligné sur le placeholder FR — utilisé quand la cliente
-// ouvre le drawer d'un modèle sans version anglaise pour lui montrer à quoi
-// ça pourrait ressembler visuellement.
-const WHATSAPP_TEMPLATE_PLACEHOLDER_EN =
-  "Hi {firstName}, this is {adminFirstName} from {shopName}.";
+type DrawerLocale = "fr" | WhatsAppTargetLocale;
+
+/** Ordre d'affichage dans les onglets. FR en premier (source), puis EN, DE, IT, ES. */
+const LOCALE_TABS: Array<{ code: DrawerLocale; label: string }> = [
+  { code: "fr", label: "FR" },
+  { code: "en", label: "EN" },
+  { code: "de", label: "DE" },
+  { code: "it", label: "IT" },
+  { code: "es", label: "ES" },
+];
+
+/** Nom long en français — utilisé dans les messages d'erreur / toasts. */
+const LOCALE_LONG: Record<DrawerLocale, string> = {
+  fr: "français",
+  en: "anglais",
+  de: "allemand",
+  it: "italien",
+  es: "espagnol",
+};
+
+/** Placeholders localisés — montrent à quoi un modèle vide ressemble dans
+ *  l'onglet correspondant pour aider la cliente à visualiser. */
+const PLACEHOLDERS: Record<DrawerLocale, string> = {
+  fr: WHATSAPP_TEMPLATE_PLACEHOLDER,
+  en: "Hi {firstName}, this is {adminFirstName} from {shopName}.",
+  de: "Hallo {firstName}, hier ist {adminFirstName} von {shopName}.",
+  it: "Ciao {firstName}, sono {adminFirstName} di {shopName}.",
+  es: "Hola {firstName}, soy {adminFirstName} de {shopName}.",
+};
 
 export default function WhatsAppTemplateDrawer({ template, previewOverrides, clients, onClose }: Props) {
   const [title, setTitle] = useState(template?.title ?? "");
-  const [body, setBody] = useState(template?.body ?? "");
-  const [bodyEn, setBodyEn] = useState(template?.bodyEn ?? "");
+
+  // Un state par locale — le FR est la source, les 4 autres sont optionnelles.
+  const [bodies, setBodies] = useState<Record<DrawerLocale, string>>({
+    fr: template?.body ?? "",
+    en: template?.bodyEn ?? "",
+    de: template?.bodyDe ?? "",
+    it: template?.bodyIt ?? "",
+    es: template?.bodyEs ?? "",
+  });
+
   const [pending, startTransition] = useTransition();
-  const [translating, startTranslate] = useTransition();
-  // Aperçu — sélection client + langue. La langue "fr"|"en" détermine quel
-  // corps est rendu dans le carré vert ci-dessous.
+  const [translating, setTranslating] = useState<DrawerLocale | null>(null);
+
+  // Aperçu — sélection client + onglet actif pilote le body affiché.
   const [previewClientId, setPreviewClientId] = useState<string>(ADMIN_AS_CLIENT_ID);
-  const [previewLocale, setPreviewLocale] = useState<"fr" | "en">("fr");
+  const [activeLocale, setActiveLocale] = useState<DrawerLocale>("fr");
   const [liveContext, setLiveContext] = useState<WhatsAppMergeContext | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const toast = useToast();
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const bodyEnRef = useRef<HTMLTextAreaElement>(null);
+
+  // Refs par locale pour l'insertion de variables / liens au curseur.
+  const textareaRefs = useRef<Record<DrawerLocale, HTMLTextAreaElement | null>>({
+    fr: null,
+    en: null,
+    de: null,
+    it: null,
+    es: null,
+  });
 
   // Escape ferme
   useEffect(() => {
@@ -101,9 +142,8 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
   });
 
   const previewCtx = liveContext ?? adminAsClientCtx;
-  const activeBody = previewLocale === "en" ? bodyEn : body;
-  const activePlaceholder =
-    previewLocale === "en" ? WHATSAPP_TEMPLATE_PLACEHOLDER_EN : WHATSAPP_TEMPLATE_PLACEHOLDER;
+  const activeBody = bodies[activeLocale];
+  const activePlaceholder = PLACEHOLDERS[activeLocale];
   const preview = renderWhatsAppMessage(activeBody || activePlaceholder, previewCtx);
 
   const selectedClient = clients.find((c) => c.id === previewClientId);
@@ -123,99 +163,104 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
   ];
 
   const titleOver = title.length > WHATSAPP_TEMPLATE_TITLE_MAX;
-  const bodyOver = body.length > WHATSAPP_TEMPLATE_BODY_MAX;
-  const bodyEnOver = bodyEn.length > WHATSAPP_TEMPLATE_BODY_MAX;
   const titleHasEmoji = containsEmoji(title);
-  const bodyHasEmoji = containsEmoji(body);
-  const bodyEnHasEmoji = containsEmoji(bodyEn);
+
+  const localeOver: Record<DrawerLocale, boolean> = {
+    fr: bodies.fr.length > WHATSAPP_TEMPLATE_BODY_MAX,
+    en: bodies.en.length > WHATSAPP_TEMPLATE_BODY_MAX,
+    de: bodies.de.length > WHATSAPP_TEMPLATE_BODY_MAX,
+    it: bodies.it.length > WHATSAPP_TEMPLATE_BODY_MAX,
+    es: bodies.es.length > WHATSAPP_TEMPLATE_BODY_MAX,
+  };
+  const localeHasEmoji: Record<DrawerLocale, boolean> = {
+    fr: containsEmoji(bodies.fr),
+    en: containsEmoji(bodies.en),
+    de: containsEmoji(bodies.de),
+    it: containsEmoji(bodies.it),
+    es: containsEmoji(bodies.es),
+  };
+
+  const anyBodyOver = Object.values(localeOver).some(Boolean);
+  const anyBodyEmoji = Object.values(localeHasEmoji).some(Boolean);
+
   const canSave =
     title.trim().length > 0 &&
-    body.trim().length > 0 &&
+    bodies.fr.trim().length > 0 &&
     !titleOver &&
-    !bodyOver &&
-    !bodyEnOver &&
+    !anyBodyOver &&
     !titleHasEmoji &&
-    !bodyHasEmoji &&
-    !bodyEnHasEmoji;
+    !anyBodyEmoji;
+
+  function updateBody(locale: DrawerLocale, next: string) {
+    setBodies((prev) => ({ ...prev, [locale]: next }));
+  }
 
   function insertAtCursor(insert: string) {
-    // Insertion pilotée par la langue d'aperçu — si la cliente est en train de
-    // regarder l'EN, on écrit dans le textarea EN, sinon dans le FR.
-    if (previewLocale === "en") {
-      const ta = bodyEnRef.current;
-      if (!ta) {
-        setBodyEn((b) => `${b}${insert}`);
-        return;
-      }
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      setBodyEn((b) => b.slice(0, start) + insert + b.slice(end));
-      requestAnimationFrame(() => {
-        if (bodyEnRef.current) {
-          bodyEnRef.current.focus();
-          const pos = start + insert.length;
-          bodyEnRef.current.setSelectionRange(pos, pos);
-        }
-      });
-    } else {
-      const ta = bodyRef.current;
-      if (!ta) {
-        setBody((b) => `${b}${insert}`);
-        return;
-      }
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      setBody((b) => b.slice(0, start) + insert + b.slice(end));
-      requestAnimationFrame(() => {
-        if (bodyRef.current) {
-          bodyRef.current.focus();
-          const pos = start + insert.length;
-          bodyRef.current.setSelectionRange(pos, pos);
-        }
-      });
+    const ta = textareaRefs.current[activeLocale];
+    if (!ta) {
+      updateBody(activeLocale, `${bodies[activeLocale]}${insert}`);
+      return;
     }
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const current = bodies[activeLocale];
+    updateBody(activeLocale, current.slice(0, start) + insert + current.slice(end));
+    requestAnimationFrame(() => {
+      const el = textareaRefs.current[activeLocale];
+      if (el) {
+        el.focus();
+        const pos = start + insert.length;
+        el.setSelectionRange(pos, pos);
+      }
+    });
   }
 
   function insertVariable(token: string) {
     insertAtCursor(`{${token}}`);
   }
 
-  function handleTranslate() {
-    if (!body.trim()) {
+  function handleTranslate(target: WhatsAppTargetLocale) {
+    const bodyFr = bodies.fr;
+    if (!bodyFr.trim()) {
       toast.error("Écris d'abord le message en français", "Le contenu FR est vide.");
       return;
     }
-    if (bodyHasEmoji) {
+    if (localeHasEmoji.fr) {
       toast.error("Retire les emojis du texte français", WHATSAPP_NO_EMOJI_ERROR);
       return;
     }
-    startTranslate(async () => {
-      const res = await translateWhatsAppTemplateBody(body);
-      if (res.success) {
-        setBodyEn(res.bodyEn);
-        setPreviewLocale("en");
-        toast.success("Version anglaise générée", "Tu peux la relire et la modifier avant d'enregistrer.");
-      } else {
-        toast.error("Traduction indisponible", res.error);
-      }
-    });
+    setTranslating(target);
+    translateWhatsAppTemplateBody(bodyFr, target)
+      .then((res) => {
+        if (res.success) {
+          updateBody(target, res.body);
+          setActiveLocale(target);
+          toast.success(
+            `Version ${LOCALE_LONG[target]} générée`,
+            "Tu peux la relire et la modifier avant d'enregistrer.",
+          );
+        } else {
+          toast.error("Traduction indisponible", res.error);
+        }
+      })
+      .finally(() => setTranslating(null));
   }
 
   function handleSave() {
     startTransition(async () => {
-      const payload = { title, body, bodyEn };
+      const payload = {
+        title,
+        body: bodies.fr,
+        bodyEn: bodies.en,
+        bodyDe: bodies.de,
+        bodyIt: bodies.it,
+        bodyEs: bodies.es,
+      };
       const res = template
         ? await updateWhatsAppTemplate(template.id, payload)
         : await createWhatsAppTemplate(payload);
       if (res.success) {
-        if (res.translationFailed) {
-          toast.success(
-            template ? "Modèle mis à jour" : "Modèle créé",
-            "Français enregistré. Traduction anglaise indisponible pour le moment — clique sur « Traduire » plus tard, ou écris-la toi-même.",
-          );
-        } else {
-          toast.success(template ? "Modèle mis à jour" : "Modèle créé");
-        }
+        reportSaveToast(res.report, Boolean(template), toast);
         onClose();
       } else {
         toast.error("Échec", res.error);
@@ -229,6 +274,10 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
   }, {});
 
   if (!mounted) return null;
+
+  const currentBody = bodies[activeLocale];
+  const currentOver = localeOver[activeLocale];
+  const currentEmoji = localeHasEmoji[activeLocale];
 
   return createPortal(
     <>
@@ -282,24 +331,40 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
                 aria-label="Langue de l'aperçu"
                 className="inline-flex rounded-lg border border-emerald-300 bg-white overflow-hidden text-[11px] font-body font-semibold"
               >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewLocale === "fr"}
-                  onClick={() => setPreviewLocale("fr")}
-                  className={`px-3 h-7 ${previewLocale === "fr" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"}`}
-                >
-                  FR
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={previewLocale === "en"}
-                  onClick={() => setPreviewLocale("en")}
-                  className={`px-3 h-7 ${previewLocale === "en" ? "bg-emerald-600 text-white" : "text-emerald-700 hover:bg-emerald-50"}`}
-                >
-                  EN
-                </button>
+                {LOCALE_TABS.map((t) => {
+                  const filled = bodies[t.code].trim().length > 0;
+                  return (
+                    <button
+                      key={t.code}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeLocale === t.code}
+                      onClick={() => setActiveLocale(t.code)}
+                      title={
+                        t.code === "fr"
+                          ? "Message source (obligatoire)"
+                          : filled
+                            ? `Version ${LOCALE_LONG[t.code]} prête`
+                            : `Version ${LOCALE_LONG[t.code]} vide — fallback sur anglais puis français à l'envoi`
+                      }
+                      className={`relative px-3 h-7 ${
+                        activeLocale === t.code
+                          ? "bg-emerald-600 text-white"
+                          : filled || t.code === "fr"
+                            ? "text-emerald-700 hover:bg-emerald-50"
+                            : "text-emerald-700/50 hover:bg-emerald-50"
+                      }`}
+                    >
+                      {t.label}
+                      {t.code !== "fr" && !filled && (
+                        <span
+                          aria-hidden
+                          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-400"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div className="mb-3">
@@ -351,77 +416,68 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             )}
           </div>
 
-          {/* Body FR */}
+          {/* Zone de rédaction — un seul textarea à la fois, piloté par l'onglet actif. */}
           <div>
             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
               <label className="block text-[12px] font-body font-semibold text-text-primary">
-                Contenu du message <span className="text-text-muted font-normal">(français)</span>
+                Contenu du message{" "}
+                <span className="text-text-muted font-normal">({LOCALE_LONG[activeLocale]})</span>
+                {activeLocale === "fr" && (
+                  <span className="ml-2 text-[10px] font-body font-bold uppercase tracking-[0.14em] text-emerald-700">
+                    Source
+                  </span>
+                )}
               </label>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleTranslate}
-                  disabled={translating || pending || !body.trim() || bodyHasEmoji}
-                  className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg border border-sky-300 bg-sky-50 text-sky-700 text-[11.5px] font-body font-medium hover:bg-sky-100 hover:border-sky-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  title="Traduire automatiquement en anglais — le résultat apparaît dans le champ ci-dessous"
-                >
-                  {translating ? "Traduction…" : "🌐 Traduire en anglais"}
-                </button>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {activeLocale !== "fr" && (
+                  <button
+                    type="button"
+                    onClick={() => handleTranslate(activeLocale)}
+                    disabled={
+                      translating !== null ||
+                      pending ||
+                      !bodies.fr.trim() ||
+                      localeHasEmoji.fr
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 h-7 rounded-lg border border-sky-300 bg-sky-50 text-sky-700 text-[11.5px] font-body font-medium hover:bg-sky-100 hover:border-sky-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title={`Traduire automatiquement en ${LOCALE_LONG[activeLocale]} depuis le texte français`}
+                  >
+                    {translating === activeLocale
+                      ? "Traduction…"
+                      : `🌐 Traduire en ${LOCALE_LONG[activeLocale]}`}
+                  </button>
+                )}
                 <InsertLinkButton onInsert={insertAtCursor} />
               </div>
             </div>
             <textarea
-              ref={bodyRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={6}
-              placeholder={WHATSAPP_TEMPLATE_PLACEHOLDER}
+              ref={(el) => { textareaRefs.current[activeLocale] = el; }}
+              value={currentBody}
+              onChange={(e) => updateBody(activeLocale, e.target.value)}
+              rows={7}
+              placeholder={activePlaceholder}
               className="w-full rounded-xl border border-border bg-bg-primary px-3 py-2 text-[14px] font-body text-text-primary focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100 resize-y"
             />
-            <p className={`mt-1 text-[11px] font-body ${bodyOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
-              {body.length}/{WHATSAPP_TEMPLATE_BODY_MAX}
+            <p className={`mt-1 text-[11px] font-body ${currentOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
+              {currentBody.length}/{WHATSAPP_TEMPLATE_BODY_MAX}
             </p>
-            {bodyHasEmoji && (
+            {currentEmoji && (
               <p className="mt-1 text-[11px] font-body text-red-600 font-semibold">
                 {WHATSAPP_NO_EMOJI_ERROR}
               </p>
             )}
-          </div>
-
-          {/* Body EN */}
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-              <label className="block text-[12px] font-body font-semibold text-text-primary">
-                Version anglaise{" "}
-                <span className="text-text-muted font-normal">(clients hors zone francophone)</span>
-              </label>
-            </div>
-            <textarea
-              ref={bodyEnRef}
-              value={bodyEn}
-              onChange={(e) => setBodyEn(e.target.value)}
-              rows={6}
-              placeholder={WHATSAPP_TEMPLATE_PLACEHOLDER_EN}
-              className="w-full rounded-xl border border-border bg-bg-primary px-3 py-2 text-[14px] font-body text-text-primary focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-slate-100 resize-y"
-            />
-            <p className={`mt-1 text-[11px] font-body ${bodyEnOver ? "text-red-600 font-semibold" : "text-text-muted"}`}>
-              {bodyEn.length}/{WHATSAPP_TEMPLATE_BODY_MAX}
-            </p>
-            {bodyEnHasEmoji && (
-              <p className="mt-1 text-[11px] font-body text-red-600 font-semibold">
-                {WHATSAPP_NO_EMOJI_ERROR}
+            {activeLocale !== "fr" && (
+              <p className="mt-1 text-[11px] font-body text-text-muted">
+                Si vide, le message retombera sur l&apos;anglais, puis sur le français. Cette version est
+                regénérée automatiquement à chaque enregistrement quand tu la laisses vide.
               </p>
             )}
-            <p className="mt-1 text-[11px] font-body text-text-muted">
-              Si vide, le message français sera envoyé même aux clients étrangers. Elle est
-              re-générée automatiquement à chaque enregistrement quand tu la laisses vide.
-            </p>
           </div>
 
           {/* Variables */}
           <div>
             <label className="block text-[12px] font-body font-semibold text-text-primary mb-2">
-              Variables — cliquez pour insérer dans le champ {previewLocale === "en" ? "anglais" : "français"}
+              Variables — cliquez pour insérer dans le champ {LOCALE_LONG[activeLocale]}
             </label>
             <div className="space-y-3">
               {Object.entries(grouped).map(([group, vars]) => (
@@ -448,7 +504,7 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
             </div>
           </div>
 
-          <AiPromptSection body={body} />
+          <AiPromptSection body={bodies.fr} />
 
         </div>
 
@@ -473,6 +529,30 @@ export default function WhatsAppTemplateDrawer({ template, previewOverrides, cli
       </div>
     </>,
     document.body,
+  );
+}
+
+/**
+ * Compose le toast de sauvegarde selon le rapport de traduction. Affiche un
+ * succès simple quand tout est OK, ou un succès nuancé listant les langues
+ * dont l'auto-trad a échoué (la cliente peut retenter plus tard via le
+ * bouton « Traduire »).
+ */
+function reportSaveToast(
+  report: SaveTranslationReport,
+  isUpdate: boolean,
+  toast: ReturnType<typeof useToast>,
+) {
+  const failed = report.translationFailedLocales;
+  const headline = isUpdate ? "Modèle mis à jour" : "Modèle créé";
+  if (failed.length === 0) {
+    toast.success(headline);
+    return;
+  }
+  const names = failed.map((l) => LOCALE_LONG[l]).join(", ");
+  toast.success(
+    headline,
+    `Français enregistré. Traduction indisponible pour : ${names}. Tu peux retenter plus tard via « Traduire » ou écrire ces versions à la main.`,
   );
 }
 

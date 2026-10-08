@@ -172,4 +172,99 @@ describe("whatsAppTemplateSchema", () => {
       expect(res.data.bodyEn).toBe("Hello");
     }
   });
+
+  // ─── bodyDe / bodyIt / bodyEs (multi-langue depuis 2026-10-08) ───
+
+  it("accepte l'absence de bodyDe/bodyIt/bodyEs (optionnels)", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Bienvenue",
+      body: "Bonjour {firstName}",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyDe).toBe("");
+      expect(res.data.bodyIt).toBe("");
+      expect(res.data.bodyEs).toBe("");
+    }
+  });
+
+  it("accepte un bodyDe valide", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Willkommen",
+      body: "Bonjour {firstName}",
+      bodyDe: "Hallo {firstName}, willkommen!",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyDe).toBe("Hallo {firstName}, willkommen!");
+    }
+  });
+
+  it("accepte un bodyIt valide avec accents italiens", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Benvenuto",
+      body: "Bonjour {firstName}",
+      bodyIt: "Ciao {firstName}, benvenuto da {shopName} — più di 500 novità.",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyIt).toContain("più");
+    }
+  });
+
+  it("accepte un bodyEs valide avec ñ et signes espagnols", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Bienvenida",
+      body: "Bonjour {firstName}",
+      bodyEs: "¡Hola {firstName}! Bienvenida a nuestro catálogo español.",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyEs).toContain("¡Hola");
+    }
+  });
+
+  it("refuse un emoji dans bodyDe / bodyIt / bodyEs", () => {
+    for (const key of ["bodyDe", "bodyIt", "bodyEs"] as const) {
+      const res = whatsAppTemplateSchema.safeParse({
+        title: "Titre",
+        body: "Bonjour",
+        [key]: "Hallo ✨",
+      });
+      expect(res.success).toBe(false);
+      if (!res.success) {
+        expect(res.error.issues[0]?.message).toContain("emoji");
+      }
+    }
+  });
+
+  it("refuse un bodyDe/It/Es trop long (> 1000) avec un message explicite", () => {
+    for (const key of ["bodyDe", "bodyIt", "bodyEs"] as const) {
+      const res = whatsAppTemplateSchema.safeParse({
+        title: "Titre",
+        body: "Bonjour",
+        [key]: "a".repeat(1001),
+      });
+      expect(res.success).toBe(false);
+      if (!res.success) {
+        expect(res.error.issues[0]?.message).toContain("1000");
+      }
+    }
+  });
+
+  it("trim les espaces bordants des 3 nouvelles langues", () => {
+    const res = whatsAppTemplateSchema.safeParse({
+      title: "Titre",
+      body: "Bonjour",
+      bodyDe: "  Hallo  ",
+      bodyIt: "  Ciao  ",
+      bodyEs: "  Hola  ",
+    });
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.bodyDe).toBe("Hallo");
+      expect(res.data.bodyIt).toBe("Ciao");
+      expect(res.data.bodyEs).toBe("Hola");
+    }
+  });
 });

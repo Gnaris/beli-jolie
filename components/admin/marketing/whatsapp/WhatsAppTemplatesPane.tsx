@@ -29,6 +29,53 @@ function truncate(text: string, max: number): string {
   return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
+const LOCALE_LONG: Record<"en" | "de" | "it" | "es", string> = {
+  en: "anglaise",
+  de: "allemande",
+  it: "italienne",
+  es: "espagnole",
+};
+
+/**
+ * Badge compact listant les langues couvertes par un modèle. FR est toujours
+ * présent (champ obligatoire) ; les autres s'affichent si leur `body` est
+ * non vide. On marque en orange les langues manquantes pour signaler qu'un
+ * client de ce pays recevrait un fallback (EN puis FR).
+ */
+function CoverageBadge({ template }: { template: WhatsAppTemplateDTO }) {
+  const slots: Array<{ code: "fr" | "en" | "de" | "it" | "es"; label: string; present: boolean }> = [
+    { code: "fr", label: "FR", present: true },
+    { code: "en", label: "EN", present: template.bodyEn.trim().length > 0 },
+    { code: "de", label: "DE", present: template.bodyDe.trim().length > 0 },
+    { code: "it", label: "IT", present: template.bodyIt.trim().length > 0 },
+    { code: "es", label: "ES", present: template.bodyEs.trim().length > 0 },
+  ];
+  const presentCount = slots.filter((s) => s.present).length;
+  const missing = slots
+    .filter((s) => !s.present)
+    .map((s) => LOCALE_LONG[s.code as keyof typeof LOCALE_LONG])
+    .join(", ");
+  const title =
+    presentCount === slots.length
+      ? "Toutes les langues sont prêtes."
+      : `Versions manquantes : ${missing}. Les clients de ces pays recevront l'anglais ou le français en fallback.`;
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-[10px] font-body font-bold uppercase tracking-wider"
+    >
+      {slots.map((s, i) => (
+        <span key={s.code} className="inline-flex items-center">
+          <span className={s.present ? "text-sky-800" : "text-amber-500/70 line-through decoration-amber-400/70"}>
+            {s.label}
+          </span>
+          {i < slots.length - 1 && <span className="mx-0.5 text-sky-300">·</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function WhatsAppTemplatesPane({ templates, previewOverrides, clients }: Props) {
   const [editing, setEditing] = useState<WhatsAppTemplateDTO | "new" | null>(null);
   const [, startTransition] = useTransition();
@@ -132,21 +179,7 @@ export default function WhatsAppTemplatesPane({ templates, previewOverrides, cli
                       <p className="text-sm font-body font-semibold text-text-primary truncate max-w-[16rem]">
                         {t.title}
                       </p>
-                      {t.bodyEn.trim() ? (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[10px] font-body font-bold uppercase tracking-wider"
-                          title="Une version anglaise est disponible — elle sera utilisée pour les clients hors zone francophone."
-                        >
-                          FR · EN
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-body font-bold uppercase tracking-wider"
-                          title="Pas de version anglaise — les clients étrangers recevront le message en français."
-                        >
-                          FR seul
-                        </span>
-                      )}
+                      <CoverageBadge template={t} />
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
@@ -202,15 +235,7 @@ export default function WhatsAppTemplatesPane({ templates, previewOverrides, cli
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-[14px] font-body font-semibold text-text-primary truncate">{t.title}</p>
-                  {t.bodyEn.trim() ? (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[10px] font-body font-bold uppercase tracking-wider">
-                      FR · EN
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[10px] font-body font-bold uppercase tracking-wider">
-                      FR seul
-                    </span>
-                  )}
+                  <CoverageBadge template={t} />
                 </div>
                 <p className="text-[12px] font-body text-text-muted mt-1 line-clamp-2">
                   {truncate(t.body, 120)}

@@ -5,7 +5,7 @@
  * couleur. Depuis 2026-08-25, les mappings marketplace ont été extraits dans
  * des mini-modals dédiés ouverts depuis la fiche couleur. Cette modale ne
  * gère plus que :
- *   - le nom en français + traduction anglaise
+ *   - le nom en français + traductions (anglais, allemand, italien, espagnol)
  *   - l'aspect visuel (couleur unie hex OU motif image, prioritaire sur hex)
  */
 
@@ -16,7 +16,9 @@ import { useToast } from "@/components/ui/Toast";
 import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
 import { createColorQuick } from "@/app/actions/admin/quick-create";
 import TranslateButton from "@/components/admin/TranslateButton";
-import TranslatingInput from "@/components/admin/TranslatingInput";
+import TranslationFieldsBlock, {
+  COLOR_LOCALE_PLACEHOLDERS,
+} from "@/components/admin/TranslationFieldsBlock";
 import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
 
 const QUICK_PALETTE: string[] = [
@@ -313,7 +315,7 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Anglais</p>
+                <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">Traductions</p>
                 {!autoTranslateEnabled && (
                   <TranslateButton
                     text={frName}
@@ -322,19 +324,12 @@ export default function ColorEditorModal({ open, onClose, onCreated, editMode }:
                   />
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-bg-tertiary text-text-secondary text-[10.5px] font-semibold">
-                  🇬🇧 EN
-                </span>
-                <TranslatingInput
-                  translating={isTranslating("en")}
-                  type="text"
-                  value={names["en"] ?? ""}
-                  onChange={(e) => setNames((prev) => ({ ...prev, en: e.target.value }))}
-                  placeholder="Ex : Gold, Rose gold, Black…"
-                  className="field-input w-full text-sm"
-                />
-              </div>
+              <TranslationFieldsBlock
+                names={names}
+                setNames={setNames}
+                isTranslating={isTranslating}
+                placeholders={COLOR_LOCALE_PLACEHOLDERS}
+              />
             </div>
           </section>
 

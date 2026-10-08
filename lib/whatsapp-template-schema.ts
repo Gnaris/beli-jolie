@@ -16,6 +16,16 @@ import {
  * Règle emoji : on refuse toute saisie contenant un emoji car WhatsApp
  * Desktop les casse à l'envoi via `?text=` (👋 → �). Voir `containsEmoji`.
  */
+function optionalLocalizedBody(label: string) {
+  return z
+    .string()
+    .trim()
+    .max(WHATSAPP_TEMPLATE_BODY_MAX, `Version ${label} trop longue (max ${WHATSAPP_TEMPLATE_BODY_MAX} caractères).`)
+    .refine((v) => !containsEmoji(v), WHATSAPP_NO_EMOJI_ERROR)
+    .optional()
+    .default("");
+}
+
 export const whatsAppTemplateSchema = z.object({
   title: z
     .string()
@@ -29,16 +39,13 @@ export const whatsAppTemplateSchema = z.object({
     .min(1, "Le contenu est obligatoire.")
     .max(WHATSAPP_TEMPLATE_BODY_MAX, `Contenu trop long (max ${WHATSAPP_TEMPLATE_BODY_MAX} caractères).`)
     .refine((v) => !containsEmoji(v), WHATSAPP_NO_EMOJI_ERROR),
-  // Version anglaise éditée manuellement par la cliente. Optionnelle : si
-  // vide/absente au save, on tentera une auto-traduction serveur. La règle
-  // emoji s'applique aussi ici (WhatsApp Desktop casse `?text=` avec emojis).
-  bodyEn: z
-    .string()
-    .trim()
-    .max(WHATSAPP_TEMPLATE_BODY_MAX, `Version anglaise trop longue (max ${WHATSAPP_TEMPLATE_BODY_MAX} caractères).`)
-    .refine((v) => !containsEmoji(v), WHATSAPP_NO_EMOJI_ERROR)
-    .optional()
-    .default(""),
+  // Versions traduites éditées manuellement par la cliente (ou vides, dans
+  // ce cas on tente une auto-traduction serveur). La règle emoji s'applique
+  // à toutes car WhatsApp Desktop casse `?text=` avec emojis.
+  bodyEn: optionalLocalizedBody("anglaise"),
+  bodyDe: optionalLocalizedBody("allemande"),
+  bodyIt: optionalLocalizedBody("italienne"),
+  bodyEs: optionalLocalizedBody("espagnole"),
 });
 
 export type WhatsAppTemplateInput = z.infer<typeof whatsAppTemplateSchema>;
