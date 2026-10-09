@@ -34,6 +34,11 @@ import { getMicrostoreSessionExpirations } from "@/lib/microstore-session-status
 import { getMicrostoreAlertLevel } from "@/lib/microstore-session-alert-logic";
 import { extractLiveMarketplaceColorLabels } from "@/lib/marketplace-live-color-labels";
 import { buildProductHandle } from "@/lib/product-url";
+import {
+  parseProductFaqDefaults,
+  parseProductFaqOverrides,
+  PRODUCT_FAQ_DEFAULTS_KEY,
+} from "@/lib/product-faq";
 
 export const metadata: Metadata = { title: "Modifier le produit" };
 export const dynamic = "force-dynamic";
@@ -65,6 +70,7 @@ export default async function ModifierProduitPage({
     hasMicrostoreConfig,
     microstoreEnabled,
     brandedBadgeRow,
+    productFaqDefaultsRow,
   ] = await Promise.all([
     prisma.product.findUnique({
       where: { id },
@@ -158,7 +164,11 @@ export default async function ModifierProduitPage({
     getCachedHasMicrostoreConfig(),
     getCachedMicrostoreEnabled(),
     prisma.siteConfig.findFirst({ where: { key: "branded_reference_badge_enabled" }, select: { value: true } }),
+    prisma.siteConfig.findFirst({ where: { key: PRODUCT_FAQ_DEFAULTS_KEY }, select: { value: true } }),
   ]);
+
+  const productFaqDefaults = parseProductFaqDefaults(productFaqDefaultsRow?.value);
+  const faqOverrides = parseProductFaqOverrides((product as { faqOverrides?: unknown } | null)?.faqOverrides);
 
   // Session BOSS Microstore expirée (ou pas encore renouvelée) — dans ce cas la
   // carte Microstore doit afficher « expiré » (cas exceptionnel, badge rouge).
@@ -423,6 +433,7 @@ export default async function ModifierProduitPage({
           brandedBadgeEnabled={brandedBadgeEnabled}
           pfsColorOptions={pfsColorOptions}
           efashionColorOptions={efashionColorOptions}
+          productFaqDefaults={productFaqDefaults}
           initialData={{
             reference:         product.reference,
             name:              product.name,
@@ -484,6 +495,7 @@ export default async function ModifierProduitPage({
             primaryColorId: product.primaryColorId ?? null,
             microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
             note: product.note ?? "",
+            faqOverrides,
           }}
         />
       </div>
@@ -640,6 +652,7 @@ export default async function ModifierProduitPage({
         pfsColorOptions={pfsColorOptions}
         efashionColorOptions={efashionColorOptions}
         liveMarketplaceColorLabels={liveMarketplaceColorLabels}
+        productFaqDefaults={productFaqDefaults}
         initialData={{
           reference:         product.reference,
           name:              product.name,
@@ -707,6 +720,7 @@ export default async function ModifierProduitPage({
           microstoreEnabledForProduct: product.microstoreEnabled,
           primaryColorId: product.primaryColorId ?? null,
           microstoreSubCategoryId: product.microstoreSubCategoryId ?? null,
+          faqOverrides,
         }}
       />
     </ProductEditWrapper>

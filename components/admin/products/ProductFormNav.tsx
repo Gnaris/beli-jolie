@@ -14,6 +14,7 @@ export type ProductFormSectionKey =
   | "img"
   | "map"
   | "assoc"
+  | "faq"
   | "note";
 
 export type ProductFormSectionGroup =
@@ -41,6 +42,7 @@ const SECTIONS: SectionDef[] = [
   { key: "img", group: "Catalogue", label: "Photos", hint: "5 photos par couleur", icon: "📷", checklistKeys: ["images"], anchor: "section-img" },
   { key: "map", group: "Marketplace", label: "Mapping Marketplaces", hint: "PFS, Ankor, eFashion, Faire", icon: "🔗", checklistKeys: [], anchor: "section-map" },
   { key: "assoc", group: "Diffusion", label: "Produits associés", hint: "Similaires + ensemble", icon: "🧩", checklistKeys: [], anchor: "section-assoc" },
+  { key: "faq", group: "Diffusion", label: "Foire aux informations", hint: "Rubriques affichées sous la fiche produit (Tailles, Livraison…)", icon: "❓", checklistKeys: [], anchor: "section-faq" },
   { key: "note", group: "Interne", label: "Note", hint: "Visible admin uniquement", icon: "📌", checklistKeys: [], anchor: "section-note" },
 ];
 

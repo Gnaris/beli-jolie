@@ -26,6 +26,8 @@ import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConf
 import RefreshWarningConfig from "@/components/admin/settings/RefreshWarningConfig";
 import BrandedReferenceBadgeConfig from "@/components/admin/settings/BrandedReferenceBadgeConfig";
 import HomeFaqConfig from "@/components/admin/settings/HomeFaqConfig";
+import ProductFaqDefaultsConfig from "@/components/admin/settings/ProductFaqDefaultsConfig";
+import { parseProductFaqDefaults, PRODUCT_FAQ_DEFAULTS_KEY } from "@/lib/product-faq";
 import SettingsTabs from "@/components/admin/settings/SettingsTabs";
 import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
@@ -118,6 +120,7 @@ export default async function ParametresPage({
     buildReglesTile(),
     buildMarketplacesTile(),
     buildContenuTile(),
+    buildProduitTile(),
     buildMessagerieTile(),
     buildWhatsappTile(),
     buildTraductionTile(),
@@ -1247,6 +1250,46 @@ async function buildCompteTile(): Promise<DashboardTile> {
             : { tone: "off", label: "Clair" }}
         >
           <AdminThemeToggle initialTheme={currentTheme} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE — Fiche produit : rubriques « Foire aux informations » par défaut
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildProduitTile(): Promise<DashboardTile> {
+  // Lecture directe (pas de cache) : les paramètres admin sont consultés
+  // peu souvent et la cliente attend toujours la dernière valeur, surtout
+  // après un seed ou une édition récente.
+  const row = await prisma.siteConfig.findFirst({
+    where: { key: PRODUCT_FAQ_DEFAULTS_KEY },
+    select: { value: true },
+  });
+  const items = parseProductFaqDefaults(row?.value);
+
+  const status: TileStatus = items.length > 0
+    ? { tone: "ok", label: `${items.length} rubrique${items.length > 1 ? "s" : ""}` }
+    : { tone: "off", label: "Aucune" };
+
+  const summary = items.length > 0
+    ? items.map((it) => it.title).slice(0, 3).join(" · ") + (items.length > 3 ? ` · +${items.length - 3}` : "")
+    : "Aucune rubrique configurée pour l'instant";
+
+  return {
+    key: "produit",
+    status,
+    summary,
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.sparkles}
+          title="Foire aux informations"
+          description="Rubriques affichées sous chaque fiche produit (Tailles et mesures, Livraison, Entretien…). Chaque fiche peut remplacer le texte par un contenu spécifique."
+          accent="dark"
+        >
+          <ProductFaqDefaultsConfig initialItems={items} />
         </SettingCard>
       </CardsStack>
     ),

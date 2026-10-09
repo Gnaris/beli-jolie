@@ -9,6 +9,7 @@ import { useBackdropClose } from "@/hooks/useBackdropClose";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import QuickCreateSizeModal, { type QuickCreateSizeModalResult } from "@/components/admin/products/QuickCreateSizeModal";
 import PackCompositionModal from "@/components/admin/products/PackCompositionModal";
+import VariantImageUploadModal from "@/components/admin/products/VariantImageUploadModal";
 import { generateSku } from "@/lib/sku";
 import { swapOrDropImageOrder } from "@/lib/image-positions";
 
@@ -1616,6 +1617,8 @@ export default function ColorVariantManager({
   const sizeModalVariant = variants.find((v) => v.tempId === sizeModalVariantId);
   const [packCompoVariantId, setPackCompoVariantId] = useState<string | null>(null);
   const packCompoVariant = variants.find((v) => v.tempId === packCompoVariantId);
+  const [imageModalVariantId, setImageModalVariantId] = useState<string | null>(null);
+  const imageModalVariant = variants.find((v) => v.tempId === imageModalVariantId) ?? null;
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
@@ -2131,16 +2134,34 @@ export default function ColorVariantManager({
                       size="sm" className="w-[75px]" /></div>
                     )}
                     <div className="flex-1" />
-                    <span title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
-                        imgCount === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "bg-bg-secondary text-text-muted"
-                      }`}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
-                      </svg>
-                      {imgCount}/5
-                    </span>
+                    {(() => {
+                      const hasColor = isMultiColorPack(v) || !!v.colorId;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => { if (hasColor) setImageModalVariantId(v.tempId); }}
+                          disabled={!hasColor}
+                          title={!hasColor
+                            ? "Choisissez d'abord une couleur pour ajouter des photos"
+                            : imgCount === 0
+                              ? "Aucune image — cliquer pour ajouter"
+                              : `${imgCount} image${imgCount > 1 ? "s" : ""} — cliquer pour gérer`}
+                          aria-label={imgCount === 0 ? "Ajouter des images pour cette variante" : "Gérer les images de cette variante"}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body transition-colors ${
+                            !hasColor
+                              ? "bg-bg-secondary text-text-muted opacity-50 cursor-not-allowed"
+                              : imgCount === 0
+                                ? "bg-[#FEE2E2] text-[#DC2626] hover:bg-[#FECACA] cursor-pointer"
+                                : "bg-bg-secondary text-text-muted hover:bg-bg-dark hover:text-text-inverse cursor-pointer"
+                          }`}
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                          </svg>
+                          {imgCount}/5
+                        </button>
+                      );
+                    })()}
                     <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
                       <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
                         className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -2398,16 +2419,34 @@ export default function ColorVariantManager({
                       size="sm" className="w-[75px]" /></div>
                     )}
                     <div className="flex-1" />
-                    <span title={imgCount === 0 ? "Aucune image" : `${imgCount} image${imgCount > 1 ? "s" : ""}`}
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body ${
-                        imgCount === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "bg-bg-secondary text-text-muted"
-                      }`}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
-                      </svg>
-                      {imgCount}/5
-                    </span>
+                    {(() => {
+                      const hasColor = isMultiColorPack(v) || !!v.colorId;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => { if (hasColor) setImageModalVariantId(v.tempId); }}
+                          disabled={!hasColor}
+                          title={!hasColor
+                            ? "Choisissez d'abord une couleur pour ajouter des photos"
+                            : imgCount === 0
+                              ? "Aucune image — cliquer pour ajouter"
+                              : `${imgCount} image${imgCount > 1 ? "s" : ""} — cliquer pour gérer`}
+                          aria-label={imgCount === 0 ? "Ajouter des images pour cette variante" : "Gérer les images de cette variante"}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-body transition-colors ${
+                            !hasColor
+                              ? "bg-bg-secondary text-text-muted opacity-50 cursor-not-allowed"
+                              : imgCount === 0
+                                ? "bg-[#FEE2E2] text-[#DC2626] hover:bg-[#FECACA] cursor-pointer"
+                                : "bg-bg-secondary text-text-muted hover:bg-bg-dark hover:text-text-inverse cursor-pointer"
+                          }`}
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                          </svg>
+                          {imgCount}/5
+                        </button>
+                      );
+                    })()}
                     <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
                       <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
                         className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -2792,16 +2831,34 @@ export default function ColorVariantManager({
                       <td className={`px-1 py-2 text-right text-xs${dimCls}`}>{renderTotalPrice(v)}</td>
                       <td className="px-1 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <span title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
-                            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
-                              imgCountD === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "text-text-muted"
-                            }`}
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
-                            </svg>
-                            {imgCountD}
-                          </span>
+                          {(() => {
+                            const hasColor = isMultiColorPack(v) || !!v.colorId;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => { if (hasColor) setImageModalVariantId(v.tempId); }}
+                                disabled={!hasColor}
+                                title={!hasColor
+                                  ? "Choisissez d'abord une couleur pour ajouter des photos"
+                                  : imgCountD === 0
+                                    ? "Aucune image — cliquer pour ajouter"
+                                    : `${imgCountD} image${imgCountD > 1 ? "s" : ""} — cliquer pour gérer`}
+                                aria-label={imgCountD === 0 ? "Ajouter des images pour cette variante" : "Gérer les images de cette variante"}
+                                className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body transition-colors ${
+                                  !hasColor
+                                    ? "text-text-muted opacity-50 cursor-not-allowed"
+                                    : imgCountD === 0
+                                      ? "bg-[#FEE2E2] text-[#DC2626] hover:bg-[#FECACA] cursor-pointer"
+                                      : "text-text-muted hover:bg-bg-dark hover:text-text-inverse cursor-pointer"
+                                }`}
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                                </svg>
+                                {imgCountD}
+                              </button>
+                            );
+                          })()}
                           <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
                             <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
                               className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -2999,16 +3056,34 @@ export default function ColorVariantManager({
                       <td className={`px-1 py-2 text-right text-xs${dimCls}`}>{renderTotalPrice(v)}</td>
                       <td className="px-1 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <span title={imgCountD === 0 ? "Aucune image" : `${imgCountD} image${imgCountD > 1 ? "s" : ""}`}
-                            className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body ${
-                              imgCountD === 0 ? "bg-[#FEE2E2] text-[#DC2626]" : "text-text-muted"
-                            }`}
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
-                            </svg>
-                            {imgCountD}
-                          </span>
+                          {(() => {
+                            const hasColor = isMultiColorPack(v) || !!v.colorId;
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => { if (hasColor) setImageModalVariantId(v.tempId); }}
+                                disabled={!hasColor}
+                                title={!hasColor
+                                  ? "Choisissez d'abord une couleur pour ajouter des photos"
+                                  : imgCountD === 0
+                                    ? "Aucune image — cliquer pour ajouter"
+                                    : `${imgCountD} image${imgCountD > 1 ? "s" : ""} — cliquer pour gérer`}
+                                aria-label={imgCountD === 0 ? "Ajouter des images pour cette variante" : "Gérer les images de cette variante"}
+                                className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-semibold font-body transition-colors ${
+                                  !hasColor
+                                    ? "text-text-muted opacity-50 cursor-not-allowed"
+                                    : imgCountD === 0
+                                      ? "bg-[#FEE2E2] text-[#DC2626] hover:bg-[#FECACA] cursor-pointer"
+                                      : "text-text-muted hover:bg-bg-dark hover:text-text-inverse cursor-pointer"
+                                }`}
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 21h18a1.5 1.5 0 001.5-1.5V6A1.5 1.5 0 0021 4.5H3A1.5 1.5 0 001.5 6v13.5A1.5 1.5 0 003 21z" />
+                                </svg>
+                                {imgCountD}
+                              </button>
+                            );
+                          })()}
                           <div className="relative" ref={actionMenuId === v.tempId ? actionMenuRef : undefined}>
                             <button type="button" onClick={() => setActionMenuId(actionMenuId === v.tempId ? null : v.tempId)}
                               className="px-2 py-0.5 text-[10px] font-medium font-body text-text-muted border border-border rounded hover:bg-bg-secondary transition-colors">
@@ -3131,6 +3206,18 @@ export default function ColorVariantManager({
         onColorAdded={onColorAdded}
         onSizeAdded={onSizeAdded}
         onConfirm={handleQuickAddConfirm}
+      />
+
+      <VariantImageUploadModal
+        open={!!imageModalVariant}
+        variant={imageModalVariant}
+        colorImages={colorImages}
+        availableColors={availableColors}
+        onChangeImages={onChangeImages}
+        primaryColorId={primaryColorId}
+        onChangePrimaryColorId={onChangePrimaryColorId}
+        productReference={productReference}
+        onClose={() => setImageModalVariantId(null)}
       />
     </div>
   );

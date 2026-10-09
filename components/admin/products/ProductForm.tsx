@@ -15,6 +15,8 @@ import { SectionNavFooter } from "./SectionNavFooter";
 import { SectionEyebrow } from "./SectionEyebrow";
 import { PanelHeader } from "./PanelHeader";
 import { createProduct, updateProduct, saveProductTranslations, fetchProductFormAttributes, checkProductReferenceAvailable, updateProductNoteOnly } from "@/app/actions/admin/products";
+import ProductFaqEditor from "./ProductFaqEditor";
+import type { ProductFaqDefault } from "@/lib/product-faq";
 
 import { VALID_LOCALES, LOCALE_LABELS, NON_DEFAULT_LOCALES } from "@/i18n/locales";
 import LocaleTabs from "./LocaleTabs";
@@ -165,6 +167,11 @@ interface ProductFormProps {
   liveMarketplaceColorLabels?: LiveMarketplaceColorLabels;
   /** True when a marketplace sync is already in progress (from DB status on page load) */
   initialSyncing?: boolean;
+  /** Rubriques « Foire aux informations » par défaut de la boutique.
+   *  Chaque rubrique propose un titre + texte par défaut ; la fiche produit
+   *  peut remplacer le texte par un contenu spécifique. Vide = l'onglet
+   *  FAI affiche un message « Aucune rubrique configurée ». */
+  productFaqDefaults?: ProductFaqDefault[];
   initialData?: {
     reference: string;
     name: string;
@@ -218,6 +225,8 @@ interface ProductFormProps {
     primaryColorId?: string | null;
     /** Sous-catégorie choisie comme étiquette d'export Microstore (null = catégorie principale). */
     microstoreSubCategoryId?: string | null;
+    /** Surcharges FAI du produit (map `defaultItemId → texteCustom`). */
+    faqOverrides?: Record<string, string>;
   };
 }
 
@@ -566,6 +575,7 @@ export default function ProductForm({
   efashionColorOptions,
   liveMarketplaceColorLabels,
   initialSyncing = false,
+  productFaqDefaults = [],
   initialData,
 }: ProductFormProps) {
   const [isPending, startTransition] = useTransition();
@@ -3653,6 +3663,29 @@ export default function ProductForm({
 
         {/* ── Marketplaces (placeholder — détail des cards à venir) ── */}
         {/* ── Note interne ── */}
+        <div id="section-faq" hidden={activeSection !== "faq"} className="space-y-4">
+          <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-4 shadow-card">
+            <PanelHeader
+              title="Foire aux informations"
+              subtitle="Rubriques affichées sous la fiche produit côté boutique. Les textes sont définis dans Paramètres → Fiche produit ; ici vous pouvez personnaliser leur contenu pour ce produit uniquement."
+            />
+            {productId ? (
+              <ProductFaqEditor
+                productId={productId}
+                defaults={productFaqDefaults}
+                initialOverrides={initialData?.faqOverrides ?? {}}
+              />
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-bg-secondary p-6 text-center">
+                <p className="text-sm text-text-muted font-body">
+                  Enregistrez une première version du produit avant de
+                  personnaliser les textes de la « Foire aux informations ».
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+
         <div id="section-note" hidden={activeSection !== "note"} className="space-y-4">
           <section className="bg-bg-primary border border-border rounded-2xl p-8 space-y-4 shadow-card">
             <PanelHeader

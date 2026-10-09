@@ -43,8 +43,11 @@ export default function OrderItemImage({ src, alt, sizeClass = "w-14 h-14" }: Or
           <img
             src={src}
             alt={alt}
+            draggable={false}
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[100dvh] max-w-[100vw] sm:max-h-[90vh] sm:max-w-[90vw] object-contain sm:shadow-2xl sm:rounded-xl animate-lightbox-img-in touch-pinch-zoom"
+            onContextMenu={(e) => e.preventDefault()}
+            style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
+            className="max-h-[100dvh] max-w-[100vw] sm:max-h-[90vh] sm:max-w-[90vw] object-contain sm:shadow-2xl sm:rounded-xl animate-lightbox-img-in touch-pinch-zoom select-none"
           />
           <button
             type="button"

@@ -141,13 +141,10 @@ export default async function NouveauProduitPage({
       })
     : null;
 
-  const sourceTranslations = source
-    ? await prisma.productTranslation.findMany({
-        where: { productId: source.id },
-        select: { locale: true, name: true, description: true },
-      })
-    : [];
-
+  // Duplication : on NE copie PAS les traductions EN/DE/IT/ES — l'admin veut
+  // repartir d'une fiche fraîche dont le FR a été ajusté (nouveau nom), et
+  // laisser l'auto-traduction remplir les 4 autres langues à l'enregistrement.
+  // Cf. `autoTranslateProduct` dans `createProduct` qui tourne systématiquement.
   const relatedIds = source
     ? [
         ...source.similarProducts.map((sp) => sp.similar.id),
@@ -261,7 +258,7 @@ export default async function NouveauProduitPage({
         })),
         tagNames: source.tags.map((t) => t.tag.name),
         isBestSeller: false,
-        translations: sourceTranslations,
+        translations: [],
         dimLength: source.dimensionLength != null ? String(source.dimensionLength) : "",
         dimWidth: source.dimensionWidth != null ? String(source.dimensionWidth) : "",
         dimHeight: source.dimensionHeight != null ? String(source.dimensionHeight) : "",

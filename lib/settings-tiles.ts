@@ -12,7 +12,7 @@
 export const SETTINGS_TILES = [
   "vitrine", "societe", "horaires",
   "paiement", "livraison", "regles",
-  "marketplaces", "contenu",
+  "marketplaces", "contenu", "produit",
   "messagerie", "whatsapp", "traduction", "compte", "maintenance",
 ] as const;
 
@@ -46,6 +46,7 @@ const TILES: Record<SettingsTileKey, TileMeta> = {
   regles:       { key: "regles",       title: "Règles de vente",      description: "Commande mini, ruptures, ordre catalogue, badge photo.",   group: "ventes",   accent: "emerald" },
   marketplaces: { key: "marketplaces", title: "Marketplaces",         description: "PFS, Ankorstore, eFashion, Faire, Microstore.",            group: "canaux",   accent: "sky",    wide: true },
   contenu:      { key: "contenu",      title: "Contenu & Google",     description: "Carrousels d'accueil, textes SEO.",                        group: "canaux",   accent: "violet" },
+  produit:      { key: "produit",      title: "Fiche produit",        description: "Rubriques « Foire aux informations » affichées sous chaque fiche.", group: "canaux",   accent: "violet" },
   messagerie:   { key: "messagerie",   title: "Messagerie pro",       description: "Transfert Gmail, tuto Send-As, mot de passe boîte pro.",   group: "outils",   accent: "rose" },
   whatsapp:     { key: "whatsapp",     title: "WhatsApp",             description: "Vérification automatique des numéros clients.",           group: "outils",   accent: "emerald" },
   traduction:   { key: "traduction",   title: "Traduction auto",      description: "Fiches produit traduites FR → EN via PFS.",                group: "outils",   accent: "violet" },

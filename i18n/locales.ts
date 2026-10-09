@@ -12,13 +12,12 @@ export const NON_DEFAULT_LOCALES: Locale[] = VALID_LOCALES.filter(
 
 /**
  * Locales ciblées par l'auto-traduction fire-and-forget (hook de création
- * d'entité quand `auto_translate_enabled=true`). Volontairement RESTREINT à
- * l'anglais pour éviter d'empiler des appels PFS à chaque création de
- * catégorie/couleur/compo/collection/produit — l'API PFS a un rate limit
- * ~500/h et la cliente préfère déclencher DE/IT/ES à la main via les boutons
- * « Traduire » (qui font 1 call PFS qui renvoie les 5 langues d'un coup).
+ * d'entité quand `auto_translate_enabled=true`). Couvre toutes les locales
+ * non-défaut : l'API PFS renvoie les 5 langues en 1 appel via `translatePhrases`,
+ * donc étendre à EN/DE/IT/ES ne multiplie pas les requêtes. Les langues saisies
+ * manuellement par l'admin (flag `manualEdit`) ne sont jamais écrasées.
  */
-export const AUTO_TRANSLATE_LOCALES: Locale[] = ["en"];
+export const AUTO_TRANSLATE_LOCALES: Locale[] = NON_DEFAULT_LOCALES;
 
 export const RTL_LOCALES: Locale[] = [];
 

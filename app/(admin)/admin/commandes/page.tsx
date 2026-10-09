@@ -20,6 +20,16 @@ const STATUS_LABELS: Record<string, { label: string; badge: string; dot: string 
   CANCELLED: { label: "Annulée",  badge: "badge badge-error",   dot: "bg-red-500"     },
 };
 
+// Mode de paiement : libellé FR affiché dans la liste et sur la fiche.
+// Historique nullable → affiché comme Carte bancaire par défaut.
+const PAYMENT_MODE_LABELS: Record<string, string> = {
+  CARD:          "Carte bancaire",
+  BANK_TRANSFER: "Virement",
+  STRIPE_LINK:   "Lien de paiement",
+  PAY_ON_PICKUP: "Paiement sur place",
+  CREDIT:        "Avoir",
+};
+
 const PER_PAGE = 30;
 
 export default async function AdminCommandesPage({
@@ -98,6 +108,8 @@ export default async function AdminCommandesPage({
         totalTTC:      true,
         carrierName:   true,
         eeTrackingId:  true,
+        paymentMode:   true,
+        paymentStatus: true,
         createdAt:     true,
         _count: { select: { items: true } },
       },
@@ -333,11 +345,12 @@ export default async function AdminCommandesPage({
           </div>
 
           {/* Entête colonnes desktop */}
-          <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(160px,1.5fr)_80px] gap-3 px-6 py-3 bg-bg-secondary border-y border-border">
+          <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(170px,1.4fr)_minmax(160px,1.5fr)_80px] gap-3 px-6 py-3 bg-bg-secondary border-y border-border">
             <ColHeader>N° Commande</ColHeader>
             <ColHeader>Client</ColHeader>
             <ColHeader className="text-right">Montant TTC</ColHeader>
             <ColHeader>Statut</ColHeader>
+            <ColHeader>Mode de paiement</ColHeader>
             <ColHeader>Transporteur</ColHeader>
             <ColHeader className="text-right">Voir</ColHeader>
           </div>
@@ -351,6 +364,11 @@ export default async function AdminCommandesPage({
               });
               const formattedAmount = `${Number(order.totalTTC).toFixed(2).replace(".", ",")} €`;
               const itemsLabel = `${order._count.items} article${order._count.items > 1 ? "s" : ""}`;
+              const paymentModeLabel =
+                PAYMENT_MODE_LABELS[order.paymentMode ?? "CARD"] ?? "Carte bancaire";
+              const isPaid = order.paymentStatus === "paid";
+              const paymentBadgeClass = isPaid ? "badge badge-success" : "badge badge-warning";
+              const paymentStatusLabel = isPaid ? "Payé" : "Non payé";
 
               return (
                 <Link
@@ -388,7 +406,18 @@ export default async function AdminCommandesPage({
                       </p>
                     </div>
 
-                    {/* Ligne 3 : transporteur (si présent) */}
+                    {/* Ligne 3 : paiement */}
+                    <div className="mt-3 pt-3 border-t border-dashed border-border flex items-center gap-2 text-xs text-text-secondary min-w-0">
+                      <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z" />
+                      </svg>
+                      <span className="truncate">{paymentModeLabel}</span>
+                      <span className={`${paymentBadgeClass} text-[10px] ml-auto`}>
+                        {paymentStatusLabel}
+                      </span>
+                    </div>
+
+                    {/* Ligne 4 : transporteur (si présent) */}
                     {(order.carrierName || order.eeTrackingId) && (
                       <div className="mt-3 pt-3 border-t border-dashed border-border flex items-center gap-2 text-xs text-text-secondary min-w-0">
                         <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,7 +434,7 @@ export default async function AdminCommandesPage({
                   </div>
 
                   {/* ── Desktop (≥lg) ── */}
-                  <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(160px,1.5fr)_80px] gap-3 px-6 py-4 items-center">
+                  <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(170px,1.4fr)_minmax(160px,1.5fr)_80px] gap-3 px-6 py-4 items-center">
                     <div className="min-w-0">
                       <p className={`font-mono font-bold text-sm text-text-primary ${isCancelled ? "line-through decoration-zinc-400" : ""}`}>
                         {order.orderNumber}
@@ -432,6 +461,15 @@ export default async function AdminCommandesPage({
 
                     <div>
                       <span className={st.badge}>{st.label}</span>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs text-text-secondary truncate">
+                        {paymentModeLabel}
+                      </p>
+                      <span className={`${paymentBadgeClass} text-[10px] mt-1 inline-flex`}>
+                        {paymentStatusLabel}
+                      </span>
                     </div>
 
                     <div className="min-w-0">

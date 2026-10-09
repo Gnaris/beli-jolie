@@ -8,6 +8,7 @@ import ProductDetailIssymaClient, {
   type IssymaImageGroup,
 } from "@/components/issyma/ProductDetailIssymaClient";
 import { ISSYMA_PALETTE } from "@/components/issyma/theme";
+import type { ResolvedFaqItem } from "@/lib/product-faq";
 
 const P = ISSYMA_PALETTE;
 
@@ -58,6 +59,7 @@ export default async function ProductDetailIssymaLayout({
   showPrices,
   isAuthenticated,
   isRevoked,
+  faqItems,
   jsonLdBlocks,
 }: {
   shopName: string;
@@ -74,6 +76,8 @@ export default async function ProductDetailIssymaLayout({
   showPrices: boolean;
   isAuthenticated: boolean;
   isRevoked: boolean;
+  /** Rubriques « Foire aux informations » déjà résolues (défauts + override produit). */
+  faqItems?: ResolvedFaqItem[];
   jsonLdBlocks?: object[];
 }) {
   const [tProducts, tDetail] = await Promise.all([
@@ -175,37 +179,26 @@ export default async function ProductDetailIssymaLayout({
               </div>
             </details>
 
-            <details
-              className="mt-3 rounded-xl overflow-hidden"
-              style={{ background: P.paper, border: `1px solid ${P.borderSoft}` }}
-            >
-              <summary
-                className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
-                style={{ color: P.ink }}
-              >
-                <span>{tDetail("accordionSizes")}</span>
-                <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
-              </summary>
-              <div className="px-5 pb-5 text-[13px] leading-relaxed" style={{ color: P.inkSoft }}>
-                {tDetail("accordionSizesContent")}
-              </div>
-            </details>
-
-            <details
-              className="mt-3 rounded-xl overflow-hidden"
-              style={{ background: P.paper, border: `1px solid ${P.borderSoft}` }}
-            >
-              <summary
-                className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
-                style={{ color: P.ink }}
-              >
-                <span>{tDetail("accordionShipping")}</span>
-                <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
-              </summary>
-              <div className="px-5 pb-5 text-[13px] leading-relaxed" style={{ color: P.inkSoft }}>
-                {tDetail("accordionShippingContent")}
-              </div>
-            </details>
+            {(faqItems ?? [])
+              .filter((item) => item.title.trim().length > 0 && item.body.trim().length > 0)
+              .map((item) => (
+                <details
+                  key={item.id}
+                  className="mt-3 rounded-xl overflow-hidden"
+                  style={{ background: P.paper, border: `1px solid ${P.borderSoft}` }}
+                >
+                  <summary
+                    className="flex items-center justify-between cursor-pointer px-5 py-4 text-[13px] tracking-[0.2em] uppercase font-semibold"
+                    style={{ color: P.ink }}
+                  >
+                    <span>{item.title}</span>
+                    <span className="plus text-xl leading-none" style={{ color: P.wine700 }} aria-hidden />
+                  </summary>
+                  <div className="px-5 pb-5 text-[13px] leading-relaxed whitespace-pre-line" style={{ color: P.inkSoft }}>
+                    {item.body}
+                  </div>
+                </details>
+              ))}
           </div>
         </div>
       </section>

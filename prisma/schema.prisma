@@ -1640,6 +1640,13 @@ model Product {
   faireLastExportedAt      DateTime?
   orderchampLastExportedAt DateTime?
 
+  // Surcharges par produit des rubriques « Foire aux informations ».
+  // Map `{ [defaultItemId]: texteCustom }`. Clé = id d'une rubrique définie
+  // dans SiteConfig[product_faq_defaults]. Si clé absente ou valeur vide =
+  // la boutique affiche le texte par défaut. Les clés orphelines (rubrique
+  // supprimée des défauts) sont ignorées côté lecture.
+  faqOverrides Json?
+
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL après backfill.
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])

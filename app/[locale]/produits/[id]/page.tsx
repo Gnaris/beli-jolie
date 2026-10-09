@@ -18,6 +18,12 @@ import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import ProductDetailIssymaLayout from "@/components/issyma/ProductDetailIssymaLayout";
+import {
+  parseProductFaqDefaults,
+  parseProductFaqOverrides,
+  resolveProductFaq,
+  PRODUCT_FAQ_DEFAULTS_KEY,
+} from "@/lib/product-faq";
 import { loadActivePromotions } from "@/lib/promotions";
 import { resolveBestPercentForProductBadge } from "@/lib/promotion-engine";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
@@ -598,6 +604,15 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     const compositionsText = product.compositions
       .map((c) => `${resolveTranslatedName(c.composition) ?? c.composition.name} ${c.percentage}%`)
       .join(" · ");
+
+    // Résolution des rubriques « Foire aux informations » : défauts boutique
+    // (SiteConfig) fusionnés avec les surcharges du produit (Product.faqOverrides).
+    const faqDefaultsRow = await getCachedSiteConfig(PRODUCT_FAQ_DEFAULTS_KEY);
+    const faqItems = resolveProductFaq(
+      parseProductFaqDefaults(faqDefaultsRow?.value),
+      parseProductFaqOverrides((product as { faqOverrides?: unknown }).faqOverrides),
+    );
+
     return (
       <ProductDetailIssymaLayout
         shopName={shopName}
@@ -614,6 +629,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
         showPrices={canSeePrices(session)}
         isAuthenticated={!!session?.user?.id}
         isRevoked={session?.user?.status === "REJECTED"}
+        faqItems={faqItems}
         jsonLdBlocks={[productJsonLd, breadcrumbJsonLd]}
       />
     );

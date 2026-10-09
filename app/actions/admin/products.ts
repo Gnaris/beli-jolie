@@ -1586,30 +1586,90 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
     }
   }
 
-  // Traductions : remplacer toutes les traductions existantes. Les entrées
-  // proviennent de la ProductForm (onglet EN saisi manuellement) → on pose
-  // `manualEdit: true` pour les protéger d'un futur écrasement par l'auto-
-  // traduction PFS. Les autres locales (sans saisie) restent auto-traduites
-  // en fond après `autoTranslateProduct(...)`.
+  // Traductions : upsert sélectif qui préserve `manualEdit` sur les locales
+  // non modifiées. Seules les locales dont le nom OU la description a changé
+  // dans ce save deviennent `manualEdit: true` (= verrouillées contre toute
+  // auto-traduction future). Puis, si le FR (nom OU description) a bougé par
+  // rapport à la BDD, on relance une auto-traduction fire-and-forget qui
+  // retraduira les locales non verrouillées depuis le nouveau FR.
+  const frNameChanged = !!oldProduct && oldProduct.name !== input.name.trim();
+  const frDescChanged =
+    !!oldProduct && oldProduct.description !== (input.description?.trim() ?? "");
+  const frChanged = frNameChanged || frDescChanged;
+
+  const modifiedLocales: string[] = [];
+
   if (input.translations !== undefined) {
-    await prisma.productTranslation.deleteMany({ where: { productId: id } });
-    const validTranslations = input.translations.filter((t) => t.name.trim() || t.description.trim());
-    if (validTranslations.length > 0) {
-      await prisma.productTranslation.createMany({
-        data: validTranslations.map((t) => ({
-          productId:   id,
-          locale:      t.locale,
-          name:        t.name,
-          description: t.description,
-          manualEdit:  true,
-        })),
-        skipDuplicates: true,
+    const existingTranslations = await prisma.productTranslation.findMany({
+      where: { productId: id },
+      select: { locale: true, name: true, description: true, manualEdit: true },
+    });
+    const existingByLocale = new Map(
+      existingTranslations.map((t) => [t.locale, t] as const),
+    );
+
+    const incomingByLocale = new Map<string, { name: string; description: string }>();
+    for (const t of input.translations) {
+      incomingByLocale.set(t.locale, { name: t.name, description: t.description });
+    }
+
+    // 1) Supprimer les locales retirées du form (plus présentes dans le payload).
+    const localesToDelete = existingTranslations
+      .filter((t) => !incomingByLocale.has(t.locale))
+      .map((t) => t.locale);
+    if (localesToDelete.length > 0) {
+      await prisma.productTranslation.deleteMany({
+        where: { productId: id, locale: { in: localesToDelete } },
       });
     }
+
+    // 2) Upsert : pose `manualEdit: true` UNIQUEMENT sur les locales dont
+    //    le texte a réellement changé (vs BDD). Les locales inchangées gardent
+    //    leur flag existant — une trad auto reste auto, une trad manuelle reste
+    //    manuelle.
+    for (const [locale, payload] of incomingByLocale) {
+      const prev = existingByLocale.get(locale);
+      const hasContent = payload.name.trim() || payload.description.trim();
+      if (!hasContent) {
+        if (prev) {
+          await prisma.productTranslation.delete({
+            where: { productId_locale: { productId: id, locale } },
+          });
+        }
+        continue;
+      }
+      const changedVsDb =
+        !prev ||
+        prev.name !== payload.name ||
+        prev.description !== payload.description;
+      const manualEdit = changedVsDb ? true : prev.manualEdit;
+
+      await prisma.productTranslation.upsert({
+        where: { productId_locale: { productId: id, locale } },
+        update: { name: payload.name, description: payload.description, manualEdit },
+        create: {
+          productId: id,
+          locale,
+          name: payload.name,
+          description: payload.description,
+          manualEdit,
+        },
+      });
+
+      if (changedVsDb) modifiedLocales.push(locale);
+    }
+
+    // 3) Si le FR a changé → auto-traduction fire-and-forget. Les locales
+    //    modifiées dans ce save sont skippées via `modifiedLocales`, et les
+    //    autres locales `manualEdit:true` déjà en BDD sont filtrées à
+    //    l'intérieur de `_autoTranslateProduct`.
+    if (frChanged) {
+      autoTranslateProduct(id, input.name, input.description, modifiedLocales);
+    }
   } else {
-    // Aucune traduction fournie : invalider le cache et auto-traduire
+    // Aucune traduction fournie dans le payload : purge et retraduction si FR a bougé.
     await invalidateProductTranslations(id);
-    autoTranslateProduct(id, input.name, input.description);
+    if (frChanged) autoTranslateProduct(id, input.name, input.description);
   }
 
   // Auto-downgrade to OFFLINE seulement si AUCUNE couleur n'a la moindre

@@ -9,12 +9,9 @@
 
 import { prisma } from "@/lib/prisma";
 import { translateTextStrict, type Locale } from "@/lib/translate";
+import { translatePhrases, type PfsTranslationLocale } from "@/lib/pfs-translate";
 import { AUTO_TRANSLATE_LOCALES } from "@/i18n/locales";
 
-
-// Volontairement différent de NON_DEFAULT_LOCALES : l'auto-traduction fire-and-
-// forget ne cible QUE l'anglais pour ne pas quadrupler les appels PFS à chaque
-// création. DE/IT/ES se remplissent via les boutons « Traduire » manuels.
 const TARGET_LOCALES: Locale[] = AUTO_TRANSLATE_LOCALES;
 
 /** Check if auto-translate is enabled in SiteConfig */
@@ -176,7 +173,8 @@ async function _autoTranslateProduct(
     // Locales verrouillées par une édition manuelle admin : on NE doit pas les
     // écraser par le mot-à-mot PFS (souvent bancal, ex. "Robe sans manches"
     // → "Dress without sleeves" au lieu de "Sleeveless dress"). Le flag
-    // `manualEdit` est posé par `updateProductTranslation` (onglet EN du form).
+    // `manualEdit` est posé par le server action produit sur chaque locale
+    // effectivement modifiée dans le form.
     const manuallyEditedRows = await prisma.productTranslation.findMany({
       where: { productId, manualEdit: true },
       select: { locale: true },
@@ -188,30 +186,38 @@ async function _autoTranslateProduct(
     );
     if (localesToTranslate.length === 0) return;
 
-    for (const locale of localesToTranslate) {
-      const [translatedName, translatedDesc] = await Promise.all([
-        name.trim() ? translateTextStrict(name, "fr", locale) : Promise.resolve(""),
-        description.trim() ? translateTextStrict(description, "fr", locale) : Promise.resolve(""),
-      ]);
+    const trimmedName = name.trim();
+    const trimmedDesc = description.trim();
+    const phrases: Record<string, string> = {};
+    if (trimmedName) phrases.name = name;
+    if (trimmedDesc) phrases.description = description;
+    if (Object.keys(phrases).length === 0) return;
 
-      // null = retry exhausted. Si NAME a échoué, on n'écrit rien (la fiche n'aura
-      // pas de traduction pour cette locale et l'icône ⚠ restera visible).
-      // Si DESC a échoué mais pas NAME, on garde le name et on met "" en desc
-      // pour ne pas créer une desc identique au FR.
-      if (translatedName === null) continue;
+    // 1 seul appel PFS pour les 4 langues × 2 textes (name + description).
+    const result = await translatePhrases(phrases, { sourceLanguage: "fr" });
+    if (!result) return;
+
+    for (const locale of localesToTranslate) {
+      const pfsLocale = locale as PfsTranslationLocale;
+      const translatedName = phrases.name ? (result.name?.[pfsLocale] ?? "") : "";
+      const translatedDesc = phrases.description ? (result.description?.[pfsLocale] ?? "") : "";
 
       const finalName = translatedName.trim();
-      const finalDesc = translatedDesc === null ? "" : (translatedDesc ?? "");
+      const finalDesc = translatedDesc.trim();
 
-      if (finalName || finalDesc.trim()) {
-        await prisma.productTranslation.upsert({
-          where: { productId_locale: { productId, locale } },
-          update: { name: finalName, description: finalDesc },
-          create: { productId, locale, name: finalName, description: finalDesc },
-        });
-      }
+      // Si on a demandé la trad du nom et qu'elle est vide ou identique au FR,
+      // on skip la locale (évite de polluer la BDD avec des traductions ratées).
+      if (trimmedName && (!finalName || finalName === trimmedName)) continue;
+      if (!finalName && !finalDesc) continue;
+
+      await prisma.productTranslation.upsert({
+        where: { productId_locale: { productId, locale } },
+        update: { name: finalName, description: finalDesc },
+        create: { productId, locale, name: finalName, description: finalDesc },
+      });
     }
   } catch {
     // Silently ignore product translation failures
   }
 }
+

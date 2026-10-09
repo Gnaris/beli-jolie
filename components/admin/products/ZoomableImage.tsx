@@ -115,8 +115,11 @@ export function ZoomableImage({
             <img
               src={raw ? src : getImageSrc(src, "large")}
               alt={alt}
-              className="max-h-[90vh] max-w-[90vw] object-contain rounded-xl shadow-2xl"
+              draggable={false}
+              className="max-h-[90vh] max-w-[90vw] object-contain rounded-xl shadow-2xl select-none"
+              style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none" }}
               onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
             />
             <span
               className="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/90 text-slate-900 flex items-center justify-center text-lg font-bold shadow-lg"
