@@ -70,6 +70,10 @@ interface Props {
   };
   /** Solde total d'avoir disponible pour la cliente (0 = pas de crédit). */
   availableCredit: number;
+  /** Erreurs de validation du panier pré-calculées côté serveur au chargement
+   *  — déjà en rouge dès l'arrivée (variante désactivée, produit offline,
+   *  stock insuffisant). */
+  initialValidationErrors?: CartValidationError[];
 }
 
 /**
@@ -93,6 +97,7 @@ export default function CartWizardClient({
   stripePublishableKey,
   bankTransfer,
   availableCredit,
+  initialValidationErrors = [],
 }: Props) {
   const router = useRouter();
   const t = useTranslations("checkout");
@@ -103,11 +108,15 @@ export default function CartWizardClient({
   // ── Étape courante
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
 
-  // ── Erreurs de validation du panier (rupture stock / produit offline).
-  //    Peuplées au clic « Procéder au paiement » (étape 2 → étape 3) via
-  //    /api/cart/validate. En cas d'erreurs on renvoie sur l'étape 1 où
-  //    chaque ligne fautive s'affiche en rouge avec le message adapté.
-  const [validationErrors, setValidationErrors] = useState<CartValidationError[]>([]);
+  // ── Erreurs de validation du panier (variante désactivée / rupture stock /
+  //    produit offline). Pré-remplies côté serveur au chargement (prop
+  //    `initialValidationErrors`) puis rafraîchies à chaque transition
+  //    d'étape via /api/cart/validate. En cas d'erreurs on renvoie sur
+  //    l'étape 1 où chaque ligne fautive s'affiche en rouge avec le message
+  //    adapté.
+  const [validationErrors, setValidationErrors] = useState<CartValidationError[]>(
+    initialValidationErrors,
+  );
   const [isValidating, setIsValidating] = useState(false);
 
   // ── Cart local (rafraîchi après mutations)
@@ -523,7 +532,16 @@ export default function CartWizardClient({
           const SERVER_ERROR_MAP: Record<string, string> = {
             "Adresse introuvable.": t("errorAddressNotFound"),
           };
-          setStripeError(SERVER_ERROR_MAP[data.error] ?? data.error);
+          const mapped = SERVER_ERROR_MAP[data.error] ?? data.error;
+          // Erreur create-intent liée à une variante désactivée / rupture /
+          // offline → on revalide et on renvoie à l'étape 1. Sinon on reste
+          // sur l'étape 3 avec le message d'erreur Stripe habituel.
+          if (!cancelled) {
+            void returnToStep1IfInvalid().then((returned) => {
+              if (cancelled) return;
+              if (!returned) setStripeError(mapped);
+            });
+          }
           return;
         }
         setClientSecret(data.clientSecret);
@@ -566,6 +584,46 @@ export default function CartWizardClient({
   const [cgvAccepted, setCgvAccepted] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+
+  /**
+   * Revalide le panier et renvoie à l'étape 1 si une variante a été
+   * désactivée / mise en rupture / passée offline entre-temps. Retourne
+   * `true` si la cliente a été renvoyée à l'étape 1 (le caller doit alors
+   * oublier son propre message d'erreur).
+   */
+  async function returnToStep1IfInvalid(): Promise<boolean> {
+    try {
+      const res = await fetch("/api/cart/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok && !data.ok && Array.isArray(data.errors) && data.errors.length > 0) {
+        setValidationErrors(data.errors);
+        await refreshCart();
+        setCurrentStep(1);
+        setOrderError("");
+        setStripeError("");
+        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return true;
+      }
+    } catch {
+      // Réseau HS → on retombe sur l'affichage classique de l'erreur.
+    }
+    return false;
+  }
+
+  /**
+   * Erreur de placement à l'étape 3 : avant d'afficher le message brut, on
+   * revalide le panier. Si une variante a été désactivée / mise en rupture /
+   * passée offline entre-temps, on renvoie la cliente à l'étape 1 avec les
+   * lignes fautives surlignées rouge au lieu de la laisser coincée à l'étape
+   * 3 avec un simple message d'erreur.
+   */
+  async function handlePlacementError(serverError: string) {
+    const returned = await returnToStep1IfInvalid();
+    if (!returned) setOrderError(serverError);
+  }
 
   async function handleBankTransferSubmit() {
     setOrderError("");
@@ -614,7 +672,7 @@ export default function CartWizardClient({
       if (result.success) {
         router.replace(`/commandes/${result.orderId}`);
       } else {
-        setOrderError(result.error);
+        await handlePlacementError(result.error);
         setIsCreatingOrder(false);
       }
     } catch (err) {
@@ -662,7 +720,7 @@ export default function CartWizardClient({
       if (result.success) {
         router.replace(`/commandes/${result.orderId}`);
       } else {
-        setOrderError(result.error);
+        await handlePlacementError(result.error);
         setIsCreatingOrder(false);
       }
     } catch (err) {
@@ -720,7 +778,7 @@ export default function CartWizardClient({
       if (result.success) {
         router.replace(`/commandes/${result.orderId}`);
       } else {
-        setOrderError(result.error);
+        await handlePlacementError(result.error);
         setIsCreatingOrder(false);
       }
     } catch (err) {
@@ -830,7 +888,7 @@ export default function CartWizardClient({
       if (result.success) {
         router.replace(`/commandes/${result.orderId}`);
       } else {
-        setOrderError(result.error);
+        await handlePlacementError(result.error);
         setIsCreatingOrder(false);
       }
     } catch (err) {
@@ -889,21 +947,19 @@ export default function CartWizardClient({
     if (s === 2 && mustMergeToProceed && deliveryMode !== "merge") {
       setDeliveryMode("merge");
     }
-    // Le passage à l'étape 3 (paiement) passe par handleValidateAndGoToPayment
-    // pour lancer la vérif serveur du panier. On laisse toutefois goToStep
-    // gérer les retours arrière (3→2, 3→1).
+    // Les avances (1→2, 2→3, 1→3) passent par handleStepperNavigate pour la
+    // vérif serveur du panier. goToStep gère les retours arrière (3→2, 3→1).
     setCurrentStep(s);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   /**
-   * Étape 2 → Étape 3 : vérification serveur du panier (produits ONLINE,
-   * variantes activées, stock suffisant) via /api/cart/validate. Si erreurs,
-   * on renvoie l'utilisatrice sur l'étape 1 avec les erreurs affichées ligne
-   * par ligne.
+   * Vérification serveur du panier (produits ONLINE, variantes activées,
+   * stock suffisant) via /api/cart/validate à chaque passage à une étape
+   * suivante. Si erreurs → retour à l'étape 1 avec les lignes fautives en
+   * rouge. Si OK → passe à l'étape cible.
    */
-  async function handleValidateAndGoToPayment() {
-    if (!canGoToStep3) return;
+  async function validateAndGoToStep(target: WizardStep): Promise<boolean> {
     setIsValidating(true);
     try {
       const res = await fetch("/api/cart/validate", {
@@ -912,26 +968,68 @@ export default function CartWizardClient({
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        // Panier OK → on nettoie les erreurs et on passe à l'étape paiement.
+        // Panier OK → on nettoie les erreurs et on passe à l'étape cible.
         setValidationErrors([]);
-        setCurrentStep(3);
+        if (target === 2 && mustMergeToProceed && deliveryMode !== "merge") {
+          setDeliveryMode("merge");
+        }
+        setCurrentStep(target);
         if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        // Erreurs → retour à l'étape 1, affichage inline sous chaque variante.
-        setValidationErrors(data.errors ?? []);
-        await refreshCart();
-        setCurrentStep(1);
-        if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        return true;
       }
-    } catch {
-      // Réseau HS → on laisse quand même passer (le contrôle atomique côté
-      // create-intent + placeOrder rattrapera si vraiment un souci persiste).
-      setCurrentStep(3);
+      // Erreurs → retour à l'étape 1, affichage inline sous chaque variante.
+      setValidationErrors(data.errors ?? []);
+      await refreshCart();
+      setCurrentStep(1);
       if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+      return false;
+    } catch {
+      // Réseau HS → on laisse passer (contrôle atomique côté create-intent +
+      // placeOrder rattrapera si vraiment un souci persiste).
+      setCurrentStep(target);
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+      return true;
     } finally {
       setIsValidating(false);
     }
   }
+
+  /**
+   * Navigation stepper (clic sur un cercle) : retours arrière sans validation,
+   * avances via validateAndGoToStep.
+   */
+  async function handleStepperNavigate(target: WizardStep) {
+    if (target === currentStep) return;
+    if (target < currentStep) {
+      goToStep(target);
+      return;
+    }
+    if (target === 2 && !canGoToStep2) return;
+    if (target === 3 && !canGoToStep3) return;
+    await validateAndGoToStep(target);
+  }
+
+  // Trace cascade livraison (dérivée du même calcul que effectiveCarrierPrice).
+  // IMPORTANT : ce useMemo DOIT rester avant l'early return « panier vide »
+  // sinon l'ordre des hooks change entre renders → « Rendered fewer hooks ».
+  const shippingTraceLocal = useMemo(() => {
+    if (deliveryMode !== "delivery" || rawCarrierPrice <= 0) return [];
+    return shippingCalc.trace;
+  }, [deliveryMode, rawCarrierPrice, shippingCalc]);
+
+  // ── Erreurs bloquantes à l'étape 1 : on désactive le CTA « Suivant » si au
+  //    moins une ligne du panier est encore commandée (qty > 0) ET fautive.
+  //    Une fois la ligne retirée (corbeille), on la nettoie automatiquement
+  //    de validationErrors, débloquant le CTA sans nouveau fetch.
+  const commandedVariantIds = useMemo(() => {
+    if (!cart) return new Set<string>();
+    const s = new Set<string>();
+    for (const it of cart.items) if (it.quantity > 0) s.add(it.variant.id);
+    return s;
+  }, [cart]);
+  const hasBlockingValidationError = validationErrors.some((e) =>
+    commandedVariantIds.has(e.variantId),
+  );
 
   // ── Panier vide → écran dédié
   if (!cart || cart.items.length === 0) {
@@ -964,12 +1062,6 @@ export default function CartWizardClient({
   // Décomposition TVA panier vs livraison pour affichage cascade — override serveur si dispo.
   const tvaOnCart = serverPricing?.tvaOnCart ?? floor2(finalItemsHT * tvaRate);
   const tvaOnShipping = serverPricing?.tvaOnShipping ?? floor2(effectiveCarrierPrice * tvaRate);
-
-  // Trace cascade livraison (dérivée du même calcul que effectiveCarrierPrice).
-  const shippingTraceLocal = useMemo(() => {
-    if (deliveryMode !== "delivery" || rawCarrierPrice <= 0) return [];
-    return shippingCalc.trace;
-  }, [deliveryMode, rawCarrierPrice, shippingCalc]);
 
   // ── Récap sticky partagé
   const summaryProps = {
@@ -1011,7 +1103,7 @@ export default function CartWizardClient({
           </h1>
           <WizardStepper
             currentStep={currentStep}
-            onGoTo={goToStep}
+            onGoTo={(s) => { void handleStepperNavigate(s); }}
             canGoStep2={canGoToStep2}
             canGoStep3={canGoToStep3}
           />
@@ -1156,14 +1248,14 @@ export default function CartWizardClient({
             hideCta={currentStep === 3}
             ctaLabel={
               currentStep === 1
-                ? t("proceedToPayment")
+                ? t("proceedToDelivery")
                 : currentStep === 2
                   ? t("proceedToPayment")
                   : t("payAmount", { amount: amountDue.toFixed(2) })
             }
             ctaDisabled={
               currentStep === 1
-                ? !canGoToStep2
+                ? !canGoToStep2 || isValidating || hasBlockingValidationError
                 : currentStep === 2
                   ? !canGoToStep3 || isValidating
                   : isCoveredByCredit
@@ -1173,8 +1265,8 @@ export default function CartWizardClient({
                       : !cgvAccepted || !clientSecret || isCreatingOrder || paymentMode !== "card"
             }
             onCta={() => {
-              if (currentStep === 1) goToStep(2);
-              else if (currentStep === 2) void handleValidateAndGoToPayment();
+              if (currentStep === 1) void validateAndGoToStep(2);
+              else if (currentStep === 2) void validateAndGoToStep(3);
               else if (isCoveredByCredit) {
                 void handleCreditOnlySubmit();
               } else if (paymentMode === "bank_transfer") {

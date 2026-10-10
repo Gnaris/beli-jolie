@@ -233,17 +233,19 @@ export async function placePaymentLinkOrder(
 
   const offlineItem = cart.items.find((item) => item.variant.product.status !== "ONLINE");
   if (offlineItem) {
+    const label = offlineItem.variant.product.reference ?? offlineItem.variant.product.name;
     return {
       success: false,
-      error: `Le produit « ${offlineItem.variant.product.name} » n'est plus disponible à la vente.`,
+      error: `Le produit « ${label} » n'est plus disponible à la vente.`,
     };
   }
 
   const disabledItem = cart.items.find((item) => item.variant.disabled);
   if (disabledItem) {
+    const label = disabledItem.variant.product.reference ?? disabledItem.variant.product.name;
     return {
       success: false,
-      error: `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${disabledItem.variant.product.name} » n'est plus disponible à la vente.`,
+      error: `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${label} » n'est plus disponible à la vente.`,
     };
   }
 
@@ -258,9 +260,10 @@ export async function placePaymentLinkOrder(
       shortStock.variant.saleType === "PACK" && packQty > 1
         ? `paquet${remaining > 1 ? "s" : ""}`
         : "";
+    const label = shortStock.variant.product.reference ?? shortStock.variant.product.name;
     return {
       success: false,
-      error: `Stock insuffisant pour « ${shortStock.variant.product.name} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}.`,
+      error: `Stock insuffisant pour « ${label} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}.`,
     };
   }
 
@@ -594,8 +597,9 @@ export async function placePaymentLinkOrder(
             item.variant.saleType === "PACK" && packQty > 1
               ? `paquet${remainingDisplay > 1 ? "s" : ""}`
               : "";
+          const label = item.variant.product.reference ?? item.variant.product.name;
           throw new StockError(
-            `Stock insuffisant pour « ${item.variant.product.name} » : il en reste ${remainingDisplay}${unitLabel ? ` ${unitLabel}` : ""}, vous en demandez ${item.quantity}.`,
+            `Stock insuffisant pour « ${label} » : il en reste ${remainingDisplay}${unitLabel ? ` ${unitLabel}` : ""}, vous en demandez ${item.quantity}.`,
           );
         }
       }

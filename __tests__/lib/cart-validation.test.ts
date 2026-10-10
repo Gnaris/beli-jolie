@@ -14,6 +14,8 @@ function unitLine(overrides: {
   stock?: number;
   status?: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   name?: string;
+  disabled?: boolean;
+  colorName?: string;
 }) {
   return {
     id: overrides.id ?? "ci-1",
@@ -23,6 +25,8 @@ function unitLine(overrides: {
       saleType: "UNIT" as const,
       packQuantity: null,
       stock: overrides.stock ?? 10,
+      disabled: overrides.disabled ?? false,
+      color: overrides.colorName ? { name: overrides.colorName } : null,
       product: {
         name: overrides.name ?? "Bague test",
         reference: "REF-1",
@@ -39,6 +43,7 @@ function packLine(overrides: {
   packQuantity?: number;
   status?: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   name?: string;
+  disabled?: boolean;
 }) {
   return {
     id: overrides.id ?? "ci-pack-1",
@@ -48,6 +53,8 @@ function packLine(overrides: {
       saleType: "PACK" as const,
       packQuantity: overrides.packQuantity ?? 12,
       stock: overrides.stock ?? 24,
+      disabled: overrides.disabled ?? false,
+      color: null,
       product: {
         name: overrides.name ?? "Pack boucles",
         reference: "PACK-1",
@@ -69,14 +76,15 @@ describe("validateCartLines", () => {
     expect(res.ok).toBe(true);
   });
 
-  it("détecte un article OFFLINE et propose un message clair", () => {
+  it("détecte un article OFFLINE et affiche la référence (pas le nom long)", () => {
     const res = validateCartLines([
       unitLine({ status: "OFFLINE", name: "Bague retirée" }),
     ]);
     expect(res.ok).toBe(false);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].reason).toBe("offline");
-    expect(res.errors[0].message).toMatch(/Bague retirée/);
+    expect(res.errors[0].message).toMatch(/REF-1/);
+    expect(res.errors[0].message).not.toMatch(/Bague retirée/);
     expect(res.errors[0].message).toMatch(/plus disponible/i);
   });
 
@@ -90,16 +98,50 @@ describe("validateCartLines", () => {
     expect(res.errors.every((e) => e.reason === "offline")).toBe(true);
   });
 
-  it("détecte une rupture de stock (stock = 0)", () => {
+  it("détecte une variante désactivée avec couleur + référence (sans le nom long)", () => {
+    const res = validateCartLines([
+      unitLine({ disabled: true, name: "Bague rose", colorName: "Rose doré" }),
+    ]);
+    expect(res.ok).toBe(false);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].reason).toBe("disabled");
+    expect(res.errors[0].message).toMatch(/Rose doré/);
+    expect(res.errors[0].message).toMatch(/REF-1/);
+    expect(res.errors[0].message).not.toMatch(/Bague rose/);
+    expect(res.errors[0].message).toMatch(/plus disponible/i);
+  });
+
+  it("variante désactivée sans nom de couleur → message générique coloris + référence", () => {
+    const res = validateCartLines([
+      unitLine({ disabled: true, name: "Collier" }),
+    ]);
+    expect(res.ok).toBe(false);
+    expect(res.errors[0].reason).toBe("disabled");
+    expect(res.errors[0].message).toMatch(/coloris/i);
+    expect(res.errors[0].message).toMatch(/REF-1/);
+    expect(res.errors[0].message).not.toMatch(/Collier/);
+  });
+
+  it("produit offline prime sur variante désactivée (une seule erreur par item)", () => {
+    const res = validateCartLines([
+      unitLine({ status: "ARCHIVED", disabled: true, name: "Fantôme" }),
+    ]);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].reason).toBe("offline");
+  });
+
+  it("détecte une rupture de stock (stock = 0) avec la référence", () => {
     const res = validateCartLines([
       unitLine({ stock: 0, quantity: 1, name: "Collier" }),
     ]);
     expect(res.ok).toBe(false);
     expect(res.errors[0].reason).toBe("out_of_stock");
+    expect(res.errors[0].message).toMatch(/REF-1/);
+    expect(res.errors[0].message).not.toMatch(/Collier/);
     expect(res.errors[0].message).toMatch(/rupture/i);
   });
 
-  it("détecte un stock insuffisant et affiche reste vs demandé", () => {
+  it("détecte un stock insuffisant et affiche reste vs demandé avec la référence", () => {
     const res = validateCartLines([
       unitLine({ stock: 2, quantity: 5, name: "Bracelet" }),
     ]);
@@ -107,6 +149,8 @@ describe("validateCartLines", () => {
     expect(res.errors[0].reason).toBe("insufficient_stock");
     expect(res.errors[0].available).toBe(2);
     expect(res.errors[0].requested).toBe(5);
+    expect(res.errors[0].message).toMatch(/REF-1/);
+    expect(res.errors[0].message).not.toMatch(/Bracelet/);
     expect(res.errors[0].message).toMatch(/il en reste 2/);
     expect(res.errors[0].message).toMatch(/vous en demandez 5/);
   });

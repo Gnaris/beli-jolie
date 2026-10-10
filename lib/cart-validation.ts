@@ -21,6 +21,7 @@ import { stockUnitsForCartLine } from "@/lib/stock-units";
 
 export type CartValidationErrorReason =
   | "offline"           // produit passé OFFLINE / ARCHIVED / SYNCING
+  | "disabled"          // variante (couleur) désactivée par l'admin
   | "out_of_stock"      // stock à 0
   | "insufficient_stock"; // stock > 0 mais < demandé
 
@@ -51,6 +52,8 @@ interface CartLineInput {
     saleType: "UNIT" | "PACK";
     packQuantity: number | null;
     stock: number;
+    disabled: boolean;
+    color?: { name: string } | null;
     product: {
       name: string;
       reference: string | null;
@@ -72,6 +75,10 @@ export function validateCartLines(items: CartLineInput[]): CartValidationResult 
     const packQty = v.packQuantity ?? 1;
     const isPack = v.saleType === "PACK" && packQty > 1;
 
+    // Référence courte affichée à la cliente (fallback nom si pas de ref —
+    // cas théorique, un produit sans ref ne devrait pas exister en prod).
+    const productLabel = v.product.reference ?? v.product.name;
+
     // 1. Produit toujours en ligne ?
     if (v.product.status !== "ONLINE") {
       errors.push({
@@ -83,12 +90,29 @@ export function validateCartLines(items: CartLineInput[]): CartValidationResult 
         unitLabel: "",
         requested: item.quantity,
         available: 0,
-        message: `« ${v.product.name} » n'est plus disponible à la vente.`,
+        message: `« ${productLabel} » n'est plus disponible à la vente.`,
       });
       continue;
     }
 
-    // 2. Assez de stock ?
+    // 2. Variante (couleur) désactivée par l'admin ?
+    if (v.disabled) {
+      const colorPart = v.color?.name ? `La couleur « ${v.color.name} » du produit` : "Ce coloris du produit";
+      errors.push({
+        itemId: item.id,
+        variantId: v.id,
+        productName: v.product.name,
+        productReference: v.product.reference,
+        reason: "disabled",
+        unitLabel: "",
+        requested: item.quantity,
+        available: 0,
+        message: `${colorPart} « ${productLabel} » n'est plus disponible à la vente.`,
+      });
+      continue;
+    }
+
+    // 3. Assez de stock ?
     const needed = stockUnitsForCartLine(item);
     const stock = v.stock;
     if (stock >= needed) continue;
@@ -110,7 +134,7 @@ export function validateCartLines(items: CartLineInput[]): CartValidationResult 
         unitLabel,
         requested: item.quantity,
         available: 0,
-        message: `« ${v.product.name} » est en rupture de stock.`,
+        message: `« ${productLabel} » est en rupture de stock.`,
       });
     } else {
       const unitSuffix = unitLabel ? ` ${unitLabel}` : "";
@@ -123,7 +147,7 @@ export function validateCartLines(items: CartLineInput[]): CartValidationResult 
         unitLabel,
         requested: item.quantity,
         available: availableForDisplay,
-        message: `« ${v.product.name} » : stock insuffisant (il en reste ${availableForDisplay}${unitSuffix}, vous en demandez ${item.quantity}).`,
+        message: `« ${productLabel} » : stock insuffisant (il en reste ${availableForDisplay}${unitSuffix}, vous en demandez ${item.quantity}).`,
       });
     }
   }
@@ -147,6 +171,8 @@ export async function validateCartForUser(userId: string): Promise<CartValidatio
               saleType: true,
               packQuantity: true,
               stock: true,
+              disabled: true,
+              color: { select: { name: true } },
               product: {
                 select: {
                   name: true,

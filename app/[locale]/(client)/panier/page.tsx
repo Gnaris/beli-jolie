@@ -8,6 +8,7 @@ import {
   getCartWithProductVariants,
   getShippingAddresses,
 } from "@/app/actions/client/cart";
+import { validateCartForUser } from "@/lib/cart-validation";
 import CartWizardClient from "@/components/panier/CartWizardClient";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import CartIssymaWrapper from "@/components/issyma/CartIssymaWrapper";
@@ -107,6 +108,7 @@ export default async function PanierPage() {
     businessHoursRow,
     mergeCandidates,
     availableCredit,
+    initialValidation,
   ] = await Promise.all([
     getCartWithProductVariants(),
     getShippingAddresses(),
@@ -178,6 +180,10 @@ export default async function PanierPage() {
       take: 5,
     }),
     getAvailableCredit(session.user.id),
+    // Pré-validation panier au chargement — colore en rouge toute ligne dont
+    // la variante est désactivée, le produit offline ou le stock insuffisant,
+    // SANS attendre le passage à l'étape suivante.
+    validateCartForUser(session.user.id),
   ]);
 
   // Retrait boutique
@@ -360,6 +366,7 @@ export default async function PanierPage() {
         ibanDisplay: bankTransferConfig.iban ? formatIbanForDisplay(bankTransferConfig.iban) : "",
       }}
       availableCredit={availableCredit}
+      initialValidationErrors={initialValidation.errors}
     />
   );
 

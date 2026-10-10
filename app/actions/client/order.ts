@@ -351,11 +351,12 @@ export async function placeOrder(
     (item) => item.variant.product.status !== "ONLINE",
   );
   if (offlineItem) {
+    const label = offlineItem.variant.product.reference ?? offlineItem.variant.product.name;
     return refundAndAbort(
       input.stripePaymentIntentId,
       userId,
       "product_offline",
-      `Le produit « ${offlineItem.variant.product.name} » n'est plus disponible à la vente.`,
+      `Le produit « ${label} » n'est plus disponible à la vente.`,
     );
   }
 
@@ -363,11 +364,12 @@ export async function placeOrder(
   // au panier (incident DRR29PPZ 06/10/2026, chemise 91820 Bordeaux).
   const disabledItem = cart.items.find((item) => item.variant.disabled);
   if (disabledItem) {
+    const label = disabledItem.variant.product.reference ?? disabledItem.variant.product.name;
     return refundAndAbort(
       input.stripePaymentIntentId,
       userId,
       "variant_disabled",
-      `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${disabledItem.variant.product.name} » n'est plus disponible à la vente.`,
+      `La couleur « ${disabledItem.variant.color?.name ?? ""} » du produit « ${label} » n'est plus disponible à la vente.`,
     );
   }
 
@@ -810,8 +812,9 @@ export async function placeOrder(
             item.variant.saleType === "PACK" && packQty > 1
               ? `paquet${remainingDisplay > 1 ? "s" : ""}`
               : "";
+          const label = item.variant.product.reference ?? item.variant.product.name;
           throw new StockError(
-            `Stock insuffisant pour « ${item.variant.product.name} » : il en reste ${remainingDisplay}${unitLabel ? ` ${unitLabel}` : ""}, vous en demandez ${item.quantity}.`,
+            `Stock insuffisant pour « ${label} » : il en reste ${remainingDisplay}${unitLabel ? ` ${unitLabel}` : ""}, vous en demandez ${item.quantity}.`,
           );
         }
       }

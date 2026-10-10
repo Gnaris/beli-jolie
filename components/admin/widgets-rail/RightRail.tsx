@@ -202,8 +202,15 @@ export function RightRail() {
       {/* Container widget — plus compact sur mobile (FAB + mini-boutons réduits, gap serré).
           `admin-fab-preserve` : la cliente veut que le FAB + les mini-boutons
           gardent leur apparence claire d'origine même quand le dark mode admin
-          est actif (2026-08-13). CSS reset dans app/globals.css. */}
-      <div className="admin-fab-preserve fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3">
+          est actif (2026-08-13). CSS reset dans app/globals.css.
+          Mobile (< md) : quand un tiroir est ouvert, on masque tout le FAB —
+          il tombait sur le bouton Envoyer du chat (et sur les CTA bas d'autres
+          tiroirs). Le tiroir a sa propre flèche retour dans le header. */}
+      <div
+        className={`admin-fab-preserve fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3 ${
+          somethingOpen ? "max-md:hidden" : ""
+        }`}
+      >
 
         {/* Mini-menu — reste visible même quand un tiroir est ouvert pour
             permettre à la cliente de basculer d'un widget à l'autre en un

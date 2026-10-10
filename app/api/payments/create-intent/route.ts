@@ -114,6 +114,7 @@ export async function POST(req: Request) {
                   select: {
                     id: true,
                     name: true,
+                    reference: true,
                     status: true,
                     discountPercent: true,
                   },
@@ -173,9 +174,10 @@ export async function POST(req: Request) {
   // catalog + ici, au moment de la préparation du paiement).
   const offline = cart.items.find((i) => i.variant.product.status !== "ONLINE");
   if (offline) {
+    const label = offline.variant.product.reference ?? offline.variant.product.name;
     return NextResponse.json(
       {
-        error: `Le produit « ${offline.variant.product.name} » n'est plus disponible. Retirez-le du panier pour continuer.`,
+        error: `Le produit « ${label} » n'est plus disponible. Retirez-le du panier pour continuer.`,
       },
       { status: 400 },
     );
@@ -184,9 +186,10 @@ export async function POST(req: Request) {
   // Même garde-fou côté variante (couleur désactivée depuis l'ajout au panier).
   const disabled = cart.items.find((i) => i.variant.disabled);
   if (disabled) {
+    const label = disabled.variant.product.reference ?? disabled.variant.product.name;
     return NextResponse.json(
       {
-        error: `La couleur « ${disabled.variant.color?.name ?? ""} » du produit « ${disabled.variant.product.name} » n'est plus disponible. Retirez-la du panier pour continuer.`,
+        error: `La couleur « ${disabled.variant.color?.name ?? ""} » du produit « ${label} » n'est plus disponible. Retirez-la du panier pour continuer.`,
       },
       { status: 400 },
     );
@@ -209,9 +212,10 @@ export async function POST(req: Request) {
       shortStock.variant.saleType === "PACK" && packQty > 1
         ? `paquet${remaining > 1 ? "s" : ""}`
         : "";
+    const label = shortStock.variant.product.reference ?? shortStock.variant.product.name;
     return NextResponse.json(
       {
-        error: `Stock insuffisant pour « ${shortStock.variant.product.name} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}. Retirez ou réduisez cet article pour continuer.`,
+        error: `Stock insuffisant pour « ${label} » : il en reste ${remaining}${unit ? ` ${unit}` : ""}, vous en demandez ${shortStock.quantity}. Retirez ou réduisez cet article pour continuer.`,
       },
       { status: 409 },
     );
