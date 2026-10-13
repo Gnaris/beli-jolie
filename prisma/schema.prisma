@@ -115,6 +115,7 @@ model User {
   minimumOrderOverrideHt        Decimal?            @db.Decimal(12, 2)
   lastLoginAt                   DateTime?
   lastSeenAt                    DateTime? // Heartbeat: dernier ping reçu pendant que le client est sur le site
+  onlineSinceAt                 DateTime? // Début de la session en ligne courante (posé par le heartbeat à chaque transition hors-ligne → en ligne). Base du compteur "Depuis Xmin" admin.
   // Cache de la vérification « ce numéro a-t-il WhatsApp ? » (Baileys reverse-engineered).
   //   - null      : pas encore vérifié (lazy — vérifié à l'ouverture d'une fiche client/commande)
   //   - true/false: résultat connu, pas de re-check avant quelques mois

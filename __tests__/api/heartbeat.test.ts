@@ -88,12 +88,73 @@ describe("POST /api/heartbeat", () => {
 
     const call = vi.mocked(prisma.user.update).mock.calls[0][0];
     expect(call.where).toEqual({ id: "client-42" });
-    const data = call.data as { lastSeenAt: Date; activeConversationId?: unknown };
+    const data = call.data as {
+      lastSeenAt: Date;
+      activeConversationId?: unknown;
+      onlineSinceAt?: Date;
+    };
     expect(data.lastSeenAt).toBeInstanceOf(Date);
     expect(data.lastSeenAt.getTime()).toBeGreaterThanOrEqual(before);
     expect(data.lastSeenAt.getTime()).toBeLessThanOrEqual(after);
     // Pas de body → on ne touche pas activeConversationId.
     expect(data.activeConversationId).toBeUndefined();
+  });
+
+  it("pose onlineSinceAt sur la transition hors-ligne → en ligne", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "client-42", role: "CLIENT", status: "APPROVED" },
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    // Jamais vu avant → c'est une arrivée.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      lastSeenAt: null,
+    } as never);
+
+    const before = Date.now();
+    await POST(buildRequest());
+    const after = Date.now();
+
+    const call = vi.mocked(prisma.user.update).mock.calls[0][0];
+    const data = call.data as { onlineSinceAt?: Date; lastSeenAt: Date };
+    expect(data.onlineSinceAt).toBeInstanceOf(Date);
+    expect(data.onlineSinceAt!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(data.onlineSinceAt!.getTime()).toBeLessThanOrEqual(after);
+  });
+
+  it("ne touche PAS onlineSinceAt tant que le client reste en ligne (ping dans la fenêtre)", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "client-42", role: "CLIENT", status: "APPROVED" },
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    // Vu il y a 10 s (fenêtre 60 s) → toujours en ligne, pas de reset.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      lastSeenAt: new Date(Date.now() - 10_000),
+    } as never);
+
+    await POST(buildRequest());
+
+    const call = vi.mocked(prisma.user.update).mock.calls[0][0];
+    const data = call.data as { onlineSinceAt?: Date };
+    expect(data.onlineSinceAt).toBeUndefined();
+  });
+
+  it("repose onlineSinceAt quand le client revient après une pause > fenêtre", async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { id: "client-42", role: "CLIENT", status: "APPROVED" },
+    } as never);
+    vi.mocked(prisma.user.update).mockResolvedValue({} as never);
+    // Pause de 11 jours (session JWT 30 j), revient → c'est une nouvelle session.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      lastSeenAt: new Date(Date.now() - 11 * 24 * 60 * 60 * 1000),
+    } as never);
+
+    const before = Date.now();
+    await POST(buildRequest());
+
+    const call = vi.mocked(prisma.user.update).mock.calls[0][0];
+    const data = call.data as { onlineSinceAt?: Date };
+    expect(data.onlineSinceAt).toBeInstanceOf(Date);
+    expect(data.onlineSinceAt!.getTime()).toBeGreaterThanOrEqual(before);
   });
 
   it("met à jour activeConversationId quand fourni en body", async () => {

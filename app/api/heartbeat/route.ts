@@ -47,7 +47,11 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date();
-  const data: { lastSeenAt: Date; activeConversationId?: string | null } = {
+  const data: {
+    lastSeenAt: Date;
+    activeConversationId?: string | null;
+    onlineSinceAt?: Date;
+  } = {
     lastSeenAt: now,
   };
   if (activeConversationId !== undefined) {
@@ -62,14 +66,23 @@ export async function POST(req: NextRequest) {
     select: { lastSeenAt: true },
   });
 
+  const wasOffline =
+    !previous?.lastSeenAt ||
+    now.getTime() - previous.lastSeenAt.getTime() >= ONLINE_WINDOW_MS;
+
+  // Transition hors-ligne → en ligne : on pose onlineSinceAt pour que le
+  // badge admin « En ligne · Depuis Xmin » reflète la session actuelle,
+  // pas la dernière saisie email/mdp (lastLoginAt), qui peut dater de
+  // plusieurs jours puisque le cookie de session dure 30 jours.
+  if (wasOffline) {
+    data.onlineSinceAt = now;
+  }
+
   await prisma.user.update({
     where: { id: session.user.id },
     data,
   });
 
-  const wasOffline =
-    !previous?.lastSeenAt ||
-    now.getTime() - previous.lastSeenAt.getTime() >= ONLINE_WINDOW_MS;
   if (wasOffline) {
     emitAdminEvent({
       type: "CLIENT_STATUS",

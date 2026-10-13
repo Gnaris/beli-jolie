@@ -321,6 +321,7 @@ type RegisteredClient = {
   status: UserStatus;
   lastLoginAt: Date | null;
   lastSeenAt: Date | null;
+  onlineSinceAt: Date | null;
   createdAt: Date;
   acceptsNewsletter: boolean;
   hasWhatsapp: boolean | null;
@@ -340,6 +341,7 @@ const REGISTERED_SELECT = {
   status: true,
   lastLoginAt: true,
   lastSeenAt: true,
+  onlineSinceAt: true,
   createdAt: true,
   acceptsNewsletter: true,
   hasWhatsapp: true,
@@ -1148,7 +1150,7 @@ function RegisteredPane({
                         </td>
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           {online ? (
-                            <OnlineDurationBadge lastLoginAt={c.lastLoginAt} />
+                            <OnlineDurationBadge onlineSinceAt={c.onlineSinceAt} />
                           ) : (
                             <>
                               <span className="inline-flex items-center gap-1.5 text-xs font-body text-text-muted">
@@ -1331,7 +1333,7 @@ function RegisteredPane({
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[11.5px] font-body">
                         {online ? (
-                          <OnlineDurationBadge lastLoginAt={c.lastLoginAt} variant="inline" />
+                          <OnlineDurationBadge onlineSinceAt={c.onlineSinceAt} variant="inline" />
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-text-muted">
                             <span className="w-2 h-2 rounded-full bg-text-muted/40" />
