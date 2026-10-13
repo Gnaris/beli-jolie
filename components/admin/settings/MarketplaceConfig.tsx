@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   updatePfsCredentials, validatePfsCredentials,
   updateAnkorstoreCredentials, validateAnkorstoreCredentials,
@@ -420,6 +421,9 @@ function KpiTile({ label, value, icon, accent, small }: { label: string; value: 
 
 // ─── Slide-over drawer (pleine hauteur, ancré à droite, 520 px) ──────────────
 function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose: () => void; brandKey: MarketplaceKey | null; children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
     if (open) {
       const original = document.body.style.overflow;
@@ -435,10 +439,10 @@ function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose:
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open || !brandKey) return null;
+  if (!open || !brandKey || !mounted) return null;
   const brand = MARKETPLACES_BRAND[brandKey];
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60]">
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-[2px] animate-[fadeIn_120ms_ease-out]"
@@ -479,7 +483,8 @@ function Drawer({ open, onClose, brandKey, children }: { open: boolean; onClose:
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes slideInRight { from { transform: translateX(100%) } to { transform: translateX(0) } }
       `}</style>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1295,7 +1300,7 @@ export default function MarketplaceConfig({
                         <div className="flex flex-col gap-2 items-center">
                           {row.enabledControl && (
                             <div className="flex items-center gap-2">
-                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-16 text-right">Produits</span>
+                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-24 text-right whitespace-nowrap">Produits</span>
                               <Toggle
                                 checked={row.enabledControl.checked}
                                 disabled={row.enabledControl.toggling}
@@ -1306,7 +1311,7 @@ export default function MarketplaceConfig({
                           )}
                           {row.ordersControl && (
                             <div className="flex items-center gap-2">
-                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-16 text-right">Commandes</span>
+                              <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-muted w-24 text-right whitespace-nowrap">Commandes</span>
                               <Toggle
                                 checked={row.ordersControl.checked}
                                 disabled={row.ordersControl.toggling}
