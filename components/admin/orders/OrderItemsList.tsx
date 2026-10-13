@@ -13,6 +13,17 @@ interface AdminOrderItem extends SortableOrderItem {
   lineTotal: number | { toNumber?: () => number };
 }
 
+function slugForFile(input: string): string {
+  return (
+    input
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "photo"
+  );
+}
+
 const fmt = (n: number | { toNumber?: () => number }) =>
   Number(n).toFixed(2).replace(".", ",") + " €";
 
@@ -38,7 +49,14 @@ export default function OrderItemsList({ items }: { items: AdminOrderItem[] }) {
       labels={LABELS}
       renderItem={(item) => (
         <div key={item.id} className="flex gap-4 px-5 py-4">
-          <OrderItemImage src={item.imagePath} alt={item.productName} sizeClass="w-12 h-12 sm:w-16 sm:h-16" />
+          <OrderItemImage
+            src={item.imagePath}
+            alt={item.productName}
+            sizeClass="w-12 h-12 sm:w-16 sm:h-16"
+            allowDownload
+            priceEuros={Number(item.unitPrice)}
+            downloadBaseName={`${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`}
+          />
 
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-text-primary font-body">

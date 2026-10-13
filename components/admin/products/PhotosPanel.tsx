@@ -26,6 +26,16 @@ import {
   packLinesColorList,
   imageGroupKeyFromVariant,
 } from "./ColorVariantManager";
+import {
+  downloadImageWithOverlays,
+  formatPriceEuros,
+  type OverlayFormat,
+  type OverlayOptions,
+} from "@/lib/download-image-overlays";
+import {
+  usePersistedOverlayToggles,
+  OverlayToggles,
+} from "@/components/admin/products/DownloadOverlayToggles";
 
 interface Props {
   variants: VariantState[];
@@ -41,6 +51,34 @@ interface Props {
 }
 
 const MAX_SLOTS = 5;
+
+/**
+ * Prix mini (unitaire) pour une couleur donnée, en parcourant les variantes
+ * non désactivées qui référencent cette couleur (UNIT direct ou PACK multi-
+ * couleurs via packLines). Renvoie `null` si aucune variante exploitable
+ * (pas de prix saisi ou toutes désactivées).
+ *
+ * Ne prend PAS en compte le `discountPercent` global : la cliente a choisi
+ * d'afficher le prix brut saisi sur la variante.
+ */
+export function minUnitPriceForColor(
+  colorId: string,
+  variants: VariantState[],
+): number | null {
+  if (!colorId) return null;
+  let min: number | null = null;
+  for (const v of variants) {
+    if (v.disabled) continue;
+    const matches =
+      v.colorId === colorId ||
+      (Array.isArray(v.packLines) && v.packLines.some((l) => l.colorId === colorId));
+    if (!matches) continue;
+    const price = parseFloat(v.unitPrice);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    if (min === null || price < min) min = price;
+  }
+  return min;
+}
 
 /**
  * Déplace une photo depuis (fromGroupKey, fromPos) vers (toGroupKey, toPos)
@@ -130,8 +168,9 @@ export default function PhotosPanel({
   brandedBadgeEnabled = false,
 }: Props) {
   const { confirm } = useConfirm();
-  const [zoomed, setZoomed] = useState<{ src: string; downloadName: string } | null>(null);
-  const [actionSheet, setActionSheet] = useState<{ src: string; downloadName: string } | null>(null);
+  const [zoomed, setZoomed] = useState<{ src: string; downloadName: string; priceEuros: number | null } | null>(null);
+  const [actionSheet, setActionSheet] = useState<{ src: string; downloadName: string; priceEuros: number | null } | null>(null);
+  const overlayToggles = usePersistedOverlayToggles();
 
   useEffect(() => {
     if (!zoomed) return;
@@ -188,41 +227,48 @@ export default function PhotosPanel({
             Aucune couleur définie pour ce produit. Ajoutez d&apos;abord une variante couleur dans l&apos;onglet « Variantes ».
           </div>
         )}
-        {rows.map((row) => (
-          <PhotoRow
-            key={row.groupKey}
-            groupKey={row.groupKey}
-            colorId={row.colorId}
-            colorName={row.colorName}
-            colorHex={row.colorHex}
-            isPrimary={!!row.colorId && row.colorId === primaryColorId}
-            onSetPrimary={() => { if (row.colorId) onChangePrimaryColorId(row.colorId); }}
-            availableColors={availableColors}
-            colorImages={colorImages}
-            onChangeImages={onChangeImages}
-            onMovePhoto={movePhoto}
-            productReference={productReference}
-            brandedBadgeEnabled={brandedBadgeEnabled}
-            onZoom={(src, downloadName) => setZoomed({ src, downloadName })}
-            onOpenActionSheet={(src, downloadName) => setActionSheet({ src, downloadName })}
-            onConfirmDelete={async () => {
-              return confirm({
-                type: "danger",
-                title: "Supprimer cette image ?",
-                message: "L'image sera retirée de la variante.",
-                confirmLabel: "Supprimer",
-              });
-            }}
-          />
-        ))}
+        {rows.map((row) => {
+          const priceEuros = minUnitPriceForColor(row.colorId, variants);
+          return (
+            <PhotoRow
+              key={row.groupKey}
+              groupKey={row.groupKey}
+              colorId={row.colorId}
+              colorName={row.colorName}
+              colorHex={row.colorHex}
+              isPrimary={!!row.colorId && row.colorId === primaryColorId}
+              onSetPrimary={() => { if (row.colorId) onChangePrimaryColorId(row.colorId); }}
+              availableColors={availableColors}
+              colorImages={colorImages}
+              onChangeImages={onChangeImages}
+              onMovePhoto={movePhoto}
+              productReference={productReference}
+              brandedBadgeEnabled={brandedBadgeEnabled}
+              priceEuros={priceEuros}
+              overlayToggles={overlayToggles}
+              onZoom={(src, downloadName) => setZoomed({ src, downloadName, priceEuros })}
+              onOpenActionSheet={(src, downloadName) => setActionSheet({ src, downloadName, priceEuros })}
+              onConfirmDelete={async () => {
+                return confirm({
+                  type: "danger",
+                  title: "Supprimer cette image ?",
+                  message: "L'image sera retirée de la variante.",
+                  confirmLabel: "Supprimer",
+                });
+              }}
+            />
+          );
+        })}
       </div>
 
       {actionSheet && (
         <ImageActionSheet
           src={actionSheet.src}
           downloadName={actionSheet.downloadName}
+          priceEuros={actionSheet.priceEuros}
+          overlayToggles={overlayToggles}
           onZoom={() => {
-            setZoomed({ src: actionSheet.src, downloadName: actionSheet.downloadName });
+            setZoomed({ src: actionSheet.src, downloadName: actionSheet.downloadName, priceEuros: actionSheet.priceEuros });
             setActionSheet(null);
           }}
           onClose={() => setActionSheet(null)}
@@ -234,16 +280,39 @@ export default function PhotosPanel({
           className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
           onClick={() => setZoomed(null)}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={zoomed.src}
-            alt="Aperçu"
+          <div
+            className="relative max-h-[92vh] max-w-[92vw]"
             onClick={(e) => e.stopPropagation()}
-            className="max-h-[92vh] max-w-[92vw] object-contain rounded-xl shadow-2xl"
-          />
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoomed.src}
+              alt="Aperçu"
+              className="max-h-[92vh] max-w-[92vw] object-contain rounded-xl shadow-2xl"
+            />
+            <ZoomOverlayPreview
+              priceEuros={overlayToggles.showPrice ? zoomed.priceEuros : null}
+              outOfStock={overlayToggles.showOutOfStock}
+            />
+          </div>
+          <div
+            className="absolute left-4 bottom-4 sm:bottom-6 w-[min(320px,calc(100vw-2rem))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <OverlayToggles
+              variant="dark"
+              showPrice={overlayToggles.showPrice}
+              showOutOfStock={overlayToggles.showOutOfStock}
+              onChangePrice={overlayToggles.setShowPrice}
+              onChangeOutOfStock={overlayToggles.setShowOutOfStock}
+              priceEuros={zoomed.priceEuros}
+            />
+          </div>
           <DownloadFormatMenu
             src={zoomed.src}
             baseName={zoomed.downloadName}
+            overlayToggles={overlayToggles}
+            priceEuros={zoomed.priceEuros}
             containerClassName="absolute top-4 right-16"
             buttonClassName="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-sm transition-colors cursor-pointer"
             iconClassName="w-5 h-5"
@@ -266,6 +335,53 @@ export default function PhotosPanel({
   );
 }
 
+/**
+ * Rend un aperçu des overlays (prix + tampon) EN SURCOUCHE DOM dans la modale
+ * de zoom. Les tailles sont proportionnelles au conteneur pour approcher le
+ * rendu canvas de `composeImageWithOverlays`.
+ */
+function ZoomOverlayPreview({
+  priceEuros,
+  outOfStock,
+}: {
+  priceEuros: number | null;
+  outOfStock: boolean;
+}) {
+  const hasPrice =
+    priceEuros !== null && priceEuros !== undefined && Number.isFinite(priceEuros);
+  if (!hasPrice && !outOfStock) return null;
+  return (
+    <>
+      {outOfStock && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl">
+          <span
+            className="font-black uppercase tracking-wider"
+            style={{
+              color: "#DC2626",
+              fontSize: "clamp(14px, 3.5vw, 36px)",
+              transform: "rotate(-25deg)",
+              opacity: 0.55,
+              WebkitTextStroke: "1px rgba(255,255,255,0.9)",
+              textShadow: "0 1px 2px rgba(0,0,0,0.25)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Rupture de stock
+          </span>
+        </div>
+      )}
+      {hasPrice && (
+        <span
+          className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-900/90 px-3 py-1.5 text-sm font-bold text-white shadow-lg"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {formatPriceEuros(priceEuros as number)}
+        </span>
+      )}
+    </>
+  );
+}
+
 interface PhotoRowProps {
   groupKey: string;
   colorId: string;
@@ -280,6 +396,11 @@ interface PhotoRowProps {
   onConfirmDelete: () => Promise<boolean | "secondary">;
   productReference?: string;
   brandedBadgeEnabled?: boolean;
+  /** Prix mini (brut, sans remise) pour la couleur de cette ligne. Null si rien. */
+  priceEuros: number | null;
+  /** Toggles partagés (localStorage) — permet aux cases dans le menu de télécharger
+   *  d'être propagées à tous les slots et à la modale de zoom simultanément. */
+  overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
   onZoom: (src: string, downloadName: string) => void;
   onOpenActionSheet: (src: string, downloadName: string) => void;
 }
@@ -316,60 +437,17 @@ export function stripExtension(name: string): string {
   return name.replace(/\.[a-z0-9]{2,5}$/i, "");
 }
 
-async function convertImageBlob(source: Blob, format: ImageDownloadFormat): Promise<Blob> {
-  const mimeType = mimeTypeForFormat(format);
-  if (source.type === mimeType) return source;
-  const objectUrl = URL.createObjectURL(source);
-  try {
-    const img = new Image();
-    img.decoding = "async";
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("image_load_failed"));
-      img.src = objectUrl;
-    });
-    const canvas = document.createElement("canvas");
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("canvas_context_unavailable");
-    if (format === "jpeg") {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-    ctx.drawImage(img, 0, 0);
-    const converted = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), mimeType, 0.95);
-    });
-    if (!converted) throw new Error("canvas_toblob_failed");
-    return converted;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-async function downloadImageAsFormat(src: string, baseName: string, format: ImageDownloadFormat): Promise<void> {
-  const response = await fetch(src);
-  if (!response.ok) throw new Error(`fetch_failed_${response.status}`);
-  const blob = await response.blob();
-  const outBlob = await convertImageBlob(blob, format);
-  const url = URL.createObjectURL(outBlob);
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${stripExtension(baseName)}.${extensionForFormat(format)}`;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-}
-
 interface DownloadFormatMenuProps {
   src: string;
   baseName: string;
+  /**
+   * Toggles partagés (prix / tampon rupture) à afficher comme 2 cases à cocher
+   * EN HAUT du menu déroulant. Permet de choisir les overlays sans ouvrir une
+   * modale séparée. Si absent, le dropdown ne liste que les formats.
+   */
+  overlayToggles?: ReturnType<typeof usePersistedOverlayToggles>;
+  /** Prix mini de la couleur courante, utilisé pour l'overlay si le toggle est ON. */
+  priceEuros?: number | null;
   containerClassName?: string;
   buttonClassName: string;
   iconClassName?: string;
@@ -381,13 +459,19 @@ interface DownloadFormatMenuProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-const MENU_WIDTH_PX = 128;
-const MENU_HEIGHT_PX = 116; // ~3 items × ~36px + bordures
+// Largeur / hauteur de base du menu. On passe à ~230×130 (3 formats seuls)
+// ou ~230×210 (avec les 2 toggles + séparateur) selon le contexte, pour avoir
+// la place d'afficher les cases « Prix » et « Rupture de stock ».
+const MENU_WIDTH_PX = 230;
+const MENU_HEIGHT_FORMATS_ONLY = 128;
+const MENU_HEIGHT_WITH_TOGGLES = 212;
 const MENU_GAP_PX = 8;
 
 function DownloadFormatMenu({
   src,
   baseName,
+  overlayToggles,
+  priceEuros = null,
   containerClassName,
   buttonClassName,
   iconClassName = "w-4 h-4",
@@ -415,6 +499,10 @@ function DownloadFormatMenu({
     onOpenChange?.(next);
   }
 
+  const menuHeightPx = overlayToggles
+    ? MENU_HEIGHT_WITH_TOGGLES
+    : MENU_HEIGHT_FORMATS_ONLY;
+
   useLayoutEffect(() => {
     if (!open) return;
     function recompute() {
@@ -431,11 +519,11 @@ function DownloadFormatMenu({
       const spaceAbove = rect.top;
       const spaceBelow = vh - rect.bottom;
       const placeAbove = wantAbove
-        ? spaceAbove >= MENU_HEIGHT_PX + MENU_GAP_PX || spaceAbove > spaceBelow
-        : spaceBelow < MENU_HEIGHT_PX + MENU_GAP_PX && spaceAbove > spaceBelow;
+        ? spaceAbove >= menuHeightPx + MENU_GAP_PX || spaceAbove > spaceBelow
+        : spaceBelow < menuHeightPx + MENU_GAP_PX && spaceAbove > spaceBelow;
       const top = placeAbove
-        ? Math.max(8, rect.top - MENU_HEIGHT_PX - MENU_GAP_PX)
-        : Math.min(vh - MENU_HEIGHT_PX - 8, rect.bottom + MENU_GAP_PX);
+        ? Math.max(8, rect.top - menuHeightPx - MENU_GAP_PX)
+        : Math.min(vh - menuHeightPx - 8, rect.bottom + MENU_GAP_PX);
       setMenuStyle({
         position: "fixed",
         top,
@@ -451,7 +539,7 @@ function DownloadFormatMenu({
       window.removeEventListener("resize", recompute);
       window.removeEventListener("scroll", recompute, true);
     };
-  }, [open, menuAlign]);
+  }, [open, menuAlign, menuHeightPx]);
 
   useEffect(() => {
     if (!open) return;
@@ -477,7 +565,15 @@ function DownloadFormatMenu({
     if (busy) return;
     setBusy(true);
     try {
-      await downloadImageAsFormat(src, baseName, format);
+      // On recalcule les overlays au moment du clic, pour prendre en compte
+      // l'état des toggles qui a pu changer juste avant (checkbox dans le menu).
+      const effective: OverlayOptions = overlayToggles
+        ? {
+            priceEuros: overlayToggles.showPrice ? priceEuros : null,
+            outOfStock: overlayToggles.showOutOfStock,
+          }
+        : { priceEuros: null, outOfStock: false };
+      await downloadImageWithOverlays(src, baseName, format as OverlayFormat, effective);
       setOpen(false);
     } catch {
       toast.error("Téléchargement impossible", "Impossible de convertir cette image dans ce format.");
@@ -485,6 +581,12 @@ function DownloadFormatMenu({
       setBusy(false);
     }
   }
+
+  const priceAvailable =
+    overlayToggles !== undefined &&
+    priceEuros !== null &&
+    priceEuros !== undefined &&
+    Number.isFinite(priceEuros);
 
   const menu = open ? (
     <div
@@ -495,6 +597,40 @@ function DownloadFormatMenu({
       onMouseDown={(e) => e.stopPropagation()}
       className="pointer-events-auto overflow-hidden rounded-lg border border-border bg-bg-primary shadow-lg"
     >
+      {overlayToggles && (
+        <>
+          <label
+            className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-text-primary font-body hover:bg-bg-secondary cursor-pointer select-none border-b border-border"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className="w-3.5 h-3.5 accent-bg-dark cursor-pointer"
+              checked={overlayToggles.showPrice && priceAvailable}
+              disabled={!priceAvailable}
+              onChange={(e) => overlayToggles.setShowPrice(e.target.checked)}
+            />
+            <span className="flex-1 flex items-center justify-between gap-2 min-w-0">
+              <span>Prix</span>
+              <span className="text-[10px] font-medium text-text-muted truncate">
+                {priceAvailable ? formatPriceEuros(priceEuros as number) : "non saisi"}
+              </span>
+            </span>
+          </label>
+          <label
+            className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-text-primary font-body hover:bg-bg-secondary cursor-pointer select-none border-b border-border"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className="w-3.5 h-3.5 accent-bg-dark cursor-pointer"
+              checked={overlayToggles.showOutOfStock}
+              onChange={(e) => overlayToggles.setShowOutOfStock(e.target.checked)}
+            />
+            <span>Tampon « Rupture »</span>
+          </label>
+        </>
+      )}
       {(["webp", "png", "jpeg"] as ImageDownloadFormat[]).map((f) => (
         <button
           key={f}
@@ -553,6 +689,8 @@ function PhotoRow({
   onConfirmDelete,
   productReference,
   brandedBadgeEnabled = false,
+  priceEuros,
+  overlayToggles,
   onZoom,
   onOpenActionSheet,
 }: PhotoRowProps) {
@@ -799,6 +937,8 @@ function PhotoRow({
                 reference={refForBadge}
                 zoomUrl={brandedLargeUrl}
                 downloadName={brandedDownloadName}
+                overlayToggles={overlayToggles}
+                priceEuros={priceEuros}
                 onZoom={onZoom}
                 onOpenActionSheet={onOpenActionSheet}
               />
@@ -821,6 +961,8 @@ function PhotoRow({
                     isPrimaryLabel={isPrimaryLabel}
                     src={src}
                     downloadName={downloadName}
+                    overlayToggles={overlayToggles}
+                    priceEuros={priceEuros}
                     onRemove={() => removeAt(pos)}
                     onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
                     onZoom={() => onZoom(src, downloadName)}
@@ -858,6 +1000,8 @@ function BrandedPhantomSlot({
   reference,
   zoomUrl,
   downloadName,
+  overlayToggles,
+  priceEuros,
   onZoom,
   onOpenActionSheet,
 }: {
@@ -866,6 +1010,8 @@ function BrandedPhantomSlot({
   reference: string | null;
   zoomUrl: string | null;
   downloadName: string;
+  overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
+  priceEuros: number | null;
   onZoom: (src: string, downloadName: string) => void;
   onOpenActionSheet: (src: string, downloadName: string) => void;
 }) {
@@ -952,6 +1098,8 @@ function BrandedPhantomSlot({
               <DownloadFormatMenu
                 src={zoomUrl}
                 baseName={downloadName}
+                overlayToggles={overlayToggles}
+                priceEuros={priceEuros}
                 containerClassName="pointer-events-auto relative"
                 buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
                 iconClassName="w-4 h-4"
@@ -1005,6 +1153,8 @@ function FilledSlot({
   isPrimaryLabel,
   src,
   downloadName,
+  overlayToggles,
+  priceEuros,
   onRemove,
   onDropReorder,
   onZoom,
@@ -1019,6 +1169,8 @@ function FilledSlot({
   isPrimaryLabel?: boolean;
   src: string;
   downloadName: string;
+  overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
+  priceEuros: number | null;
   onRemove: () => void;
   onDropReorder: (fromGroupKey: string, fromPos: number) => void;
   onZoom: () => void;
@@ -1124,6 +1276,8 @@ function FilledSlot({
         <DownloadFormatMenu
           src={src}
           baseName={downloadName}
+          overlayToggles={overlayToggles}
+          priceEuros={priceEuros}
           containerClassName="pointer-events-auto relative"
           buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
           iconClassName="w-4 h-4"
@@ -1253,17 +1407,25 @@ function EmptySlot({
 function ImageActionSheet({
   src,
   downloadName,
+  priceEuros,
+  overlayToggles,
   onZoom,
   onClose,
 }: {
   src: string;
   downloadName: string;
+  priceEuros: number | null;
+  overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
   onZoom: () => void;
   onClose: () => void;
 }) {
   const toast = useToast();
   const [busy, setBusy] = useState<"share" | ImageDownloadFormat | null>(null);
   const [canShareToPhotos, setCanShareToPhotos] = useState(false);
+  const effectiveOverlay: OverlayOptions = {
+    priceEuros: overlayToggles.showPrice ? priceEuros : null,
+    outOfStock: overlayToggles.showOutOfStock,
+  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1295,7 +1457,7 @@ function ImageActionSheet({
     if (busy) return;
     setBusy(format);
     try {
-      await downloadImageAsFormat(src, downloadName, format);
+      await downloadImageWithOverlays(src, downloadName, format as OverlayFormat, effectiveOverlay);
       onClose();
     } catch {
       toast.error("Téléchargement impossible", "Impossible de convertir cette image dans ce format.");
@@ -1310,9 +1472,13 @@ function ImageActionSheet({
     try {
       const response = await fetch(src);
       if (!response.ok) throw new Error(`fetch_failed_${response.status}`);
-      const blob = await response.blob();
-      const type = blob.type || "image/webp";
-      const file = new File([blob], downloadName, { type });
+      const sourceBlob = await response.blob();
+      // Applique les overlays si demandés — on expose en WebP (format par défaut
+      // de la galerie iOS/Android, le plus léger).
+      const { composeImageWithOverlays } = await import("@/lib/download-image-overlays");
+      const composed = await composeImageWithOverlays(sourceBlob, "webp", effectiveOverlay);
+      const type = composed.type || "image/webp";
+      const file = new File([composed], downloadName, { type });
       if (typeof navigator.canShare !== "function" || !navigator.canShare({ files: [file] })) {
         throw new Error("share_unsupported");
       }
@@ -1345,12 +1511,36 @@ function ImageActionSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-border bg-bg-secondary/60 p-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src}
-            alt="Aperçu de la photo sélectionnée"
-            className="w-20 h-20 object-cover rounded-lg border border-border shrink-0"
-          />
+          <div className="relative w-20 h-20 shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt="Aperçu de la photo sélectionnée"
+              className="w-20 h-20 object-cover rounded-lg border border-border"
+            />
+            {overlayToggles.showOutOfStock && (
+              <span
+                className="pointer-events-none absolute inset-0 flex items-center justify-center font-black uppercase text-[9px] tracking-wider overflow-hidden rounded-lg"
+                style={{
+                  color: "#DC2626",
+                  transform: "rotate(-25deg)",
+                  opacity: 0.65,
+                  WebkitTextStroke: "0.5px rgba(255,255,255,0.9)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Rupture
+              </span>
+            )}
+            {overlayToggles.showPrice && priceEuros !== null && Number.isFinite(priceEuros) && (
+              <span
+                className="pointer-events-none absolute bottom-0.5 right-0.5 rounded-full bg-slate-900/90 text-white px-1.5 py-0.5 text-[9px] font-bold shadow"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {formatPriceEuros(priceEuros)}
+              </span>
+            )}
+          </div>
           <div className="min-w-0">
             <div className="text-sm font-heading font-bold text-text-primary">Cette photo</div>
             <div className="mt-1 text-[11px] font-body text-text-muted">
@@ -1371,6 +1561,15 @@ function ImageActionSheet({
             </svg>
             Voir en grand
           </button>
+
+          <OverlayToggles
+            variant="light"
+            showPrice={overlayToggles.showPrice}
+            showOutOfStock={overlayToggles.showOutOfStock}
+            onChangePrice={overlayToggles.setShowPrice}
+            onChangeOutOfStock={overlayToggles.setShowOutOfStock}
+            priceEuros={priceEuros}
+          />
 
           {canShareToPhotos && (
             <button

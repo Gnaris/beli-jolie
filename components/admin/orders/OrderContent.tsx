@@ -15,6 +15,26 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getTotalUnits } from "@/lib/order-item-display";
 import { roundCent } from "@/lib/money";
 import { translateSizeName } from "@/lib/size-i18n";
+import {
+  downloadImageWithOverlays,
+  formatPriceEuros,
+  type OverlayFormat,
+} from "@/lib/download-image-overlays";
+import {
+  usePersistedOverlayToggles,
+  OverlayToggles,
+} from "@/components/admin/products/DownloadOverlayToggles";
+
+function slugForFile(input: string): string {
+  return (
+    input
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "photo"
+  );
+}
 
 /* ================================================================== */
 /*  Types                                                              */
@@ -213,7 +233,12 @@ export default function OrderContent({
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [edits, setEdits] = useState<Record<string, { qty: number; price: number }>>({});
   const [showAdd, setShowAdd] = useState(false);
-  const [zoomImage, setZoomImage] = useState<{ src: string; alt: string } | null>(null);
+  const [zoomImage, setZoomImage] = useState<{
+    src: string;
+    alt: string;
+    priceEuros: number | null;
+    baseName: string;
+  } | null>(null);
 
   const modMap = useMemo(
     () => new Map(modifications.map((m) => [m.orderItemId, m])),
@@ -851,7 +876,13 @@ export default function OrderContent({
     </section>
 
     {zoomImage && (
-      <ImageZoomOverlay src={zoomImage.src} alt={zoomImage.alt} onClose={() => setZoomImage(null)} />
+      <ImageZoomOverlay
+        src={zoomImage.src}
+        alt={zoomImage.alt}
+        priceEuros={zoomImage.priceEuros}
+        baseName={zoomImage.baseName}
+        onClose={() => setZoomImage(null)}
+      />
     )}
   </>
   );
@@ -861,7 +892,23 @@ export default function OrderContent({
 /*  Overlay de zoom image                                              */
 /* ================================================================== */
 
-function ImageZoomOverlay({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+function ImageZoomOverlay({
+  src,
+  alt,
+  priceEuros,
+  baseName,
+  onClose,
+}: {
+  src: string;
+  alt: string;
+  priceEuros: number | null;
+  baseName: string;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const toggles = usePersistedOverlayToggles();
+  const [busyFormat, setBusyFormat] = useState<OverlayFormat | null>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -869,6 +916,31 @@ function ImageZoomOverlay({ src, alt, onClose }: { src: string; alt: string; onC
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const effectivePrice = toggles.showPrice ? priceEuros : null;
+  const showStamp = toggles.showOutOfStock;
+  const hasPrice =
+    effectivePrice !== null &&
+    effectivePrice !== undefined &&
+    Number.isFinite(effectivePrice);
+
+  async function handleDownload(format: OverlayFormat) {
+    if (busyFormat) return;
+    setBusyFormat(format);
+    try {
+      await downloadImageWithOverlays(src, baseName, format, {
+        priceEuros: effectivePrice,
+        outOfStock: showStamp,
+      });
+    } catch {
+      toast.error(
+        "Téléchargement impossible",
+        "Impossible de convertir cette image dans ce format.",
+      );
+    } finally {
+      setBusyFormat(null);
+    }
+  }
 
   return (
     <div
@@ -893,7 +965,70 @@ function ImageZoomOverlay({ src, alt, onClose }: { src: string; alt: string; onC
           alt={alt}
           className="max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
         />
+        {showStamp && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl">
+            <span
+              className="font-black uppercase tracking-wider"
+              style={{
+                color: "#DC2626",
+                fontSize: "clamp(14px, 3.5vw, 36px)",
+                transform: "rotate(-25deg)",
+                opacity: 0.55,
+                WebkitTextStroke: "1px rgba(255,255,255,0.9)",
+                textShadow: "0 1px 2px rgba(0,0,0,0.25)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Rupture de stock
+            </span>
+          </div>
+        )}
+        {hasPrice && (
+          <span
+            className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-900/90 px-3 py-1.5 text-sm font-bold text-white shadow-lg"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+          >
+            {formatPriceEuros(effectivePrice as number)}
+          </span>
+        )}
         <p className="mt-3 text-center text-white/80 text-sm">{alt}</p>
+      </div>
+      <div
+        className="absolute left-4 bottom-4 sm:bottom-6 w-[min(320px,calc(100vw-2rem))] space-y-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <OverlayToggles
+          variant="dark"
+          showPrice={toggles.showPrice}
+          showOutOfStock={toggles.showOutOfStock}
+          onChangePrice={toggles.setShowPrice}
+          onChangeOutOfStock={toggles.setShowOutOfStock}
+          priceEuros={priceEuros}
+        />
+        <div className="flex items-center gap-2">
+          {(["webp", "png", "jpeg"] as OverlayFormat[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              disabled={!!busyFormat}
+              onClick={() => handleDownload(f)}
+              className="flex-1 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 px-3 py-2 text-xs font-bold text-white font-body backdrop-blur-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              title={`Télécharger en ${f.toUpperCase()}`}
+            >
+              {busyFormat === f ? (
+                <span className="inline-flex items-center justify-center gap-1">
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" strokeWidth={4} opacity="0.25" />
+                    <path strokeWidth={4} d="M12 2a10 10 0 0110 10" />
+                  </svg>
+                  …
+                </span>
+              ) : (
+                f.toUpperCase()
+              )}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -935,7 +1070,7 @@ function ProductGroupRows({
   readOnly: boolean;
   tvaRate: number;
   colorMap: Record<string, ColorInfo>;
-  onZoomImage: (img: { src: string; alt: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
   productLinks: Record<string, string> | undefined;
 }) {
   const colspan = !readOnly && mode === "edit" ? 12 : 11;
@@ -1019,7 +1154,7 @@ function VariantRow({
   color: ColorInfo | undefined;
   zebra: boolean;
   productRef: string;
-  onZoomImage: (img: { src: string; alt: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
   productLinks: Record<string, string> | undefined;
 }) {
   const t = useTranslations("orderContent");
@@ -1059,7 +1194,12 @@ function VariantRow({
           <button
             type="button"
             onClick={() =>
-              onZoomImage({ src: item.imagePath!, alt: `${item.productName} — ${item.colorName}` })
+              onZoomImage({
+                src: item.imagePath!,
+                alt: `${item.productName} — ${item.colorName}`,
+                priceEuros: Number.isFinite(item.unitPrice) ? item.unitPrice : null,
+                baseName: `${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`,
+              })
             }
             title="Agrandir l'image"
             className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200 hover:ring-2 hover:ring-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400 transition"
@@ -1381,7 +1521,7 @@ function MobileItemCard({
   tvaRate: number;
   color: ColorInfo | undefined;
   zebra: boolean;
-  onZoomImage: (img: { src: string; alt: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
 }) {
   const t = useTranslations("orderContent");
   const qty = mode === "edit" ? edit?.qty ?? item.quantity : item.quantity;
@@ -1412,7 +1552,12 @@ function MobileItemCard({
       {item.imagePath ? (
         <button
           type="button"
-          onClick={() => onZoomImage({ src: item.imagePath!, alt: `${item.productName} — ${item.colorName}` })}
+          onClick={() => onZoomImage({
+            src: item.imagePath!,
+            alt: `${item.productName} — ${item.colorName}`,
+            priceEuros: Number.isFinite(item.unitPrice) ? item.unitPrice : null,
+            baseName: `${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`,
+          })}
           title="Agrandir l'image"
           className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-slate-200 shrink-0 hover:ring-2 hover:ring-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400 transition"
         >
