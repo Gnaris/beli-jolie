@@ -125,13 +125,29 @@ function tvaLabel(rate: number): string {
   return `${(rate * 100).toFixed(0)}%`;
 }
 
-/** Lit une image locale et la convertit en PNG pour pdfkit (WebP non supporté) */
+// Vignette embarquée dans le PDF : taille d'affichage max ~130pt (~46 mm) à 300 DPI
+// = ~540 px. Au-delà, c'est du poids pour rien. JPEG qualité 92 : visuellement sans
+// perte en impression, mais ~20-50× plus léger qu'un PNG lossless 1500×1500.
+const PDF_IMAGE_MAX_PX = 540;
+const PDF_IMAGE_JPEG_QUALITY = 92;
+
+export async function compressImageForPdf(raw: Buffer): Promise<Buffer> {
+  return Buffer.from(
+    await sharp(raw)
+      .rotate()
+      .resize(PDF_IMAGE_MAX_PX, PDF_IMAGE_MAX_PX, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: PDF_IMAGE_JPEG_QUALITY })
+      .toBuffer()
+  );
+}
+
+/** Lit une image locale, la réduit et la convertit en JPEG pour pdfkit (WebP non supporté) */
 async function resolveImageBuffer(imagePath: string | null): Promise<Buffer | null> {
   if (!imagePath) return null;
   try {
     const raw = await readFile(keyFromDbPath(imagePath));
-    // pdfkit ne supporte que JPEG et PNG — convertir via sharp
-    return Buffer.from(await sharp(raw).png().toBuffer());
+    return await compressImageForPdf(raw);
   } catch {
     return null;
   }
@@ -372,25 +388,25 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
     // ── En-tête du tableau ──────────────────────────────────────────────
     // PW=595.28, ML=MR=40 → CW=515.28. Toutes les colonnes doivent
     // totaliser exactement CW. On pose les offsets relatifs à ML.
-    const IMG_W = 100; // 90px image + padding
+    const IMG_W = 145; // 130pt image + 15pt padding
     const COL = hp
       ? {
-          // Sans prix : 4 colonnes (100+220+140+rest=55.28)
-          img:   { x: ML,         w: 100 },
-          name:  { x: ML + 100,   w: 220 },
-          color: { x: ML + 320,   w: 140 },
-          qty:   { x: ML + 460,   w: CW - 460 },  // 55.28
+          // Sans prix : 4 colonnes (145+225+100+rest=45.28)
+          img:   { x: ML,         w: 145 },
+          name:  { x: ML + 145,   w: 225 },
+          color: { x: ML + 370,   w: 100 },
+          qty:   { x: ML + 470,   w: CW - 470 },  // 45.28
           unit:  { x: 0, w: 0 },
           ht:    { x: 0, w: 0 },
         }
       : {
-          // Avec prix : 6 colonnes (100+145+85+40+72+rest=73.28)
-          img:   { x: ML,         w: 100 },
-          name:  { x: ML + 100,   w: 145 },
-          color: { x: ML + 245,   w: 85 },
-          qty:   { x: ML + 330,   w: 40 },
-          unit:  { x: ML + 370,   w: 72 },
-          ht:    { x: ML + 442,   w: CW - 442 },   // 73.28
+          // Avec prix : 6 colonnes (145+130+70+35+65+rest=70.28)
+          img:   { x: ML,         w: 145 },
+          name:  { x: ML + 145,   w: 130 },
+          color: { x: ML + 275,   w: 70 },
+          qty:   { x: ML + 345,   w: 35 },
+          unit:  { x: ML + 380,   w: 65 },
+          ht:    { x: ML + 445,   w: CW - 445 },   // 70.28
         };
 
     function drawTableHeader(): void {
@@ -443,7 +459,7 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
         const variantH = variantDesc
           ? doc.font("Helvetica").fontSize(8).heightOfString(variantDesc, { width: hp ? COL.color.w - 10 : COL.color.w + COL.qty.w + COL.unit.w - 10 })
           : 0;
-        const IMG_SIZE = 90;
+        const IMG_SIZE = 130;
         const rowH = Math.max(IMG_SIZE + 14, nameH + 30 + variantH);
 
         checkPageBreak(rowH + 2);
