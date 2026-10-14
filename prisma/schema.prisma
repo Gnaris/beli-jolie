@@ -2148,6 +2148,7 @@ model ProductColor {
   @@index([tenantId])
   @@index([productId, colorId])
   @@index([productId, isPrimary])
+  @@index([productId, disabled, stock])
   @@index([colorId])
   @@index([stock])
   @@index([unitPrice])
