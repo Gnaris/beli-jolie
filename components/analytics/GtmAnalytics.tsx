@@ -59,7 +59,12 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
           title="gtm-noscript"
         />
       </noscript>
-      <CookieConsentBanner initialDecision={consentCookie} />
+      {/* Bandeau RGPD : on ne l'envoie au navigateur que si la décision
+          n'est pas encore posée côté cookie. Évite tout flash au reload et
+          réduit le JS client sur les visites récurrentes. */}
+      {consentCookie !== "accepted" && consentCookie !== "refused" && (
+        <CookieConsentBanner initialDecision={consentCookie} />
+      )}
     </>
   );
 }

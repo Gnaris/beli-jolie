@@ -22,6 +22,18 @@ function writeConsentCookie(value: Exclude<Decision, "">) {
   document.cookie = parts.join("; ");
 }
 
+function readConsentCookie(): Decision {
+  if (typeof document === "undefined") return "";
+  const prefix = `${COOKIE_CONSENT_NAME}=`;
+  const hit = document.cookie
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(prefix));
+  if (!hit) return "";
+  const raw = hit.slice(prefix.length);
+  return raw === "accepted" || raw === "refused" ? raw : "";
+}
+
 function pushConsentUpdate(value: Exclude<Decision, "">) {
   if (typeof window === "undefined") return;
   const granted = value === "accepted" ? "granted" : "denied";
@@ -57,6 +69,11 @@ export default function CookieConsentBanner({ initialDecision }: Props) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Filet de sécurité : si le serveur n'a pas vu le cookie au moment du
+    // SSR (cache intermédiaire, hydratation retardée…), on relit le cookie
+    // réellement présent dans le navigateur avant d'afficher le bandeau.
+    const current = readConsentCookie();
+    if (current !== "") setDecision(current);
     setMounted(true);
   }, []);
 
