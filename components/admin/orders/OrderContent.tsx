@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo, useEffect } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   modifyOrderItems,
@@ -24,6 +25,7 @@ import {
   usePersistedOverlayToggles,
   OverlayToggles,
 } from "@/components/admin/products/DownloadOverlayToggles";
+import ReferenceBadgePreview from "@/components/admin/products/ReferenceBadgePreview";
 
 function slugForFile(input: string): string {
   return (
@@ -79,6 +81,8 @@ export interface OrderTotals {
   subtotalBrutHT: number;
   /** Montant € de la remise commerciale client. */
   clientDiscountAmt: number;
+  /** Remise commerciale OFFERTE sur modification (en HT). */
+  commercialGiftHT?: number;
   /** Montant € de la promotion AUTO (par item). */
   promoAutoDiscount: number;
   /** Montant € économisé via code promo. */
@@ -113,6 +117,21 @@ export interface ColorInfo {
   patternImage: string | null;
 }
 
+/** Un paiement de la commande (initial ou complément). */
+export interface OrderPaymentUI {
+  id: string;
+  kind: "INITIAL" | "SUPPLEMENT";
+  method: "CARD" | "STRIPE_LINK" | "BANK_TRANSFER" | "PAY_ON_PICKUP" | "CREDIT" | "COMMERCIAL_GIFT";
+  status: "PENDING" | "PAID" | "CANCELLED";
+  amount: number;
+  stripeCheckoutUrl: string | null;
+  /** ISO strings pour sérialisation serveur → client. */
+  stripeExpiresAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  note: string | null;
+}
+
 interface Props {
   orderId: string;
   readOnly: boolean;
@@ -120,6 +139,14 @@ interface Props {
   modifications: OrderModification[];
   totals: OrderTotals;
   colorMap: Record<string, ColorInfo>;
+  /** Historique des paiements (initial + compléments). */
+  payments?: OrderPaymentUI[];
+  /**
+   * Coordonnées de virement de la boutique (null si virement désactivé) —
+   * requis pour afficher l'IBAN sous la ligne « Reste à régler » quand la
+   * cliente a choisi virement.
+   */
+  bankInfo?: { holder: string; iban: string; reference: string } | null;
   /**
    * Mapping ref → URL cliquable de la fiche produit. Fourni par la page
    * (client → /{locale}/produits/{handle}, admin → /admin/produits/ref/{ref}).
@@ -195,23 +222,6 @@ function makeSizeTranslator(t: (k: string) => string): (name: string) => string 
   return (name: string) => translateSizeName(name, oneSizeLabel);
 }
 
-/**
- * Nombre d'unités physiques que contient 1 « qté » de la ligne.
- * - PACK × N → N unités par qté
- * - PACK avec composition (sizesJson) → somme des tailles par qté
- * - UNIT → 1 par qté
- */
-function perUnitFactor(item: OrderItemView): number {
-  const parsed = parseSizes(item.sizesJson);
-  if (parsed && parsed.length > 0) {
-    return parsed.reduce((s, x) => s + (x.quantity || 0), 0) || 1;
-  }
-  if (item.saleType === "PACK" && item.packQty) {
-    return item.packQty;
-  }
-  return 1;
-}
-
 /* ================================================================== */
 /*  Composant principal                                                */
 /* ================================================================== */
@@ -223,6 +233,8 @@ export default function OrderContent({
   modifications,
   totals,
   colorMap,
+  payments,
+  bankInfo,
   productLinks,
 }: Props) {
   const toast = useToast();
@@ -230,14 +242,18 @@ export default function OrderContent({
   const [pending, startTransition] = useTransition();
   const t = useTranslations("orderContent");
 
+  const paymentsList = payments ?? [];
+
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [edits, setEdits] = useState<Record<string, { qty: number; price: number }>>({});
   const [showAdd, setShowAdd] = useState(false);
+  const [giftPending, setGiftPending] = useState(false);
   const [zoomImage, setZoomImage] = useState<{
     src: string;
     alt: string;
     priceEuros: number | null;
     baseName: string;
+    reference: string | null;
   } | null>(null);
 
   const modMap = useMemo(
@@ -353,16 +369,32 @@ export default function OrderContent({
   }
 
   async function handleRevertAll() {
+    const compensationCount = items.filter((i) => i.isCompensation).length;
+    let alsoRemoveCompensations = compensationCount > 0;
+
     const ok = await confirm({
       title: "Rétablir la commande d'origine",
-      message: "Toutes les modifications sur les articles seront annulées. Continuer ?",
+      message:
+        compensationCount > 0
+          ? "Les ajustements de quantité et de prix seront annulés. Choisissez si les articles ajoutés doivent eux aussi être retirés."
+          : "Toutes les modifications sur les articles seront annulées. Continuer ?",
       confirmLabel: "Tout rétablir",
       cancelLabel: "Annuler",
+      checkbox:
+        compensationCount > 0
+          ? {
+              label: `Retirer aussi les ${compensationCount} article${compensationCount > 1 ? "s" : ""} ajouté${compensationCount > 1 ? "s" : ""}`,
+              defaultChecked: true,
+              onChange: (checked) => {
+                alsoRemoveCompensations = checked;
+              },
+            }
+          : undefined,
     });
     if (!ok) return;
 
     startTransition(async () => {
-      const res = await revertAllOrderItemModifications(orderId);
+      const res = await revertAllOrderItemModifications(orderId, { alsoRemoveCompensations });
       if (res.success) {
         toast.success("Modifications annulées.");
         exitEdit();
@@ -406,8 +438,12 @@ export default function OrderContent({
       0,
       roundCent(discountableRounded - Number(totals.clientDiscountAmt)),
     );
-    return roundCent(netAfterDiscount + compensationRounded);
-  }, [mode, edits, items, totals.clientDiscountAmt]);
+    const beforeGift = roundCent(netAfterDiscount + compensationRounded);
+    // Remise commerciale OFFERTE sur modification (champ dédié) — vient en
+    // déduction supplémentaire pour aligner le total sur l'encaissé.
+    const giftHT = Math.max(0, Number(totals.commercialGiftHT ?? 0));
+    return Math.max(0, roundCent(beforeGift - giftHT));
+  }, [mode, edits, items, totals.clientDiscountAmt, totals.commercialGiftHT]);
 
   // Compteurs affichés en résumé
   const totalUnits = items
@@ -486,8 +522,7 @@ export default function OrderContent({
 
   const paidTTC = totals.paidTotalTTC;
   const credit = Math.max(0, roundCent(paidTTC - totalTTC));
-  const overshoot = Math.max(0, subHTNet - totals.paidSubtotalHT);
-  const hasOvershoot = overshoot > 0.01;
+  const remainingToPay = Math.max(0, roundCent(totalTTC - paidTTC));
 
   const editBorder = mode === "edit" ? "border-2 border-amber-400 ring-4 ring-amber-100/60" : "border border-slate-200";
 
@@ -547,18 +582,8 @@ export default function OrderContent({
         <div className="px-5 sm:px-6 py-3 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2">
           <span aria-hidden>✏️</span>
           <span>
-            Mode édition — ajustez les quantités, les prix, ou ajoutez un article. Vous ne pouvez pas dépasser le
-            montant payé par le client.
-          </span>
-        </div>
-      )}
-
-      {hasOvershoot && mode === "edit" && (
-        <div className="px-5 sm:px-6 py-3 bg-rose-50 border-b border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-          <span aria-hidden>⚠️</span>
-          <span>
-            Le sous-total HT ({fmt(subHTNet)}) dépasse le HT payé ({fmt(totals.paidSubtotalHT)}). Baissez les quantités ou
-            les prix de <b>{fmt(overshoot)}</b> avant d'enregistrer.
+            Mode édition — ajustez les quantités, les prix, ou ajoutez un article. Un bloc en bas récapitule
+            le reste à régler ou l'avoir à rembourser.
           </span>
         </div>
       )}
@@ -566,7 +591,17 @@ export default function OrderContent({
       {mode === "edit" && (
         <div className="px-5 sm:px-6 py-3 border-b border-amber-200 bg-amber-50/60 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-xs text-slate-600">
-            Budget disponible : <b className="text-slate-900 tabular-nums">{fmt(Math.max(0, totals.paidSubtotalHT - subHTNet))}</b>
+            {remainingToPay > 0.01 ? (
+              <>
+                Reste à régler : <b className="text-rose-700 tabular-nums">{fmt(remainingToPay)}</b>
+              </>
+            ) : credit > 0.01 ? (
+              <>
+                Avoir à rembourser : <b className="text-emerald-700 tabular-nums">{fmt(credit)}</b>
+              </>
+            ) : (
+              <>Total aligné sur le montant payé.</>
+            )}
           </p>
           <button
             onClick={() => setShowAdd(true)}
@@ -580,7 +615,6 @@ export default function OrderContent({
       {showAdd && (
         <AddProductModal
           orderId={orderId}
-          headroom={Math.max(0, totals.paidSubtotalHT - subHTNet)}
           onClose={() => setShowAdd(false)}
         />
       )}
@@ -600,7 +634,6 @@ export default function OrderContent({
                 <th className="text-left px-2 py-3 w-40">{t("thColor")}</th>
                 <th className="text-left px-2 py-3 w-28">{t("thSize")}</th>
                 <th className="text-center px-2 py-3 w-28">{t("thQty")}</th>
-                <th className="text-center px-2 py-3 w-24">{t("thQtyTotal")}</th>
                 <th className="text-right px-2 py-3 w-28">{t("thUnitPrice")}</th>
                 <th className="text-right px-2 py-3 w-28">{t("thTotalHT")}</th>
                 <th className="text-right px-2 py-3 w-24">{t("thDiscount")}</th>
@@ -637,13 +670,26 @@ export default function OrderContent({
       {/* ─────────── Cartes mobile / tablette ─────────── */}
       {items.length > 0 && (
         <div className="lg:hidden">
-          {groups.map((g, gi) => (
+          {groups.map((g, gi) => {
+            const groupQty = g.colorGroups.reduce((s, cg) => {
+              for (const it of cg.items) {
+                const q = mode === "edit" ? edits[it.id]?.qty ?? it.quantity : it.quantity;
+                s += q;
+              }
+              return s;
+            }, 0);
+            return (
             <div key={g.ref + "-m-" + gi} className="border-b border-slate-100 last:border-b-0">
-              <div className="px-4 py-2 bg-gradient-to-r from-sky-50/70 to-transparent border-l-4 border-sky-400">
-                <p className="text-sm font-semibold text-slate-900">{g.name}</p>
-                <p className="text-[11px] text-slate-500 font-mono">
-                  <ProductRefLabel refValue={g.ref} productLinks={productLinks} className="text-slate-500" />
-                </p>
+              <div className="px-4 py-3 bg-gradient-to-r from-sky-50/70 to-transparent border-l-4 border-sky-400">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="font-heading text-base font-semibold text-slate-900">{g.name}</p>
+                  <p className="text-xs text-slate-500 font-mono">
+                    <ProductRefLabel refValue={g.ref} productLinks={productLinks} className="text-slate-500" />
+                  </p>
+                  <span className="ml-auto inline-flex items-center gap-1.5 bg-white border border-sky-200 rounded-full px-2.5 py-0.5 text-xs font-semibold text-sky-800 tabular-nums">
+                    Qté totale {groupQty}
+                  </span>
+                </div>
               </div>
               {g.colorGroups.map((cg, ci) =>
                 cg.items.map((item) => (
@@ -666,11 +712,12 @@ export default function OrderContent({
                 )),
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
-      {mode === "edit" && modifications.length > 0 && (
+      {mode === "edit" && (modifications.length > 0 || items.some((i) => i.isCompensation)) && (
         <div className="px-5 sm:px-6 py-3 border-t border-slate-100 bg-slate-50/60 flex justify-end">
           <button
             onClick={handleRevertAll}
@@ -777,6 +824,17 @@ export default function OrderContent({
             </div>
           )}
 
+          {/* ═════ BLOC 3 : Remise commerciale OFFERTE sur modification ═════ */}
+          {Number(totals.commercialGiftHT ?? 0) > 0 && (
+            <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+              <CommercialGiftLine
+                orderId={orderId}
+                giftHT={Number(totals.commercialGiftHT)}
+                readOnly={readOnly}
+              />
+            </div>
+          )}
+
           {/* ═════ Frais de port (2 blocs) + TVA + TTC ═════ */}
           <div className="space-y-4 pt-3 border-t border-slate-100">
             {/* Livraison — bloc 1 promo */}
@@ -856,24 +914,47 @@ export default function OrderContent({
             </div>
           </div>
 
-          <div className="pt-3 mt-2 border-t border-dashed border-slate-200 flex justify-between text-xs text-slate-500">
-            <span>
-              {t("paidByStripe", {
-                status: totals.paymentStatus === "paid" ? t("paidByStripeStatusPaid") : totals.paymentStatus,
-              })}
-            </span>
-            <span className="tabular-nums">{fmt(paidTTC)}</span>
-          </div>
-
           {credit > 0.01 && (
             <div className="flex justify-between items-center text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
               <span className="font-semibold">{t("creditToRefund")}</span>
               <span className="font-bold tabular-nums">{fmt(credit)}</span>
             </div>
           )}
+
+          {remainingToPay > 0.01 && (
+            <RemainingToPayBlock
+              orderId={orderId}
+              remainingToPay={remainingToPay}
+              tvaRate={totals.tvaRate}
+              readOnly={readOnly}
+              giftPending={giftPending}
+              setGiftPending={setGiftPending}
+              bankInfo={bankInfo ?? null}
+              pendingSupplement={(() => {
+                const found = paymentsList.find(
+                  (p) => p.kind === "SUPPLEMENT" && p.status === "PENDING",
+                );
+                return found
+                  ? {
+                      method: found.method,
+                      stripeCheckoutUrl: found.stripeCheckoutUrl,
+                    }
+                  : null;
+              })()}
+            />
+          )}
         </div>
       </div>
     </section>
+
+    {paymentsList.filter((p) => p.status !== "CANCELLED").length > 0 && (
+      <PaymentHistoryStripeCard
+        orderId={orderId}
+        payments={paymentsList}
+        paidTTC={paidTTC}
+        readOnly={readOnly}
+      />
+    )}
 
     {zoomImage && (
       <ImageZoomOverlay
@@ -881,10 +962,526 @@ export default function OrderContent({
         alt={zoomImage.alt}
         priceEuros={zoomImage.priceEuros}
         baseName={zoomImage.baseName}
+        reference={zoomImage.reference}
         onClose={() => setZoomImage(null)}
       />
     )}
   </>
+  );
+}
+
+/* ================================================================== */
+/*  Historique des paiements (initial + compléments)                   */
+/* ================================================================== */
+
+const PAYMENT_METHOD_LABELS: Record<OrderPaymentUI["method"], string> = {
+  CARD: "Carte bancaire",
+  STRIPE_LINK: "Lien de paiement",
+  BANK_TRANSFER: "Virement bancaire",
+  PAY_ON_PICKUP: "Au retrait",
+  CREDIT: "Avoir",
+  COMMERCIAL_GIFT: "Remise commerciale offerte",
+};
+
+const PAYMENT_STATUS_CFG: Record<
+  OrderPaymentUI["status"],
+  { label: string; className: string }
+> = {
+  PAID: { label: "Encaissé", className: "bg-emerald-100 text-emerald-800" },
+  PENDING: { label: "En attente", className: "bg-amber-100 text-amber-800" },
+  CANCELLED: { label: "Annulé", className: "bg-slate-100 text-slate-500" },
+};
+
+function formatDateTime(iso: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Carte dédiée affichant l'historique Stripe/virement d'une commande : chaque
+ * paiement en ligne avec date, méthode, statut et montant ; en bas, le total
+ * cumulé des encaissements. Les paiements CANCELLED sont masqués.
+ */
+function PaymentHistoryStripeCard({
+  orderId,
+  payments,
+  paidTTC,
+  readOnly,
+}: {
+  orderId: string;
+  payments: OrderPaymentUI[];
+  paidTTC: number;
+  readOnly: boolean;
+}) {
+  // Masque les paiements annulés + les remises commerciales offertes (celles-ci
+  // apparaissent déjà en ligne dédiée dans le récap commande et ne sont pas
+  // des encaissements client).
+  const visible = payments.filter(
+    (p) => p.status !== "CANCELLED" && p.method !== "COMMERCIAL_GIFT",
+  );
+  if (visible.length === 0) return null;
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden mt-6">
+      <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+        <div className="w-1 h-8 bg-indigo-500 rounded-full" />
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
+            Paiements
+          </p>
+          <h2 className="font-heading text-lg font-semibold text-slate-900">
+            Historique Paiement
+          </h2>
+        </div>
+      </div>
+
+      <ul className="divide-y divide-slate-100">
+        {visible.map((p) => (
+          <li key={p.id} className="px-5 sm:px-6 py-3">
+            <PaymentRow payment={p} readOnly={readOnly} orderId={orderId} />
+          </li>
+        ))}
+      </ul>
+
+      <div className="px-5 sm:px-6 py-4 border-t border-slate-200 bg-slate-50/60 flex items-center justify-between">
+        <span className="text-xs uppercase tracking-wider font-semibold text-slate-600">
+          Total encaissé par le client
+        </span>
+        <span className="font-heading text-xl font-bold text-slate-900 tabular-nums">
+          {fmt(paidTTC)}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function PaymentRow({
+  payment,
+  readOnly,
+  orderId,
+}: {
+  payment: OrderPaymentUI;
+  readOnly: boolean;
+  orderId: string;
+}) {
+  const toast = useToast();
+  const { confirm } = useConfirm();
+  const [pending, startTransition] = useTransition();
+
+  const dateLabel = formatDateTime(payment.paidAt) ?? formatDateTime(payment.createdAt);
+  const kindLabel = payment.kind === "INITIAL" ? "Paiement initial" : "Complément";
+  const statusCfg = PAYMENT_STATUS_CFG[payment.status];
+  const methodLabel = PAYMENT_METHOD_LABELS[payment.method];
+  const isPendingTransfer =
+    payment.status === "PENDING" && payment.method === "BANK_TRANSFER";
+  const isPendingLink = payment.status === "PENDING" && payment.method === "STRIPE_LINK";
+
+  async function handleMarkPaid() {
+    if (readOnly) return;
+    const ok = await confirm({
+      type: "info",
+      title: "Marquer ce virement comme reçu ?",
+      message: `Le montant de ${fmt(payment.amount)} sera considéré comme encaissé.`,
+      confirmLabel: "Confirmer la réception",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const { markOrderPaymentReceived } = await import(
+        "@/app/actions/admin/order-supplement"
+      );
+      const res = await markOrderPaymentReceived(orderId, payment.id);
+      if (res.success) toast.success("Paiement marqué reçu.");
+      else toast.error(res.error ?? "Erreur");
+    });
+  }
+
+  async function handleCancel() {
+    if (readOnly) return;
+    const ok = await confirm({
+      type: "warning",
+      title: "Annuler ce paiement en attente ?",
+      message:
+        payment.method === "STRIPE_LINK"
+          ? "Le lien de paiement sera désactivé pour la cliente."
+          : "Le virement attendu sera marqué comme annulé.",
+      confirmLabel: "Annuler le paiement",
+      cancelLabel: "Garder",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const { cancelOrderPayment } = await import(
+        "@/app/actions/admin/order-supplement"
+      );
+      const res = await cancelOrderPayment(orderId, payment.id);
+      if (res.success) toast.success("Paiement annulé.");
+      else toast.error(res.error ?? "Erreur");
+    });
+  }
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 text-xs rounded-lg px-3 py-2 border ${
+        payment.status === "CANCELLED"
+          ? "bg-slate-50/60 border-slate-200 opacity-70"
+          : "bg-white border-slate-200"
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-slate-800">{methodLabel}</span>
+          <span
+            className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${statusCfg.className}`}
+          >
+            {statusCfg.label}
+          </span>
+          <span className="text-[10px] text-slate-400">· {kindLabel}</span>
+        </div>
+        <div className="text-[11px] text-slate-500 mt-0.5">
+          {dateLabel ?? "—"}
+          {payment.note ? ` · ${payment.note}` : ""}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <span
+          className={`font-semibold tabular-nums ${
+            payment.status === "CANCELLED"
+              ? "text-slate-400 line-through"
+              : "text-slate-900"
+          }`}
+        >
+          {fmt(payment.amount)}
+        </span>
+        {!readOnly && isPendingTransfer && (
+          <button
+            type="button"
+            onClick={handleMarkPaid}
+            disabled={pending}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-medium px-2.5 py-1 rounded-lg disabled:opacity-40"
+          >
+            Marquer reçu
+          </button>
+        )}
+        {!readOnly && (isPendingTransfer || isPendingLink) && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={pending}
+            className="text-rose-700 hover:text-rose-900 text-[11px] underline underline-offset-2 disabled:opacity-40"
+          >
+            Annuler
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Ligne « Remise commerciale sur modification » (dans le résumé)      */
+/* ================================================================== */
+
+function CommercialGiftLine({
+  orderId,
+  giftHT,
+  readOnly,
+}: {
+  orderId: string;
+  giftHT: number;
+  readOnly: boolean;
+}) {
+  const toast = useToast();
+  const router = useRouter();
+  const { confirm } = useConfirm();
+  const [pending, startTransition] = useTransition();
+
+  async function handleCancel() {
+    const ok = await confirm({
+      type: "warning",
+      title: "Annuler la remise commerciale offerte ?",
+      message: `Les ${fmt(giftHT)} HT seront remis dans le total de la commande. La cliente pourra à nouveau régler cette différence.`,
+      confirmLabel: "Annuler la remise",
+      cancelLabel: "Garder la remise",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const { cancelOvershootDiscount } = await import(
+        "@/app/actions/admin/order-supplement"
+      );
+      const res = await cancelOvershootDiscount(orderId);
+      if (res.success) {
+        toast.success("Remise commerciale annulée.");
+        router.refresh();
+      } else {
+        toast.error(res.error ?? "Erreur");
+      }
+    });
+  }
+
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-slate-600">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span>Remise commerciale sur modification</span>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={pending}
+            className="text-[10px] text-rose-700 hover:text-rose-900 underline underline-offset-2 disabled:opacity-40"
+          >
+            {pending ? "Annulation…" : "Annuler l'offre"}
+          </button>
+        )}
+      </div>
+      <span className="tabular-nums font-medium text-emerald-700">
+        − {fmt(giftHT)}
+      </span>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/*  Bloc « Reste à régler » (dans le résumé commande)                   */
+/* ================================================================== */
+
+function RemainingToPayBlock({
+  orderId,
+  remainingToPay,
+  tvaRate,
+  readOnly,
+  giftPending,
+  setGiftPending,
+  bankInfo,
+  pendingSupplement,
+}: {
+  orderId: string;
+  remainingToPay: number;
+  tvaRate: number;
+  readOnly: boolean;
+  giftPending: boolean;
+  setGiftPending: (v: boolean) => void;
+  bankInfo: { holder: string; iban: string; reference: string } | null;
+  pendingSupplement: {
+    method: OrderPaymentUI["method"];
+    stripeCheckoutUrl: string | null;
+  } | null;
+}) {
+  const toast = useToast();
+  const router = useRouter();
+  const { confirm } = useConfirm();
+  const [choosing, setChoosing] = useState<"STRIPE_LINK" | "BANK_TRANSFER" | null>(null);
+  const [pending, startTransition] = useTransition();
+  const [stripeCheckout, setStripeCheckout] = useState<{
+    clientSecret: string;
+    publishableKey: string;
+    amountLabel: string;
+  } | null>(null);
+  const [CheckoutModal, setCheckoutModal] = useState<null | React.ComponentType<{
+    clientSecret: string;
+    publishableKey: string;
+    amountLabel: string;
+    onClose: () => void;
+  }>>(null);
+
+  function pickMethod(method: "STRIPE_LINK" | "BANK_TRANSFER") {
+    setChoosing(method);
+    startTransition(async () => {
+      const { requestSupplementPayment } = await import(
+        "@/app/actions/client/order-supplement"
+      );
+      const res = await requestSupplementPayment(orderId, method);
+      setChoosing(null);
+      if (!res.success) {
+        toast.error(res.error ?? "Erreur");
+        return;
+      }
+      if (method === "STRIPE_LINK" && res.clientSecret && res.publishableKey) {
+        // Charge dynamiquement le composant <SupplementCheckoutModal /> (évite
+        // d'embarquer @stripe/stripe-js dans le bundle initial si la cliente
+        // n'ouvre jamais le paiement).
+        const mod = await import(
+          "@/components/client/orders/SupplementCheckoutModal"
+        );
+        setCheckoutModal(() => mod.default);
+        setStripeCheckout({
+          clientSecret: res.clientSecret,
+          publishableKey: res.publishableKey,
+          amountLabel: fmt(remainingToPay),
+        });
+      } else if (method === "BANK_TRANSFER") {
+        toast.success("Mode enregistré. Les coordonnées de virement sont affichées.");
+        router.refresh();
+      }
+    });
+  }
+
+  async function changeMethod() {
+    const ok = await confirm({
+      type: "info",
+      title: "Changer de mode de règlement ?",
+      message: "L'option actuelle sera annulée. Vous pourrez en choisir une autre.",
+      confirmLabel: "Changer",
+      cancelLabel: "Garder",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const { cancelMySupplementPayment } = await import(
+        "@/app/actions/client/order-supplement"
+      );
+      const res = await cancelMySupplementPayment(orderId);
+      if (res.success) router.refresh();
+      else toast.error(res.error ?? "Erreur");
+    });
+  }
+
+  // Décomposition HT / TVA / TTC pour l'affichage.
+  const amountTTC = remainingToPay;
+  const amountHT = roundCent(amountTTC / (1 + (tvaRate ?? 0)));
+  const ratePct = Math.round((tvaRate ?? 0) * 100);
+  const vatLabel = tvaRate === 0 ? "exonéré" : `${ratePct}%`;
+  const amountStr = `${fmt(amountTTC)} TTC`;
+  const amountHint = `${fmt(amountHT)} HT · TVA ${vatLabel}`;
+  const showClientChoices = readOnly;
+
+  return (
+    <div className="text-sm text-sky-900 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex flex-col">
+          <span className="font-semibold">Reste à régler</span>
+          <span className="text-[10px] text-sky-700 font-normal tabular-nums">
+            {amountHint}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-bold tabular-nums">{amountStr}</span>
+
+          {/* Côté cliente (readOnly) : 2 boutons directs — un clic « Par carte »
+              ouvre le checkout embedded dans une modale (comme le panier). */}
+          {showClientChoices && (!pendingSupplement || pendingSupplement.method === "STRIPE_LINK") && (
+            <>
+              <button
+                type="button"
+                onClick={() => pickMethod("STRIPE_LINK")}
+                disabled={pending}
+                className="bg-slate-900 hover:bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg shrink-0 disabled:opacity-40"
+              >
+                {choosing === "STRIPE_LINK" ? "Préparation…" : "Par carte"}
+              </button>
+              <button
+                type="button"
+                onClick={() => pickMethod("BANK_TRANSFER")}
+                disabled={pending}
+                className="bg-white border border-slate-300 hover:border-slate-400 text-slate-900 text-xs font-medium px-3 py-1.5 rounded-lg shrink-0 disabled:opacity-40"
+              >
+                {choosing === "BANK_TRANSFER" ? "Enregistrement…" : "Par virement"}
+              </button>
+            </>
+          )}
+
+          {showClientChoices &&
+            pendingSupplement &&
+            pendingSupplement.method === "BANK_TRANSFER" && (
+              <button
+                type="button"
+                onClick={changeMethod}
+                disabled={pending}
+                className="text-[11px] text-slate-600 underline underline-offset-2 hover:text-slate-900"
+              >
+                Changer pour une carte
+              </button>
+            )}
+
+          {/* Côté admin : bouton « Offrir » */}
+          {!readOnly && (
+            <button
+              type="button"
+              disabled={giftPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  type: "info",
+                  title: "Offrir en remise commerciale ?",
+                  message: `Le dépassement de ${amountStr} sera absorbé par la boutique : la cliente ne devra plus rien régler.`,
+                  confirmLabel: "Offrir le dépassement",
+                  cancelLabel: "Annuler",
+                });
+                if (!ok) return;
+                setGiftPending(true);
+                try {
+                  const { applyOvershootAsDiscount } = await import(
+                    "@/app/actions/admin/order-supplement"
+                  );
+                  const res = await applyOvershootAsDiscount(orderId);
+                  if (res.success) {
+                    toast.success("Dépassement offert.");
+                    router.refresh();
+                  } else {
+                    toast.error(res.error ?? "Erreur");
+                  }
+                } finally {
+                  setGiftPending(false);
+                }
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg shrink-0 disabled:opacity-40"
+            >
+              Offrir ce dépassement
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Coordonnées IBAN affichées directement sous la ligne si virement choisi */}
+      {showClientChoices &&
+        pendingSupplement &&
+        pendingSupplement.method === "BANK_TRANSFER" && (
+          <div className="mt-3 bg-white border border-sky-200 rounded-lg p-3 text-slate-800 text-xs space-y-1">
+            {bankInfo ? (
+              <>
+                <p>
+                  <span className="text-slate-500">Titulaire :</span>{" "}
+                  <b>{bankInfo.holder}</b>
+                </p>
+                <p>
+                  <span className="text-slate-500">IBAN :</span>{" "}
+                  <span className="font-mono tracking-widest break-all">
+                    {bankInfo.iban}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-slate-500">Référence à indiquer :</span>{" "}
+                  <span className="font-mono">Complément {bankInfo.reference}</span>
+                </p>
+                <p>
+                  <span className="text-slate-500">Montant exact :</span>{" "}
+                  <b className="tabular-nums">{amountStr}</b>
+                </p>
+              </>
+            ) : (
+              <p className="text-rose-700">
+                Coordonnées IBAN indisponibles. Contactez la boutique.
+              </p>
+            )}
+          </div>
+        )}
+
+      {/* Modale paiement intégré (Stripe EmbeddedCheckout) */}
+      {stripeCheckout && CheckoutModal && (
+        <CheckoutModal
+          clientSecret={stripeCheckout.clientSecret}
+          publishableKey={stripeCheckout.publishableKey}
+          amountLabel={stripeCheckout.amountLabel}
+          onClose={() => setStripeCheckout(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -897,12 +1494,14 @@ function ImageZoomOverlay({
   alt,
   priceEuros,
   baseName,
+  reference,
   onClose,
 }: {
   src: string;
   alt: string;
   priceEuros: number | null;
   baseName: string;
+  reference: string | null;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -917,12 +1516,15 @@ function ImageZoomOverlay({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const trimmedRef = typeof reference === "string" ? reference.trim() : "";
   const effectivePrice = toggles.showPrice ? priceEuros : null;
+  const effectiveReference = toggles.showReference && trimmedRef.length > 0 ? trimmedRef : null;
   const showStamp = toggles.showOutOfStock;
   const hasPrice =
     effectivePrice !== null &&
     effectivePrice !== undefined &&
     Number.isFinite(effectivePrice);
+  const hasReference = effectiveReference !== null;
 
   async function handleDownload(format: OverlayFormat) {
     if (busyFormat) return;
@@ -931,6 +1533,7 @@ function ImageZoomOverlay({
       await downloadImageWithOverlays(src, baseName, format, {
         priceEuros: effectivePrice,
         outOfStock: showStamp,
+        reference: effectiveReference,
       });
     } catch {
       toast.error(
@@ -991,6 +1594,9 @@ function ImageZoomOverlay({
             {formatPriceEuros(effectivePrice as number)}
           </span>
         )}
+        {hasReference && (
+          <ReferenceBadgePreview reference={effectiveReference as string} size="zoom" />
+        )}
         <p className="mt-3 text-center text-white/80 text-sm">{alt}</p>
       </div>
       <div
@@ -1001,9 +1607,12 @@ function ImageZoomOverlay({
           variant="dark"
           showPrice={toggles.showPrice}
           showOutOfStock={toggles.showOutOfStock}
+          showReference={toggles.showReference}
           onChangePrice={toggles.setShowPrice}
           onChangeOutOfStock={toggles.setShowOutOfStock}
+          onChangeReference={toggles.setShowReference}
           priceEuros={priceEuros}
+          reference={trimmedRef || null}
         />
         <div className="flex items-center gap-2">
           {(["webp", "png", "jpeg"] as OverlayFormat[]).map((f) => (
@@ -1070,24 +1679,34 @@ function ProductGroupRows({
   readOnly: boolean;
   tvaRate: number;
   colorMap: Record<string, ColorInfo>;
-  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string; reference: string | null }) => void;
   productLinks: Record<string, string> | undefined;
 }) {
-  const colspan = !readOnly && mode === "edit" ? 12 : 11;
+  const colspan = !readOnly && mode === "edit" ? 11 : 10;
   const totalVariants = group.colorGroups.reduce((s, cg) => s + cg.items.length, 0);
+  const groupQty = group.colorGroups.reduce((s, cg) => {
+    for (const it of cg.items) {
+      const q = mode === "edit" ? edits[it.id]?.qty ?? it.quantity : it.quantity;
+      s += q;
+    }
+    return s;
+  }, 0);
   return (
     <>
       {/* Ligne header produit — bandeau bleu */}
       <tr>
         <td
           colSpan={colspan}
-          className={`px-4 py-2 border-t ${gi === 0 ? "border-slate-100" : "border-slate-200"} bg-gradient-to-r from-sky-50/70 via-sky-50/20 to-transparent`}
+          className={`px-4 py-3 border-t ${gi === 0 ? "border-slate-100" : "border-slate-200"} bg-gradient-to-r from-sky-50/70 via-sky-50/20 to-transparent`}
         >
-          <div className="flex items-center gap-3 pl-2 border-l-4 border-sky-400 -ml-2">
-            <span className="font-heading text-sm font-semibold text-slate-900">{group.name}</span>
-            <ProductRefLabel refValue={group.ref} productLinks={productLinks} className="text-[11px] text-slate-500 font-mono" />
-            <span className="text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-2 border-l-4 border-sky-400 -ml-2">
+            <span className="font-heading text-base font-semibold text-slate-900">{group.name}</span>
+            <ProductRefLabel refValue={group.ref} productLinks={productLinks} className="text-xs text-slate-500 font-mono" />
+            <span className="text-xs text-slate-400">
               · {totalVariants} variante{totalVariants > 1 ? "s" : ""}
+            </span>
+            <span className="ml-auto inline-flex items-center gap-1.5 bg-white border border-sky-200 rounded-full px-2.5 py-0.5 text-xs font-semibold text-sky-800 tabular-nums">
+              Qté totale {groupQty}
             </span>
           </div>
         </td>
@@ -1154,7 +1773,7 @@ function VariantRow({
   color: ColorInfo | undefined;
   zebra: boolean;
   productRef: string;
-  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string; reference: string | null }) => void;
   productLinks: Record<string, string> | undefined;
 }) {
   const t = useTranslations("orderContent");
@@ -1172,8 +1791,6 @@ function VariantRow({
   const totalTTC = roundCent(totalHT + lineTva);
 
   const isRemoved = qty === 0;
-  const perUnit = perUnitFactor(item);
-  const qtyTotal = qty * perUnit;
 
   const qtyChanged = !!mod && mod.originalQuantity !== mod.newQuantity;
   const priceChanged = !!mod && mod.newUnitPrice !== null && mod.originalUnitPrice !== null;
@@ -1199,6 +1816,7 @@ function VariantRow({
                 alt: `${item.productName} — ${item.colorName}`,
                 priceEuros: Number.isFinite(item.unitPrice) ? item.unitPrice : null,
                 baseName: `${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`,
+                reference: item.productRef || null,
               })
             }
             title="Agrandir l'image"
@@ -1242,7 +1860,7 @@ function VariantRow({
         {mode === "edit" ? (
           <QtyStepper
             value={qty}
-            max={item.isCompensation ? 9999 : mod ? mod.originalQuantity : item.quantity}
+            max={9999}
             onChange={(v) => onEdit(item.id, "qty", v)}
             disabled={pending}
           />
@@ -1266,22 +1884,12 @@ function VariantRow({
         )}
       </td>
 
-      {/* Qté totale (unités physiques) */}
-      <td className="px-2 py-3 text-center">
-        <span className="inline-flex items-center gap-1 tabular-nums font-semibold text-slate-900">
-          {qtyTotal}
-          {perUnit > 1 && (
-            <span className="text-[10px] font-normal text-slate-400">({qty}×{perUnit})</span>
-          )}
-        </span>
-      </td>
-
-      {/* Prix unitaire (avec badge Prix ajusté si modif) */}
+      {/* Prix unitaire (avec badge Prix ajusté si modif) + TTC discret dessous */}
       <td className="px-2 py-3 text-right">
         {mode === "edit" ? (
           <PriceInput
             value={price}
-            max={item.isCompensation ? 99999 : mod?.originalUnitPrice ?? item.unitPrice}
+            max={99999}
             onChange={(v) => onEdit(item.id, "price", v)}
             disabled={pending}
           />
@@ -1292,10 +1900,14 @@ function VariantRow({
               <span className="text-slate-400">→</span>
               <span className="font-semibold text-slate-900">{fmt(mod!.newUnitPrice!)}</span>
             </span>
+            <UnitPriceTTCHint ht={price} tvaRate={tvaRate} />
             <Chip variant="info">Prix ajusté</Chip>
           </div>
         ) : (
-          <span className="tabular-nums text-slate-700">{fmt(price)}</span>
+          <div className="flex flex-col items-end">
+            <span className="tabular-nums text-slate-700">{fmt(price)}</span>
+            <UnitPriceTTCHint ht={price} tvaRate={tvaRate} />
+          </div>
         )}
       </td>
 
@@ -1521,7 +2133,7 @@ function MobileItemCard({
   tvaRate: number;
   color: ColorInfo | undefined;
   zebra: boolean;
-  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string }) => void;
+  onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string; reference: string | null }) => void;
 }) {
   const t = useTranslations("orderContent");
   const qty = mode === "edit" ? edit?.qty ?? item.quantity : item.quantity;
@@ -1532,8 +2144,6 @@ function MobileItemCard({
   // Sage : TVA arrondie séparément puis TTC = HT + TVA.
   const lineTva = roundCent(totalHT * tvaRate);
   const totalTTC = roundCent(totalHT + lineTva);
-  const perUnit = perUnitFactor(item);
-  const qtyTotal = qty * perUnit;
   const qtyChanged = !!mod && mod.originalQuantity !== mod.newQuantity;
   const priceChanged = !!mod && mod.newUnitPrice !== null && mod.originalUnitPrice !== null;
 
@@ -1557,6 +2167,7 @@ function MobileItemCard({
             alt: `${item.productName} — ${item.colorName}`,
             priceEuros: Number.isFinite(item.unitPrice) ? item.unitPrice : null,
             baseName: `${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`,
+            reference: item.productRef || null,
           })}
           title="Agrandir l'image"
           className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-slate-200 shrink-0 hover:ring-2 hover:ring-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400 transition"
@@ -1593,11 +2204,6 @@ function MobileItemCard({
                 qty
               )}
             </span>
-            <span className="text-slate-500">Qté totale</span>
-            <span className="text-right tabular-nums text-slate-900 font-semibold">
-              {qtyTotal}
-              {perUnit > 1 && <span className="text-slate-400 font-normal"> ({qty}×{perUnit})</span>}
-            </span>
             <span className="text-slate-500">Prix</span>
             <span className="text-right tabular-nums text-slate-700">
               {priceChanged ? (
@@ -1610,6 +2216,9 @@ function MobileItemCard({
               ) : (
                 fmt(price)
               )}
+              <span className="block">
+                <UnitPriceTTCHint ht={price} tvaRate={tvaRate} />
+              </span>
             </span>
             <span className="text-slate-500">Prix total HT</span>
             <span className="text-right tabular-nums text-slate-700">{fmt(priceTotalHT)}</span>
@@ -1634,14 +2243,14 @@ function MobileItemCard({
             <div className="flex items-center gap-2">
               <QtyStepper
                 value={qty}
-                max={item.isCompensation ? 9999 : mod ? mod.originalQuantity : item.quantity}
+                max={9999}
                 onChange={(v) => onEdit(item.id, "qty", v)}
                 disabled={pending}
               />
               <span className="text-slate-300">×</span>
               <PriceInput
                 value={price}
-                max={item.isCompensation ? 99999 : mod?.originalUnitPrice ?? item.unitPrice}
+                max={99999}
                 onChange={(v) => onEdit(item.id, "price", v)}
                 disabled={pending}
               />
@@ -1754,6 +2363,21 @@ function PriceInput({
       />
       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">€</span>
     </div>
+  );
+}
+
+/**
+ * Affiche discrètement, sous le prix unitaire HT, le prix unitaire TTC et le
+ * taux de TVA entre parenthèses (ou « exonéré » si taux = 0).
+ */
+function UnitPriceTTCHint({ ht, tvaRate }: { ht: number; tvaRate: number }) {
+  const ttc = roundCent(ht * (1 + (tvaRate ?? 0)));
+  const ratePct = Math.round((tvaRate ?? 0) * 100);
+  const label = tvaRate === 0 ? "exonéré" : `${ratePct}%`;
+  return (
+    <span className="block text-[10px] text-slate-400 font-normal tabular-nums leading-tight">
+      {fmt(ttc)} TTC ({label})
+    </span>
   );
 }
 
@@ -1873,11 +2497,9 @@ interface SearchResult {
 
 function AddProductModal({
   orderId,
-  headroom,
   onClose,
 }: {
   orderId: string;
-  headroom: number;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -1957,15 +2579,10 @@ function AddProductModal({
   }, [product, configs]);
 
   const grandTotal = selectedVariants.reduce((s, x) => s + x.lineTotal, 0);
-  const overBudget = grandTotal > headroom + 0.01;
 
   function handleAddBulk() {
     if (!product || selectedVariants.length === 0) {
       toast.error("Mettez une quantité sur au moins une variante.");
-      return;
-    }
-    if (overBudget) {
-      toast.error("Le total dépasse le budget disponible.");
       return;
     }
 
@@ -2027,20 +2644,14 @@ function AddProductModal({
           </button>
         </div>
 
-        {/* Budget */}
-        <div className="px-6 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-600 shrink-0 flex items-center justify-between gap-3 flex-wrap">
-          <span>
-            Budget disponible : <b className="text-slate-900 tabular-nums">{fmt(headroom)}</b>
-          </span>
-          {product && selectedVariants.length > 0 && (
+        {/* Résumé sélection */}
+        {product && selectedVariants.length > 0 && (
+          <div className="px-6 py-2.5 border-b border-slate-100 bg-slate-50/60 text-xs text-slate-600 shrink-0 flex items-center justify-end gap-3 flex-wrap">
             <span>
-              Sélection : <b className="text-slate-900 tabular-nums">{fmt(grandTotal)}</b> ·{" "}
-              <span className={overBudget ? "text-rose-700 font-semibold" : "text-emerald-700 font-semibold"}>
-                {overBudget ? "dépasse le budget" : `reste ${fmt(headroom - grandTotal)}`}
-              </span>
+              Sélection : <b className="text-slate-900 tabular-nums">{fmt(grandTotal)}</b>
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Corps scrollable */}
         <div className="flex-1 overflow-y-auto p-6">
@@ -2203,11 +2814,6 @@ function AddProductModal({
                 })}
               </div>
 
-              {overBudget && (
-                <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-                  La sélection ({fmt(grandTotal)}) dépasse le budget disponible ({fmt(headroom)}).
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -2223,7 +2829,7 @@ function AddProductModal({
             </button>
             <button
               onClick={handleAddBulk}
-              disabled={pending || selectedVariants.length === 0 || overBudget}
+              disabled={pending || selectedVariants.length === 0}
               className="inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-medium px-5 py-2 rounded-xl hover:bg-slate-800 disabled:opacity-40"
             >
               {pending

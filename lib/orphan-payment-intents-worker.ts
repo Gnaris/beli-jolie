@@ -115,17 +115,54 @@ async function scanTenant(tenantId: string, tenantSlug: string, tenantName: stri
   const succeededPis = page.data.filter((pi) => pi.status === "succeeded");
   if (succeededPis.length === 0) return;
 
-  // Cross-check en batch : une seule requête findMany sur les PI IDs.
+  // Cross-check en batch : une seule requête findMany sur les PI IDs,
+  // côté Order (paiement initial) ET OrderPayment (compléments SUPPLEMENT).
   const piIds = succeededPis.map((pi) => pi.id);
-  const linkedOrders = await prisma.order.findMany({
-    where: { stripePaymentIntentId: { in: piIds } },
-    select: { stripePaymentIntentId: true },
-  });
-  const linkedSet = new Set(
-    linkedOrders
-      .map((o) => o.stripePaymentIntentId)
-      .filter((v): v is string => !!v),
+  const [linkedOrders, linkedPayments] = await Promise.all([
+    prisma.order.findMany({
+      where: { stripePaymentIntentId: { in: piIds } },
+      select: { stripePaymentIntentId: true },
+    }),
+    prisma.orderPayment.findMany({
+      where: { stripePaymentIntentId: { in: piIds } },
+      select: { id: true, stripePaymentIntentId: true, status: true },
+    }),
+  ]);
+  const linkedSet = new Set<string>();
+  for (const o of linkedOrders) {
+    if (o.stripePaymentIntentId) linkedSet.add(o.stripePaymentIntentId);
+  }
+  for (const p of linkedPayments) {
+    if (p.stripePaymentIntentId) linkedSet.add(p.stripePaymentIntentId);
+  }
+
+  // Filet de secours : si un OrderPayment PENDING match un PI SUCCEEDED, c'est
+  // probablement un webhook raté (dev local sans `stripe listen`, retry Stripe
+  // en cours…). On le marque PAID ici — idempotent.
+  const pendingPaymentsByPi = new Map(
+    linkedPayments
+      .filter((p) => p.status === "PENDING" && p.stripePaymentIntentId)
+      .map((p) => [p.stripePaymentIntentId as string, p.id]),
   );
+  if (pendingPaymentsByPi.size > 0) {
+    const { markOrderPaymentPaid } = await import("@/lib/order-payments");
+    for (const [piId, paymentId] of pendingPaymentsByPi) {
+      try {
+        await markOrderPaymentPaid(paymentId, { stripePaymentIntentId: piId });
+        logger.info("[OrphanPI] OrderPayment rattrapé via scan (webhook raté)", {
+          tenantId,
+          paymentId,
+          paymentIntentId: piId,
+        });
+      } catch (err) {
+        logger.error("[OrphanPI] markOrderPaymentPaid échoué", {
+          paymentId,
+          piId,
+          error: err,
+        });
+      }
+    }
+  }
 
   const orphans = succeededPis.filter((pi) => !linkedSet.has(pi.id));
   if (orphans.length === 0) return;

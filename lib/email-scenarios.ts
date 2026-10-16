@@ -78,6 +78,11 @@ export const EMAIL_SCENARIOS = {
     label: "Lien de paiement",
     category: "commande",
   },
+  ORDER_SUPPLEMENT_REQUEST: {
+    key: "ORDER_SUPPLEMENT_REQUEST",
+    label: "Complément de paiement à régler",
+    category: "commande",
+  },
 
   // ─── Messagerie & réclamations ────────────────────────
   SUPPORT_REPLY: {

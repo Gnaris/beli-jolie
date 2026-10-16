@@ -55,6 +55,7 @@ export default function OrderItemsList({ items }: { items: AdminOrderItem[] }) {
             sizeClass="w-12 h-12 sm:w-16 sm:h-16"
             allowDownload
             priceEuros={Number(item.unitPrice)}
+            reference={item.productRef || null}
             downloadBaseName={`${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`}
           />
 

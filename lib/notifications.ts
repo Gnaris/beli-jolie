@@ -583,6 +583,63 @@ export async function sendGenericSupportReplyEmail(params: {
 }
 
 /**
+ * Envoie à l'admin le mail « un client a répondu dans sa conversation ».
+ *
+ * Symétrique de `sendGenericSupportReplyEmail`, destiné à l'admin de la
+ * boutique (adresse `resolveNotifyEmail`). Déclenché par le même worker
+ * `support-email-worker.ts` quand un `PendingSupportEmail` avec
+ * `recipientRole = ADMIN` arrive à échéance.
+ */
+export async function sendGenericAdminReplyEmail(params: {
+  clientName: string;
+  clientCompany: string;
+  conversationId: string;
+  context: SupportReplyContext;
+  claimId?: string;
+}): Promise<boolean> {
+  const { clientName, clientCompany, conversationId, context, claimId } = params;
+  const [shopName, notifyEmail, baseUrl] = await Promise.all([
+    getCachedShopName(),
+    resolveNotifyEmail(),
+    getCurrentTenantBaseUrl(),
+  ]);
+  if (!notifyEmail) {
+    logger.warn("[Notifications] Aucun email admin configuré — mail client-a-répondu ignoré.");
+    return false;
+  }
+
+  const conversationUrl =
+    context === "claim" && claimId
+      ? `${baseUrl}/admin/service-client/${claimId}`
+      : `${baseUrl}/admin`;
+
+  const displayName = clientName?.trim() || "Un client";
+  const companySuffix = clientCompany?.trim() ? ` (${escapeHtml(clientCompany.trim())})` : "";
+
+  await sendMail({
+    fromName: shopName || "Boutique",
+    to: notifyEmail,
+    subject: `${displayName} vous a répondu — ${shopName || "Service Client"}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+        <h2 style="color:#1A1A1A;">Nouvelle réponse</h2>
+        <p>${escapeHtml(displayName)}${companySuffix} vous a répondu dans sa conversation en direct.</p>
+        <p>Connectez-vous à l'espace admin pour lire son message et lui répondre.</p>
+        <a href="${conversationUrl}"
+           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
+          Voir la conversation
+        </a>
+      </div>
+    `,
+  });
+
+  logger.info(
+    `[Notifications] Admin notifié — ${displayName} a répondu — conv ${conversationId} (${context}${claimId ? ` claim=${claimId}` : ""})`,
+  );
+  return true;
+}
+
+/**
  * Notif admin — nouveau ticket Service Client.
  * Envoyé automatiquement à `smtp_from_email` (mail pro du tenant)
  * à chaque ouverture (ou réouverture) de conversation par un client.
@@ -1202,6 +1259,123 @@ export async function notifyClientPaymentLink(params: {
     logger.info("[checkout-payment-link] Email envoyé", { to: params.email, amount: params.amountTTC });
   } catch (err) {
     logger.error("[checkout-payment-link] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Email client pour demander un complément de paiement après modification de
+ * commande (dépassement du montant initial). Supporte deux modes :
+ *  - `STRIPE_LINK` : bouton direct vers Checkout Session Stripe
+ *  - `BANK_TRANSFER` : rappel que les coordonnées IBAN sont visibles sur la
+ *    page commande (on redirige la cliente dessus pour éviter de dupliquer
+ *    l'IBAN dans deux endroits).
+ */
+export async function notifyClientSupplementRequest(params: {
+  email: string;
+  orderNumber: string;
+  orderId: string;
+  amountTTC: number;
+  method: "STRIPE_LINK" | "BANK_TRANSFER";
+  checkoutUrl: string | null;
+  expiresAt: Date | null;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const baseUrl = await getCurrentTenantBaseUrl();
+    const amountStr = params.amountTTC.toFixed(2).replace(".", ",");
+    const orderPageUrl = `${baseUrl}/fr/commandes/${params.orderId}`;
+    const expiresStr = params.expiresAt
+      ? params.expiresAt.toLocaleString("fr-FR", {
+          day: "2-digit",
+          month: "long",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+    const userId = await resolveUserIdByEmail(params.email);
+
+    const button =
+      params.method === "STRIPE_LINK" && params.checkoutUrl
+        ? `
+          <div style="text-align:center;margin:24px 0;">
+            <a href="${escapeHtml(params.checkoutUrl)}"
+               style="background:#0F172A;color:#ffffff;padding:14px 32px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;font-size:15px;">
+              Régler ${amountStr} € →
+            </a>
+          </div>
+          ${
+            expiresStr
+              ? `<p style="font-size:12px;color:#6B6B6B;text-align:center;line-height:1.5;">Lien valable jusqu'au <strong>${escapeHtml(expiresStr)}</strong>.</p>`
+              : ""
+          }
+          <p style="font-size:12px;color:#6B6B6B;text-align:center;margin-top:12px;">
+            Le bouton est aussi accessible depuis votre espace commandes :<br/>
+            <a href="${escapeHtml(orderPageUrl)}" style="color:#334155;">${escapeHtml(orderPageUrl)}</a>
+          </p>
+        `
+        : `
+          <div style="text-align:center;margin:24px 0;">
+            <a href="${escapeHtml(orderPageUrl)}"
+               style="background:#0F172A;color:#ffffff;padding:14px 32px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;font-size:15px;">
+              Voir les coordonnées de virement →
+            </a>
+          </div>
+          <p style="font-size:13px;color:#334155;text-align:center;line-height:1.6;">
+            Les coordonnées IBAN sont affichées sur la page de votre commande.
+            Dès réception du virement, nous expédions.
+          </p>
+        `;
+
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: `${shopName} — Complément à régler sur votre commande ${params.orderNumber} (${amountStr} €)`,
+      tracking: {
+        scenarioKey: "ORDER_SUPPLEMENT_REQUEST",
+        userId,
+        metadata: {
+          orderNumber: params.orderNumber,
+          amountTTC: params.amountTTC,
+          method: params.method,
+        },
+      },
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+          <div style="background:#0F172A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+            <div style="font-size:32px;margin-bottom:8px;">🧾</div>
+            <h2 style="margin:0;font-size:20px;">Complément à régler</h2>
+            <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande ${escapeHtml(params.orderNumber)}</p>
+          </div>
+          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+            <p style="font-size:15px;line-height:1.6;">Bonjour,</p>
+            <p style="font-size:15px;line-height:1.6;">
+              Votre commande chez <strong>${escapeHtml(shopName)}</strong> a été
+              ajustée (ajout d'un article, modification de quantité). Un
+              <strong>complément de ${amountStr} €</strong> reste à régler
+              pour finaliser la préparation.
+            </p>
+            <div style="background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
+              <div style="font-size:12px;color:#1E40AF;text-transform:uppercase;letter-spacing:1px;">Montant restant à régler</div>
+              <div style="font-size:28px;font-weight:bold;margin-top:4px;color:#1E3A8A;">${amountStr} €</div>
+            </div>
+            ${button}
+          </div>
+          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
+          </p>
+        </div>
+      `,
+    });
+    logger.info("[order-supplement] Email complément envoyé", {
+      to: params.email,
+      orderNumber: params.orderNumber,
+      amountTTC: params.amountTTC,
+      method: params.method,
+    });
+  } catch (err) {
+    logger.error("[order-supplement] Erreur envoi email", {
       detail: err instanceof Error ? err.message : String(err),
     });
   }

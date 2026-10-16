@@ -2,7 +2,37 @@ import { NextResponse } from "next/server";
 import { getStripeInstance, getStripeWebhookSecret } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { markOrderPaymentPaid } from "@/lib/order-payments";
 import type Stripe from "stripe";
+
+/**
+ * Marque un `OrderPayment` PAID à partir du payment_intent ou du checkout
+ * session renvoyé par Stripe. Essaie dans l'ordre : (1) PI id, (2) session id,
+ * (3) metadata `orderPaymentId`. Retourne true si un paiement a été mis à jour.
+ */
+async function markOrderPaymentFromStripe(args: {
+  paymentIntentId?: string | null;
+  checkoutSessionId?: string | null;
+  metadataPaymentId?: string | null;
+}): Promise<boolean> {
+  const { paymentIntentId, checkoutSessionId, metadataPaymentId } = args;
+  const where: Array<{ id?: string; stripePaymentIntentId?: string; stripeCheckoutSessionId?: string }> = [];
+  if (metadataPaymentId) where.push({ id: metadataPaymentId });
+  if (paymentIntentId) where.push({ stripePaymentIntentId: paymentIntentId });
+  if (checkoutSessionId) where.push({ stripeCheckoutSessionId: checkoutSessionId });
+  if (where.length === 0) return false;
+
+  const payment = await prisma.orderPayment.findFirst({
+    where: { OR: where, status: "PENDING" },
+    select: { id: true, status: true },
+  });
+  if (!payment) return false;
+
+  await markOrderPaymentPaid(payment.id, {
+    stripePaymentIntentId: paymentIntentId ?? undefined,
+  });
+  return true;
+}
 
 /**
  * POST /api/payments/webhook
@@ -62,27 +92,48 @@ export async function POST(req: Request) {
     case "payment_intent.succeeded": {
       const pi = event.data.object as Stripe.PaymentIntent;
 
-      await prisma.order.updateMany({
-        where: { stripePaymentIntentId: pi.id },
-        data: { paymentStatus: "paid" },
+      // Nouveau flow multi-paiements : si un OrderPayment matche ce PI, on
+      // marque CE paiement PAID (et markOrderPaymentPaid aligne
+      // Order.paymentStatus si le TTC est couvert).
+      const metadataPaymentId =
+        (pi.metadata && typeof pi.metadata.orderPaymentId === "string" && pi.metadata.orderPaymentId) || null;
+      const handled = await markOrderPaymentFromStripe({
+        paymentIntentId: pi.id,
+        metadataPaymentId,
       });
+
+      // Compat commandes historiques pre-backfill : fallback sur Order direct.
+      if (!handled) {
+        await prisma.order.updateMany({
+          where: { stripePaymentIntentId: pi.id },
+          data: { paymentStatus: "paid" },
+        });
+      }
 
       break;
     }
 
-    // Flow "lien de paiement" (paymentMode=STRIPE_LINK) : quand le client
-    // termine le checkout hébergé, Stripe fire à la fois
+    // Flow "lien de paiement" (paymentMode=STRIPE_LINK ou complément SUPPLEMENT) :
+    // quand le client termine le checkout hébergé, Stripe fire à la fois
     // `payment_intent.succeeded` (géré ci-dessus) et `checkout.session.completed`.
-    // On garde ce handler comme filet de sécurité : si le PI id a été régénéré
-    // via `regeneratePaymentLink` sans que l'ancien webhook n'ait fired, on
-    // retrouve la commande par le sessionId aussi.
+    // On garde ce handler comme filet de sécurité au cas où l'event PI serait raté.
     case "checkout.session.completed": {
       const cs = event.data.object as Stripe.Checkout.Session;
       if (cs.payment_status === "paid") {
-        await prisma.order.updateMany({
-          where: { stripeCheckoutSessionId: cs.id },
-          data: { paymentStatus: "paid" },
+        const metadataPaymentId =
+          (cs.metadata && typeof cs.metadata.orderPaymentId === "string" && cs.metadata.orderPaymentId) || null;
+        const piId = typeof cs.payment_intent === "string" ? cs.payment_intent : cs.payment_intent?.id ?? null;
+        const handled = await markOrderPaymentFromStripe({
+          paymentIntentId: piId,
+          checkoutSessionId: cs.id,
+          metadataPaymentId,
         });
+        if (!handled) {
+          await prisma.order.updateMany({
+            where: { stripeCheckoutSessionId: cs.id },
+            data: { paymentStatus: "paid" },
+          });
+        }
       }
       break;
     }

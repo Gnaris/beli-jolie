@@ -2351,6 +2351,29 @@ enum OrderModificationReason {
   COMMERCIAL_GESTURE // Geste commercial (baisse de prix, article ajouté offert)
 }
 
+// Paiements d'une commande — supporte plusieurs encaissements successifs
+// (paiement initial + compléments après modif qui dépasse le payé). La fiche
+// commande somme les OrderPayment PAID pour calculer la balance affichée.
+enum OrderPaymentStatus {
+  PENDING // Lien généré / virement attendu, pas encore encaissé
+  PAID // Encaissé — compte dans la balance
+  CANCELLED // Remplacé par un lien plus récent ou annulé manuellement
+}
+
+enum OrderPaymentKind {
+  INITIAL // Paiement d'origine passé au checkout
+  SUPPLEMENT // Complément demandé après une modif qui dépasse
+}
+
+enum OrderPaymentMethod {
+  CARD // Stripe iframe (checkout initial embarqué)
+  STRIPE_LINK // Stripe Checkout Session hébergée (lien externe)
+  BANK_TRANSFER // Virement bancaire
+  PAY_ON_PICKUP // Carte / espèces / chèque au retrait
+  CREDIT // 100 % réglé par avoir
+  COMMERCIAL_GIFT // Supplément offert en remise commerciale (aligne la balance)
+}
+
 // ─────────────────────────────────────────────
 // Stock
 // ─────────────────────────────────────────────
@@ -2478,6 +2501,13 @@ model Order {
   clientDiscountAmt   Decimal             @default(0) @db.Decimal(12, 2) // montant économisé en €
   clientFreeShipping  Boolean             @default(false)
 
+  // Remise commerciale OFFERTE sur une modification qui dépasse le payé
+  // (admin clique « Offrir ce dépassement »). Cumulable sur plusieurs modifs.
+  // Vient en déduction du subtotalHT dans `recomputeOrderTotals`, apparaît
+  // comme une ligne distincte dans le récap (ne se confond pas avec
+  // `clientDiscountAmt` qui est la remise cliente d'origine).
+  commercialGiftHT    Decimal             @default(0) @db.Decimal(12, 2)
+
   // TVA
   tvaRate    Float // ex: 0.20
   subtotalHT Decimal @db.Decimal(12, 2) // HT NET (après promotion + remise commerciale + code)
@@ -2563,6 +2593,15 @@ model Order {
   // des modifications post-commande). Null pour les commandes créées avant l'ajout du champ.
   paidSubtotalHT Decimal? @db.Decimal(12, 2)
 
+  // Commande créée par l'admin « pour » un client depuis /admin/clients → doit
+  // être finalisée par la cliente (choix adresse + livraison + paiement) avant
+  // d'être payée. Reste `true` tant que la cliente n'a pas finalisé ; passe à
+  // `false` au moment de la finalisation (la commande devient alors une
+  // commande standard, suit le flux de paiement normal).
+  // Le stock est réservé dès la création (comme une commande normale).
+  isAdminDraft           Boolean @default(false)
+  adminDraftCreatedById  String? // User.id de l'admin qui a créé le draft
+
   // Fusion vers une commande parente encore en préparation (PENDING) : quand la
   // cliente demande d'ajouter un panier d'appoint à une commande existante, ce
   // champ pointe vers cette commande parente. L'admin traitera la fusion en
@@ -2577,6 +2616,7 @@ model Order {
   promotionUsages   PromotionUsage[]
   itemModifications OrderItemModification[]
   claims            Claim[]
+  payments          OrderPayment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2594,6 +2634,7 @@ model Order {
   @@index([createdAt]) // admin order listing
   @@index([userId]) // standalone customer lookup
   @@index([status, createdAt]) // admin filtered + paginated listing
+  @@index([isAdminDraft]) // listing des drafts admin en attente de finalisation
 }
 
 // Ligne de commande (snapshot produit au moment de la commande)
@@ -2674,6 +2715,49 @@ model OrderItemModification {
   @@index([tenantId])
   @@index([orderId])
   @@index([orderItemId])
+}
+
+// Paiements d'une commande (initial + compléments successifs).
+// `Order.paidTotalTTC` = somme des OrderPayment PAID et sert de base de calcul
+// pour la balance « Reste à régler » / « Avoir à rembourser ».
+model OrderPayment {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  kind   OrderPaymentKind
+  method OrderPaymentMethod
+  status OrderPaymentStatus @default(PENDING)
+
+  amount Decimal @db.Decimal(10, 2)
+
+  // Stripe (nullable selon method)
+  stripePaymentIntentId   String?   @unique
+  stripeCheckoutSessionId String?   @unique
+  stripeCheckoutUrl       String?   @db.Text
+  stripeExpiresAt         DateTime?
+
+  // Dates de cycle de vie
+  paidAt      DateTime?
+  cancelledAt DateTime?
+
+  // Confirmation manuelle (virement / retrait) — admin qui a validé la réception
+  confirmedAt DateTime?
+  confirmedBy String? // User.id
+
+  // Note interne (optionnelle, visible admin uniquement)
+  note String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL après backfill.
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([orderId, status])
+  @@index([orderId, createdAt])
 }
 
 // ─────────────────────────────────────────────
@@ -3495,22 +3579,25 @@ model ClaimAttachment {
 }
 
 // ─────────────────────────────────────────────
-// Notification différée Service Client
+// Notification différée Service Client (règle « 1 mail / tour »)
 // ─────────────────────────────────────────────
-// À chaque réponse admin dans une conversation (chat flottant OU réclamation),
-// on décide selon la présence du client :
-//   - hors ligne              → mail immédiat (aucune ligne créée ici)
-//   - en ligne hors conv      → PendingSupportEmail créé, dueAt = now + 5 min
-//   - en ligne sur la conv    → rien (il voit en direct)
-// Tout nouveau message admin dans la même conversation annule les jobs
-// PENDING précédents et repose un timer neuf (règle « reset à chaque msg »).
-// Quand le client lit → jobs PENDING → CANCELLED.
+// Règle (2026-10-15) : à chaque message dans une conversation, si aucun job
+// (PENDING ou SENT) n'existe déjà pour le destinataire sur ce tour, on crée
+// une ligne PENDING avec dueAt = now + 5 min. Un second message pendant le
+// tour ne crée pas de nouveau job (1 seul mail par tour). Dès que le
+// destinataire répond, toutes ses lignes (PENDING + SENT) sont effacées :
+// le tour est fini, le prochain message du correspondant repart à zéro.
+// Fonctionne symétriquement dans les deux sens via `recipientRole`.
 // Worker background scanne toutes les 30 s et envoie les mails dus.
 model PendingSupportEmail {
   id             String    @id @default(cuid())
   conversationId String
-  messageId      String // dernier message admin déclencheur (pour tracer)
-  userId         String // destinataire (client)
+  messageId      String // dernier message déclencheur (pour tracer)
+  userId         String // destinataire (client OU admin selon recipientRole)
+  // Qui doit recevoir le mail. CLIENT = admin a parlé en dernier,
+  // ADMIN = client a parlé en dernier. Default CLIENT pour rétrocompat
+  // sur les lignes existantes avant la bascule bi-directionnelle.
+  recipientRole  Role      @default(CLIENT)
   claimId        String? // si conversation liée à une réclamation
   dueAt          DateTime // instant d'envoi prévu
   status         String    @default("PENDING") // PENDING | SENT | CANCELLED
@@ -3524,6 +3611,7 @@ model PendingSupportEmail {
   @@index([tenantId])
   @@index([status, dueAt])
   @@index([conversationId, status])
+  @@index([conversationId, recipientRole, status])
   @@index([userId])
 }
 
@@ -3690,16 +3778,21 @@ model ProductView {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   userId    String?
   user      User?    @relation("ProductViewer", fields: [userId], references: [id])
-  sessionId String
+  sessionId String?
   createdAt DateTime @default(now())
+  // Date du jour (00:00 UTC) — porte la contrainte « 1 vue par jour / produit /
+  // utilisateur ». Stockée séparément de createdAt pour servir d'index unique.
+  viewedDate DateTime @default(now()) @db.Date
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@unique([tenantId, userId, productId, viewedDate])
   @@index([tenantId])
   @@index([productId, createdAt])
   @@index([productId, sessionId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model PriceHistory {
@@ -3779,6 +3872,7 @@ model Tenant {
   pendingSimilars            PendingSimilar[]
   orderItems                 OrderItem[]
   orderItemModifications     OrderItemModification[]
+  orderPayments              OrderPayment[]
   favorites                  Favorite[]
   shippingAddresss           ShippingAddress[]
   claims                     Claim[]

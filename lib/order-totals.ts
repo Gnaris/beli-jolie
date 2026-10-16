@@ -32,6 +32,12 @@ export interface OrderTotalsInput {
   carrierPrice: number | string | { toNumber?: () => number };
   clientDiscountType: ClientDiscountType;
   clientDiscountValue: number | string | { toNumber?: () => number } | null;
+  /**
+   * Remise commerciale OFFERTE sur une modification qui dépasse le payé
+   * (cf. `applyOvershootAsDiscount`). Vient en déduction supplémentaire du HT
+   * sans toucher la remise commerciale d'origine. Exprimée en HT.
+   */
+  commercialGiftHT?: number | string | { toNumber?: () => number } | null;
 }
 
 export interface OrderTotalsResult {
@@ -39,7 +45,9 @@ export interface OrderTotalsResult {
   preDiscountSubtotal: number;
   /** Montant de la remise commerciale appliquée (>= 0, plafonné au sous-total). */
   clientDiscountAmt: number;
-  /** Sous-total HT après remise (ce qui est stocké dans `Order.subtotalHT`). */
+  /** Remise commerciale OFFERTE sur modification (plafonnée au reste du HT). */
+  commercialGiftHT: number;
+  /** Sous-total HT après remise commerciale + remise offerte. */
   subtotalHT: number;
   tvaAmount: number;
   totalTTC: number;
@@ -92,7 +100,14 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
     }
   }
 
-  const subtotalHT = Math.max(0, roundCent(discountedBase + compensationSubtotal));
+  const subtotalBeforeGift = Math.max(0, roundCent(discountedBase + compensationSubtotal));
+
+  // Remise commerciale OFFERTE sur modification : vient après la remise
+  // commerciale d'origine, plafonnée au HT restant.
+  const giftRaw = toNumber(input.commercialGiftHT);
+  const commercialGiftHT = Math.max(0, Math.min(subtotalBeforeGift, roundCent(giftRaw)));
+  const subtotalHT = Math.max(0, roundCent(subtotalBeforeGift - commercialGiftHT));
+
   const carrierPriceNum = toNumber(input.carrierPrice);
   // TVA sur (subtotalHT + livraison) — art. 267 CGI, le port suit le régime
   // TVA des biens. Un seul arrondi : la TVA est calculée sur la base taxable
@@ -104,6 +119,7 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   return {
     preDiscountSubtotal,
     clientDiscountAmt,
+    commercialGiftHT,
     subtotalHT,
     tvaAmount,
     totalTTC,

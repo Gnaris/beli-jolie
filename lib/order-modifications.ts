@@ -3,6 +3,8 @@
  * Isolées de Prisma pour être testables unitairement.
  */
 
+import { roundCent } from "@/lib/money";
+
 export interface ItemState {
   originalQuantity: number;
   originalUnitPrice: number;
@@ -21,20 +23,22 @@ export function computePriceDifference(s: ItemState): number {
 }
 
 /**
- * Simule le nouveau total TTC de la commande et vérifie qu'il ne dépasse pas
- * le montant payé par le client. Renvoie null si OK, un message d'erreur sinon.
+ * Calcule la balance d'une commande modifiée vs le montant déjà encaissé.
+ * `remainingToPay` > 0 → la cliente doit émettre un complément à régler.
+ * `creditToRefund` > 0 → la boutique doit émettre un avoir.
+ * (Les deux sont mutuellement exclusifs, sauf arrondi 1 ct.)
  */
-export function checkOverpayment(
-  newSubtotalHT: number,
-  tvaRate: number,
-  carrierPrice: number,
-  paidAmount: number,
-  tolerance = 0.01,
-): string | null {
-  const newTotalTTC = newSubtotalHT * (1 + tvaRate) + carrierPrice;
-  if (newTotalTTC > paidAmount + tolerance) {
-    const fmtEur = (n: number) => n.toFixed(2).replace(".", ",") + " €";
-    return `Modification refusée : le nouveau total (${fmtEur(newTotalTTC)}) dépasserait le montant payé (${fmtEur(paidAmount)}).`;
-  }
-  return null;
+export function computeOrderBalance(args: {
+  subtotalHT: number;
+  tvaRate: number;
+  carrierPrice: number;
+  paidTotalTTC: number;
+}): { newTotalTTC: number; remainingToPay: number; creditToRefund: number } {
+  const tva = roundCent((args.subtotalHT + args.carrierPrice) * args.tvaRate);
+  const newTotalTTC = roundCent(args.subtotalHT + args.carrierPrice + tva);
+  return {
+    newTotalTTC,
+    remainingToPay: Math.max(0, roundCent(newTotalTTC - args.paidTotalTTC)),
+    creditToRefund: Math.max(0, roundCent(args.paidTotalTTC - newTotalTTC)),
+  };
 }
