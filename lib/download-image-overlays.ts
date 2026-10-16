@@ -17,6 +17,8 @@ export interface OverlayOptions {
   priceEuros?: number | null;
   /** Si true, superpose le tampon « Rupture de stock » en diagonale. */
   outOfStock?: boolean;
+  /** Référence produit à apposer en badge haut-droite. Non affichée si null/undefined/vide. */
+  reference?: string | null;
 }
 
 export type OverlayFormat = "webp" | "png" | "jpeg";
@@ -129,6 +131,175 @@ function roundedRectPath(
   ctx.closePath();
 }
 
+/**
+ * Badge « RÉFÉRENCE » apposé en haut-droite. **Doit matcher pixel-pour-pixel
+ * le badge serveur `lib/branded-image.ts` variant `standard`** : mêmes
+ * proportions, mêmes couleurs, même letter-spacing, même ombre portée.
+ *
+ * Paramètres synchrones avec `BADGE_VARIANTS.standard` (SVG serveur) :
+ *   - widthPct=0.40, minWidth=160, maxWidth=560
+ *   - headerFontPct=0.085, codeFontPct=0.135
+ *   - headerPadYPct=0.42, codePadYPct=0.38
+ *   - cornerRadius=6
+ *   - margin=2% de la largeur image
+ *   - letter-spacing header=18% du headerFontSize
+ */
+function drawReferenceBadge(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  _height: number,
+  reference: string,
+): void {
+  const badgeWidth = Math.max(
+    160,
+    Math.min(560, Math.round(width * 0.4)),
+  );
+
+  const headerFontSize = Math.max(8, Math.round(badgeWidth * 0.085));
+  const naturalCodeFontSize = Math.max(12, Math.round(badgeWidth * 0.135));
+  const headerPadY = Math.max(3, Math.round(headerFontSize * 0.42));
+  const codePadY = Math.max(4, Math.round(naturalCodeFontSize * 0.38));
+  const headerHeight = headerFontSize + headerPadY * 2;
+  const codeHeight = naturalCodeFontSize + codePadY * 2;
+  const badgeHeight = headerHeight + codeHeight;
+  const cornerRadius = 6;
+  const margin = Math.max(6, Math.round(width * 0.02));
+  const x = Math.max(0, width - badgeWidth - margin);
+  const y = margin;
+
+  // Auto-fit horizontal : si la référence est longue, on réduit la police
+  // du code pour qu'elle tienne dans le badge (plancher 9 px).
+  const padX = Math.max(8, Math.round(badgeWidth * 0.04));
+  const availableTextWidth = Math.max(1, badgeWidth - 2 * padX);
+  const MONO_CHAR_WIDTH_RATIO = 0.6;
+  const maxCodeFontFromLength = Math.floor(
+    availableTextWidth /
+      (Math.max(1, reference.length) * MONO_CHAR_WIDTH_RATIO),
+  );
+  const codeFontSize = Math.max(
+    9,
+    Math.min(naturalCodeFontSize, maxCodeFontFromLength),
+  );
+
+  ctx.save();
+
+  // Ombre portée identique au feDropShadow du SVG serveur : dy=2, blur=3,
+  // flood #0f172a 35 %.
+  ctx.shadowColor = "rgba(15, 23, 42, 0.35)";
+  ctx.shadowBlur = 3;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
+
+  // Bande header (dégradé 0→100 % diagonal)
+  const headerGrad = ctx.createLinearGradient(x, y, x + badgeWidth, y + headerHeight);
+  headerGrad.addColorStop(0, "#334155");
+  headerGrad.addColorStop(1, "#0f172a");
+  ctx.fillStyle = headerGrad;
+  roundedTopPath(ctx, x, y, badgeWidth, headerHeight, cornerRadius);
+  ctx.fill();
+
+  // Bande code (dégradé 0→100 % diagonal)
+  const codeGrad = ctx.createLinearGradient(
+    x,
+    y + headerHeight,
+    x + badgeWidth,
+    y + badgeHeight,
+  );
+  codeGrad.addColorStop(0, "#64748b");
+  codeGrad.addColorStop(1, "#334155");
+  ctx.fillStyle = codeGrad;
+  roundedBottomPath(
+    ctx,
+    x,
+    y + headerHeight,
+    badgeWidth,
+    codeHeight,
+    cornerRadius,
+  );
+  ctx.fill();
+
+  // Désactive l'ombre pour le texte
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Header « RÉFÉRENCE » avec letter-spacing manuel (Canvas 2D ne supporte
+  // pas letter-spacing nativement sur tous les navigateurs).
+  ctx.fillStyle = "#f8fafc";
+  ctx.font = `700 ${headerFontSize}px Arial, Helvetica, sans-serif`;
+  ctx.textBaseline = "middle";
+  const headerText = "RÉFÉRENCE";
+  const letterSpacing = headerFontSize * 0.18;
+  const letterWidths: number[] = [];
+  let totalWidth = 0;
+  for (let i = 0; i < headerText.length; i++) {
+    const w = ctx.measureText(headerText[i]).width;
+    letterWidths.push(w);
+    totalWidth += w;
+  }
+  totalWidth += letterSpacing * (headerText.length - 1);
+  let cursorX = x + (badgeWidth - totalWidth) / 2;
+  const headerCenterY = y + headerHeight / 2;
+  ctx.textAlign = "left";
+  for (let i = 0; i < headerText.length; i++) {
+    ctx.fillText(headerText[i], cursorX, headerCenterY);
+    cursorX += letterWidths[i] + letterSpacing;
+  }
+
+  // Référence (monospace)
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `700 ${codeFontSize}px Consolas, "Courier New", monospace`;
+  ctx.textAlign = "center";
+  ctx.fillText(
+    reference,
+    x + badgeWidth / 2,
+    y + headerHeight + codeHeight / 2,
+  );
+
+  ctx.restore();
+}
+
+function roundedTopPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function roundedBottomPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const radius = Math.min(r, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + w, y);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y);
+  ctx.closePath();
+}
+
 function drawOutOfStockStamp(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -185,10 +356,12 @@ export async function composeImageWithOverlays(
     options.priceEuros !== undefined &&
     Number.isFinite(options.priceEuros);
   const hasStamp = !!options.outOfStock;
+  const refText = typeof options.reference === "string" ? options.reference.trim() : "";
+  const hasReference = refText.length > 0;
 
   // Pas d'overlay demandé → on peut renvoyer tel quel si le format source
   // matche déjà le format demandé.
-  if (!hasPrice && !hasStamp) {
+  if (!hasPrice && !hasStamp && !hasReference) {
     if (source.type === mimeTypeFor(format)) return source;
   }
 
@@ -211,6 +384,9 @@ export async function composeImageWithOverlays(
 
   if (hasStamp) {
     drawOutOfStockStamp(ctx, width, height);
+  }
+  if (hasReference) {
+    drawReferenceBadge(ctx, width, height, refText);
   }
   if (hasPrice) {
     drawPricePill(ctx, width, height, formatPriceEuros(options.priceEuros as number));

@@ -26,6 +26,9 @@ import CatalogDisplayConfig from "@/components/admin/settings/CatalogDisplayConf
 import RefreshWarningConfig from "@/components/admin/settings/RefreshWarningConfig";
 import BrandedReferenceBadgeConfig from "@/components/admin/settings/BrandedReferenceBadgeConfig";
 import HomeFaqConfig from "@/components/admin/settings/HomeFaqConfig";
+import RegistrationRulesConfig from "@/components/admin/settings/RegistrationRulesConfig";
+import { getRegistrationRules } from "@/app/actions/admin/registration-rules";
+import { DEFAULT_RULES as DEFAULT_REGISTRATION_RULES } from "@/lib/registration-rules";
 import ProductFaqDefaultsConfig from "@/components/admin/settings/ProductFaqDefaultsConfig";
 import { parseProductFaqDefaults, PRODUCT_FAQ_DEFAULTS_KEY } from "@/lib/product-faq";
 import SettingsTabs from "@/components/admin/settings/SettingsTabs";
@@ -96,6 +99,7 @@ const Ico = {
   bell:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
   tag:       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13 21l-9-9V4h8l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>,
   moon:      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>,
+  userCheck: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m16 11 2 2 4-4"/></svg>,
 };
 
 const nf = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -115,6 +119,7 @@ export default async function ParametresPage({
     buildVitrineTile(),
     buildSocieteTile(),
     buildHorairesTile(),
+    buildInscriptionTile(),
     buildPaiementTile(),
     buildLivraisonTile(),
     buildReglesTile(),
@@ -332,6 +337,53 @@ async function buildHorairesTile(): Promise<DashboardTile> {
         accent="dark"
       >
         <BusinessHoursConfig initialSchedule={schedule} />
+      </SettingCard>
+    ),
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE 3bis — Inscription : règles d'auto-approbation par zone
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildInscriptionTile(): Promise<DashboardTile> {
+  const rules = await getRegistrationRules().catch(() => DEFAULT_REGISTRATION_RULES);
+
+  // Résumé global : si au moins un cas est en « approve », on marque OK ;
+  // si au moins un est en « reject », on alerte. Sinon validation manuelle.
+  const frDec = rules.fr.decisions;
+  const frHasApprove = [frDec.all, frDec.siretAndVat, frDec.anyOne, frDec.none].includes("approve");
+  const frHasReject = [frDec.all, frDec.siretAndVat, frDec.anyOne, frDec.none].includes("reject");
+  const euRule = rules.eu.vat;
+  const worldRule = rules.world.brn;
+  const euHasApprove = [euRule.onValid, euRule.onMissing].includes("approve");
+  const euHasReject = [euRule.onValid, euRule.onInvalid, euRule.onMissing].includes("reject");
+  const worldHasApprove = [worldRule.onValid, worldRule.onMissing].includes("approve");
+  const worldHasReject = [worldRule.onValid, worldRule.onInvalid, worldRule.onMissing].includes("reject");
+  const hasApprove = frHasApprove || euHasApprove || worldHasApprove;
+  const anyRejectBranch = frHasReject || euHasReject || worldHasReject;
+
+  const status: TileStatus = hasApprove
+    ? { tone: "ok", label: "Auto-approbation active" }
+    : anyRejectBranch
+      ? { tone: "warn", label: "Refus auto actif" }
+      : { tone: "off", label: "Validation manuelle" };
+
+  const summary = hasApprove
+    ? "Au moins un cas de figure déclenche l'approbation automatique"
+    : "Tous les comptes attendent votre validation manuelle";
+
+  return {
+    key: "inscription",
+    status,
+    summary,
+    content: (
+      <SettingCard
+        icon={Ico.userCheck}
+        title="Règles d'inscription"
+        description="Comment traiter chaque nouvelle demande de compte selon le pays du client et son numéro d'entreprise"
+        accent="dark"
+      >
+        <RegistrationRulesConfig initialRules={rules} />
       </SettingCard>
     ),
   };

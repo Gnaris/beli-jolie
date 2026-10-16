@@ -3,6 +3,7 @@ import {
   formatPriceEuros,
   mimeTypeFor,
   extensionFor,
+  type OverlayOptions,
 } from "@/lib/download-image-overlays";
 
 describe("formatPriceEuros", () => {
@@ -45,5 +46,32 @@ describe("mimeTypeFor / extensionFor", () => {
     expect(extensionFor("webp")).toBe("webp");
     expect(extensionFor("png")).toBe("png");
     expect(extensionFor("jpeg")).toBe("jpg");
+  });
+});
+
+describe("OverlayOptions.reference", () => {
+  it("accepte une référence string", () => {
+    const opts: OverlayOptions = { reference: "ABC-123" };
+    expect(opts.reference).toBe("ABC-123");
+  });
+
+  it("accepte null/undefined/vide (overlay désactivé)", () => {
+    const a: OverlayOptions = { reference: null };
+    const b: OverlayOptions = { reference: undefined };
+    const c: OverlayOptions = { reference: "" };
+    expect(a.reference).toBeNull();
+    expect(b.reference).toBeUndefined();
+    expect(c.reference).toBe("");
+  });
+
+  it("combinable avec priceEuros et outOfStock", () => {
+    const opts: OverlayOptions = {
+      priceEuros: 42,
+      outOfStock: true,
+      reference: "REF-99",
+    };
+    expect(opts.priceEuros).toBe(42);
+    expect(opts.outOfStock).toBe(true);
+    expect(opts.reference).toBe("REF-99");
   });
 });

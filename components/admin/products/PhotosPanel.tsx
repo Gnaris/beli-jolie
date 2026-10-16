@@ -36,6 +36,7 @@ import {
   usePersistedOverlayToggles,
   OverlayToggles,
 } from "@/components/admin/products/DownloadOverlayToggles";
+import ReferenceBadgePreview from "@/components/admin/products/ReferenceBadgePreview";
 
 interface Props {
   variants: VariantState[];
@@ -168,8 +169,8 @@ export default function PhotosPanel({
   brandedBadgeEnabled = false,
 }: Props) {
   const { confirm } = useConfirm();
-  const [zoomed, setZoomed] = useState<{ src: string; downloadName: string; priceEuros: number | null } | null>(null);
-  const [actionSheet, setActionSheet] = useState<{ src: string; downloadName: string; priceEuros: number | null } | null>(null);
+  const [zoomed, setZoomed] = useState<{ src: string; downloadName: string; priceEuros: number | null; reference: string | null; disableReference: boolean } | null>(null);
+  const [actionSheet, setActionSheet] = useState<{ src: string; downloadName: string; priceEuros: number | null; reference: string | null; disableReference: boolean } | null>(null);
   const overlayToggles = usePersistedOverlayToggles();
 
   useEffect(() => {
@@ -246,8 +247,8 @@ export default function PhotosPanel({
               brandedBadgeEnabled={brandedBadgeEnabled}
               priceEuros={priceEuros}
               overlayToggles={overlayToggles}
-              onZoom={(src, downloadName) => setZoomed({ src, downloadName, priceEuros })}
-              onOpenActionSheet={(src, downloadName) => setActionSheet({ src, downloadName, priceEuros })}
+              onZoom={(src, downloadName, disableReference) => setZoomed({ src, downloadName, priceEuros, reference: productReference ?? null, disableReference })}
+              onOpenActionSheet={(src, downloadName, disableReference) => setActionSheet({ src, downloadName, priceEuros, reference: productReference ?? null, disableReference })}
               onConfirmDelete={async () => {
                 return confirm({
                   type: "danger",
@@ -266,9 +267,17 @@ export default function PhotosPanel({
           src={actionSheet.src}
           downloadName={actionSheet.downloadName}
           priceEuros={actionSheet.priceEuros}
+          reference={actionSheet.reference}
+          disableReference={actionSheet.disableReference}
           overlayToggles={overlayToggles}
           onZoom={() => {
-            setZoomed({ src: actionSheet.src, downloadName: actionSheet.downloadName, priceEuros: actionSheet.priceEuros });
+            setZoomed({
+              src: actionSheet.src,
+              downloadName: actionSheet.downloadName,
+              priceEuros: actionSheet.priceEuros,
+              reference: actionSheet.reference,
+              disableReference: actionSheet.disableReference,
+            });
             setActionSheet(null);
           }}
           onClose={() => setActionSheet(null)}
@@ -293,6 +302,11 @@ export default function PhotosPanel({
             <ZoomOverlayPreview
               priceEuros={overlayToggles.showPrice ? zoomed.priceEuros : null}
               outOfStock={overlayToggles.showOutOfStock}
+              reference={
+                overlayToggles.showReference && !zoomed.disableReference
+                  ? zoomed.reference
+                  : null
+              }
             />
           </div>
           <div
@@ -303,9 +317,13 @@ export default function PhotosPanel({
               variant="dark"
               showPrice={overlayToggles.showPrice}
               showOutOfStock={overlayToggles.showOutOfStock}
+              showReference={overlayToggles.showReference}
               onChangePrice={overlayToggles.setShowPrice}
               onChangeOutOfStock={overlayToggles.setShowOutOfStock}
+              onChangeReference={overlayToggles.setShowReference}
               priceEuros={zoomed.priceEuros}
+              reference={zoomed.reference}
+              disableReference={zoomed.disableReference}
             />
           </div>
           <DownloadFormatMenu
@@ -313,6 +331,8 @@ export default function PhotosPanel({
             baseName={zoomed.downloadName}
             overlayToggles={overlayToggles}
             priceEuros={zoomed.priceEuros}
+            reference={zoomed.reference}
+            disableReference={zoomed.disableReference}
             containerClassName="absolute top-4 right-16"
             buttonClassName="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center backdrop-blur-sm transition-colors cursor-pointer"
             iconClassName="w-5 h-5"
@@ -343,13 +363,17 @@ export default function PhotosPanel({
 function ZoomOverlayPreview({
   priceEuros,
   outOfStock,
+  reference,
 }: {
   priceEuros: number | null;
   outOfStock: boolean;
+  reference: string | null;
 }) {
   const hasPrice =
     priceEuros !== null && priceEuros !== undefined && Number.isFinite(priceEuros);
-  if (!hasPrice && !outOfStock) return null;
+  const trimmedRef = typeof reference === "string" ? reference.trim() : "";
+  const hasReference = trimmedRef.length > 0;
+  if (!hasPrice && !outOfStock && !hasReference) return null;
   return (
     <>
       {outOfStock && (
@@ -378,6 +402,9 @@ function ZoomOverlayPreview({
           {formatPriceEuros(priceEuros as number)}
         </span>
       )}
+      {hasReference && (
+        <ReferenceBadgePreview reference={trimmedRef} size="zoom" />
+      )}
     </>
   );
 }
@@ -401,8 +428,8 @@ interface PhotoRowProps {
   /** Toggles partagés (localStorage) — permet aux cases dans le menu de télécharger
    *  d'être propagées à tous les slots et à la modale de zoom simultanément. */
   overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
-  onZoom: (src: string, downloadName: string) => void;
-  onOpenActionSheet: (src: string, downloadName: string) => void;
+  onZoom: (src: string, downloadName: string, disableReference: boolean) => void;
+  onOpenActionSheet: (src: string, downloadName: string, disableReference: boolean) => void;
 }
 
 function slugForFile(input: string): string {
@@ -441,13 +468,18 @@ interface DownloadFormatMenuProps {
   src: string;
   baseName: string;
   /**
-   * Toggles partagés (prix / tampon rupture) à afficher comme 2 cases à cocher
-   * EN HAUT du menu déroulant. Permet de choisir les overlays sans ouvrir une
-   * modale séparée. Si absent, le dropdown ne liste que les formats.
+   * Toggles partagés (prix / tampon rupture / référence) à afficher comme
+   * 3 cases à cocher EN HAUT du menu déroulant. Permet de choisir les overlays
+   * sans ouvrir une modale séparée. Si absent, le dropdown ne liste que les
+   * formats.
    */
   overlayToggles?: ReturnType<typeof usePersistedOverlayToggles>;
   /** Prix mini de la couleur courante, utilisé pour l'overlay si le toggle est ON. */
   priceEuros?: number | null;
+  /** Référence produit à apposer en haut-droite si le toggle est ON. */
+  reference?: string | null;
+  /** Désactive la case « Référence » (ex. 1ʳᵉ image avec badge déjà cuit). */
+  disableReference?: boolean;
   containerClassName?: string;
   buttonClassName: string;
   iconClassName?: string;
@@ -464,7 +496,7 @@ interface DownloadFormatMenuProps {
 // la place d'afficher les cases « Prix » et « Rupture de stock ».
 const MENU_WIDTH_PX = 230;
 const MENU_HEIGHT_FORMATS_ONLY = 128;
-const MENU_HEIGHT_WITH_TOGGLES = 212;
+const MENU_HEIGHT_WITH_TOGGLES = 254;
 const MENU_GAP_PX = 8;
 
 function DownloadFormatMenu({
@@ -472,6 +504,8 @@ function DownloadFormatMenu({
   baseName,
   overlayToggles,
   priceEuros = null,
+  reference = null,
+  disableReference = false,
   containerClassName,
   buttonClassName,
   iconClassName = "w-4 h-4",
@@ -567,12 +601,16 @@ function DownloadFormatMenu({
     try {
       // On recalcule les overlays au moment du clic, pour prendre en compte
       // l'état des toggles qui a pu changer juste avant (checkbox dans le menu).
+      const trimmedRef = typeof reference === "string" ? reference.trim() : "";
+      const refAvailable = !disableReference && trimmedRef.length > 0;
       const effective: OverlayOptions = overlayToggles
         ? {
             priceEuros: overlayToggles.showPrice ? priceEuros : null,
             outOfStock: overlayToggles.showOutOfStock,
+            reference:
+              overlayToggles.showReference && refAvailable ? trimmedRef : null,
           }
-        : { priceEuros: null, outOfStock: false };
+        : { priceEuros: null, outOfStock: false, reference: null };
       await downloadImageWithOverlays(src, baseName, format as OverlayFormat, effective);
       setOpen(false);
     } catch {
@@ -629,6 +667,37 @@ function DownloadFormatMenu({
             />
             <span>Tampon « Rupture »</span>
           </label>
+          {(() => {
+            const trimmedRef = typeof reference === "string" ? reference.trim() : "";
+            const refDisabled = disableReference || trimmedRef.length === 0;
+            const refHint = disableReference
+              ? "déjà imprimée"
+              : trimmedRef.length === 0
+                ? "non saisie"
+                : trimmedRef;
+            return (
+              <label
+                className={`flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-text-primary font-body hover:bg-bg-secondary select-none border-b border-border ${
+                  refDisabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                }`}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <input
+                  type="checkbox"
+                  className="w-3.5 h-3.5 accent-bg-dark cursor-pointer"
+                  checked={overlayToggles.showReference && !refDisabled}
+                  disabled={refDisabled}
+                  onChange={(e) => overlayToggles.setShowReference(e.target.checked)}
+                />
+                <span className="flex-1 flex items-center justify-between gap-2 min-w-0">
+                  <span>Référence</span>
+                  <span className="text-[10px] font-medium text-text-muted truncate">
+                    {refHint}
+                  </span>
+                </span>
+              </label>
+            );
+          })()}
         </>
       )}
       {(["webp", "png", "jpeg"] as ImageDownloadFormat[]).map((f) => (
@@ -963,10 +1032,11 @@ function PhotoRow({
                     downloadName={downloadName}
                     overlayToggles={overlayToggles}
                     priceEuros={priceEuros}
+                    reference={refForBadge}
                     onRemove={() => removeAt(pos)}
                     onDropReorder={(fromGroupKey, fromPos) => onMovePhoto(fromGroupKey, fromPos, groupKey, pos)}
-                    onZoom={() => onZoom(src, downloadName)}
-                    onOpenActionSheet={() => onOpenActionSheet(src, downloadName)}
+                    onZoom={() => onZoom(src, downloadName, false)}
+                    onOpenActionSheet={() => onOpenActionSheet(src, downloadName, false)}
                   />
                 );
               }
@@ -1012,15 +1082,18 @@ function BrandedPhantomSlot({
   downloadName: string;
   overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
   priceEuros: number | null;
-  onZoom: (src: string, downloadName: string) => void;
-  onOpenActionSheet: (src: string, downloadName: string) => void;
+  onZoom: (src: string, downloadName: string, disableReference: boolean) => void;
+  onOpenActionSheet: (src: string, downloadName: string, disableReference: boolean) => void;
 }) {
   const clickable = !!zoomUrl;
+  // La case « Référence » est désactivée sur le phantom : la vignette provient
+  // déjà de `/api/branded-image` avec le badge cuit côté serveur.
+  const PHANTOM_DISABLE_REFERENCE = true;
   const handleZoom = () => {
-    if (zoomUrl) onZoom(zoomUrl, downloadName);
+    if (zoomUrl) onZoom(zoomUrl, downloadName, PHANTOM_DISABLE_REFERENCE);
   };
   const handleTileClick = () => {
-    if (zoomUrl) onOpenActionSheet(zoomUrl, downloadName);
+    if (zoomUrl) onOpenActionSheet(zoomUrl, downloadName, PHANTOM_DISABLE_REFERENCE);
   };
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   return (
@@ -1100,6 +1173,8 @@ function BrandedPhantomSlot({
                 baseName={downloadName}
                 overlayToggles={overlayToggles}
                 priceEuros={priceEuros}
+                reference={reference}
+                disableReference
                 containerClassName="pointer-events-auto relative"
                 buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
                 iconClassName="w-4 h-4"
@@ -1155,6 +1230,7 @@ function FilledSlot({
   downloadName,
   overlayToggles,
   priceEuros,
+  reference,
   onRemove,
   onDropReorder,
   onZoom,
@@ -1171,6 +1247,8 @@ function FilledSlot({
   downloadName: string;
   overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
   priceEuros: number | null;
+  /** Référence produit utilisée pour l'overlay « Référence » à l'export. */
+  reference: string | null;
   onRemove: () => void;
   onDropReorder: (fromGroupKey: string, fromPos: number) => void;
   onZoom: () => void;
@@ -1278,6 +1356,7 @@ function FilledSlot({
           baseName={downloadName}
           overlayToggles={overlayToggles}
           priceEuros={priceEuros}
+          reference={reference}
           containerClassName="pointer-events-auto relative"
           buttonClassName="w-8 h-8 rounded-full bg-white/95 hover:bg-white text-slate-900 flex items-center justify-center shadow cursor-pointer"
           iconClassName="w-4 h-4"
@@ -1408,6 +1487,8 @@ function ImageActionSheet({
   src,
   downloadName,
   priceEuros,
+  reference,
+  disableReference,
   overlayToggles,
   onZoom,
   onClose,
@@ -1415,6 +1496,8 @@ function ImageActionSheet({
   src: string;
   downloadName: string;
   priceEuros: number | null;
+  reference: string | null;
+  disableReference: boolean;
   overlayToggles: ReturnType<typeof usePersistedOverlayToggles>;
   onZoom: () => void;
   onClose: () => void;
@@ -1422,9 +1505,12 @@ function ImageActionSheet({
   const toast = useToast();
   const [busy, setBusy] = useState<"share" | ImageDownloadFormat | null>(null);
   const [canShareToPhotos, setCanShareToPhotos] = useState(false);
+  const trimmedRef = typeof reference === "string" ? reference.trim() : "";
+  const refAvailable = !disableReference && trimmedRef.length > 0;
   const effectiveOverlay: OverlayOptions = {
     priceEuros: overlayToggles.showPrice ? priceEuros : null,
     outOfStock: overlayToggles.showOutOfStock,
+    reference: overlayToggles.showReference && refAvailable ? trimmedRef : null,
   };
 
   useEffect(() => {
@@ -1540,6 +1626,9 @@ function ImageActionSheet({
                 {formatPriceEuros(priceEuros)}
               </span>
             )}
+            {overlayToggles.showReference && refAvailable && (
+              <ReferenceBadgePreview reference={trimmedRef} size="thumb" />
+            )}
           </div>
           <div className="min-w-0">
             <div className="text-sm font-heading font-bold text-text-primary">Cette photo</div>
@@ -1566,9 +1655,13 @@ function ImageActionSheet({
             variant="light"
             showPrice={overlayToggles.showPrice}
             showOutOfStock={overlayToggles.showOutOfStock}
+            showReference={overlayToggles.showReference}
             onChangePrice={overlayToggles.setShowPrice}
             onChangeOutOfStock={overlayToggles.setShowOutOfStock}
+            onChangeReference={overlayToggles.setShowReference}
             priceEuros={priceEuros}
+            reference={reference}
+            disableReference={disableReference}
           />
 
           {canShareToPhotos && (
