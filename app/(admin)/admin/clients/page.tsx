@@ -1196,24 +1196,15 @@ function RegisteredPane({
                           )}
                         </td>
                         <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                          {isPending ? (
-                            <Link
-                              href={`/admin/clients/${c.id}`}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-br from-text-primary to-text-secondary text-white text-xs font-body font-semibold shadow-sm hover:opacity-90 transition-opacity"
-                            >
-                              Examiner
-                            </Link>
-                          ) : (
-                            <Link
-                              href={`/admin/clients/${c.id}`}
-                              className="inline-flex items-center gap-1 text-xs font-body font-medium text-text-secondary hover:text-text-primary transition-colors"
-                            >
-                              Voir
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M5 12h14M13 5l7 7-7 7"/>
-                              </svg>
-                            </Link>
-                          )}
+                          <UserRowActionsMenu
+                            userId={c.id}
+                            userLabel={`${c.firstName} ${c.lastName}`.trim()}
+                            userEmail={c.email}
+                            phone={c.phone || null}
+                            isPending={isPending}
+                            acceptsNewsletter={c.acceptsNewsletter}
+                            hasWhatsapp={c.hasWhatsapp}
+                          />
                         </td>
                       </tr>
                     );

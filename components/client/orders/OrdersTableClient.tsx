@@ -20,6 +20,8 @@ interface SerializedOrder {
   id: string;
   orderNumber: string;
   status: string;
+  /** Commande créée par l'admin pour cette cliente, à finaliser avant paiement. */
+  isAdminDraft?: boolean;
   createdAt: string;
   updatedAt: string;
   totalTTC: number;
@@ -212,8 +214,15 @@ export default function OrdersTableClient({ orders, kpi, statusLabels, statusCon
       <div className="space-y-4">
         {orders.map((order) => {
           const cfg = statusConfig[order.status] ?? statusConfig.PENDING;
-          const badge = <span className={`${cfg.badgeClass} text-xs`}>{statusLabels[order.status]}</span>;
-          const compact = order.status === "SHIPPED" || order.status === "CANCELLED";
+          const isDraft = order.isAdminDraft === true;
+          const badge = isDraft ? (
+            <span className="badge badge-warning text-xs">À finaliser et payer</span>
+          ) : (
+            <span className={`${cfg.badgeClass} text-xs`}>{statusLabels[order.status]}</span>
+          );
+          // Les drafts ne doivent jamais être rendus en « compact » (expédiée / annulée),
+          // ils doivent apparaître en détaillé avec le CTA « Finaliser ».
+          const compact = !isDraft && (order.status === "SHIPPED" || order.status === "CANCELLED");
 
           if (compact) {
             const dateIso = order.status === "SHIPPED" ? order.updatedAt : order.createdAt;
@@ -337,20 +346,33 @@ export default function OrdersTableClient({ orders, kpi, statusLabels, statusCon
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 flex-wrap pt-4 border-t border-border-light">
-                  <Link
-                    href={`/commandes/${order.id}`}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-semibold rounded-lg hover:bg-primary-hover transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    {t.details}
-                  </Link>
-                  <ReorderButton orderId={order.id} size="md" />
-                  {order.status === "PENDING" && (
+                  {isDraft ? (
+                    <Link
+                      href={`/commandes/${order.id}/finaliser`}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 transition-colors shadow-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                          d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Finaliser et payer
+                    </Link>
+                  ) : (
+                    <Link
+                      href={`/commandes/${order.id}`}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-bg-dark text-text-inverse text-sm font-semibold rounded-lg hover:bg-primary-hover transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                          d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      {t.details}
+                    </Link>
+                  )}
+                  {!isDraft && <ReorderButton orderId={order.id} size="md" />}
+                  {order.status === "PENDING" && !isDraft && (
                     <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} size="md" />
                   )}
                 </div>

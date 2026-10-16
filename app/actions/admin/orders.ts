@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyOrderStatusChange, notifyClientOrderModified } from "@/lib/notifications";
 import { reinstateStockForOrder } from "@/lib/stock";
 import { recomputeOrderTotals } from "@/lib/order-totals";
+import { cancelPendingSupplements } from "@/lib/order-payments";
 import { logger } from "@/lib/logger";
 
 async function requireAdmin() {
@@ -110,39 +111,15 @@ export async function modifyOrderItems(
     const itemMap = new Map(order.items.map((i) => [i.id, i]));
 
     // ── Validation ──
+    // Les plafonds qté/prix initiaux ont été retirés : la cliente peut
+    // dépasser librement, l'écart est régularisé par un complément de
+    // paiement ou un avoir (cf. workflow balance).
     for (const mod of modifications) {
       const item = itemMap.get(mod.orderItemId);
       if (!item) return { success: false, error: `Article introuvable: ${mod.orderItemId}` };
       if (mod.newQuantity < 0) return { success: false, error: "La quantité ne peut pas être négative." };
       if (mod.newUnitPrice !== undefined && mod.newUnitPrice < 0) {
         return { success: false, error: "Le prix ne peut pas être négatif." };
-      }
-
-      // Items ajoutés (compensation) : pas de contrainte de qté/prix initiaux — ils ont été créés par l'admin.
-      if (item.isCompensation) continue;
-
-      const existingMod = order.itemModifications.find(
-        (m) => m.orderItemId === mod.orderItemId
-      );
-      const originalQty = existingMod ? existingMod.originalQuantity : item.quantity;
-
-      const currentPrice = Number(item.unitPrice);
-      const priceChanges = mod.newUnitPrice !== undefined && mod.newUnitPrice !== currentPrice;
-      const qtyChanges = mod.newQuantity !== originalQty;
-      if (!priceChanges && !qtyChanges) continue;
-
-      if (mod.newQuantity > originalQty) {
-        return {
-          success: false,
-          error: `La quantité (${mod.newQuantity}) ne peut pas dépasser la quantité initiale (${originalQty}) pour "${item.productName}".`,
-        };
-      }
-      const origPrice = existingMod?.originalUnitPrice ? Number(existingMod.originalUnitPrice) : currentPrice;
-      if (mod.newUnitPrice !== undefined && mod.newUnitPrice > origPrice) {
-        return {
-          success: false,
-          error: `Le prix (${mod.newUnitPrice.toFixed(2)} €) ne peut pas dépasser le prix initial (${origPrice.toFixed(2)} €) pour "${item.productName}".`,
-        };
       }
     }
 
@@ -221,12 +198,14 @@ export async function modifyOrderItems(
 
       // Recalcul totaux
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: order.tvaRate,
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        commercialGiftHT: order.commercialGiftHT,
       });
       newTotalTTC = Number(totals.totalTTC);
 
@@ -359,12 +338,14 @@ export async function addCompensationItem(
       }
 
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: order.tvaRate,
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        commercialGiftHT: order.commercialGiftHT,
       });
       newTotalTTC = Number(totals.totalTTC);
 
@@ -499,12 +480,14 @@ export async function addCompensationItemsBulk(
       }
 
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: order.tvaRate,
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        commercialGiftHT: order.commercialGiftHT,
       });
       await tx.order.update({
         where: { id: orderId },
@@ -528,14 +511,15 @@ export async function addCompensationItemsBulk(
 
 // ═════════════════════════════════════════════════════════════════════
 // Confirmer les modifications d'une commande
-// - Vérifie que le nouveau sous-total HT ne dépasse pas le HT payé
 // - Envoie la notification email au client avec le récapitulatif
 // - Met à jour clientNotifiedAt
+// Le dépassement du montant payé est permis : la fiche commande affiche
+// le reste à régler ou l'avoir à rembourser selon l'écart.
 // ═════════════════════════════════════════════════════════════════════
 
 export async function confirmOrderModifications(
   orderId: string,
-): Promise<{ success: boolean; error?: string; overshoot?: number }> {
+): Promise<{ success: boolean; error?: string }> {
   await requireAdmin();
 
   try {
@@ -546,17 +530,6 @@ export async function confirmOrderModifications(
     if (!order) return { success: false, error: "Commande introuvable." };
     if (order.status !== "PENDING") {
       return { success: false, error: "Commande verrouillée." };
-    }
-
-    const currentHT = Number(order.subtotalHT);
-    const paidHT = order.paidSubtotalHT ? Number(order.paidSubtotalHT) : currentHT;
-
-    if (currentHT > paidHT + 0.01) {
-      return {
-        success: false,
-        error: `Confirmation refusée : le nouveau sous-total HT (${currentHT.toFixed(2).replace(".", ",")} €) dépasse le HT payé (${paidHT.toFixed(2).replace(".", ",")} €). Retirez ou ajustez des articles avant de confirmer.`,
-        overshoot: currentHT - paidHT,
-      };
     }
 
     // Construire le récap pour l'email : toutes les modifications + les ajouts
@@ -634,12 +607,14 @@ export async function removeCompensationItem(
 
       const orderFresh = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: orderFresh.tvaRate,
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
       await tx.order.update({
@@ -701,12 +676,14 @@ export async function revertOrderItemModification(
 
       const orderFresh = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: orderFresh.tvaRate,
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
       await tx.order.update({
@@ -730,7 +707,8 @@ export async function revertOrderItemModification(
 }
 
 export async function revertAllOrderItemModifications(
-  orderId: string
+  orderId: string,
+  options?: { alsoRemoveCompensations?: boolean }
 ): Promise<{ success: boolean; error?: string }> {
   await requireAdmin();
 
@@ -740,7 +718,12 @@ export async function revertAllOrderItemModifications(
     if (order.status !== "PENDING") return { success: false, error: "Commande verrouillée." };
 
     const mods = await prisma.orderItemModification.findMany({ where: { orderId } });
-    if (mods.length === 0) return { success: false, error: "Aucune modification à rétablir." };
+    const compensationCount = options?.alsoRemoveCompensations
+      ? await prisma.orderItem.count({ where: { orderId, isCompensation: true } })
+      : 0;
+    if (mods.length === 0 && compensationCount === 0) {
+      return { success: false, error: "Aucune modification à rétablir." };
+    }
 
     await prisma.$transaction(async (tx) => {
       for (const mod of mods) {
@@ -760,14 +743,20 @@ export async function revertAllOrderItemModifications(
 
       await tx.orderItemModification.deleteMany({ where: { orderId } });
 
+      if (options?.alsoRemoveCompensations) {
+        await tx.orderItem.deleteMany({ where: { orderId, isCompensation: true } });
+      }
+
       const orderFresh = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: orderFresh.tvaRate,
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
       await tx.order.update({
@@ -844,12 +833,14 @@ export async function setOrderItemLineDiscount(
       });
 
       const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      await cancelPendingSupplements(orderId, tx);
       const totals = recomputeOrderTotals({
         items: updatedItems,
         tvaRate: order.tvaRate,
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        commercialGiftHT: order.commercialGiftHT,
       });
       await tx.order.update({
         where: { id: orderId },

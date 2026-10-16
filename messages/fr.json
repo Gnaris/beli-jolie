@@ -1275,6 +1275,7 @@
     "paidByStripeStatusPaid": "encaissé",
     "paidByBankTransfer": "Payé par virement bancaire ({status})",
     "creditToRefund": "Avoir à rembourser",
+    "remainingToPay": "Reste à régler",
     "badgeCode": "Code",
     "badgeAuto": "Auto",
     "orderContentEyebrow": "Contenu de la commande",

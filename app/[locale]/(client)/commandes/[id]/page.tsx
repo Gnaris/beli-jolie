@@ -19,6 +19,7 @@ import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-tr
 import { getStripePublishableKey, isStripeConfigured } from "@/lib/stripe";
 import { buildProductHandle } from "@/lib/product-url";
 import { resolveOrderItemName, buildTranslationLookupByRef } from "@/lib/order-item-i18n";
+import { listOrderPayments, sumPaidTTC } from "@/lib/order-payments";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -58,6 +59,13 @@ export default async function CommandeDetailPage({
   });
 
   if (!order) notFound();
+
+  // Commande créée par l'admin, en attente de finalisation par la cliente :
+  // on bascule vers l'écran dédié `/finaliser` plutôt que d'afficher la fiche
+  // standard (qui attend des infos de livraison + paiement figées).
+  if (order.isAdminDraft) {
+    return redirect({ href: { pathname: `/commandes/${order.id}/finaliser` }, locale });
+  }
 
   // Pastilles couleur pour la colonne « Couleur » du tableau
   const distinctColorNames = Array.from(
@@ -119,19 +127,25 @@ export default async function CommandeDetailPage({
     order.paymentMode === "PAY_ON_PICKUP" &&
     order.paymentStatus !== "paid" &&
     order.status !== "CANCELLED";
-  const [bankTransferConfig, stripeReady, stripePublishableKey] = isBankTransferPending
-    ? await Promise.all([
-        getCachedBankTransferConfig(),
-        isStripeConfigured(),
-        getStripePublishableKey(),
-      ])
-    : [null, false, null];
+  // La config virement est aussi utile pour les SUPPLEMENT BANK_TRANSFER
+  // (complément à régler), on la charge toujours. Les helpers Stripe ne sont
+  // appelés que pour la commande initiale encore en attente.
+  const bankTransferConfig = await getCachedBankTransferConfig();
+  const [stripeReady, stripePublishableKey] = isBankTransferPending
+    ? await Promise.all([isStripeConfigured(), getStripePublishableKey()])
+    : [false, null];
 
   // Reconstruction du TTC payé — arrondi Sage (roundCent). Cf. lib/money.ts.
   const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
   const carrier = Number(order.carrierPrice);
   const paidTvaAmount = roundCent((paidHT + carrier) * order.tvaRate);
-  const paidTotalTTC = roundCent(paidHT + carrier + paidTvaAmount);
+  const paidTotalTTCFallback = roundCent(paidHT + carrier + paidTvaAmount);
+
+  // Historique des paiements (initial + compléments) — source de vérité du
+  // « déjà encaissé ». Fallback sur le calcul historique si pas de backfill.
+  const payments = await listOrderPayments(order.id);
+  const paidFromPayments = await sumPaidTTC(order.id);
+  const paidTotalTTC = payments.length > 0 ? paidFromPayments : paidTotalTTCFallback;
 
   const dateFmt = new Date(order.createdAt).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
     weekday: "long",
@@ -468,6 +482,7 @@ export default async function CommandeDetailPage({
           currentSubtotalHT: Number(order.subtotalHT),
           paidSubtotalHT: order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT),
           clientDiscountAmt: Number(order.clientDiscountAmt),
+          commercialGiftHT: Number(order.commercialGiftHT ?? 0),
           promoDiscount: Number(order.promoDiscount),
           promoCode: order.promoCode,
           subtotalBrutHT: order.subtotalBrutHT
@@ -495,6 +510,27 @@ export default async function CommandeDetailPage({
           paidTotalTTC,
           paymentStatus: order.paymentStatus,
         }}
+        payments={payments.map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          method: p.method,
+          status: p.status,
+          amount: p.amount,
+          stripeCheckoutUrl: p.stripeCheckoutUrl,
+          stripeExpiresAt: p.stripeExpiresAt ? p.stripeExpiresAt.toISOString() : null,
+          paidAt: p.paidAt ? p.paidAt.toISOString() : null,
+          createdAt: p.createdAt.toISOString(),
+          note: p.note,
+        }))}
+        bankInfo={
+          bankTransferConfig && bankTransferConfig.enabled && bankTransferConfig.iban
+            ? {
+                holder: bankTransferConfig.holder,
+                iban: formatIbanForDisplay(bankTransferConfig.iban),
+                reference: order.orderNumber,
+              }
+            : null
+        }
         productLinks={productLinks}
       />
     </div>

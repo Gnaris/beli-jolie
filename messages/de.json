@@ -1275,6 +1275,7 @@
     "paidByStripeStatusPaid": "eingegangen",
     "paidByBankTransfer": "Per Überweisung bezahlt ({status})",
     "creditToRefund": "Zu erstattende Gutschrift",
+    "remainingToPay": "Noch zu zahlen",
     "badgeCode": "Code",
     "badgeAuto": "Auto",
     "orderContentEyebrow": "Bestellinhalt",

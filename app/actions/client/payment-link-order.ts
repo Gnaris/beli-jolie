@@ -44,7 +44,9 @@ import type { OrderItemPDF } from "@/lib/pdf-order";
 import { verifyCarrierSignature } from "@/lib/carrier-signature";
 
 /** Durée de vie d'un lien Stripe Checkout Session (24h max côté Stripe). */
-const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60;
+// Stripe refuse strictement expires_at >= 24h après création (« must be
+// less than 24 hours »). Marge 5 min pour couvrir le clock skew.
+const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60 - 5 * 60;
 
 class StockError extends Error {
   constructor(message: string) {

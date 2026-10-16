@@ -112,6 +112,9 @@ export default async function CommandesPage({ searchParams }: CommandesPageProps
       id: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
+      // Commande créée par l'admin « pour » cette cliente, à finaliser avant paiement.
+      // Affichée avec un badge « À finaliser et payer » et un CTA explicite dans la liste.
+      isAdminDraft: order.isAdminDraft,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       totalTTC: Number(order.totalTTC),

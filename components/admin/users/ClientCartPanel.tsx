@@ -1,7 +1,11 @@
 "use client";
 
+import Link from "next/link";
+import OrderItemImage from "@/components/ui/OrderItemImage";
+
 interface CartItem {
   id: string;
+  productId: string;
   productName: string;
   productRef: string;
   colorName: string | null;
@@ -19,6 +23,17 @@ interface Props {
   cartTotal: number;
 }
 
+function slugForFile(input: string): string {
+  return (
+    input
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "photo"
+  );
+}
+
 export default function ClientCartPanel({ items, cartTotal }: Props) {
   return (
     <div className="card overflow-hidden">
@@ -32,7 +47,7 @@ export default function ClientCartPanel({ items, cartTotal }: Props) {
           <h3 className="font-heading text-sm font-semibold text-text-primary truncate">Panier en cours</h3>
         </div>
         <span className="badge badge-neutral text-[11px] shrink-0">
-          {items.length} {items.length > 1 ? "art." : "art."} · {cartTotal.toFixed(2)} €
+          {items.length} art. · {cartTotal.toFixed(2)} €
         </span>
       </div>
 
@@ -47,53 +62,89 @@ export default function ClientCartPanel({ items, cartTotal }: Props) {
         </div>
       ) : (
         <>
-          <div className="p-4 space-y-3">
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
             {items.map((item) => {
               const isPack = item.saleType === "PACK";
               const linePrice = item.unitPrice * item.quantity;
+              const downloadBaseName = `${slugForFile(item.productRef || item.productName)}-${slugForFile(item.colorName || "")}`;
               return (
-                <div key={item.id} className="flex gap-3 p-3 rounded-xl border border-border bg-bg-primary">
-                  <div className="w-14 h-14 rounded-lg bg-bg-tertiary overflow-hidden shrink-0">
-                    {item.imagePath ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.imagePath} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-text-primary truncate">{item.productName}</p>
-                    <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-0.5">
-                      <span>{item.productRef}</span>
+                <article
+                  key={item.id}
+                  className="flex flex-col gap-3 rounded-xl border border-border bg-bg-primary p-3"
+                >
+                  {/* Image carrée cliquable (lightbox + télécharger) */}
+                  <OrderItemImage
+                    src={item.imagePath}
+                    alt={`${item.productName}${item.colorName ? " — " + item.colorName : ""}`}
+                    sizeClass="w-full aspect-square"
+                    allowDownload
+                    priceEuros={item.unitPrice}
+                    reference={item.productRef || null}
+                    downloadBaseName={downloadBaseName}
+                  />
+
+                  {/* Corps carte */}
+                  <div className="flex-1 flex flex-col gap-2">
+                    <p className="text-sm font-semibold text-text-primary line-clamp-2 leading-snug">
+                      {item.productName}
+                    </p>
+
+                    {/* Référence cliquable → fiche produit admin */}
+                    <Link
+                      href={`/admin/produits/${item.productId}/modifier`}
+                      className="inline-flex items-center gap-1 self-start text-[11px] font-mono text-text-secondary hover:text-text-primary underline underline-offset-2 decoration-dotted transition-colors"
+                      title={`Ouvrir la fiche produit ${item.productRef}`}
+                    >
+                      {item.productRef}
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14 3h7m0 0v7m0-7L10 14m-4 7h11a2 2 0 002-2v-6" />
+                      </svg>
+                    </Link>
+
+                    {/* Couleur + pack */}
+                    <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-text-muted">
                       {item.colorName && (
-                        <>
-                          <span>·</span>
-                          <span className="w-2.5 h-2.5 rounded-full border border-border inline-block shrink-0" style={{ backgroundColor: item.colorHex ?? "#9CA3AF" }} />
+                        <span className="inline-flex items-center gap-1">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-border inline-block shrink-0"
+                            style={{ backgroundColor: item.colorHex ?? "#9CA3AF" }}
+                          />
                           <span>{item.colorName}</span>
-                        </>
+                        </span>
                       )}
                       {isPack && item.packQuantity && (
-                        <>
-                          <span>·</span>
-                          <span>Pack ×{item.packQuantity}</span>
-                        </>
+                        <span className="badge badge-neutral text-[10px]">Pack ×{item.packQuantity}</span>
                       )}
                     </div>
+
+                    {/* Tailles */}
                     {item.sizes.length > 0 && (
-                      <p className="text-[11px] text-text-muted mt-1 truncate">
+                      <p className="text-[11px] text-text-muted leading-snug">
                         {item.sizes.map((s) => `${s.name} ×${s.quantity}`).join(", ")}
                       </p>
                     )}
-                    <div className="flex items-center justify-between mt-1.5">
-                      <span className="text-xs text-text-secondary">× {item.quantity}</span>
-                      <span className="text-sm font-semibold text-text-primary tabular-nums">{linePrice.toFixed(2)} €</span>
+
+                    {/* Prix : qté + unitaire + total */}
+                    <div className="mt-auto pt-2 border-t border-border-light grid grid-cols-3 gap-2 text-[11px]">
+                      <div>
+                        <p className="text-text-muted uppercase tracking-wider text-[9px] font-semibold">Qté</p>
+                        <p className="text-sm font-semibold text-text-primary tabular-nums">{item.quantity}</p>
+                      </div>
+                      <div>
+                        <p className="text-text-muted uppercase tracking-wider text-[9px] font-semibold">Unitaire</p>
+                        <p className="text-sm font-semibold text-text-primary tabular-nums">
+                          {item.unitPrice.toFixed(2)} €
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-text-muted uppercase tracking-wider text-[9px] font-semibold">Total</p>
+                        <p className="text-sm font-bold text-text-primary tabular-nums">
+                          {linePrice.toFixed(2)} €
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>

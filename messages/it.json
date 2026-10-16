@@ -1275,6 +1275,7 @@
     "paidByStripeStatusPaid": "incassato",
     "paidByBankTransfer": "Pagato con bonifico bancario ({status})",
     "creditToRefund": "Buono da rimborsare",
+    "remainingToPay": "Saldo da pagare",
     "badgeCode": "Codice",
     "badgeAuto": "Auto",
     "orderContentEyebrow": "Contenuto dell'ordine",

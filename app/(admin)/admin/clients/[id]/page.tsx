@@ -11,6 +11,7 @@ import ClientVerificationBanner from "@/components/admin/users/ClientVerificatio
 import VatExemptionHeaderToggle from "@/components/admin/users/VatExemptionHeaderToggle";
 import ClientCartPanel from "@/components/admin/users/ClientCartPanel";
 import ClientOrdersPanel from "@/components/admin/users/ClientOrdersPanel";
+import ClientProductViewsPanel from "@/components/admin/users/ClientProductViewsPanel";
 import ClientDetailTabs from "@/components/admin/users/ClientDetailTabs";
 import AutoRefresh from "@/components/admin/users/AutoRefresh";
 import AdminNewsletterToggle from "@/components/admin/users/AdminNewsletterToggle";
@@ -78,7 +79,7 @@ export default async function ClientDetailPage({
           include: {
             variant: {
               include: {
-                product: { select: { name: true, reference: true } },
+                product: { select: { id: true, name: true, reference: true } },
                 color:   { select: { name: true, hex: true } },
                 variantSizes: { include: { size: true } },
               },
@@ -205,6 +206,7 @@ export default async function ClientDetailPage({
     const v = item.variant;
     return {
       id: item.id,
+      productId: v.product.id,
       productName: v.product.name,
       productRef: v.product.reference,
       colorName: v.color?.name ?? null,
@@ -422,26 +424,35 @@ export default async function ClientDetailPage({
         globalMinHt={globalMinHt}
         globalMinLabel={globalMinLabel}
       />
-      <ClientDiscountsPanel
-        userId={user.id}
-      initialDiscountType={user.discountType ?? null}
-      initialDiscountValue={user.discountValue != null ? Number(user.discountValue) : null}
-      initialDiscountMode={user.discountMode ?? null}
-      initialDiscountMinAmount={user.discountMinAmount != null ? Number(user.discountMinAmount) : null}
-      initialDiscountMinQuantity={user.discountMinQuantity ?? null}
-      initialFreeShipping={user.freeShipping}
-      initialFreeShippingMaxPrice={user.freeShippingMaxPrice != null ? Number(user.freeShippingMaxPrice) : null}
-      initialShippingDiscountType={user.shippingDiscountType ?? null}
-      initialShippingDiscountValue={user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null}
-      initialShippingDiscountMode={user.shippingDiscountMode ?? null}
-      initialShippingDiscountMinAmount={user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : null}
-      initialShippingDiscountMinQuantity={user.shippingDiscountMinQuantity ?? null}
-      />
+      {/* id="remise" : cible pour le deep-link « Mettre une remise » du menu
+          Actions de /admin/clients. Permet au navigateur de scroller
+          directement jusqu'au bloc remise sur ouverture de la fiche. */}
+      <div id="remise" className="scroll-mt-24">
+        <ClientDiscountsPanel
+          userId={user.id}
+          initialDiscountType={user.discountType ?? null}
+          initialDiscountValue={user.discountValue != null ? Number(user.discountValue) : null}
+          initialDiscountMode={user.discountMode ?? null}
+          initialDiscountMinAmount={user.discountMinAmount != null ? Number(user.discountMinAmount) : null}
+          initialDiscountMinQuantity={user.discountMinQuantity ?? null}
+          initialFreeShipping={user.freeShipping}
+          initialFreeShippingMaxPrice={user.freeShippingMaxPrice != null ? Number(user.freeShippingMaxPrice) : null}
+          initialShippingDiscountType={user.shippingDiscountType ?? null}
+          initialShippingDiscountValue={user.shippingDiscountValue != null ? Number(user.shippingDiscountValue) : null}
+          initialShippingDiscountMode={user.shippingDiscountMode ?? null}
+          initialShippingDiscountMinAmount={user.shippingDiscountMinAmount != null ? Number(user.shippingDiscountMinAmount) : null}
+          initialShippingDiscountMinQuantity={user.shippingDiscountMinQuantity ?? null}
+        />
+      </div>
     </div>
   );
 
   const ordersPanel = (
     <ClientOrdersPanel orders={ordersSerialized} />
+  );
+
+  const productViewsPanel = (
+    <ClientProductViewsPanel userId={user.id} />
   );
 
   const notePanel = (
@@ -532,6 +543,7 @@ export default async function ClientDetailPage({
         cartPanel={cartPanel}
         marketingPanel={marketingPanel}
         ordersPanel={ordersPanel}
+        productViewsPanel={productViewsPanel}
         notePanel={notePanel}
       />
     </div>

@@ -1275,6 +1275,7 @@
     "paidByStripeStatusPaid": "cobrado",
     "paidByBankTransfer": "Pagado por transferencia bancaria ({status})",
     "creditToRefund": "Vale a reembolsar",
+    "remainingToPay": "Pendiente de pago",
     "badgeCode": "Código",
     "badgeAuto": "Auto",
     "orderContentEyebrow": "Contenido del pedido",

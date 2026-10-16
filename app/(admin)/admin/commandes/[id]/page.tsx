@@ -13,6 +13,7 @@ import { listWhatsAppTemplates } from "@/app/actions/admin/whatsapp-templates";
 import { EU_COUNTRIES } from "@/lib/vat";
 import { roundCent } from "@/lib/money";
 import { syncStripeCheckoutSessionStatus } from "@/app/actions/client/payment-link-order";
+import { listOrderPayments, sumPaidTTC } from "@/lib/order-payments";
 
 export const metadata: Metadata = { title: "Détail commande — Admin" };
 
@@ -111,7 +112,14 @@ export default async function AdminCommandeDetailPage({
   const paidHT = Number(order.paidSubtotalHT ?? order.subtotalHT);
   const carrier = Number(order.carrierPrice);
   const paidTvaAmount = roundCent((paidHT + carrier) * order.tvaRate);
-  const paidTotalTTC = roundCent(paidHT + carrier + paidTvaAmount);
+  const paidTotalTTCFallback = roundCent(paidHT + carrier + paidTvaAmount);
+
+  // Historique des paiements (initial + compléments) — source de vérité du
+  // « déjà encaissé ». Fallback sur le calcul historique si la commande n'a
+  // pas encore été backfillée.
+  const payments = await listOrderPayments(order.id);
+  const paidFromPaymentsRaw = await sumPaidTTC(order.id);
+  const paidTotalTTC = payments.length > 0 ? paidFromPaymentsRaw : paidTotalTTCFallback;
 
   // Mapping ref → route admin. `/admin/produits/ref/{ref}` fait le lookup et
   // redirige vers la fiche produit si elle existe, sinon affiche un layout
@@ -534,6 +542,7 @@ export default async function AdminCommandeDetailPage({
           currentSubtotalHT: Number(order.subtotalHT), // HT DÉJÀ après remise commerciale + promo
           paidSubtotalHT: order.paidSubtotalHT ? Number(order.paidSubtotalHT) : Number(order.subtotalHT),
           clientDiscountAmt: Number(order.clientDiscountAmt),
+          commercialGiftHT: Number(order.commercialGiftHT ?? 0),
           promoDiscount: Number(order.promoDiscount),
           promoCode: order.promoCode,
           // Snapshot brut (nullable pour commandes historiques → fallback = subtotalHT + clientDiscountAmt + promoDiscount)
@@ -562,6 +571,18 @@ export default async function AdminCommandeDetailPage({
           paidTotalTTC,
           paymentStatus: order.paymentStatus,
         }}
+        payments={payments.map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          method: p.method,
+          status: p.status,
+          amount: p.amount,
+          stripeCheckoutUrl: p.stripeCheckoutUrl,
+          stripeExpiresAt: p.stripeExpiresAt ? p.stripeExpiresAt.toISOString() : null,
+          paidAt: p.paidAt ? p.paidAt.toISOString() : null,
+          createdAt: p.createdAt.toISOString(),
+          note: p.note,
+        }))}
         productLinks={productLinks}
       />
     </div>

@@ -1,8 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
-type TabKey = "dashboard" | "cart" | "marketing" | "orders" | "note";
+type TabKey = "dashboard" | "cart" | "marketing" | "orders" | "productViews" | "note";
+
+const TAB_KEYS: readonly TabKey[] = [
+  "dashboard",
+  "cart",
+  "marketing",
+  "orders",
+  "productViews",
+  "note",
+];
+
+function parseTabFromUrl(raw: string | null): TabKey {
+  // L'URL peut porter `?tab=cart` (deep-link depuis le menu Actions
+  // sur /admin/clients). On accepte les clés connues, sinon retour dashboard.
+  if (raw && (TAB_KEYS as readonly string[]).includes(raw)) return raw as TabKey;
+  return "dashboard";
+}
 
 interface Props {
   cartCount: number;
@@ -12,6 +29,7 @@ interface Props {
   cartPanel: React.ReactNode;
   marketingPanel: React.ReactNode;
   ordersPanel: React.ReactNode;
+  productViewsPanel: React.ReactNode;
   notePanel: React.ReactNode;
 }
 
@@ -23,16 +41,21 @@ export default function ClientDetailTabs({
   cartPanel,
   marketingPanel,
   ordersPanel,
+  productViewsPanel,
   notePanel,
 }: Props) {
-  const [active, setActive] = useState<TabKey>("dashboard");
+  const searchParams = useSearchParams();
+  const [active, setActive] = useState<TabKey>(() =>
+    parseTabFromUrl(searchParams.get("tab")),
+  );
 
   const tabs: { key: TabKey; label: string; count?: number; countActive?: boolean; dot?: boolean }[] = [
-    { key: "dashboard", label: "Tableau de bord" },
-    { key: "cart",      label: "Panier",         count: cartCount,   countActive: cartCount > 0 },
-    { key: "marketing", label: "Marketing" },
-    { key: "orders",    label: "Commandes",      count: ordersCount },
-    { key: "note",      label: "Note",           dot: hasNote },
+    { key: "dashboard",    label: "Tableau de bord" },
+    { key: "cart",         label: "Panier",       count: cartCount, countActive: cartCount > 0 },
+    { key: "marketing",    label: "Marketing" },
+    { key: "orders",       label: "Commandes",    count: ordersCount },
+    { key: "productViews", label: "Produits vus" },
+    { key: "note",         label: "Note",         dot: hasNote },
   ];
 
   return (
@@ -84,11 +107,12 @@ export default function ClientDetailTabs({
 
       {/* Panels — on rend tous les enfants et on cache les inactifs pour préserver leur state.
           (React Server Components peuvent être passés en children à un client component.) */}
-      <div className={active === "dashboard" ? "block" : "hidden"}>{dashboardPanel}</div>
-      <div className={active === "cart"      ? "block" : "hidden"}>{cartPanel}</div>
-      <div className={active === "marketing" ? "block" : "hidden"}>{marketingPanel}</div>
-      <div className={active === "orders"    ? "block" : "hidden"}>{ordersPanel}</div>
-      <div className={active === "note"      ? "block" : "hidden"}>{notePanel}</div>
+      <div className={active === "dashboard"    ? "block" : "hidden"}>{dashboardPanel}</div>
+      <div className={active === "cart"         ? "block" : "hidden"}>{cartPanel}</div>
+      <div className={active === "marketing"    ? "block" : "hidden"}>{marketingPanel}</div>
+      <div className={active === "orders"       ? "block" : "hidden"}>{ordersPanel}</div>
+      <div className={active === "productViews" ? "block" : "hidden"}>{productViewsPanel}</div>
+      <div className={active === "note"         ? "block" : "hidden"}>{notePanel}</div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   usePersistedOverlayToggles,
   OverlayToggles,
 } from "@/components/admin/products/DownloadOverlayToggles";
+import ReferenceBadgePreview from "@/components/admin/products/ReferenceBadgePreview";
 import { useToast } from "@/components/ui/Toast";
 
 interface OrderItemImageProps {
@@ -19,10 +20,16 @@ interface OrderItemImageProps {
   /** Tailwind classes for the outer container size, e.g. "w-12 h-12 sm:w-16 sm:h-16" */
   sizeClass?: string;
   /** Si true, affiche dans la modale un bouton de téléchargement avec cases
-   *  à cocher « Prix » / « Rupture de stock ». Utilisé sur /admin/commandes/[id]. */
+   *  à cocher « Prix » / « Rupture de stock » / « Référence ». Utilisé sur
+   *  /admin/commandes/[id] et le panier client admin. */
   allowDownload?: boolean;
   /** Prix (unitaire) à afficher dans le coin bas-droite si la case est cochée. */
   priceEuros?: number | null;
+  /** Référence produit à afficher en haut-droite si la case est cochée. */
+  reference?: string | null;
+  /** Désactive la case « Référence » (ex. 1ʳᵉ image avec badge déjà cuit côté
+   *  serveur). */
+  disableReference?: boolean;
   /** Préfixe du nom de fichier téléchargé (sans extension). */
   downloadBaseName?: string;
 }
@@ -44,6 +51,8 @@ export default function OrderItemImage({
   sizeClass = "w-14 h-14",
   allowDownload = false,
   priceEuros = null,
+  reference = null,
+  disableReference = false,
   downloadBaseName,
 }: OrderItemImageProps) {
   const [open, setOpen] = useState(false);
@@ -77,6 +86,8 @@ export default function OrderItemImage({
           alt={alt}
           allowDownload={allowDownload}
           priceEuros={priceEuros}
+          reference={reference}
+          disableReference={disableReference}
           baseName={baseName}
           onClose={() => setOpen(false)}
         />
@@ -97,6 +108,8 @@ function Lightbox({
   alt,
   allowDownload,
   priceEuros,
+  reference,
+  disableReference,
   baseName,
   onClose,
 }: {
@@ -104,6 +117,8 @@ function Lightbox({
   alt: string;
   allowDownload: boolean;
   priceEuros: number | null;
+  reference: string | null;
+  disableReference: boolean;
   baseName: string;
   onClose: () => void;
 }) {
@@ -112,12 +127,18 @@ function Lightbox({
   // avec les callers client qui n'ont pas de ToastProvider dans l'arbre.
   const toggles = usePersistedOverlayToggles();
 
+  const trimmedRef = typeof reference === "string" ? reference.trim() : "";
+  const refAvailable = !disableReference && trimmedRef.length > 0;
   const effectivePrice = allowDownload && toggles.showPrice ? priceEuros : null;
+  const effectiveReference = allowDownload && toggles.showReference && refAvailable
+    ? trimmedRef
+    : null;
   const showStamp = allowDownload && toggles.showOutOfStock;
   const hasPrice =
     effectivePrice !== null &&
     effectivePrice !== undefined &&
     Number.isFinite(effectivePrice);
+  const hasReference = effectiveReference !== null;
 
   return (
     <div
@@ -163,6 +184,9 @@ function Lightbox({
             {formatPriceEuros(effectivePrice as number)}
           </span>
         )}
+        {hasReference && (
+          <ReferenceBadgePreview reference={effectiveReference as string} size="zoom" />
+        )}
       </div>
 
       {allowDownload && (
@@ -170,6 +194,8 @@ function Lightbox({
           src={src}
           baseName={baseName}
           priceEuros={priceEuros}
+          reference={trimmedRef || null}
+          disableReference={disableReference}
           toggles={toggles}
         />
       )}
@@ -194,11 +220,15 @@ function DownloadControls({
   src,
   baseName,
   priceEuros,
+  reference,
+  disableReference,
   toggles,
 }: {
   src: string;
   baseName: string;
   priceEuros: number | null;
+  reference: string | null;
+  disableReference: boolean;
   toggles: ReturnType<typeof usePersistedOverlayToggles>;
 }) {
   const toast = useToast();
@@ -208,9 +238,11 @@ function DownloadControls({
     if (busyFormat) return;
     setBusyFormat(format);
     try {
+      const refAvailable = !disableReference && !!reference;
       await downloadImageWithOverlays(src, baseName, format, {
         priceEuros: toggles.showPrice ? priceEuros : null,
         outOfStock: toggles.showOutOfStock,
+        reference: toggles.showReference && refAvailable ? reference : null,
       });
     } catch {
       toast.error(
@@ -231,9 +263,13 @@ function DownloadControls({
         variant="dark"
         showPrice={toggles.showPrice}
         showOutOfStock={toggles.showOutOfStock}
+        showReference={toggles.showReference}
         onChangePrice={toggles.setShowPrice}
         onChangeOutOfStock={toggles.setShowOutOfStock}
+        onChangeReference={toggles.setShowReference}
         priceEuros={priceEuros}
+        reference={reference}
+        disableReference={disableReference}
       />
       <div className="flex items-center gap-2">
         {(["webp", "png", "jpeg"] as OverlayFormat[]).map((f) => (

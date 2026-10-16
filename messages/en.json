@@ -1275,6 +1275,7 @@
     "paidByStripeStatusPaid": "captured",
     "paidByBankTransfer": "Paid by bank transfer ({status})",
     "creditToRefund": "Credit to refund",
+    "remainingToPay": "Remaining to pay",
     "badgeCode": "Code",
     "badgeAuto": "Auto",
     "orderContentEyebrow": "Order content",
