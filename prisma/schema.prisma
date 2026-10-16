@@ -3782,7 +3782,7 @@ model ProductView {
   createdAt DateTime @default(now())
   // Date du jour (00:00 UTC) — porte la contrainte « 1 vue par jour / produit /
   // utilisateur ». Stockée séparément de createdAt pour servir d'index unique.
-  viewedDate DateTime @default(now()) @db.Date
+  viewedDate DateTime @db.Date
 
   // Multi-tenant : nullable pendant migration progressive, deviendra NOT NULL apres backfill.
   tenantId String?
