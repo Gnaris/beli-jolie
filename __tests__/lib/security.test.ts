@@ -275,6 +275,39 @@ describe("lib/security", () => {
         expect.objectContaining({ where: expect.objectContaining({ siret: expect.anything() }) }),
       );
     });
+
+    it("bypass la vérif anti-spam en dev local (NODE_ENV=development)", async () => {
+      const prev = process.env.NODE_ENV;
+      // process.env.NODE_ENV est en readonly en TS strict — on force le cast.
+      (process.env as Record<string, string>).NODE_ENV = "development";
+      try {
+        mockPrisma.registrationLog.count.mockResolvedValue(5); // simule plein de doublons
+        const result = await checkRegistrationSpam("1.1.1.1", "a@b.com", "06", "123");
+        // En dev, retour early → aucune requête, aucun blocage.
+        expect(result).toBeNull();
+        expect(mockPrisma.registrationLog.count).not.toHaveBeenCalled();
+      } finally {
+        (process.env as Record<string, string>).NODE_ENV = prev ?? "test";
+      }
+    });
+
+    it("reste actif en test et en prod (NODE_ENV !== development)", async () => {
+      // Env test (NODE_ENV=test) : la vérif tourne normalement, les tests
+      // ci-dessus l'ont déjà prouvé. Ici on vérifie explicitement qu'en
+      // production la vérif est aussi active.
+      const prev = process.env.NODE_ENV;
+      (process.env as Record<string, string>).NODE_ENV = "production";
+      try {
+        mockPrisma.registrationLog.count.mockImplementation(({ where }: any) => {
+          if (where.ip) return Promise.resolve(1);
+          return Promise.resolve(0);
+        });
+        const result = await checkRegistrationSpam("1.2.3.4", "new@test.com", "0612345678", "12345678901234");
+        expect(result).toContain("adresse");
+      } finally {
+        (process.env as Record<string, string>).NODE_ENV = prev ?? "test";
+      }
+    });
   });
 
   // ─── logRegistration ───────────────────────────────────────────

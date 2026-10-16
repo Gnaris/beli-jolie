@@ -4,15 +4,24 @@ import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadFile, kbisDir, clientDocumentsDir, slugify } from "@/lib/storage";
-import { getCurrentTenantSlug } from "@/lib/tenant";
-import { registerSchema } from "@/lib/validations/auth";
-import { notifyNewClientRegistration } from "@/lib/notifications";
+import { getCurrentTenantSlug, requireCurrentTenant } from "@/lib/tenant";
+import { registerBaseSchema } from "@/lib/validations/auth";
+import {
+  notifyNewClientRegistration,
+  notifyClientAccountApproved,
+  notifyClientAccountRejected,
+} from "@/lib/notifications";
 import { checkRegistrationSpam, logRegistration, getClientIp } from "@/lib/security";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { emitAdminEvent } from "@/lib/admin-events";
 import { checkVies } from "@/lib/vies";
+import { checkSiret } from "@/lib/siret";
 import { getCompanyZone } from "@/lib/vat";
+import { getRegistrationRules } from "@/app/actions/admin/registration-rules";
+import { decideRegistrationStatus } from "@/lib/registration-rules";
+import { checkWhatsappNumberFireAndForget } from "@/lib/whatsapp-check";
+import { tenantALS } from "@/lib/tenant-als";
 import {
   sanitizeImage,
   assertPdfSafe,
@@ -74,8 +83,10 @@ export async function POST(request: NextRequest) {
       acceptsNewsletter:   formData.get("acceptsNewsletter") === "true",
     };
 
-    // Validation Zod
-    const validation = registerSchema.safeParse(rawData);
+    // Validation Zod (format uniquement — la contrainte « SIRET/TVA
+    // obligatoire selon zone » est appliquée plus bas via les règles
+    // SiteConfig[registration_rules] configurables dans l'admin).
+    const validation = registerBaseSchema.safeParse(rawData);
     if (!validation.success) {
       return NextResponse.json(
         { error: validation.error.issues[0].message },
@@ -241,6 +252,98 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Règles d'inscription (SiteConfig) ─────────────────────────────────
+    // L'admin peut configurer, par zone (FR / UE / International), si le
+    // numéro fiscal est obligatoire ou optionnel, s'il est vérifié en ligne
+    // (annuaire-entreprises ou VIES), et quelle décision prendre selon le
+    // résultat (approuver, laisser en attente, refuser).
+    //
+    // Zone FR : le client peut fournir SIRET ET/OU TVA. Un seul suffit à
+    // être « renseigné ». Si vérif auto activée, au moins un valide suffit.
+    const rules = await getRegistrationRules().catch(() => null);
+
+    const trimmedVat = data.vatNumber?.trim() || null;
+    const trimmedBrn = data.businessRegistrationNumber?.trim() || null;
+
+    const siretProvided = !!normalizedSiret;
+    const vatProvided = !!trimmedVat;
+    const brnProvided = !!trimmedBrn;
+    const kbisAttached = !!kbisPath; // KBIS = pièce jointe uploadée plus haut
+
+    // Vérifications externes synchrones : on interroge annuaire-entreprises
+    // et VIES en parallèle quand autoVerify est activé pour le champ ET
+    // que le client a fourni une valeur. Pour FR, les deux appels tournent
+    // en parallèle sans se bloquer.
+    let siretVerifiedValid: boolean | null = null;
+    let vatVerifiedValid: boolean | null = null;
+    let viesSnapshot: Awaited<ReturnType<typeof checkVies>> | null = null;
+
+    if (rules) {
+      const siretRule =
+        zone === "FR" ? rules.fr.siret : null;
+      const vatRule =
+        zone === "FR" ? rules.fr.vat :
+        zone === "EU" ? rules.eu.vat :
+        null;
+
+      const siretWillVerify = siretRule?.autoVerify && siretProvided && normalizedSiret;
+      const vatWillVerify = vatRule?.autoVerify && vatProvided && trimmedVat;
+
+      if (siretWillVerify || vatWillVerify) {
+        try {
+          const [siretRes, viesRes] = await Promise.all([
+            siretWillVerify ? checkSiret(normalizedSiret!) : Promise.resolve(null),
+            vatWillVerify ? checkVies(trimmedVat!) : Promise.resolve(null),
+          ]);
+          if (siretRes) {
+            // Erreur de service (timeout, 500, abort) → serviceError posé.
+            // Dans ce cas on laisse verifiedValid à null pour que la
+            // décision tombe en PENDING (voir decideField).
+            if (siretRes.serviceError) {
+              siretVerifiedValid = null;
+            } else {
+              siretVerifiedValid = siretRes.found && siretRes.activeStatus === "active";
+            }
+          }
+          if (viesRes) {
+            viesSnapshot = viesRes;
+            if (viesRes.serviceError) {
+              vatVerifiedValid = null;
+            } else {
+              vatVerifiedValid = viesRes.valid;
+            }
+          }
+        } catch (err) {
+          // Exception non prévue (crash réseau, parsing JSON…) : on laisse
+          // les deux verifiedValid à null → la décision tombera en PENDING.
+          logger.error("[Register] Vérification auto échouée", { error: err, zone });
+        }
+      }
+    }
+
+    // Décision basée sur les règles — ou PENDING par défaut si pas de règles.
+    const decision = rules
+      ? decideRegistrationStatus(zone, rules, {
+          siret: { provided: siretProvided, verifiedValid: siretVerifiedValid },
+          vat: { provided: vatProvided, verifiedValid: vatVerifiedValid },
+          brn: { provided: brnProvided, verifiedValid: null },
+          kbisAttached,
+        })
+      : { kind: "status" as const, status: "PENDING" as const };
+
+    // Pré-check structurel : un champ obligatoire est absent → on refuse
+    // avant la création du compte avec un message listant les champs manquants.
+    if (decision.kind === "missingFiscalRejected") {
+      const list = decision.missingFields.join(" et ");
+      return NextResponse.json(
+        { error: `${list} ${decision.missingFields.length > 1 ? "sont obligatoires" : "est obligatoire"} pour votre zone.` },
+        { status: 400 }
+      );
+    }
+
+    const resolvedStatus: "APPROVED" | "PENDING" | "REJECTED" = decision.status;
+    const serviceErrored = decision.serviceErrored === true;
+
     // ── Création de l'utilisateur ──────────────────────────────────────
 
     // Hash du mot de passe (12 rounds = bon équilibre sécurité/performance)
@@ -255,8 +358,8 @@ export async function POST(request: NextRequest) {
         company:                    data.company.trim(),
         phone:                      data.phone.trim(),
         siret:                      normalizedSiret,
-        businessRegistrationNumber: data.businessRegistrationNumber?.trim() || null,
-        vatNumber:                  data.vatNumber?.trim() || null,
+        businessRegistrationNumber: trimmedBrn,
+        vatNumber:                  trimmedVat,
         addressStreet:              data.addressStreet.trim(),
         addressComplement:          data.addressComplement?.trim() || null,
         addressZip:                 data.addressZip.trim(),
@@ -267,12 +370,20 @@ export async function POST(request: NextRequest) {
         registrationMessage:        data.registrationMessage?.trim() || null,
         acceptsNewsletter:          data.acceptsNewsletter ?? false,
         role:                       "CLIENT",
-        status:                     "PENDING",
+        status:                     resolvedStatus,
+        // Si on a déjà interrogé VIES de manière synchrone, on persiste le
+        // résultat pour éviter un 2ᵉ appel en fire-and-forget.
+        viesValid:                  viesSnapshot?.valid ?? null,
+        viesName:                   viesSnapshot?.name ?? null,
+        viesAddress:                viesSnapshot?.address ?? null,
+        viesRequestDate:            viesSnapshot?.requestDate ?? null,
+        viesError:                  viesSnapshot?.serviceError ?? null,
       },
     });
 
     // ── Vérification VIES (fire-and-forget) ──────────────────────────────
-    if (newUser.vatNumber) {
+    // On ne refait pas d'appel si on vient de le faire en synchrone au-dessus.
+    if (newUser.vatNumber && !viesSnapshot) {
       checkVies(newUser.vatNumber)
         .then((vies) =>
           prisma.user.update({
@@ -289,6 +400,39 @@ export async function POST(request: NextRequest) {
         .catch((err) =>
           logger.error("[Register] VIES check failed", { error: err })
         );
+    }
+
+    // ── Notifications liées au statut auto-décidé ────────────────────────
+    // Transitions normalement portées par updateUserStatus() quand l'admin
+    // valide/refuse à la main — ici on les rejoue car la décision est auto.
+    if (resolvedStatus === "APPROVED") {
+      notifyClientAccountApproved({
+        email: newUser.email,
+        firstName: newUser.firstName,
+      }).catch((err) =>
+        logger.error("[Register] Email approbation auto échoué", { error: err }),
+      );
+      // Déclenche la vérif WhatsApp en arrière-plan (comme à l'approbation
+      // manuelle). Détaché du contexte requête → wrap tenantALS.
+      if (newUser.phone) {
+        try {
+          const tenant = await requireCurrentTenant();
+          const phone = newUser.phone;
+          const uid = newUser.id;
+          void tenantALS.run(tenant.id, () =>
+            checkWhatsappNumberFireAndForget(tenant.id, tenant.slug, phone, uid),
+          );
+        } catch (err) {
+          logger.error("[Register] WhatsApp auto-check échoué", { error: err });
+        }
+      }
+    } else if (resolvedStatus === "REJECTED") {
+      notifyClientAccountRejected({
+        email: newUser.email,
+        firstName: newUser.firstName,
+      }).catch((err) =>
+        logger.error("[Register] Email refus auto échoué", { error: err }),
+      );
     }
 
     // ── Log anti-spam (cooldown 3h) ─────────────────────────────────────
@@ -314,9 +458,22 @@ export async function POST(request: NextRequest) {
     // Push temps réel vers /admin/clients ouvert dans un onglet admin
     emitAdminEvent({ type: "CLIENT_NEW", userId: newUser.id });
 
-    const message = "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
+    const message = resolvedStatus === "APPROVED"
+      ? "Votre compte a été approuvé immédiatement. Vous pouvez dès maintenant vous connecter."
+      : serviceErrored
+        ? "Le service de vérification est momentanément indisponible. Un administrateur examinera votre dossier dès que possible."
+        : "Votre demande d'accès a bien été enregistrée. Notre équipe va examiner votre dossier et vous contactera par email.";
 
-    return NextResponse.json({ message }, { status: 201 });
+    // Le client a besoin du statut + zone pour afficher l'overlay de
+    // vérification avec le bon libellé (SIRET pour FR, TVA pour UE,…).
+    // `serviceErrored` permet d'afficher un message dédié « service down ».
+    return NextResponse.json({
+      message,
+      status: resolvedStatus,
+      zone,
+      companyName: viesSnapshot?.name ?? null,
+      serviceErrored,
+    }, { status: 201 });
   } catch (error) {
     // Prisma P2000 : valeur trop longue pour la colonne cible.
     // Cas typique : un champ Zod .max(2000) mais colonne SQL restée en

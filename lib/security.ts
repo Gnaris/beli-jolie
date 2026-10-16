@@ -152,6 +152,13 @@ export async function checkRegistrationSpam(
 ): Promise<string | null> {
   if (!REGISTRATION_SPAM_CHECK_ENABLED) return null;
 
+  // En dev local (`npm run dev` → NODE_ENV=development), on bypass la vérif
+  // anti-spam : la cliente a besoin de pouvoir recréer plusieurs comptes de
+  // test depuis la même IP/email/phone sans attendre le cooldown. En prod
+  // (NODE_ENV=production via PM2 + `next start`) et en test (NODE_ENV=test
+  // via Vitest), la vérif reste active normalement.
+  if (process.env.NODE_ENV === "development") return null;
+
   const since = new Date(Date.now() - REGISTRATION_COOLDOWN_MS);
 
   // Vérifier chaque critère en parallèle — la vérif SIRET est skip si absent

@@ -17,8 +17,15 @@ export const loginSchema = z.object({
     .min(1, "Le mot de passe est requis."),
 });
 
-/** Inscription BtoB */
-export const registerSchema = z.object({
+/**
+ * Inscription BtoB — schéma de base (format uniquement).
+ *
+ * Les contraintes conditionnelles « SIRET obligatoire FR / TVA obligatoire UE »
+ * sont posées dans `registerSchema` (export plus bas) qui l'enveloppe avec un
+ * superRefine. Le serveur utilise plutôt `registerBaseSchema` pour pouvoir
+ * ensuite appliquer les règles SiteConfig[registration_rules].
+ */
+export const registerBaseSchema = z.object({
   firstName: z
     .string()
     .max(50, "Prénom trop long.")
@@ -122,13 +129,17 @@ export const registerSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Les mots de passe ne correspondent pas.",
   path: ["confirmPassword"],
-}).superRefine((data, ctx) => {
-  // Règles conditionnelles selon le pays de la société.
-  // FR + DOM-TOM : SIRET obligatoire (14 chiffres, régime commun).
-  // UE hors FR   : TVA intracom obligatoire (sinon on ne peut pas
-  //                auto-liquider et le client se voit facturer 20 % à tort).
-  // Reste monde  : rien de plus côté Zod (justificatif d'entreprise
-  //                obligatoire mais vérifié côté route.ts, car FormData).
+});
+
+/**
+ * Schéma public (formulaire client).
+ *
+ * Ajoute la contrainte historique « SIRET obligatoire FR, TVA obligatoire UE ».
+ * Côté serveur, la route `/api/auth/register` utilise plutôt `registerBaseSchema`
+ * puis applique les règles configurées dans SiteConfig[registration_rules]
+ * (admin peut rendre le numéro optionnel ou non demandé).
+ */
+export const registerSchema = registerBaseSchema.superRefine((data, ctx) => {
   const zone = getCompanyZone(data.addressCountry);
   if (zone === "FR" && !data.siret) {
     ctx.addIssue({

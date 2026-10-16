@@ -4,6 +4,8 @@ import { getCachedProductCount, getCachedShopName, getCachedBusinessHours } from
 import { DEFAULT_BUSINESS_HOURS } from "@/lib/business-hours";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import RegisterForm from "@/components/auth/RegisterForm";
+import { getRegistrationRules } from "@/app/actions/admin/registration-rules";
+import { DEFAULT_RULES } from "@/lib/registration-rules";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -27,11 +29,18 @@ export default async function InscriptionPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const [productCount, businessHours] = await Promise.all([
+  const [productCount, businessHours, registrationRules] = await Promise.all([
     getCachedProductCount(),
     getCachedBusinessHours(),
+    getRegistrationRules().catch(() => DEFAULT_RULES),
   ]);
   const schedule: BusinessHoursSchedule = businessHours ?? DEFAULT_BUSINESS_HOURS;
 
-  return <RegisterForm productCount={productCount} schedule={schedule} />;
+  return (
+    <RegisterForm
+      productCount={productCount}
+      schedule={schedule}
+      registrationRules={registrationRules}
+    />
+  );
 }

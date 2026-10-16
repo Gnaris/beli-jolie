@@ -10,6 +10,13 @@ import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import CustomSelect, { type SelectOption } from "@/components/ui/CustomSelect";
 import { useToast } from "@/components/ui/Toast";
 import { COUNTRIES, getCompanyZone, DOM_TOM_COUNTRIES } from "@/lib/vat";
+import RegistrationVerificationOverlay, {
+  type VerificationState,
+} from "@/components/auth/RegistrationVerificationOverlay";
+import {
+  DEFAULT_RULES as DEFAULT_REGISTRATION_RULES,
+  type RegistrationRules,
+} from "@/lib/registration-rules";
 
 type FieldErrors = Partial<Record<string, string>>;
 
@@ -43,12 +50,16 @@ function flagClassForCountry(code: string): string {
 export default function RegisterForm({
   productCount,
   schedule,
+  registrationRules,
 }: {
   productCount?: number;
   schedule?: BusinessHoursSchedule;
+  /** Règles d'inscription configurées par l'admin (SIRET/TVA obligatoire ou optionnel). */
+  registrationRules?: RegistrationRules;
 }) {
   const t = useTranslations("auth.register");
   const toast = useToast();
+  const rules = registrationRules ?? DEFAULT_REGISTRATION_RULES;
 
   const [fields, setFields] = useState({
     firstName: "",
@@ -92,6 +103,15 @@ export default function RegisterForm({
   const isZoneEu = companyZone === "EU";
   const isZoneWorld = companyZone === "WORLD";
 
+  // Obligation effective par champ, dérivée des règles admin pour la zone
+  // courante. L'étoile rouge / badge « facultatif » suit cette valeur.
+  const siretRequired = isZoneFr && rules.fr.siret.requirement === "required";
+  const vatRequired =
+    (isZoneFr && rules.fr.vat.requirement === "required") ||
+    (isZoneEu && rules.eu.vat.requirement === "required");
+  const kbisRequired = isZoneFr && rules.fr.kbis.requirement === "required";
+  const brnRequired = isZoneWorld && rules.world.brn.requirement === "required";
+
   const [kbisFile, setKbisFile]           = useState<File | null>(null);
   const [kbisError, setKbisError]         = useState("");
   const [docFile, setDocFile]             = useState<File | null>(null);
@@ -101,6 +121,11 @@ export default function RegisterForm({
   const [staleVersion, setStaleVersion]   = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading]             = useState(false);
+  // Overlay de vérification (loading → success | pending | rejected).
+  // null = overlay fermé. Zone + nom société optionnels pour les textes.
+  const [verifState, setVerifState]       = useState<VerificationState | null>(null);
+  const [verifCompanyName, setVerifCompanyName] = useState<string | null>(null);
+  const [verifServiceErrored, setVerifServiceErrored] = useState(false);
   const [showPassword, setShowPassword]   = useState(false);
   const [step, setStep]                   = useState(1);
   const [maxVisited, setMaxVisited]       = useState(1);
@@ -242,6 +267,21 @@ export default function RegisterForm({
     setDocFile(file);
   }
 
+  /**
+   * Filtre les erreurs Zod « champ requis » quand les règles admin
+   * assouplissent le champ ciblé (SIRET optional pour FR, TVA optional, etc.).
+   * On ne supprime que les erreurs « requis par la zone » issues du
+   * superRefine, pas les erreurs de format.
+   */
+  function isZodIssueSuppressed(key: string, message: string): boolean {
+    const requiredError = message.includes("requis");
+    if (!requiredError) return false;
+    if (key === "siret" && isZoneFr && !siretRequired) return true;
+    if (key === "vatNumber" && (isZoneFr || isZoneEu) && !vatRequired) return true;
+    if (key === "businessRegistrationNumber" && isZoneWorld && !brnRequired) return true;
+    return false;
+  }
+
   function validateStep(current: number): boolean {
     const result = registerSchema.safeParse(fields);
     const stepKeys = new Set(STEP_FIELDS[current]);
@@ -251,18 +291,24 @@ export default function RegisterForm({
     if (!result.success) {
       result.error.issues.forEach((err) => {
         const key = String(err.path[0]);
-        if (stepKeys.has(key) && !errors[key]) {
+        if (!stepKeys.has(key)) return;
+        if (isZodIssueSuppressed(key, err.message)) return;
+        if (!errors[key]) {
           errors[key] = err.message;
           hasStepError = true;
         }
       });
     }
 
-    // Étape 2 : justificatif obligatoire seulement hors UE (justificatif
-    // d'entreprise). Le Kbis reste facultatif pour la France (l'admin peut
-    // le demander par mail si le dossier manque de pièces).
+    // Étape 2 : justificatif obligatoire selon les règles admin.
+    //  - WORLD : le justificatif libre (docFile) reste obligatoire par défaut.
+    //  - FR : le KBIS est obligatoire seulement si l'admin l'a configuré ainsi.
     if (current === 2 && isZoneWorld && !docFile) {
       setDocError(t("businessProofRequired"));
+      hasStepError = true;
+    }
+    if (current === 2 && isZoneFr && kbisRequired && !kbisFile) {
+      setKbisError(t("businessProofRequired"));
       hasStepError = true;
     }
 
@@ -318,6 +364,7 @@ export default function RegisterForm({
       let firstErrorStep = TOTAL_STEPS;
       validation.error.issues.forEach((err) => {
         const key = String(err.path[0]);
+        if (isZodIssueSuppressed(key, err.message)) return;
         if (!errors[key]) errors[key] = err.message;
         for (const [s, keys] of Object.entries(STEP_FIELDS)) {
           if ((keys as readonly string[]).includes(key)) {
@@ -326,6 +373,11 @@ export default function RegisterForm({
           }
         }
       });
+      // Si toutes les erreurs ont été supprimées (règles admin assouplies),
+      // on continue avec la soumission réelle.
+      if (Object.keys(errors).length === 0) {
+        // fall through au reste du handler
+      } else {
       setFieldErrors(errors);
       if (firstErrorStep !== step) {
         setStep(firstErrorStep);
@@ -341,9 +393,14 @@ export default function RegisterForm({
         }
       }, 100);
       return;
+      } // fin du bloc else "il reste des erreurs non supprimées"
     }
 
     setLoading(true);
+    // Overlay de vérification affiché pendant toute la soumission.
+    setVerifState("loading");
+    setVerifCompanyName(null);
+    setVerifServiceErrored(false);
     try {
       const formData = new FormData();
       Object.entries(fields).forEach(([key, val]) => formData.append(key, String(val)));
@@ -354,6 +411,7 @@ export default function RegisterForm({
       const json = await res.json();
 
       if (!res.ok) {
+        setVerifState(null); // on referme l'overlay pour laisser voir l'erreur de formulaire
         // 500 générique = souvent un ChunkLoadError SSR après déploiement
         // pendant que la cliente remplissait le formulaire. Message dédié
         // qui l'invite à recharger plutôt que le message serveur brut.
@@ -368,31 +426,57 @@ export default function RegisterForm({
       // Inscription réussie : on efface le brouillon local.
       try { window.localStorage.removeItem(REGISTER_DRAFT_KEY); } catch { /* ignore */ }
 
-      // Auto-login : le compte est PENDING mais on connecte la cliente
-      // immédiatement pour qu'elle puisse naviguer (prix restent masqués
-      // tant que l'admin n'a pas validé). Sur échec de signIn, on retombe
-      // sur l'écran de succès pour ne pas la laisser sans feedback.
-      const signInRes = await signIn("credentials", {
-        email: fields.email.toLowerCase().trim(),
-        password: fields.password,
-        redirect: false,
-      });
-      if (signInRes?.ok) {
-        window.location.href = "/";
-        return;
-      }
+      // Mémorise la réponse pour l'overlay (succès/pending/refusé).
+      setVerifCompanyName(json.companyName ?? null);
+      setVerifServiceErrored(json.serviceErrored === true);
+      // Message long dispo pour l'écran fallback si overlay est fermé.
       setSuccessMessage(json.message);
+
+      // Statut auto-décidé côté serveur selon SiteConfig[registration_rules].
+      if (json.status === "APPROVED" || json.status === "PENDING") {
+        // Auto-login en coulisse — le compte est créé, on connecte la
+        // cliente tout de suite. L'overlay bascule ensuite en « success »
+        // ou « pending » selon la décision serveur.
+        try {
+          await signIn("credentials", {
+            email: fields.email.toLowerCase().trim(),
+            password: fields.password,
+            redirect: false,
+          });
+        } catch { /* ignore — on continue même sans signin */ }
+        setVerifState(json.status === "APPROVED" ? "success" : "pending");
+      } else {
+        setVerifState("rejected");
+      }
     } catch {
+      setVerifState(null);
       setGlobalError(t("kbisRequired"));
     } finally {
       setLoading(false);
     }
   }
 
+  /**
+   * CTA « Fermer » de l'overlay — comportement selon l'état final :
+   *   - success / pending : redirige vers l'accueil (déjà auto-signée). On
+   *     repasse l'overlay en « loading » le temps de la navigation pour
+   *     éviter le flash de contenu nu.
+   *   - rejected : referme l'overlay pour laisser corriger le formulaire.
+   */
+  function handleVerifPrimary() {
+    if (verifState === "rejected") {
+      setVerifState(null);
+      return;
+    }
+    setVerifState("loading");
+    window.location.href = "/";
+  }
+
   // ────────────────────────────────────────────────────────
-  // ÉCRAN DE SUCCÈS
+  // ÉCRAN DE SUCCÈS — fallback si l'overlay est fermé sans redirection.
+  // Masqué tant que l'overlay de vérification est à l'écran.
   // ────────────────────────────────────────────────────────
-  if (successMessage) {
+  if (successMessage && !verifState) {
     return (
       <div className="w-full max-w-xl mx-auto">
         <div className="bg-bg-primary rounded-3xl border border-border p-10 md:p-12 shadow-card-lg text-center">
@@ -432,6 +516,17 @@ export default function RegisterForm({
   // ────────────────────────────────────────────────────────
   return (
     <div className="w-full max-w-6xl mx-auto">
+      {/* ── Overlay de vérification (loading / success / pending / rejected) ── */}
+      {verifState && (
+        <RegistrationVerificationOverlay
+          state={verifState}
+          zone={companyZone}
+          companyName={verifCompanyName}
+          serviceErrored={verifServiceErrored}
+          onClose={() => setVerifState(null)}
+          onPrimary={handleVerifPrimary}
+        />
+      )}
 
       {/* ── Hero ── */}
       <header className="text-center mb-8 md:mb-12">
@@ -658,18 +753,21 @@ export default function RegisterForm({
                   placeholder={t("companyPlaceholder")} autoComplete="organization"
                   onChange={(v) => handleChange("company", v)} />
 
-                {/* Champs légaux conditionnels selon la zone du pays */}
+                {/* Champs légaux conditionnels selon la zone du pays.
+                    FR : SIRET + TVA (au moins un suffit si fiscalRequired).
+                    EU : TVA obligatoire. WORLD : N° entreprise. */}
                 {isZoneFr && (
                   <>
                     <div>
                       <FormField id="siret" label={t("siret")} type="text"
                         value={fields.siret} error={fieldErrors.siret}
                         placeholder={t("siretPlaceholder")} maxLength={14} mono
+                        optional={!siretRequired}
                         onChange={(v) => handleChange("siret", v.replace(/\D/g, ""))} />
                       <p className="text-xs text-text-muted mt-1.5 font-body">{t("siretHint")}</p>
                     </div>
                     <div>
-                      <FieldLabel id="vatNumber" optional>{t("vatNumber")}</FieldLabel>
+                      <FieldLabel id="vatNumber" optional={!vatRequired}>{t("vatNumber")}</FieldLabel>
                       <input
                         id="vatNumber" type="text" value={fields.vatNumber}
                         onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
@@ -699,7 +797,7 @@ export default function RegisterForm({
                       )}
                     </div>
                     <div>
-                      <FieldLabel id="vatNumber">{t("vatNumber")}</FieldLabel>
+                      <FieldLabel id="vatNumber" optional={!vatRequired}>{t("vatNumber")}</FieldLabel>
                       <input
                         id="vatNumber" type="text" value={fields.vatNumber}
                         onChange={(e) => handleChange("vatNumber", e.target.value.toUpperCase().replace(/\s/g, ""))}
@@ -728,7 +826,7 @@ export default function RegisterForm({
 
                 {isZoneWorld && (
                   <div>
-                    <FieldLabel id="businessRegistrationNumber" optional>{t("businessRegistrationNumber")}</FieldLabel>
+                    <FieldLabel id="businessRegistrationNumber" optional={!brnRequired}>{t("businessRegistrationNumber")}</FieldLabel>
                     <input
                       id="businessRegistrationNumber" type="text"
                       value={fields.businessRegistrationNumber}
@@ -759,6 +857,7 @@ export default function RegisterForm({
                         id="kbis"
                         label={t("kbis")}
                         description={t("kbisFormats")}
+                        required={kbisRequired}
                         file={kbisFile} error={kbisError} inputRef={fileInputRef}
                         accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleKbisChange}
                         onClear={() => { setKbisFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
