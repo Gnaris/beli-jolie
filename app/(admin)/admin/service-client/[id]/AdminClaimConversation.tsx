@@ -11,6 +11,7 @@ import {
   closeClaim,
   deleteClaim,
 } from "@/app/actions/admin/claims";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 
 const SYSTEM_PREFIX = "__system__:";
 const SYSTEM_MSG_TEXT = "Un mail a été envoyé à l'administrateur. Il traitera votre demande sous quelques minutes.";
@@ -312,6 +313,11 @@ export default function AdminClaimConversation({
               <p className="text-[12px] mt-1 text-text-muted">
                 Ouverte le {formatDay(claim.createdAt)} · {messages.length} message{messages.length > 1 ? "s" : ""}
               </p>
+              {process.env.NODE_ENV === "development" && (
+                <div className="mt-2">
+                  <SupportTimerBadge conversationId={conversationId} />
+                </div>
+              )}
             </div>
           </div>
 

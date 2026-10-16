@@ -1,199 +1,124 @@
 /**
- * Système de notification différée Service Client (chat flottant + réclamations).
+ * Système de notification Service Client — règle « 1 mail par tour »
+ * (décidée avec la cliente 2026-10-15, remplace l'ancienne logique
+ * présence + anti-spam 20 min).
  *
- * Règles métier (décidées avec la cliente 2026-09-21) :
- *   - Le bouton manuel « Notifier le client » est supprimé.
- *   - Chaque réponse admin décide seule si un mail part au client :
- *       • client hors ligne (heartbeat > 60 s)         → mail IMMÉDIAT
- *       • client en ligne mais pas sur cette conv      → mail DIFFÉRÉ à + 5 min
- *       • client en ligne ET en train de lire la conv  → PAS de mail (il voit)
- *   - Chaque nouveau message admin dans la même conv RESET le timer :
- *     on annule tous les jobs PENDING précédents et on repose un nouveau
- *     dueAt = now + 5 min.
- *   - **Anti-spam 20 min** : un mail immédiat n'est envoyé que si le
- *     précédent mail sur cette conv date de plus de 20 min OU si le client
- *     a lu le/les messages admin entre temps. Sinon on considère qu'un
- *     mail suffit et on skip (l'admin peut envoyer 10 messages en 3 min,
- *     le client ne reçoit qu'un seul mail). Dès que le client a lu et
- *     re-quitté, un nouveau mail est autorisé immédiatement (il est à jour).
- *   - Quand le client lit → cancelPendingNotifications() (à câbler dans
- *     markAsRead / markMessagesReadByClient).
- *   - Le contenu du mail est volontairement générique (« Un admin vous a
- *     répondu à votre demande… ») pour forcer le client à revenir sur le site.
+ * Règle :
+ *   - Chaque message dans une conversation démarre un chronomètre de 2 min
+ *     côté destinataire… SAUF si un chronomètre tourne déjà pour lui, ou
+ *     si un mail lui a déjà été envoyé pendant ce tour. Un seul mail par
+ *     tour, peu importe le nombre de messages envoyés.
+ *   - Si le destinataire répond avant la fin, on efface toutes ses lignes
+ *     (PENDING + SENT) pour ce tour : le prochain message du correspondant
+ *     recrée un chronomètre neuf. C'est « chacun son tour ».
+ *   - La présence (page ouverte ou pas) n'intervient plus : seule la
+ *     réponse arrête le mail.
+ *
+ * Fonctionne symétriquement pour les 2 directions via le champ
+ * `PendingSupportEmail.recipientRole` :
+ *   - message client → recipientRole = ADMIN
+ *   - message admin  → recipientRole = CLIENT
  *
  * Worker : `lib/support-email-worker.ts` scanne toutes les 30 s.
  */
 
+import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { isOnline } from "@/lib/online-status";
-import {
-  sendGenericSupportReplyEmail,
-  type SupportReplyContext,
-} from "@/lib/notifications";
+import type { SupportReplyContext } from "@/lib/notifications";
 
-/** Fenêtre du chronomètre : 5 min entre la réponse admin et l'envoi du mail. */
-export const SUPPORT_NOTIFY_DELAY_MS = 5 * 60 * 1000;
-
-/**
- * Cooldown anti-spam entre 2 mails « nouvelle réponse » sur une même
- * conversation. Passé ce délai, ou si le client a lu entre temps,
- * un nouveau mail est autorisé.
- */
-export const SUPPORT_IMMEDIATE_COOLDOWN_MS = 20 * 60 * 1000;
+/** Fenêtre du chronomètre : 2 min entre la réponse et l'envoi du mail. */
+export const SUPPORT_NOTIFY_DELAY_MS = 2 * 60 * 1000;
 
 export interface ScheduleReplyNotificationInput {
   conversationId: string;
   messageId: string;
-  /** id du destinataire (client). */
-  userId: string;
+  /** Rôle de l'expéditeur du message qu'on vient d'ajouter. */
+  senderRole: Role;
   context: SupportReplyContext;
   /** Si context === "claim", id de la réclamation liée. */
   claimId?: string;
 }
 
 /**
- * True si on est autorisé à envoyer un mail « nouvelle réponse » MAINTENANT
- * sur cette conversation. False = un mail récent a déjà été envoyé et le
- * client ne l'a toujours pas lu → skip.
- *
- * La règle regarde le champ `Conversation.lastSupportEmailAt` :
- *   - Absent OU > 20 min ago → OK
- *   - < 20 min ago mais un message admin a été lu (readAt) depuis → OK
- *     (le client est à jour, un nouveau mail est légitime)
- *   - < 20 min ago sans lecture → SKIP
+ * Résout l'id utilisateur du destinataire du mail. Côté CLIENT c'est le
+ * propriétaire de la conversation ; côté ADMIN c'est le premier admin
+ * actif de la boutique (le tenant courant est scopé par Prisma via l'ALS).
+ * Retourne null si aucun destinataire ne peut être résolu.
  */
-export async function canSendImmediateSupportEmail(
+async function resolveRecipientUserId(
   conversationId: string,
-): Promise<boolean> {
-  const conv = await prisma.conversation.findFirst({
-    where: { id: conversationId },
-    select: { lastSupportEmailAt: true },
-  });
-  if (!conv?.lastSupportEmailAt) return true;
-
-  const elapsed = Date.now() - conv.lastSupportEmailAt.getTime();
-  if (elapsed >= SUPPORT_IMMEDIATE_COOLDOWN_MS) return true;
-
-  const readSince = await prisma.message.findFirst({
-    where: {
-      conversationId,
-      senderRole: "ADMIN",
-      readAt: { gt: conv.lastSupportEmailAt },
-    },
-    select: { id: true },
-  });
-  return Boolean(readSince);
-}
-
-/**
- * Envoie le mail « nouvelle réponse » côté client + poste le timestamp
- * `lastSupportEmailAt` sur la conversation pour armer le cooldown 20 min.
- * Ne fait rien (retourne false) si le cooldown est actif ET que le client
- * n'a pas lu depuis le dernier envoi.
- *
- * Utilisé à la fois par la branche « hors ligne » de `scheduleReplyNotification`
- * et par le worker qui traite les jobs `PendingSupportEmail`.
- */
-export async function sendSupportReplyEmailNow(params: {
-  conversationId: string;
-  clientEmail: string;
-  clientName: string;
-  context: SupportReplyContext;
-  claimId?: string;
-}): Promise<boolean> {
-  const { conversationId, clientEmail, clientName, context, claimId } = params;
-
-  const allowed = await canSendImmediateSupportEmail(conversationId);
-  if (!allowed) {
-    logger.info(
-      `[support-notify] Mail skip (anti-spam 20 min actif) conv=${conversationId}`,
-    );
-    return false;
+  recipientRole: Role,
+): Promise<string | null> {
+  if (recipientRole === "CLIENT") {
+    const conv = await prisma.conversation.findFirst({
+      where: { id: conversationId },
+      select: { userId: true },
+    });
+    return conv?.userId ?? null;
   }
-
-  await sendGenericSupportReplyEmail({
-    clientEmail,
-    clientName,
-    conversationId,
-    context,
-    claimId,
+  // Côté ADMIN : premier compte ADMIN du tenant (l'ALS scope déjà).
+  const admin = await prisma.user.findFirst({
+    where: { role: "ADMIN" },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
   });
-
-  // Toujours poser lastSupportEmailAt APRÈS envoi effectif — sinon un échec
-  // bloquerait toute future notif via le cooldown.
-  await prisma.conversation.updateMany({
-    where: { id: conversationId },
-    data: { lastSupportEmailAt: new Date() },
-  });
-  return true;
+  return admin?.id ?? null;
 }
 
 /**
- * Décide quoi faire du message admin fraîchement envoyé et agit :
- *  - annule les jobs PENDING précédents de la conversation ;
- *  - envoie le mail tout de suite, planifie un job différé, ou rien.
+ * Appelée après chaque nouveau message. Fait 2 choses :
+ *   1. « L'expéditeur vient de parler » → efface ses propres lignes (PENDING
+ *      ou SENT) : il n'est plus en attente d'une réponse de sa part. Le
+ *      prochain message du correspondant repartira d'un tour neuf.
+ *   2. « Le destinataire doit répondre » → crée un job PENDING à + 2 min,
+ *      UNIQUEMENT s'il n'existe pas déjà de ligne (PENDING ou SENT) pour ce
+ *      destinataire sur ce tour. Garantit « 1 seul mail par tour ».
  *
- * Fire-and-forget côté caller (server action) : cette fonction ne throw
- * pas, tout échec est loggé.
+ * Fire-and-forget côté caller — cette fonction ne throw pas.
  */
 export async function scheduleReplyNotification(
   input: ScheduleReplyNotificationInput,
 ): Promise<void> {
-  const { conversationId, messageId, userId, context, claimId } = input;
+  const { conversationId, messageId, senderRole, context, claimId } = input;
+  const recipientRole: Role = senderRole === "ADMIN" ? "CLIENT" : "ADMIN";
 
   try {
-    // 1) Reset : annuler tout job PENDING encore en attente sur cette conv.
-    //    Chaque nouveau message admin repart d'un timer neuf.
-    await prisma.pendingSupportEmail.updateMany({
-      where: { conversationId, status: "PENDING" },
-      data: { status: "CANCELLED", cancelledAt: new Date() },
+    // 1) L'expéditeur vient de parler : fin de son tour (côté « on attend
+    //    sa réponse »). On efface les lignes où lui est destinataire, afin
+    //    que le prochain message de l'autre partie puisse créer un nouveau
+    //    chronomètre proprement.
+    await prisma.pendingSupportEmail.deleteMany({
+      where: { conversationId, recipientRole: senderRole },
     });
 
-    // 2) Décision basée sur la présence.
-    const user = await prisma.user.findFirst({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastSeenAt: true,
-        activeConversationId: true,
-      },
-    });
-    if (!user || !user.email) {
-      logger.warn("[support-notify] User introuvable ou sans email", { userId });
-      return;
-    }
-
-    const online = isOnline(user.lastSeenAt);
-    const onThisConversation = online && user.activeConversationId === conversationId;
-
-    if (onThisConversation) {
-      // Il est en train de lire → rien à faire, le SSE lui montre le message.
-      return;
-    }
-
-    if (!online) {
-      // Hors ligne → mail tout de suite (avec anti-spam 20 min).
-      await sendSupportReplyEmailNow({
+    // 2) Si un job (PENDING ou SENT) existe déjà pour ce destinataire, on
+    //    reste sur le même tour : pas de double mail.
+    const existing = await prisma.pendingSupportEmail.findFirst({
+      where: {
         conversationId,
-        clientEmail: user.email,
-        clientName: user.firstName ?? "",
-        context,
-        claimId,
-      }).catch((err) =>
-        logger.error("[support-notify] Envoi immédiat échoué", { error: err }),
-      );
+        recipientRole,
+        status: { in: ["PENDING", "SENT"] },
+      },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const recipientUserId = await resolveRecipientUserId(conversationId, recipientRole);
+    if (!recipientUserId) {
+      logger.warn("[support-notify] Destinataire introuvable", {
+        conversationId,
+        recipientRole,
+      });
       return;
     }
 
-    // En ligne mais sur une autre page → job différé à + 5 min.
     await prisma.pendingSupportEmail.create({
       data: {
         conversationId,
         messageId,
-        userId,
+        userId: recipientUserId,
+        recipientRole,
         claimId: claimId ?? null,
         dueAt: new Date(Date.now() + SUPPORT_NOTIFY_DELAY_MS),
         status: "PENDING",
@@ -204,25 +129,45 @@ export async function scheduleReplyNotification(
       error: err,
       conversationId,
       messageId,
+      recipientRole,
     });
   }
 }
 
 /**
- * Annule tous les jobs PENDING d'une conversation. Appelée quand le client
- * lit les messages (markAsRead / markMessagesReadByClient) : plus besoin
- * de le prévenir, il est déjà au courant.
+ * Marque la conversation comme « admin déjà notifié pour ce tour », sans
+ * créer de chronomètre. Utilisé après l'envoi du mail « nouveau ticket » :
+ * on vient de prévenir l'admin, inutile d'empiler un second mail à + 2 min
+ * si le client envoie un 2ᵉ message dans la foulée. Une ligne SENT à now
+ * fait office de marqueur de tour (sera supprimée dès que l'admin répond).
  */
-export async function cancelPendingNotifications(
-  conversationId: string,
-): Promise<void> {
+export async function markAdminAlreadyNotifiedThisTurn(params: {
+  conversationId: string;
+  messageId: string;
+  claimId?: string;
+}): Promise<void> {
+  const { conversationId, messageId, claimId } = params;
   try {
-    await prisma.pendingSupportEmail.updateMany({
-      where: { conversationId, status: "PENDING" },
-      data: { status: "CANCELLED", cancelledAt: new Date() },
+    const adminId = await resolveRecipientUserId(conversationId, "ADMIN");
+    if (!adminId) return;
+    await prisma.pendingSupportEmail.deleteMany({
+      where: { conversationId, recipientRole: "ADMIN" },
+    });
+    const now = new Date();
+    await prisma.pendingSupportEmail.create({
+      data: {
+        conversationId,
+        messageId,
+        userId: adminId,
+        recipientRole: "ADMIN",
+        claimId: claimId ?? null,
+        dueAt: now,
+        status: "SENT",
+        sentAt: now,
+      },
     });
   } catch (err) {
-    logger.error("[support-notify] cancelPendingNotifications échoué", {
+    logger.error("[support-notify] markAdminAlreadyNotifiedThisTurn échoué", {
       error: err,
       conversationId,
     });

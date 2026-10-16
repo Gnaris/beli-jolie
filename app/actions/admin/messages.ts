@@ -5,10 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { addMessage, markAsRead } from "@/lib/messaging";
 import { emitChatEvent } from "@/lib/chat-events";
-import {
-  scheduleReplyNotification,
-  cancelPendingNotifications,
-} from "@/lib/support-notify";
+import { scheduleReplyNotification } from "@/lib/support-notify";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { revalidateTag } from "next/cache";
@@ -51,9 +48,9 @@ export async function getAdminConversation(conversationId: string) {
   if (!session || session.user.role !== "ADMIN") return null;
 
   await markAsRead(conversationId, "ADMIN");
-  // Marquage admin ≠ lecture client. On ne touche pas ici aux mails
-  // programmés (cancelPendingNotifications) — c'est la lecture CLIENT qui doit
-  // arrêter le chronomètre, pas la lecture admin.
+  // Lecture admin : on ne touche pas aux chronomètres ici. La règle « 1 mail
+  // par tour » est pilotée par les RÉPONSES (sendAdminReply), pas par la
+  // simple consultation. Lire sans répondre laisse le compteur courir.
 
   return prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -123,12 +120,12 @@ export async function sendAdminReply(
 
     revalidateTag("messages", "default");
 
-    // Décision présence-aware : mail immédiat, chronomètre 5 min, ou rien.
-    // Fire-and-forget — les erreurs sont loggées dans scheduleReplyNotification.
+    // Règle « 1 mail par tour » : fin du tour admin + démarrage chronomètre
+    // client s'il n'y en a pas déjà un. Fire-and-forget.
     void scheduleReplyNotification({
       conversationId: conversation.id,
       messageId: message.id,
-      userId: conversation.userId,
+      senderRole: "ADMIN",
       context: "chat",
     });
 

@@ -33,7 +33,10 @@ vi.mock("@/lib/messaging", () => ({
 vi.mock("@/lib/notifications", () => ({
   notifyAdminNewClaim: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("@/lib/support-notify", () => ({ cancelPendingNotifications: vi.fn() }));
+vi.mock("@/lib/support-notify", () => ({
+  scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
+  markAdminAlreadyNotifiedThisTurn: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@/lib/chat-events", () => ({ emitChatEvent: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));

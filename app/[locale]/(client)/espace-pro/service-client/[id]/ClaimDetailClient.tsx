@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useChatStream, type ChatEvent } from "@/hooks/useChatStream";
 import { useActiveConversation } from "@/hooks/useActiveConversation";
 import { sendClientMessage } from "@/app/actions/client/claims";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 
 const MAX_ATTACHMENTS = 5;
 const SYSTEM_PREFIX = "__system__:";
@@ -190,6 +191,11 @@ export default function ClaimDetailClient({
 
   return (
     <section className="bg-bg-primary border border-border rounded-2xl overflow-hidden flex flex-col shadow-sm" style={{ minHeight: 480 }}>
+      {process.env.NODE_ENV === "development" && (
+        <div className="px-5 py-2 border-b border-border bg-zinc-50/60">
+          <SupportTimerBadge conversationId={conversationId} />
+        </div>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
         {messages.length === 0 && (
           <p className="text-center text-sm text-text-muted italic py-10">Aucun message.</p>

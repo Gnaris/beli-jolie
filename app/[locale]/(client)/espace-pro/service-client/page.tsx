@@ -5,6 +5,7 @@ import { getClientClaims } from "@/app/actions/client/claims";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getLocale, getTranslations } from "next-intl/server";
 import type { Metadata } from "next";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
   const { locale } = await params;
@@ -193,6 +194,11 @@ export default async function ClientClaimsPage({
                         {new Date(claim.createdAt).toLocaleDateString(dateLocale, {
                           day: "numeric", month: "short", year: "numeric",
                         })}
+                        {process.env.NODE_ENV === "development" && (
+                          <div className="mt-1 flex justify-end">
+                            <SupportTimerBadge conversationId={claim.conversation?.id ?? null} />
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -246,6 +252,11 @@ export default async function ClientClaimsPage({
                     <p className="text-xs text-text-muted font-body line-clamp-2">
                       {lastMsgAuthor} : « {lastMsgText} »
                     </p>
+                  )}
+                  {process.env.NODE_ENV === "development" && (
+                    <div className="mt-2">
+                      <SupportTimerBadge conversationId={claim.conversation?.id ?? null} />
+                    </div>
                   )}
                 </Link>
               );

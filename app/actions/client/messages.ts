@@ -5,7 +5,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createConversation, addMessage, markAsRead } from "@/lib/messaging";
 import { notifyAdminNewMessage } from "@/lib/notifications";
-import { cancelPendingNotifications } from "@/lib/support-notify";
+import {
+  scheduleReplyNotification,
+  markAdminAlreadyNotifiedThisTurn,
+} from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -75,6 +78,16 @@ export async function createSupportConversation(
       orderBy: { createdAt: "asc" },
       include: { attachments: true },
     });
+
+    // Mail « nouveau ticket » déjà envoyé juste au-dessus (notifyAdminNewMessage).
+    // On pose un marqueur SENT côté admin pour la règle « 1 mail par tour » :
+    // si le client renvoie un message dans la foulée, pas de second mail à + 2 min.
+    if (initialMessage) {
+      void markAdminAlreadyNotifiedThisTurn({
+        conversationId: conversation.id,
+        messageId: initialMessage.id,
+      });
+    }
 
     emitChatEvent({
       type: "NEW_MESSAGE",
@@ -166,6 +179,15 @@ export async function sendClientMessage(
       },
     });
 
+    // Règle « 1 mail par tour » : fin du tour client + démarrage chronomètre
+    // admin s'il n'y en a pas déjà un. Fire-and-forget.
+    void scheduleReplyNotification({
+      conversationId,
+      messageId: message.id,
+      senderRole: "CLIENT",
+      context: "chat",
+    });
+
     revalidateTag("messages", "default");
     return { success: true, message };
   } catch {
@@ -200,8 +222,8 @@ export async function getClientConversation(conversationId: string) {
   if (!session || session.user.role !== "CLIENT") return null;
 
   await markAsRead(conversationId, "CLIENT");
-  // Le client vient de lire → annule le mail 5 min si un timer était armé.
-  await cancelPendingNotifications(conversationId);
+  // Règle « 1 mail par tour » : la lecture ne stoppe plus le chronomètre.
+  // Seule une vraie réponse (sendClientMessage) ferme le tour du client.
 
   return prisma.conversation.findFirst({
     where: { id: conversationId, userId: session.user.id },
@@ -300,10 +322,10 @@ export async function getActiveSupportChat() {
   });
 
   // L'ouverture du widget vaut lecture : on marque les messages ADMIN comme
-  // lus + on annule un éventuel mail 5 min armé.
+  // lus. Règle « 1 mail par tour » : la lecture seule ne stoppe pas le mail
+  // différé — seule une vraie réponse ferme le tour.
   if (conversation) {
     await markAsRead(conversation.id, "CLIENT");
-    await cancelPendingNotifications(conversation.id);
   }
 
   return conversation;

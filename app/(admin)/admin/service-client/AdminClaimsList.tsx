@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getAdminClaims, deleteClaim } from "@/app/actions/admin/claims";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 
 type Claim = Awaited<ReturnType<typeof getAdminClaims>>["rows"][number];
 
@@ -345,6 +346,9 @@ export default function AdminClaimsList({
                         <span>·</span>
                         <span>{formatDateShort(claim.createdAt)}</span>
                       </p>
+                      {process.env.NODE_ENV === "development" && (
+                        <SupportTimerBadge conversationId={claim.conversation?.id ?? null} />
+                      )}
                       {canDelete && (
                         <button
                           type="button"
@@ -404,6 +408,11 @@ export default function AdminClaimsList({
                     </div>
                     <div className="text-right">
                       <span className="text-xs text-text-muted whitespace-nowrap">{formatDateShort(claim.createdAt)}</span>
+                      {process.env.NODE_ENV === "development" && (
+                        <div className="mt-1 flex justify-end">
+                          <SupportTimerBadge conversationId={claim.conversation?.id ?? null} />
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-end items-center gap-1">
                       {canDelete && (

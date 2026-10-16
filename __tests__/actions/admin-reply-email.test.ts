@@ -2,7 +2,7 @@
  * Tests pour app/actions/admin/messages.ts — sendAdminReply.
  *
  * Vérifie qu'à chaque réponse admin dans le chat SUPPORT, la décision
- * de notification (immédiate / différée 5 min / rien) est déléguée au
+ * de notification (chronomètre 2 min, règle « 1 mail par tour ») est déléguée au
  * système `scheduleReplyNotification`. La logique métier elle-même est
  * testée dans __tests__/lib/support-notify.test.ts.
  */
@@ -28,7 +28,7 @@ const mockMessaging = vi.hoisted(() => ({
 
 const mockSupportNotify = vi.hoisted(() => ({
   scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
-  cancelPendingNotifications: vi.fn().mockResolvedValue(undefined),
+  markAdminAlreadyNotifiedThisTurn: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("next-auth", () => ({
@@ -68,7 +68,7 @@ describe("sendAdminReply — notification client", () => {
     expect(mockSupportNotify.scheduleReplyNotification).toHaveBeenCalledWith({
       conversationId: "conv-1",
       messageId: "msg-1",
-      userId: "client-1",
+      senderRole: "ADMIN",
       context: "chat",
     });
   });

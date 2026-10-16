@@ -4,7 +4,7 @@
  * Couvre les invariants clés :
  *  - Statut binaire OPEN/CLOSED
  *  - Réouverture auto d'une conv fermée quand le client répond
- *  - Notification client déléguée à scheduleReplyNotification (chronomètre 5 min)
+ *  - Notification client déléguée à scheduleReplyNotification (chronomètre 2 min)
  *  - Accusé de lecture asymétrique (readAt posé côté admin uniquement)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   message: { create: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   user: { findUnique: vi.fn() },
   scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
-  cancelPendingNotifications: vi.fn().mockResolvedValue(undefined),
+  markAdminAlreadyNotifiedThisTurn: vi.fn().mockResolvedValue(undefined),
   notifyAdmin: vi.fn().mockResolvedValue(undefined),
   session: { user: { id: "admin-1", role: "ADMIN", status: "APPROVED", email: "a@t.fr" } },
 }));
@@ -50,7 +50,7 @@ vi.mock("@/lib/notifications", () => ({
 
 vi.mock("@/lib/support-notify", () => ({
   scheduleReplyNotification: mocks.scheduleReplyNotification,
-  cancelPendingNotifications: mocks.cancelPendingNotifications,
+  markAdminAlreadyNotifiedThisTurn: mocks.markAdminAlreadyNotifiedThisTurn,
 }));
 
 vi.mock("@/lib/chat-events", () => ({
@@ -85,7 +85,7 @@ vi.mock("@/lib/storage", () => ({ deleteFiles: vi.fn().mockResolvedValue(undefin
 const mockClaim = mocks.claim;
 const mockMessage = mocks.message;
 const mockScheduleReply = mocks.scheduleReplyNotification;
-const mockCancelPending = mocks.cancelPendingNotifications;
+const mockMarkAdminAlready = mocks.markAdminAlreadyNotifiedThisTurn;
 const mockNotifyAdmin = mocks.notifyAdmin;
 const mockSession = mocks.session;
 
@@ -140,7 +140,7 @@ describe("Service Client — flow", () => {
   });
 
   describe("sendAdminMessage — programme la notification", () => {
-    it("appelle scheduleReplyNotification avec context=claim + claimId", async () => {
+    it("appelle scheduleReplyNotification avec senderRole=ADMIN + context=claim + claimId", async () => {
       mockClaim.findUnique.mockResolvedValue({
         userId: "client-1",
         conversation: { id: "conv-1" },
@@ -151,7 +151,7 @@ describe("Service Client — flow", () => {
       expect(mockScheduleReply).toHaveBeenCalledWith({
         conversationId: "conv-1",
         messageId: expect.stringMatching(/^msg-/),
-        userId: "client-1",
+        senderRole: "ADMIN",
         context: "claim",
         claimId: "c1",
       });
@@ -176,17 +176,17 @@ describe("Service Client — flow", () => {
         },
         data: { readAt: expect.any(Date) },
       });
-      // La lecture côté ADMIN ne doit PAS annuler le timer côté client
-      expect(mockCancelPending).not.toHaveBeenCalled();
+      // La lecture seule ne doit déclencher aucune notif annulation côté client
+      expect(mockMarkAdminAlready).not.toHaveBeenCalled();
     });
   });
 
-  describe("markMessagesReadByClient — annule le timer 5 min", () => {
+  describe("markMessagesReadByClient — lecture ≠ réponse", () => {
     beforeEach(() => {
       mockSession.user = { id: "client-1", role: "CLIENT", status: "APPROVED", email: "c@t.fr" };
     });
 
-    it("marque les messages ADMIN comme lus + annule les PendingSupportEmail", async () => {
+    it("marque les messages ADMIN comme lus — règle « 1 mail / tour » : la lecture seule ne ferme pas le tour", async () => {
       mockClaim.findFirst.mockResolvedValue({
         conversation: { id: "conv-1" },
       });
@@ -202,7 +202,8 @@ describe("Service Client — flow", () => {
         },
         data: { readAt: expect.any(Date) },
       });
-      expect(mockCancelPending).toHaveBeenCalledWith("conv-1");
+      // Pas d'annulation : seule une vraie réponse (sendClientMessage) ferme le tour.
+      expect(mockScheduleReply).not.toHaveBeenCalled();
     });
   });
 
@@ -230,11 +231,17 @@ describe("Service Client — flow", () => {
           data: { status: "OPEN", closedAt: null },
         }),
       );
-      // Réouverture = notification admin
+      // Réouverture = notification admin immédiate
       expect(mockNotifyAdmin).toHaveBeenCalledOnce();
+      // + marqueur SENT pour ne pas re-mailer à + 2 min
+      expect(mockMarkAdminAlready).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: "conv-1", claimId: "c1" }),
+      );
+      // Pas de scheduleReplyNotification (gérée par le marqueur)
+      expect(mockScheduleReply).not.toHaveBeenCalled();
     });
 
-    it("ne rouvre pas + ne notifie pas si la conversation était déjà OPEN", async () => {
+    it("ne rouvre pas une conv déjà OPEN mais arme le chronomètre admin", async () => {
       mockClaim.findFirst.mockResolvedValue({
         id: "c1", reference: "SAV-2026-000042", subject: "Test",
         status: "OPEN",
@@ -247,7 +254,17 @@ describe("Service Client — flow", () => {
 
       expect(res.success).toBe(true);
       expect(mockClaim.update).not.toHaveBeenCalled();
+      // Pas de notifyAdminNewClaim (réservé à création / réouverture)
       expect(mockNotifyAdmin).not.toHaveBeenCalled();
+      // Mais règle « 1 mail par tour » : chronomètre côté admin armé.
+      expect(mockScheduleReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: "conv-1",
+          senderRole: "CLIENT",
+          context: "claim",
+          claimId: "c1",
+        }),
+      );
     });
   });
 });

@@ -7,7 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { generateClaimReference, CLAIMS_PAGE_SIZE } from "@/lib/claims";
 import { createConversation, addMessage } from "@/lib/messaging";
 import { notifyAdminNewClaim } from "@/lib/notifications";
-import { cancelPendingNotifications } from "@/lib/support-notify";
+import {
+  scheduleReplyNotification,
+  markAdminAlreadyNotifiedThisTurn,
+} from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
 import { logger } from "@/lib/logger";
 
@@ -171,6 +174,15 @@ export async function createClaim(input: CreateClaimInput) {
       reportedItems,
     }).catch((err) => logger.error("[createClaim] Email admin échoué", { error: err }));
 
+    // Mail « nouveau ticket » déjà parti. On pose un marqueur SENT côté admin
+    // pour la règle « 1 mail par tour » : si le client renvoie un message
+    // dans la foulée, pas de second mail à + 2 min.
+    void markAdminAlreadyNotifiedThisTurn({
+      conversationId: conversation.id,
+      messageId: claim.id, // id du claim utilisé comme traceur, le message initial n'a pas d'id séparé ici
+      claimId: claim.id,
+    });
+
     revalidateTag("claims", "default");
     return { success: true, claimId: claim.id };
   } catch (err) {
@@ -310,7 +322,7 @@ export async function sendClientMessage(
       data: { status: "OPEN", closedAt: null },
     });
 
-    // Réouverture = nouvelle notification admin
+    // Réouverture = nouvelle notification admin immédiate (comme un nouveau ticket).
     notifyAdminNewClaim({
       clientName: `${claim.user.firstName ?? ""} ${claim.user.lastName ?? ""}`.trim(),
       clientCompany: claim.user.company ?? "",
@@ -319,6 +331,23 @@ export async function sendClientMessage(
       messagePreview: body || "(pièce jointe)",
       claimId: claim.id,
     }).catch((err) => logger.error("[sendClientMessage] Email réouverture échoué", { error: err }));
+
+    // Marqueur SENT côté admin pour éviter un 2ᵉ mail à + 2 min si le client
+    // enchaîne un autre message. Règle « 1 mail par tour ».
+    void markAdminAlreadyNotifiedThisTurn({
+      conversationId: claim.conversation.id,
+      messageId: message.id,
+      claimId: claim.id,
+    });
+  } else {
+    // Message classique dans un claim ouvert : règle « 1 mail par tour ».
+    void scheduleReplyNotification({
+      conversationId: claim.conversation.id,
+      messageId: message.id,
+      senderRole: "CLIENT",
+      context: "claim",
+      claimId: claim.id,
+    });
   }
 
   emitChatEvent({
@@ -496,8 +525,8 @@ export async function markMessagesReadByClient(claimId: string) {
     data: { readAt: new Date() },
   });
 
-  // Le client vient de lire → on annule le mail 5 min si un timer était armé.
-  await cancelPendingNotifications(claim.conversation.id);
+  // Règle « 1 mail par tour » : la lecture seule ne stoppe pas le chronomètre.
+  // Seule une vraie réponse (sendClientMessage) ferme le tour du client.
 
   emitChatEvent({
     type: "MESSAGE_READ",

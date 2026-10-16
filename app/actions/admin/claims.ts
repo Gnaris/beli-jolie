@@ -300,12 +300,12 @@ export async function sendAdminMessage(
     },
   });
 
-  // Décision présence-aware : mail immédiat, chronomètre 5 min, ou rien.
-  // Reset auto du chronomètre s'il y a déjà un job PENDING sur la conv.
+  // Règle « 1 mail par tour » : fin du tour admin + démarrage chronomètre
+  // client s'il n'y en a pas déjà un. Fire-and-forget.
   void scheduleReplyNotification({
     conversationId: claim.conversation.id,
     messageId: message.id,
-    userId: claim.userId,
+    senderRole: "ADMIN",
     context: "claim",
     claimId,
   });

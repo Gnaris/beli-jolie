@@ -15,6 +15,7 @@ import { playNotificationSound } from "@/lib/notification-sound";
 import { useRightRail } from "@/components/admin/widgets-rail";
 import ChatAttachmentPreview, { type PendingFile } from "@/components/shared/ChatAttachmentPreview";
 import ChatMessageAttachments, { type ChatAttachment } from "@/components/shared/ChatMessageAttachments";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 import { ALLOWED_MIMES } from "@/lib/chat-upload-security";
 
 const MAX_FILES = 5;
@@ -499,6 +500,11 @@ export default function AdminChatWidget() {
                 </h3>
                 {view === "conversation" && (
                   <p className="text-[11px] font-body text-text-muted truncate">{activeConvClient}</p>
+                )}
+                {view === "conversation" && process.env.NODE_ENV === "development" && (
+                  <div className="mt-1">
+                    <SupportTimerBadge conversationId={activeConvId} />
+                  </div>
                 )}
               </div>
             </div>

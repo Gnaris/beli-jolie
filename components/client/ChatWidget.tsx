@@ -17,6 +17,7 @@ import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from
 import { playNotificationSound } from "@/lib/notification-sound";
 import ChatAttachmentPreview, { type PendingFile } from "@/components/shared/ChatAttachmentPreview";
 import ChatMessageAttachments, { type ChatAttachment } from "@/components/shared/ChatMessageAttachments";
+import SupportTimerBadge from "@/components/shared/SupportTimerBadge";
 import { ALLOWED_MIMES } from "@/lib/chat-upload-security";
 
 const MAX_FILES = 5;
@@ -406,6 +407,11 @@ export default function ChatWidget({ businessHours }: Props) {
                     </button>
                   )}
                 </div>
+                {view === "conversation" && process.env.NODE_ENV === "development" && (
+                  <div className="mt-1">
+                    <SupportTimerBadge conversationId={activeConvId} />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-1">

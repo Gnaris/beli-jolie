@@ -20,6 +20,10 @@ vi.mock("@/lib/messaging", () => ({
   markAsRead: vi.fn(),
 }));
 vi.mock("@/lib/notifications", () => ({ notifyAdminNewMessage: vi.fn() }));
+vi.mock("@/lib/support-notify", () => ({
+  scheduleReplyNotification: vi.fn().mockResolvedValue(undefined),
+  markAdminAlreadyNotifiedThisTurn: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@/lib/chat-events", () => ({ emitChatEvent: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidateTag: vi.fn() }));
 
