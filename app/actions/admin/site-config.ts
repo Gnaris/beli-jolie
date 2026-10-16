@@ -535,6 +535,88 @@ export async function validateEasyExpressApiKey(
   }
 }
 
+// ─── Easy-Express : transporteurs exclus (filtre global) ────────────────────
+
+export interface EasyExpressAvailableCarrier {
+  name: string;
+  logo: string;
+  delay: string;
+}
+
+/**
+ * Récupère la liste des transporteurs Easy-Express proposés en faisant une
+ * cotation test (FR → FR 75001, 1 kg). Permet à l'admin de voir quels noms
+ * sont réellement renvoyés par Easy-Express pour pouvoir en masquer certains.
+ *
+ * Les doublons de nom sont fusionnés (une même ligne de service peut
+ * apparaître plusieurs fois dans la liste quand plusieurs variantes tarifaires
+ * existent — on ne garde que la 1ʳᵉ occurrence car la case à cocher s'applique
+ * sur le nom seul).
+ */
+export async function fetchEasyExpressAvailableCarriers(): Promise<{
+  success: boolean;
+  carriers?: EasyExpressAvailableCarrier[];
+  error?: string;
+}> {
+  try {
+    await requireAdmin();
+    const { fetchEasyExpressRates } = await import("@/lib/easy-express");
+    const result = await fetchEasyExpressRates({
+      receiverCountry: "FR",
+      receiverZipCode: "75001",
+      weightKg: 1,
+    });
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+    const seen = new Set<string>();
+    const unique: EasyExpressAvailableCarrier[] = [];
+    for (const c of result.carriers) {
+      const key = c.name.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      unique.push({ name: c.name.trim(), logo: c.logo, delay: c.delay });
+    }
+    unique.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    return { success: true, carriers: unique };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
+/**
+ * Enregistre la liste des noms de transporteurs Easy-Express à MASQUER au
+ * checkout. Appliqué mondialement. Comparaison faite insensiblement à la casse
+ * côté /api/carriers via `getCachedEasyExpressExcludedCarriers()`.
+ */
+export async function updateEasyExpressExcludedCarriers(
+  names: string[],
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!Array.isArray(names)) {
+      return { success: false, error: "Format invalide." };
+    }
+    const cleaned = Array.from(
+      new Set(
+        names
+          .map((n) => (typeof n === "string" ? n.trim() : ""))
+          .filter((n) => n.length > 0 && n.length <= 100),
+      ),
+    );
+    if (cleaned.length === 0) {
+      await prisma.siteConfig.deleteMany({ where: { key: "easy_express_excluded_carriers" } });
+    } else {
+      await setSiteConfig("easy_express_excluded_carriers", JSON.stringify(cleaned));
+    }
+    revalidatePath("/admin/parametres");
+    revalidateTag("site-config", "default");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Erreur" };
+  }
+}
+
 // ─── Smarty365 API key (alternative à Easy-Express) ──────────────────────────
 
 export async function updateSmarty365ApiKey(

@@ -515,6 +515,36 @@ export const getCachedSmarty365InsuranceRatePct = tenantScopedCacheWithTid(
   { revalidate: 300, tags: ["site-config"] }
 );
 
+// ─── Easy-Express — transporteurs exclus par l'admin ───────────────────────
+/**
+ * Liste des noms de transporteurs Easy-Express que la boutique ne veut PAS
+ * proposer à la cliente au checkout. S'applique mondialement (pas par pays).
+ * Comparaison insensible à la casse et aux espaces superflus.
+ *
+ * Clé SiteConfig : `easy_express_excluded_carriers` (JSON array of strings).
+ */
+export const getCachedEasyExpressExcludedCarriers = tenantScopedCacheWithTid(
+  "easy-express-excluded-carriers",
+  async (tid): Promise<string[]> => {
+    const row = tid === "global"
+      ? await prisma.siteConfig.findFirst({ where: { key: "easy_express_excluded_carriers" } })
+      : await prisma.siteConfig.findFirst({ where: { key: "easy_express_excluded_carriers", tenantId: tid } });
+    if (!row?.value) return [];
+    try {
+      const parsed = JSON.parse(row.value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((n): n is string => typeof n === "string")
+        .map((n) => n.trim())
+        .filter((n) => n.length > 0);
+    } catch {
+      return [];
+    }
+  },
+  ["easy-express-excluded-carriers"],
+  { revalidate: 300, tags: ["site-config"] }
+);
+
 // ─── Shipping margin (from SiteConfig) ───────────────────────────────────────
 
 export const getCachedShippingMargin = tenantScopedCacheWithTid(

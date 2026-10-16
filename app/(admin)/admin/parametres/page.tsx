@@ -36,6 +36,7 @@ import StockDisplayConfig from "@/components/admin/settings/StockDisplayConfig";
 import CompanyInfoForm from "@/components/admin/settings/CompanyInfoForm";
 import FaviconConfig from "@/components/admin/settings/FaviconConfig";
 import EasyExpressApiKeyConfig from "@/components/admin/settings/EasyExpressApiKeyConfig";
+import EasyExpressExcludedCarriersConfig from "@/components/admin/settings/EasyExpressExcludedCarriersConfig";
 import Smarty365ApiKeyConfig from "@/components/admin/settings/Smarty365ApiKeyConfig";
 import ActiveShippingProviderSelect from "@/components/admin/settings/ActiveShippingProviderSelect";
 import ShippingMarginConfig from "@/components/admin/settings/ShippingMarginConfig";
@@ -481,13 +482,26 @@ async function buildPaiementTile(): Promise<DashboardTile> {
    TUILE 5 — Mode de livraison (Easy-Express + Smarty365) + marge
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildLivraisonTile(): Promise<DashboardTile> {
-  const [eeApiKeyConfig, smartyApiKeyConfig, activeProviderRow, marginTypeRow, marginValueRow] = await Promise.all([
+  const [eeApiKeyConfig, smartyApiKeyConfig, activeProviderRow, marginTypeRow, marginValueRow, excludedCarriersRow] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "easy_express_api_key" }, select: { key: true } }),
     prisma.siteConfig.findFirst({ where: { key: "smarty365_api_key" }, select: { key: true } }),
     prisma.siteConfig.findFirst({ where: { key: "active_shipping_provider" }, select: { value: true } }),
     prisma.siteConfig.findFirst({ where: { key: "shipping_margin_type" } }),
     prisma.siteConfig.findFirst({ where: { key: "shipping_margin_value" } }),
+    prisma.siteConfig.findFirst({ where: { key: "easy_express_excluded_carriers" }, select: { value: true } }),
   ]);
+  let initialExcludedCarriers: string[] = [];
+  if (excludedCarriersRow?.value) {
+    try {
+      const parsed = JSON.parse(excludedCarriersRow.value);
+      if (Array.isArray(parsed)) {
+        initialExcludedCarriers = parsed
+          .filter((n): n is string => typeof n === "string")
+          .map((n) => n.trim())
+          .filter((n) => n.length > 0);
+      }
+    } catch { /* liste vide */ }
+  }
   const marginType = (marginTypeRow?.value as "fixed" | "percent") || "fixed";
   const marginValue = Number(marginValueRow?.value) || 0;
   const eeConnected = !!eeApiKeyConfig;
@@ -520,6 +534,22 @@ async function buildLivraisonTile(): Promise<DashboardTile> {
           status={eeConnected ? { tone: "ok", label: "Connectée" } : { tone: "off", label: "Non configurée" }}
         >
           <EasyExpressApiKeyConfig hasKey={eeConnected} />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.truck}
+          title="Transporteurs Easy-Express proposés"
+          description="Choisissez quels transporteurs apparaissent au checkout de vos clientes — valable pour toutes les destinations"
+          status={
+            initialExcludedCarriers.length > 0
+              ? { tone: "warn", label: `${initialExcludedCarriers.length} masqué${initialExcludedCarriers.length > 1 ? "s" : ""}` }
+              : { tone: "ok", label: "Tous proposés" }
+          }
+        >
+          <EasyExpressExcludedCarriersConfig
+            initialExcluded={initialExcludedCarriers}
+            hasKey={eeConnected}
+          />
         </SettingCard>
 
         <SettingCard

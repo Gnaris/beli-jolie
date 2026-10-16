@@ -10,6 +10,7 @@ import {
   getCachedShippingMargin,
   getCachedActiveShippingProvider,
   getCachedSmarty365InsuranceRatePct,
+  getCachedEasyExpressExcludedCarriers,
 } from "@/lib/cached-data";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
@@ -132,13 +133,21 @@ export async function POST(request: NextRequest) {
       });
     }
     transactionId = result.transactionId;
-    carriers = result.carriers.map((c) => ({
-      carrierId: c.carrierId,
-      name: c.name,
-      price: c.price,
-      delay: c.delay,
-      logo: c.logo,
-    }));
+    // Filtre global : l'admin peut masquer certains transporteurs
+    // (Paramètres → Livraison → « Transporteurs proposés »). Comparaison
+    // insensible à la casse et aux espaces. Appliqué AVANT la marge pour que
+    // le prix calculé ne soit jamais exposé à des transporteurs cachés.
+    const excluded = await getCachedEasyExpressExcludedCarriers();
+    const excludedSet = new Set(excluded.map((n) => n.trim().toLowerCase()));
+    carriers = result.carriers
+      .filter((c) => !excludedSet.has(c.name.trim().toLowerCase()))
+      .map((c) => ({
+        carrierId: c.carrierId,
+        name: c.name,
+        price: c.price,
+        delay: c.delay,
+        logo: c.logo,
+      }));
   }
 
   if (carriers.length === 0) {
