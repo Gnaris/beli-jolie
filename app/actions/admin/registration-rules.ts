@@ -61,9 +61,14 @@ function sanitizeFrDecisions(input: unknown, fallback: FrTierDecisions): FrTierD
 }
 function sanitizeFieldRule(input: unknown, fallback: FieldRule, allowAutoVerify: boolean): FieldRule {
   const r = (input ?? {}) as Record<string, unknown>;
+  const autoVerify = allowAutoVerify ? Boolean(r.autoVerify) : false;
+  // L'exonération auto exige la vérif VIES active : sans VIES, pas de
+  // confirmation de validité donc pas d'exonération possible.
+  const autoVatExempt = autoVerify ? Boolean(r.autoVatExempt) : false;
   return {
     requirement: sanitizeRequirement(r.requirement, fallback.requirement),
-    autoVerify: allowAutoVerify ? Boolean(r.autoVerify) : false,
+    autoVerify,
+    autoVatExempt,
     onValid: sanitizeDecision(r.onValid, fallback.onValid),
     onInvalid: sanitizeDecision(r.onInvalid, fallback.onInvalid),
     onMissing: sanitizeDecision(r.onMissing, fallback.onMissing),

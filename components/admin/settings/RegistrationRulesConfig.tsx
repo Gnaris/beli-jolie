@@ -81,6 +81,7 @@ export default function RegistrationRulesConfig({ initialRules }: Props) {
             verifierLabel: "Vérifier auto via VIES",
             verifierNote: "Service officiel de la Commission européenne · peut mettre jusqu'à 30 s",
             canAutoVerify: true,
+            canAutoVatExempt: true,
           }}
           rule={rules.eu.vat}
           onPatch={(mutator) => patch((draft) => mutator(draft.eu.vat))}
@@ -310,6 +311,7 @@ interface SingleFieldMeta {
   verifierLabel: string;
   verifierNote: string;
   canAutoVerify: boolean;
+  canAutoVatExempt?: boolean;
 }
 
 function SingleFieldCard({
@@ -361,7 +363,12 @@ function SingleFieldCard({
               <input
                 type="checkbox"
                 checked={effectiveAutoVerify}
-                onChange={(e) => onPatch((r) => { r.autoVerify = e.target.checked; })}
+                onChange={(e) => onPatch((r) => {
+                  r.autoVerify = e.target.checked;
+                  // Désactiver la vérif coupe aussi l'exonération auto :
+                  // sans VIES, on ne peut pas prouver la validité.
+                  if (!e.target.checked) r.autoVatExempt = false;
+                })}
                 disabled={!field.canAutoVerify}
                 className="sr-only peer"
               />
@@ -374,6 +381,31 @@ function SingleFieldCard({
             </div>
           </label>
         </div>
+
+        {field.canAutoVatExempt && effectiveAutoVerify && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <div className="relative mt-0.5 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={rule.autoVatExempt}
+                  onChange={(e) => onPatch((r) => { r.autoVatExempt = e.target.checked; })}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-[#D1D5DB] rounded-full peer-checked:bg-emerald-600 transition-colors" />
+                <div className="absolute top-[2px] left-[2px] w-4 h-4 bg-bg-primary rounded-full shadow-sm transition-transform peer-checked:translate-x-4" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[12.5px] font-medium text-emerald-900 font-body">
+                  Exonérer de TVA automatiquement si VIES confirme le numéro
+                </p>
+                <p className="text-[11px] text-emerald-800/80 font-body mt-0.5">
+                  Le client UE hors France paiera 0 % de TVA dès son inscription (équivalent du bouton d'exonération manuel sur sa fiche).
+                </p>
+              </div>
+            </label>
+          </div>
+        )}
 
         <div className="space-y-2">
           <TierRow

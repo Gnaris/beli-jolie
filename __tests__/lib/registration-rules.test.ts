@@ -32,8 +32,8 @@ describe("parseRegistrationRules", () => {
         kbis: { requirement: "optional" },
         decisions: { all: "approve", siretAndVat: "approve", anyOne: "pending", none: "reject" },
       },
-      eu: { vat: { requirement: "required", autoVerify: true, onValid: "approve", onInvalid: "reject", onMissing: "pending" } },
-      world: { brn: { requirement: "optional", autoVerify: false, onValid: "pending", onInvalid: "pending", onMissing: "pending" } },
+      eu: { vat: { requirement: "required", autoVerify: true, autoVatExempt: true, onValid: "approve", onInvalid: "reject", onMissing: "pending" } },
+      world: { brn: { requirement: "optional", autoVerify: false, autoVatExempt: false, onValid: "pending", onInvalid: "pending", onMissing: "pending" } },
     };
     expect(parseRegistrationRules(serializeRegistrationRules(rules))).toEqual(rules);
   });
@@ -43,6 +43,27 @@ describe("parseRegistrationRules", () => {
       world: { brn: { ...DEFAULT_RULES.world.brn, autoVerify: true } },
     }));
     expect(parsed.world.brn.autoVerify).toBe(false);
+  });
+
+  it("force autoVatExempt=false sur world.brn (pas de VIES hors UE)", () => {
+    const parsed = parseRegistrationRules(JSON.stringify({
+      world: { brn: { ...DEFAULT_RULES.world.brn, autoVerify: true, autoVatExempt: true } },
+    }));
+    expect(parsed.world.brn.autoVatExempt).toBe(false);
+  });
+
+  it("force autoVatExempt=false si autoVerify est désactivé (sans VIES, pas d'exonération)", () => {
+    const parsed = parseRegistrationRules(JSON.stringify({
+      eu: { vat: { requirement: "required", autoVerify: false, autoVatExempt: true, onValid: "approve", onInvalid: "pending", onMissing: "pending" } },
+    }));
+    expect(parsed.eu.vat.autoVatExempt).toBe(false);
+  });
+
+  it("conserve autoVatExempt=true si autoVerify=true sur eu.vat", () => {
+    const parsed = parseRegistrationRules(JSON.stringify({
+      eu: { vat: { requirement: "required", autoVerify: true, autoVatExempt: true, onValid: "approve", onInvalid: "pending", onMissing: "pending" } },
+    }));
+    expect(parsed.eu.vat.autoVatExempt).toBe(true);
   });
 
   it("rétrocompat : ancien schéma per-field FR est converti (siret relu)", () => {

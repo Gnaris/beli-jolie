@@ -67,6 +67,14 @@ export interface FrZoneRule {
 export interface FieldRule {
   requirement: FiscalRequirement;
   autoVerify: boolean;
+  /**
+   * UE hors France uniquement : si `autoVerify=true` et que VIES confirme
+   * le numéro de TVA valide, le compte client est automatiquement marqué
+   * `vatExempt=true` (exonération TVA FR). Ignoré sur WORLD (pas de VIES)
+   * et sur FR (un établissement français paie toujours la TVA FR, même
+   * avec un numéro de TVA intracom valide).
+   */
+  autoVatExempt: boolean;
   onValid: RegistrationDecision;
   onInvalid: RegistrationDecision;
   onMissing: RegistrationDecision;
@@ -88,6 +96,7 @@ export interface RegistrationRules {
 const DEFAULT_FIELD_RULE: FieldRule = {
   requirement: "required",
   autoVerify: false,
+  autoVatExempt: false,
   onValid: "pending",
   onInvalid: "pending",
   onMissing: "pending",
@@ -148,9 +157,14 @@ function parseTierDecisions(raw: unknown, fallback: FrTierDecisions): FrTierDeci
 }
 function parseFieldRule(raw: unknown, fallback: FieldRule, forceNoAutoVerify: boolean): FieldRule {
   const r = (raw ?? {}) as Record<string, unknown>;
+  const autoVerify = forceNoAutoVerify ? false : typeof r.autoVerify === "boolean" ? r.autoVerify : fallback.autoVerify;
+  // L'exonération auto n'a de sens que si la vérif VIES est active : si
+  // autoVerify est forcé à false (WORLD), autoVatExempt l'est aussi.
+  const autoVatExempt = !autoVerify ? false : typeof r.autoVatExempt === "boolean" ? r.autoVatExempt : fallback.autoVatExempt;
   return {
     requirement: normalizeRequirement(r.requirement ?? r.fiscalNumber) ?? fallback.requirement,
-    autoVerify: forceNoAutoVerify ? false : typeof r.autoVerify === "boolean" ? r.autoVerify : fallback.autoVerify,
+    autoVerify,
+    autoVatExempt,
     onValid: isDecision(r.onValid) ? r.onValid : fallback.onValid,
     onInvalid: isDecision(r.onInvalid) ? r.onInvalid : fallback.onInvalid,
     onMissing: isDecision(r.onMissing) ? r.onMissing : fallback.onMissing,
@@ -197,7 +211,7 @@ export function serializeRegistrationRules(rules: RegistrationRules): string {
       decisions: rules.fr.decisions,
     },
     eu: { vat: rules.eu.vat },
-    world: { brn: { ...rules.world.brn, autoVerify: false } },
+    world: { brn: { ...rules.world.brn, autoVerify: false, autoVatExempt: false } },
   });
 }
 

@@ -344,6 +344,17 @@ export async function POST(request: NextRequest) {
     const resolvedStatus: "APPROVED" | "PENDING" | "REJECTED" = decision.status;
     const serviceErrored = decision.serviceErrored === true;
 
+    // ── Exonération TVA automatique (UE hors France uniquement) ──────
+    // Si l'admin a activé l'option « Exonérer auto si VIES valide » et que
+    // VIES a bien confirmé le numéro, on marque le compte comme exonéré
+    // dès sa création — équivalent du bouton d'exonération manuel.
+    // Jamais sur FR (établissement français paie toujours la TVA FR) ni
+    // sur WORLD (hors UE paie déjà 0 % par défaut, flag inutile).
+    const autoVatExempt =
+      zone === "EU"
+      && rules?.eu.vat.autoVatExempt === true
+      && viesSnapshot?.valid === true;
+
     // ── Création de l'utilisateur ──────────────────────────────────────
 
     // Hash du mot de passe (12 rounds = bon équilibre sécurité/performance)
@@ -378,6 +389,9 @@ export async function POST(request: NextRequest) {
         viesAddress:                viesSnapshot?.address ?? null,
         viesRequestDate:            viesSnapshot?.requestDate ?? null,
         viesError:                  viesSnapshot?.serviceError ?? null,
+        vatExempt:                  autoVatExempt,
+        vatValidatedAt:             autoVatExempt ? new Date() : null,
+        // vatValidatedBy reste null : décidé par le système, pas par un admin.
       },
     });
 
