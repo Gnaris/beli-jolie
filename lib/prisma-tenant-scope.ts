@@ -62,6 +62,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "PendingSimilar",
   "OrderItem",
   "OrderItemModification",
+  "OrderPayment",
   "Favorite",
   "ShippingAddress",
   "Claim",

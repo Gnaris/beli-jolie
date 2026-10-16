@@ -102,6 +102,50 @@ export async function GET(
   });
   const inCart = inCartAgg._sum.quantity ?? 0;
 
+  // ─── Vues produit (authentifiées uniquement — admins exclus côté action) ───
+  const now = new Date();
+  const startOf7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const startOf30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [viewsTotal, views7d, views30d, uniqueViewersRows, lastViewers] = await Promise.all([
+    prisma.productView.count({ where: { productId: id } }),
+    prisma.productView.count({ where: { productId: id, createdAt: { gte: startOf7d } } }),
+    prisma.productView.count({ where: { productId: id, createdAt: { gte: startOf30d } } }),
+    prisma.productView.findMany({
+      where: { productId: id, userId: { not: null } },
+      distinct: ["userId"],
+      select: { userId: true },
+    }),
+    prisma.productView.findMany({
+      where: { productId: id, userId: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            company: true,
+            email: true,
+          },
+        },
+      },
+    }),
+  ]);
+  const viewsUnique = uniqueViewersRows.length;
+  const recentViewers = lastViewers
+    .filter((v) => v.user)
+    .map((v) => ({
+      userId: v.user!.id,
+      firstName: v.user!.firstName,
+      lastName: v.user!.lastName,
+      company: v.user!.company,
+      email: v.user!.email,
+      viewedAt: v.createdAt.toISOString(),
+    }));
+
   // Pagination
   const totalPages = Math.max(1, Math.ceil(totalClients / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -113,6 +157,11 @@ export async function GET(
     inCart,
     revenue,
     totalClients,
+    viewsTotal,
+    viewsUnique,
+    views7d,
+    views30d,
+    recentViewers,
     page: safePage,
     pageSize: PAGE_SIZE,
     totalPages,

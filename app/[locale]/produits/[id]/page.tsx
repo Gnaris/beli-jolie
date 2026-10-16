@@ -16,6 +16,7 @@ import { canSeePrices } from "@/lib/price-visibility";
 import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
+import ProductViewTracker from "@/components/produits/ProductViewTracker";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import ProductDetailIssymaLayout from "@/components/issyma/ProductDetailIssymaLayout";
 import {
@@ -614,6 +615,8 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     );
 
     return (
+      <>
+        <ProductViewTracker productId={product.id} />
       <ProductDetailIssymaLayout
         shopName={shopName}
         categorySlug={product.category.slug ?? ""}
@@ -632,11 +635,13 @@ export default async function ProduitDetailPage({ params }: PageProps) {
         faqItems={faqItems}
         jsonLdBlocks={[productJsonLd, breadcrumbJsonLd]}
       />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen relative">
+      <ProductViewTracker productId={product.id} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />

@@ -11,6 +11,7 @@ import { canSeePrices } from "@/lib/price-visibility";
 import { buildProductHandle } from "@/lib/product-url";
 import { computeCardPriceCascade } from "@/lib/promotion-engine";
 import AddToCartModal from "./AddToCartModal";
+import { trackProductView } from "@/app/actions/client/product-views";
 
 interface VariantData {
   id: string;
@@ -182,6 +183,9 @@ export default function ProductCard({
       return;
     }
     setShowModal(true);
+    // Compteur de vues : la cliente a cliqué sur "Ajouter au panier" depuis
+    // la grille — on enregistre 1 vue/jour (admins exclus côté serveur).
+    void trackProductView(id).catch(() => {});
   }
 
   return (
