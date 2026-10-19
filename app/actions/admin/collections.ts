@@ -103,7 +103,22 @@ export async function createCollection(formData: FormData) {
       imageBanner: parsed.data.imageBanner || null,
     },
   });
-  autoTranslateCollection(collection.id, parsed.data.name);
+
+  // Traductions saisies à la main dans le form de création — on les persiste
+  // immédiatement et on dit à l'auto-trad en fond de ne pas écraser ces locales
+  // (via `skipLocales`), sinon la saisie admin serait remplacée par la trad PFS.
+  const manualLocales: string[] = [];
+  for (const locale of NON_DEFAULT_LOCALES) {
+    const raw = formData.get(`translation_${locale}`);
+    const val = typeof raw === "string" ? raw.trim() : "";
+    if (val) {
+      await prisma.collectionTranslation.create({
+        data: { collectionId: collection.id, locale, name: val },
+      });
+      manualLocales.push(locale);
+    }
+  }
+  autoTranslateCollection(collection.id, parsed.data.name, manualLocales);
 
   revalidatePath("/admin/collections");
   revalidateTag("collections", "default");

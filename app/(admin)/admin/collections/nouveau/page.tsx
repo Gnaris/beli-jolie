@@ -5,14 +5,26 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createCollection } from "@/app/actions/admin/collections";
 import CollectionImageField from "@/components/admin/collections/CollectionImageField";
+import TranslateButton from "@/components/admin/TranslateButton";
+import TranslationFieldsBlock from "@/components/admin/TranslationFieldsBlock";
+import { useAutoTranslateOnBlur } from "@/hooks/useAutoTranslateOnBlur";
+import { useAutoTranslateEnabled } from "@/components/admin/DeeplConfigContext";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 export default function NewCollectionPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
+  // On stocke toutes les locales (fr + en/de/it/es) dans un seul dict —
+  // même pattern que la modale de catégorie, pour que `useAutoTranslateOnBlur`
+  // puisse remplir l'anglais à la perte de focus du champ FR.
+  const [names, setNames] = useState<Record<string, string>>({});
   const [image, setImage] = useState<string | null>(null);
   const [imageBanner, setImageBanner] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoTranslateEnabled = useAutoTranslateEnabled();
+  const { handleFrBlur, isTranslating } = useAutoTranslateOnBlur({ names, setNames });
+
+  const frName = (names["fr"] ?? "").trim();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,9 +32,13 @@ export default function NewCollectionPage() {
     setError(null);
 
     const fd = new FormData();
-    fd.append("name", name);
+    fd.append("name", frName);
     if (image) fd.append("image", image);
     if (imageBanner) fd.append("imageBanner", imageBanner);
+    for (const locale of NON_DEFAULT_LOCALES) {
+      const val = (names[locale] ?? "").trim();
+      if (val) fd.append(`translation_${locale}`, val);
+    }
 
     const result = await createCollection(fd);
     setSaving(false);
@@ -70,12 +86,37 @@ export default function NewCollectionPage() {
           </label>
           <input
             type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={names["fr"] ?? ""}
+            onChange={(e) => setNames((prev) => ({ ...prev, fr: e.target.value }))}
+            onBlur={handleFrBlur}
             placeholder="ex: Été 2026, Romantique, Minimaliste…"
             required
             className="field-input"
           />
+        </div>
+
+        {/* Traductions */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label className="field-label font-body !mb-0">Traductions</label>
+            {!autoTranslateEnabled && (
+              <TranslateButton
+                text={frName}
+                onTranslated={(t) => setNames((prev) => ({ ...prev, ...t }))}
+                disabled={!frName}
+              />
+            )}
+          </div>
+          <TranslationFieldsBlock
+            names={names}
+            setNames={setNames}
+            isTranslating={isTranslating}
+          />
+          <p className="text-[11px] text-text-muted">
+            {autoTranslateEnabled
+              ? "L'anglais se remplit tout seul quand tu quittes le champ français. Tu peux cliquer sur « Traduire » pour les autres langues ou les saisir à la main — tes textes manuels ne sont jamais écrasés."
+              : "Clique sur « Traduire » pour remplir les 4 langues d'un coup, ou saisis-les à la main."}
+          </p>
         </div>
 
         {/* Image de la carte */}
@@ -83,7 +124,7 @@ export default function NewCollectionPage() {
           kind="card"
           value={image}
           onChange={setImage}
-          slug={name}
+          slug={frName}
           onError={setError}
         />
 
@@ -92,7 +133,7 @@ export default function NewCollectionPage() {
           kind="banner"
           value={imageBanner}
           onChange={setImageBanner}
-          slug={name}
+          slug={frName}
           onError={setError}
         />
 
