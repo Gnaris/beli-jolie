@@ -3,8 +3,8 @@
 /**
  * Builder admin « Créer une commande pour cette cliente ».
  * - Recherche produit (minimum 2 lettres, debounced)
- * - Ajout d'une ligne : variante (couleur) + taille optionnelle + quantité +
- *   prix unitaire (pré-rempli = prix catalogue × (1 − remise %), modifiable)
+ * - Résultat = 1 carte par produit avec pastilles de couleurs ; clic sur une
+ *   pastille → mini-modale (photo de la couleur + taille + quantité + Ajouter)
  * - Preview total HT
  * - Soumet → createAdminOrderForClient → redirect vers la fiche commande admin
  */
@@ -52,6 +52,14 @@ export default function NouvelleCommandeAdmin({ clientId, clientLabel, clientDis
 
   const [lines, setLines] = useState<Line[]>([]);
 
+  // Mini-modale « choisir la variante à ajouter » (clic sur une pastille)
+  const [picker, setPicker] = useState<{
+    product: AdminOrderProductResult;
+    variant: AdminOrderVariantOption;
+    sizeId: string | null;
+    quantity: number;
+  } | null>(null);
+
   // Recherche debounced
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -79,19 +87,32 @@ export default function NouvelleCommandeAdmin({ clientId, clientLabel, clientDis
     return Math.round(disc * 100) / 100;
   }
 
-  function addLine(product: AdminOrderProductResult, variant: AdminOrderVariantOption) {
-    const sz = variant.sizes[0] ?? null;
+  function openPicker(product: AdminOrderProductResult, variant: AdminOrderVariantOption) {
+    if (variant.stock <= 0) return;
+    setPicker({
+      product,
+      variant,
+      sizeId: variant.sizes[0]?.id ?? null,
+      quantity: 1,
+    });
+  }
+
+  function confirmPicker() {
+    if (!picker) return;
+    const { product, variant, sizeId, quantity } = picker;
+    const sz = sizeId ? variant.sizes.find((s) => s.id === sizeId) ?? null : null;
     const line: Line = {
-      tempId: `${variant.id}-${Date.now()}`,
+      tempId: `${variant.id}-${sizeId ?? "none"}-${Date.now()}`,
       productName: product.name,
       productReference: product.reference,
       variant,
       sizeId: sz?.id ?? null,
       sizeName: sz?.name ?? null,
-      quantity: 1,
+      quantity: Math.max(1, Math.floor(quantity) || 1),
       unitPrice: priceForVariant(variant),
     };
     setLines((prev) => [...prev, line]);
+    setPicker(null);
     setQuery("");
     setResults([]);
   }
@@ -167,93 +188,79 @@ export default function NouvelleCommandeAdmin({ clientId, clientLabel, clientDis
         </div>
 
         {results.length > 0 && (
-          <ul className="mt-3 space-y-1.5 max-h-96 overflow-y-auto">
-            {results.flatMap((p) =>
-              p.variants.length === 0
-                ? [
-                    <li
-                      key={`${p.id}-empty`}
-                      className="border border-border rounded-xl p-3 flex items-center gap-3 opacity-60"
-                    >
-                      {p.imagePath ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={`/uploads/${p.imagePath}`} alt={p.name} className="w-12 h-12 rounded-lg object-cover border border-border shrink-0" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-bg-tertiary border border-border shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-body font-semibold text-text-primary truncate">{p.name}</p>
-                        <p className="text-xs text-text-muted">Aucune couleur active disponible</p>
+          <ul className="mt-3 space-y-2 max-h-[32rem] overflow-y-auto">
+            {results.map((p) => {
+              const thumb =
+                p.variants.find((v) => v.imagePath)?.imagePath ?? p.imagePath ?? null;
+              return (
+                <li
+                  key={p.id}
+                  className="border border-border rounded-xl p-3 flex items-start gap-3 hover:bg-bg-secondary/40 transition-colors"
+                >
+                  {thumb ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/uploads/${thumb}`}
+                      alt={p.name}
+                      className="w-14 h-14 rounded-lg object-cover border border-border shrink-0"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-bg-tertiary border border-border shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-body font-semibold text-text-primary truncate">
+                      {p.name}
+                    </p>
+                    <p className="text-[11px] text-text-muted font-mono truncate">{p.reference}</p>
+                    {p.variants.length === 0 ? (
+                      <p className="text-xs text-text-muted mt-1.5">Aucune couleur active disponible</p>
+                    ) : (
+                      <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                        {p.variants.map((v) => {
+                          const label = v.colorName || "Couleur";
+                          const out = v.stock <= 0;
+                          const swatchStyle: React.CSSProperties = v.colorPatternImage
+                            ? {
+                                backgroundImage: `url(${v.colorPatternImage})`,
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                              }
+                            : { background: v.colorHex ?? "#9CA3AF" };
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => openPicker(p, v)}
+                              disabled={out}
+                              title={`${label}${v.saleType === "PACK" ? ` · Pack × ${v.packQuantity ?? 1}` : ""} · ${v.stock} en stock · ${fmtEuros(priceForVariant(v))}`}
+                              className={`group inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full border transition-colors ${
+                                out
+                                  ? "border-border opacity-40 cursor-not-allowed"
+                                  : "border-border hover:border-text-primary hover:bg-bg-primary"
+                              }`}
+                            >
+                              <span
+                                className="inline-block w-5 h-5 rounded-full border border-border/60 shrink-0"
+                                style={swatchStyle}
+                                aria-hidden="true"
+                              />
+                              <span className="text-[11px] font-body text-text-secondary max-w-[7rem] truncate">
+                                {label}
+                              </span>
+                              {v.saleType === "PACK" && (
+                                <span className="text-[9px] font-bold uppercase tracking-wide bg-indigo-100 text-indigo-700 px-1 rounded">
+                                  ×{v.packQuantity ?? 1}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
                       </div>
-                    </li>,
-                  ]
-                : p.variants.map((v) => (
-                    <li
-                      key={v.id}
-                      className="border border-border rounded-xl p-3 flex items-center gap-3 hover:bg-bg-secondary/60 transition-colors"
-                    >
-                      {p.imagePath ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={`/uploads/${p.imagePath}`} alt={p.name} className="w-12 h-12 rounded-lg object-cover border border-border shrink-0" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-bg-tertiary border border-border shrink-0" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-body font-semibold text-text-primary truncate">
-                          {p.name}
-                        </p>
-                        <p className="text-xs text-text-muted font-body flex items-center gap-1.5 flex-wrap mt-0.5">
-                          <span className="font-mono">{p.reference}</span>
-                          <span className="opacity-50">·</span>
-                          {v.colorHex && (
-                            <span
-                              className="inline-block w-3 h-3 rounded-full border border-border/60"
-                              style={{ background: v.colorHex }}
-                              aria-hidden="true"
-                            />
-                          )}
-                          <span>{v.colorName || "—"}</span>
-                          <span className="opacity-50">·</span>
-                          <span
-                            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
-                              v.saleType === "PACK"
-                                ? "bg-indigo-100 text-indigo-700"
-                                : "bg-slate-100 text-slate-700"
-                            }`}
-                          >
-                            {v.saleType === "PACK" ? `Pack × ${v.packQuantity ?? 1}` : "Unitaire"}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <div className="text-right">
-                          <p className="text-sm font-heading font-bold text-text-primary tabular-nums">
-                            {fmtEuros(priceForVariant(v))}
-                          </p>
-                          <p
-                            className={`text-[11px] font-body tabular-nums ${
-                              v.stock <= 0 ? "text-red-600" : v.stock < 5 ? "text-amber-700" : "text-emerald-700"
-                            }`}
-                          >
-                            {v.stock} en stock
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addLine(p, v)}
-                          disabled={v.stock <= 0}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-bg-dark text-text-inverse text-xs font-body font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                          </svg>
-                          Ajouter
-                        </button>
-                      </div>
-                    </li>
-                  )),
-            )}
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -261,6 +268,189 @@ export default function NouvelleCommandeAdmin({ clientId, clientLabel, clientDis
           <p className="text-sm text-text-muted mt-3">Aucun produit trouvé.</p>
         )}
       </section>
+
+      {picker && (() => {
+        const { product: pp, variant: vv } = picker;
+        const img = vv.imagePath ?? pp.imagePath ?? null;
+        const swatchStyle: React.CSSProperties = vv.colorPatternImage
+          ? {
+              backgroundImage: `url(${vv.colorPatternImage})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : { background: vv.colorHex ?? "#9CA3AF" };
+        const currentSize = picker.sizeId
+          ? vv.sizes.find((s) => s.id === picker.sizeId)
+          : null;
+        const stockForChoice = currentSize ? currentSize.quantity : vv.stock;
+        const maxQty = Math.max(1, stockForChoice);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+            onClick={() => setPicker(null)}
+          >
+            <div
+              className="w-full max-w-md bg-bg-primary border border-border rounded-2xl shadow-xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ajouter cette variante à la commande"
+            >
+              <div className="flex items-start gap-3 p-4 border-b border-border">
+                {img ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/uploads/${img}`}
+                    alt={pp.name}
+                    className="w-20 h-20 rounded-xl object-cover border border-border shrink-0"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-xl bg-bg-tertiary border border-border shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted">
+                    Ajouter à la commande
+                  </p>
+                  <p className="text-sm font-body font-semibold text-text-primary truncate mt-0.5">
+                    {pp.name}
+                  </p>
+                  <p className="text-[11px] text-text-muted font-mono truncate">{pp.reference}</p>
+                  <p className="text-xs text-text-secondary font-body flex items-center gap-1.5 mt-1">
+                    <span
+                      className="inline-block w-3.5 h-3.5 rounded-full border border-border/60"
+                      style={swatchStyle}
+                      aria-hidden="true"
+                    />
+                    <span>{vv.colorName || "—"}</span>
+                    {vv.saleType === "PACK" && (
+                      <span className="text-[9px] font-bold uppercase tracking-wide bg-indigo-100 text-indigo-700 px-1 rounded">
+                        Pack × {vv.packQuantity ?? 1}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPicker(null)}
+                  className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-text-muted hover:bg-bg-secondary transition-colors shrink-0"
+                  aria-label="Fermer"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                {vv.sizes.length > 1 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted mb-2">
+                      Taille
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {vv.sizes.map((s) => {
+                        const selected = picker.sizeId === s.id;
+                        const sOut = s.quantity <= 0;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() =>
+                              setPicker((p) =>
+                                p ? { ...p, sizeId: s.id, quantity: Math.min(p.quantity, Math.max(1, s.quantity)) } : p,
+                              )
+                            }
+                            disabled={sOut}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-body transition-colors ${
+                              selected
+                                ? "bg-bg-dark text-text-inverse border-transparent"
+                                : sOut
+                                  ? "border-border opacity-40 cursor-not-allowed"
+                                  : "border-border hover:border-text-primary"
+                            }`}
+                          >
+                            {s.name}
+                            <span className={`ml-1.5 text-[10px] ${selected ? "opacity-80" : "text-text-muted"} tabular-nums`}>
+                              {s.quantity}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-end gap-4">
+                  <label className="flex flex-col">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted mb-1">
+                      Quantité
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={maxQty}
+                      value={picker.quantity}
+                      onChange={(e) =>
+                        setPicker((p) =>
+                          p
+                            ? {
+                                ...p,
+                                quantity: Math.max(1, Math.min(maxQty, Math.floor(Number(e.target.value) || 1))),
+                              }
+                            : p,
+                        )
+                      }
+                      className="field-input w-24 tabular-nums"
+                    />
+                  </label>
+                  <div className="flex flex-col text-right ml-auto">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-text-muted mb-1">
+                      Prix unit. HT
+                    </span>
+                    <span className="text-base font-heading font-bold text-text-primary tabular-nums">
+                      {fmtEuros(priceForVariant(vv))}
+                    </span>
+                    <span
+                      className={`text-[11px] font-body tabular-nums ${
+                        stockForChoice <= 0
+                          ? "text-red-600"
+                          : stockForChoice < 5
+                            ? "text-amber-700"
+                            : "text-emerald-700"
+                      }`}
+                    >
+                      {stockForChoice} en stock
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 p-4 border-t border-border bg-bg-secondary/40">
+                <button
+                  type="button"
+                  onClick={() => setPicker(null)}
+                  className="px-4 py-2 rounded-lg text-sm font-body text-text-secondary hover:bg-bg-secondary transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmPicker}
+                  disabled={stockForChoice <= 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-bg-dark text-text-inverse text-sm font-body font-semibold hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  Ajouter à la commande
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Lignes de la commande */}
       <section className="card p-6">

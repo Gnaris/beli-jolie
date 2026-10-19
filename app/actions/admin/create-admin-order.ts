@@ -329,6 +329,8 @@ export interface AdminOrderVariantOption {
   id: string; // ProductColor.id
   colorName: string;
   colorHex: string | null;
+  colorPatternImage: string | null;
+  imagePath: string | null; // 1ʳᵉ photo de CETTE couleur (par variante)
   stock: number;
   unitPrice: number; // prix catalogue (HT)
   saleType: "UNIT" | "PACK";
@@ -340,7 +342,7 @@ export interface AdminOrderProductResult {
   id: string;
   name: string;
   reference: string;
-  imagePath: string | null;
+  imagePath: string | null; // fallback produit (1ʳᵉ photo trouvée toutes couleurs confondues)
   variants: AdminOrderVariantOption[];
 }
 
@@ -372,31 +374,55 @@ export async function searchProductsForAdminOrder(
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           select: {
             id: true,
+            colorId: true,
             saleType: true,
             packQuantity: true,
             stock: true,
             unitPrice: true,
-            color: { select: { name: true, hex: true } },
+            color: { select: { name: true, hex: true, patternImage: true } },
             variantSizes: {
               select: { sizeId: true, quantity: true, size: { select: { name: true } } },
             },
-            images: { orderBy: { order: "asc" }, take: 1, select: { path: true } },
           },
         },
       },
     });
 
+    // Les photos vivent sur ProductColorImage, clé (productId, colorId). Un
+    // PACK partage ses photos avec la variante UNIT de la même couleur, donc on
+    // ne doit PAS passer par ProductColor.images (lié à productColorId).
+    const imgPairs = [
+      ...new Map(
+        products.flatMap((p) =>
+          p.colors
+            .filter((c) => c.colorId != null)
+            .map((c) => [`${p.id}__${c.colorId}`, { productId: p.id, colorId: c.colorId! }]),
+        ),
+      ).values(),
+    ];
+    const allImages = imgPairs.length > 0
+      ? await prisma.productColorImage.findMany({
+          where: { OR: imgPairs.map((p) => ({ productId: p.productId, colorId: p.colorId })) },
+          orderBy: { order: "asc" },
+          select: { productId: true, colorId: true, path: true },
+        })
+      : [];
+    const imageByKey = new Map<string, string>();
+    for (const img of allImages) {
+      const key = `${img.productId}__${img.colorId}`;
+      if (!imageByKey.has(key)) imageByKey.set(key, img.path);
+    }
+
     const results: AdminOrderProductResult[] = products.map((p) => {
-      const firstImage = p.colors[0]?.images[0]?.path ?? null;
-      return {
-        id: p.id,
-        name: p.name,
-        reference: p.reference,
-        imagePath: firstImage,
-        variants: p.colors.map((c) => ({
+      const variants = p.colors.map((c) => {
+        const key = c.colorId ? `${p.id}__${c.colorId}` : null;
+        const img = key ? imageByKey.get(key) ?? null : null;
+        return {
           id: c.id,
           colorName: c.color?.name ?? "",
           colorHex: c.color?.hex ?? null,
+          colorPatternImage: c.color?.patternImage ?? null,
+          imagePath: img,
           stock: c.stock,
           unitPrice: Number(c.unitPrice),
           saleType: c.saleType,
@@ -406,7 +432,14 @@ export async function searchProductsForAdminOrder(
             name: vs.size.name,
             quantity: vs.quantity,
           })),
-        })),
+        };
+      });
+      return {
+        id: p.id,
+        name: p.name,
+        reference: p.reference,
+        imagePath: variants.find((v) => v.imagePath)?.imagePath ?? null,
+        variants,
       };
     });
 
