@@ -33,6 +33,15 @@ export interface OrderTotalsInput {
   clientDiscountType: ClientDiscountType;
   clientDiscountValue: number | string | { toNumber?: () => number } | null;
   /**
+   * Montant HT économisé par le code promo saisi au checkout, PORTION ITEMS
+   * uniquement (si le code portait sur la livraison, c'est 0 ici — la remise
+   * est déjà intégrée à `carrierPrice`). Snapshot figé au moment du paiement :
+   * on le déduit tel quel du HT, sans recalcul. Clampé pour ne jamais rendre
+   * le net négatif si l'admin retire des articles au point que le code
+   * dépasse ce qui reste. Omis sur commandes historiques → traité comme 0.
+   */
+  promoItemsDiscount?: number | string | { toNumber?: () => number } | null;
+  /**
    * Remise commerciale OFFERTE sur une modification qui dépasse le payé
    * (cf. `applyOvershootAsDiscount`). Vient en déduction supplémentaire du HT
    * sans toucher la remise commerciale d'origine. Exprimée en HT.
@@ -45,9 +54,11 @@ export interface OrderTotalsResult {
   preDiscountSubtotal: number;
   /** Montant de la remise commerciale appliquée (>= 0, plafonné au sous-total). */
   clientDiscountAmt: number;
+  /** Code promo items réellement déduit (clamp inclus). */
+  promoItemsDiscount: number;
   /** Remise commerciale OFFERTE sur modification (plafonnée au reste du HT). */
   commercialGiftHT: number;
-  /** Sous-total HT après remise commerciale + remise offerte. */
+  /** Sous-total HT après remise commerciale + code promo + remise offerte. */
   subtotalHT: number;
   tvaAmount: number;
   totalTTC: number;
@@ -100,7 +111,18 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
     }
   }
 
-  const subtotalBeforeGift = Math.max(0, roundCent(discountedBase + compensationSubtotal));
+  // Code promo saisi au checkout (snapshot items). Vient APRÈS la remise
+  // commerciale, comme dans `computeOrderPricing` (checkout). Plafonné au HT
+  // restant (si l'admin retire des articles jusqu'à passer sous le code promo,
+  // on tombe à zéro — pas de HT négatif).
+  const promoItemsRaw = toNumber(input.promoItemsDiscount);
+  const promoItemsDiscount = Math.max(0, Math.min(discountedBase, roundCent(promoItemsRaw)));
+  const discountedBaseAfterPromo = roundCent(discountedBase - promoItemsDiscount);
+
+  const subtotalBeforeGift = Math.max(
+    0,
+    roundCent(discountedBaseAfterPromo + compensationSubtotal),
+  );
 
   // Remise commerciale OFFERTE sur modification : vient après la remise
   // commerciale d'origine, plafonnée au HT restant.
@@ -119,6 +141,7 @@ export function recomputeOrderTotals(input: OrderTotalsInput): OrderTotalsResult
   return {
     preDiscountSubtotal,
     clientDiscountAmt,
+    promoItemsDiscount,
     commercialGiftHT,
     subtotalHT,
     tvaAmount,

@@ -404,9 +404,22 @@ export default function OrderContent({
     });
   }
 
+  // Portion ITEMS du code promo (snapshot checkout) à déduire du HT en direct.
+  // Si le code portait sur la livraison (scope SHIPPING), la remise est déjà
+  // incluse dans `carrierPrice` ; sinon on prend `promoDiscount` (= itemsSaved).
+  // Fallback historique sans snapshot : on applique `promoDiscount` tel quel.
+  const promoItemsDiscount = useMemo(() => {
+    const total = Number(totals.promoDiscount ?? 0);
+    if (!(total > 0)) return 0;
+    const codeEntry = totals.appliedPromotions?.find((p) => p.kind === "CODE");
+    if (codeEntry && codeEntry.scope === "SHIPPING") return 0;
+    return total;
+  }, [totals.promoDiscount, totals.appliedPromotions]);
+
   // Aperçu du sous-total HT NET (mode édition) — inclut la remise ligne persistée.
-  // item.unitPrice EST DÉJÀ le prix après remise commerciale + promo (snapshot checkout).
-  // Sous-total HT NET recomposé live depuis les items présents.
+  // item.unitPrice EST DÉJÀ le prix après promotions AUTO (snapshot checkout) ;
+  // les remises globales (commerciale client, code promo items, dépassement
+  // offert) sont déduites ici en direct depuis les champs figés sur la commande.
   // On ne lit PLUS totals.currentSubtotalHT (BDD potentiellement figée sous
   // l'ancien Math.floor → 1 ct de moins que le calcul Sage). Le recalcul
   // arrondi Sage (roundCent) reproduit exactement la facture Sage 50.
@@ -438,12 +451,17 @@ export default function OrderContent({
       0,
       roundCent(discountableRounded - Number(totals.clientDiscountAmt)),
     );
-    const beforeGift = roundCent(netAfterDiscount + compensationRounded);
-    // Remise commerciale OFFERTE sur modification (champ dédié) — vient en
-    // déduction supplémentaire pour aligner le total sur l'encaissé.
+    // Code promo items (snapshot figé) — clampé pour ne jamais rendre le net négatif.
+    const netAfterPromoCode = Math.max(
+      0,
+      roundCent(netAfterDiscount - Math.min(netAfterDiscount, promoItemsDiscount)),
+    );
+    const beforeGift = roundCent(netAfterPromoCode + compensationRounded);
+    // Dépassement offert (champ dédié) — vient en déduction supplémentaire
+    // pour aligner le total sur l'encaissé après ajout d'articles.
     const giftHT = Math.max(0, Number(totals.commercialGiftHT ?? 0));
     return Math.max(0, roundCent(beforeGift - giftHT));
-  }, [mode, edits, items, totals.clientDiscountAmt, totals.commercialGiftHT]);
+  }, [mode, edits, items, totals.clientDiscountAmt, totals.commercialGiftHT, promoItemsDiscount]);
 
   // Compteurs affichés en résumé
   const totalUnits = items
@@ -980,7 +998,7 @@ const PAYMENT_METHOD_LABELS: Record<OrderPaymentUI["method"], string> = {
   BANK_TRANSFER: "Virement bancaire",
   PAY_ON_PICKUP: "Au retrait",
   CREDIT: "Avoir",
-  COMMERCIAL_GIFT: "Remise commerciale offerte",
+  COMMERCIAL_GIFT: "Dépassement offert",
 };
 
 const PAYMENT_STATUS_CFG: Record<
@@ -1207,10 +1225,10 @@ function CommercialGiftLine({
   async function handleCancel() {
     const ok = await confirm({
       type: "warning",
-      title: "Annuler la remise commerciale offerte ?",
+      title: "Annuler le dépassement offert ?",
       message: `Les ${fmt(giftHT)} HT seront remis dans le total de la commande. La cliente pourra à nouveau régler cette différence.`,
-      confirmLabel: "Annuler la remise",
-      cancelLabel: "Garder la remise",
+      confirmLabel: "Annuler l'offre",
+      cancelLabel: "Garder l'offre",
     });
     if (!ok) return;
     startTransition(async () => {
@@ -1219,7 +1237,7 @@ function CommercialGiftLine({
       );
       const res = await cancelOvershootDiscount(orderId);
       if (res.success) {
-        toast.success("Remise commerciale annulée.");
+        toast.success("Dépassement offert annulé.");
         router.refresh();
       } else {
         toast.error(res.error ?? "Erreur");
@@ -1230,7 +1248,7 @@ function CommercialGiftLine({
   return (
     <div className="flex items-baseline justify-between gap-3 text-slate-600">
       <div className="flex items-center gap-2 flex-wrap">
-        <span>Remise commerciale sur modification</span>
+        <span>Dépassement offert</span>
         {!readOnly && (
           <button
             type="button"
@@ -1408,7 +1426,7 @@ function RemainingToPayBlock({
               onClick={async () => {
                 const ok = await confirm({
                   type: "info",
-                  title: "Offrir en remise commerciale ?",
+                  title: "Offrir ce dépassement ?",
                   message: `Le dépassement de ${amountStr} sera absorbé par la boutique : la cliente ne devra plus rien régler.`,
                   confirmLabel: "Offrir le dépassement",
                   cancelLabel: "Annuler",

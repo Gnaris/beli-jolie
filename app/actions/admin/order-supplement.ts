@@ -22,6 +22,7 @@ import {
 } from "@/lib/order-payments";
 import { notifyClientSupplementRequest } from "@/lib/notifications";
 import { recomputeOrderTotals } from "@/lib/order-totals";
+import { getPromoItemsDiscount } from "@/lib/order-promo-items";
 
 // Stripe refuse strictement expires_at >= 24h après création de la session
 // (« must be less than 24 hours »). On garde une marge de 5 min pour couvrir
@@ -253,6 +254,8 @@ export async function applyOvershootAsDiscount(
         carrierPrice: true,
         clientDiscountType: true,
         clientDiscountValue: true,
+        promoDiscount: true,
+        appliedPromotions: true,
         commercialGiftHT: true,
         tenantId: true,
       },
@@ -265,7 +268,7 @@ export async function applyOvershootAsDiscount(
     const paidTTC = await sumPaidTTC(orderId);
     const overshoot = roundCent(Number(order.totalTTC) - paidTTC);
     if (overshoot <= 0.01) {
-      return { success: false, error: "Aucun montant à offrir en remise commerciale." };
+      return { success: false, error: "Aucun dépassement à offrir." };
     }
 
     // Conversion TTC → HT (le TTC baissera de `overshoot` = HT × (1 + tvaRate)).
@@ -285,6 +288,7 @@ export async function applyOvershootAsDiscount(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: newGiftHT,
       });
 
@@ -331,6 +335,8 @@ export async function cancelOvershootDiscount(
         carrierPrice: true,
         clientDiscountType: true,
         clientDiscountValue: true,
+        promoDiscount: true,
+        appliedPromotions: true,
         commercialGiftHT: true,
       },
     });
@@ -339,7 +345,7 @@ export async function cancelOvershootDiscount(
       return { success: false, error: "Commande verrouillée." };
     }
     if (Number(order.commercialGiftHT ?? 0) <= 0) {
-      return { success: false, error: "Aucune remise commerciale à annuler." };
+      return { success: false, error: "Aucun dépassement offert à annuler." };
     }
 
     await prisma.$transaction(async (tx) => {
@@ -350,6 +356,7 @@ export async function cancelOvershootDiscount(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: 0,
       });
       await tx.order.update({

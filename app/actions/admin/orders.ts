@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { notifyOrderStatusChange, notifyClientOrderModified } from "@/lib/notifications";
 import { reinstateStockForOrder } from "@/lib/stock";
 import { recomputeOrderTotals } from "@/lib/order-totals";
+import { getPromoItemsDiscount } from "@/lib/order-promo-items";
 import { cancelPendingSupplements } from "@/lib/order-payments";
 import { logger } from "@/lib/logger";
 
@@ -205,6 +206,7 @@ export async function modifyOrderItems(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: order.commercialGiftHT,
       });
       newTotalTTC = Number(totals.totalTTC);
@@ -345,6 +347,7 @@ export async function addCompensationItem(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: order.commercialGiftHT,
       });
       newTotalTTC = Number(totals.totalTTC);
@@ -487,6 +490,7 @@ export async function addCompensationItemsBulk(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: order.commercialGiftHT,
       });
       await tx.order.update({
@@ -614,6 +618,7 @@ export async function removeCompensationItem(
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(orderFresh),
         commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
@@ -683,6 +688,7 @@ export async function revertOrderItemModification(
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(orderFresh),
         commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
@@ -756,6 +762,7 @@ export async function revertAllOrderItemModifications(
         carrierPrice: orderFresh.carrierPrice,
         clientDiscountType: orderFresh.clientDiscountType,
         clientDiscountValue: orderFresh.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(orderFresh),
         commercialGiftHT: orderFresh.commercialGiftHT,
       });
 
@@ -840,6 +847,7 @@ export async function setOrderItemLineDiscount(
         carrierPrice: order.carrierPrice,
         clientDiscountType: order.clientDiscountType,
         clientDiscountValue: order.clientDiscountValue,
+        promoItemsDiscount: getPromoItemsDiscount(order),
         commercialGiftHT: order.commercialGiftHT,
       });
       await tx.order.update({

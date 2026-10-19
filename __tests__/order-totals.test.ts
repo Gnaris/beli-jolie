@@ -272,6 +272,73 @@ describe("recomputeOrderTotals — edge cases", () => {
   });
 });
 
+describe("recomputeOrderTotals — code promo items (snapshot checkout)", () => {
+  // Régression du bug « Reste à régler » affiché après usage d'un code promo :
+  // avant 2026-10-19, `subtotalHT` ignorait `promoDiscount`, donc le total
+  // recomposé en direct dépassait le TTC payé d'un équivalent code promo.
+  it("code -10 € sur 100 € HT : net 90 → TTC 108 (TVA 20%)", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 100 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+      promoItemsDiscount: 10,
+    });
+
+    expect(res.promoItemsDiscount).toBe(10);
+    expect(res.subtotalHT).toBe(90);
+    expect(res.tvaAmount).toBe(18);
+    expect(res.totalTTC).toBe(108);
+  });
+
+  it("code -10 € + remise commerciale -5 € : les deux cumulent (ordre Sage)", () => {
+    // 100 HT − 5 (remise) = 95 ; puis − 10 (code) = 85 ; TVA 17 → TTC 102.
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 100 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: "AMOUNT",
+      clientDiscountValue: 5,
+      promoItemsDiscount: 10,
+    });
+
+    expect(res.clientDiscountAmt).toBe(5);
+    expect(res.promoItemsDiscount).toBe(10);
+    expect(res.subtotalHT).toBe(85);
+    expect(res.totalTTC).toBe(102);
+  });
+
+  it("clampé si l'admin retire assez d'articles pour passer sous le code", () => {
+    // Items réduits à 3 € ; code -10 € ne peut pas rendre le HT négatif.
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 3 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+      promoItemsDiscount: 10,
+    });
+
+    expect(res.promoItemsDiscount).toBe(3);
+    expect(res.subtotalHT).toBe(0);
+    expect(res.totalTTC).toBe(0);
+  });
+
+  it("snapshot absent (commande historique) : promoItemsDiscount omis = 0", () => {
+    const res = recomputeOrderTotals({
+      items: [{ lineTotal: 100 }],
+      tvaRate: 0.2,
+      carrierPrice: 0,
+      clientDiscountType: null,
+      clientDiscountValue: null,
+    });
+
+    expect(res.promoItemsDiscount).toBe(0);
+    expect(res.subtotalHT).toBe(100);
+  });
+});
+
 describe("recomputeOrderTotals — TVA sur frais de port (art. 267 CGI)", () => {
   it("France 20% : TVA sur articles ET port", () => {
     const res = recomputeOrderTotals({
