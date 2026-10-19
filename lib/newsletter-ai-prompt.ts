@@ -17,6 +17,39 @@ import type { ScenarioKey } from "@/lib/newsletter-html-defaults";
 
 const HEADER = `Tu es un expert en emails HTML transactionnels. Génère-moi un modèle de mail HTML **compatible tous les clients mail** (Gmail, Outlook, Apple Mail, Yahoo).`;
 
+/**
+ * ⚠️ Section CRITIQUE à faire lire par l'IA AVANT toute autre instruction de
+ * templating. Notre moteur de rendu n'est PAS Handlebars/Mustache complet :
+ * il ne connaît QUE trois syntaxes (variables simple-accolade, boucles
+ * `{{#each}}`, conditions `{{#if}}`). Les helpers Handlebars non listés ci-
+ * dessous (`{{#unless}}`, `{{#with}}`, `{{lookup}}`, partials `{{> name}}`,
+ * sous-expressions `(helper arg)`…) sont LAISSÉS TELS QUELS dans le HTML
+ * final, et apparaissent en clair chez le destinataire — défaut qui a motivé
+ * l'ajout de cette section (modèle Issyma « retour en stock », 2026-10-17).
+ */
+const TEMPLATE_SYNTAX = `SYNTAXE DU MOTEUR DE RENDU — LIS CECI EN PREMIER :
+Notre moteur de template connaît **UNIQUEMENT trois syntaxes**. Toute autre construction (Handlebars, Mustache, Liquid, EJS…) sera **affichée en clair dans le mail du destinataire**, ce qui est inacceptable. **N'invente aucune autre syntaxe.**
+
+1. **Variables simples** : \`{token}\` (UNE paire d'accolades, pas deux). Exemple : \`{firstName}\`, \`{shopName}\`, \`{unsubscribeLink}\`. La liste exacte des tokens autorisés est donnée plus bas — n'invente pas de token qui n'y figure pas.
+
+2. **Boucles** : \`{{#each nom}}…{{/each}}\` (DOUBLES accolades) — uniquement pour les collections dynamiques \`cart\`, \`favorites\`, \`ordered\` (selon le scénario). À l'intérieur, les tokens de ligne sont \`{image}\`, \`{name}\`, \`{color}\`, \`{price}\`, \`{qty}\`, \`{total}\` (voir contexte scénario). **Une boucle vide s'évapore automatiquement — pas besoin de la cacher.**
+
+3. **Conditions** : \`{{#if token}}…{{/if}}\` et \`{{#if token}}…{{else}}…{{/if}}\` (DOUBLES accolades). Le \`token\` est un merge var (ex. \`favoritesCount\`, \`orderedCount\`). Règles de véracité (différentes de Handlebars) :
+   - **Falsy** = valeur absente, chaîne vide, "0", "false", "no", "non" ;
+   - **Truthy** = tout le reste (chaîne non vide ≠ "0").
+   Idéal pour cacher une **section entière** (ex. le bloc « Vos favoris » si le client n'a aucun favori revenu en stock : \`{{#if favoritesCount}} … {{/if}}\`). N'imbrique pas de \`{{#if}}\` dans un \`{{#each}}\` — ce n'est pas supporté.
+
+**INTERDIT — ces constructions ne seront PAS interprétées et apparaîtront en clair dans le mail reçu** :
+- \`{{#unless …}}\`, \`{{#with …}}\`, \`{{else if …}}\` (seul \`{{else}}\` nu est OK) ;
+- helpers Handlebars custom : \`{{formatDate …}}\`, \`{{t "clé"}}\`, \`{{#log}}\`, etc. ;
+- expressions / opérateurs dans un \`{{#if}}\` : \`{{#if (gt a b)}}\`, \`{{#if a && b}}\`, \`{{#if !token}}\` → **non supportés** ;
+- partials : \`{{> header}}\`, \`{{> footer}}\` ;
+- commentaires Handlebars : \`{{! commentaire}}\` ou \`{{!-- … --}}\` (utilise des commentaires HTML \`<!-- … -->\` à la place) ;
+- triple-accolade pour échappement : \`{{{html}}}\` ;
+- toute syntaxe Liquid (\`{%- if … -%}\`, \`{{ var | filter }}\`) ou EJS (\`<% … %>\`).
+
+Si tu as besoin de masquer un bloc selon la quantité de contenu, utilise **UNIQUEMENT** \`{{#if token}}…{{/if}}\` avec un des tokens de comptage fournis par le scénario (ex. \`{{#if favoritesCount}}\`, \`{{#if cartCount}}\`).`;
+
 const TECH_CONSTRAINTS = `CONTRAINTES TECHNIQUES OBLIGATOIRES :
 - Utilise \`<table>\` pour toute la mise en page (pas de flexbox ni grid — Outlook ne les comprend pas).
 - **Styles inline uniquement** (pas de <style> ni classes CSS externes — Gmail les supprime souvent).
@@ -220,7 +253,7 @@ Tokens dynamiques complémentaires (fortement recommandés) :
 - \`{cartMoreCount}\` : nombre d'articles **non affichés** dans la boucle si le panier dépasse 8 (ex. « 4 »). Vaut « 0 » sinon.
 - \`{cartMoreText}\` : phrase prête à coller quand des articles ne rentrent pas (ex. « … et 4 autres articles »). Vaut chaîne vide sinon.
 
-**Cap de 8 articles** : le renderer tronque automatiquement à 8 articles maximum côté serveur. Au-dessus, il expose \`{cartMoreText}\` (« … et N autres articles »). Ajoute TOUJOURS une ligne sobre juste sous la boucle pour afficher ce token — sinon un panier de 15 articles ne montrera que les 8 premiers sans indication.
+**Cap de 8 articles** : le renderer tronque automatiquement à 8 articles maximum côté serveur. Au-dessus, il expose \`{cartMoreText}\` (« … et N autres articles »). Ajoute TOUJOURS une ligne sobre juste sous la boucle pour afficher ce token, enveloppée dans \`{{#if cartMoreCount}} … {{/if}}\` pour qu'elle disparaisse quand le panier fait 8 articles ou moins.
 
 Exemple d'usage correct :
 \`\`\`html
@@ -238,7 +271,9 @@ Exemple d'usage correct :
   </tr>
   {{/each}}
 </table>
+{{#if cartMoreCount}}
 <p style="text-align:center;font-size:12px;color:#94a3b8;font-style:italic;">{cartMoreText}</p>
+{{/if}}
 <p style="text-align:right;font-weight:700;">Total ({cartCount} articles) : {cartTotal}</p>
 \`\`\``;
   }
@@ -265,6 +300,8 @@ Le mail propose DEUX sections distinctes, chacune nourrie par sa propre boucle :
 
 **⚠️ OBLIGATOIRE** : au moins UNE des deux boucles doit être présente, sinon le mail arrive vide. Dans chaque boucle, les tokens de ligne (\`{name}\`, \`{image}\`, \`{price}\`, \`{color}\`) sont les mêmes.
 
+**Cacher la section entière si vide — utilise \`{{#if}}\`** : si un client n'a aucun favori revenu en stock (uniquement des commandes passées), le bloc « Vos favoris » entier doit disparaître — titre inclus — sinon le mail affiche un titre suivi du vide. Enveloppe CHAQUE section complète dans \`{{#if favoritesCount}} … {{/if}}\` (resp. \`{{#if orderedCount}} … {{/if}}\`). Même règle pour la petite ligne « … et N autres » : enveloppe-la dans \`{{#if favoritesMoreCount}} … {{/if}}\` / \`{{#if orderedMoreCount}} … {{/if}}\`.
+
 Tokens de LIGNE (à placer DANS les boucles) :
 - \`{name}\` : nom du produit.
 - \`{image}\` : image du produit (toujours dans un \`<img src="{image}">\`).
@@ -282,9 +319,10 @@ Tokens de MAIL (hors des boucles) :
 
 **Ton recommandé** : la section favoris met en avant l'intention explicite d'achat (« Vos coups de cœur sont de retour »), la section commandés rappelle une expérience positive passée (« Vous aviez aimé — c'est de nouveau disponible »). Les deux sections peuvent être présentées en colonnes séparées, l'une après l'autre, ou avec un titre d'intercalaire.
 
-Exemple d'usage avec les deux sections :
+Exemple d'usage avec les deux sections (noter les \`{{#if}}\` qui cachent chaque bloc entier si le compteur est à 0) :
 \`\`\`html
-<!-- Section favoris -->
+<!-- Section favoris : disparaît complètement si le client n'a aucun favori revenu en stock -->
+{{#if favoritesCount}}
 <h2 style="font-size:16px;margin:0 0 8px 0;">Vos coups de cœur sont de retour</h2>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   {{#each favorites}}
@@ -300,9 +338,13 @@ Exemple d'usage avec les deux sections :
   </tr>
   {{/each}}
 </table>
+{{#if favoritesMoreCount}}
 <p style="font-size:12px;color:#94a3b8;font-style:italic;text-align:center;">{favoritesMoreText}</p>
+{{/if}}
+{{/if}}
 
-<!-- Section déjà commandés -->
+<!-- Section déjà commandés : disparaît complètement si rien à montrer ici -->
+{{#if orderedCount}}
 <h2 style="font-size:16px;margin:24px 0 8px 0;">Vous aviez déjà commandé ces produits</h2>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   {{#each ordered}}
@@ -318,7 +360,10 @@ Exemple d'usage avec les deux sections :
   </tr>
   {{/each}}
 </table>
+{{#if orderedMoreCount}}
 <p style="font-size:12px;color:#94a3b8;font-style:italic;text-align:center;">{orderedMoreText}</p>
+{{/if}}
+{{/if}}
 \`\`\``;
   }
 
@@ -341,6 +386,7 @@ export function buildAiPrompt({ description, scenario = null }: BuildAiPromptPar
 
   const parts: string[] = [
     HEADER,
+    TEMPLATE_SYNTAX,
     TECH_CONSTRAINTS,
     GRANULARITY_INSTRUCTIONS,
     IMG_INSTRUCTIONS,

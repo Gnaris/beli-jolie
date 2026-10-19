@@ -420,6 +420,65 @@ export interface HtmlDynamicContext {
 const EACH_REGEX = /\{\{\s*#each\s+([a-z]+)\s*\}\}([\s\S]*?)\{\{\s*\/each\s*\}\}/gi;
 
 /**
+ * Vrai si la valeur d'un token doit être considérée comme « falsy » pour un
+ * `{{#if token}}`. Convention produit (différente de Handlebars strict) :
+ *
+ *  - absence du token (undefined/null) → faux ;
+ *  - chaîne vide / espaces seuls → faux ;
+ *  - "0", "false", "no", "non" (insensible à la casse) → faux ;
+ *  - tout le reste → vrai.
+ *
+ * Le cas « "0" string = faux » est spécifiquement voulu : les tokens de
+ * comptage (`favoritesCount`, `orderedCount`, `favoritesMoreCount`,
+ * `orderedMoreCount`) sont injectés en String() depuis le worker, donc une
+ * section conditionnée par un comptage à 0 DOIT disparaître.
+ */
+function isTokenTruthy(value: string | undefined | null): boolean {
+  if (value === undefined || value === null) return false;
+  const trimmed = String(value).trim();
+  if (trimmed.length === 0) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower === "0" || lower === "false" || lower === "no" || lower === "non") return false;
+  return true;
+}
+
+// Match `{{#if TOKEN}}…{{/if}}` ou `{{#if TOKEN}}…{{else}}…{{/if}}`. Le token
+// suit la convention des merge vars (`{token}`) : lettres + chiffres + `_`.
+// Non-greedy + flag `s` (dotall émulé via `[\s\S]`) pour supporter plusieurs
+// conditions imbriquées à plat dans le même HTML. Casse tolérée via `i`.
+const IF_REGEX = /\{\{\s*#if\s+([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)(?:\{\{\s*else\s*\}\}([\s\S]*?))?\{\{\s*\/if\s*\}\}/gi;
+
+/**
+ * Développe toutes les conditions `{{#if token}}…{{/if}}` /
+ * `{{#if token}}…{{else}}…{{/if}}` en remplaçant chaque bloc par sa branche
+ * vraie ou fausse selon la valeur du token dans `context`. Règles de
+ * véracité : voir `isTokenTruthy`.
+ *
+ * Appliqué sur plusieurs passes tant que le HTML change — permet de gérer
+ * les conditions imbriquées (un `{{#if}}` à l'intérieur d'un `{{#each}}`
+ * déjà développé, ou deux `{{#if}}` dont la sortie en fait émerger un
+ * troisième). Garde-fou à 10 passes pour éviter une boucle infinie si une
+ * substitution génère de nouvelles conditions.
+ */
+export function expandConditionals(
+  html: string,
+  context: MailMergeContext,
+): string {
+  if (!html || !html.includes("{{")) return html;
+  let current = html;
+  for (let i = 0; i < 10; i++) {
+    const next = current.replace(IF_REGEX, (match, token: string, truthyBranch: string, falsyBranch?: string) => {
+      const truthy = isTokenTruthy(context[token]);
+      if (truthy) return truthyBranch;
+      return falsyBranch ?? "";
+    });
+    if (next === current) return next;
+    current = next;
+  }
+  return current;
+}
+
+/**
  * Placeholder SVG (rectangle gris avec un pictogramme photo) utilisé quand
  * un article de panier ou un favori n'a pas d'image en base. Encodé en URI
  * `data:` inline pour rester autonome (ni fetch réseau ni fichier statique).
@@ -632,14 +691,16 @@ export function absolutizeRelativeUrls(html: string, baseUrl: string): string {
 /**
  * Rendu final d'un modèle newsletter HTML pour l'envoi :
  *   1. développement des boucles `{{#each cart}}…{{/each}}` (scénarios dyn.),
- *   2. substitution des images de la bibliothèque ({{img.nom}}),
- *   3. interpolation des merge vars ({firstName}, {shopName}, {unsubscribeLink}…),
- *   4. absolutisation des URLs relatives (`<img src="/…">`, `<a href="/…">`).
+ *   2. résolution des conditions `{{#if token}}…{{/if}}` (branches cachées
+ *      si la valeur du token est falsy — ex: `favoritesCount` à 0),
+ *   3. substitution des images de la bibliothèque ({{img.nom}}),
+ *   4. interpolation des merge vars ({firstName}, {shopName}, {unsubscribeLink}…),
+ *   5. absolutisation des URLs relatives (`<img src="/…">`, `<a href="/…">`).
  *
  * L'ordre importe : les boucles d'abord (produisent du HTML qui peut contenir
- * des `{{img.nom}}` ou des `{merge}`), puis images, puis merge vars, puis
- * l'absolutisation en dernier (pour capturer aussi les URLs relatives issues
- * des merge vars).
+ * des `{{img.nom}}`, des `{{#if}}` ou des `{merge}`), puis conditions, puis
+ * images, puis merge vars, puis l'absolutisation en dernier (pour capturer
+ * aussi les URLs relatives issues des merge vars).
  *
  * Retourne le HTML tel qu'envoyé au destinataire — la cliente doit avoir
  * inclus son propre `<!doctype>` / `<html>` dans le source.
@@ -655,11 +716,12 @@ export function renderNewsletterHtmlForSend(params: {
   // pour signaler proprement les items non affichés en dessous de la boucle.
   const { dynamic: limited, extraMerge } = applyDynamicLimits(params.dynamic);
   const withIterations = expandIterations(params.html, limited, params.baseUrl);
-  const withImages = substituteTemplateImages(withIterations, params.images, params.baseUrl);
   // extraMerge en dernier : nos calculs de troncature font autorité — ils
   // sont dérivés directement de la longueur réelle du cart/favorites, un
   // caller n'a pas de raison légitime de les fournir en override.
   const merged: MailMergeContext = { ...(params.mergeContext ?? {}), ...extraMerge };
+  const withConditionals = expandConditionals(withIterations, merged);
+  const withImages = substituteTemplateImages(withConditionals, params.images, params.baseUrl);
   const withMergeVars = interpolate(withImages, merged);
   return absolutizeRelativeUrls(withMergeVars, params.baseUrl);
 }

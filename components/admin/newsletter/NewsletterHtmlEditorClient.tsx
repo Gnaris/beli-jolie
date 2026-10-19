@@ -47,6 +47,7 @@ import {
 import {
   applyDynamicLimits,
   countMarkdownCodeFences,
+  expandConditionals,
   expandIterations,
   stripMarkdownCodeFences,
   substituteTemplateImages,
@@ -238,11 +239,13 @@ export default function NewsletterHtmlEditorClient({ template, backUrl, onLeave 
   );
   const localPreview = useMemo(() => {
     // Même pipeline que l'envoi réel : troncature 8 max + tokens
-    // {cartMoreText}/{favoritesMoreText}, itérations, images, merge vars.
+    // {cartMoreText}/{favoritesMoreText}, itérations, conditions, images, merge vars.
     const { dynamic: limited, extraMerge } = applyDynamicLimits(previewDynamic);
     const withIter = expandIterations(htmlAnnotated, limited, "");
-    const withImages = substituteTemplateImages(withIter, images, "");
-    return interpolate(withImages, { ...previewContext, ...extraMerge });
+    const merged = { ...previewContext, ...extraMerge };
+    const withConditionals = expandConditionals(withIter, merged);
+    const withImages = substituteTemplateImages(withConditionals, images, "");
+    return interpolate(withImages, merged);
   }, [htmlAnnotated, images, previewContext, previewDynamic]);
 
   // ─── Aperçu client ───

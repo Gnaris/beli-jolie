@@ -3,6 +3,7 @@ import {
   absolutizeRelativeUrls,
   applyDynamicLimits,
   countMarkdownCodeFences,
+  expandConditionals,
   expandIterations,
   extractHrefs,
   extractImageTokens,
@@ -733,5 +734,88 @@ describe("validation footer marketing sur HTML", () => {
     const html = `{shopName} {shopAddress} {unsubscribeLink}`;
     const missing = missingRequiredMarketingVariables(html);
     expect(missing.map((v) => v.token)).toEqual(["privacyLink"]);
+  });
+});
+
+describe("expandConditionals", () => {
+  it("garde la branche vraie quand le token est non vide", () => {
+    const out = expandConditionals(`avant{{#if n}}DEDANS{{/if}}après`, { n: "3" });
+    expect(out).toBe(`avantDEDANSaprès`);
+  });
+
+  it("retire la branche quand le token est à '0' (convention produit)", () => {
+    const out = expandConditionals(`avant{{#if n}}DEDANS{{/if}}après`, { n: "0" });
+    expect(out).toBe(`avantaprès`);
+  });
+
+  it("retire la branche quand le token est absent du context", () => {
+    const out = expandConditionals(`avant{{#if absent}}DEDANS{{/if}}après`, {});
+    expect(out).toBe(`avantaprès`);
+  });
+
+  it("retire la branche quand le token est 'false' / 'no' / 'non' / '' (insensible à la casse)", () => {
+    expect(expandConditionals(`{{#if a}}X{{/if}}`, { a: "false" })).toBe("");
+    expect(expandConditionals(`{{#if a}}X{{/if}}`, { a: "FALSE" })).toBe("");
+    expect(expandConditionals(`{{#if a}}X{{/if}}`, { a: "no" })).toBe("");
+    expect(expandConditionals(`{{#if a}}X{{/if}}`, { a: "non" })).toBe("");
+    expect(expandConditionals(`{{#if a}}X{{/if}}`, { a: "   " })).toBe("");
+  });
+
+  it("supporte {{else}}", () => {
+    expect(
+      expandConditionals(`{{#if n}}OUI{{else}}NON{{/if}}`, { n: "5" }),
+    ).toBe("OUI");
+    expect(
+      expandConditionals(`{{#if n}}OUI{{else}}NON{{/if}}`, { n: "0" }),
+    ).toBe("NON");
+  });
+
+  it("tolère des espaces et différentes casses", () => {
+    const out = expandConditionals(
+      `{{ #if  flag }}X{{ /if }}{{#IF OTHER}}Y{{/IF}}`,
+      { flag: "1", OTHER: "oui" },
+    );
+    expect(out).toBe("XY");
+  });
+
+  it("plusieurs {{#if}} côte à côte sans se manger", () => {
+    const html = `{{#if a}}A{{/if}}|{{#if b}}B{{/if}}|{{#if c}}C{{/if}}`;
+    const out = expandConditionals(html, { a: "1", b: "0", c: "ok" });
+    expect(out).toBe(`A||C`);
+  });
+
+  it("renderNewsletterHtmlForSend cache les blocs {{#if}} vides", () => {
+    const html = `
+      <p>Toujours là</p>
+      {{#if favoritesCount}}<section>FAVORIS</section>{{/if}}
+      {{#if orderedCount}}<section>COMMANDES</section>{{/if}}
+    `;
+    const out = renderNewsletterHtmlForSend({
+      html,
+      images: [],
+      baseUrl: BASE,
+      mergeContext: { favoritesCount: "0", orderedCount: "2" },
+    });
+    expect(out).toContain("Toujours là");
+    expect(out).not.toContain("FAVORIS");
+    expect(out).toContain("COMMANDES");
+    // Les balises Handlebars ne doivent plus apparaître dans le HTML final.
+    expect(out).not.toContain("{{#if");
+    expect(out).not.toContain("{{/if}}");
+  });
+
+  it("{{#if favoritesCount}} enveloppant une boucle vide se résout correctement", () => {
+    const html = `before{{#if favoritesCount}}<ul>{{#each favorites}}<li>{name}</li>{{/each}}</ul>{{/if}}after`;
+    // 0 favoris : extraMerge pose favoritesCount via le pipeline interne,
+    // mais c'est au caller d'injecter la cohérence. On teste ici le cas où
+    // le worker injecte "0" explicitement et dynamic.favorites est vide.
+    const out = renderNewsletterHtmlForSend({
+      html,
+      images: [],
+      baseUrl: BASE,
+      mergeContext: { favoritesCount: "0" },
+      dynamic: { favorites: [] },
+    });
+    expect(out).toBe("beforeafter");
   });
 });
