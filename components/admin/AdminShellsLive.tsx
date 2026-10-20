@@ -114,8 +114,10 @@ export default function AdminShellsLive({
         shopName={shopName}
       />
 
-      <main className="flex-1 p-4 md:p-6 lg:p-8 lg:bg-white lg:min-h-screen">
-        {children}
+      <main className="flex-1 p-4 md:p-6 lg:p-3 lg:pl-0">
+        <div className="lg:bg-white lg:border lg:border-zinc-200/80 lg:rounded-2xl lg:shadow-sm lg:p-8 lg:min-h-[calc(100vh-120px)]">
+          {children}
+        </div>
       </main>
     </AdminDesktopShell>
   );

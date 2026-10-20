@@ -98,7 +98,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       pictureStationExpiresAtIso={microstoreExpirations.pictureStationExpiresAtIso}
     />
     <AdminHtmlThemeSync theme={adminTheme} />
-    <div id="admin-theme-wrapper" data-admin-theme={adminTheme} className={`min-h-screen flex bg-white pb-24 ${themeClass}`}>
+    <div id="admin-theme-wrapper" data-admin-theme={adminTheme} className={`min-h-screen flex pb-24 ${themeClass}`} style={{ background: "#F1F1F3" }}>
 
       <AdminShellsLive
         shopName={shopName}
