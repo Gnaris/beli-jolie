@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   // Next.js 16 bloque tout host non-`localhost` par défaut. Sans cette liste,
   // tester le site depuis un mobile sur le même Wi-Fi (`192.168.x.x`) casse
   // le HMR et affiche « Blocked cross-origin request ».
-  allowedDevOrigins: ["192.168.1.122"],
+  allowedDevOrigins: ["192.168.1.122", "*.trycloudflare.com"],
 
   // Lots d'images d'import produits (jusqu'à 50 fichiers par requête).
   // Défaut Next.js = 10 Mo → l'upload plante en « Failed to fetch ».

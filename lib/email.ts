@@ -385,6 +385,17 @@ async function persistEmailLog(input: {
 export async function sendMail(
   params: SendMailParams
 ): Promise<SendMailResult> {
+  // ⚠️ Kill switch TEMPORAIRE pour tester les notifications push PWA sans
+  // être inondée de mails. Posez `DISABLE_EMAILS=true` dans `.env` puis
+  // relancez le serveur. À RETIRER une fois les tests terminés.
+  if (process.env.DISABLE_EMAILS === "true") {
+    logger.info("[email] DISABLE_EMAILS actif — envoi ignoré", {
+      to: Array.isArray(params.to) ? params.to.join(", ") : params.to,
+      subject: params.subject,
+    });
+    return { sent: false, reason: "no_config" };
+  }
+
   const { connection, fromEmail: cfgFromEmail, fromName: cfgFromName } =
     await resolveSmtpConfig();
 

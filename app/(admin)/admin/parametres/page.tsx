@@ -63,6 +63,11 @@ import MailboxPasswordResetCard from "@/components/admin/settings/MailboxPasswor
 import PersonalEmailCard from "@/components/admin/settings/PersonalEmailCard";
 import WhatsappPairingCard from "@/components/admin/settings/WhatsappPairingCard";
 import AdminThemeToggle from "@/components/admin/settings/AdminThemeToggle";
+import PushNotificationsCard from "@/components/admin/settings/PushNotificationsCard";
+import PushPreferencesEditor from "@/components/admin/settings/PushPreferencesEditor";
+import { isPushConfigured } from "@/lib/push-notifications";
+import { getPushPreferences } from "@/lib/push-preferences-server";
+import { listMyPushDevices } from "@/app/actions/admin/push-subscriptions";
 import { getWhatsappSessionState } from "@/lib/whatsapp-session";
 import { getMailForwardStatus, getSmtpPublicConfig } from "@/app/actions/admin/mail-notify";
 import { getAdminPersonalEmailState } from "@/app/actions/admin/admin-personal-email";
@@ -129,6 +134,7 @@ export default async function ParametresPage({
     buildProduitTile(),
     buildMessagerieTile(),
     buildWhatsappTile(),
+    buildNotificationsTile(),
     buildTraductionTile(),
     buildCompteTile(),
     buildMaintenanceTile(),
@@ -1229,6 +1235,64 @@ async function buildWhatsappTile(): Promise<DashboardTile> {
 /* ═══════════════════════════════════════════════════════════════════════════
    TUILE 10 — Traduction automatique
    ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   TUILE — Notifications push (PWA)
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function buildNotificationsTile(): Promise<DashboardTile> {
+  // La page est server-rendered : on pré-charge la liste des appareils de
+  // l'admin connecté pour éviter un flash « 0 appareil » au premier render.
+  const pushConfigured = isPushConfigured();
+  const tenant = await requireCurrentTenant();
+  const [devices, preferences] = await Promise.all([
+    pushConfigured ? listMyPushDevices().catch(() => []) : Promise.resolve([]),
+    getPushPreferences(tenant.id),
+  ]);
+  const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null;
+
+  const status: TileStatus = !pushConfigured
+    ? { tone: "warn", label: "Non configuré" }
+    : devices.length > 0
+      ? { tone: "ok", label: `${devices.length} appareil${devices.length > 1 ? "s" : ""}` }
+      : { tone: "off", label: "Aucun appareil" };
+
+  const summary = !pushConfigured
+    ? "Clés VAPID absentes côté serveur"
+    : devices.length > 0
+      ? "Alertes temps réel actives sur vos appareils"
+      : "Installez le site sur votre écran d'accueil pour recevoir les alertes";
+
+  return {
+    key: "notifications",
+    status,
+    summary,
+    content: (
+      <CardsStack>
+        <SettingCard
+          icon={Ico.bell}
+          title="Notifications sur vos appareils"
+          description="Recevez une vraie notification Apple (ou Android/PC) à chaque nouvelle commande, nouvelle inscription, nouveau SAV ou nouveau message chat."
+          accent="dark"
+          status={status}
+        >
+          <PushNotificationsCard
+            publicVapidKey={publicVapidKey}
+            initialDevices={devices}
+          />
+        </SettingCard>
+
+        <SettingCard
+          icon={Ico.sparkles}
+          title="Personnaliser les alertes"
+          description="Choisissez quelles alertes vous recevez et modifiez le texte pour l'adapter à votre ton. Les variables entre accolades sont remplacées par les vraies valeurs."
+          accent="dark"
+        >
+          <PushPreferencesEditor initialPreferences={preferences} />
+        </SettingCard>
+      </CardsStack>
+    ),
+  };
+}
+
 async function buildTraductionTile(): Promise<DashboardTile> {
   const [pfsEmailRow, autoTranslateConfig] = await Promise.all([
     prisma.siteConfig.findFirst({ where: { key: "pfs_email" }, select: { key: true } }),

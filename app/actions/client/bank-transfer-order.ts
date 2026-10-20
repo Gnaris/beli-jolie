@@ -746,7 +746,14 @@ export async function placeBankTransferOrder(
     return { success: false, error: "Impossible de finaliser la commande. Merci de réessayer." };
   }
 
-  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
+  // tenantId posé explicitement (ALS non branchée dans certains contextes).
+  const btTenantIdForEvent = await getCurrentTenantId().catch(() => null);
+  emitAdminEvent({
+    type: "ORDER_NEW",
+    orderId: order.id,
+    orderNumber,
+    tenantId: btTenantIdForEvent ?? undefined,
+  });
 
   // ── Emails : notif admin + confirmation client (virement en attente
   //    OU commande reçue selon mode) ──────────────────────────────────

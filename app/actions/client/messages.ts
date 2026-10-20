@@ -12,6 +12,7 @@ import {
 import { emitChatEvent } from "@/lib/chat-events";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantId } from "@/lib/tenant";
 import { revalidateTag } from "next/cache";
 
 export async function createSupportConversation(
@@ -89,11 +90,16 @@ export async function createSupportConversation(
       });
     }
 
+    // tenantId posé explicitement — l'ALS n'est pas toujours branchée en
+    // server action, sinon le fallback renverrait null et l'event serait
+    // filtré par le stream SSE + les hooks push.
+    const createTidForEvent = await getCurrentTenantId().catch(() => null);
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId: conversation.id,
       userId: session.user.id,
       targetRole: "ADMIN",
+      tenantId: createTidForEvent ?? undefined,
       messageData: {
         id: initialMessage?.id ?? conversation.id,
         content: trimmedMessage,
@@ -158,11 +164,13 @@ export async function sendClientMessage(
       attachments,
     });
 
+    const sendTidForEvent = await getCurrentTenantId().catch(() => null);
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId,
       userId: session.user.id,
       targetRole: "ADMIN",
+      tenantId: sendTidForEvent ?? undefined,
       messageData: {
         id: message.id,
         content: content.trim(),

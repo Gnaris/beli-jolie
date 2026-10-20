@@ -164,6 +164,7 @@ model User {
   emailChangeTokens          EmailChangeToken[]
   whatsAppSendsReceived      WhatsAppSend[]                   @relation("WhatsAppSendRecipient")
   whatsAppSendsInitiated     WhatsAppSend[]                   @relation("WhatsAppSendAdmin")
+  pushSubscriptions          PushSubscription[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, siret])
@@ -3966,6 +3967,7 @@ model Tenant {
   customerReviews          CustomerReview[]
   whatsAppTemplates        WhatsAppTemplate[]
   whatsAppSends            WhatsAppSend[]
+  pushSubscriptions        PushSubscription[]
 
   @@index([isActive])
 }
@@ -4529,4 +4531,45 @@ model TenantDomain {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Notifications push (PWA Apple/Android/Desktop)
+// ─────────────────────────────────────────────
+// Chaque appareil installé sur l'écran d'accueil obtient 1 abonnement push.
+// Un même admin peut avoir plusieurs appareils (iPhone + Mac + bureau…).
+//
+// `endpoint` est l'URL unique fournie par le service push du constructeur
+// (apple.com, fcm.googleapis.com, autopush.mozilla.com…). On la stocke en
+// VarChar(500) : les URLs réelles font 150-300 chars + marge sécurité.
+// `p256dh` + `authKey` sont les clés de chiffrement du payload (public key
+// de la variante ECDH + secret 16 bytes).
+//
+// Scopé par tenant : les push d'une commande Issyma ne doivent jamais
+// atterrir sur l'iPhone de la boutique BJ (prod sert plusieurs tenants
+// depuis 1 instance). Vérifié via @@index(tenantId) côté envoi.
+// ─────────────────────────────────────────────
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Endpoint est globalement unique (chaque abonnement push a sa propre URL).
+  endpoint   String   @unique(length: 191) @db.VarChar(500)
+  p256dh     String   @db.VarChar(128)
+  authKey    String   @db.VarChar(32)
+  // User-Agent capturé à l'abonnement — permet d'afficher « iPhone de Boris »
+  // dans la liste des appareils liés côté UI Paramètres.
+  userAgent  String?  @db.Text
+  // Label libre modifiable par l'admin pour renommer un appareil.
+  label      String?
+  createdAt  DateTime @default(now())
+  // Mis à jour à chaque envoi réussi — permet de nettoyer les appareils
+  // qui n'ont pas répondu depuis des mois (hors cleanup auto 410).
+  lastUsedAt DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
 }

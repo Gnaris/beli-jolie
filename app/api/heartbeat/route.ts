@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { emitAdminEvent } from "@/lib/admin-events";
+import { getCurrentTenant } from "@/lib/tenant";
 import { ONLINE_WINDOW_MS } from "@/lib/online-status";
 
 /**
@@ -84,10 +85,15 @@ export async function POST(req: NextRequest) {
   });
 
   if (wasOffline) {
+    // tenantId posé explicitement : l'ALS n'est pas branchée dans les API
+    // routes Next, donc le fallback interne renverrait null et le stream
+    // SSE admin filtrerait l'event (fuite d'un tenant à l'autre évitée).
+    const currentTenant = await getCurrentTenant().catch(() => null);
     emitAdminEvent({
       type: "CLIENT_STATUS",
       userId: session.user.id,
       online: true,
+      tenantId: currentTenant?.id,
     });
   }
 

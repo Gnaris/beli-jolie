@@ -12,6 +12,8 @@ import {
   markAdminAlreadyNotifiedThisTurn,
 } from "@/lib/support-notify";
 import { emitChatEvent } from "@/lib/chat-events";
+import { sendPushToAdmins } from "@/lib/push-notifications";
+import { getCurrentTenant } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
 
 type ClaimAttachmentInput = { fileName: string; filePath: string; fileSize: number; mimeType: string };
@@ -173,6 +175,40 @@ export async function createClaim(input: CreateClaimInput) {
       orderNumber,
       reportedItems,
     }).catch((err) => logger.error("[createClaim] Email admin échoué", { error: err }));
+
+    // Push PWA « Nouveau SAV » vers les iPhone/Mac/PC admin — en plus du mail.
+    // Respecte les préférences admin (toggle claim_new + template custom).
+    // Fire-and-forget : on résout le tenant maintenant car l'IIFE sort du
+    // contexte requête (ALS perdu).
+    const createClaimTenant = await getCurrentTenant().catch(() => null);
+    if (createClaimTenant) {
+      const tenantIdForPush = createClaimTenant.id;
+      const clientLabel = user.company
+        || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
+        || "Un client";
+      void (async () => {
+        try {
+          const { getPushPreferences } = await import("@/lib/push-preferences-server");
+          const { renderTemplate } = await import("@/lib/push-preferences");
+          const prefs = await getPushPreferences(tenantIdForPush);
+          if (!prefs.claim_new.enabled) return;
+          const values = {
+            customer: clientLabel,
+            subject: subject.length > 100 ? subject.slice(0, 97) + "…" : subject,
+            reference,
+          };
+          await sendPushToAdmins(tenantIdForPush, {
+            title: renderTemplate(prefs.claim_new.title, values),
+            body: renderTemplate(prefs.claim_new.body, values),
+            url: `/admin/sav/${reference}`,
+            tag: `claim-${claim.id}`,
+            requireInteraction: true,
+          });
+        } catch (err) {
+          logger.error("[createClaim] Push admin échoué", { error: err });
+        }
+      })();
+    }
 
     // Mail « nouveau ticket » déjà parti. On pose un marqueur SENT côté admin
     // pour la règle « 1 mail par tour » : si le client renvoie un message
@@ -350,12 +386,14 @@ export async function sendClientMessage(
     });
   }
 
+  const claimMsgTidForEvent = (await getCurrentTenant().catch(() => null))?.id;
   emitChatEvent({
     type: "NEW_MESSAGE",
     conversationId: claim.conversation.id,
     userId: session.user.id,
     targetRole: "ADMIN",
     context: "claim",
+    tenantId: claimMsgTidForEvent,
     messageData: {
       id: message.id,
       content: message.content,

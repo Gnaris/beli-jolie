@@ -1082,8 +1082,16 @@ export async function placeOrder(
   }
 
   // Push temps réel vers /admin/commandes ouvert dans un onglet admin.
-  // tenantId capturé via ALS (contexte requête courant).
-  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
+  // tenantId posé explicitement — l'ALS n'étant pas toujours branchée en
+  // server action, le fallback interne peut renvoyer null et l'event
+  // serait filtré par le stream SSE + les hooks push.
+  const orderTenantIdForEvent = await getCurrentTenantId().catch(() => null);
+  emitAdminEvent({
+    type: "ORDER_NEW",
+    orderId: order.id,
+    orderNumber,
+    tenantId: orderTenantIdForEvent ?? undefined,
+  });
 
   // ── Emails (fire-and-forget) ─────────────────
   // Notif admin (mail léger sans PDF — voir lib/notifications.ts) + confirmation client.

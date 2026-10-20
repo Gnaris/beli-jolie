@@ -843,7 +843,14 @@ export async function placePaymentLinkOrder(
     });
   }
 
-  emitAdminEvent({ type: "ORDER_NEW", orderId: order.id, orderNumber });
+  // tenantId posé explicitement (ALS non branchée dans certains contextes).
+  const plTenantIdForEvent = await getCurrentTenantId().catch(() => null);
+  emitAdminEvent({
+    type: "ORDER_NEW",
+    orderId: order.id,
+    orderNumber,
+    tenantId: plTenantIdForEvent ?? undefined,
+  });
 
   notifyAdminNewOrder({ orderId: order.id }).catch((err) =>
     logger.error("[placePaymentLinkOrder] Notif admin error", { error: err }),

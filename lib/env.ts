@@ -30,6 +30,17 @@ const envSchema = z.object({
   // Clé Easy-Express et identifiants PFS / eFashion : uniquement dans
   // Admin > Paramètres (chiffrés en BDD). La traduction utilise les
   // identifiants PFS — plus de clé séparée.
+
+  // ── Notifications push (PWA) ────────────────────────────────────────────────
+  // Clés VAPID — identifient l'application serveur auprès des services push
+  // (FCM/Apple/Mozilla). Générées une fois pour toute l'instance, partagées
+  // par toutes les boutiques. Optionnelles : sans elles, les boutons
+  // d'activation s'affichent en "Non configuré" sans crasher.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
+  // Variante publique pour le client (service worker + bouton d'abonnement).
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
 });
 
 type Env = z.infer<typeof envSchema>;

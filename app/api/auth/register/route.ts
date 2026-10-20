@@ -469,8 +469,17 @@ export async function POST(request: NextRequest) {
 
     revalidateTag("users", "default");
 
-    // Push temps réel vers /admin/clients ouvert dans un onglet admin
-    emitAdminEvent({ type: "CLIENT_NEW", userId: newUser.id });
+    // Push temps réel vers /admin/clients ouvert dans un onglet admin.
+    // tenantId posé explicitement : l'ALS n'est pas branchée dans les API
+    // routes Next (seul le middleware pose les headers tenant), donc le
+    // fallback `getCurrentTenantIdSync()` interne renvoie null et l'event
+    // serait filtré par le stream SSE + les hooks push.
+    const currentTenant = await requireCurrentTenant().catch(() => null);
+    emitAdminEvent({
+      type: "CLIENT_NEW",
+      userId: newUser.id,
+      tenantId: currentTenant?.id,
+    });
 
     const message = resolvedStatus === "APPROVED"
       ? "Votre compte a été approuvé immédiatement. Vous pouvez dès maintenant vous connecter."

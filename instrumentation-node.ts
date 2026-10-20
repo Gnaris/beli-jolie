@@ -19,6 +19,20 @@ const g = globalThis as Record<symbol, unknown>;
 if (!g[GUARD]) {
   g[GUARD] = true;
 
+  // Abonne les hooks push PWA au bus d'événements interne (admin-events +
+  // chat-events). Idempotent — guard par symbole global dans push-hooks.
+  // Pas de setTimeout : les hooks doivent être prêts AVANT que le serveur
+  // ne commence à servir les requêtes (sinon on louperait les events qui
+  // tomberaient pendant les 5 premières secondes).
+  void (async () => {
+    try {
+      const { registerPushHooks } = await import("@/lib/push-hooks");
+      registerPushHooks();
+    } catch (err) {
+      logger.error("[push-hooks] Enregistrement échoué", { error: err as Error });
+    }
+  })();
+
   // VPS 2 cœurs : on bride sharp à 1 thread par opération pour qu'un import
   // d'images PFS ne sature pas la machine et laisse un cœur disponible
   // pour servir les visiteurs. Aucun impact sur la qualité — seulement la

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
+    "cloudflare": "C:\\PROGRA~2\\CLOUDF~1\\CLOUDF~1.EXE tunnel --url http://127.0.0.1:3000",
     "build": "next build --turbopack",
     "start": "node -r dotenv/config node_modules/next/dist/bin/next start",
     "lint": "eslint",
@@ -21,6 +22,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jszip": "^3.4.0",
     "@types/nodemailer": "^7.0.11",
+    "@types/web-push": "^3.6.4",
     "baileys": "^7.0.0-rc14",
     "bcryptjs": "^3.0.3",
     "exceljs": "^4.4.0",
@@ -39,6 +41,7 @@
     "recharts": "^3.8.0",
     "sharp": "^0.34.5",
     "stripe": "^20.4.1",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
