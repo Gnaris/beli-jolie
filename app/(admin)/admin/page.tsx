@@ -1,309 +1,445 @@
 import type { Metadata } from "next";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import {
-  getDashboardOverview,
-  countryFlagEmoji,
-  type TopCountry,
-} from "@/lib/dashboard-overview";
-import MonthlyRevenueChart from "@/components/admin/dashboard/MonthlyRevenueChart";
+import Link from "next/link";
+import { getDashboardOverview, countryFlagEmoji } from "@/lib/dashboard-overview";
+import DashboardKpiCard from "@/components/admin/dashboard/DashboardKpiCard";
+import DashboardRevenueChart from "@/components/admin/dashboard/DashboardRevenueChart";
+import DashboardCategoryDonut from "@/components/admin/dashboard/DashboardCategoryDonut";
+import DashboardStatusDonut from "@/components/admin/dashboard/DashboardStatusDonut";
 
-export const metadata: Metadata = {
-  title: "Tableau de bord — Admin",
-};
-
+export const metadata: Metadata = { title: "Tableau de bord — Admin" };
 export const dynamic = "force-dynamic";
 
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(n));
+function fmtMoney(n: number): string {
+  return new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+}
+function fmtInt(n: number): string {
+  return new Intl.NumberFormat("fr-FR").format(n);
+}
+function fmtPct(n: number, digits = 1): string {
+  return `${(n * 100).toFixed(digits).replace(".", ",")} %`;
+}
+function fmtRelative(d: Date): string {
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `il y a ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `il y a ${days} j`;
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+function orderStatusChip(status: "PENDING" | "SHIPPED" | "CANCELLED") {
+  switch (status) {
+    case "SHIPPED": return { label: "Expédiée", cls: "bg-emerald-100 text-emerald-700" };
+    case "PENDING": return { label: "En préparation", cls: "bg-amber-100 text-amber-700" };
+    case "CANCELLED": return { label: "Annulée", cls: "bg-rose-100 text-rose-700" };
+  }
 }
 
-function formatPercent(n: number): string {
-  return `${(n * 100).toFixed(1).replace(".", ",")} %`;
-}
-
-/* ─────────────────────────────────────────────────────────────────
- * Dashboard admin — style V14 minimal moderne (refonte 2026-10-21)
- *
- * Layout en 3 rangées :
- *   1. Salutation « Bonjour, [prénom] »
- *   2. HÉRO bleu marine (col-7) : CA total XL · CTA blanc
- *      + Colonne droite (col-5) : CA du jour (blanc) empilé avec
- *        Visiteurs du jour (bleu pâle poudré)
- *   3. Top 3 pays (col-5, 1 pays accentué bleu pâle + 2 blanc) ·
- *      Graphique CA mensuel (col-7)
- *
- * Palette non-négociable : blanc, bleu marine #1E3A5F,
- * bleu pâle #E8EEF5, noir #18181B. Vert émeraude autorisé
- * uniquement pour les chips d'évolution positive.
- *
- * Les cartes aux fonds colorés custom (marine + bleu pâle)
- * portent `admin-fab-preserve` : les règles CSS globales de
- * dark mode ignorent ce bloc et le fond reste identique.
- * ─────────────────────────────────────────────────────────── */
-export default async function AdminDashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ annee?: string }>;
-}) {
-  const session = await getServerSession(authOptions);
-  const sp = await searchParams;
-  const requestedYear = sp.annee ? parseInt(sp.annee, 10) : undefined;
-  const yearParam = Number.isFinite(requestedYear) ? requestedYear : undefined;
-
-  const data = await getDashboardOverview(yearParam);
-
-  const firstName = session?.user.name?.split(" ")[0] ?? "Admin";
-
-  const todayLabel = new Date().toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "short",
-  });
+export default async function AdminDashboardPage() {
+  const data = await getDashboardOverview();
+  const monthRange = (() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const fmt = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+    return `${fmt(start)} – ${fmt(end)}`;
+  })();
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5 md:space-y-6">
-      {/* ─── Salutation ─────────────────────────────────────── */}
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="font-heading text-[28px] md:text-[32px] font-bold leading-tight tracking-tight text-text-primary">
-            Bonjour,{" "}
-            <span
-              className="italic font-normal text-zinc-500"
-              style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
-            >
-              {firstName}
-            </span>
-          </h1>
-          <p className="text-[13px] font-body text-text-muted mt-1">
-            Voici l&apos;activité de votre boutique aujourd&apos;hui.
-          </p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white text-[11px] font-body font-semibold text-zinc-600">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Mis à jour à l&apos;instant
-        </span>
-      </div>
+    // Neutralise le wrapper blanc du shell admin : fond slate pour laisser
+    // "flotter" les cartes de la maquette.
+    <div className="lg:-m-8 lg:p-6 lg:bg-slate-50 lg:rounded-2xl lg:min-h-[calc(100vh-180px)]">
+      <div className="max-w-[1800px] mx-auto space-y-4">
 
-      {/* ─── Ligne 1 : HÉRO marine + colonne droite empilée ──── */}
-      <div className="grid grid-cols-12 gap-5">
-        {/* HÉRO bleu marine — CA total */}
-        <div
-          className="admin-fab-preserve col-span-12 lg:col-span-7 rounded-[32px] p-7 md:p-8 min-h-[320px] text-white flex flex-col justify-between relative overflow-hidden"
-          style={{
-            background:
-              "radial-gradient(circle at 85% -10%, rgba(255,255,255,0.12), transparent 55%), radial-gradient(circle at -10% 110%, rgba(255,255,255,0.07), transparent 55%), #1E3A5F",
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.25em] opacity-70">
-                Chiffre d&apos;affaires total
-              </p>
-              <p
-                className="text-sm italic mt-1 opacity-80"
-                style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
-              >
-                depuis l&apos;ouverture
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <p className="font-heading text-[64px] md:text-[88px] font-bold leading-none tracking-tight tabular-nums">
-              {formatMoney(data.totalRevenue)}
-              <span className="text-[40px] md:text-[52px] opacity-70"> €</span>
-            </p>
-            <p className="text-[13px] font-body mt-4 opacity-80">
-              {data.totalOrdersCount} commande{data.totalOrdersCount > 1 ? "s" : ""} au total
+        {/* ─── Entête ──────────────────────────────────────────── */}
+        <header className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-heading text-[22px] md:text-[26px] font-bold tracking-tight text-text-primary">
+              Tableau de bord
+            </h1>
+            <p className="text-[12px] text-text-muted mt-1">
+              Voici un aperçu de votre activité e-commerce aujourd&apos;hui.
             </p>
           </div>
-
-          <div className="mt-6 md:mt-8 flex items-center gap-3 flex-wrap">
-            <a
-              href="/admin/commandes"
-              className="inline-flex items-center gap-2 bg-white text-zinc-900 rounded-full px-5 py-2.5 text-[13px] font-body font-semibold hover:-translate-y-0.5 transition-transform"
-            >
-              Voir les commandes
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                strokeWidth={2.2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-              </svg>
-            </a>
-          </div>
-        </div>
-
-        {/* Colonne droite : CA du jour + Visiteurs empilés */}
-        <div className="col-span-12 lg:col-span-5 grid grid-rows-2 gap-5">
-          {/* CA du jour — carte blanche */}
-          <div className="bg-white rounded-[32px] p-6 md:p-7 flex flex-col justify-between min-h-[148px]">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] text-zinc-500">
-                Aujourd&apos;hui
-              </p>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 text-[10.5px] font-body font-semibold text-zinc-500 tabular-nums">
-                {todayLabel}
-              </span>
-            </div>
-            <div>
-              <p className="font-heading text-[40px] md:text-[48px] font-bold leading-none tracking-tight tabular-nums text-text-primary">
-                {formatMoney(data.todayRevenue)}
-                <span className="text-[24px] md:text-[28px] text-zinc-400"> €</span>
-              </p>
-              <p className="text-[12px] font-body text-text-muted mt-2">
-                {data.todayOrdersCount} commande{data.todayOrdersCount > 1 ? "s" : ""} aujourd&apos;hui
-              </p>
-            </div>
-          </div>
-
-          {/* Visiteurs — carte bleu pâle poudré */}
-          <div
-            className="admin-fab-preserve rounded-[32px] p-6 md:p-7 min-h-[148px]"
-            style={{ background: "#E8EEF5", color: "#1E3A5F" }}
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 bg-white border border-zinc-200 rounded-xl px-3 py-2 text-[11.5px] font-medium text-zinc-600 shadow-sm cursor-default"
           >
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] opacity-70">
-                Visiteurs du jour
-              </p>
-              <span className="font-heading text-[32px] md:text-[36px] font-bold leading-none tabular-nums">
-                {data.todayVisits.total}
-              </span>
-            </div>
-            <div className="mt-5 md:mt-6 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[10.5px] font-body font-semibold uppercase tracking-[0.18em] opacity-65">
-                  Connectés
-                </p>
-                <p className="font-heading text-[20px] md:text-[22px] font-bold tabular-nums mt-1">
-                  {data.todayVisits.authenticated}
-                </p>
-              </div>
-              <div
-                className="pl-4 border-l"
-                style={{ borderColor: "rgba(30,58,95,0.25)" }}
-              >
-                <p className="text-[10.5px] font-body font-semibold uppercase tracking-[0.18em] opacity-65">
-                  Anonymes
-                </p>
-                <p className="font-heading text-[20px] md:text-[22px] font-bold tabular-nums mt-1">
-                  {data.todayVisits.anonymous}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
+            {monthRange}
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M5 7l5 5 5-5H5z" /></svg>
+          </button>
+        </header>
 
-      {/* ─── Ligne 2 : Top 3 pays + Graphique CA mensuel ──────── */}
-      <div className="grid grid-cols-12 gap-5">
-        {/* Top 3 pays (empilé — #1 en accent bleu pâle) */}
-        <div className="col-span-12 lg:col-span-5 space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] text-zinc-500">
-              Top 3 pays
-            </p>
-            <span
-              className="text-[10.5px] text-zinc-500 italic"
-              style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
-            >
-              depuis le début
-            </span>
-          </div>
-          <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => {
-              const country: TopCountry | undefined = data.topCountries[i];
-              if (!country) {
-                return (
-                  <div
-                    key={`empty-${i}`}
-                    className="rounded-[24px] border border-dashed border-zinc-300 bg-white/40 min-h-[86px] flex items-center justify-center"
-                  >
-                    <span className="text-[11px] font-body text-zinc-400">
-                      Pas encore de données
-                    </span>
-                  </div>
-                );
-              }
-              const flag = countryFlagEmoji(country.code);
-              const isFirst = i === 0;
+        {/* ─── KPIs ────────────────────────────────────────────── */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <DashboardKpiCard kpi={data.kpis.totalRevenue} />
+          <DashboardKpiCard kpi={data.kpis.todayRevenue} />
+          <DashboardKpiCard kpi={data.kpis.totalOrders} />
+          <DashboardKpiCard kpi={data.kpis.uniqueClients} />
+        </section>
 
-              if (isFirst) {
+        {/* ─── Évolution + Répartition ventes ──────────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(260px,1fr)] gap-3">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">
+                Évolution du chiffre d&apos;affaires
+              </h2>
+              <div className="flex items-center gap-3 text-[10px] text-zinc-500">
+                <span className="flex items-center gap-1.5"><i className="w-1.5 h-1.5 rounded-full bg-[#246bfe]" />Chiffre d&apos;affaires</span>
+                <span className="flex items-center gap-1.5"><i className="w-1.5 h-1.5 rounded-full bg-[#08a66a]" />Commandes</span>
+              </div>
+            </div>
+            <div className="px-2 pb-3">
+              <DashboardRevenueChart points={data.dailyRevenue} />
+            </div>
+          </article>
+
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Répartition des ventes</h2>
+              <Link href="/admin/categories" className="text-[10px] text-[#246bfe] hover:underline">
+                Détails →
+              </Link>
+            </div>
+            <DashboardCategoryDonut slices={data.categoryBreakdown} total={data.categoryTotal} />
+          </article>
+        </section>
+
+        {/* ─── Top produits · Ventes catégories · Statut ──────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-[1.25fr_1.25fr_.95fr] gap-3">
+          {/* Top produits */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Top 5 des produits les plus vendus</h2>
+              <Link href="/admin/produits" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
+            </div>
+            <div className="overflow-x-auto px-3 pb-3">
+              {data.topProducts.length === 0 ? (
+                <p className="text-[11px] text-text-muted p-4">Pas encore de ventes.</p>
+              ) : (
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-zinc-500 text-[9.5px] uppercase tracking-wider">
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 w-6">#</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100">Produit</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Ventes</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">CA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topProducts.map((p, i) => (
+                      <tr key={p.reference} className="border-b border-zinc-50 last:border-0">
+                        <td className="py-2.5 px-2 text-zinc-500 font-medium">{i + 1}</td>
+                        <td className="py-2.5 px-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-md bg-zinc-100 grid place-items-center overflow-hidden shrink-0">
+                              {p.imagePath ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={p.imagePath} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs text-zinc-400">◇</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-semibold text-text-primary truncate max-w-[180px]">{p.name}</div>
+                              <div className="text-[9.5px] text-zinc-400 truncate">{p.reference}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtInt(p.sales)}</td>
+                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtMoney(p.revenue)} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+
+          {/* Ventes par catégorie */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Ventes par catégorie</h2>
+              <Link href="/admin/categories" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
+            </div>
+            <div className="overflow-x-auto px-3 pb-3">
+              {data.categoryBreakdown.length === 0 ? (
+                <p className="text-[11px] text-text-muted p-4">Aucune donnée.</p>
+              ) : (
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-zinc-500 text-[9.5px] uppercase tracking-wider">
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100">Catégorie</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Ventes</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">CA</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.categoryBreakdown.map((c) => (
+                      <tr key={c.name} className="border-b border-zinc-50 last:border-0">
+                        <td className="py-2.5 px-2">
+                          <span className="inline-flex items-center gap-2 text-text-primary font-medium">
+                            <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
+                            {c.name}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtInt(c.sales)}</td>
+                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtMoney(c.revenue)} €</td>
+                        <td className="py-2.5 px-2 text-right text-zinc-500 tabular-nums">{fmtPct(c.share)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+
+          {/* Statut commandes */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Statut des commandes</h2>
+            </div>
+            <DashboardStatusDonut slices={data.orderStatus} total={data.orderStatusTotal} />
+          </article>
+        </section>
+
+        {/* ─── Stock faible · Activité · Marketing ────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {/* Stock faible */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Stock — produits en faible quantité</h2>
+              <Link href="/admin/produits" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
+            </div>
+            <div className="overflow-x-auto px-3 pb-3">
+              {data.lowStock.length === 0 ? (
+                <p className="text-[11px] text-text-muted p-4">Aucun produit en alerte stock.</p>
+              ) : (
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-zinc-500 text-[9.5px] uppercase tracking-wider">
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100">Produit</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Stock</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Seuil</th>
+                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.lowStock.map((v) => {
+                      const sevLabel = v.severity === "critical" ? "Critique" : v.severity === "low" ? "Faible" : "À surveiller";
+                      const sevCls = v.severity === "warn" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700";
+                      return (
+                        <tr key={v.productId + v.colorLabel} className="border-b border-zinc-50 last:border-0">
+                          <td className="py-2.5 px-2">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-md bg-zinc-100 overflow-hidden grid place-items-center shrink-0">
+                                {v.imagePath ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={v.imagePath} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-xs text-zinc-400">◇</span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-text-primary truncate max-w-[160px]">{v.name}</div>
+                                <div className="text-[9.5px] text-zinc-400 truncate">{v.colorLabel}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-semibold text-rose-600 tabular-nums">{v.stock}</td>
+                          <td className="py-2.5 px-2 text-right text-zinc-500 tabular-nums">{v.threshold}</td>
+                          <td className="py-2.5 px-2 text-right">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${sevCls}`}>
+                              {sevLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </article>
+
+          {/* Activité récente */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Activité récente</h2>
+            </div>
+            <div className="px-4 pb-4 space-y-3">
+              {data.activity.length === 0 ? (
+                <p className="text-[11px] text-text-muted">Pas d&apos;activité récente.</p>
+              ) : data.activity.map((e, i) => {
+                const icon =
+                  e.kind === "order_new" ? "🛒"
+                  : e.kind === "order_shipped" ? "🚚"
+                  : e.kind === "user_new" ? "👤"
+                  : "📦";
                 return (
-                  <div
-                    key={country.code}
-                    className="admin-fab-preserve rounded-[24px] p-5 flex items-center gap-4"
-                    style={{ background: "#E8EEF5", color: "#1E3A5F" }}
-                  >
-                    <span className="text-[42px] leading-none">{flag || "🏳️"}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-body font-semibold text-[14px] truncate">
-                          {country.name}
-                        </p>
-                        <span
-                          className="inline-flex items-center px-2 py-0.5 rounded-full bg-white text-[10px] font-body font-bold shrink-0"
-                          style={{ color: "#1E3A5F" }}
-                        >
-                          #1
-                        </span>
+                  <div key={i} className="flex items-start gap-2.5">
+                    <span className="w-7 h-7 rounded-lg bg-blue-50 text-[#246bfe] grid place-items-center text-[13px] shrink-0">{icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-semibold text-text-primary truncate">{e.title}</div>
+                      <div className="text-[10px] text-text-muted">
+                        {e.detail} · {fmtRelative(e.at)}
                       </div>
-                      <p className="font-heading text-[22px] md:text-[26px] font-bold mt-0.5 tabular-nums tracking-tight">
-                        {formatMoney(country.amount)} €
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-heading text-[16px] md:text-[18px] font-bold tabular-nums">
-                        {formatPercent(country.share)}
-                      </p>
-                      <p className="text-[10.5px] opacity-70">du CA</p>
                     </div>
                   </div>
                 );
-              }
+              })}
+            </div>
+          </article>
 
-              return (
-                <div
-                  key={country.code}
-                  className="bg-white rounded-[24px] p-5 flex items-center gap-4"
-                >
-                  <span className="text-[36px] leading-none">{flag || "🏳️"}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-body font-semibold text-[14px] text-text-primary truncate">
-                        {country.name}
-                      </p>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-[10px] font-body font-bold text-zinc-600 shrink-0">
-                        #{i + 1}
+          {/* Performances marketing */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Performances marketing</h2>
+            </div>
+            <div className="grid grid-cols-3 gap-3 px-4 pb-3">
+              <div className="pr-3 border-r border-zinc-100">
+                <div className="text-[9px] text-text-muted uppercase tracking-wider">Visites 30j</div>
+                <div className="text-[15px] font-bold text-text-primary tabular-nums mt-1">{fmtInt(data.marketing.visits)}</div>
+              </div>
+              <div className="pr-3 border-r border-zinc-100">
+                <div className="text-[9px] text-text-muted uppercase tracking-wider">Conversion</div>
+                <div className="text-[15px] font-bold text-text-primary tabular-nums mt-1">{fmtPct(data.marketing.conversionRate, 2)}</div>
+              </div>
+              <div>
+                <div className="text-[9px] text-text-muted uppercase tracking-wider">Panier moyen</div>
+                <div className="text-[15px] font-bold text-text-primary tabular-nums mt-1">{fmtMoney(data.marketing.avgBasket)} €</div>
+              </div>
+            </div>
+            <div className="px-4 pb-4">
+              <div className="flex items-end gap-1.5 h-[90px] border-b border-zinc-100 pb-2">
+                {data.marketing.weeklyVisits.map((b, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full">
+                    <div
+                      className="w-full rounded-t-md bg-[#5a91ff] min-h-[6px] mt-auto transition-all"
+                      style={{ height: `${Math.max(b.pct, 6)}%` }}
+                      title={`${b.label} : ${b.count} visites`}
+                    />
+                    <span className="text-[9px] text-text-muted">{b.label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[9.5px] text-text-muted mt-2">Visites par jour · 7 derniers jours</p>
+            </div>
+          </article>
+        </section>
+
+        {/* ─── Commandes · Clients · Géographie ───────────────── */}
+        <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          {/* Commandes récentes */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Commandes récentes</h2>
+              <Link href="/admin/commandes" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
+            </div>
+            <div className="px-4 pb-3">
+              {data.recentOrders.length === 0 ? (
+                <p className="text-[11px] text-text-muted py-4">Aucune commande.</p>
+              ) : data.recentOrders.map((o) => {
+                const chip = orderStatusChip(o.status);
+                return (
+                  <Link
+                    key={o.orderNumber}
+                    href={`/admin/commandes/${o.orderNumber}`}
+                    className="grid grid-cols-[1fr_auto] items-center gap-3 py-2.5 border-b border-zinc-50 last:border-0 hover:bg-zinc-50/60 rounded-md -mx-2 px-2 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[10.5px] font-semibold text-text-primary">#{o.orderNumber}</div>
+                      <div className="text-[9.5px] text-text-muted">{fmtRelative(o.createdAt)}</div>
+                    </div>
+                    <div className="text-right flex flex-col items-end gap-1">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${chip.cls}`}>
+                        {chip.label}
+                      </span>
+                      <span className="text-[10.5px] font-semibold text-text-primary tabular-nums">
+                        {fmtMoney(o.totalTTC)} €
                       </span>
                     </div>
-                    <p className="font-heading text-[20px] md:text-[22px] font-bold mt-0.5 tabular-nums tracking-tight text-text-primary">
-                      {formatMoney(country.amount)} €
-                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          </article>
+
+          {/* Clients récents */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Clients récents</h2>
+              <Link href="/admin/clients" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
+            </div>
+            <div className="px-4 pb-3">
+              {data.recentCustomers.length === 0 ? (
+                <p className="text-[11px] text-text-muted py-4">Aucun client.</p>
+              ) : data.recentCustomers.map((c) => (
+                <Link
+                  key={c.id}
+                  href={`/admin/clients/${c.id}`}
+                  className="flex items-center gap-3 py-2.5 border-b border-zinc-50 last:border-0 hover:bg-zinc-50/60 rounded-md -mx-2 px-2 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-800 grid place-items-center text-[10px] font-bold shrink-0">
+                    {c.initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10.5px] font-semibold text-text-primary truncate">{c.name}</div>
+                    <div className="text-[9.5px] text-text-muted truncate">{c.email}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-[14px] md:text-[15px] font-bold tabular-nums text-zinc-700">
-                      {formatPercent(country.share)}
-                    </p>
-                    <p className="text-[10.5px] text-zinc-400">du CA</p>
+                    <div className="text-[10.5px] font-semibold text-text-primary tabular-nums">
+                      {c.spend > 0 ? `${fmtMoney(c.spend)} €` : "—"}
+                    </div>
+                    <div className="text-[9px] text-text-muted">{fmtRelative(c.signedUpAt)}</div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                </Link>
+              ))}
+            </div>
+          </article>
 
-        {/* Graphique CA mensuel */}
-        <div className="col-span-12 lg:col-span-7">
-          <MonthlyRevenueChart
-            monthlyRevenue={data.monthlyRevenue}
-            activeYear={data.activeYear}
-            availableYears={data.availableYears}
-          />
-        </div>
+          {/* Répartition géographique */}
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between gap-3 p-4 pb-2">
+              <h2 className="text-[13px] font-semibold text-text-primary">Répartition géographique</h2>
+            </div>
+            <div className="px-4 pb-4">
+              <div
+                aria-hidden
+                className="relative h-[110px] rounded-xl mb-3 grid place-items-center text-[32px] overflow-hidden"
+                style={{ background: "linear-gradient(135deg,#edf5ff,#dfeeff)", color: "#4d86e7" }}
+              >
+                <span
+                  className="absolute border border-[#bcd5fb] rounded-full"
+                  style={{ width: 180, height: 90, transform: "rotate(-20deg)" }}
+                />
+                <span
+                  className="absolute border border-[#bcd5fb] rounded-full"
+                  style={{ width: 230, height: 65, transform: "rotate(25deg)" }}
+                />
+                <span className="relative">🌐</span>
+              </div>
+              {data.topCountries.length === 0 ? (
+                <p className="text-[11px] text-text-muted">Pas encore de ventes.</p>
+              ) : data.topCountries.map((c) => (
+                <div key={c.code} className="flex items-center gap-2.5 py-1.5 text-[11px]">
+                  <span className="text-[14px] leading-none">{countryFlagEmoji(c.code) || "🏳️"}</span>
+                  <span className="text-text-primary">{c.name}</span>
+                  <span className="ml-auto font-semibold text-text-primary tabular-nums">{fmtPct(c.share)}</span>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
       </div>
     </div>
   );
