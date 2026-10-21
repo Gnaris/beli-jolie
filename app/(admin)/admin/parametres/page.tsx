@@ -1243,11 +1243,32 @@ async function buildNotificationsTile(): Promise<DashboardTile> {
   // l'admin connecté pour éviter un flash « 0 appareil » au premier render.
   const pushConfigured = isPushConfigured();
   const tenant = await requireCurrentTenant();
-  const [devices, preferences] = await Promise.all([
+  const [devices, preferences, baseUrl] = await Promise.all([
     pushConfigured ? listMyPushDevices().catch(() => []) : Promise.resolve([]),
     getPushPreferences(tenant.id),
+    getCurrentTenantBaseUrl(),
   ]);
   const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null;
+
+  // URL + QR code pour « Ajouter un autre appareil » : on construit un lien
+  // vers cette même carte, que l'admin peut scanner avec son autre téléphone
+  // ou copier dans un SMS pour lui-même. Chaque appareil s'abonne lui-même
+  // via `pushManager.subscribe()` — on ne peut pas enregistrer un appareil
+  // à distance, il faut physiquement l'ouvrir sur chaque appareil.
+  const addDeviceUrl = `${baseUrl.replace(/\/$/, "")}/admin/parametres?open=notifications`;
+  let addDeviceQrPng: string | null = null;
+  if (pushConfigured) {
+    try {
+      const QRCode = (await import("qrcode")).default;
+      addDeviceQrPng = await QRCode.toDataURL(addDeviceUrl, {
+        margin: 1,
+        width: 220,
+        errorCorrectionLevel: "M",
+      });
+    } catch {
+      /* non critique : la section s'affichera sans QR */
+    }
+  }
 
   const status: TileStatus = !pushConfigured
     ? { tone: "warn", label: "Non configuré" }
@@ -1277,6 +1298,8 @@ async function buildNotificationsTile(): Promise<DashboardTile> {
           <PushNotificationsCard
             publicVapidKey={publicVapidKey}
             initialDevices={devices}
+            addDeviceUrl={addDeviceUrl}
+            addDeviceQrPng={addDeviceQrPng}
           />
         </SettingCard>
 

@@ -37,9 +37,16 @@ type SupportState =
 interface Props {
   publicVapidKey: string | null;
   initialDevices: PushDeviceDTO[];
+  addDeviceUrl: string;
+  addDeviceQrPng: string | null;
 }
 
-export default function PushNotificationsCard({ publicVapidKey, initialDevices }: Props) {
+export default function PushNotificationsCard({
+  publicVapidKey,
+  initialDevices,
+  addDeviceUrl,
+  addDeviceQrPng,
+}: Props) {
   const [support, setSupport] = useState<SupportState>("checking");
   const [permission, setPermission] = useState<PermissionState>("default");
   const [subscribed, setSubscribed] = useState(false);
@@ -202,6 +209,15 @@ export default function PushNotificationsCard({ publicVapidKey, initialDevices }
     });
   }
 
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(addDeviceUrl);
+      toast.success("Lien copié", "Collez-le dans un SMS ou un e-mail à vous-même pour l'ouvrir sur l'autre appareil.");
+    } catch {
+      toast.error("Erreur", "Impossible de copier automatiquement, sélectionnez le lien à la main.");
+    }
+  }
+
   function handleSendTest() {
     startTransition(async () => {
       const res = await sendTestPushNotification();
@@ -285,6 +301,68 @@ export default function PushNotificationsCard({ publicVapidKey, initialDevices }
           </ul>
         </div>
       )}
+
+      {support !== "no-vapid" && support !== "unsupported" && (
+        <AddDeviceSection
+          qrPng={addDeviceQrPng}
+          url={addDeviceUrl}
+          onCopy={handleCopyLink}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddDeviceSection({
+  qrPng,
+  url,
+  onCopy,
+}: {
+  qrPng: string | null;
+  url: string;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-bg-secondary/40 p-4">
+      <h4 className="font-heading font-bold text-sm text-text-primary mb-1">
+        Ajouter un autre appareil
+      </h4>
+      <p className="text-[12.5px] text-text-muted font-body leading-relaxed mb-3">
+        Chaque appareil (iPhone, iPad, Mac, PC…) doit activer lui-même les
+        notifications. Scannez ce QR code avec l&apos;appareil photo de
+        votre autre appareil, ou copiez le lien et ouvrez-le dessus. Puis
+        cliquez « Activer » sur ce nouvel appareil.
+      </p>
+      <div className="flex flex-col sm:flex-row items-start gap-4">
+        {qrPng && (
+          <img
+            src={qrPng}
+            alt="QR code vers la page notifications"
+            width={140}
+            height={140}
+            className="rounded-xl bg-white p-2 border border-border shrink-0"
+          />
+        )}
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="truncate text-[11.5px] bg-bg-primary rounded-md border border-border px-2 py-1 font-mono max-w-full">
+              {url}
+            </code>
+            <button
+              type="button"
+              onClick={onCopy}
+              className="text-[11px] font-body font-bold uppercase tracking-[0.14em] text-text-primary hover:underline"
+            >
+              Copier le lien
+            </button>
+          </div>
+          <p className="text-[11.5px] text-text-muted font-body leading-relaxed">
+            <strong>Sur iPhone/iPad :</strong> ouvrez le lien dans Safari →
+            Partager → « Sur l&apos;écran d&apos;accueil ». Rouvrez ensuite
+            le site depuis la nouvelle icône, puis cliquez « Activer ».
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
