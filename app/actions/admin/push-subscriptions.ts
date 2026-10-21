@@ -30,6 +30,7 @@ export interface PushDeviceDTO {
   id: string;
   label: string | null;
   userAgent: string | null;
+  endpoint: string;
   createdAt: string;
   lastUsedAt: string;
 }
@@ -160,6 +161,7 @@ export async function listMyPushDevices(): Promise<PushDeviceDTO[]> {
       id: true,
       label: true,
       userAgent: true,
+      endpoint: true,
       createdAt: true,
       lastUsedAt: true,
     },
@@ -169,6 +171,7 @@ export async function listMyPushDevices(): Promise<PushDeviceDTO[]> {
     id: r.id,
     label: r.label,
     userAgent: r.userAgent,
+    endpoint: r.endpoint,
     createdAt: r.createdAt.toISOString(),
     lastUsedAt: r.lastUsedAt.toISOString(),
   }));

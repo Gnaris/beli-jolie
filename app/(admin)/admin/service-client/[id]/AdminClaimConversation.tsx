@@ -433,7 +433,7 @@ export default function AdminClaimConversation({
 
             <div className="rounded-2xl bg-white border border-border overflow-hidden shadow-sm">
               <textarea
-                rows={3}
+                rows={6}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}

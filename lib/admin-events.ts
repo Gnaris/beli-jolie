@@ -28,6 +28,13 @@ export interface AdminEvent {
   userId?: string;
   /** Pour CLIENT_STATUS */
   online?: boolean;
+  /**
+   * Pour CLIENT_NEW — statut final décidé par les règles d'inscription
+   * (PENDING = attente d'un admin, APPROVED/REJECTED = décision auto).
+   * Permet au push admin de préciser dans la notif si le dossier attend
+   * ou s'il a été tranché automatiquement.
+   */
+  clientStatus?: "PENDING" | "APPROVED" | "REJECTED";
   /** Pour ORDER_NEW */
   orderId?: string;
   orderNumber?: string;

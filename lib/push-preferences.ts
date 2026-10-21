@@ -28,6 +28,12 @@ export const PUSH_EVENT_TYPES: PushEventType[] = ["order_new", "client_new", "cl
 
 export interface PushEventPreference {
   enabled: boolean;
+  /**
+   * Doublon mail de la notification push. Par défaut `true` — la cliente a
+   * demandé à pouvoir couper les mails devenus redondants avec le push PWA
+   * (iPhone/Mac) sans perdre la notif push elle-même.
+   */
+  emailEnabled: boolean;
   title: string;
   body: string;
 }
@@ -42,7 +48,7 @@ export type PushPreferences = Record<PushEventType, PushEventPreference>;
  */
 export const PUSH_EVENT_PLACEHOLDERS: Record<PushEventType, readonly string[]> = {
   order_new:    ["customer", "amount", "orderNumber"],
-  client_new:   ["customer"],
+  client_new:   ["customer", "statusLabel"],
   claim_new:    ["customer", "subject", "reference"],
   chat_message: ["sender", "preview"],
 };
@@ -60,6 +66,7 @@ export const PUSH_EVENT_PREVIEW_VALUES: Record<string, string> = {
   reference: "SAV-2026-0012",
   sender: "Marie Dupont",
   preview: "Bonjour, est-ce que la commande est toujours en préparation ?",
+  statusLabel: "en attente de validation",
 };
 
 /**
@@ -91,21 +98,25 @@ export const PUSH_EVENT_LABELS: Record<PushEventType, { title: string; descripti
 export const DEFAULT_PUSH_PREFERENCES: PushPreferences = {
   order_new: {
     enabled: true,
+    emailEnabled: true,
     title: "Nouvelle commande · {amount}",
     body: "{customer} · {orderNumber}",
   },
   client_new: {
     enabled: true,
+    emailEnabled: true,
     title: "Nouvelle inscription",
-    body: "{customer} vient de créer un compte.",
+    body: "{customer} vient de créer un compte · {statusLabel}",
   },
   claim_new: {
     enabled: true,
+    emailEnabled: true,
     title: "Nouveau SAV · {customer}",
     body: "{subject}",
   },
   chat_message: {
     enabled: true,
+    emailEnabled: true,
     // Titre affiché selon contexte : pour un SAV existant on affiche
     // « Nouveau SAV · … » ; pour un chat normal, « Message · … ». Le lib
     // choisit le bon template côté push-hooks selon event.context.
@@ -158,6 +169,10 @@ export function parsePushPreferences(raw: string): PushPreferences {
     if (!entry || typeof entry !== "object") continue;
     result[type] = {
       enabled: typeof entry.enabled === "boolean" ? entry.enabled : DEFAULT_PUSH_PREFERENCES[type].enabled,
+      emailEnabled:
+        typeof entry.emailEnabled === "boolean"
+          ? entry.emailEnabled
+          : DEFAULT_PUSH_PREFERENCES[type].emailEnabled,
       title: typeof entry.title === "string" && entry.title.trim() ? entry.title : DEFAULT_PUSH_PREFERENCES[type].title,
       body: typeof entry.body === "string" && entry.body.trim() ? entry.body : DEFAULT_PUSH_PREFERENCES[type].body,
     };

@@ -31,6 +31,7 @@ import { tenantALS } from "@/lib/tenant-als";
 import { logger } from "@/lib/logger";
 import { getPushPreferences } from "@/lib/push-preferences-server";
 import { renderTemplate, type PushEventType } from "@/lib/push-preferences";
+import { clientRegistrationStatusLabel } from "@/lib/registration-status-label";
 
 const GUARD = Symbol.for("beliandjolie.push-hooks.installed");
 
@@ -97,14 +98,19 @@ async function dispatchAdminEvent(event: AdminEvent): Promise<void> {
     const user = await tenantALS.run(tenantId, async () => {
       return prisma.user.findFirst({
         where: { id: event.userId },
-        select: { company: true, firstName: true, lastName: true },
+        select: { company: true, firstName: true, lastName: true, status: true },
       });
     });
     if (!user) return;
+    // Statut porté par l'event (posé juste après la création) ; fallback sur
+    // la lecture BDD si l'émetteur n'a pas rempli le champ — par ex. test ou
+    // ancien callsite non migré.
+    const resolvedStatus = event.clientStatus ?? user.status ?? "PENDING";
     const values = {
       customer: user.company
         || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()
         || "Un visiteur",
+      statusLabel: clientRegistrationStatusLabel(resolvedStatus),
     };
     await sendPushToAdmins(tenantId, {
       title: renderTemplate(prefs.client_new.title, values),

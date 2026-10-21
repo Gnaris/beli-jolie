@@ -170,4 +170,61 @@ describe("BulkActionBar — bouton « Tout synchroniser »", () => {
     fireEvent.click(screen.getByText("Tout synchroniser"));
     expect(onSyncAll).toHaveBeenCalledTimes(1);
   });
+
+  it("laisse le panneau Marketplaces ouvert après « Tout synchroniser »", () => {
+    render(
+      <BulkActionBar
+        {...baseProps}
+        selectedProducts={[
+          mkProduct({ id: "1", status: "ONLINE", pfsProductId: "pfs-1" }),
+        ]}
+        onSyncAll={() => {}}
+      />,
+    );
+    openMarketplacePanel();
+    fireEvent.click(screen.getByText("Tout synchroniser"));
+    expect(screen.getByRole("dialog", { name: "Actions marketplaces" })).toBeInTheDocument();
+  });
+
+  it("laisse le panneau Marketplaces ouvert après « Synchroniser » sur une marketplace", () => {
+    const onMarketplaceSync = vi.fn();
+    render(
+      <BulkActionBar
+        {...baseProps}
+        onMarketplaceSync={onMarketplaceSync}
+        selectedProducts={[
+          mkProduct({
+            id: "1",
+            status: "ONLINE",
+            pfsProductId: "pfs-1",
+            pfsSyncRequired: true,
+          }),
+        ]}
+      />,
+    );
+    openMarketplacePanel();
+    const syncButton = screen.getAllByText("Synchroniser")[0];
+    fireEvent.click(syncButton);
+    expect(onMarketplaceSync).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Actions marketplaces" })).toBeInTheDocument();
+  });
+
+  it("laisse le panneau Marketplaces ouvert après « Publier » sur une marketplace", () => {
+    const onMarketplacePublish = vi.fn();
+    render(
+      <BulkActionBar
+        {...baseProps}
+        onMarketplacePublish={onMarketplacePublish}
+        selectedProducts={[
+          // Produit ONLINE non lié à PFS => bouton « Publier » dispo pour PFS.
+          mkProduct({ id: "1", status: "ONLINE" }),
+        ]}
+      />,
+    );
+    openMarketplacePanel();
+    const publishButton = screen.getAllByText("Publier")[0];
+    fireEvent.click(publishButton);
+    expect(onMarketplacePublish).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog", { name: "Actions marketplaces" })).toBeInTheDocument();
+  });
 });

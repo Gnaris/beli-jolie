@@ -3968,6 +3968,8 @@ model Tenant {
   whatsAppTemplates        WhatsAppTemplate[]
   whatsAppSends            WhatsAppSend[]
   pushSubscriptions        PushSubscription[]
+  transactionalEmailOverrides        TransactionalEmailOverride[]
+  transactionalEmailOverrideLocales  TransactionalEmailOverrideLocale[]
 
   @@index([isActive])
 }
@@ -4199,6 +4201,56 @@ model NewsletterTemplateImage {
   createdAt  DateTime           @default(now())
 
   @@unique([templateId, name])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// TransactionalEmailOverride — personnalisation admin d'un mail
+// transactionnel (OTP connexion, mot de passe oublié, confirmation
+// commande, notif admin, etc.).
+//
+// Clé = (tenantId, scenarioKey). Absence de ligne = utilise le modèle
+// par défaut du code (lib/transactional-email-defaults/*). Le bouton
+// « Revenir au modèle par défaut » supprime simplement la ligne.
+//
+// `subject` + `html` portent la version FR (défaut). Chaque langue
+// supplémentaire vit dans `TransactionalEmailOverrideLocale`. À l'envoi,
+// la locale cible est résolue (user.locale), avec cascade :
+// locale cible → FR → défaut hardcoded.
+// ─────────────────────────────────────────────
+model TransactionalEmailOverride {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  scenarioKey String   @db.VarChar(60) // "PASSWORD_RESET", "LOGIN_OTP", "ORDER_CREATED"…
+  subject     String   @db.VarChar(500) // FR
+  html        String   @db.LongText // FR
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  locales TransactionalEmailOverrideLocale[]
+
+  @@unique([tenantId, scenarioKey])
+  @@index([tenantId, updatedAt])
+}
+
+// ─────────────────────────────────────────────
+// Versions non-FR d'un override transactionnel (EN / DE / ES / IT).
+// `html` nullable : la ligne existe dès que l'admin ouvre l'onglet,
+// même sans contenu. Fallback : locale cible → vide/absent → FR.
+// ─────────────────────────────────────────────
+model TransactionalEmailOverrideLocale {
+  id         String                     @id @default(cuid())
+  tenantId   String
+  tenant     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  overrideId String
+  override   TransactionalEmailOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  locale     String                     @db.VarChar(2) // "en" | "de" | "es" | "it"
+  subject    String                     @db.VarChar(500)
+  html       String?                    @db.LongText
+  updatedAt  DateTime                   @updatedAt
+
+  @@unique([overrideId, locale])
   @@index([tenantId])
 }
 

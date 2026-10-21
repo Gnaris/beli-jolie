@@ -36,6 +36,7 @@ import { getStripeInstance, isStripeConfigured } from "@/lib/stripe";
 import { sendMail } from "@/lib/email";
 import { getCachedShopName } from "@/lib/cached-data";
 import { resolveNotifyEmail } from "@/lib/notifications";
+import { renderTransactionalEmail } from "@/lib/transactional-email-render";
 
 const POLL_MS = 60 * 60 * 1000; // 1 heure
 const WINDOW_START_OFFSET_MS = 2 * 60 * 60 * 1000; // -2h
@@ -220,43 +221,24 @@ async function notifyAdmin(
   ]);
   if (!notifyEmail) return;
 
-  const html = `
-    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1A1A;">
-      <div style="background:#B91C1C;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
-        <h2 style="margin:0;font-size:18px;">⚠️ Paiement Stripe orphelin détecté</h2>
-        <p style="margin:6px 0 0;opacity:0.9;font-size:13px;">${escape(tenantName)}</p>
-      </div>
-      <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-        <p style="font-size:15px;line-height:1.6;margin:0 0 14px;">
-          Un client a été <strong>débité de ${escape(amountEur)} €</strong> mais aucune
-          commande n'apparaît côté boutique.
-        </p>
-        <table style="width:100%;font-size:13px;line-height:1.6;margin:0 0 16px;border-collapse:collapse;">
-          <tr><td style="padding:4px 0;color:#666;">PaymentIntent</td><td style="padding:4px 0;font-family:monospace;">${escape(pi.id)}</td></tr>
-          <tr><td style="padding:4px 0;color:#666;">Montant</td><td style="padding:4px 0;">${escape(amountEur)} €</td></tr>
-          <tr><td style="padding:4px 0;color:#666;">Email client</td><td style="padding:4px 0;">${escape(receiptEmail ?? "—")}</td></tr>
-          <tr><td style="padding:4px 0;color:#666;">Date paiement</td><td style="padding:4px 0;">${new Date(pi.created * 1000).toLocaleString("fr-FR")}</td></tr>
-        </table>
-        <p style="font-size:13px;line-height:1.6;margin:0 0 14px;color:#B91C1C;">
-          <strong>Action requise :</strong> vérifiez si une commande a été créée manuellement
-          côté admin. Sinon, connectez-vous au dashboard Stripe pour rembourser le client OU
-          créer la commande recovery.
-        </p>
-        <p style="font-size:12px;color:#666;margin:0;">
-          Cette alerte se répète chaque 24h tant que le PaymentIntent reste orphelin.
-        </p>
-      </div>
-      <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-        ${escape(shopName)} — Alerte automatique (tenant : ${escape(tenantSlug)})
-      </p>
-    </div>
-  `;
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "ADMIN_ORPHAN_PAYMENT_INTENT",
+    vars: {
+      amount: escape(amountEur),
+      paymentIntentId: escape(pi.id),
+      receiptEmail: escape(receiptEmail ?? "—"),
+      paymentDate: escape(new Date(pi.created * 1000).toLocaleString("fr-FR")),
+      tenantName: escape(tenantName),
+      tenantSlug: escape(tenantSlug),
+      shopName: escape(shopName),
+    },
+  });
 
   await sendMail({
     fromName: shopName,
     to: notifyEmail,
-    subject: `⚠️ Paiement orphelin ${amountEur} € — ${pi.id}`,
-    html,
+    subject: rendered.subject,
+    html: rendered.html,
   });
 }
 

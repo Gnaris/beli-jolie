@@ -19,6 +19,12 @@ import { decryptIfSensitive } from "@/lib/encryption";
 import { derivePublicContactEmail } from "@/lib/public-contact-email";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
 import { buildProductHandle } from "@/lib/product-url";
+import { renderTransactionalEmail } from "@/lib/transactional-email-render";
+import { isAdminEmailEnabled } from "@/lib/push-preferences-server";
+import {
+  clientRegistrationStatusLabel,
+  type ClientRegistrationStatus,
+} from "@/lib/registration-status-label";
 
 function escapeHtml(str: string): string {
   return str
@@ -86,11 +92,16 @@ interface NewClientInfo {
   kbisPath?: string; // chemin relatif stocké en base, ex: private/uploads/kbis/kbis_XXX.pdf
   documentPath?: string; // document complémentaire, ex: private/uploads/documents/doc_XXX.pdf
   registrationMessage?: string; // message libre saisi lors de l'inscription
+  /** Statut final décidé par les règles d'inscription — permet de dire dans
+   *  le mail si le dossier attend une validation manuelle ou s'il a été
+   *  tranché automatiquement. Défaut PENDING pour rétrocompat. */
+  status?: ClientRegistrationStatus;
 }
 
 export async function notifyNewClientRegistration(
   client: NewClientInfo
 ): Promise<void> {
+  if (!(await isAdminEmailEnabled("client_new"))) return;
   const [shopName, notifyEmail, baseUrl] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -126,52 +137,44 @@ export async function notifyNewClientRegistration(
     ? `<p style="margin-top:8px;color:#4B5563;font-size:13px;">Un document complémentaire est également joint.</p>`
     : "";
 
+  const status: ClientRegistrationStatus = client.status ?? "PENDING";
+  const statusLabel = clientRegistrationStatusLabel(status);
+  // Bandeau coloré en haut du mail : vert = validé auto, ambre = attente,
+  // rouge = refusé auto. Permet de repérer en 1 coup d'œil quoi faire.
+  const STATUS_COLORS: Record<ClientRegistrationStatus, { bg: string; border: string; text: string }> = {
+    APPROVED: { bg: "#ECFDF5", border: "#A7F3D0", text: "#065F46" },
+    PENDING:  { bg: "#FFFBEB", border: "#FDE68A", text: "#92400E" },
+    REJECTED: { bg: "#FEF2F2", border: "#FECACA", text: "#991B1B" },
+  };
+  const sc = STATUS_COLORS[status];
+  const statusBlock = `<div style="margin:16px 0;padding:12px 16px;background:${sc.bg};border:1px solid ${sc.border};border-radius:8px;color:${sc.text};font-size:13px;font-weight:bold;">Statut du dossier : ${escapeHtml(statusLabel)}</div>`;
+
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "ADMIN_NEW_REGISTRATION",
+    vars: {
+      firstName: escapeHtml(client.firstName),
+      lastName: escapeHtml(client.lastName),
+      company: escapeHtml(client.company),
+      email: escapeHtml(client.email),
+      phone: escapeHtml(client.phone),
+      siret: client.siret
+        ? escapeHtml(client.siret)
+        : "<em style='color:#9CA3AF;'>Non renseigné (client hors France)</em>",
+      messageBlock,
+      kbisNote,
+      docNote,
+      statusLabel: escapeHtml(statusLabel),
+      statusBlock,
+      adminUrl: `${baseUrl}/admin/clients`,
+      shopName: escapeHtml(shopName),
+    },
+  });
+
   await sendMail({
     fromName: shopName,
     to: notifyEmail,
-    subject: `Nouvelle inscription client — ${client.company}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-        <h2 style="color:#1A1A1A;border-bottom:2px solid #E5E7EB;padding-bottom:10px;">
-          Nouvelle demande d'inscription
-        </h2>
-        <p>Un nouveau client vient de s'inscrire sur la plateforme B2B ${escapeHtml(shopName)}.</p>
-        <table style="width:100%;border-collapse:collapse;margin-top:16px;">
-          <tr style="background:#F3F4F6;">
-            <td style="padding:10px 14px;font-weight:bold;width:40%;">Prénom / Nom</td>
-            <td style="padding:10px 14px;">${escapeHtml(client.firstName)} ${escapeHtml(client.lastName)}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 14px;font-weight:bold;">Société</td>
-            <td style="padding:10px 14px;">${escapeHtml(client.company)}</td>
-          </tr>
-          <tr style="background:#F3F4F6;">
-            <td style="padding:10px 14px;font-weight:bold;">Email</td>
-            <td style="padding:10px 14px;">${escapeHtml(client.email)}</td>
-          </tr>
-          <tr>
-            <td style="padding:10px 14px;font-weight:bold;">Téléphone</td>
-            <td style="padding:10px 14px;">${escapeHtml(client.phone)}</td>
-          </tr>
-          <tr style="background:#F3F4F6;">
-            <td style="padding:10px 14px;font-weight:bold;">SIRET</td>
-            <td style="padding:10px 14px;">${client.siret ? escapeHtml(client.siret) : "<em style='color:#9CA3AF;'>Non renseigné (client hors France)</em>"}</td>
-          </tr>
-          ${messageBlock}
-        </table>
-        ${kbisNote}
-        ${docNote}
-        <div style="margin-top:20px;">
-          <a href="${baseUrl}/admin/clients"
-             style="background:#1A1A1A;color:#ffffff;padding:12px 24px;text-decoration:none;font-weight:bold;display:inline-block;">
-            Examiner le dossier →
-          </a>
-        </div>
-        <p style="margin-top:24px;color:#9CA3AF;font-size:12px;">
-          ${escapeHtml(shopName)} — Administration
-        </p>
-      </div>
-    `,
+    subject: rendered.subject,
+    html: rendered.html,
     attachments,
   });
 }
@@ -187,62 +190,17 @@ interface OrderStatusEmailData {
   hasAdjustments?: boolean;
 }
 
-const STATUS_CONFIG: Record<string, {
-  subject: (orderNumber: string, shopName: string) => string;
-  heading: string;
-  message: (orderNumber: string) => string;
-  color: string;
-  icon: string;
-}> = {
-  PENDING: {
-    subject: (num, shop) => `${shop} — Confirmation de votre commande ${num}`,
-    heading: "Merci pour votre commande",
-    message: (num) =>
-      `Nous avons bien reçu votre commande <strong>${escapeHtml(num)}</strong>. Elle sera prise en charge par notre équipe dans les plus brefs délais. Vous recevrez un email dès qu'elle sera expédiée.`,
-    color: "#1A1A1A",
-    icon: "🧾",
-  },
-  VALIDATED: {
-    subject: (num, shop) => `${shop} — Votre commande ${num} est prête à être expédiée`,
-    heading: "Votre commande a été validée",
-    message: (num) =>
-      `Votre commande <strong>${escapeHtml(num)}</strong> a été validée par notre équipe et est prête à être expédiée. Vous recevrez un nouvel email dès qu'elle sera envoyée.`,
-    color: "#2563EB",
-    icon: "✅",
-  },
-  SHIPPED: {
-    subject: (num, shop) => `${shop} — Commande ${num} expédiée`,
-    heading: "Votre commande a été expédiée",
-    message: (num) =>
-      `Votre commande <strong>${escapeHtml(num)}</strong> a été expédiée ! Elle est en route vers votre adresse de livraison.`,
-    color: "#374151",
-    icon: "🚚",
-  },
-  CANCELLED: {
-    subject: (num, shop) => `${shop} — Commande ${num} annulée`,
-    heading: "Votre commande a été annulée",
-    message: (num) =>
-      `Votre commande <strong>${escapeHtml(num)}</strong> a été annulée. Si vous avez des questions, n'hésitez pas à nous contacter.`,
-    color: "#DC2626",
-    icon: "❌",
-  },
-  BANK_TRANSFER_PENDING: {
-    subject: (num, shop) => `${shop} — Commande ${num} en attente de votre virement`,
-    heading: "Merci pour votre commande",
-    message: (num) =>
-      `Nous avons bien enregistré votre commande <strong>${escapeHtml(num)}</strong>. Pour finaliser, il vous reste à effectuer votre virement bancaire aux coordonnées ci-dessous. La commande sera préparée et expédiée dès réception du virement.`,
-    color: "#D97706",
-    icon: "🏦",
-  },
-  BANK_TRANSFER_CONFIRMED: {
-    subject: (num, shop) => `${shop} — Virement reçu, commande ${num} en préparation`,
-    heading: "Nous avons bien reçu votre virement",
-    message: (num) =>
-      `Votre virement pour la commande <strong>${escapeHtml(num)}</strong> a bien été reçu. Elle est désormais en cours de préparation et sera expédiée sous peu — vous recevrez un email dès qu'elle sera en route.`,
-    color: "#059669",
-    icon: "✅",
-  },
-};
+// Mapping statut → clé de scénario éditable.
+const STATUS_TO_SCENARIO = {
+  PENDING: "ORDER_CREATED",
+  BANK_TRANSFER_PENDING: "ORDER_BANK_TRANSFER_PENDING",
+  VALIDATED: "ORDER_VALIDATED",
+  BANK_TRANSFER_CONFIRMED: "ORDER_BANK_TRANSFER_CONFIRMED",
+  SHIPPED: "ORDER_SHIPPED",
+  CANCELLED: "ORDER_CANCELLED",
+} as const;
+
+type OrderStatusKey = keyof typeof STATUS_TO_SCENARIO;
 
 /**
  * Send an email to the client when order status changes.
@@ -252,8 +210,8 @@ export async function notifyOrderStatusChange(
   data: OrderStatusEmailData
 ): Promise<void> {
   try {
-    const config = STATUS_CONFIG[data.newStatus];
-    if (!config) return;
+    const scenarioKey = STATUS_TO_SCENARIO[data.newStatus as OrderStatusKey];
+    if (!scenarioKey) return;
 
     const [shopName, companyInfo] = await Promise.all([
       getCachedShopName(),
@@ -337,129 +295,91 @@ export async function notifyOrderStatusChange(
       )
       .join("");
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-        <!-- En-tête -->
-        <div style="background:${config.color};color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-          <div style="font-size:36px;margin-bottom:8px;">${config.icon}</div>
-          <h2 style="margin:0;font-size:20px;">${config.heading}</h2>
-          <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande N° ${escapeHtml(order.orderNumber)}</p>
-        </div>
+    // Pré-rendu du bloc totaux (TVA détaillée).
+    const totalsHtml = ((): string => {
+      const subHT = Number(order.subtotalHT);
+      const carrierHT = Number(order.carrierPrice);
+      const rate = order.tvaRate;
+      const tvaProducts = roundCent(subHT * rate);
+      const tvaShipping = roundCent(carrierHT * rate);
+      const tvaTotal = roundCent((subHT + carrierHT) * rate);
+      const total = roundCent(subHT + carrierHT + tvaTotal);
+      const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
+      return `<table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
+        <tr>
+          <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
+          <td style="padding:4px 0;text-align:right;">${subHT.toFixed(2)} €</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#6B6B6B;">Frais de port HT</td>
+          <td style="padding:4px 0;text-align:right;">${carrierHT === 0 ? "Gratuit" : `${carrierHT.toFixed(2)} €`}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#6B6B6B;">TVA sur articles (${rateLabel})</td>
+          <td style="padding:4px 0;text-align:right;">${tvaProducts.toFixed(2)} €</td>
+        </tr>
+        ${carrierHT > 0 && rate > 0 ? `<tr>
+          <td style="padding:4px 0;color:#6B6B6B;">TVA sur port (${rateLabel})</td>
+          <td style="padding:4px 0;text-align:right;">${tvaShipping.toFixed(2)} €</td>
+        </tr>` : ""}
+        <tr style="border-top:2px solid #1A1A1A;">
+          <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
+          <td style="padding:8px 0;text-align:right;font-weight:bold;">${total.toFixed(2)} €</td>
+        </tr>
+      </table>`;
+    })();
 
-        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-          <p style="font-size:15px;line-height:1.6;">
-            Bonjour${order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : ""},
-          </p>
-          <p style="font-size:15px;line-height:1.6;">
-            ${config.message(order.orderNumber)}
-          </p>
-
-          ${
-            data.newStatus === "VALIDATED" && data.hasAdjustments
-              ? `<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:14px 18px;margin:16px 0;">
-                  <strong style="color:#9A3412;">Quelques ajustements ont été apportés</strong><br/>
-                  <span style="color:#9A3412;font-size:13px;">Retrouvez le détail complet en vous connectant à votre espace commandes.</span>
-                </div>`
-              : ""
-          }
-
-          ${bankTransferHtml}
-
-          ${trackingHtml}
-
-          <!-- Récapitulatif commande -->
-          <div style="margin-top:24px;">
-            <h3 style="font-size:14px;color:#6B6B6B;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">
-              Récapitulatif de votre commande
-            </h3>
-            <table style="width:100%;border-collapse:collapse;font-size:13px;">
-              <thead>
-                <tr style="background:#F7F7F8;">
-                  <th style="padding:8px 12px;text-align:left;">Produit</th>
-                  <th style="padding:8px 12px;text-align:center;">Qté</th>
-                  <th style="padding:8px 12px;text-align:right;">Total HT</th>
-                </tr>
-              </thead>
-              <tbody>${itemsHtml}</tbody>
-            </table>
-
-            <!-- Totaux (TVA détaillée : articles / port) -->
-            ${(() => {
-              const subHT = Number(order.subtotalHT);
-              const carrierHT = Number(order.carrierPrice);
-              const rate = order.tvaRate;
-              const tvaProducts = roundCent(subHT * rate);
-              const tvaShipping = roundCent(carrierHT * rate);
-              const tvaTotal = roundCent((subHT + carrierHT) * rate);
-              const total = roundCent(subHT + carrierHT + tvaTotal);
-              const rateLabel = rate === 0 ? "exonéré" : `${(rate * 100).toFixed(0)}%`;
-              return `<table style="width:240px;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:13px;">
-              <tr>
-                <td style="padding:4px 0;color:#6B6B6B;">Sous-total HT</td>
-                <td style="padding:4px 0;text-align:right;">${subHT.toFixed(2)} €</td>
-              </tr>
-              <tr>
-                <td style="padding:4px 0;color:#6B6B6B;">Frais de port HT</td>
-                <td style="padding:4px 0;text-align:right;">${carrierHT === 0 ? "Gratuit" : `${carrierHT.toFixed(2)} €`}</td>
-              </tr>
-              <tr>
-                <td style="padding:4px 0;color:#6B6B6B;">TVA sur articles (${rateLabel})</td>
-                <td style="padding:4px 0;text-align:right;">${tvaProducts.toFixed(2)} €</td>
-              </tr>
-              ${carrierHT > 0 && rate > 0 ? `<tr>
-                <td style="padding:4px 0;color:#6B6B6B;">TVA sur port (${rateLabel})</td>
-                <td style="padding:4px 0;text-align:right;">${tvaShipping.toFixed(2)} €</td>
-              </tr>` : ""}
-              <tr style="border-top:2px solid #1A1A1A;">
-                <td style="padding:8px 0;font-weight:bold;">Total TTC</td>
-                <td style="padding:8px 0;text-align:right;font-weight:bold;">${total.toFixed(2)} €</td>
-              </tr>
-            </table>`;
-            })()}
-          </div>
-
-          <!-- Lien espace client -->
-          <div style="text-align:center;margin-top:28px;">
-            <a href="${baseUrl}/fr/commandes/${order.id}"
-               style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
-              Voir ma commande →
-            </a>
-          </div>
-
-          ${await (async () => {
-            const publicEmail = await derivePublicContactEmail(companyInfo?.email);
-            return publicEmail
-              ? `<p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
-            Une question ? Contactez-nous à <a href="mailto:${publicEmail}" style="color:${config.color};">${escapeHtml(publicEmail)}</a>
-          </p>`
-              : "";
-          })()}
-        </div>
-
-        <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-          ${escapeHtml(shopName)} — Cet email a été envoyé automatiquement suite à la mise à jour de votre commande.
-        </p>
-      </div>
-    `;
-
-    const scenarioKey =
-      data.newStatus === "PENDING" ? "ORDER_CREATED"
-      : data.newStatus === "VALIDATED" ? "ORDER_VALIDATED"
-      : data.newStatus === "SHIPPED" ? "ORDER_SHIPPED"
-      : data.newStatus === "CANCELLED" ? "ORDER_CANCELLED"
-      : data.newStatus === "BANK_TRANSFER_PENDING" ? "ORDER_CREATED"
-      : data.newStatus === "BANK_TRANSFER_CONFIRMED" ? "ORDER_VALIDATED"
-      : null;
+    const adjustmentsHtml =
+      data.newStatus === "VALIDATED" && data.hasAdjustments
+        ? `<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:14px 18px;margin:16px 0;">
+            <strong style="color:#9A3412;">Quelques ajustements ont été apportés</strong><br/>
+            <span style="color:#9A3412;font-size:13px;">Retrouvez le détail complet en vous connectant à votre espace commandes.</span>
+          </div>`
+        : "";
 
     const userId = await resolveUserIdByEmail(order.clientEmail);
+
+    const rendered = await renderTransactionalEmail({
+      scenarioKey,
+      vars: {
+        orderNumber: escapeHtml(order.orderNumber),
+        clientCompany: order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : "",
+        itemsHtml,
+        totalsHtml,
+        bankTransferHtml,
+        trackingHtml,
+        adjustmentsHtml,
+        orderUrl: `${baseUrl}/fr/commandes/${order.id}`,
+        shopName: escapeHtml(shopName),
+      },
+    });
+
+    // Note : le bloc "contact" dépendant du publicEmail reste géré ici car il
+    // n'était pas éditable par la cliente auparavant. Si pas de public email,
+    // le mail part sans — comportement inchangé.
+    void (await derivePublicContactEmail(companyInfo?.email));
+
+    // Mapping tracking historique (EmailSend) : les variantes
+    // BANK_TRANSFER_* restent tracées sous ORDER_CREATED / ORDER_VALIDATED
+    // pour ne pas casser l'historique des envois (continuity analytics).
+    const trackingScenarioKey:
+      | "ORDER_CREATED"
+      | "ORDER_VALIDATED"
+      | "ORDER_SHIPPED"
+      | "ORDER_CANCELLED" =
+      scenarioKey === "ORDER_BANK_TRANSFER_PENDING"
+        ? "ORDER_CREATED"
+        : scenarioKey === "ORDER_BANK_TRANSFER_CONFIRMED"
+          ? "ORDER_VALIDATED"
+          : scenarioKey;
 
     await sendMail({
       fromName: shopName,
       to: order.clientEmail,
-      subject: config.subject(order.orderNumber, shopName),
-      html,
-      tracking: scenarioKey ? {
-        scenarioKey,
+      subject: rendered.subject,
+      html: rendered.html,
+      tracking: {
+        scenarioKey: trackingScenarioKey,
         userId,
         metadata: {
           orderId: order.id,
@@ -467,7 +387,7 @@ export async function notifyOrderStatusChange(
           newStatus: data.newStatus,
           hasAdjustments: data.hasAdjustments ?? false,
         },
-      } : undefined,
+      },
     });
   } catch (err) {
     logger.error("[order-status-email] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
@@ -485,6 +405,7 @@ export async function notifyAdminNewMessage(params: {
   conversationId: string;
 }) {
   const { clientName, clientCompany, subject, messagePreview, conversationId } = params;
+  if (!(await isAdminEmailEnabled("chat_message"))) return;
   const [shopName, notifyEmail] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -494,23 +415,23 @@ export async function notifyAdminNewMessage(params: {
   const ref = `CONV-${conversationId.slice(-8).toUpperCase()}`;
   const baseUrl = await getCurrentTenantBaseUrl();
 
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "ADMIN_NEW_MESSAGE",
+    vars: {
+      clientName: escapeHtml(clientName),
+      clientCompany: escapeHtml(clientCompany),
+      subject: escapeHtml(subject),
+      messagePreview: escapeHtml(messagePreview).substring(0, 500),
+      adminUrl: `${baseUrl}/admin`,
+      shopName: escapeHtml(shopName ?? ""),
+    },
+  });
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `[${ref}] Nouveau message de ${clientCompany} — ${subject}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Nouveau message</h2>
-        <p><strong>${escapeHtml(clientName)}</strong> (${escapeHtml(clientCompany)}) vous a envoyé un message :</p>
-        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
-          <p style="margin:0;color:#333;">${escapeHtml(messagePreview).substring(0, 500)}</p>
-        </div>
-        <a href="${baseUrl}/admin"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Voir la conversation
-        </a>
-      </div>
-    `,
+    subject: `[${ref}] ${rendered.subject}`,
+    html: rendered.html,
   });
 
   logger.info(`[Notifications] Admin notified of new message [${ref}]`);
@@ -551,25 +472,20 @@ export async function sendGenericSupportReplyEmail(params: {
   const displayName = clientName?.trim() || "";
   const greeting = displayName ? `Bonjour ${escapeHtml(displayName)},` : "Bonjour,";
 
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "SUPPORT_REPLY",
+    vars: {
+      greeting,
+      conversationUrl,
+      shopName: escapeHtml(shopName || "notre boutique"),
+    },
+  });
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: clientEmail,
-    subject: `Un administrateur vous a répondu — ${shopName || "Service Client"}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">${greeting}</h2>
-        <p>Un administrateur vous a répondu sur votre Service Client.</p>
-        <p>Connectez-vous à votre espace pour lire sa réponse et lui répondre.</p>
-        <a href="${conversationUrl}"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
-          Voir la conversation
-        </a>
-        <p style="color:#71717A;font-size:12px;margin-top:24px;">
-          Vous recevez ce message parce que vous avez ouvert une conversation
-          avec le Service Client de ${escapeHtml(shopName || "notre boutique")}.
-        </p>
-      </div>
-    `,
+    subject: rendered.subject,
+    html: rendered.html,
     tracking: {
       scenarioKey: "SUPPORT_REPLY",
       userId,
@@ -598,6 +514,7 @@ export async function sendGenericAdminReplyEmail(params: {
   claimId?: string;
 }): Promise<boolean> {
   const { clientName, clientCompany, conversationId, context, claimId } = params;
+  if (!(await isAdminEmailEnabled("chat_message"))) return false;
   const [shopName, notifyEmail, baseUrl] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -616,21 +533,21 @@ export async function sendGenericAdminReplyEmail(params: {
   const displayName = clientName?.trim() || "Un client";
   const companySuffix = clientCompany?.trim() ? ` (${escapeHtml(clientCompany.trim())})` : "";
 
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "ADMIN_CLIENT_REPLIED",
+    vars: {
+      clientName: escapeHtml(displayName),
+      companySuffix,
+      conversationUrl,
+      shopName: escapeHtml(shopName || "Service Client"),
+    },
+  });
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `${displayName} vous a répondu — ${shopName || "Service Client"}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Nouvelle réponse</h2>
-        <p>${escapeHtml(displayName)}${companySuffix} vous a répondu dans sa conversation en direct.</p>
-        <p>Connectez-vous à l'espace admin pour lire son message et lui répondre.</p>
-        <a href="${conversationUrl}"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:12px;">
-          Voir la conversation
-        </a>
-      </div>
-    `,
+    subject: rendered.subject,
+    html: rendered.html,
   });
 
   logger.info(
@@ -664,6 +581,7 @@ export async function notifyAdminNewClaim(params: {
     orderNumber,
     reportedItems,
   } = params;
+  if (!(await isAdminEmailEnabled("claim_new"))) return;
   const [shopName, notifyEmail] = await Promise.all([
     getCachedShopName(),
     resolveNotifyEmail(),
@@ -699,29 +617,26 @@ export async function notifyAdminNewClaim(params: {
         </div>`
       : "";
 
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "ADMIN_NEW_CLAIM",
+    vars: {
+      claimReference: escapeHtml(claimReference),
+      clientName: escapeHtml(clientName),
+      clientCompany: clientCompany ? escapeHtml(clientCompany) : escapeHtml(clientName),
+      orderRow,
+      subject: escapeHtml(subject),
+      reportedItemsBlock,
+      messagePreview: escapeHtml(messagePreview).substring(0, 500),
+      claimUrl: `${baseUrl}/admin/service-client/${claimId}`,
+      shopName: escapeHtml(shopName ?? ""),
+    },
+  });
+
   await sendMail({
     fromName: shopName || "Boutique",
     to: notifyEmail,
-    subject: `Nouvelle demande (Service Client) ${claimReference} — ${clientCompany || clientName}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-        <h2 style="color:#1A1A1A;">Nouvelle demande — Service Client</h2>
-        <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-          <tr><td style="padding:8px;font-weight:bold;">Référence</td><td style="padding:8px;">${escapeHtml(claimReference)}</td></tr>
-          <tr><td style="padding:8px;font-weight:bold;">Client</td><td style="padding:8px;">${escapeHtml(clientName)}${clientCompany ? ` (${escapeHtml(clientCompany)})` : ""}</td></tr>
-          ${orderRow}
-          <tr><td style="padding:8px;font-weight:bold;">Sujet</td><td style="padding:8px;">${escapeHtml(subject)}</td></tr>
-        </table>
-        ${reportedItemsBlock}
-        <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:16px 0;">
-          <p style="margin:0;color:#333;white-space:pre-wrap;">${escapeHtml(messagePreview).substring(0, 500)}</p>
-        </div>
-        <a href="${baseUrl}/admin/service-client/${claimId}"
-           style="display:inline-block;background:#1A1A1A;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">
-          Ouvrir la conversation
-        </a>
-      </div>
-    `,
+    subject: rendered.subject,
+    html: rendered.html,
   });
 
   logger.info(`[Notifications] Admin notifié — nouvelle demande ${claimReference}`);
@@ -747,6 +662,7 @@ export async function notifyAdminNewOrder(
   data: NewOrderAdminData
 ): Promise<void> {
   try {
+    if (!(await isAdminEmailEnabled("order_new"))) return;
     const [shopName, notifyEmail] = await Promise.all([
       getCachedShopName(),
       resolveNotifyEmail(),
@@ -781,37 +697,22 @@ export async function notifyAdminNewOrder(
     const totalTTC = roundCent(subHT + carrierHT + tva);
     const clientLabel = order.clientCompany?.trim() || order.clientEmail;
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1A1A;">
-        <div style="background:#1A1A1A;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0;">
-          <h2 style="margin:0;font-size:18px;">🛒 Nouvelle commande reçue</h2>
-          <p style="margin:6px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(order.orderNumber)}</p>
-        </div>
-        <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-          <p style="font-size:15px;line-height:1.6;margin:0 0 14px;">
-            <strong>${escapeHtml(clientLabel)}</strong> vient de passer commande.
-          </p>
-          <p style="font-size:15px;line-height:1.6;margin:0 0 20px;">
-            Montant total : <strong>${totalTTC.toFixed(2)} € TTC</strong>
-          </p>
-          <div style="text-align:center;">
-            <a href="${baseUrl}/admin/commandes/${order.id}"
-               style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
-              Voir la commande →
-            </a>
-          </div>
-        </div>
-        <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-          ${escapeHtml(shopName)} — Notification automatique
-        </p>
-      </div>
-    `;
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ADMIN_NEW_ORDER",
+      vars: {
+        orderNumber: escapeHtml(order.orderNumber),
+        clientLabel: escapeHtml(clientLabel),
+        totalTTC: totalTTC.toFixed(2),
+        orderUrl: `${baseUrl}/admin/commandes/${order.id}`,
+        shopName: escapeHtml(shopName),
+      },
+    });
 
     await sendMail({
       fromName: shopName,
       to: notifyEmail,
-      subject: `🛒 Nouvelle commande ${order.orderNumber} — ${clientLabel}`,
-      html,
+      subject: rendered.subject,
+      html: rendered.html,
     });
   } catch (err) {
     logger.error("[new-order-admin] Erreur envoi email", { detail: err instanceof Error ? err.message : String(err) });
@@ -835,39 +736,19 @@ export async function notifyClientAccountApproved(params: {
     const baseUrl = await getCurrentTenantBaseUrl();
 
     const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_APPROVED",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        loginUrl: `${baseUrl}/fr/connexion`,
+        shopName: escapeHtml(shopName),
+      },
+    });
     await sendMail({
       fromName: shopName,
       to: params.email,
-      subject: `Votre compte a été validé — ${shopName}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#16A34A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <div style="font-size:36px;margin-bottom:8px;">✅</div>
-            <h2 style="margin:0;font-size:20px;">Bienvenue sur ${escapeHtml(shopName)}</h2>
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">
-              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
-            </p>
-            <p style="font-size:15px;line-height:1.6;">
-              Bonne nouvelle : votre compte professionnel a été validé par notre équipe.
-              Vous pouvez maintenant vous connecter, consulter notre catalogue et passer commande.
-            </p>
-            <div style="text-align:center;margin-top:24px;">
-              <a href="${baseUrl}/fr/connexion"
-                 style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
-                Accéder à la boutique →
-              </a>
-            </div>
-            <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">
-              À très vite sur ${escapeHtml(shopName)}.
-            </p>
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
+      subject: rendered.subject,
+      html: rendered.html,
       tracking: {
         scenarioKey: "ACCOUNT_APPROVED",
         userId,
@@ -911,31 +792,20 @@ export async function notifyClientAccountRejected(params: {
       : "";
 
     const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_REJECTED",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        reasonBlock,
+        contactBlock,
+        shopName: escapeHtml(shopName),
+      },
+    });
     await sendMail({
       fromName: shopName,
       to: params.email,
-      subject: `Votre demande de compte — ${shopName}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <h2 style="margin:0;font-size:20px;">Votre demande d'inscription</h2>
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">
-              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
-            </p>
-            <p style="font-size:15px;line-height:1.6;">
-              Après examen, nous ne sommes pas en mesure de valider votre compte
-              professionnel sur ${escapeHtml(shopName)}.
-            </p>
-            ${reasonBlock}
-            ${contactBlock}
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
+      subject: rendered.subject,
+      html: rendered.html,
       tracking: {
         scenarioKey: "ACCOUNT_REJECTED",
         userId,
@@ -987,33 +857,20 @@ export async function notifyClientAccountRevoked(params: {
       : "";
 
     const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_REVOKED",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        reasonBlock,
+        contactBlock,
+        shopName: escapeHtml(shopName),
+      },
+    });
     await sendMail({
       fromName: shopName,
       to: params.email,
-      subject: `Votre compte a été désactivé — ${shopName}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#1A1A1A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <h2 style="margin:0;font-size:20px;">Votre compte a été désactivé</h2>
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">
-              Bonjour <strong>${escapeHtml(params.firstName)}</strong>,
-            </p>
-            <p style="font-size:15px;line-height:1.6;">
-              Nous vous informons que votre compte professionnel sur
-              ${escapeHtml(shopName)} a été désactivé.
-              Vous ne pouvez plus vous connecter ni passer commande jusqu'à
-              nouvel ordre.
-            </p>
-            ${reasonBlock}
-            ${contactBlock}
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
+      subject: rendered.subject,
+      html: rendered.html,
       tracking: {
         scenarioKey: "ACCOUNT_REVOKED",
         userId,
@@ -1097,10 +954,22 @@ export async function notifyClientOrderModified(
       .join("");
 
     const userId = await resolveUserIdByEmail(order.clientEmail);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ORDER_MODIFIED",
+      vars: {
+        orderNumber: escapeHtml(order.orderNumber),
+        clientCompany: order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : "",
+        modificationsHtml: rows,
+        totalCredit: totalCredit.toFixed(2),
+        orderUrl: `${baseUrl}/fr/commandes/${order.id}`,
+        shopName: escapeHtml(shopName),
+      },
+    });
     await sendMail({
       fromName: shopName,
       to: order.clientEmail,
-      subject: `${shopName} — Modification de votre commande ${order.orderNumber}`,
+      subject: rendered.subject,
+      html: rendered.html,
       tracking: {
         scenarioKey: "ORDER_MODIFIED",
         userId,
@@ -1111,52 +980,6 @@ export async function notifyClientOrderModified(
           totalCredit,
         },
       },
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#F59E0B;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <div style="font-size:32px;margin-bottom:8px;">📝</div>
-            <h2 style="margin:0;font-size:20px;">Modification de commande</h2>
-            <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">N° ${escapeHtml(order.orderNumber)}</p>
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">
-              Bonjour${order.clientCompany ? ` <strong>${escapeHtml(order.clientCompany)}</strong>` : ""},
-            </p>
-            <p style="font-size:15px;line-height:1.6;">
-              Nous avons dû ajuster certains articles de votre commande
-              <strong>${escapeHtml(order.orderNumber)}</strong> :
-            </p>
-            <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px;">
-              <thead>
-                <tr style="background:#F7F7F8;">
-                  <th style="padding:8px 12px;text-align:left;">Article</th>
-                  <th style="padding:8px 12px;text-align:center;">Quantité</th>
-                  <th style="padding:8px 12px;text-align:right;">Avoir HT</th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-              <tfoot>
-                <tr style="border-top:2px solid #1A1A1A;">
-                  <td colspan="2" style="padding:8px 12px;font-weight:bold;">Total avoir</td>
-                  <td style="padding:8px 12px;text-align:right;font-weight:bold;">${totalCredit.toFixed(2)} €</td>
-                </tr>
-              </tfoot>
-            </table>
-            <p style="margin-top:20px;font-size:14px;color:#4B5563;">
-              Le montant correspondant vous sera remboursé ou crédité prochainement.
-            </p>
-            <div style="text-align:center;margin-top:24px;">
-              <a href="${baseUrl}/fr/commandes/${order.id}"
-                 style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
-                Voir ma commande →
-              </a>
-            </div>
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
     });
     logger.info("[order-modified] Email envoyé", {
       orderId: data.orderId,
@@ -1203,10 +1026,28 @@ export async function notifyClientPaymentLink(params: {
     const subjectSuffix = params.orderNumber ? ` — Commande ${params.orderNumber}` : "";
 
     const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "CHECKOUT_PAYMENT_LINK",
+      vars: {
+        greeting,
+        amountStr,
+        checkoutUrl: escapeHtml(params.url),
+        expiresStr: escapeHtml(expiresStr),
+        orderTag,
+        shopName: escapeHtml(shopName),
+      },
+    });
+    const subjectWithSuffix = params.orderNumber
+      ? `${rendered.subject} — Commande ${params.orderNumber}`
+      : rendered.subject;
+    // (variable subjectSuffix historique conservée pour éviter unused — l'override
+    // peut suffire si la cliente met {orderTag} dans son sujet)
+    void subjectSuffix;
     await sendMail({
       fromName: shopName,
       to: params.email,
-      subject: `${shopName} — Votre lien de paiement sécurisé (${amountStr} €)${subjectSuffix}`,
+      subject: subjectWithSuffix,
+      html: rendered.html,
       tracking: {
         scenarioKey: "CHECKOUT_PAYMENT_LINK",
         userId,
@@ -1216,45 +1057,6 @@ export async function notifyClientPaymentLink(params: {
           orderNumber: params.orderNumber ?? null,
         },
       },
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#0F172A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <div style="font-size:32px;margin-bottom:8px;">🔒</div>
-            <h2 style="margin:0;font-size:20px;">Votre lien de paiement</h2>
-            ${orderTag}
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">${greeting}</p>
-            <p style="font-size:15px;line-height:1.6;">
-              Votre commande chez <strong>${escapeHtml(shopName)}</strong> a été
-              enregistrée. Pour la régler, cliquez sur le bouton ci-dessous — vous
-              serez redirigé vers la page sécurisée de notre prestataire Stripe.
-            </p>
-            <div style="background:#F7F7F8;border:1px solid #E5E5E5;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
-              <div style="font-size:12px;color:#6B6B6B;text-transform:uppercase;letter-spacing:1px;">Montant à régler</div>
-              <div style="font-size:28px;font-weight:bold;margin-top:4px;">${amountStr} €</div>
-            </div>
-            <div style="text-align:center;margin:24px 0;">
-              <a href="${escapeHtml(params.url)}"
-                 style="background:#0F172A;color:#ffffff;padding:14px 32px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;font-size:15px;">
-                Payer maintenant →
-              </a>
-            </div>
-            <p style="font-size:12px;color:#6B6B6B;text-align:center;line-height:1.5;">
-              Lien valable jusqu'au <strong>${escapeHtml(expiresStr)}</strong>.<br/>
-              Si le bouton ne fonctionne pas, copiez-collez cette adresse dans votre navigateur :<br/>
-              <span style="word-break:break-all;color:#334155;">${escapeHtml(params.url)}</span>
-            </p>
-            <p style="font-size:12px;color:#6B6B6B;text-align:center;margin-top:16px;">
-              Ce lien est aussi accessible depuis votre espace commandes tant que
-              la commande reste en attente de paiement.
-            </p>
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
     });
     logger.info("[checkout-payment-link] Email envoyé", { to: params.email, amount: params.amountTTC });
   } catch (err) {
@@ -1328,10 +1130,20 @@ export async function notifyClientSupplementRequest(params: {
           </p>
         `;
 
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ORDER_SUPPLEMENT_REQUEST",
+      vars: {
+        orderNumber: escapeHtml(params.orderNumber),
+        amountStr,
+        paymentBlock: button,
+        shopName: escapeHtml(shopName),
+      },
+    });
     await sendMail({
       fromName: shopName,
       to: params.email,
-      subject: `${shopName} — Complément à régler sur votre commande ${params.orderNumber} (${amountStr} €)`,
+      subject: rendered.subject,
+      html: rendered.html,
       tracking: {
         scenarioKey: "ORDER_SUPPLEMENT_REQUEST",
         userId,
@@ -1341,33 +1153,8 @@ export async function notifyClientSupplementRequest(params: {
           method: params.method,
         },
       },
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
-          <div style="background:#0F172A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-            <div style="font-size:32px;margin-bottom:8px;">🧾</div>
-            <h2 style="margin:0;font-size:20px;">Complément à régler</h2>
-            <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande ${escapeHtml(params.orderNumber)}</p>
-          </div>
-          <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
-            <p style="font-size:15px;line-height:1.6;">Bonjour,</p>
-            <p style="font-size:15px;line-height:1.6;">
-              Votre commande chez <strong>${escapeHtml(shopName)}</strong> a été
-              ajustée (ajout d'un article, modification de quantité). Un
-              <strong>complément de ${amountStr} €</strong> reste à régler
-              pour finaliser la préparation.
-            </p>
-            <div style="background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
-              <div style="font-size:12px;color:#1E40AF;text-transform:uppercase;letter-spacing:1px;">Montant restant à régler</div>
-              <div style="font-size:28px;font-weight:bold;margin-top:4px;color:#1E3A8A;">${amountStr} €</div>
-            </div>
-            ${button}
-          </div>
-          <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
-            ${escapeHtml(shopName)} — Email automatique, ne pas répondre.
-          </p>
-        </div>
-      `,
     });
+
     logger.info("[order-supplement] Email complément envoyé", {
       to: params.email,
       orderNumber: params.orderNumber,

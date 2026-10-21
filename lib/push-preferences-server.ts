@@ -13,6 +13,7 @@ import {
   DEFAULT_PUSH_PREFERENCES,
   PUSH_PREFS_SITE_CONFIG_KEY,
   parsePushPreferences,
+  type PushEventType,
   type PushPreferences,
 } from "@/lib/push-preferences";
 
@@ -38,4 +39,34 @@ export async function getPushPreferences(tenantId: string): Promise<PushPreferen
     logger.error("[push-prefs] Lecture BDD échouée, fallback défauts", { error: err, tenantId });
     return DEFAULT_PUSH_PREFERENCES;
   }
+}
+
+/**
+ * Variante tenant-scopée via l'extension Prisma (lit l'ALS). Utilisée par les
+ * fonctions `notifyAdmin*` de `lib/notifications.ts` qui tournent déjà dans
+ * le contexte du tenant courant et n'ont pas de tenantId à passer sous la main.
+ */
+export async function getPushPreferencesForCurrentTenant(): Promise<PushPreferences> {
+  try {
+    const row = await prisma.siteConfig.findFirst({
+      where: { key: PUSH_PREFS_SITE_CONFIG_KEY },
+      select: { value: true },
+    });
+    if (!row?.value) return DEFAULT_PUSH_PREFERENCES;
+    return parsePushPreferences(row.value);
+  } catch (err) {
+    logger.error("[push-prefs] Lecture BDD (ALS) échouée, fallback défauts", { error: err });
+    return DEFAULT_PUSH_PREFERENCES;
+  }
+}
+
+/**
+ * `true` si la cliente veut TOUJOURS recevoir ce type de notification par mail
+ * en plus du push. Lu via l'extension Prisma scopée (tenant courant). En cas
+ * d'erreur de lecture ou d'absence de pref, renvoie `true` : on préfère
+ * envoyer un mail en trop que de masquer silencieusement une alerte.
+ */
+export async function isAdminEmailEnabled(type: PushEventType): Promise<boolean> {
+  const prefs = await getPushPreferencesForCurrentTenant();
+  return prefs[type]?.emailEnabled !== false;
 }
