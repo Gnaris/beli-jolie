@@ -29,11 +29,13 @@ function fmtRelative(d: Date): string {
   if (days < 7) return `il y a ${days} j`;
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
-function orderStatusChip(status: "PENDING" | "SHIPPED" | "CANCELLED") {
+function orderStatusChip(status: string) {
   switch (status) {
-    case "SHIPPED": return { label: "Expédiée", cls: "bg-emerald-100 text-emerald-700" };
-    case "PENDING": return { label: "En préparation", cls: "bg-amber-100 text-amber-700" };
-    case "CANCELLED": return { label: "Annulée", cls: "bg-rose-100 text-rose-700" };
+    case "SHIPPED":   return { label: "Expédiée",       cls: "bg-emerald-100 text-emerald-700" };
+    case "VALIDATED": return { label: "Validée",        cls: "bg-sky-100 text-sky-700" };
+    case "PENDING":   return { label: "En préparation", cls: "bg-amber-100 text-amber-700" };
+    case "CANCELLED": return { label: "Annulée",        cls: "bg-rose-100 text-rose-700" };
+    default:          return { label: status,            cls: "bg-zinc-100 text-zinc-700" };
   }
 }
 

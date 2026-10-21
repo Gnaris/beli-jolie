@@ -51,7 +51,7 @@ export interface TopProduct {
 }
 
 export interface OrderStatusSlice {
-  key: "SHIPPED" | "PENDING" | "CANCELLED";
+  key: "SHIPPED" | "VALIDATED" | "PENDING" | "CANCELLED";
   label: string;
   count: number;
   share: number;
@@ -86,7 +86,7 @@ export interface MarketingBlock {
 export interface RecentOrderRow {
   orderNumber: string;
   createdAt: Date;
-  status: "PENDING" | "SHIPPED" | "CANCELLED";
+  status: "PENDING" | "VALIDATED" | "SHIPPED" | "CANCELLED";
   totalTTC: number;
 }
 
@@ -455,9 +455,10 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
   const orderStatusTotal = Array.from(statusCountMap.values()).reduce((s, n) => s + n, 0);
   const totalForStatus = orderStatusTotal > 0 ? orderStatusTotal : 1;
   const STATUS_DEFS: Array<{ key: OrderStatusSlice["key"]; label: string; color: string }> = [
-    { key: "SHIPPED", label: "Expédiées", color: "#08aa6b" },
-    { key: "PENDING", label: "En préparation", color: "#ff9e2c" },
-    { key: "CANCELLED", label: "Annulées", color: "#f04452" },
+    { key: "SHIPPED",   label: "Expédiées",      color: "#08aa6b" },
+    { key: "VALIDATED", label: "Validées",       color: "#246bfe" },
+    { key: "PENDING",   label: "En préparation", color: "#ff9e2c" },
+    { key: "CANCELLED", label: "Annulées",       color: "#f04452" },
   ];
   const orderStatus: OrderStatusSlice[] = STATUS_DEFS.map((def) => {
     const count = statusCountMap.get(def.key) ?? 0;

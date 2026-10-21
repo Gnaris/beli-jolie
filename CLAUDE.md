@@ -216,7 +216,7 @@ Tâches longues admin (traduction, mkt, images, shooting eFa, chat) via **widget
 ### Enums Prisma
 - `ProductStatus` : OFFLINE|ONLINE|ARCHIVED|SYNCING
 - `SaleType` : UNIT|PACK
-- `OrderStatus` : PENDING|SHIPPED|CANCELLED (seule transition PENDING→SHIPPED, annulation depuis PENDING)
+- `OrderStatus` : PENDING|VALIDATED|SHIPPED|CANCELLED (transitions PENDING→VALIDATED→SHIPPED, annulation depuis PENDING ou VALIDATED)
 - `UserRole` : ADMIN|CLIENT
 - `UserStatus` : PENDING|APPROVED|REJECTED
 
