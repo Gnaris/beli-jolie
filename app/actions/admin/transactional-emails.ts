@@ -158,10 +158,7 @@ export async function getTransactionalTemplate(params: {
 
   const override = await prisma.transactionalEmailOverride.findFirst({
     where: { scenarioKey },
-    include:
-      locale === "fr"
-        ? undefined
-        : { locales: { where: { locale } } },
+    include: { locales: { where: { locale } } },
   });
 
   if (!override) {
