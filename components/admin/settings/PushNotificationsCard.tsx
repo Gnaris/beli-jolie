@@ -50,6 +50,12 @@ export default function PushNotificationsCard({
   const [support, setSupport] = useState<SupportState>("checking");
   const [permission, setPermission] = useState<PermissionState>("default");
   const [subscribed, setSubscribed] = useState(false);
+  // Endpoint de l'abonnement push CÔTÉ navigateur courant. Sert à repérer
+  // dans la liste des appareils liés lequel est « cet appareil » — utile
+  // quand la cliente clique « Retirer » depuis le même appareil : on doit
+  // alors remettre son UI à l'état « non abonné » pour que le bouton
+  // « Activer » réapparaisse. Null = aucun abonnement local.
+  const [currentEndpoint, setCurrentEndpoint] = useState<string | null>(null);
   const [devices, setDevices] = useState<PushDeviceDTO[]>(initialDevices);
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
@@ -110,6 +116,7 @@ export default function PushNotificationsCard({
         if (reg) {
           const sub = await reg.pushManager.getSubscription();
           setSubscribed(Boolean(sub));
+          setCurrentEndpoint(sub?.endpoint ?? null);
         }
       } catch {
         /* non critique */
@@ -168,6 +175,7 @@ export default function PushNotificationsCard({
           return;
         }
         setSubscribed(true);
+        setCurrentEndpoint(subJson.endpoint!);
         toast.success("Notifications activées", "Cet appareil recevra les alertes importantes.");
         setDevices(await listMyPushDevices());
       });
@@ -186,23 +194,33 @@ export default function PushNotificationsCard({
         startTransition(async () => {
           await unsubscribeFromPush(endpoint);
           setSubscribed(false);
+          setCurrentEndpoint(null);
           toast.success("Notifications désactivées", "Cet appareil ne recevra plus d'alertes.");
           setDevices(await listMyPushDevices());
         });
       } else {
         setSubscribed(false);
+        setCurrentEndpoint(null);
       }
     } catch (err) {
       toast.error("Erreur", err instanceof Error ? err.message : "Échec de la désactivation.");
     }
   }
 
-  function handleDeleteDevice(id: string) {
+  function handleDeleteDevice(device: PushDeviceDTO) {
     startTransition(async () => {
-      const res = await deletePushDevice(id);
+      const res = await deletePushDevice(device.id);
       if (!res.success) {
         toast.error("Erreur", res.error ?? "Suppression impossible.");
         return;
+      }
+      // Si la cliente vient de retirer l'appareil courant (depuis cet
+      // appareil), le navigateur garde encore son abonnement local mais
+      // le serveur ne le connaît plus. On remet l'UI à "non abonné" pour
+      // que le bouton "Activer sur cet appareil" réapparaisse — l'abonnement
+      // local existant sera réutilisé au prochain clic (upsert côté serveur).
+      if (currentEndpoint && device.endpoint === currentEndpoint) {
+        setSubscribed(false);
       }
       setDevices(await listMyPushDevices());
       toast.success("Appareil retiré", "Il ne recevra plus de notifications.");
@@ -290,7 +308,7 @@ export default function PushNotificationsCard({
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleDeleteDevice(d.id)}
+                  onClick={() => handleDeleteDevice(d)}
                   disabled={isPending}
                   className="text-[11px] font-body font-bold uppercase tracking-[0.14em] text-rose-700 hover:underline disabled:opacity-50"
                 >

@@ -10,11 +10,15 @@ import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
  */
 
 // Mock des server actions appelées par le composant.
+const serverMocks = {
+  deletePushDevice: vi.fn(async () => ({ success: true })),
+  listMyPushDevices: vi.fn(async (): Promise<unknown[]> => []),
+};
 vi.mock("@/app/actions/admin/push-subscriptions", () => ({
   subscribeToPush: vi.fn(),
   unsubscribeFromPush: vi.fn(),
-  listMyPushDevices: vi.fn(async () => []),
-  deletePushDevice: vi.fn(),
+  listMyPushDevices: (...a: unknown[]) => serverMocks.listMyPushDevices(...a as []),
+  deletePushDevice: (...a: unknown[]) => serverMocks.deletePushDevice(...a as [string]),
   sendTestPushNotification: vi.fn(),
 }));
 
@@ -108,5 +112,61 @@ describe("PushNotificationsCard — section Ajouter un autre appareil", () => {
     await waitFor(() => {
       expect(screen.queryByText("Ajouter un autre appareil")).toBeNull();
     });
+  });
+
+  it("ré-affiche « Activer sur cet appareil » quand on retire l'appareil courant", async () => {
+    const myEndpoint = "https://push.example.com/me-current";
+    const otherEndpoint = "https://push.example.com/other";
+    const me = {
+      id: "me",
+      label: "Mac de Boris",
+      userAgent: "Macintosh",
+      endpoint: myEndpoint,
+      createdAt: "2026-10-20T10:00:00.000Z",
+      lastUsedAt: "2026-10-21T08:00:00.000Z",
+    };
+    const other = { ...me, id: "other", label: "iPhone de Boris", endpoint: otherEndpoint };
+
+    // Le navigateur a l'abonnement de "me" → detectSupport() le détecte.
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: {
+        getRegistration: async () => ({
+          pushManager: {
+            getSubscription: async () => ({ endpoint: myEndpoint, unsubscribe: async () => true }),
+          },
+        }),
+        register: async () => ({}),
+      },
+      configurable: true,
+    });
+
+    serverMocks.listMyPushDevices.mockResolvedValueOnce([other]);
+
+    const Card = await importCard();
+    render(
+      <Card
+        publicVapidKey="BA_fake_vapid_key_short"
+        initialDevices={[me, other]}
+        addDeviceUrl="https://beliandjolie.com/admin/parametres?open=notifications"
+        addDeviceQrPng={null}
+      />,
+    );
+
+    // Attend que l'état « cet appareil est connecté » s'affiche (support ready + sub).
+    await screen.findByText(/Cet appareil est connecté/i);
+    expect(screen.queryByRole("button", { name: /^Activer sur cet appareil$/ })).toBeNull();
+
+    // Clic « Retirer » sur l'appareil courant (celui dont endpoint === myEndpoint).
+    const retirerButtons = screen.getAllByRole("button", { name: /^Retirer$/i });
+    // Dans l'ordre d'affichage initialDevices : me (index 0), other (index 1).
+    fireEvent.click(retirerButtons[0]);
+
+    await waitFor(() => {
+      expect(serverMocks.deletePushDevice).toHaveBeenCalledWith("me");
+    });
+
+    // Le bouton « Activer sur cet appareil » doit réapparaître pour que la
+    // cliente puisse se réabonner immédiatement depuis le même appareil.
+    await screen.findByRole("button", { name: /^Activer sur cet appareil$/ });
   });
 });
