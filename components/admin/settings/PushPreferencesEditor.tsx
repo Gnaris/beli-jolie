@@ -185,7 +185,11 @@ function EventRow({ type, value, isOpen, onToggleOpen, onChange, onReset, onTest
   const defaults = DEFAULT_PUSH_PREFERENCES[type];
   const accent = EVENT_ACCENTS[type];
   const isDefault = useMemo(
-    () => value.title === defaults.title && value.body === defaults.body && value.enabled === defaults.enabled,
+    () =>
+      value.title === defaults.title &&
+      value.body === defaults.body &&
+      value.enabled === defaults.enabled &&
+      value.emailEnabled === defaults.emailEnabled,
     [value, defaults],
   );
 
@@ -219,6 +223,11 @@ function EventRow({ type, value, isOpen, onToggleOpen, onChange, onReset, onTest
                 Désactivé
               </span>
             )}
+            {value.enabled && !value.emailEnabled && (
+              <span className="text-[10px] font-body font-bold uppercase tracking-[0.08em] text-text-muted">
+                · sans mail
+              </span>
+            )}
             {!isDefault && (
               <span className="text-[10px] font-body font-bold uppercase tracking-[0.08em] text-text-muted">
                 · personnalisé
@@ -244,6 +253,27 @@ function EventRow({ type, value, isOpen, onToggleOpen, onChange, onReset, onTest
               checked={value.enabled}
               onChange={(enabled) => onChange({ enabled })}
               disabled={disabled}
+            />
+          </label>
+
+          {/* Doublon mail — permet de couper le mail quand la notif push suffit */}
+          <label
+            className={`flex items-center justify-between gap-3 p-3 rounded-xl bg-bg-primary border border-border cursor-pointer ${
+              value.enabled ? "" : "opacity-40 pointer-events-none"
+            }`}
+          >
+            <span className="flex flex-col min-w-0">
+              <span className="text-[13px] font-body font-semibold text-text-primary">
+                Recevoir aussi par mail
+              </span>
+              <span className="text-[11px] font-body text-text-muted mt-0.5">
+                Désactivez si la notification sur votre téléphone suffit.
+              </span>
+            </span>
+            <Toggle
+              checked={value.emailEnabled}
+              onChange={(emailEnabled) => onChange({ emailEnabled })}
+              disabled={disabled || !value.enabled}
             />
           </label>
 

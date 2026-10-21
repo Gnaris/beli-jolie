@@ -17,7 +17,12 @@ const prismaMock = vi.hoisted(() => {
     totalTTC: number;
     user: { company: string | null; firstName: string | null; lastName: string | null } | null;
   };
-  type UserRow = { company: string | null; firstName: string | null; lastName: string | null };
+  type UserRow = {
+    company: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    status?: "PENDING" | "APPROVED" | "REJECTED";
+  };
   type ConvRow = {
     subject?: string | null;
     claim: { id: string; reference: string; subject?: string | null } | null;
@@ -153,17 +158,19 @@ describe("push-hooks – admin events", () => {
     expect(sendPushMock).not.toHaveBeenCalled();
   });
 
-  it("CLIENT_NEW envoie un push avec le nom de la société", async () => {
+  it("CLIENT_NEW envoie un push avec le nom de la société et le statut en attente", async () => {
     prismaMock._setUser({
       company: "Bijoux Dupont",
       firstName: "Jean",
       lastName: "Dupont",
+      status: "PENDING",
     });
 
     await fireAdmin({
       type: "CLIENT_NEW",
       tenantId: "tenant-A",
       userId: "u-1",
+      clientStatus: "PENDING",
       timestamp: Date.now(),
     });
 
@@ -171,8 +178,52 @@ describe("push-hooks – admin events", () => {
     const [, payload] = sendPushMock.mock.calls[0];
     expect(payload.title).toBe("Nouvelle inscription");
     expect(payload.body).toContain("Bijoux Dupont");
+    expect(payload.body).toContain("en attente de validation");
     expect(payload.url).toBe("/admin/clients");
     expect(payload.tag).toBe("client-u-1");
+  });
+
+  it("CLIENT_NEW statut APPROVED → notif précise « validé automatiquement »", async () => {
+    prismaMock._setUser({
+      company: "Bijoux Dupont",
+      firstName: null,
+      lastName: null,
+      status: "APPROVED",
+    });
+
+    await fireAdmin({
+      type: "CLIENT_NEW",
+      tenantId: "tenant-A",
+      userId: "u-2",
+      clientStatus: "APPROVED",
+      timestamp: Date.now(),
+    });
+
+    expect(sendPushMock).toHaveBeenCalledOnce();
+    const [, payload] = sendPushMock.mock.calls[0];
+    expect(payload.body).toContain("validé automatiquement");
+    expect(payload.body).not.toContain("en attente");
+  });
+
+  it("CLIENT_NEW statut REJECTED → notif précise « refusé automatiquement »", async () => {
+    prismaMock._setUser({
+      company: "Bijoux Dupont",
+      firstName: null,
+      lastName: null,
+      status: "REJECTED",
+    });
+
+    await fireAdmin({
+      type: "CLIENT_NEW",
+      tenantId: "tenant-A",
+      userId: "u-3",
+      clientStatus: "REJECTED",
+      timestamp: Date.now(),
+    });
+
+    expect(sendPushMock).toHaveBeenCalledOnce();
+    const [, payload] = sendPushMock.mock.calls[0];
+    expect(payload.body).toContain("refusé automatiquement");
   });
 
   it("CLIENT_STATUS n'envoie PAS de push (trop bruyant)", async () => {

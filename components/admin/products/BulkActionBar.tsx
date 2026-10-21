@@ -788,21 +788,12 @@ export default function BulkActionBar({
                   marketplaces={marketplaces}
                   totalSelected={selectedProducts.length}
                   onPublish={(k, products) => {
-                    setMarketplacesOpen(false);
                     onMarketplacePublish(k, products.map((p) => p.id));
                   }}
                   onSync={(k, products) => {
-                    setMarketplacesOpen(false);
                     onMarketplaceSync(k, products.map((p) => p.id));
                   }}
-                  onSyncAll={
-                    onSyncAll
-                      ? () => {
-                          setMarketplacesOpen(false);
-                          onSyncAll();
-                        }
-                      : undefined
-                  }
+                  onSyncAll={onSyncAll}
                   onClose={() => setMarketplacesOpen(false)}
                 />,
                 document.body,

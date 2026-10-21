@@ -89,13 +89,28 @@ describe("parsePushPreferences", () => {
   it("complète les entrées manquantes avec les defaults", async () => {
     const { parsePushPreferences, DEFAULT_PUSH_PREFERENCES } = await import("@/lib/push-preferences");
     const partial = {
-      order_new: { enabled: false, title: "Custom", body: "Body" },
+      order_new: { enabled: false, emailEnabled: false, title: "Custom", body: "Body" },
     };
     const result = parsePushPreferences(JSON.stringify(partial));
-    expect(result.order_new).toEqual({ enabled: false, title: "Custom", body: "Body" });
+    expect(result.order_new).toEqual({ enabled: false, emailEnabled: false, title: "Custom", body: "Body" });
     expect(result.client_new).toEqual(DEFAULT_PUSH_PREFERENCES.client_new);
     expect(result.claim_new).toEqual(DEFAULT_PUSH_PREFERENCES.claim_new);
     expect(result.chat_message).toEqual(DEFAULT_PUSH_PREFERENCES.chat_message);
+  });
+
+  it("retombe sur emailEnabled=true quand la clé n'est pas dans le JSON (rétrocompat)", async () => {
+    const { parsePushPreferences } = await import("@/lib/push-preferences");
+    // Ancienne forme stockée en BDD avant la feature "aussi par mail".
+    const legacy = { order_new: { enabled: true, title: "T", body: "B" } };
+    const result = parsePushPreferences(JSON.stringify(legacy));
+    expect(result.order_new.emailEnabled).toBe(true);
+  });
+
+  it("accepte emailEnabled=false explicitement", async () => {
+    const { parsePushPreferences } = await import("@/lib/push-preferences");
+    const data = { claim_new: { enabled: true, emailEnabled: false, title: "T", body: "B" } };
+    const result = parsePushPreferences(JSON.stringify(data));
+    expect(result.claim_new.emailEnabled).toBe(false);
   });
 
   it("ignore les clés inconnues (anti-injection)", async () => {
@@ -149,11 +164,11 @@ describe("getPushPreferences", () => {
 
   it("retourne les prefs parsées quand la BDD a une valeur", async () => {
     prismaMock._setValue(
-      JSON.stringify({ order_new: { enabled: false, title: "X", body: "Y" } }),
+      JSON.stringify({ order_new: { enabled: false, emailEnabled: false, title: "X", body: "Y" } }),
     );
     const { getPushPreferences } = await import("@/lib/push-preferences-server");
     const prefs = await getPushPreferences("tenant-A");
-    expect(prefs.order_new).toEqual({ enabled: false, title: "X", body: "Y" });
+    expect(prefs.order_new).toEqual({ enabled: false, emailEnabled: false, title: "X", body: "Y" });
   });
 
   it("fallback vers defaults si Prisma lève", async () => {
@@ -162,5 +177,36 @@ describe("getPushPreferences", () => {
     const { DEFAULT_PUSH_PREFERENCES } = await import("@/lib/push-preferences");
     const prefs = await getPushPreferences("tenant-A");
     expect(prefs).toEqual(DEFAULT_PUSH_PREFERENCES);
+  });
+});
+
+describe("isAdminEmailEnabled", () => {
+  it("renvoie true par défaut quand aucune pref n'est stockée (rétrocompat)", async () => {
+    prismaMock._setValue(null);
+    const { isAdminEmailEnabled } = await import("@/lib/push-preferences-server");
+    expect(await isAdminEmailEnabled("order_new")).toBe(true);
+    expect(await isAdminEmailEnabled("chat_message")).toBe(true);
+  });
+
+  it("renvoie true quand le JSON stocké n'a pas la clé emailEnabled (ancienne forme)", async () => {
+    prismaMock._setValue(JSON.stringify({ order_new: { enabled: true, title: "T", body: "B" } }));
+    const { isAdminEmailEnabled } = await import("@/lib/push-preferences-server");
+    expect(await isAdminEmailEnabled("order_new")).toBe(true);
+  });
+
+  it("renvoie false quand la cliente a explicitement coupé le mail", async () => {
+    prismaMock._setValue(
+      JSON.stringify({ chat_message: { enabled: true, emailEnabled: false, title: "T", body: "B" } }),
+    );
+    const { isAdminEmailEnabled } = await import("@/lib/push-preferences-server");
+    expect(await isAdminEmailEnabled("chat_message")).toBe(false);
+    // Les autres types restent au défaut true.
+    expect(await isAdminEmailEnabled("order_new")).toBe(true);
+  });
+
+  it("renvoie true en cas d'erreur Prisma (fail-safe : jamais masquer une alerte silencieusement)", async () => {
+    prismaMock.siteConfig.findFirst.mockRejectedValueOnce(new Error("DB down"));
+    const { isAdminEmailEnabled } = await import("@/lib/push-preferences-server");
+    expect(await isAdminEmailEnabled("claim_new")).toBe(true);
   });
 });

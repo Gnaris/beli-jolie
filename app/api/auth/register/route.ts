@@ -463,6 +463,7 @@ export async function POST(request: NextRequest) {
       kbisPath:            newUser.kbisPath ?? undefined,
       documentPath:        newUser.documentPath ?? undefined,
       registrationMessage: newUser.registrationMessage ?? undefined,
+      status:              resolvedStatus,
     }).catch((err) =>
       logger.error("[POST /api/auth/register] Notification échouée", { error: err })
     );
@@ -479,6 +480,7 @@ export async function POST(request: NextRequest) {
       type: "CLIENT_NEW",
       userId: newUser.id,
       tenantId: currentTenant?.id,
+      clientStatus: resolvedStatus,
     });
 
     const message = resolvedStatus === "APPROVED"

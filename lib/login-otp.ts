@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCachedShopName } from "@/lib/cached-data";
 import { sendMail } from "@/lib/email";
 import { logger } from "@/lib/logger";
+import { renderTransactionalEmail } from "@/lib/transactional-email-render";
 
 export const OTP_CODE_LENGTH = 6;
 export const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -146,18 +147,16 @@ export async function sendLoginOtpEmail(
     select: { id: true },
   });
 
+  const rendered = await renderTransactionalEmail({
+    scenarioKey: "LOGIN_OTP",
+    vars: { code, shopName },
+  });
+
   const result = await sendMail({
     fromName: shopName,
     to: email,
-    subject: `Votre code de connexion — ${shopName}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px">
-        <h2 style="color:#1A1A1A;margin-bottom:8px">Votre code de connexion</h2>
-        <p style="color:#6B6B6B;margin-bottom:24px">Utilisez le code ci-dessous pour vous connecter à votre espace professionnel. Ce code est valable <strong>10 minutes</strong>.</p>
-        <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:8px;background:#F5F5F5;color:#1A1A1A;padding:20px;border-radius:12px;text-align:center;margin:16px 0">${code}</div>
-        <p style="color:#9CA3AF;font-size:12px;margin-top:24px">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email. Votre compte reste sécurisé.</p>
-      </div>
-    `,
+    subject: rendered.subject,
+    html: rendered.html,
     tracking: {
       scenarioKey: "LOGIN_OTP",
       userId: user?.id ?? null,

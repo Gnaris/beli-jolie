@@ -51,6 +51,7 @@ export async function savePushPreferences(
       }
       const sane: PushEventPreference = {
         enabled: entry.enabled === true,
+        emailEnabled: entry.emailEnabled === true,
         title,
         body,
       };
