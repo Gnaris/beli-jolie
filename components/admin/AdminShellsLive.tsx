@@ -12,16 +12,20 @@
  * d'être copiée dans chaque shell.
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import AdminDesktopShell from "./AdminDesktopShell";
 import AdminMobileNav from "./AdminMobileNav";
+import AdminPageHeader from "./AdminPageHeader";
+import AdminPageTransition from "./AdminPageTransition";
 import { useLiveAdminWarnings } from "./LiveAdminWarningsProvider";
 import { buildAttributeWarningReasons, sumAttributeWarnings } from "@/lib/admin-warnings";
+import type { AdminTheme } from "@/lib/admin-theme";
 
 interface Props {
   shopName: string;
   userName: string;
   initials: string;
+  adminTheme: AdminTheme;
   children: React.ReactNode;
 }
 
@@ -29,9 +33,21 @@ export default function AdminShellsLive({
   shopName,
   userName,
   initials,
+  adminTheme,
   children,
 }: Props) {
   const counts = useLiveAdminWarnings();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  // Détection scroll pour poser un fond blanc + ombre sur le header
+  // quand on dépasse le top. Seuil 8px (évite de clignoter au moindre
+  // mouvement).
+  useEffect(() => {
+    const onScroll = () => setIsScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Le provider parent garantit une valeur initiale non-null — on ne peut
   // tomber ici qu'en cas de wiring cassé en dev. Rendre `null` est préférable
@@ -65,11 +81,13 @@ export default function AdminShellsLive({
     // On n'écrit PAS sur /admin/produits ici : la clé est déjà prise par le
     // parent (sum). La sous-entrée « Tous les produits » partage ce href et
     // affichera donc la même pastille — acceptable (même destination).
+    // Hrefs synchronisés avec PRODUCT_SUBNAV (AdminMobileNav) : la fusion
+    // 2026-10-21 route tous les attributs vers /admin/produits/attributs.
     const subEntries: [string, number, string][] = [
-      ["/admin/categories",   counts.untranslatedCategoriesCount + counts.untranslatedSubCategoriesCount, "catégorie"],
-      ["/admin/couleurs",     counts.unusedColorsCount,                                                   "couleur"],
-      ["/admin/compositions", counts.unusedCompositionsCount,                                             "composition"],
-      ["/admin/mots-cles",    counts.unusedTagsCount,                                                     "mot-clé"],
+      ["/admin/produits/attributs?onglet=categories",   counts.untranslatedCategoriesCount + counts.untranslatedSubCategoriesCount, "catégorie"],
+      ["/admin/produits/attributs?onglet=couleurs",     counts.unusedColorsCount,                                                   "couleur"],
+      ["/admin/produits/attributs?onglet=compositions", counts.unusedCompositionsCount,                                             "composition"],
+      ["/admin/produits/attributs?onglet=mots-cles",    counts.unusedTagsCount,                                                     "mot-clé"],
     ];
     for (const [href, count, singular] of subEntries) {
       if (count <= 0) continue;
@@ -98,9 +116,7 @@ export default function AdminShellsLive({
 
   return (
     <AdminDesktopShell
-      shopName={shopName}
-      userName={userName}
-      initials={initials}
+      adminTheme={adminTheme}
       warnings={warningCounts}
       pendingOrdersCount={counts.pendingOrdersCount}
       pendingUsersCount={counts.pendingUsersCount}
@@ -114,10 +130,26 @@ export default function AdminShellsLive({
         shopName={shopName}
       />
 
-      <main className="flex-1 p-4 md:p-6 lg:p-3 lg:pl-0">
-        <div className="lg:bg-white lg:border lg:border-zinc-200/80 lg:rounded-2xl lg:shadow-sm lg:p-8 lg:min-h-[calc(100vh-120px)]">
-          {children}
-        </div>
+      {/* Header de page : sticky top-3, suit le scroll. Fond blanc +
+          ombre discrète apparaissent dès qu'on scrolle sous le header
+          pour qu'il se démarque du contenu qui défile. */}
+      <div
+        className={`hidden lg:block lg:sticky lg:top-0 lg:z-30 lg:px-3 lg:pt-3 lg:transition-all lg:duration-200 ${
+          isScrolled ? "lg:pb-3 lg:bg-white/80 lg:backdrop-blur-md lg:shadow-[0_8px_18px_-10px_rgba(9,9,11,0.18)]" : ""
+        }`}
+      >
+        <AdminPageHeader shopName={shopName} userName={userName} initials={initials} />
+      </div>
+
+      {/* Contenu principal : décalé à droite de la sidebar.
+          `lg:pl-[88px]` au lieu de `lg:ml-[88px]` sur le wrapper car la
+          sidebar est fixed et commence SOUS le header. */}
+      <main className="flex-1 p-4 md:p-6 lg:pt-6 lg:pr-6 lg:pb-6 lg:pl-[92px]">
+        <AdminPageTransition>
+          <div className="lg:bg-white lg:border lg:border-zinc-200/80 lg:rounded-2xl lg:shadow-sm lg:p-8 lg:min-h-[calc(100vh-180px)]">
+            {children}
+          </div>
+        </AdminPageTransition>
       </main>
     </AdminDesktopShell>
   );

@@ -44,26 +44,40 @@ export function AdminWarningTooltip({ warning, children, wrapperClassName, as = 
 
   const setRef = (el: HTMLElement | null) => { ref.current = el; };
 
+  // Fond + couleurs forcés en inline-style pour ignorer les overrides
+  // `html.admin-dark .bg-zinc-900 / .text-white` de globals.css qui
+  // inversaient fond/texte en dark mode (illisible).
   const portal = mounted && visible && pos && hasContent
     ? createPortal(
         <div
-          className="fixed z-[9999] pointer-events-none"
+          className="fixed z-[9999] pointer-events-none animate-[tooltipIn_140ms_ease-out]"
           style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
         >
-          <div data-admin-tooltip className="relative w-[280px] rounded-xl bg-zinc-900 text-white text-[12.5px] leading-relaxed shadow-[0_18px_40px_-8px_rgba(9,9,11,0.55)] px-4 py-3">
-            <span data-admin-tooltip-arrow className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-zinc-900 rotate-45" />
+          <div
+            data-admin-tooltip
+            className="relative w-[280px] rounded-xl text-[12.5px] leading-relaxed shadow-[0_18px_40px_-8px_rgba(9,9,11,0.55)] px-4 py-3"
+            style={{ background: "#18181B", color: "#ffffff" }}
+          >
+            <span
+              data-admin-tooltip-arrow
+              className="absolute -left-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45"
+              style={{ background: "#18181B" }}
+            />
             {warning?.title && (
-              <p className="font-semibold text-amber-300 text-[11px] uppercase tracking-wider mb-1.5">{warning.title}</p>
+              <p className="font-semibold text-[11px] uppercase tracking-wider mb-1.5" style={{ color: "#FCD34D" }}>{warning.title}</p>
             )}
             {warning?.reasons && warning.reasons.length > 0 && (
-              <ul className="space-y-0.5 text-zinc-100">
+              <ul className="space-y-0.5" style={{ color: "#F4F4F5" }}>
                 {warning.reasons.map((r, i) => (
                   <li key={i}>• {r}</li>
                 ))}
               </ul>
             )}
             {warning?.hint && (
-              <p className={`text-[11px] text-zinc-400 ${(warning.reasons?.length || warning.title) ? "mt-2 pt-2 border-t border-white/10" : ""}`}>
+              <p
+                className={`text-[11px] ${(warning.reasons?.length || warning.title) ? "mt-2 pt-2 border-t border-white/10" : ""}`}
+                style={{ color: "#A1A1AA" }}
+              >
                 {warning.hint}
               </p>
             )}

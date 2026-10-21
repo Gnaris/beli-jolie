@@ -6,6 +6,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutModal";
 import AdminClientModeButton from "./AdminClientModeButton";
+import AdminSidebarThemeToggle from "./AdminSidebarThemeToggle";
+import type { AdminTheme } from "@/lib/admin-theme";
 import { AdminWarningTooltip } from "./AdminWarningTooltip";
 
 // ─── Items du menu ──────────────────────────────────────────────────────────
@@ -52,9 +54,7 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 interface Props {
-  shopName: string;
-  userName: string;
-  initials: string;
+  adminTheme: AdminTheme;
   warnings: Record<string, { count: number; tooltip: string; title?: string; reasons?: string[]; hint?: string } | undefined>;
   pendingOrdersCount: number;
   pendingUsersCount: number;
@@ -112,7 +112,7 @@ function AdminNavIconLink({
           rel={item.external ? "noopener noreferrer" : undefined}
           onMouseEnter={() => setItemHovered(true)}
           onMouseLeave={() => setItemHovered(false)}
-          className={`relative flex items-center justify-center p-2.5 rounded-xl transition-colors ${
+          className={`relative flex items-center justify-center p-2 rounded-xl transition-colors ${
             active
               ? "bg-zinc-100 text-zinc-900"
               : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
@@ -135,24 +135,37 @@ function AdminNavIconLink({
 
       {mounted && showLabel && coords && createPortal(
         <div
-          className="fixed z-[70] pointer-events-none"
+          className="fixed z-[70] pointer-events-none animate-[tooltipIn_140ms_ease-out]"
           style={{ top: coords.top, left: coords.left, transform: "translateY(-50%)" }}
         >
-          <div className="relative bg-zinc-900 text-white text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)] whitespace-nowrap">
+          <div
+            className="relative text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)] whitespace-nowrap"
+            style={{ background: "#18181B", color: "#ffffff" }}
+          >
             <span className="flex items-center gap-2">
               {item.label}
               {showBlueBadge && (
-                <span className="rounded-full bg-sky-500/25 text-sky-200 px-1.5 py-0.5 text-[10px] font-bold">
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                  style={{ background: "rgba(14,165,233,0.25)", color: "#bae6fd" }}
+                >
                   {blueCount}
                 </span>
               )}
               {warning && (
-                <span className="rounded-full bg-amber-500/25 text-amber-200 px-1.5 py-0.5 text-[10px] font-medium">
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                  style={{ background: "rgba(245,158,11,0.25)", color: "#FDE68A" }}
+                >
                   ⚠ {warning.count}
                 </span>
               )}
             </span>
-            <span aria-hidden className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-zinc-900 rotate-45" />
+            <span
+              aria-hidden
+              className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45"
+              style={{ background: "#18181B" }}
+            />
           </div>
         </div>,
         document.body,
@@ -162,9 +175,7 @@ function AdminNavIconLink({
 }
 
 export default function AdminDesktopShell({
-  shopName,
-  userName,
-  initials,
+  adminTheme,
   warnings,
   pendingOrdersCount,
   pendingUsersCount,
@@ -187,69 +198,48 @@ export default function AdminDesktopShell({
       <aside
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
-        className="shrink-0 hidden lg:flex flex-col gap-3 fixed z-40 top-3 bottom-3 left-3 w-[72px]"
+        className="shrink-0 hidden lg:flex flex-col gap-3 fixed z-40 top-[108px] left-3 w-[72px]"
       >
-        {/* Bulle Brand */}
-        <Link
-          href="/fr"
-          title={shopName}
-          className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm px-3 py-4 flex items-center justify-center shrink-0"
-        >
+        {/* Bulle Thème (clair / sombre) */}
+        <AdminSidebarThemeToggle initialTheme={adminTheme} />
+
+        {/* Bulles de navigation : une par section (hauteur = contenu). */}
+        {NAV_SECTIONS.map((section, idx) => (
           <div
-            className="relative w-11 h-11 rounded-2xl flex items-center justify-center shadow-sm overflow-hidden"
-            style={{ background: "linear-gradient(135deg, #27272A 0%, #18181B 100%)", border: "1px solid #27272A" }}
+            key={idx}
+            className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2 px-2 flex flex-col gap-0.5 shrink-0"
           >
-            <span className="font-heading text-base font-bold text-white">
-              {shopName.charAt(0).toUpperCase()}
-            </span>
-            <span className="absolute -top-3 -right-3 w-9 h-9 rounded-full bg-amber-300/50 blur-xl" />
-          </div>
-        </Link>
-
-        {/* Bulles de navigation : une par section (overflow visible pour pas de clipping) */}
-        <nav className="flex-1 flex flex-col gap-3 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-light" aria-label="Navigation admin">
-          {NAV_SECTIONS.map((section, idx) => (
-            <div key={idx} className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2.5 px-2 flex flex-col gap-0.5 shrink-0">
-              {section.items.map((item) => {
-                if (item.soon) {
-                  return (
-                    <div
-                      key={item.href}
-                      className="relative flex items-center justify-center p-2.5 rounded-xl opacity-40 cursor-not-allowed text-zinc-400"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
-                      </svg>
-                    </div>
-                  );
-                }
+            {section.items.map((item) => {
+              if (item.soon) {
                 return (
-                  <AdminNavIconLink
+                  <div
                     key={item.href}
-                    item={item}
-                    active={isItemActive(pathname, item.href)}
-                    warning={warnings[item.href]}
-                    blueCount={blueBadges[item.href] ?? 0}
-                    sidebarHovered={sidebarHovered}
-                  />
+                    className="relative flex items-center justify-center p-2 rounded-xl opacity-40 cursor-not-allowed text-zinc-400"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
+                    </svg>
+                  </div>
                 );
-              })}
-            </div>
-          ))}
-        </nav>
+              }
+              return (
+                <AdminNavIconLink
+                  key={item.href}
+                  item={item}
+                  active={isItemActive(pathname, item.href)}
+                  warning={warnings[item.href]}
+                  blueCount={blueBadges[item.href] ?? 0}
+                  sidebarHovered={sidebarHovered}
+                />
+              );
+            })}
+          </div>
+        ))}
 
-        {/* Bulle Compte : mode client + avatar/logout */}
-        <div className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2.5 px-2 flex flex-col items-center gap-1 shrink-0">
+        {/* Bulle Compte : mode client + déconnexion (porte ouverte) */}
+        <div className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2 px-2 flex flex-col items-center gap-1 shrink-0">
           <div className="w-full">
             <AdminClientModeButton compact />
-          </div>
-          <div
-            title={`${userName} — Administrateur`}
-            className="relative w-10 h-10 rounded-full flex items-center justify-center shadow-sm"
-            style={{ background: "#18181B", border: "1px solid #27272A" }}
-          >
-            <span className="text-white text-[11px] font-bold font-body">{initials}</span>
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
           </div>
           <div className="w-full">
             <LogoutButton compact />
@@ -257,7 +247,7 @@ export default function AdminDesktopShell({
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-[88px]">
+      <div className="flex-1 flex flex-col min-w-0">
         {children}
       </div>
     </>

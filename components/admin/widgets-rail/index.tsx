@@ -6,7 +6,6 @@
  */
 
 import { RightRailProvider } from "./RightRailContext";
-import { RightRail } from "./RightRail";
 import { TranslationDrawer } from "./TranslationDrawer";
 import { MarketplacesDrawer } from "./MarketplacesDrawer";
 import { ImagesDrawer } from "./ImagesDrawer";
@@ -16,18 +15,17 @@ import { PfsAuditDrawer } from "./PfsAuditDrawer";
 import { MicrostoreUploadDrawer } from "./MicrostoreUploadDrawer";
 import { BulkMailDrawer } from "./BulkMailDrawer";
 
+// Le FAB bottom-right (`<RightRail />`) est retiré : le déclencheur du menu
+// vit désormais dans AdminHeaderWidgetLauncher, placé dans l'entête de page.
+// On garde ici uniquement le provider + les drawers eux-mêmes.
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
     <RightRailProvider>
       {children}
-      <RightRail />
       <TranslationDrawer />
       <MarketplacesDrawer />
       <ImagesDrawer />
       <ShootingDrawer />
-      {/* Un seul drawer d'import commandes — gère PFS + eFashion en parallèle.
-          Il accepte aussi les clés legacy "pfs-import" / "efashion-import" pour
-          garantir la rétrocompat avec les points d'ouverture existants. */}
       <OrdersImportDrawer />
       <PfsAuditDrawer />
       <MicrostoreUploadDrawer />

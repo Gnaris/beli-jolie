@@ -972,6 +972,59 @@ html:not(.admin-dark)::-webkit-scrollbar-corner { background: transparent; }
 }
 .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
 
+/* Apparition info-bulle admin : fade + léger slide depuis la gauche.
+   Sa cible étant déjà translaté (-50% Y) par style inline, on anime via
+   une variable CSS n'influant pas sur le transform parent. */
+@keyframes tooltipIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Sous-pages admin : glisse l'ancien contenu vers la gauche en entrant.
+   Appliqué via key={pathname} dans AdminPageTransition. */
+@keyframes adminSlideIn {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Transition entre onglets d'attributs produits. La direction est portée
+   par la variable CSS `--slide-dir` (positive = depuis la droite, négative
+   = depuis la gauche), posée dynamiquement par AttributsTabs. */
+@keyframes attrSlide {
+  from { opacity: 0; transform: translateX(var(--slide-dir, 28px)); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Transition du thème admin via l'API View Transitions.
+   `startViewTransition` (voir AdminSidebarThemeToggle) prend un snapshot
+   avant/après du DOM et crossfade entre les deux — c'est le navigateur
+   qui fait le travail en GPU → zéro freeze.
+   On ne met PLUS de transition CSS globale sur `*` : ça causait un gros
+   recalcul à chaque bascule (visible sur les grosses pages). */
+::view-transition-old(admin-theme),
+::view-transition-new(admin-theme) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+::view-transition-old(admin-theme) {
+  animation-name: adminThemeFadeOut;
+}
+::view-transition-new(admin-theme) {
+  animation-name: adminThemeFadeIn;
+}
+@keyframes adminThemeFadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes adminThemeFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(admin-theme),
+  ::view-transition-new(admin-theme) { animation: none !important; }
+}
+
 @keyframes pfsAppear {
   0% { opacity: 0; transform: scale(0.92) translateY(12px); }
   60% { opacity: 1; transform: scale(1.03) translateY(-2px); }

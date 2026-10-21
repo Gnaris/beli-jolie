@@ -104,6 +104,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         shopName={shopName}
         userName={session.user.name ?? "Admin"}
         initials={initials}
+        adminTheme={adminTheme}
       >
         {children}
       </AdminShellsLive>

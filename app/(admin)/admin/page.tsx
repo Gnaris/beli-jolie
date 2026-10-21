@@ -1,502 +1,310 @@
 import type { Metadata } from "next";
 import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { getCachedDashboardStats, getCachedLowStockCount } from "@/lib/cached-data";
-import { getVisitStats } from "@/lib/visit-stats";
-import DashboardChartsLoader from "@/components/admin/dashboard/DashboardChartsLoader";
-import VisitorStats from "@/components/admin/dashboard/VisitorStats";
-import type { MonthlyPoint, StatusPoint, TopProduct } from "@/components/admin/dashboard/DashboardCharts";
+import {
+  getDashboardOverview,
+  countryFlagEmoji,
+  type TopCountry,
+} from "@/lib/dashboard-overview";
+import MonthlyRevenueChart from "@/components/admin/dashboard/MonthlyRevenueChart";
 
 export const metadata: Metadata = {
   title: "Tableau de bord — Admin",
 };
 
-// ─── Tuile KPI Ardoise (cliquable ou non) ──────────────────────────────────
-function KpiTile({
-  href, label, value, icon, tone,
+export const dynamic = "force-dynamic";
+
+function formatMoney(n: number): string {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(n));
+}
+
+function formatPercent(n: number): string {
+  return `${(n * 100).toFixed(1).replace(".", ",")} %`;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+ * Dashboard admin — style V14 minimal moderne (refonte 2026-10-21)
+ *
+ * Layout en 3 rangées :
+ *   1. Salutation « Bonjour, [prénom] »
+ *   2. HÉRO bleu marine (col-7) : CA total XL · CTA blanc
+ *      + Colonne droite (col-5) : CA du jour (blanc) empilé avec
+ *        Visiteurs du jour (bleu pâle poudré)
+ *   3. Top 3 pays (col-5, 1 pays accentué bleu pâle + 2 blanc) ·
+ *      Graphique CA mensuel (col-7)
+ *
+ * Palette non-négociable : blanc, bleu marine #1E3A5F,
+ * bleu pâle #E8EEF5, noir #18181B. Vert émeraude autorisé
+ * uniquement pour les chips d'évolution positive.
+ *
+ * Les cartes aux fonds colorés custom (marine + bleu pâle)
+ * portent `admin-fab-preserve` : les règles CSS globales de
+ * dark mode ignorent ce bloc et le fond reste identique.
+ * ─────────────────────────────────────────────────────────── */
+export default async function AdminDashboardPage({
+  searchParams,
 }: {
-  href?: string;
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  tone?: "warning" | "danger" | null;
+  searchParams: Promise<{ annee?: string }>;
 }) {
-  const toneChip = {
-    warning: { dot: "bg-amber-500", text: "text-amber-700", label: "Action requise" },
-    danger:  { dot: "bg-rose-500",  text: "text-rose-700",  label: "À réapprovisionner" },
-  };
-  const chip = tone ? toneChip[tone] : null;
-
-  const base = "group relative overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-sm transition-all";
-  const interactive = href ? "hover:shadow-card-md hover:-translate-y-0.5 cursor-pointer" : "";
-
-  const inner = (
-    <div className="p-5">
-      <div className="flex items-center justify-between mb-4">
-        <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-bg-tertiary text-text-primary">
-          {icon}
-        </span>
-        {href && (
-          <span className="text-text-muted opacity-40 group-hover:opacity-100 transition-opacity">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M7 17L17 7M10 7h7v7" /></svg>
-          </span>
-        )}
-      </div>
-      <p className="font-heading text-2xl sm:text-3xl font-bold tabular-nums leading-none text-text-primary">
-        {value}
-      </p>
-      <p className="text-sm font-body text-text-secondary mt-1.5">{label}</p>
-      {chip && (
-        <p className="text-[11px] font-body mt-1 flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${chip.dot} animate-pulse`} />
-          <span className={`font-medium ${chip.text}`}>{chip.label}</span>
-        </p>
-      )}
-    </div>
-  );
-
-  if (href) return <Link href={href} className={`${base} ${interactive} block`}>{inner}</Link>;
-  return <div className={base}>{inner}</div>;
-}
-
-// ─── Pill d'alerte dans le hero ────────────────────────────────────────────
-function AlertPill({ href, count, label, tone }: { href: string; count: number; label: string; tone: "amber" | "rose" }) {
-  const toneMap = {
-    amber: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100",
-    rose:  "bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100",
-  }[tone];
-  const dot = tone === "amber" ? "bg-amber-500" : "bg-rose-500";
-  return (
-    <Link
-      href={href}
-      className={`inline-flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-body font-medium transition-colors ${toneMap}`}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      <span className="font-semibold tabular-nums">{count}</span>
-      <span>{label}</span>
-    </Link>
-  );
-}
-
-// ─── Tuile lien rapide Ardoise ─────────────────────────────────────────────
-function QuickLinkTile({
-  href, label, desc, icon, dark = false,
-}: {
-  href: string;
-  label: string;
-  desc: string;
-  icon: React.ReactNode;
-  dark?: boolean;
-}) {
-  const bg = dark ? "bg-bg-dark text-white border-bg-dark" : "bg-bg-primary text-text-primary border-border";
-  const iconBox = dark ? "bg-white/10 text-white" : "bg-bg-tertiary text-text-primary";
-  const descColor = dark ? "text-white/60" : "text-text-muted";
-  const arrow = dark ? "text-white/50" : "text-text-muted";
-
-  return (
-    <Link
-      href={href}
-      className={`group relative overflow-hidden rounded-2xl border shadow-sm hover:shadow-card-md hover:-translate-y-0.5 transition-all ${bg}`}
-    >
-      <div className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <span className={`inline-flex items-center justify-center w-11 h-11 rounded-xl ${iconBox}`}>
-            {icon}
-          </span>
-          <svg className={`w-4 h-4 ${arrow} opacity-40 group-hover:opacity-100 transition-opacity`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M13 5l7 7-7 7" />
-          </svg>
-        </div>
-        <p className="font-heading font-semibold text-sm leading-tight">{label}</p>
-        <p className={`text-xs mt-1 font-body leading-snug ${descColor}`}>{desc}</p>
-      </div>
-    </Link>
-  );
-}
-
-// ─── Header de section ─────────────────────────────────────────────────────
-function SectionHeader({ eyebrow, title }: { eyebrow: string; title?: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-4">
-      <span className="w-1 h-4 rounded-full bg-border-strong" />
-      <h2 className="font-heading text-[11px] sm:text-xs uppercase tracking-[0.18em] text-text-secondary font-semibold">
-        {eyebrow}
-      </h2>
-      {title && <span className="font-body text-xs text-text-muted">· {title}</span>}
-    </div>
-  );
-}
-
-export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "ADMIN") redirect("/connexion");
+  const sp = await searchParams;
+  const requestedYear = sp.annee ? parseInt(sp.annee, 10) : undefined;
+  const yearParam = Number.isFinite(requestedYear) ? requestedYear : undefined;
 
-  const now = new Date();
+  const data = await getDashboardOverview(yearParam);
 
-  const [stats, pendingCount, _rejectedCount, latestPending, lowStockCount, visitStats] = await Promise.all([
-    getCachedDashboardStats(),
-    prisma.user.count({ where: { status: "PENDING" } }),
-    prisma.user.count({ where: { status: "REJECTED" } }),
-    prisma.user.findMany({
-      where: { status: "PENDING" },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, firstName: true, lastName: true, company: true, email: true, siret: true, createdAt: true },
-    }),
-    getCachedLowStockCount(),
-    getVisitStats(),
-  ]);
+  const firstName = session?.user.name?.split(" ")[0] ?? "Admin";
 
-  const {
-    approvedCount, totalOrders, totalRevenue, pendingOrders, revenueToday,
-    recentOrders, orderStatusRaw, topProductsRaw,
-  } = stats;
-
-  // Build monthly chart data
-  const monthLabels: { key: string; label: string }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
-    monthLabels.push({ key, label });
-  }
-  const monthlyMap: Record<string, { orders: number; revenue: number }> = {};
-  for (const { key } of monthLabels) monthlyMap[key] = { orders: 0, revenue: 0 };
-  for (const order of recentOrders) {
-    const d = new Date(order.createdAt);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    if (monthlyMap[key]) {
-      monthlyMap[key].orders += 1;
-      monthlyMap[key].revenue += order.totalTTC;
-    }
-  }
-  const monthlyData: MonthlyPoint[] = monthLabels.map(({ key, label }) => ({
-    label, orders: monthlyMap[key].orders, revenue: Math.round(monthlyMap[key].revenue * 100) / 100,
-  }));
-
-  const statusDist: StatusPoint[] = orderStatusRaw;
-  const topProducts: TopProduct[] = topProductsRaw;
-
-  const todayLabel = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const todayFormatted = todayLabel.charAt(0).toUpperCase() + todayLabel.slice(1);
-  const firstName = session.user.name?.split(" ")[0] ?? "Admin";
-
-  const fmtEur = (n: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
-
-  function initialsOf(first: string, last: string) {
-    return `${(first?.[0] ?? "").toUpperCase()}${(last?.[0] ?? "").toUpperCase()}`.trim() || "?";
-  }
+  const todayLabel = new Date().toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+  });
 
   return (
-    <div className="space-y-8 sm:space-y-10">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5 md:space-y-6">
+      {/* ─── Salutation ─────────────────────────────────────── */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="font-heading text-[28px] md:text-[32px] font-bold leading-tight tracking-tight text-text-primary">
+            Bonjour,{" "}
+            <span
+              className="italic font-normal text-zinc-500"
+              style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
+            >
+              {firstName}
+            </span>
+          </h1>
+          <p className="text-[13px] font-body text-text-muted mt-1">
+            Voici l&apos;activité de votre boutique aujourd&apos;hui.
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white text-[11px] font-body font-semibold text-zinc-600">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Mis à jour à l&apos;instant
+        </span>
+      </div>
 
-      {/* ════════════════════════ HERO ARDOISE ════════════════════════ */}
-      <div className="relative overflow-hidden rounded-3xl border border-border bg-bg-primary shadow-sm">
-        {/* Voile subtil : du gris très clair vers blanc, plus d'aurora */}
-        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-bg-secondary to-bg-primary" />
-
-        <div className="relative p-5 sm:p-7 md:p-9">
-          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-tertiary border border-border text-text-secondary">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-body text-[10px] sm:text-[11px] uppercase tracking-[0.18em] font-semibold">
-                    Cockpit administrateur
-                  </span>
-                </span>
-                <span className="hidden sm:inline-flex font-body text-xs text-text-muted truncate">
-                  · {todayFormatted}
-                </span>
-              </div>
-              <h1 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-text-primary leading-tight tracking-tight">
-                Bonjour, {firstName}.
-              </h1>
-              <p className="font-body text-sm sm:text-base text-text-secondary mt-1.5 sm:mt-2 max-w-xl">
-                Voici l&apos;état de votre boutique aujourd&apos;hui — d&apos;un coup d&apos;œil.
+      {/* ─── Ligne 1 : HÉRO marine + colonne droite empilée ──── */}
+      <div className="grid grid-cols-12 gap-5">
+        {/* HÉRO bleu marine — CA total */}
+        <div
+          className="admin-fab-preserve col-span-12 lg:col-span-7 rounded-[32px] p-7 md:p-8 min-h-[320px] text-white flex flex-col justify-between relative overflow-hidden"
+          style={{
+            background:
+              "radial-gradient(circle at 85% -10%, rgba(255,255,255,0.12), transparent 55%), radial-gradient(circle at -10% 110%, rgba(255,255,255,0.07), transparent 55%), #1E3A5F",
+          }}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.25em] opacity-70">
+                Chiffre d&apos;affaires total
               </p>
-              {/* Date affichée sur mobile */}
-              <p className="sm:hidden font-body text-xs text-text-muted mt-2">{todayFormatted}</p>
+              <p
+                className="text-sm italic mt-1 opacity-80"
+                style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
+              >
+                depuis l&apos;ouverture
+              </p>
             </div>
+          </div>
 
-            {(pendingCount > 0 || lowStockCount > 0) && (
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {pendingCount > 0 && (
-                  <AlertPill
-                    href="/admin/clients?status=PENDING"
-                    count={pendingCount}
-                    label={`demande${pendingCount > 1 ? "s" : ""} à examiner`}
-                    tone="amber"
-                  />
-                )}
-                {lowStockCount > 0 && (
-                  <AlertPill
-                    href="/admin/produits?stock=low"
-                    count={lowStockCount}
-                    label={`produit${lowStockCount > 1 ? "s" : ""} en stock bas`}
-                    tone="rose"
-                  />
-                )}
+          <div className="mt-6">
+            <p className="font-heading text-[64px] md:text-[88px] font-bold leading-none tracking-tight tabular-nums">
+              {formatMoney(data.totalRevenue)}
+              <span className="text-[40px] md:text-[52px] opacity-70"> €</span>
+            </p>
+            <p className="text-[13px] font-body mt-4 opacity-80">
+              {data.totalOrdersCount} commande{data.totalOrdersCount > 1 ? "s" : ""} au total
+            </p>
+          </div>
+
+          <div className="mt-6 md:mt-8 flex items-center gap-3 flex-wrap">
+            <a
+              href="/admin/commandes"
+              className="inline-flex items-center gap-2 bg-white text-zinc-900 rounded-full px-5 py-2.5 text-[13px] font-body font-semibold hover:-translate-y-0.5 transition-transform"
+            >
+              Voir les commandes
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2.2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        {/* Colonne droite : CA du jour + Visiteurs empilés */}
+        <div className="col-span-12 lg:col-span-5 grid grid-rows-2 gap-5">
+          {/* CA du jour — carte blanche */}
+          <div className="bg-white rounded-[32px] p-6 md:p-7 flex flex-col justify-between min-h-[148px]">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                Aujourd&apos;hui
+              </p>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 text-[10.5px] font-body font-semibold text-zinc-500 tabular-nums">
+                {todayLabel}
+              </span>
+            </div>
+            <div>
+              <p className="font-heading text-[40px] md:text-[48px] font-bold leading-none tracking-tight tabular-nums text-text-primary">
+                {formatMoney(data.todayRevenue)}
+                <span className="text-[24px] md:text-[28px] text-zinc-400"> €</span>
+              </p>
+              <p className="text-[12px] font-body text-text-muted mt-2">
+                {data.todayOrdersCount} commande{data.todayOrdersCount > 1 ? "s" : ""} aujourd&apos;hui
+              </p>
+            </div>
+          </div>
+
+          {/* Visiteurs — carte bleu pâle poudré */}
+          <div
+            className="admin-fab-preserve rounded-[32px] p-6 md:p-7 min-h-[148px]"
+            style={{ background: "#E8EEF5", color: "#1E3A5F" }}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] opacity-70">
+                Visiteurs du jour
+              </p>
+              <span className="font-heading text-[32px] md:text-[36px] font-bold leading-none tabular-nums">
+                {data.todayVisits.total}
+              </span>
+            </div>
+            <div className="mt-5 md:mt-6 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[10.5px] font-body font-semibold uppercase tracking-[0.18em] opacity-65">
+                  Connectés
+                </p>
+                <p className="font-heading text-[20px] md:text-[22px] font-bold tabular-nums mt-1">
+                  {data.todayVisits.authenticated}
+                </p>
               </div>
-            )}
+              <div
+                className="pl-4 border-l"
+                style={{ borderColor: "rgba(30,58,95,0.25)" }}
+              >
+                <p className="text-[10.5px] font-body font-semibold uppercase tracking-[0.18em] opacity-65">
+                  Anonymes
+                </p>
+                <p className="font-heading text-[20px] md:text-[22px] font-bold tabular-nums mt-1">
+                  {data.todayVisits.anonymous}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ════════════════════════ KPIs DU JOUR ════════════════════════ */}
-      <section>
-        <SectionHeader eyebrow="Aujourd'hui" title="indicateurs clés" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <KpiTile
-            label="Revenu du jour"
-            value={fmtEur(revenueToday)}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
-              </svg>
-            }
-          />
-          <KpiTile
-            href="/admin/commandes?status=PENDING"
-            label="Commandes à traiter"
-            value={pendingOrders.toString()}
-            tone={pendingOrders > 0 ? "warning" : null}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <path d="M16 10a4 4 0 01-8 0" />
-              </svg>
-            }
-          />
-          <KpiTile
-            href="/admin/clients?status=PENDING"
-            label="Clients à examiner"
-            value={pendingCount.toString()}
-            tone={pendingCount > 0 ? "warning" : null}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 11h-6M19 8v6" />
-              </svg>
-            }
-          />
-          <KpiTile
-            href="/admin/produits?stock=low"
-            label="Stock bas"
-            value={lowStockCount.toString()}
-            tone={lowStockCount > 0 ? "danger" : null}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
-            }
-          />
-        </div>
-      </section>
-
-      {/* ════════════════════════ VISITEURS ════════════════════════ */}
-      <section>
-        <SectionHeader eyebrow="Visiteurs" title="trafic du site" />
-        <VisitorStats stats={visitStats} />
-      </section>
-
-      {/* ════════════════════════ VUE D'ENSEMBLE ════════════════════════ */}
-      <section>
-        <SectionHeader eyebrow="Vue d'ensemble" title="totaux historiques" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          <KpiTile
-            label="Revenu total"
-            value={fmtEur(totalRevenue)}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 3v18h18" />
-                <path d="M7 14l4-4 4 4 5-5" />
-              </svg>
-            }
-          />
-          <KpiTile
-            label="Commandes au total"
-            value={totalOrders.toString()}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <path d="M16 10a4 4 0 01-8 0" />
-              </svg>
-            }
-          />
-          <KpiTile
-            label="Clients actifs"
-            value={approvedCount.toString()}
-            icon={
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-              </svg>
-            }
-          />
-        </div>
-      </section>
-
-      {/* ════════════════════════ CHARTS ════════════════════════ */}
-      <section>
-        <SectionHeader eyebrow="Analytics" title="6 derniers mois & catalogue" />
-        <DashboardChartsLoader monthlyData={monthlyData} statusDist={statusDist} topProducts={topProducts} />
-      </section>
-
-      {/* ════════════════════════ DEMANDES EN ATTENTE ════════════════════════ */}
-      <section>
-        <div className="flex items-end justify-between mb-4 gap-3 flex-wrap">
-          <div>
-            <SectionHeader eyebrow="À examiner" title="dernières demandes clients" />
-          </div>
-          {pendingCount > 5 && (
-            <Link
-              href="/admin/clients?status=PENDING"
-              className="text-xs sm:text-sm text-text-primary hover:text-text-secondary font-body font-medium transition-colors underline underline-offset-2"
+      {/* ─── Ligne 2 : Top 3 pays + Graphique CA mensuel ──────── */}
+      <div className="grid grid-cols-12 gap-5">
+        {/* Top 3 pays (empilé — #1 en accent bleu pâle) */}
+        <div className="col-span-12 lg:col-span-5 space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-[11px] font-body font-semibold uppercase tracking-[0.22em] text-zinc-500">
+              Top 3 pays
+            </p>
+            <span
+              className="text-[10.5px] text-zinc-500 italic"
+              style={{ fontFamily: "var(--font-cormorant), 'Cormorant Garamond', serif" }}
             >
-              Voir tout ({pendingCount})
-            </Link>
-          )}
-        </div>
-
-        {latestPending.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-bg-primary p-8 sm:p-10 text-center shadow-sm">
-            <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="font-body text-text-secondary text-sm">Aucune demande en attente. Tout est à jour !</p>
+              depuis le début
+            </span>
           </div>
-        ) : (
-          <>
-            {/* Mobile : liste de cartes */}
-            <div className="md:hidden space-y-3">
-              {latestPending.map((user) => (
-                <Link
-                  key={user.id}
-                  href={`/admin/clients/${user.id}`}
-                  className="block bg-bg-primary border border-border rounded-2xl p-4 shadow-sm hover:shadow-card-md transition-all"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-bg-tertiary text-text-primary flex items-center justify-center font-heading font-semibold text-sm shrink-0">
-                      {initialsOf(user.firstName, user.lastName)}
-                    </div>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => {
+              const country: TopCountry | undefined = data.topCountries[i];
+              if (!country) {
+                return (
+                  <div
+                    key={`empty-${i}`}
+                    className="rounded-[24px] border border-dashed border-zinc-300 bg-white/40 min-h-[86px] flex items-center justify-center"
+                  >
+                    <span className="text-[11px] font-body text-zinc-400">
+                      Pas encore de données
+                    </span>
+                  </div>
+                );
+              }
+              const flag = countryFlagEmoji(country.code);
+              const isFirst = i === 0;
+
+              if (isFirst) {
+                return (
+                  <div
+                    key={country.code}
+                    className="admin-fab-preserve rounded-[24px] p-5 flex items-center gap-4"
+                    style={{ background: "#E8EEF5", color: "#1E3A5F" }}
+                  >
+                    <span className="text-[42px] leading-none">{flag || "🏳️"}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-body font-semibold text-text-primary text-sm truncate">{user.company}</p>
-                      <p className="font-body text-xs text-text-secondary mt-0.5">{user.firstName} {user.lastName}</p>
-                      <p className="font-body text-xs text-text-muted mt-1 truncate">{user.email}</p>
-                      <div className="flex items-center justify-between mt-2.5">
-                        <span className="font-mono text-[11px] text-text-muted">{user.siret || "—"}</span>
-                        <span className="font-body text-[11px] text-text-muted">
-                          {new Date(user.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                      <div className="flex items-center gap-2">
+                        <p className="font-body font-semibold text-[14px] truncate">
+                          {country.name}
+                        </p>
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded-full bg-white text-[10px] font-body font-bold shrink-0"
+                          style={{ color: "#1E3A5F" }}
+                        >
+                          #1
                         </span>
                       </div>
+                      <p className="font-heading text-[22px] md:text-[26px] font-bold mt-0.5 tabular-nums tracking-tight">
+                        {formatMoney(country.amount)} €
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-heading text-[16px] md:text-[18px] font-bold tabular-nums">
+                        {formatPercent(country.share)}
+                      </p>
+                      <p className="text-[10.5px] opacity-70">du CA</p>
                     </div>
                   </div>
-                </Link>
-              ))}
-            </div>
+                );
+              }
 
-            {/* Desktop : table */}
-            <div className="hidden md:block bg-bg-primary border border-border rounded-2xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border bg-bg-secondary/60">
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider">Société</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider">Contact</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">Email</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">SIRET</th>
-                      <th className="px-5 py-3 text-left text-[11px] font-body font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap">Date</th>
-                      <th className="px-5 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {latestPending.map((user) => (
-                      <tr key={user.id} className="border-b border-border-light last:border-0 hover:bg-bg-secondary/50 transition-colors">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-bg-tertiary text-text-primary flex items-center justify-center font-heading font-semibold text-xs shrink-0">
-                              {initialsOf(user.firstName, user.lastName)}
-                            </div>
-                            <p className="font-body font-semibold text-text-primary text-sm">{user.company}</p>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <p className="font-body text-sm text-text-primary">{user.firstName} {user.lastName}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="font-body text-sm text-text-secondary">{user.email}</p>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <p className="font-mono text-sm text-text-secondary">{user.siret || "—"}</p>
-                        </td>
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <p className="font-body text-xs text-text-secondary">
-                            {new Date(user.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}
-                          </p>
-                        </td>
-                        <td className="px-5 py-4 text-right whitespace-nowrap">
-                          <Link href={`/admin/clients/${user.id}`} className="btn-primary text-xs">Examiner</Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+              return (
+                <div
+                  key={country.code}
+                  className="bg-white rounded-[24px] p-5 flex items-center gap-4"
+                >
+                  <span className="text-[36px] leading-none">{flag || "🏳️"}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-body font-semibold text-[14px] text-text-primary truncate">
+                        {country.name}
+                      </p>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-zinc-100 text-[10px] font-body font-bold text-zinc-600 shrink-0">
+                        #{i + 1}
+                      </span>
+                    </div>
+                    <p className="font-heading text-[20px] md:text-[22px] font-bold mt-0.5 tabular-nums tracking-tight text-text-primary">
+                      {formatMoney(country.amount)} €
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-heading text-[14px] md:text-[15px] font-bold tabular-nums text-zinc-700">
+                      {formatPercent(country.share)}
+                    </p>
+                    <p className="text-[10.5px] text-zinc-400">du CA</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
-      {/* ════════════════════════ ACCÈS RAPIDES ════════════════════════ */}
-      <section>
-        <SectionHeader eyebrow="Accès rapides" title="naviguer dans l'admin" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
-          <QuickLinkTile
-            href="/admin/clients"
-            label="Clients"
-            desc="Voir et valider les comptes"
-            icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" /></svg>}
-          />
-          <QuickLinkTile
-            href="/admin/produits"
-            label="Produits"
-            desc="Catalogue, photos, synchro"
-            icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /><path d="M3.27 6.96L12 12.01l8.73-5.05" /><path d="M12 22.08V12" /></svg>}
-          />
-          <QuickLinkTile
-            href="/admin/commandes"
-            label="Commandes"
-            desc="Suivre et expédier"
-            icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 01-8 0" /></svg>}
-          />
-          <QuickLinkTile
-            href="/admin/collections"
-            label="Collections"
-            desc="Organiser les regroupements"
-            icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></svg>}
-          />
-          <QuickLinkTile
-            href="/"
-            label="Voir le site"
-            desc="Vue visiteur en boutique"
-            dark
-            icon={<svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>}
+        {/* Graphique CA mensuel */}
+        <div className="col-span-12 lg:col-span-7">
+          <MonthlyRevenueChart
+            monthlyRevenue={data.monthlyRevenue}
+            activeYear={data.activeYear}
+            availableYears={data.availableYears}
           />
         </div>
-      </section>
+      </div>
     </div>
   );
 }
