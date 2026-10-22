@@ -19,14 +19,33 @@ export default function Error({
   useEffect(() => {
     reportClientError({ source: "route-error-boundary", error })
       .then(({ transient, maintenanceTriggered }) => {
-        if (transient) {
-          setAutoRecovering(true);
-          window.location.reload();
-          return;
-        }
         if (maintenanceTriggered) {
           window.location.href = "/maintenance";
+          return;
         }
+        if (!transient) return;
+
+        // Casse-boucle Safari iOS : si une erreur « transient » revient à
+        // chaque reload (vrai bug persistant mal classé), le `reload()` en
+        // boucle fait apparaître l'écran natif « Un problème récurrent est
+        // survenu » sur mobile. On autorise 2 reloads auto, puis on affiche
+        // l'écran d'erreur normal avec bouton « Réessayer ».
+        const ATTEMPTS_KEY = "bj-error-reload-attempts";
+        const LAST_AT_KEY = "bj-error-reload-last";
+        const RESET_WINDOW_MS = 30_000;
+        const MAX_AUTO_RELOADS = 2;
+        try {
+          const now = Date.now();
+          const last = Number(sessionStorage.getItem(LAST_AT_KEY) ?? "0");
+          const prev = Number(sessionStorage.getItem(ATTEMPTS_KEY) ?? "0");
+          const attempts = now - last > RESET_WINDOW_MS ? 1 : prev + 1;
+          sessionStorage.setItem(ATTEMPTS_KEY, String(attempts));
+          sessionStorage.setItem(LAST_AT_KEY, String(now));
+          if (attempts > MAX_AUTO_RELOADS) return; // Montre l'écran d'erreur normal
+        } catch { /* sessionStorage KO (safari privé) : on tente quand même 1 reload */ }
+
+        setAutoRecovering(true);
+        window.location.reload();
       })
       .catch(() => {});
   }, [error]);

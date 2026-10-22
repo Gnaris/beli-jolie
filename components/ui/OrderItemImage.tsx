@@ -13,6 +13,7 @@ import {
 } from "@/components/admin/products/DownloadOverlayToggles";
 import ReferenceBadgePreview from "@/components/admin/products/ReferenceBadgePreview";
 import { useToast } from "@/components/ui/Toast";
+import { getImageSrc } from "@/lib/image-utils";
 
 interface OrderItemImageProps {
   src: string | null;
@@ -77,7 +78,11 @@ export default function OrderItemImage({
         onClick={() => setOpen(true)}
         className={`${sizeClass} shrink-0 bg-bg-tertiary border border-border rounded-lg overflow-hidden cursor-zoom-in transition-shadow hover:shadow-md`}
       >
-        <Image src={src} alt={alt} width={80} height={80} unoptimized className="w-full h-full object-cover" />
+        {/* Miniature `-thumb` (~10 Ko) et pas l'image full (1-3 Mo) : évite les
+            crashes renderer Safari iOS quand une grosse commande (15+ articles)
+            est dézoomée ou tournée en portrait/paysage. Le lightbox garde la
+            full size (c'est voulu, pour zoomer sur la vraie photo). */}
+        <Image src={getImageSrc(src, "thumb")} alt={alt} width={80} height={80} unoptimized className="w-full h-full object-cover" />
       </button>
 
       {open && (

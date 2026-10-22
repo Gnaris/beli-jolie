@@ -21,6 +21,7 @@ import {
   formatPriceEuros,
   type OverlayFormat,
 } from "@/lib/download-image-overlays";
+import { getImageSrc } from "@/lib/image-utils";
 import {
   usePersistedOverlayToggles,
   OverlayToggles,
@@ -2190,7 +2191,7 @@ function MobileItemCard({
           title="Agrandir l'image"
           className="w-14 h-14 rounded-lg bg-slate-100 overflow-hidden border border-slate-200 shrink-0 hover:ring-2 hover:ring-sky-300 focus:outline-none focus:ring-2 focus:ring-sky-400 transition"
         >
-          <Image src={item.imagePath} alt={item.productName} width={56} height={56} unoptimized className="w-full h-full object-cover" />
+          <Image src={getImageSrc(item.imagePath, "thumb")} alt={item.productName} width={56} height={56} unoptimized className="w-full h-full object-cover" />
         </button>
       ) : (
         <div className="w-14 h-14 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 text-xs shrink-0">—</div>

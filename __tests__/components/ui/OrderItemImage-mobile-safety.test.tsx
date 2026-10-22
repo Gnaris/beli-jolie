@@ -50,4 +50,16 @@ describe("OrderItemImage — lightbox mobile", () => {
       .some((i) => i.className.includes("max-h-[100dvh]"));
     expect(stillOpen).toBe(true);
   });
+
+  /**
+   * La miniature doit charger la version `-thumb` (~10 Ko), pas la full-size
+   * (~1-3 Mo). Sans ça, 15 articles × 2 Mo saturent la RAM renderer iOS Safari
+   * au pinch-zoom / rotation → crash → Safari affiche « Un problème récurrent
+   * est survenu ». Incident 2026-10-22 /admin/commandes/[id].
+   */
+  it("miniature utilise la version -thumb (pas la full) pour tenir en RAM iOS", () => {
+    render(<OrderItemImage src="/uploads/produits/abc/abc-doré-1.webp" alt="Exemple" />);
+    const miniature = screen.getAllByAltText("Exemple")[0] as HTMLImageElement;
+    expect(miniature.getAttribute("src")).toContain("-thumb.webp");
+  });
 });
