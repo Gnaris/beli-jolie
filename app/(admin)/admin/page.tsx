@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getDashboardOverview, countryFlagEmoji } from "@/lib/dashboard-overview";
+import { parsePeriod } from "@/lib/dashboard-period";
 import DashboardKpiCard from "@/components/admin/dashboard/DashboardKpiCard";
 import DashboardRevenueChart from "@/components/admin/dashboard/DashboardRevenueChart";
 import DashboardCategoryDonut from "@/components/admin/dashboard/DashboardCategoryDonut";
 import DashboardStatusDonut from "@/components/admin/dashboard/DashboardStatusDonut";
+import DashboardPeriodPicker from "@/components/admin/dashboard/DashboardPeriodPicker";
 
 export const metadata: Metadata = { title: "Tableau de bord — Admin" };
 export const dynamic = "force-dynamic";
@@ -39,15 +41,14 @@ function orderStatusChip(status: string) {
   }
 }
 
-export default async function AdminDashboardPage() {
-  const data = await getDashboardOverview();
-  const monthRange = (() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const fmt = (d: Date) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
-    return `${fmt(start)} – ${fmt(end)}`;
-  })();
+export default async function AdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string | string[] }>;
+}) {
+  const { period: periodRaw } = await searchParams;
+  const period = parsePeriod(periodRaw);
+  const data = await getDashboardOverview({ period });
 
   return (
     // Neutralise le wrapper blanc du shell admin : fond slate pour laisser
@@ -62,20 +63,10 @@ export default async function AdminDashboardPage() {
               Tableau de bord
             </h1>
             <p className="text-[12px] text-text-muted mt-1">
-              Voici un aperçu de votre activité e-commerce aujourd&apos;hui.
+              Voici un aperçu de votre activité e-commerce.
             </p>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 bg-white border border-zinc-200 rounded-xl px-3 py-2 text-[11.5px] font-medium text-zinc-600 shadow-sm cursor-default"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <path d="M16 2v4M8 2v4M3 10h18" />
-            </svg>
-            {monthRange}
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M5 7l5 5 5-5H5z" /></svg>
-          </button>
+          <DashboardPeriodPicker current={data.period} periodLabel={data.periodLabel} />
         </header>
 
         {/* ─── KPIs ────────────────────────────────────────────── */}
@@ -88,7 +79,7 @@ export default async function AdminDashboardPage() {
 
         {/* ─── Évolution + Répartition ventes ──────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(260px,1fr)] gap-3">
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">
                 Évolution du chiffre d&apos;affaires
@@ -99,11 +90,11 @@ export default async function AdminDashboardPage() {
               </div>
             </div>
             <div className="px-2 pb-3">
-              <DashboardRevenueChart points={data.dailyRevenue} />
+              <DashboardRevenueChart buckets={data.revenueBuckets} />
             </div>
           </article>
 
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Répartition des ventes</h2>
               <Link href="/admin/categories" className="text-[10px] text-[#246bfe] hover:underline">
@@ -117,7 +108,7 @@ export default async function AdminDashboardPage() {
         {/* ─── Top produits · Ventes catégories · Statut ──────── */}
         <section className="grid grid-cols-1 lg:grid-cols-[1.25fr_1.25fr_.95fr] gap-3">
           {/* Top produits */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Top 5 des produits les plus vendus</h2>
               <Link href="/admin/produits" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
@@ -166,7 +157,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Ventes par catégorie */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Ventes par catégorie</h2>
               <Link href="/admin/categories" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
@@ -205,7 +196,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Statut commandes */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Statut des commandes</h2>
             </div>
@@ -216,7 +207,7 @@ export default async function AdminDashboardPage() {
         {/* ─── Stock faible · Activité · Marketing ────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {/* Stock faible */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Stock — produits en faible quantité</h2>
               <Link href="/admin/produits" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
@@ -273,7 +264,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Activité récente */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Activité récente</h2>
             </div>
@@ -302,7 +293,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Performances marketing */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Performances marketing</h2>
             </div>
@@ -341,7 +332,7 @@ export default async function AdminDashboardPage() {
         {/* ─── Commandes · Clients · Géographie ───────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {/* Commandes récentes */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Commandes récentes</h2>
               <Link href="/admin/commandes" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
@@ -376,7 +367,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Clients récents */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Clients récents</h2>
               <Link href="/admin/clients" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
@@ -409,7 +400,7 @@ export default async function AdminDashboardPage() {
           </article>
 
           {/* Répartition géographique */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
               <h2 className="text-[13px] font-semibold text-text-primary">Répartition géographique</h2>
             </div>

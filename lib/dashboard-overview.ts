@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { getVisitStats, type PeriodVisitStats } from "@/lib/visit-stats";
+import {
+  DEFAULT_PERIOD,
+  getPeriodRange,
+  type PeriodKey,
+  type BucketGranularity,
+} from "@/lib/dashboard-period";
 
 /**
  * Agrégations tableau de bord (refonte 2026-10-21 — maquette ShopAdmin).
@@ -28,8 +34,11 @@ export interface KpiBlock {
   iconKey: "cart" | "receipt" | "box" | "users";
 }
 
-export interface DailyRevenuePoint {
-  dayOfMonth: number; // 1..31
+export interface RevenueBucket {
+  /** Libellé court affiché sous la barre (ex: "15", "Lu 14", "S42", "Jan"). */
+  label: string;
+  /** Libellé long pour tooltip (ex: "15 oct. 2026", "sem. 42 du 12 oct."). */
+  longLabel: string;
   revenue: number;
   orders: number;
 }
@@ -100,14 +109,20 @@ export interface RecentCustomerRow {
 }
 
 export interface DashboardOverview {
+  period: PeriodKey;
+  /** Libellé lisible de la période active ("Octobre 2026", "16 oct. – 22 oct. 2026"). */
+  periodLabel: string;
   kpis: {
+    /** CA cumulé sur la période active. */
     totalRevenue: KpiBlock;
+    /** CA du jour (toujours "aujourd'hui", indépendant du picker). */
     todayRevenue: KpiBlock;
+    /** Nombre de commandes sur la période active. */
     totalOrders: KpiBlock;
+    /** Clients APPROVED (cumul lifetime), delta = nouveaux clients période. */
     uniqueClients: KpiBlock;
   };
-  dailyRevenue: DailyRevenuePoint[];
-  currentMonthLabel: string;
+  revenueBuckets: RevenueBucket[];
   categoryBreakdown: CategorySlice[];
   categoryTotal: number;
   topProducts: TopProduct[];
@@ -149,27 +164,31 @@ function dateKey(d: Date): string { return `${d.getFullYear()}-${String(d.getMon
 function pct(a: number, b: number): number | null { if (b === 0) return a > 0 ? 1 : null; return (a - b) / b; }
 
 // ───── Fetch principal ─────────────────────────────────────────────────────
-export async function getDashboardOverview(): Promise<DashboardOverview> {
+export async function getDashboardOverview(
+  opts: { period?: PeriodKey } = {},
+): Promise<DashboardOverview> {
   const now = new Date();
+  const period = opts.period ?? DEFAULT_PERIOD;
+  const range = getPeriodRange(period, now);
+
   const todayStart = startOfDay(now);
   const yesterdayStart = daysAgo(1);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const last30Start = daysAgo(29);
-  const prev30Start = daysAgo(59);
   const last14Start = daysAgo(13);
 
+  // Filtres période active (CA, commandes, top produits, catégories, pays).
+  const periodWhere = { status: { not: "CANCELLED" as const }, createdAt: { gte: range.start, lt: range.end } };
+  const prevPeriodWhere = { status: { not: "CANCELLED" as const }, createdAt: { gte: range.previousStart, lt: range.previousEnd } };
+
   const [
-    totalAgg,
     todayAgg,
     yesterdayAgg,
-    last30Agg,
-    prev30Agg,
+    periodAgg,
+    prevPeriodAgg,
     orders14d,
     uniqueClientsCount,
-    newClients30d,
-    newClientsPrev30d,
-    monthOrdersRaw,
+    newClientsPeriod,
+    newClientsPrevPeriod,
+    periodOrdersRaw,
     categoryItemsRaw,
     topProductsRaw,
     orderStatusRaw,
@@ -184,10 +203,6 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     productLookup,
   ] = await Promise.all([
     prisma.order.aggregate({
-      where: { status: { not: "CANCELLED" } },
-      _sum: { totalTTC: true }, _count: { id: true },
-    }),
-    prisma.order.aggregate({
       where: { status: { not: "CANCELLED" }, createdAt: { gte: todayStart } },
       _sum: { totalTTC: true }, _count: { id: true },
     }),
@@ -196,11 +211,11 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
       _sum: { totalTTC: true }, _count: { id: true },
     }),
     prisma.order.aggregate({
-      where: { status: { not: "CANCELLED" }, createdAt: { gte: last30Start } },
+      where: periodWhere,
       _sum: { totalTTC: true }, _count: { id: true },
     }),
     prisma.order.aggregate({
-      where: { status: { not: "CANCELLED" }, createdAt: { gte: prev30Start, lt: last30Start } },
+      where: prevPeriodWhere,
       _sum: { totalTTC: true }, _count: { id: true },
     }),
     // Détail 14 jours pour les sparklines (CA + orders)
@@ -208,39 +223,37 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
       where: { status: { not: "CANCELLED" }, createdAt: { gte: last14Start } },
       select: { createdAt: true, totalTTC: true },
     }),
-    // Nombre de clients APPROVED (compte global)
+    // Nombre de clients APPROVED (compte global — toujours lifetime)
     prisma.user.count({ where: { role: "CLIENT", status: "APPROVED" } }),
-    // Nouveaux clients 30j
+    // Nouveaux clients période active vs précédente (pour le delta)
     prisma.user.count({
-      where: { role: "CLIENT", status: "APPROVED", createdAt: { gte: last30Start } },
+      where: { role: "CLIENT", status: "APPROVED", createdAt: { gte: range.start, lt: range.end } },
     }),
     prisma.user.count({
-      where: { role: "CLIENT", status: "APPROVED", createdAt: { gte: prev30Start, lt: last30Start } },
+      where: { role: "CLIENT", status: "APPROVED", createdAt: { gte: range.previousStart, lt: range.previousEnd } },
     }),
-    // CA journalier du mois courant
+    // CA par bucket sur la période active (granularité adaptative)
     prisma.order.findMany({
-      where: {
-        status: { not: "CANCELLED" },
-        createdAt: { gte: monthStart, lt: monthEnd },
-      },
+      where: periodWhere,
       select: { createdAt: true, totalTTC: true },
     }),
-    // Vente par catégorie — on charge les OrderItems avec jointure sur Product.category
+    // Vente par catégorie sur la période active
     prisma.orderItem.findMany({
-      where: { order: { status: { not: "CANCELLED" } } },
+      where: { order: periodWhere },
       select: { productRef: true, quantity: true, lineTotal: true },
     }),
-    // Top produits (grouper par ref puis sommer)
+    // Top produits sur la période active
     prisma.orderItem.groupBy({
       by: ["productRef"],
-      where: { order: { status: { not: "CANCELLED" } } },
+      where: { order: periodWhere },
       _sum: { quantity: true, lineTotal: true },
       orderBy: { _sum: { quantity: "desc" } },
       take: 5,
     }),
-    // Statut des commandes
+    // Statut des commandes sur la période active
     prisma.order.groupBy({
       by: ["status"],
+      where: { createdAt: { gte: range.start, lt: range.end } },
       _count: { id: true },
     }),
     // Stock faible — ProductColor avec stock < 10, non désactivée
@@ -291,10 +304,10 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
       where: { status: { not: "CANCELLED" } },
       _sum: { totalTTC: true },
     }),
-    // Pays — top 5
+    // Pays — top 5 sur la période active
     prisma.order.groupBy({
       by: ["shipCountry"],
-      where: { status: { not: "CANCELLED" } },
+      where: periodWhere,
       _sum: { totalTTC: true },
       orderBy: { _sum: { totalTTC: "desc" } },
       take: 5,
@@ -316,18 +329,15 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
   ]);
 
   // ─── KPI calculs ─────────────────────────────────────────────────────────
-  const totalRevenue = Number(totalAgg._sum.totalTTC ?? 0);
-  const totalOrdersCount = totalAgg._count.id;
+  const periodRevenue = Number(periodAgg._sum.totalTTC ?? 0);
+  const periodOrdersCount = periodAgg._count.id;
+  const prevPeriodRevenue = Number(prevPeriodAgg._sum.totalTTC ?? 0);
+  const prevPeriodOrders = prevPeriodAgg._count.id;
 
   const todayRevenue = Number(todayAgg._sum.totalTTC ?? 0);
   const todayOrdersCount = todayAgg._count.id;
   const yesterdayRevenue = Number(yesterdayAgg._sum.totalTTC ?? 0);
   const yesterdayOrdersCount = yesterdayAgg._count.id;
-
-  const last30Revenue = Number(last30Agg._sum.totalTTC ?? 0);
-  const prev30Revenue = Number(prev30Agg._sum.totalTTC ?? 0);
-  const last30Orders = last30Agg._count.id;
-  const prev30Orders = prev30Agg._count.id;
 
   // Séries 14j (CA + nb commandes par jour)
   const spark14Revenue: Map<string, number> = new Map();
@@ -360,10 +370,10 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
 
   const kpis = {
     totalRevenue: {
-      label: "Chiffre d'affaires total",
-      value: totalRevenue, format: "money" as const,
-      deltaPct: pct(last30Revenue, prev30Revenue),
-      deltaReference: "vs. mois précédent",
+      label: labelForRevenueKpi(period),
+      value: periodRevenue, format: "money" as const,
+      deltaPct: pct(periodRevenue, prevPeriodRevenue),
+      deltaReference: range.deltaReference,
       spark: revenueSparkPoints,
       accent: "blue" as const, iconKey: "cart" as const,
     },
@@ -376,34 +386,25 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
       accent: "green" as const, iconKey: "receipt" as const,
     },
     totalOrders: {
-      label: "Commandes totales",
-      value: totalOrdersCount, format: "integer" as const,
-      deltaPct: pct(last30Orders, prev30Orders),
-      deltaReference: "vs. mois précédent",
+      label: labelForOrdersKpi(period),
+      value: periodOrdersCount, format: "integer" as const,
+      deltaPct: pct(periodOrdersCount, prevPeriodOrders),
+      deltaReference: range.deltaReference,
       spark: ordersSparkPoints,
       accent: "purple" as const, iconKey: "box" as const,
     },
     uniqueClients: {
       label: "Clients uniques",
       value: uniqueClientsCount, format: "integer" as const,
-      deltaPct: pct(newClients30d, newClientsPrev30d),
-      deltaReference: "vs. mois précédent",
+      deltaPct: pct(newClientsPeriod, newClientsPrevPeriod),
+      deltaReference: range.deltaReference,
       spark: clientsSparkPoints,
       accent: "cyan" as const, iconKey: "users" as const,
     },
   };
 
-  // ─── CA journalier (mois courant) ────────────────────────────────────────
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dailyRevenue: DailyRevenuePoint[] = Array.from({ length: daysInMonth }, (_, i) => ({
-    dayOfMonth: i + 1, revenue: 0, orders: 0,
-  }));
-  for (const o of monthOrdersRaw) {
-    const d = o.createdAt.getDate();
-    dailyRevenue[d - 1].revenue += Number(o.totalTTC);
-    dailyRevenue[d - 1].orders += 1;
-  }
-  const currentMonthLabel = now.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  // ─── CA par bucket (granularité adaptative selon la période) ─────────────
+  const revenueBuckets = bucketizeRevenue(periodOrdersRaw, range.start, range.end, range.bucketGranularity);
 
   // ─── Vente par catégorie ─────────────────────────────────────────────────
   // Besoin : agréger quantité + revenu par catégorie via Product.categoryId.
@@ -526,8 +527,9 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
   // Simplification : on prend visitStats.month (déjà calculé).
   const month = visitStats.month;
   const visits30d = month.total;
-  const conv = last30Orders > 0 && visits30d > 0 ? last30Orders / visits30d : 0;
-  const avgBasket = last30Orders > 0 ? last30Revenue / last30Orders : 0;
+  // Conversion + panier moyen reflètent la période active (cohérent avec KPI).
+  const conv = periodOrdersCount > 0 && visits30d > 0 ? periodOrdersCount / visits30d : 0;
+  const avgBasket = periodOrdersCount > 0 ? periodRevenue / periodOrdersCount : 0;
 
   // Visites 7 derniers jours — on recalcule via prisma.visit (une seule requête)
   const weekStart = daysAgo(6);
@@ -587,7 +589,7 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
   });
 
   // ─── Pays ────────────────────────────────────────────────────────────────
-  const totalForCountry = totalRevenue > 0 ? totalRevenue : 1;
+  const totalForCountry = periodRevenue > 0 ? periodRevenue : 1;
   const topCountries: TopCountry[] = countriesRaw
     .filter((r) => r.shipCountry)
     .map((r) => {
@@ -600,9 +602,10 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
   void todayOrdersCount; void yesterdayOrdersCount;
 
   return {
+    period,
+    periodLabel: range.label,
     kpis,
-    dailyRevenue,
-    currentMonthLabel,
+    revenueBuckets,
     categoryBreakdown,
     categoryTotal,
     topProducts,
@@ -616,6 +619,114 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     topCountries,
     todayVisits: visitStats.today,
   };
+}
+
+// ─── Helpers labels KPI ───────────────────────────────────────────────────
+function labelForRevenueKpi(period: PeriodKey): string {
+  switch (period) {
+    case "7d":    return "Chiffre d'affaires · 7 jours";
+    case "30d":   return "Chiffre d'affaires · 30 jours";
+    case "90d":   return "Chiffre d'affaires · 90 jours";
+    case "year":  return "Chiffre d'affaires · année";
+    case "month": return "Chiffre d'affaires du mois";
+  }
+}
+function labelForOrdersKpi(period: PeriodKey): string {
+  switch (period) {
+    case "7d":    return "Commandes · 7 jours";
+    case "30d":   return "Commandes · 30 jours";
+    case "90d":   return "Commandes · 90 jours";
+    case "year":  return "Commandes · année";
+    case "month": return "Commandes du mois";
+  }
+}
+
+// ─── Bucketization adaptative CA ──────────────────────────────────────────
+function bucketizeRevenue(
+  orders: Array<{ createdAt: Date; totalTTC: unknown }>,
+  start: Date,
+  end: Date,
+  granularity: BucketGranularity,
+): RevenueBucket[] {
+  if (granularity === "day") return bucketByDay(orders, start, end);
+  if (granularity === "week") return bucketByWeek(orders, start, end);
+  return bucketByMonth(orders, start, end);
+}
+
+function bucketByDay(
+  orders: Array<{ createdAt: Date; totalTTC: unknown }>,
+  start: Date,
+  end: Date,
+): RevenueBucket[] {
+  const buckets: RevenueBucket[] = [];
+  for (let d = new Date(start); d < end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    buckets.push({
+      label: `${d.getDate()}`,
+      longLabel: d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }),
+      revenue: 0, orders: 0,
+    });
+  }
+  for (const o of orders) {
+    const idx = Math.floor((startOfDay(o.createdAt).getTime() - startOfDay(start).getTime()) / 86_400_000);
+    if (idx < 0 || idx >= buckets.length) continue;
+    buckets[idx].revenue += Number(o.totalTTC);
+    buckets[idx].orders += 1;
+  }
+  return buckets;
+}
+
+function bucketByWeek(
+  orders: Array<{ createdAt: Date; totalTTC: unknown }>,
+  start: Date,
+  end: Date,
+): RevenueBucket[] {
+  // Chaque bucket couvre 7j à partir de `start` ; les semaines ne sont pas
+  // alignées sur le lundi ISO — on reste collé à la fenêtre glissante
+  // (ex: 90j se finit toujours à aujourd'hui, pas au dimanche précédent).
+  const buckets: RevenueBucket[] = [];
+  for (let d = new Date(start); d < end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7)) {
+    const bEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 6);
+    const effectiveEnd = bEnd >= end ? new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1) : bEnd;
+    buckets.push({
+      label: `${d.getDate()}/${d.getMonth() + 1}`,
+      longLabel: `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} – ${effectiveEnd.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`,
+      revenue: 0, orders: 0,
+    });
+  }
+  const startMs = startOfDay(start).getTime();
+  for (const o of orders) {
+    const idx = Math.floor((startOfDay(o.createdAt).getTime() - startMs) / (7 * 86_400_000));
+    if (idx < 0 || idx >= buckets.length) continue;
+    buckets[idx].revenue += Number(o.totalTTC);
+    buckets[idx].orders += 1;
+  }
+  return buckets;
+}
+
+function bucketByMonth(
+  orders: Array<{ createdAt: Date; totalTTC: unknown }>,
+  start: Date,
+  end: Date,
+): RevenueBucket[] {
+  const buckets: RevenueBucket[] = [];
+  const indexByKey = new Map<string, number>();
+  for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d < end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    indexByKey.set(key, buckets.length);
+    buckets.push({
+      label: d.toLocaleDateString("fr-FR", { month: "short" }),
+      longLabel: d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+      revenue: 0, orders: 0,
+    });
+  }
+  for (const o of orders) {
+    const key = `${o.createdAt.getFullYear()}-${o.createdAt.getMonth()}`;
+    const idx = indexByKey.get(key);
+    if (idx === undefined) continue;
+    buckets[idx].revenue += Number(o.totalTTC);
+    buckets[idx].orders += 1;
+  }
+  return buckets;
 }
 
 // Helper local (évite double import depuis la page)
