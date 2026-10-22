@@ -1,5 +1,6 @@
 import path from "node:path";
 import { copyFile, keyFromDbPath, orderImageDir, statFile } from "@/lib/storage";
+import { getImagePaths } from "@/lib/image-utils";
 
 /**
  * Copie la miniature d'un OrderItem vers un dossier propre à la commande.
@@ -15,6 +16,12 @@ import { copyFile, keyFromDbPath, orderImageDir, statFile } from "@/lib/storage"
  *    les infos texte de la ligne restent intactes)
  *  - si l'imagePath pointe déjà vers le dossier commandes/ → no-op (idempotent
  *    pour rejouer le script rétroactif sans double-copie)
+ *
+ * Variantes `-md` / `-thumb` : pour les images webp, on tente aussi de copier
+ * les deux miniatures pré-générées quand elles existent côté source. Sans ça,
+ * l'affichage via `getImageSrc(src, "thumb")` dans la fiche commande (ajouté
+ * par le fix crash iOS Safari du 2026-10-22) renvoie une 404 et la vignette
+ * tombe en blanc.
  *
  * Retourne le nouveau `dbPath` (`/uploads/{tenant}/commandes/{orderNumber}/{itemId}.webp`)
  * ou `null` si aucune copie n'a été faite.
@@ -41,5 +48,24 @@ export async function copyOrderItemImageToOrderDir(params: {
   const destKey = `${destDir}/${orderItemId}${ext}`;
 
   await copyFile(srcKey, destKey);
+
+  if (ext === ".webp") {
+    const variants = getImagePaths(sourceDbPath);
+    const destBase = destKey.slice(0, -ext.length);
+    await Promise.all(
+      ([
+        ["medium", "-md"],
+        ["thumb", "-thumb"],
+      ] as const).map(async ([size, suffix]) => {
+        const variantPath = variants[size];
+        const variantKey = keyFromDbPath(variantPath);
+        if (variantKey === srcKey) return;
+        const stat = await statFile(variantKey);
+        if (!stat) return;
+        await copyFile(variantKey, `${destBase}${suffix}${ext}`);
+      }),
+    );
+  }
+
   return `/${destKey}`;
 }

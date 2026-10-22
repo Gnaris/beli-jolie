@@ -103,4 +103,47 @@ describe("copyOrderItemImageToOrderDir", () => {
     const buf = await fs.readFile(srcAbs);
     expect(buf.toString()).toBe("STAY");
   });
+
+  // Sans ces miniatures, la fiche commande affiche une vignette blanche :
+  // getImageSrc(src, "thumb") dérive un fichier `-thumb.webp` inexistant → 404.
+  // Incident 2026-10-23 — fix crash iOS Safari du 2026-10-22.
+  it("copie aussi les variantes -md et -thumb quand elles existent côté source", async () => {
+    const base = `uploads/${TENANT}/produits/e310b/e310b-doré-1`;
+    await uploadFile(`${base}.webp`, Buffer.from("LARGE"));
+    await uploadFile(`${base}-md.webp`, Buffer.from("MEDIUM"));
+    await uploadFile(`${base}-thumb.webp`, Buffer.from("THUMB"));
+
+    const newPath = await copyOrderItemImageToOrderDir({
+      sourceDbPath: `/${base}.webp`,
+      orderNumber: "ORD3",
+      orderItemId: "clthumb01",
+      tenantSlug: TENANT,
+    });
+
+    expect(newPath).toBe(`/uploads/${TENANT}/commandes/ord3/clthumb01.webp`);
+
+    const dir = path.resolve(process.cwd(), "public", "uploads", TENANT, "commandes", "ord3");
+    expect((await fs.readFile(path.join(dir, "clthumb01.webp"))).toString()).toBe("LARGE");
+    expect((await fs.readFile(path.join(dir, "clthumb01-md.webp"))).toString()).toBe("MEDIUM");
+    expect((await fs.readFile(path.join(dir, "clthumb01-thumb.webp"))).toString()).toBe("THUMB");
+  });
+
+  it("tolère l'absence des variantes (ancienne image sans -md / -thumb pré-générés)", async () => {
+    const srcKey = `uploads/${TENANT}/produits/legacy/photo.webp`;
+    await uploadFile(srcKey, Buffer.from("ONLY_LARGE"));
+
+    const newPath = await copyOrderItemImageToOrderDir({
+      sourceDbPath: `/${srcKey}`,
+      orderNumber: "ORD4",
+      orderItemId: "cllegacy1",
+      tenantSlug: TENANT,
+    });
+
+    expect(newPath).toBe(`/uploads/${TENANT}/commandes/ord4/cllegacy1.webp`);
+
+    const dir = path.resolve(process.cwd(), "public", "uploads", TENANT, "commandes", "ord4");
+    expect((await fs.readFile(path.join(dir, "cllegacy1.webp"))).toString()).toBe("ONLY_LARGE");
+    await expect(fs.readFile(path.join(dir, "cllegacy1-thumb.webp"))).rejects.toThrow();
+    await expect(fs.readFile(path.join(dir, "cllegacy1-md.webp"))).rejects.toThrow();
+  });
 });
