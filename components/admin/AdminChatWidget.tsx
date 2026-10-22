@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useChatStream } from "@/hooks/useChatStream";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -88,6 +89,14 @@ export default function AdminChatWidget() {
   const toast = useToast();
   const { confirm } = useConfirm();
 
+  // ── Deep-link `?chat=<convId>` ────────────────
+  // Appelé quand l'admin clique sur une notification push « nouveau message »
+  // (voir lib/push-hooks.ts) → ouvre le widget + sélectionne la conv ciblée.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const deepLinkHandledRef = useRef<string | null>(null);
+
   // Alimente le badge du rail avec le nombre de messages non lus.
   useEffect(() => {
     rail.setBadge("chat", { count: totalUnread, pulse: totalUnread > 0 });
@@ -138,6 +147,40 @@ export default function AdminChatWidget() {
       });
     return () => { cancelled = true; };
   }, [isOpen, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Deep-link `?chat=<convId>` : ouvre le widget + sélectionne la conv ─
+  useEffect(() => {
+    const convId = searchParams.get("chat");
+    if (!convId) return;
+    if (deepLinkHandledRef.current === convId) return;
+    deepLinkHandledRef.current = convId;
+
+    rail.open("chat");
+
+    getAdminConversations()
+      .then((data) => {
+        const list = data as ConversationSummary[];
+        setConversations(list);
+        const conv = list.find((c) => c.id === convId);
+        if (conv) {
+          const clientName =
+            conv.user.company
+            || `${conv.user.firstName} ${conv.user.lastName}`.trim()
+            || conv.user.email;
+          openConversation(conv.id, conv.subject ?? "", clientName);
+        } else {
+          toast.error("Conversation introuvable");
+        }
+      })
+      .catch(() => toast.error("Impossible de charger la conversation"))
+      .finally(() => {
+        // Nettoie l'URL pour qu'un refresh ne rouvre pas en boucle.
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete("chat");
+        const qs = next.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname);
+      });
+  }, [searchParams, rail, pathname, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scroll to bottom on new messages ────────
   useEffect(() => {

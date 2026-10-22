@@ -200,7 +200,7 @@ export async function createClaim(input: CreateClaimInput) {
           await sendPushToAdmins(tenantIdForPush, {
             title: renderTemplate(prefs.claim_new.title, values),
             body: renderTemplate(prefs.claim_new.body, values),
-            url: `/admin/sav/${reference}`,
+            url: `/admin/service-client/${claim.id}`,
             tag: `claim-${claim.id}`,
             requireInteraction: true,
           });

@@ -175,8 +175,8 @@ function urlForType(type: PushEventType): string {
   switch (type) {
     case "order_new":    return "/admin/commandes";
     case "client_new":   return "/admin/clients";
-    case "claim_new":    return "/admin/sav";
-    case "chat_message": return "/admin/messagerie";
+    case "claim_new":    return "/admin/service-client";
+    case "chat_message": return "/admin";
   }
 }
 

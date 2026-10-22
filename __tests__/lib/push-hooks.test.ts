@@ -179,7 +179,7 @@ describe("push-hooks – admin events", () => {
     expect(payload.title).toBe("Nouvelle inscription");
     expect(payload.body).toContain("Bijoux Dupont");
     expect(payload.body).toContain("en attente de validation");
-    expect(payload.url).toBe("/admin/clients");
+    expect(payload.url).toBe("/admin/clients/u-1");
     expect(payload.tag).toBe("client-u-1");
   });
 
@@ -261,12 +261,12 @@ describe("push-hooks – chat events", () => {
     const [, payload] = sendPushMock.mock.calls[0];
     expect(payload.title).toBe("Message · Marc");
     expect(payload.body).toContain("Bonjour");
-    expect(payload.url).toBe("/admin/messagerie?conv=conv-1");
+    expect(payload.url).toBe("/admin?chat=conv-1");
     expect(payload.tag).toBe("conv-conv-1");
     expect(payload.requireInteraction).toBe(false);
   });
 
-  it("NEW_MESSAGE context=claim → push SAV avec URL /admin/sav/{ref}", async () => {
+  it("NEW_MESSAGE context=claim → push SAV avec URL /admin/service-client/{claimId}", async () => {
     prismaMock._setConv({
       claim: { id: "claim-1", reference: "SAV-2026-ABC" },
     });
@@ -291,7 +291,7 @@ describe("push-hooks – chat events", () => {
     expect(sendPushMock).toHaveBeenCalledOnce();
     const [, payload] = sendPushMock.mock.calls[0];
     expect(payload.title).toBe("Nouveau SAV · Sophie");
-    expect(payload.url).toBe("/admin/sav/SAV-2026-ABC");
+    expect(payload.url).toBe("/admin/service-client/claim-1");
     expect(payload.requireInteraction).toBe(true);
   });
 

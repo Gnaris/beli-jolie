@@ -115,7 +115,7 @@ async function dispatchAdminEvent(event: AdminEvent): Promise<void> {
     await sendPushToAdmins(tenantId, {
       title: renderTemplate(prefs.client_new.title, values),
       body: renderTemplate(prefs.client_new.body, values),
-      url: `/admin/clients`,
+      url: `/admin/clients/${event.userId}`,
       tag: `client-${event.userId}`,
     });
     return;
@@ -177,14 +177,17 @@ async function dispatchChatEvent(event: ChatEvent): Promise<void> {
   }
 
   // Lien utile côté admin selon le type.
+  // - SAV : fiche conversation dans `/admin/service-client/[claimId]`.
+  // - Chat normal : `/admin?chat=<convId>` ouvre automatiquement le widget
+  //   flottant sur la bonne conversation (voir AdminChatWidget).
   const url = isClaim
     ? await resolveClaimUrl(tenantId, event.conversationId)
-    : `/admin/messagerie?conv=${event.conversationId}`;
+    : `/admin?chat=${event.conversationId}`;
 
   await sendPushToAdmins(tenantId, {
     title: renderTemplate(prefs[key].title, values),
     body: renderTemplate(prefs[key].body, values),
-    url: url ?? "/admin/messagerie",
+    url: url ?? "/admin",
     // Regroupé par conversation : les 10 messages d'un même échange
     // n'empilent pas 10 notifs — la plus récente remplace la précédente.
     tag: `conv-${event.conversationId}`,
@@ -197,14 +200,14 @@ async function resolveClaimUrl(tenantId: string, conversationId: string): Promis
     const conv = await tenantALS.run(tenantId, async () => {
       return prisma.conversation.findFirst({
         where: { id: conversationId },
-        select: { claim: { select: { id: true, reference: true } } },
+        select: { claim: { select: { id: true } } },
       });
     });
-    const ref = conv?.claim?.reference;
-    if (!ref) return "/admin/sav";
-    return `/admin/sav/${ref}`;
+    const claimId = conv?.claim?.id;
+    if (!claimId) return "/admin/service-client";
+    return `/admin/service-client/${claimId}`;
   } catch {
-    return "/admin/sav";
+    return "/admin/service-client";
   }
 }
 
