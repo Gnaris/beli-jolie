@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { matchesSearch, matchesFilters, countMissing, type SizeForFilters, type SizeFilterKey } from "@/lib/size-filters";
+import { matchesSearch, type SizeForFilters } from "@/lib/size-filters";
 import { isProtectedSizeName, PROTECTED_SIZE_VIRTUAL_ID } from "@/lib/protected-sizes";
 import { useDragReorder, DragHandle, dropIndicatorClass } from "@/components/admin/shared/useDragReorder";
 
@@ -26,7 +26,6 @@ function initials(name: string): string {
 
 export default function SizesList({ sizes, selectedId, onSelect, pfsEnabled, onReorder }: Props) {
   const [query, setQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<Set<SizeFilterKey>>(new Set());
 
   const sorted = useMemo(() => {
     const out = [...sizes];
@@ -45,11 +44,11 @@ export default function SizesList({ sizes, selectedId, onSelect, pfsEnabled, onR
   }, [sizes, pfsEnabled]);
 
   const filtered = useMemo(
-    () => sorted.filter((s) => matchesSearch(s, query) && matchesFilters(s, activeFilters)),
-    [sorted, query, activeFilters],
+    () => sorted.filter((s) => matchesSearch(s, query)),
+    [sorted, query],
   );
 
-  const dragDisabled = query.trim().length > 0 || activeFilters.size > 0;
+  const dragDisabled = query.trim().length > 0;
   const sortedIds = useMemo(() => sorted.map((s) => s.id), [sorted]);
   const orphanById = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -68,22 +67,6 @@ export default function SizesList({ sizes, selectedId, onSelect, pfsEnabled, onR
 
   const variantSum = filtered.reduce((acc, s) => acc + s.variantCount, 0);
 
-  function toggleFilter(key: SizeFilterKey) {
-    setActiveFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  const FILTERS: { key: SizeFilterKey; label: string; show: boolean }[] = (
-    [
-      { key: "missingPfs", label: "Sans PFS", show: pfsEnabled },
-      { key: "unused", label: "Inutilisées", show: true },
-    ] satisfies { key: SizeFilterKey; label: string; show: boolean }[]
-  ).filter((f) => f.show);
-
   return (
     <div className="flex flex-col min-h-[580px] md:min-h-0 md:h-full bg-gradient-to-b from-bg-secondary to-bg-primary">
       {/* Search */}
@@ -100,40 +83,11 @@ export default function SizesList({ sizes, selectedId, onSelect, pfsEnabled, onR
         </div>
       </div>
 
-      {/* Quick filters */}
-      {FILTERS.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border">
-          {FILTERS.map((f) => {
-            const active = activeFilters.has(f.key);
-            const count = countMissing(sizes, f.key);
-            return (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => toggleFilter(f.key)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
-                  active
-                    ? "bg-ink text-text-inverse border-ink"
-                    : "bg-bg-primary text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
-                }`}
-              >
-                {f.label}
-                {count > 0 && (
-                  <span className={`px-1.5 py-px rounded-full text-[10px] font-bold ${active ? "bg-white/15 text-white" : "bg-bg-tertiary text-text-secondary"}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Hint drag & drop désactivé quand un filtre ou une recherche est actif */}
+      {/* Hint drag & drop désactivé quand une recherche est active */}
       {dragDisabled && filtered.length > 1 && (
         <div className="px-3.5 py-2 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 flex items-center gap-2">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          Effacez la recherche et les filtres pour réorganiser à la souris.
+          Effacez la recherche pour réorganiser à la souris.
         </div>
       )}
 

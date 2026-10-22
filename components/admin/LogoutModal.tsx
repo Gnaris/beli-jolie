@@ -5,18 +5,22 @@ import { createPortal } from "react-dom";
 import { signOut } from "next-auth/react";
 import { useBackdropClose } from "@/hooks/useBackdropClose";
 
-export default function LogoutButton({ compact = false, dark = false }: { compact?: boolean; dark?: boolean }) {
+export default function LogoutButton({ compact = false, dark = false, expanded = false }: { compact?: boolean; dark?: boolean; expanded?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const backdrop = useBackdropClose(() => setOpen(false));
   useEffect(() => { setMounted(true); }, []);
 
+  const compactLayout = expanded
+    ? "mt-1 flex items-center justify-start gap-2 px-2 h-9 overflow-hidden rounded-lg w-full transition-colors"
+    : "mt-1 flex items-center justify-center px-3 py-2.5 rounded-lg w-full transition-colors";
+
   const baseClassesLight = compact
-    ? "mt-1 flex items-center justify-center px-3 py-2.5 text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors w-full"
+    ? `${compactLayout} text-text-secondary hover:text-text-primary hover:bg-bg-secondary`
     : "mt-1 flex items-center gap-2.5 px-3 py-2.5 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-secondary rounded-lg transition-colors font-body w-full";
 
   const baseClassesDark = compact
-    ? "mt-1 flex items-center justify-center px-3 py-2.5 rounded-lg w-full transition-colors text-[#A1A1AA] border border-[#27272A] hover:bg-white/[0.04] hover:text-white"
+    ? `${compactLayout} text-[#A1A1AA] border border-[#27272A] hover:bg-white/[0.04] hover:text-white`
     : "mt-1 flex items-center gap-2 justify-center px-3 py-2.5 rounded-lg w-full transition-colors text-[13px] font-medium text-[#A1A1AA] border border-[#27272A] hover:bg-white/[0.04] hover:text-white font-body";
 
   return (
@@ -24,14 +28,26 @@ export default function LogoutButton({ compact = false, dark = false }: { compac
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={compact ? "Déconnexion" : undefined}
+        title={compact && !expanded ? "Déconnexion" : undefined}
         className={dark ? baseClassesDark : baseClassesLight}
       >
-        <svg className={compact ? "w-5 h-5" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-        </svg>
-        {!compact && "Deconnexion"}
+        <span className={`${compact ? "w-5 h-5" : "w-4 h-4"} shrink-0 flex items-center justify-center`}>
+          <svg className={compact ? "w-5 h-5" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+          </svg>
+        </span>
+        {compact ? (
+          <span
+            className={`text-[13px] font-body font-medium whitespace-nowrap overflow-hidden transition-[max-width,opacity] duration-300 ${
+              expanded ? "max-w-[160px] opacity-100 delay-75" : "max-w-0 opacity-0"
+            }`}
+          >
+            Déconnexion
+          </span>
+        ) : (
+          "Deconnexion"
+        )}
       </button>
 
       {open && mounted && createPortal(

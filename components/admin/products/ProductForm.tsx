@@ -291,8 +291,21 @@ function TagsDropdown({
   const [mounted, setMounted] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const { confirm: confirmClear } = useConfirm();
 
   useEffect(() => { setMounted(true); }, []);
+
+  async function handleClearAll() {
+    const ok = await confirmClear({
+      type: "warning",
+      title: "Vider tous les mots-clés",
+      message: `Retirer les ${tagNames.length} mot${tagNames.length > 1 ? "s" : ""}-clé${tagNames.length > 1 ? "s" : ""} sélectionné${tagNames.length > 1 ? "s" : ""} de ce produit ? Les mots-clés eux-mêmes ne sont pas supprimés.`,
+      confirmLabel: "Tout vider",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+    setTagNames([]);
+  }
 
   // Verrouille le scroll body quand le picker est ouvert (plein \u00e9cran mobile /
   // modal centr\u00e9 desktop \u2014 dans les 2 cas la page derri\u00e8re ne doit pas d\u00e9filer).
@@ -351,9 +364,16 @@ function TagsDropdown({
         label="Mots-clés"
         hint="Tags de recherche + code SH douanier."
         action={
-          <button type="button" onClick={onCreateClick}
-            className="text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
-          >+ Créer</button>
+          <div className="flex items-center gap-3">
+            {tagNames.length > 0 && (
+              <button type="button" onClick={handleClearAll}
+                className="cursor-pointer text-xs text-red-600 hover:text-red-700 font-medium font-body transition-colors"
+              >Tout vider</button>
+            )}
+            <button type="button" onClick={onCreateClick}
+              className="cursor-pointer text-xs text-text-primary hover:text-[#000000] font-medium font-body transition-colors"
+            >+ Créer</button>
+          </div>
         }
       />
 

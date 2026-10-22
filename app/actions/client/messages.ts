@@ -334,7 +334,48 @@ export async function getActiveSupportChat() {
   // différé — seule une vraie réponse ferme le tour.
   if (conversation) {
     await markAsRead(conversation.id, "CLIENT");
+    const tid = await getCurrentTenantId().catch(() => null);
+    emitChatEvent({
+      type: "MESSAGE_READ",
+      conversationId: conversation.id,
+      userId: session.user.id,
+      targetRole: "ADMIN",
+      tenantId: tid ?? undefined,
+    });
   }
 
   return conversation;
+}
+
+/**
+ * Marque les messages ADMIN de cette conv comme lus par le client et prévient
+ * l'admin via SSE. Appelée quand un NEW_MESSAGE arrive via stream sur la
+ * conv déjà ouverte côté client.
+ */
+export async function markClientMessagesRead(conversationId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "CLIENT") {
+    return { success: false, error: "Acces non autorise." };
+  }
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, userId: session.user.id },
+    select: { id: true, type: true },
+  });
+  if (!conversation || conversation.type !== "SUPPORT") {
+    return { success: false, error: "Conversation introuvable." };
+  }
+
+  await markAsRead(conversationId, "CLIENT");
+
+  const tid = await getCurrentTenantId().catch(() => null);
+  emitChatEvent({
+    type: "MESSAGE_READ",
+    conversationId,
+    userId: session.user.id,
+    targetRole: "ADMIN",
+    tenantId: tid ?? undefined,
+  });
+
+  return { success: true };
 }

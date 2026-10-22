@@ -290,21 +290,23 @@ export default function CategoriesMasterDetail({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl shadow-[var(--shadow-pop)] overflow-hidden md:h-[calc(100vh-14rem)] md:min-h-[520px]">
-        {/* Sur mobile : on cache le panneau gauche quand une cat est sélectionnée */}
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
+      <div className="md:relative">
+        {/* Panneau liste — mobile : visible si pas de sélection ;
+            desktop : absolu pour que sa hauteur = hauteur du détail (sinon
+            CSS grid étire les 2 colonnes à la hauteur de la plus longue,
+            ce qui vidait le panneau droit quand la liste était très longue). */}
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:absolute md:inset-y-0 md:left-0 md:w-[360px] lg:w-[380px] bg-bg-primary border border-border rounded-2xl shadow-[var(--shadow-sm)] overflow-hidden md:flex md:flex-col min-w-0`}>
           <CategoriesList
             categories={items}
             selectedId={selectedId}
             onSelect={handleSelect}
-            hasPfsConfig={hasPfsConfig}
-            hasEfashionConfig={hasEfashionConfig}
-            hasFaireConfig={hasFaireConfig}
             onReorder={handleReorder}
           />
         </div>
-        {/* Sur mobile : on cache le panneau droit s'il n'y a pas de sélection */}
-        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
+        {/* Panneau détail — pousse la hauteur du conteneur, le panneau
+            gauche s'y aligne via inset-y-0 absolu. pl-[380px+24px] laisse
+            la place pour la liste sur desktop. */}
+        <div className={`${selectedId ? "block" : "hidden"} md:block min-w-0 md:pl-[calc(360px+1.5rem)] lg:pl-[calc(380px+1.5rem)] mt-4 md:mt-0`}>
           {selectedDetail ? (
             <CategoryDetail
               category={selectedDetail}
@@ -338,7 +340,7 @@ export default function CategoriesMasterDetail({
               onEditSeo={() => setSeoDrawerOpen(true)}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[520px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center min-h-[520px] text-text-muted text-sm bg-bg-primary border border-border rounded-2xl">
               Sélectionnez une catégorie à gauche.
             </div>
           )}

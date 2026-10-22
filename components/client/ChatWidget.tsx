@@ -11,6 +11,7 @@ import {
   getActiveSupportChat,
   sendClientMessage,
   closeClientConversation,
+  markClientMessagesRead,
 } from "@/app/actions/client/messages";
 import type { BusinessHoursSchedule } from "@/lib/business-hours";
 import { isWithinBusinessHours, getNextOpenSlot, formatScheduleForDisplay } from "@/lib/business-hours";
@@ -32,6 +33,7 @@ interface ChatMessage {
   senderName: string;
   createdAt: string;
   attachments?: ChatAttachment[];
+  readAt?: string | null;
 }
 
 interface Props {
@@ -66,6 +68,13 @@ export default function ChatWidget({ businessHours }: Props) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Typing — admin tape → bulle 3 points animés dans la zone messages.
+  const [adminTyping, setAdminTyping] = useState(false);
+  const adminTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Emission du typing côté client (admin voit la bulle de son côté).
+  const isTypingRef = useRef(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isOnline = businessHours ? isWithinBusinessHours(businessHours) : true;
   const nextSlot = businessHours ? getNextOpenSlot(businessHours, locale) : null;
@@ -104,12 +113,15 @@ export default function ChatWidget({ businessHours }: Props) {
           setActiveConvSubject(conv.subject || "");
           setActiveConvStatus(conv.status as "OPEN" | "CLOSED");
           setMessages(
-            conv.messages.map((m: { id: string; content: string; createdAt: string | Date; sender: { firstName: string; lastName: string; role: string } }) => ({
+            conv.messages.map((m: { id: string; content: string; createdAt: string | Date; readAt?: Date | string | null; sender: { firstName: string; lastName: string; role: string } }) => ({
               id: m.id,
               content: m.content,
               senderRole: m.sender.role as "ADMIN" | "CLIENT",
               senderName: m.sender.role === "ADMIN" ? "Admin" : `${m.sender.firstName} ${m.sender.lastName}`,
               createdAt: typeof m.createdAt === "string" ? m.createdAt : (m.createdAt as Date).toISOString(),
+              readAt: m.readAt
+                ? (typeof m.readAt === "string" ? m.readAt : m.readAt.toISOString())
+                : null,
             }))
           );
           setUnreadCount(0);
@@ -129,7 +141,7 @@ export default function ChatWidget({ businessHours }: Props) {
   // ── Scroll to bottom on new messages ──
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [messages.length, adminTyping]);
 
   // ── SSE: always active for notifications ──
   const handleChatEvent = useCallback(
@@ -157,16 +169,48 @@ export default function ChatWidget({ businessHours }: Props) {
           }
         }
 
+        const viewingThisConv =
+          isOpen && view === "conversation" && activeConvId === event.conversationId;
+
         // Update messages if viewing this conversation
-        if (activeConvId === event.conversationId && view === "conversation") {
+        if (viewingThisConv) {
           setMessages((prev) => {
             if (prev.some((m) => m.id === event.messageData!.id)) return prev;
             return [...prev, event.messageData!];
           });
+          setAdminTyping(false);
         } else {
           setUnreadCount((c) => c + 1);
         }
+
+        // Si le client a la conv ouverte quand le msg admin arrive, marquer
+        // immédiatement comme lu côté serveur + prévenir l'admin pour le ✓✓.
+        if (viewingThisConv && event.messageData.senderRole === "ADMIN") {
+          void markClientMessagesRead(event.conversationId).catch(() => {});
+        }
       }
+
+      // Accusé de lecture : l'admin a lu nos messages → tag ceux CLIENT non lus.
+      if (event.type === "MESSAGE_READ" && event.conversationId === activeConvId) {
+        const now = new Date().toISOString();
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.senderRole === "CLIENT" && !m.readAt ? { ...m, readAt: now } : m
+          )
+        );
+      }
+
+      // Indicateurs typing — bulle 3 points sous les messages admin.
+      if (event.type === "TYPING_START" && event.conversationId === activeConvId) {
+        setAdminTyping(true);
+        if (adminTypingTimerRef.current) clearTimeout(adminTypingTimerRef.current);
+        adminTypingTimerRef.current = setTimeout(() => setAdminTyping(false), 4000);
+      }
+      if (event.type === "TYPING_STOP" && event.conversationId === activeConvId) {
+        setAdminTyping(false);
+        if (adminTypingTimerRef.current) clearTimeout(adminTypingTimerRef.current);
+      }
+
       if (event.type === "CONVERSATION_CLOSED" && event.conversationId === activeConvId) {
         // Conversation deleted by admin — reset to new form
         setActiveConvId(null);
@@ -188,6 +232,28 @@ export default function ChatWidget({ businessHours }: Props) {
   // Déclare au serveur qu'on lit cette conversation → suppression du timer
   // 5 min « client absent ». Actif uniquement panel ouvert + vue conversation.
   useActiveConversation(isOpen && view === "conversation" ? activeConvId : null);
+
+  // ── Typing emission ─────────────────────────
+  function emitTyping(typing: boolean) {
+    if (!activeConvId) return;
+    fetch("/api/chat/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: activeConvId, typing }),
+    }).catch(() => {});
+  }
+
+  function handleTypingChange() {
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      emitTyping(true);
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+      emitTyping(false);
+    }, 2000);
+  }
 
   // ── File picker helpers ──
   function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -244,6 +310,9 @@ export default function ChatWidget({ businessHours }: Props) {
     const filesSnapshot = pendingFiles;
     setNewMessage("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    isTypingRef.current = false;
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    emitTyping(false);
 
     // Optimistic add — les attachments arrivent après upload, on affiche des
     // placeholders visuels le temps de l'aller-retour.
@@ -374,7 +443,7 @@ export default function ChatWidget({ businessHours }: Props) {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 100) + "px";
+    el.style.height = Math.min(el.scrollHeight, 180) + "px";
   }
 
   function formatTime(dateStr: string) {
@@ -523,40 +592,80 @@ export default function ChatWidget({ businessHours }: Props) {
             ) : (
               /* ── Conversation thread ── */
               <div className="p-3 space-y-3">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.senderRole === "CLIENT" ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm font-body ${
-                        msg.senderRole === "CLIENT"
-                          ? "bg-[#1A1A1A] text-white rounded-br-md"
-                          : "bg-bg-secondary text-text-primary border border-border rounded-bl-md"
-                      }`}
-                    >
-                      {msg.senderRole === "ADMIN" && (
-                        <p className="text-[10px] font-medium text-text-muted mb-0.5">{msg.senderName}</p>
-                      )}
-                      {msg.content && (
-                        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                      )}
-                      {msg.attachments && msg.attachments.length > 0 && (
-                        <ChatMessageAttachments
-                          attachments={msg.attachments}
-                          isSelf={msg.senderRole === "CLIENT"}
-                        />
-                      )}
-                      <p
-                        className={`text-[10px] mt-1 ${
-                          msg.senderRole === "CLIENT" ? "text-white/50" : "text-text-muted"
-                        }`}
+                {messages.map((msg) => {
+                  const isSelf = msg.senderRole === "CLIENT";
+                  const isTemp = msg.id.startsWith("temp-");
+                  return (
+                    <div key={msg.id}>
+                      <div
+                        className={`flex ${isSelf ? "justify-end" : "justify-start"}`}
                       >
-                        {formatTime(msg.createdAt)}
-                      </p>
+                        <div
+                          className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm font-body ${
+                            isSelf
+                              ? "bg-[#1A1A1A] text-white rounded-br-md"
+                              : "bg-bg-secondary text-text-primary border border-border rounded-bl-md"
+                          }`}
+                        >
+                          {!isSelf && (
+                            <p className="text-[10px] font-medium text-text-muted mb-0.5">{msg.senderName}</p>
+                          )}
+                          {msg.content && (
+                            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                          )}
+                          {msg.attachments && msg.attachments.length > 0 && (
+                            <ChatMessageAttachments
+                              attachments={msg.attachments}
+                              isSelf={isSelf}
+                            />
+                          )}
+                          <p
+                            className={`text-[10px] mt-1 ${isSelf ? "text-white/50" : "text-text-muted"}`}
+                          >
+                            {formatTime(msg.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                      {isSelf && !isTemp && (
+                        <div className="flex justify-end mt-0.5 pr-1">
+                          {msg.readAt ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-body text-sky-500">
+                              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M1 12l5 5L13 7" />
+                                <path d="M9 17L22 7" />
+                              </svg>
+                              {t("read")}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-body text-text-muted">
+                              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 12l5 5L20 6" />
+                              </svg>
+                              {t("unread")}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Bulle typing admin — vague douce + libellé "Support écrit…" */}
+                {adminTyping && (
+                  <div className="flex justify-start animate-blur-in">
+                    <div className="flex items-center gap-2 bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200/60 rounded-2xl rounded-bl-sm px-3.5 py-2 shadow-sm">
+                      <div className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "0ms" }} />
+                        <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "160ms" }} />
+                        <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "320ms" }} />
+                      </div>
+                      <span className="text-[11px] font-body text-sky-700/80 italic">
+                        {t("adminTyping")}
+                      </span>
                     </div>
                   </div>
-                ))}
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -585,12 +694,13 @@ export default function ChatWidget({ businessHours }: Props) {
                   onChange={(e) => {
                     setNewMessage(e.target.value);
                     handleTextareaInput();
+                    handleTypingChange();
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder={t("writeMessagePlaceholder")}
                   disabled={isPending}
-                  rows={1}
-                  className="flex-1 resize-none border border-border bg-bg-primary rounded-xl px-3 py-2 text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] disabled:opacity-50"
+                  rows={2}
+                  className="flex-1 resize-none border border-border bg-bg-primary rounded-xl px-3 py-2 text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] disabled:opacity-50 leading-snug"
                 />
                 <button
                   onClick={handleSendMessage}

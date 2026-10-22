@@ -31,9 +31,7 @@ export default async function TaillesView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Catalogue"
         title="Tailles"
-        subtitle="Créez votre bibliothèque de tailles et associez chacune à sa référence Paris Fashion Shop."
         actions={<CreateSizeTrigger />}
       />
       <SizesMasterDetail initialSizes={sizeItems} pfsSizes={pfsSizes} />

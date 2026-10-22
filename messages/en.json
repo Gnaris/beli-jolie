@@ -1598,7 +1598,10 @@
     "offlineNotice": "We are currently closed. You can leave a message and we will reply as soon as possible.",
     "nextOpening": "Next opening: {day} at {time}",
     "closedDay": "Closed",
-    "businessHoursTitle": "Business hours"
+    "businessHoursTitle": "Business hours",
+    "read": "Read",
+    "unread": "Unread",
+    "adminTyping": "Support is typing…"
   },
   "claims": {
     "metaTitle": "Customer Service — {shopName}",

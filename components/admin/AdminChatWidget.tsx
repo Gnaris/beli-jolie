@@ -10,6 +10,7 @@ import {
   getAdminConversations,
   getAdminConversation,
   getAdminUnreadCount,
+  markAdminMessagesRead,
 } from "@/app/actions/admin/messages";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { playNotificationSound } from "@/lib/notification-sound";
@@ -41,6 +42,7 @@ interface ChatMessage {
   senderName: string;
   createdAt: string;
   attachments?: ChatAttachment[];
+  readAt?: string | null;
 }
 
 // ── Component ──────────────────────────────────
@@ -148,6 +150,42 @@ export default function AdminChatWidget() {
     return () => { cancelled = true; };
   }, [isOpen, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Re-fetch conv quand on rouvre le widget en vue conversation ──
+  // Sinon : fermer puis rouvrir le widget en gardant la conv active ne
+  // rapatrie pas les messages reçus pendant la fermeture, et la BDD garde
+  // readAt=null dessus (le badge non-lu persiste au retour liste). Même
+  // raison + solution que le fix "marquer SSE comme lu quand déjà dedans".
+  useEffect(() => {
+    if (!isOpen || view !== "conversation" || !activeConvId) return;
+    let cancelled = false;
+    getAdminConversation(activeConvId)
+      .then((data) => {
+        if (cancelled || !data) return;
+        setMessages(
+          data.messages.map((m: {
+            id: string;
+            content: string;
+            createdAt: string | Date;
+            readAt?: Date | string | null;
+            sender: { firstName: string; lastName: string; role: string };
+            attachments?: { id: string; fileName: string; filePath: string; fileSize: number; mimeType: string }[];
+          }) => ({
+            id: m.id,
+            content: m.content,
+            senderRole: m.sender.role as "ADMIN" | "CLIENT",
+            senderName: `${m.sender.firstName} ${m.sender.lastName}`,
+            createdAt: typeof m.createdAt === "string" ? m.createdAt : (m.createdAt as Date).toISOString(),
+            attachments: m.attachments,
+            readAt: m.readAt
+              ? (typeof m.readAt === "string" ? m.readAt : m.readAt.toISOString())
+              : null,
+          }))
+        );
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Deep-link `?chat=<convId>` : ouvre le widget + sélectionne la conv ─
   useEffect(() => {
     const convId = searchParams.get("chat");
@@ -207,6 +245,7 @@ export default function AdminChatWidget() {
               id: string;
               content: string;
               createdAt: string | Date;
+              readAt?: Date | string | null;
               sender: { firstName: string; lastName: string; role: string };
               attachments?: { id: string; fileName: string; filePath: string; fileSize: number; mimeType: string }[];
             }) => ({
@@ -216,6 +255,9 @@ export default function AdminChatWidget() {
               senderName: `${m.sender.firstName} ${m.sender.lastName}`,
               createdAt: typeof m.createdAt === "string" ? m.createdAt : (m.createdAt as Date).toISOString(),
               attachments: m.attachments,
+              readAt: m.readAt
+                ? (typeof m.readAt === "string" ? m.readAt : m.readAt.toISOString())
+                : null,
             }))
           );
           const convInList = conversations.find((c) => c.id === convId);
@@ -290,8 +332,11 @@ export default function AdminChatWidget() {
         // Play notification sound
         playNotificationSound();
 
+        const viewingThisConv =
+          isOpen && view === "conversation" && activeConvId === event.conversationId;
+
         // Update total unread if not viewing this conversation
-        if (!(isOpen && view === "conversation" && activeConvId === event.conversationId)) {
+        if (!viewingThisConv) {
           setTotalUnread((c) => c + 1);
         }
 
@@ -302,6 +347,14 @@ export default function AdminChatWidget() {
             return [...prev, event.messageData!];
           });
           setClientTyping(false);
+        }
+
+        // Si l'admin a la conv ouverte, marquer immédiatement comme lu côté
+        // serveur — sinon le badge non-lu réapparaît faussement au retour liste
+        // (le compteur BDD voit encore readAt=null sur le message qui vient
+        // d'arriver via SSE). Émet aussi MESSAGE_READ au client pour le ✓✓.
+        if (viewingThisConv) {
+          void markAdminMessagesRead(event.conversationId).catch(() => {});
         }
 
         // Update conversation list preview
@@ -327,6 +380,17 @@ export default function AdminChatWidget() {
                   updatedAt: event.messageData!.createdAt,
                 }
               : c
+          )
+        );
+      }
+
+      // Accusé de lecture : le client a ouvert la conv → tag tous nos messages
+      // ADMIN non encore marqués readAt avec la date courante pour afficher ✓✓.
+      if (event.type === "MESSAGE_READ" && event.conversationId === activeConvId) {
+        const now = new Date().toISOString();
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.senderRole === "ADMIN" && !m.readAt ? { ...m, readAt: now } : m
           )
         );
       }
@@ -366,7 +430,7 @@ export default function AdminChatWidget() {
     fetch("/api/chat/typing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: activeConvId, userId: "", typing }),
+      body: JSON.stringify({ conversationId: activeConvId, typing }),
     }).catch(() => {});
   }
 
@@ -476,7 +540,7 @@ export default function AdminChatWidget() {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 100) + "px";
+    el.style.height = Math.min(el.scrollHeight, 180) + "px";
   }
 
   // ── Helpers ─────────────────────────────────
@@ -657,50 +721,76 @@ export default function AdminChatWidget() {
                 </div>
               ) : (
                 <div className="p-3 space-y-3">
-                  {messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.senderRole === "ADMIN" ? "justify-end" : "justify-start"}`}
-                    >
-                      <div
-                        className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm font-body ${
-                          msg.senderRole === "ADMIN"
-                            ? "bg-[#1A1A1A] text-white rounded-br-md"
-                            : "bg-bg-secondary text-text-primary border border-border rounded-bl-md"
-                        }`}
-                      >
-                        {msg.senderRole === "CLIENT" && (
-                          <p className="text-[10px] font-medium text-text-muted mb-0.5">{msg.senderName}</p>
-                        )}
-                        {msg.content && (
-                          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                        )}
-                        {msg.attachments && msg.attachments.length > 0 && (
-                          <ChatMessageAttachments
-                            attachments={msg.attachments}
-                            isSelf={msg.senderRole === "ADMIN"}
-                          />
-                        )}
-                        <p
-                          className={`text-[10px] mt-1 ${
-                            msg.senderRole === "ADMIN" ? "text-white/50" : "text-text-muted"
-                          }`}
+                  {messages.map((msg) => {
+                    const isSelf = msg.senderRole === "ADMIN";
+                    const isTemp = msg.id.startsWith("temp-");
+                    return (
+                      <div key={msg.id}>
+                        <div
+                          className={`flex ${isSelf ? "justify-end" : "justify-start"}`}
                         >
-                          {formatTime(msg.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Typing indicator */}
-                  {clientTyping && (
-                    <div className="flex justify-start">
-                      <div className="bg-bg-secondary border border-border rounded-2xl rounded-bl-md px-4 py-2.5">
-                        <div className="flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                          <span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                          <span className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                          <div
+                            className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm font-body ${
+                              isSelf
+                                ? "bg-[#1A1A1A] text-white rounded-br-md"
+                                : "bg-bg-secondary text-text-primary border border-border rounded-bl-md"
+                            }`}
+                          >
+                            {!isSelf && (
+                              <p className="text-[10px] font-medium text-text-muted mb-0.5">{msg.senderName}</p>
+                            )}
+                            {msg.content && (
+                              <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                            )}
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <ChatMessageAttachments
+                                attachments={msg.attachments}
+                                isSelf={isSelf}
+                              />
+                            )}
+                            <p
+                              className={`text-[10px] mt-1 ${isSelf ? "text-white/50" : "text-text-muted"}`}
+                            >
+                              {formatTime(msg.createdAt)}
+                            </p>
+                          </div>
                         </div>
+                        {isSelf && !isTemp && (
+                          <div className="flex justify-end mt-0.5 pr-1">
+                            {msg.readAt ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-body text-sky-500">
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12l5 5L13 7" />
+                                  <path d="M9 17L22 7" />
+                                </svg>
+                                Lu
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-body text-text-muted">
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M4 12l5 5L20 6" />
+                                </svg>
+                                Non lu
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Typing indicator — bulle "en train d'écrire" */}
+                  {clientTyping && (
+                    <div className="flex justify-start animate-blur-in">
+                      <div className="flex items-center gap-2 bg-gradient-to-br from-sky-50 to-indigo-50 border border-sky-200/60 rounded-2xl rounded-bl-sm px-3.5 py-2 shadow-sm">
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "0ms" }} />
+                          <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "160ms" }} />
+                          <span className="w-1.5 h-1.5 bg-sky-500 rounded-full typing-dot" style={{ animationDelay: "320ms" }} />
+                        </div>
+                        <span className="text-[11px] font-body text-sky-700/80 italic">
+                          {activeConvClient ? `${activeConvClient.split(" ")[0]} écrit…` : "écrit…"}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -748,8 +838,8 @@ export default function AdminChatWidget() {
                   onKeyDown={handleKeyDown}
                   placeholder="Repondre..."
                   disabled={isPending}
-                  rows={1}
-                  className="flex-1 resize-none border border-border bg-bg-primary rounded-xl px-3 py-2 text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] disabled:opacity-50"
+                  rows={2}
+                  className="flex-1 resize-none border border-border bg-bg-primary rounded-xl px-3 py-2 text-sm text-text-primary font-body placeholder:text-text-muted focus:outline-none focus:border-[#1A1A1A] disabled:opacity-50 leading-snug"
                 />
                 <button
                   onClick={handleSendReply}

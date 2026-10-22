@@ -118,9 +118,9 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
               setError("");
               setCreateModalOpen(true);
             }}
-            className="btn-primary shrink-0"
+            className="admin-header-cta inline-flex items-center gap-2 h-10 px-4 rounded-xl text-[13px] font-semibold shrink-0 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ink/15"
           >
-            + Créer un mot-clé
+            <span className="text-base leading-none">+</span> Créer un mot-clé
           </button>
         </div>
       </div>
@@ -133,26 +133,22 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
           {search.trim() ? "Aucun mot-clé trouvé" : "Aucun mot-clé pour l'instant."}
         </p>
       ) : (
-        <section className="relative rounded-2xl bg-white border border-border overflow-hidden">
+        <section className="relative rounded-2xl bg-bg-primary border border-border overflow-hidden">
           <span
             aria-hidden
-            className="absolute inset-x-0 top-0 h-[3px]"
-            style={{ background: "linear-gradient(90deg,#34D399,#059669)" }}
+            className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-emerald-300 to-emerald-600"
           />
 
           <div className="px-5 md:px-6 pt-6 pb-4 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
-              <span
-                className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] font-body"
-                style={{ color: "#047857" }}
-              >
+              <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] font-body text-emerald-700">
                 <span
-                  className="w-[3px] h-[14px] rounded-[3px]"
-                  style={{ background: "linear-gradient(180deg,#34D399,#059669)" }}
+                  aria-hidden
+                  className="w-[3px] h-[14px] rounded-[3px] bg-gradient-to-b from-emerald-300 to-emerald-600"
                 />
                 Liste des mots-clés
               </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-[#F5F3EE] text-[#78716C] border border-[#E7E5E4] font-body">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-bg-secondary text-text-secondary border border-border font-body">
                 {filtered.length}
               </span>
             </div>
@@ -199,7 +195,7 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
             ))}
           </div>
 
-          <div className="px-6 py-3 bg-[#FBFAF6] border-t border-border flex items-center justify-between text-[12px] text-text-muted font-body flex-wrap gap-2">
+          <div className="px-6 py-3 bg-bg-secondary border-t border-border flex items-center justify-between text-[12px] text-text-muted font-body flex-wrap gap-2">
             <span>{filtered.length} mot{filtered.length !== 1 ? "s" : ""}-clé{filtered.length !== 1 ? "s" : ""} affiché{filtered.length !== 1 ? "s" : ""}</span>
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5">
@@ -273,24 +269,19 @@ function TagCard({
 
   return (
     <div
-      className={`relative rounded-2xl border p-4 transition-all ${orphan ? "" : "bg-white"}`}
-      style={
+      className={`relative rounded-2xl border p-4 transition-all ${
         orphan
-          ? {
-              background: "#FFF8F5",
-              borderColor: "#FED7C4",
-            }
-          : { borderColor: "var(--border, #E5DFD3)" }
-      }
+          ? "bg-rose-50 border-rose-200"
+          : "bg-bg-primary border-border"
+      }`}
     >
       {/* Hash badge en haut à gauche */}
       <span
-        className="absolute top-2.5 left-3 inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold font-mono border"
-        style={
+        className={`absolute top-2.5 left-3 inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-bold font-mono border ${
           orphan
-            ? { background: "linear-gradient(135deg,#FEF2F2,#FEE2E2)", color: "#B91C1C", borderColor: "#FECACA" }
-            : { background: "linear-gradient(135deg,#ECFDF5,#D1FAE5)", color: "#059669", borderColor: "#A7F3D0" }
-        }
+            ? "bg-red-50 text-red-700 border-red-200"
+            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+        }`}
         aria-hidden
       >
         #
@@ -327,20 +318,16 @@ function TagCard({
 
       <div className="flex items-center justify-between gap-2">
         {orphan ? (
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border font-body"
-            style={{ background: "#FEF2F2", color: "#B91C1C", borderColor: "#FECACA" }}
-          >
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-semibold border font-body bg-red-50 text-red-700 border-red-200">
             0 · inutilisé
           </span>
         ) : (
           <span
-            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border font-body"
-            style={
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10.5px] font-bold border font-body ${
               hot
-                ? { background: "linear-gradient(135deg,#DCFCE7,#BBF7D0)", color: "#15803D", borderColor: "#A7F3D0" }
-                : { background: "#F5F3EE", color: "#78716C", borderColor: "#E7E5E4" }
-            }
+                ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                : "bg-bg-secondary text-text-secondary border-border"
+            }`}
             title={`${tag.productCount} produit${tag.productCount > 1 ? "s" : ""}`}
           >
             {tag.productCount}

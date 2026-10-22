@@ -1192,6 +1192,14 @@ html:not(.admin-dark)::-webkit-scrollbar-corner { background: transparent; }
   from { opacity: 0; filter: blur(10px); }
   to   { opacity: 1; filter: blur(0); }
 }
+/* Vague douce pour les 3 points de la bulle "en train d'écrire" du chat. */
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0) scale(1); opacity: 0.35; }
+  30%           { transform: translateY(-5px) scale(1.15); opacity: 1; }
+}
+.typing-dot {
+  animation: typing-dot 1.3s infinite ease-in-out;
+}
 @keyframes slow-rotate {
   to { transform: rotate(360deg); }
 }
@@ -1949,6 +1957,39 @@ html.admin-dark [data-visitor-tile="dark"] {
   background-color: var(--color-bg-primary) !important;
   border-color: var(--color-border) !important;
   color: var(--color-text-primary) !important;
+}
+
+/* ─── CTA primaire dans les headers d'admin ─────────────────────────────
+   Classe utilitaire partagée par les boutons principaux de PageHeader
+   (ex. « Nouvelle catégorie », « Tout traduire »). Même rendu light + dark.
+   En sombre : fond noir pur + ombre grise discrète pour se détacher du
+   fond de page (#26262d sur les pages admin) — sinon un `bg-bg-dark`
+   (#141417) seul reste trop proche visuellement du fond. */
+.admin-header-cta {
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-card);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.admin-header-cta:hover {
+  background-color: #000000;
+  box-shadow: var(--shadow-card-md);
+}
+.admin-header-cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+html.admin-dark .admin-header-cta,
+#admin-theme-wrapper.admin-dark .admin-header-cta {
+  background-color: #000000;
+  color: #f4f4f5;
+  box-shadow: 0 1px 2px rgba(148, 148, 158, 0.22), 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+html.admin-dark .admin-header-cta:hover,
+#admin-theme-wrapper.admin-dark .admin-header-cta:hover {
+  background-color: #09090b;
+  box-shadow: 0 2px 6px rgba(148, 148, 158, 0.32), 0 8px 20px rgba(0, 0, 0, 0.55);
 }
 html.admin-dark [data-visitor-tile="dark"] p { color: var(--color-text-primary) !important; }
 html.admin-dark [data-visitor-tile="dark"] p.text-white\/60 { color: var(--color-text-muted) !important; }
@@ -2888,6 +2929,24 @@ html.admin-dark [data-admin-mobile-drawer] {
 }
 html.admin-dark [data-admin-mobile-backdrop] {
   background-color: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* ─── Mode PWA (installée depuis l'ecran d'accueil) : on écarte l'outil
+   rapide et la sous-nav mobile des bords de l'écran. En Safari les
+   barres de l'app donnent un espacement naturel, mais en standalone le
+   contenu touche les coins (home indicator en bas, bande du notch en
+   haut). Mobile uniquement — sur tablette/desktop la mise en page garde
+   ses marges `md:` d'origine. */
+@media (display-mode: standalone) and (max-width: 767px) {
+  .admin-fab-pwa-offset {
+    bottom: 1.5rem;
+    right: 1.25rem;
+  }
+  .admin-mobile-subnav-pwa-offset {
+    top: 4.25rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }
 
 /* trigger */

@@ -44,9 +44,7 @@ export default async function CompositionsView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Catalogue · Matériaux"
         title="Compositions"
-        subtitle="Créez les matériaux ici."
         actions={<CompositionsHeaderActions items={allTranslateItems} />}
       />
       <CompositionsMasterDetail

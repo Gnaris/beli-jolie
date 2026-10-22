@@ -8,6 +8,7 @@ import { emitChatEvent } from "@/lib/chat-events";
 import { scheduleReplyNotification } from "@/lib/support-notify";
 import { deleteFiles } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { getCurrentTenantId } from "@/lib/tenant";
 import { revalidateTag } from "next/cache";
 
 export async function getAdminConversations(filter?: "all" | "unread" | "open" | "closed") {
@@ -51,6 +52,21 @@ export async function getAdminConversation(conversationId: string) {
   // Lecture admin : on ne touche pas aux chronomètres ici. La règle « 1 mail
   // par tour » est pilotée par les RÉPONSES (sendAdminReply), pas par la
   // simple consultation. Lire sans répondre laisse le compteur courir.
+
+  const conv = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { userId: true, type: true },
+  });
+  if (conv && conv.type === "SUPPORT") {
+    const tid = await getCurrentTenantId().catch(() => null);
+    emitChatEvent({
+      type: "MESSAGE_READ",
+      conversationId,
+      userId: conv.userId,
+      targetRole: "CLIENT",
+      tenantId: tid ?? undefined,
+    });
+  }
 
   return prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -97,11 +113,17 @@ export async function sendAdminReply(
       attachments,
     });
 
+    // tenantId posé explicitement — garantit que le stream SSE côté client
+    // ne filtre pas l'event (fail-closed si event.tenantId !== requestTenantId).
+    // Sans ça, en cas d'ALS non bindée, le client ne verrait pas le message
+    // en temps réel et devrait fermer/rouvrir le chat pour le découvrir.
+    const tidForEvent = await getCurrentTenantId().catch(() => null);
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId,
       userId: conversation.userId,
       targetRole: "CLIENT",
+      tenantId: tidForEvent ?? undefined,
       messageData: {
         id: message.id,
         content: content.trim(),
@@ -176,11 +198,13 @@ export async function closeConversation(conversationId: string) {
     );
   }
 
+  const tidClose = await getCurrentTenantId().catch(() => null);
   emitChatEvent({
     type: "CONVERSATION_CLOSED",
     conversationId,
     userId: conversation.userId,
     targetRole: "CLIENT",
+    tenantId: tidClose ?? undefined,
   });
 
   revalidateTag("messages", "default");
@@ -210,11 +234,13 @@ export async function joinConversation(conversationId: string) {
     });
 
     // Notify client via SSE
+    const tidJoin = await getCurrentTenantId().catch(() => null);
     emitChatEvent({
       type: "NEW_MESSAGE",
       conversationId,
       userId: conversation.userId,
       targetRole: "CLIENT",
+      tenantId: tidJoin ?? undefined,
       messageData: {
         id: message.id,
         content: `Un administrateur a rejoint la conversation.`,
@@ -242,4 +268,38 @@ export async function getAdminUnreadCount() {
       conversation: { type: "SUPPORT" },
     },
   });
+}
+
+/**
+ * Marque les messages CLIENT de cette conv comme lus par l'admin et prévient
+ * le client via SSE. Appelé quand un NEW_MESSAGE arrive via stream sur la
+ * conv déjà ouverte côté admin — sinon la BDD garde `readAt: null` et au
+ * retour liste la conv réapparaît faussement non-lue.
+ */
+export async function markAdminMessagesRead(conversationId: string) {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.role !== "ADMIN") {
+    return { success: false, error: "Acces non autorise." };
+  }
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { userId: true, type: true },
+  });
+  if (!conversation || conversation.type !== "SUPPORT") {
+    return { success: false, error: "Conversation introuvable." };
+  }
+
+  await markAsRead(conversationId, "ADMIN");
+
+  const tid = await getCurrentTenantId().catch(() => null);
+  emitChatEvent({
+    type: "MESSAGE_READ",
+    conversationId,
+    userId: conversation.userId,
+    targetRole: "CLIENT",
+    tenantId: tid ?? undefined,
+  });
+
+  return { success: true };
 }

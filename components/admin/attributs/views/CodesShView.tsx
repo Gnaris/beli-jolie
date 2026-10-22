@@ -21,9 +21,7 @@ export default async function CodesShView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Référentiel · Douanes"
         title="Codes SH"
-        subtitle="Bibliothèque des codes douaniers (Système Harmonisé) attribués aux produits pour l'export et les marketplaces."
         actions={<CreateHsCodeTrigger />}
       />
       <HsCodesMasterDetail initialItems={items} />

@@ -20,11 +20,7 @@ export default async function MotsClesView() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        eyebrow="Catalogue"
-        title="Mots-clés"
-        subtitle="Étiquettes libres réutilisables sur vos produits pour affiner la recherche et les filtres."
-      />
+      <PageHeader title="Mots-clés" />
       <TagsManager initialTags={tagItems} />
     </div>
   );

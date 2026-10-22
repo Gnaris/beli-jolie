@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutModal";
 import AdminClientModeButton from "./AdminClientModeButton";
+import AdminSidebarThemeToggle from "./AdminSidebarThemeToggle";
+import type { AdminTheme } from "@/lib/admin-theme";
 
 type NavItem = {
   label: string;
@@ -45,6 +47,7 @@ interface Props {
   initials: string;
   warnings?: Record<string, number>;
   shopName: string;
+  adminTheme: AdminTheme;
 }
 
 const BLUE_BADGE_HREFS = new Set([
@@ -59,7 +62,7 @@ function isItemActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export default function AdminMobileNav({ userName, initials, warnings = {}, shopName }: Props) {
+export default function AdminMobileNav({ userName, initials, warnings = {}, shopName, adminTheme }: Props) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() ?? "";
 
@@ -157,6 +160,10 @@ export default function AdminMobileNav({ userName, initials, warnings = {}, shop
 
         {/* Navigation : groupes séparés en bulles (match sidebar desktop) */}
         <div className="relative flex-1 min-h-0 px-3 py-3 overflow-y-auto scrollbar-light space-y-3">
+          {/* Toggle thème (clair / sombre) — version horizontale pleine
+              largeur, cohérente avec la bulle verticale de la sidebar desktop. */}
+          <AdminSidebarThemeToggle initialTheme={adminTheme} layout="drawer" />
+
           {NAV_SECTIONS.map((items, idx) => (
             <div
               key={idx}

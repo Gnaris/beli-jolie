@@ -132,6 +132,7 @@ export default function AdminShellsLive({
         initials={initials}
         warnings={mobileWarnings}
         shopName={shopName}
+        adminTheme={adminTheme}
       />
 
       {/* Sous-nav mobile : pastilles sticky sous la top-bar, visible

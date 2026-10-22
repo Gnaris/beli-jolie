@@ -1,13 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import {
-  matchesSearch,
-  matchesFilters,
-  countMissing,
-  type ColorForFilters,
-  type ColorFilterKey,
-} from "@/lib/color-filters";
+import { matchesSearch, type ColorForFilters } from "@/lib/color-filters";
 import { useDragReorder, DragHandle, dropIndicatorClass } from "@/components/admin/shared/useDragReorder";
 
 type Col = ColorForFilters & {
@@ -21,8 +15,6 @@ type Props = {
   colors: Col[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  hasPfsConfig: boolean;
-  hasEfashionConfig: boolean;
   onReorder: (newOrderedIds: string[]) => void;
 };
 
@@ -30,22 +22,19 @@ export default function ColorsList({
   colors,
   selectedId,
   onSelect,
-  hasPfsConfig,
-  hasEfashionConfig,
   onReorder,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<Set<ColorFilterKey>>(new Set());
 
   // Ordre fourni par le parent (position asc) — on s'y fie.
   const sorted = useMemo(() => colors, [colors]);
 
   const filtered = useMemo(
-    () => sorted.filter((c) => matchesSearch(c, query) && matchesFilters(c, activeFilters)),
-    [sorted, query, activeFilters],
+    () => sorted.filter((c) => matchesSearch(c, query)),
+    [sorted, query],
   );
 
-  const dragDisabled = query.trim().length > 0 || activeFilters.size > 0;
+  const dragDisabled = query.trim().length > 0;
   const sortedIds = useMemo(() => sorted.map((c) => c.id), [sorted]);
 
   const { dragId, overId, overPos, bind } = useDragReorder({
@@ -54,23 +43,6 @@ export default function ColorsList({
   });
 
   const productSum = filtered.reduce((acc, c) => acc + c.productCount, 0);
-
-  function toggleFilter(key: ColorFilterKey) {
-    setActiveFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  const FILTERS: { key: ColorFilterKey; label: string; show: boolean }[] = (
-    [
-      { key: "missingTranslation", label: "Sans traduction", show: true },
-      { key: "missingPfs", label: "Sans PFS", show: hasPfsConfig },
-      { key: "missingEfashion", label: "Sans eFashion", show: hasEfashionConfig },
-    ] satisfies { key: ColorFilterKey; label: string; show: boolean }[]
-  ).filter((f) => f.show);
 
   return (
     <div className="flex flex-col min-h-[580px] md:min-h-0 md:h-full bg-gradient-to-b from-bg-secondary to-bg-primary">
@@ -87,38 +59,11 @@ export default function ColorsList({
           />
         </div>
       </div>
-      {/* Quick filters — scroll horizontal sur mobile */}
-      <div className="flex md:flex-wrap gap-1.5 px-3.5 py-2.5 bg-bg-primary border-b border-border overflow-x-auto md:overflow-visible no-scrollbar">
-        {FILTERS.map((f) => {
-          const active = activeFilters.has(f.key);
-          const count = countMissing(colors, f.key);
-          return (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => toggleFilter(f.key)}
-              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-colors shadow-[var(--shadow-sm)] ${
-                active
-                  ? "bg-ink text-text-inverse border-ink"
-                  : "bg-bg-primary text-text-secondary border-border hover:border-border-dark hover:text-text-primary"
-              }`}
-            >
-              ⚠ {f.label}
-              {count > 0 && (
-                <span className={`px-1.5 py-px rounded-full text-[10px] font-bold ${active ? "bg-white/15 text-white" : "bg-amber-100 text-amber-700"}`}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Hint drag & drop désactivé */}
       {dragDisabled && filtered.length > 1 && (
         <div className="px-3.5 py-2 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 flex items-center gap-2">
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          Effacez la recherche et les filtres pour réorganiser à la souris.
+          Effacez la recherche pour réorganiser à la souris.
         </div>
       )}
 

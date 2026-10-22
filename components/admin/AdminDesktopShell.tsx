@@ -175,7 +175,7 @@ export default function AdminDesktopShell({
         }`}
       >
         {/* Bulle Thème (clair / sombre) */}
-        <AdminSidebarThemeToggle initialTheme={adminTheme} />
+        <AdminSidebarThemeToggle initialTheme={adminTheme} expanded={sidebarExpanded} />
 
         {/* Bulles de navigation : une par section (hauteur = contenu). */}
         {NAV_SECTIONS.map((section, idx) => (
@@ -213,10 +213,10 @@ export default function AdminDesktopShell({
         {/* Bulle Compte : mode client + déconnexion (porte ouverte) */}
         <div className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2 px-2 flex flex-col items-center gap-1 shrink-0">
           <div className="w-full">
-            <AdminClientModeButton compact />
+            <AdminClientModeButton compact expanded={sidebarExpanded} />
           </div>
           <div className="w-full">
-            <LogoutButton compact />
+            <LogoutButton compact expanded={sidebarExpanded} />
           </div>
         </div>
       </aside>

@@ -145,9 +145,7 @@ export default async function CategoriesView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Catalogue"
         title="Catégories"
-        subtitle="Organisez votre catalogue produits et leurs mappings marketplaces"
         actions={<CategoriesHeaderActions items={allTranslateItems} />}
       />
       <CategoriesMasterDetail

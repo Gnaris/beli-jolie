@@ -15,7 +15,7 @@ export default function AdminMobileSubnav() {
   return (
     <nav
       aria-label="Sous-navigation"
-      className="lg:hidden sticky top-14 z-20 bg-white border-b border-zinc-200 overflow-x-auto scrollbar-light"
+      className="admin-mobile-subnav-pwa-offset lg:hidden sticky top-14 z-20 bg-white border-b border-zinc-200 overflow-x-auto scrollbar-light"
     >
       <div className="flex items-center gap-1.5 px-3 py-2 w-max">
         {subnav.map((item) => (

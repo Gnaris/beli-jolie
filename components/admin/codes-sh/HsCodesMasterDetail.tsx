@@ -133,12 +133,8 @@ export default function HsCodesMasterDetail({ initialItems }: Props) {
 
   return (
     <>
-      <div
-        className="grid grid-cols-1 md:grid-cols-[340px_1fr] bg-bg-primary border border-border rounded-3xl overflow-hidden md:h-[calc(100vh-22rem)] md:min-h-[600px]"
-        style={{ boxShadow: "var(--shadow-pop)" }}
-      >
-        {/* Master (list) */}
-        <div className={`${selectedId ? "hidden" : "block"} md:block md:border-r md:border-border md:min-h-0 md:h-full md:overflow-hidden`}>
+      <div className="md:relative">
+        <div className={`${selectedId ? "hidden" : "block"} md:block md:absolute md:inset-y-0 md:left-0 md:w-[360px] lg:w-[380px] bg-bg-primary border border-border rounded-2xl shadow-[var(--shadow-sm)] overflow-hidden md:flex md:flex-col min-w-0`}>
           <HsCodesList
             items={items}
             selectedId={selectedId}
@@ -146,9 +142,7 @@ export default function HsCodesMasterDetail({ initialItems }: Props) {
             onReorder={handleReorder}
           />
         </div>
-
-        {/* Detail pane */}
-        <div className={`${selectedId ? "block" : "hidden"} md:block md:min-h-0 md:h-full md:overflow-hidden`}>
+        <div className={`${selectedId ? "block" : "hidden"} md:block min-w-0 md:pl-[calc(360px+1.5rem)] lg:pl-[calc(380px+1.5rem)] mt-4 md:mt-0`}>
           {selectedDetail && selected ? (
             <HsCodeDetail
               item={selectedDetail}
@@ -158,7 +152,7 @@ export default function HsCodesMasterDetail({ initialItems }: Props) {
               onDelete={() => handleDelete(selected)}
             />
           ) : (
-            <div className="hidden md:flex flex-col items-center justify-center h-full min-h-[600px] text-text-muted text-sm">
+            <div className="hidden md:flex flex-col items-center justify-center min-h-[600px] text-text-muted text-sm bg-bg-primary border border-border rounded-2xl">
               Sélectionnez un code SH à gauche.
             </div>
           )}

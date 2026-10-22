@@ -54,9 +54,7 @@ export default async function SaisonsView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Catalogue · Collections"
         title="Saisons"
-        subtitle="Créez les saisons ici, puis assignez-les à vos produits."
         actions={<SeasonsHeaderActions items={allTranslateItems} />}
       />
       <SeasonsMasterDetail

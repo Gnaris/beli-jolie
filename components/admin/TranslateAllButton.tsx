@@ -92,7 +92,7 @@ export default function TranslateAllButton({
       type="button"
       onClick={handleClick}
       disabled={sending || toTranslate.length === 0}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-bg-dark hover:bg-black text-text-inverse text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-body"
+      className="admin-header-cta inline-flex items-center gap-2 h-10 px-4 rounded-xl text-[13px] font-semibold focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ink/15"
       title={
         toTranslate.length === 0
           ? "Rien à traduire"

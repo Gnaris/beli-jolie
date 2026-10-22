@@ -49,7 +49,7 @@ export default async function AttributsPage({
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-6">
+    <div className="w-full px-4 md:px-6 lg:px-8 py-6">
       <AttributsTabs activeTab={tab}>{view}</AttributsTabs>
     </div>
   );

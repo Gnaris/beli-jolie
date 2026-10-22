@@ -79,9 +79,7 @@ export default async function CouleursView() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Catalogue"
         title="Couleurs"
-        subtitle="Créez les couleurs ici, puis assignez-les à vos produits."
         actions={<ColorsHeaderActions items={allTranslateItems} />}
       />
       <ColorsMasterDetail

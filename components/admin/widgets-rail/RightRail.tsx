@@ -207,8 +207,8 @@ export function RightRail() {
           il tombait sur le bouton Envoyer du chat (et sur les CTA bas d'autres
           tiroirs). Le tiroir a sa propre flèche retour dans le header. */}
       <div
-        className={`admin-fab-preserve fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9001] flex flex-col items-end gap-2 md:gap-3 ${
-          somethingOpen ? "max-md:hidden" : ""
+        className={`admin-fab-preserve admin-fab-pwa-offset fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[8999] flex flex-col items-end gap-2 md:gap-3 ${
+          somethingOpen ? "max-lg:hidden" : ""
         }`}
       >
 
@@ -221,7 +221,7 @@ export function RightRail() {
         {menuOpen && (
           <div
             className={`flex flex-col items-end gap-2 md:gap-3 ${
-              somethingOpen ? "max-md:hidden" : ""
+              somethingOpen ? "max-lg:hidden" : ""
             }`}
           >
             {ITEMS.map((item, idx) => (
