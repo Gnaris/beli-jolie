@@ -2,48 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { setAdminTheme } from "@/app/actions/admin/admin-theme";
+import { applyAdminThemeWithTransition } from "@/lib/admin-theme-transition";
 import type { AdminTheme } from "@/lib/admin-theme";
 
 interface Props {
   initialTheme: AdminTheme;
-}
-
-function applyThemeClassRaw(next: AdminTheme) {
-  if (typeof document === "undefined") return;
-  const wrapper = document.getElementById("admin-theme-wrapper");
-  if (wrapper) {
-    if (next === "dark") wrapper.classList.add("admin-dark");
-    else wrapper.classList.remove("admin-dark");
-  }
-  const html = document.documentElement;
-  if (next === "dark") html.classList.add("admin-dark");
-  else html.classList.remove("admin-dark");
-}
-
-/**
- * Transition fluide entre thèmes via l'API View Transitions.
- * - Si le navigateur la supporte (Chrome, Edge, Opera, Safari 18+) :
- *   on tag le wrapper avec `view-transition-name` le temps du swap,
- *   le navigateur crossfade snapshot avant → snapshot après en GPU.
- * - Sinon : fallback instantané, pas de freeze.
- */
-function applyThemeClass(next: AdminTheme) {
-  if (typeof document === "undefined") return;
-  const anyDoc = document as unknown as {
-    startViewTransition?: (cb: () => void) => { finished: Promise<void> };
-  };
-  const wrapper = document.getElementById("admin-theme-wrapper");
-
-  if (anyDoc.startViewTransition && wrapper) {
-    const previous = wrapper.style.viewTransitionName;
-    wrapper.style.viewTransitionName = "admin-theme";
-    const transition = anyDoc.startViewTransition(() => applyThemeClassRaw(next));
-    transition.finished.finally(() => {
-      wrapper.style.viewTransitionName = previous;
-    });
-    return;
-  }
-  applyThemeClassRaw(next);
 }
 
 export default function AdminSidebarThemeToggle({ initialTheme }: Props) {
@@ -54,12 +17,12 @@ export default function AdminSidebarThemeToggle({ initialTheme }: Props) {
     if (next === theme || isPending) return;
     const previous = theme;
     setTheme(next);
-    applyThemeClass(next);
+    applyAdminThemeWithTransition(next);
     startTransition(async () => {
       const res = await setAdminTheme(next);
       if (!res.success) {
         setTheme(previous);
-        applyThemeClass(previous);
+        applyAdminThemeWithTransition(previous);
       }
     });
   }

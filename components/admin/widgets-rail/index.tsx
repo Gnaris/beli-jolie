@@ -6,6 +6,7 @@
  */
 
 import { RightRailProvider } from "./RightRailContext";
+import { RightRail } from "./RightRail";
 import { TranslationDrawer } from "./TranslationDrawer";
 import { MarketplacesDrawer } from "./MarketplacesDrawer";
 import { ImagesDrawer } from "./ImagesDrawer";
@@ -15,13 +16,16 @@ import { PfsAuditDrawer } from "./PfsAuditDrawer";
 import { MicrostoreUploadDrawer } from "./MicrostoreUploadDrawer";
 import { BulkMailDrawer } from "./BulkMailDrawer";
 
-// Le FAB bottom-right (`<RightRail />`) est retiré : le déclencheur du menu
-// vit désormais dans AdminHeaderWidgetLauncher, placé dans l'entête de page.
-// On garde ici uniquement le provider + les drawers eux-mêmes.
+// Desktop : le déclencheur du menu vit dans AdminHeaderWidgetLauncher (header
+// de page). Sur mobile/tablette (< lg) l'entête est masquée, on remet donc
+// le FAB bottom-right historique via `<RightRail />` scopé `< lg`.
 export function AdminWidgetsRail({ children }: { children: React.ReactNode }) {
   return (
     <RightRailProvider>
       {children}
+      <div className="lg:hidden">
+        <RightRail />
+      </div>
       <TranslationDrawer />
       <MarketplacesDrawer />
       <ImagesDrawer />

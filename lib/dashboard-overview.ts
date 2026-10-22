@@ -14,13 +14,6 @@ import {
  * Les commandes CANCELLED sont exclues partout — elles ne génèrent pas de CA.
  */
 
-export interface TopCountry {
-  code: string;
-  name: string;
-  amount: number;
-  share: number;
-}
-
 export interface SparkPoint { label: string; value: number }
 
 export interface KpiBlock {
@@ -59,14 +52,6 @@ export interface TopProduct {
   imagePath: string | null;
 }
 
-export interface OrderStatusSlice {
-  key: "SHIPPED" | "VALIDATED" | "PENDING" | "CANCELLED";
-  label: string;
-  count: number;
-  share: number;
-  color: string;
-}
-
 export interface LowStockItem {
   productId: string;
   productRef: string;
@@ -78,13 +63,6 @@ export interface LowStockItem {
   imagePath: string | null;
 }
 
-export interface ActivityEvent {
-  kind: "order_new" | "order_shipped" | "user_new" | "stock_low";
-  title: string;
-  detail: string;
-  at: Date;
-}
-
 export interface MarketingBlock {
   visits: number;
   conversionRate: number; // 0..1
@@ -92,19 +70,16 @@ export interface MarketingBlock {
   weeklyVisits: { label: string; count: number; pct: number }[]; // 7 derniers jours (Lun→Dim ordre naturel)
 }
 
-export interface RecentOrderRow {
-  orderNumber: string;
-  createdAt: Date;
-  status: "PENDING" | "VALIDATED" | "SHIPPED" | "CANCELLED";
-  totalTTC: number;
-}
-
-export interface RecentCustomerRow {
+export interface InactiveClientRow {
   id: string;
   initials: string;
   name: string;
   email: string;
-  spend: number;
+  phone: string;
+  hasWhatsapp: boolean | null;
+  /** Dernière activité connue (max de lastSeenAt / lastLoginAt). Null = jamais connecté depuis l'inscription. */
+  lastActiveAt: Date | null;
+  /** Fallback utilisé pour afficher le temps d'inactivité quand lastActiveAt est null. */
   signedUpAt: Date;
 }
 
@@ -126,35 +101,10 @@ export interface DashboardOverview {
   categoryBreakdown: CategorySlice[];
   categoryTotal: number;
   topProducts: TopProduct[];
-  orderStatus: OrderStatusSlice[];
-  orderStatusTotal: number;
   lowStock: LowStockItem[];
-  activity: ActivityEvent[];
+  inactiveClients: InactiveClientRow[];
   marketing: MarketingBlock;
-  recentOrders: RecentOrderRow[];
-  recentCustomers: RecentCustomerRow[];
-  topCountries: TopCountry[];
   todayVisits: PeriodVisitStats;
-}
-
-// ───── Pays FR + emoji drapeau ─────────────────────────────────────────────
-const COUNTRY_NAMES_FR: Record<string, string> = {
-  FR: "France", BE: "Belgique", ES: "Espagne", IT: "Italie", DE: "Allemagne",
-  LU: "Luxembourg", CH: "Suisse", GB: "Royaume-Uni", NL: "Pays-Bas", PT: "Portugal",
-  US: "États-Unis", CA: "Canada", MA: "Maroc", DZ: "Algérie", TN: "Tunisie",
-};
-
-export function countryNameFr(code: string): string {
-  const up = code.toUpperCase();
-  return COUNTRY_NAMES_FR[up] ?? code;
-}
-
-export function countryFlagEmoji(code: string): string {
-  if (!code || code.length !== 2) return "";
-  const up = code.toUpperCase();
-  if (!/^[A-Z]{2}$/.test(up)) return "";
-  const A = 0x1F1E6;
-  return String.fromCodePoint(A + up.charCodeAt(0) - 65) + String.fromCodePoint(A + up.charCodeAt(1) - 65);
 }
 
 // ───── Helpers date ────────────────────────────────────────────────────────
@@ -191,14 +141,8 @@ export async function getDashboardOverview(
     periodOrdersRaw,
     categoryItemsRaw,
     topProductsRaw,
-    orderStatusRaw,
     lowStockRaw,
-    recentOrdersRaw,
-    recentOrdersForActivity,
-    recentUsersRaw,
-    recentUsersForActivity,
-    recentUsersSpendRaw,
-    countriesRaw,
+    inactiveClientsRaw,
     visitStats,
     productLookup,
   ] = await Promise.all([
@@ -242,19 +186,13 @@ export async function getDashboardOverview(
       where: { order: periodWhere },
       select: { productRef: true, quantity: true, lineTotal: true },
     }),
-    // Top produits sur la période active
+    // Top produits sur la période active (jusqu'à 100 pour listing complet)
     prisma.orderItem.groupBy({
       by: ["productRef"],
       where: { order: periodWhere },
       _sum: { quantity: true, lineTotal: true },
       orderBy: { _sum: { quantity: "desc" } },
-      take: 5,
-    }),
-    // Statut des commandes sur la période active
-    prisma.order.groupBy({
-      by: ["status"],
-      where: { createdAt: { gte: range.start, lt: range.end } },
-      _count: { id: true },
+      take: 100,
     }),
     // Stock faible — ProductColor avec stock < 10, non désactivée
     prisma.productColor.findMany({
@@ -270,47 +208,18 @@ export async function getDashboardOverview(
         },
       },
     }),
-    // Dernières commandes
-    prisma.order.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 7,
+    // Clients les moins récents (candidats pour relance). On prend un paquet
+    // large trié par lastSeenAt (nulls en premier = jamais vu) et on raffine
+    // en JS avec max(lastSeenAt, lastLoginAt) pour trouver les vrais "oubliés".
+    prisma.user.findMany({
+      where: { role: "CLIENT", status: "APPROVED" },
+      orderBy: [{ lastSeenAt: { sort: "asc", nulls: "first" } }],
+      take: 50,
       select: {
-        orderNumber: true, createdAt: true, status: true, totalTTC: true,
+        id: true, firstName: true, lastName: true, email: true, phone: true,
+        company: true, hasWhatsapp: true,
+        lastSeenAt: true, lastLoginAt: true, createdAt: true,
       },
-    }),
-    // Pour activité : dernières commandes (toutes)
-    prisma.order.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 3,
-      select: { orderNumber: true, createdAt: true, status: true, totalTTC: true, updatedAt: true },
-    }),
-    // Derniers clients
-    prisma.user.findMany({
-      where: { role: "CLIENT" },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, firstName: true, lastName: true, email: true, company: true, createdAt: true },
-    }),
-    // Pour activité : derniers users
-    prisma.user.findMany({
-      where: { role: "CLIENT" },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-      select: { id: true, firstName: true, lastName: true, createdAt: true },
-    }),
-    // Dépense totale par client récent (pour calculer "spend")
-    prisma.order.groupBy({
-      by: ["userId"],
-      where: { status: { not: "CANCELLED" } },
-      _sum: { totalTTC: true },
-    }),
-    // Pays — top 5 sur la période active
-    prisma.order.groupBy({
-      by: ["shipCountry"],
-      where: periodWhere,
-      _sum: { totalTTC: true },
-      orderBy: { _sum: { totalTTC: "desc" } },
-      take: 5,
     }),
     // Visites
     getVisitStats(),
@@ -450,22 +359,6 @@ export async function getDashboardOverview(
     };
   });
 
-  // ─── Statut commandes ────────────────────────────────────────────────────
-  const statusCountMap = new Map<string, number>();
-  for (const r of orderStatusRaw) statusCountMap.set(r.status, r._count.id);
-  const orderStatusTotal = Array.from(statusCountMap.values()).reduce((s, n) => s + n, 0);
-  const totalForStatus = orderStatusTotal > 0 ? orderStatusTotal : 1;
-  const STATUS_DEFS: Array<{ key: OrderStatusSlice["key"]; label: string; color: string }> = [
-    { key: "SHIPPED",   label: "Expédiées",      color: "#08aa6b" },
-    { key: "VALIDATED", label: "Validées",       color: "#246bfe" },
-    { key: "PENDING",   label: "En préparation", color: "#ff9e2c" },
-    { key: "CANCELLED", label: "Annulées",       color: "#f04452" },
-  ];
-  const orderStatus: OrderStatusSlice[] = STATUS_DEFS.map((def) => {
-    const count = statusCountMap.get(def.key) ?? 0;
-    return { ...def, count, share: count / totalForStatus };
-  });
-
   // ─── Stock faible ────────────────────────────────────────────────────────
   const lowStock: LowStockItem[] = lowStockRaw
     .filter((v) => v.product.status !== "ARCHIVED")
@@ -483,44 +376,40 @@ export async function getDashboardOverview(
       };
     });
 
-  // ─── Activité récente ────────────────────────────────────────────────────
-  const activity: ActivityEvent[] = [];
-  for (const o of recentOrdersForActivity) {
-    if (o.status === "SHIPPED") {
-      activity.push({
-        kind: "order_shipped",
-        title: `Commande expédiée #${o.orderNumber}`,
-        detail: `${formatMoneyFr(Number(o.totalTTC))} €`,
-        at: o.updatedAt,
-      });
-    } else {
-      activity.push({
-        kind: "order_new",
-        title: `Nouvelle commande #${o.orderNumber}`,
-        detail: `${formatMoneyFr(Number(o.totalTTC))} €`,
-        at: o.createdAt,
-      });
-    }
-  }
-  for (const u of recentUsersForActivity) {
-    const name = `${u.firstName} ${u.lastName}`.trim() || "Nouveau client";
-    activity.push({
-      kind: "user_new",
-      title: "Nouveau client inscrit",
-      detail: name,
-      at: u.createdAt,
+  // ─── Clients inactifs (candidats relance) ────────────────────────────────
+  // "Inactivité" = temps écoulé depuis la dernière activité réelle, i.e. le
+  // max de (lastSeenAt, lastLoginAt). Si les deux sont null, on considère que
+  // le client ne s'est jamais reconnecté depuis son inscription → on prend
+  // createdAt comme repère et on affiche "Jamais connecté".
+  const inactiveClients: InactiveClientRow[] = inactiveClientsRaw
+    .map((u) => {
+      const lastActiveMs = Math.max(
+        u.lastSeenAt?.getTime() ?? 0,
+        u.lastLoginAt?.getTime() ?? 0,
+      );
+      const lastActiveAt = lastActiveMs > 0 ? new Date(lastActiveMs) : null;
+      return { u, lastActiveAt };
+    })
+    .sort((a, b) => {
+      const aT = a.lastActiveAt?.getTime() ?? a.u.createdAt.getTime();
+      const bT = b.lastActiveAt?.getTime() ?? b.u.createdAt.getTime();
+      return aT - bT;
+    })
+    .slice(0, 5)
+    .map(({ u, lastActiveAt }) => {
+      const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.company || u.email;
+      const initials = (u.firstName?.[0] ?? "") + (u.lastName?.[0] ?? "");
+      return {
+        id: u.id,
+        initials: initials.toUpperCase() || u.email.slice(0, 2).toUpperCase(),
+        name: fullName,
+        email: u.email,
+        phone: u.phone,
+        hasWhatsapp: u.hasWhatsapp,
+        lastActiveAt,
+        signedUpAt: u.createdAt,
+      };
     });
-  }
-  for (const v of lowStockRaw.slice(0, 1)) {
-    activity.push({
-      kind: "stock_low",
-      title: "Produit en faible stock",
-      detail: `${v.product.name} · ${v.stock} restant${v.stock > 1 ? "s" : ""}`,
-      at: new Date(),
-    });
-  }
-  activity.sort((a, b) => b.at.getTime() - a.at.getTime());
-  const activityTop = activity.slice(0, 5);
 
   // ─── Marketing ───────────────────────────────────────────────────────────
   // Visites 30j = somme (anonymous + authenticated) sur les 30 derniers jours.
@@ -564,40 +453,6 @@ export async function getDashboardOverview(
 
   const marketing: MarketingBlock = { visits: visits30d, conversionRate: conv, avgBasket, weeklyVisits };
 
-  // ─── Commandes & clients récents ─────────────────────────────────────────
-  const recentOrders: RecentOrderRow[] = recentOrdersRaw.map((o) => ({
-    orderNumber: o.orderNumber,
-    createdAt: o.createdAt,
-    status: o.status as RecentOrderRow["status"],
-    totalTTC: Number(o.totalTTC),
-  }));
-
-  const spendByUser = new Map<string, number>();
-  for (const row of recentUsersSpendRaw) spendByUser.set(row.userId, Number(row._sum.totalTTC ?? 0));
-
-  const recentCustomers: RecentCustomerRow[] = recentUsersRaw.map((u) => {
-    const name = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.company || u.email;
-    const initials = (u.firstName?.[0] ?? "") + (u.lastName?.[0] ?? "");
-    return {
-      id: u.id,
-      initials: initials.toUpperCase() || u.email.slice(0, 2).toUpperCase(),
-      name,
-      email: u.email,
-      spend: spendByUser.get(u.id) ?? 0,
-      signedUpAt: u.createdAt,
-    };
-  });
-
-  // ─── Pays ────────────────────────────────────────────────────────────────
-  const totalForCountry = periodRevenue > 0 ? periodRevenue : 1;
-  const topCountries: TopCountry[] = countriesRaw
-    .filter((r) => r.shipCountry)
-    .map((r) => {
-      const code = r.shipCountry ?? "??";
-      const amount = Number(r._sum.totalTTC ?? 0);
-      return { code, name: countryNameFr(code), amount, share: amount / totalForCountry };
-    });
-
   // (todayOrdersCount, yesterdayOrdersCount gardés uniquement pour clarté — pas réexposés directement)
   void todayOrdersCount; void yesterdayOrdersCount;
 
@@ -609,14 +464,9 @@ export async function getDashboardOverview(
     categoryBreakdown,
     categoryTotal,
     topProducts,
-    orderStatus,
-    orderStatusTotal,
     lowStock,
-    activity: activityTop,
+    inactiveClients,
     marketing,
-    recentOrders,
-    recentCustomers,
-    topCountries,
     todayVisits: visitStats.today,
   };
 }
@@ -727,9 +577,4 @@ function bucketByMonth(
     buckets[idx].orders += 1;
   }
   return buckets;
-}
-
-// Helper local (évite double import depuis la page)
-function formatMoneyFr(n: number): string {
-  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(n);
 }

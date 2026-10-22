@@ -3,32 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import AdminHeaderWidgetLauncher from "./AdminHeaderWidgetLauncher";
-import { ATTRIBUT_TABS, resolveActiveTab } from "./attributs/AttributsTabs";
-import { MARKETING_TABS, resolveMarketingTab } from "./marketing/MarketingTabs";
-
-type SubItem = { label: string; href: string; active?: boolean };
-
-function resolveSubnav(pathname: string, onglet: string | null): SubItem[] | null {
-  // Section produits (listing + attributs fusionnés)
-  if (pathname === "/admin/produits" || pathname.startsWith("/admin/produits/attributs")) {
-    const activeTab = resolveActiveTab(pathname, onglet);
-    return ATTRIBUT_TABS.map((t) => ({
-      label: t.label,
-      href: t.href,
-      active: t.id === activeTab,
-    }));
-  }
-  // Section marketing (envoi + 6 sous-pages fusionnées)
-  if (pathname === "/admin/marketing" || pathname.startsWith("/admin/marketing/")) {
-    const activeTab = resolveMarketingTab(pathname, onglet);
-    return MARKETING_TABS.map((t) => ({
-      label: t.label,
-      href: t.href,
-      active: t.id === activeTab,
-    }));
-  }
-  return null;
-}
+import { resolveAdminSubnav } from "./admin-subnav";
 
 interface Props {
   shopName: string;
@@ -40,7 +15,7 @@ export default function AdminPageHeader({ shopName, userName, initials }: Props)
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const onglet = searchParams?.get("onglet") ?? null;
-  const subnav = resolveSubnav(pathname, onglet);
+  const subnav = resolveAdminSubnav(pathname, onglet);
 
   return (
     <div className="hidden lg:flex items-stretch gap-3 h-[72px]">
@@ -78,7 +53,7 @@ export default function AdminPageHeader({ shopName, userName, initials }: Props)
                 scroll={false}
                 className={`inline-flex items-center px-3.5 py-1.5 rounded-full text-[13px] font-body font-medium transition-colors whitespace-nowrap ${
                   item.active
-                    ? "bg-zinc-900 text-white"
+                    ? "admin-subnav-active-pill"
                     : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                 }`}
               >

@@ -6788,8 +6788,27 @@ export default function AdminProductsTable({
   return (
     <div>
       {/* Toggle vue liste ↔ grille — icônes uniquement, mémorisé
-          dans localStorage. Placé au-dessus de la barre d'actions bulk. */}
-      <div className="flex items-center justify-end mb-3">
+          dans localStorage. Placé au-dessus de la barre d'actions bulk.
+          Le bouton « Tout sélectionner » est toujours visible (indépendant
+          du mode) — la vue grille n'a pas de case dans un en-tête de tableau. */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <button
+          type="button"
+          onClick={toggleSelectAll}
+          disabled={allProducts.length === 0}
+          className="inline-flex items-center gap-2 h-8 px-3 rounded-lg border border-border bg-bg-primary text-text-primary text-xs font-body font-medium hover:bg-bg-secondary disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          title={allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+        >
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={() => {}}
+            tabIndex={-1}
+            className="checkbox-custom checkbox-sm pointer-events-none"
+            aria-hidden="true"
+          />
+          <span>{allSelected ? "Tout désélectionner" : "Tout sélectionner"}</span>
+        </button>
         <ProductsViewToggle mode={viewMode} onChange={handleChangeViewMode} />
       </div>
 

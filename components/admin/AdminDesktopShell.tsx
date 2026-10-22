@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutModal";
@@ -60,6 +58,8 @@ interface Props {
   pendingUsersCount: number;
   openClaimsCount: number;
   pendingReviewsCount: number;
+  sidebarExpanded: boolean;
+  onSidebarExpandedChange: (expanded: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -69,108 +69,79 @@ function isItemActive(pathname: string, href: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Label-tooltip rendu en portal (fixed) : évite tout clipping par les
-// containers scrollables de la sidebar. S'affiche quand l'icône est
-// survolée OU quand la sidebar entière est survolée (hover global).
+// Lien de navigation sidebar : icône fixe à gauche + label qui s'affiche
+// quand la sidebar est expand (survol). Plus de bulle tooltip portal —
+// le label vit directement dans la bulle de nav. L'AdminWarningTooltip
+// reste pour les détails des pastilles d'alerte (trad. manquante, etc.).
 // ─────────────────────────────────────────────────────────────────────────
 function AdminNavIconLink({
   item,
   active,
   warning,
   blueCount,
-  sidebarHovered,
+  expanded,
 }: {
   item: NavItem;
   active: boolean;
   warning?: { count: number; tooltip: string; title?: string; reasons?: string[]; hint?: string };
   blueCount: number;
-  sidebarHovered: boolean;
+  expanded: boolean;
 }) {
-  const [itemHovered, setItemHovered] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
-  const linkRef = useRef<HTMLAnchorElement | null>(null);
-  const showLabel = itemHovered || sidebarHovered;
   const showBlueBadge = blueCount > 0;
 
-  useEffect(() => setMounted(true), []);
-
-  useLayoutEffect(() => {
-    if (!showLabel || !linkRef.current) return;
-    const r = linkRef.current.getBoundingClientRect();
-    setCoords({ top: r.top + r.height / 2, left: r.right + 12 });
-  }, [showLabel]);
-
   return (
-    <>
-      <AdminWarningTooltip warning={warning}>
-        <Link
-          ref={linkRef}
-          href={item.href}
-          scroll={item.href !== "/admin/produits"}
-          target={item.external ? "_blank" : undefined}
-          rel={item.external ? "noopener noreferrer" : undefined}
-          onMouseEnter={() => setItemHovered(true)}
-          onMouseLeave={() => setItemHovered(false)}
-          className={`relative flex items-center justify-center p-2 rounded-xl transition-colors ${
-            active
-              ? "bg-zinc-100 text-zinc-900"
-              : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
-          }`}
-        >
-          {active && (
-            <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
-          )}
+    <AdminWarningTooltip warning={warning}>
+      <Link
+        href={item.href}
+        scroll={item.href !== "/admin/produits"}
+        target={item.external ? "_blank" : undefined}
+        rel={item.external ? "noopener noreferrer" : undefined}
+        title={!expanded ? item.label : undefined}
+        className={`relative flex items-center h-9 rounded-xl transition-[padding,gap,background-color,color] duration-200 overflow-hidden ${
+          expanded ? "px-3 gap-3" : "px-2 gap-0 justify-center"
+        } ${
+          active
+            ? "bg-zinc-100 text-zinc-900"
+            : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900"
+        }`}
+      >
+        {active && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-zinc-900" />
+        )}
+        <span className="shrink-0 w-5 h-5 flex items-center justify-center">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d={item.icon} />
           </svg>
-          {(showBlueBadge || warning) && (
-            <span
-              className="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-white"
-              style={{ background: showBlueBadge ? "#3B82F6" : "#F59E0B" }}
-            />
-          )}
-        </Link>
-      </AdminWarningTooltip>
-
-      {mounted && showLabel && coords && createPortal(
-        <div
-          className="fixed z-[70] pointer-events-none animate-[tooltipIn_140ms_ease-out]"
-          style={{ top: coords.top, left: coords.left, transform: "translateY(-50%)" }}
+        </span>
+        <span
+          className={`text-[13px] font-body font-medium whitespace-nowrap overflow-hidden transition-[max-width,opacity,flex-grow] duration-300 ${
+            expanded ? "max-w-[180px] opacity-100 flex-1 min-w-0 truncate delay-75" : "max-w-0 opacity-0"
+          }`}
         >
-          <div
-            className="relative text-[12.5px] font-semibold font-body rounded-lg px-3 py-1.5 shadow-[0_10px_25px_-5px_rgba(9,9,11,0.45)] whitespace-nowrap"
-            style={{ background: "#18181B", color: "#ffffff" }}
+          {item.label}
+        </span>
+        {showBlueBadge && (
+          <span
+            className={`shrink-0 flex items-center justify-center text-[11px] rounded-full h-[22px] font-bold bg-sky-100 text-sky-700 border border-sky-200 overflow-hidden transition-[max-width,opacity,padding] duration-300 ${
+              expanded ? "max-w-[48px] opacity-100 px-1.5 min-w-[22px] delay-75" : "max-w-0 opacity-0 px-0"
+            }`}
           >
-            <span className="flex items-center gap-2">
-              {item.label}
-              {showBlueBadge && (
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                  style={{ background: "rgba(14,165,233,0.25)", color: "#bae6fd" }}
-                >
-                  {blueCount}
-                </span>
-              )}
-              {warning && (
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  style={{ background: "rgba(245,158,11,0.25)", color: "#FDE68A" }}
-                >
-                  ⚠ {warning.count}
-                </span>
-              )}
-            </span>
-            <span
-              aria-hidden
-              className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45"
-              style={{ background: "#18181B" }}
-            />
-          </div>
-        </div>,
-        document.body,
-      )}
-    </>
+            {blueCount > 99 ? "99+" : blueCount}
+          </span>
+        )}
+        {/* Pastille (dot) collapsed : seule indication quand sidebar fermée.
+            Masquée dès que la sidebar s'ouvre (le badge chiffré prend le relais). */}
+        {(showBlueBadge || warning) && (
+          <span
+            className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ring-2 ring-white transition-opacity duration-150 ${
+              expanded ? "opacity-0" : "opacity-100"
+            }`}
+            style={{ background: showBlueBadge ? "#3B82F6" : "#F59E0B" }}
+            aria-hidden
+          />
+        )}
+      </Link>
+    </AdminWarningTooltip>
   );
 }
 
@@ -181,10 +152,11 @@ export default function AdminDesktopShell({
   pendingUsersCount,
   openClaimsCount,
   pendingReviewsCount,
+  sidebarExpanded,
+  onSidebarExpandedChange,
   children,
 }: Props) {
   const pathname = usePathname() ?? "";
-  const [sidebarHovered, setSidebarHovered] = useState(false);
 
   const blueBadges: Record<string, number> = {
     "/admin/commandes": pendingOrdersCount,
@@ -196,9 +168,11 @@ export default function AdminDesktopShell({
   return (
     <>
       <aside
-        onMouseEnter={() => setSidebarHovered(true)}
-        onMouseLeave={() => setSidebarHovered(false)}
-        className="shrink-0 hidden lg:flex flex-col gap-3 fixed z-40 top-[108px] left-3 w-[72px]"
+        onMouseEnter={() => onSidebarExpandedChange(true)}
+        onMouseLeave={() => onSidebarExpandedChange(false)}
+        className={`shrink-0 hidden lg:flex flex-col gap-3 fixed z-40 top-[108px] left-3 transition-[width] duration-300 ease-out ${
+          sidebarExpanded ? "w-[240px]" : "w-[72px]"
+        }`}
       >
         {/* Bulle Thème (clair / sombre) */}
         <AdminSidebarThemeToggle initialTheme={adminTheme} />
@@ -207,7 +181,7 @@ export default function AdminDesktopShell({
         {NAV_SECTIONS.map((section, idx) => (
           <div
             key={idx}
-            className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2 px-2 flex flex-col gap-0.5 shrink-0"
+            className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm py-2 px-2 flex flex-col gap-0.5 shrink-0 overflow-hidden"
           >
             {section.items.map((item) => {
               if (item.soon) {
@@ -229,7 +203,7 @@ export default function AdminDesktopShell({
                   active={isItemActive(pathname, item.href)}
                   warning={warnings[item.href]}
                   blueCount={blueBadges[item.href] ?? 0}
-                  sidebarHovered={sidebarHovered}
+                  expanded={sidebarExpanded}
                 />
               );
             })}

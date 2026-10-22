@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { setAdminTheme } from "@/app/actions/admin/admin-theme";
+import { applyAdminThemeWithTransition } from "@/lib/admin-theme-transition";
 import { useToast } from "@/components/ui/Toast";
 import type { AdminTheme } from "@/lib/admin-theme";
 
@@ -14,29 +15,16 @@ export default function AdminThemeToggle({ initialTheme }: Props) {
   const [isPending, startTransition] = useTransition();
   const toast = useToast();
 
-  function applyClass(next: AdminTheme) {
-    if (typeof document === "undefined") return;
-    const wrapper = document.getElementById("admin-theme-wrapper");
-    if (wrapper) {
-      if (next === "dark") wrapper.classList.add("admin-dark");
-      else wrapper.classList.remove("admin-dark");
-    }
-    // Miroir sur <html> pour que la scrollbar du navigateur (rendue par
-    // html/body, hors du wrapper) puisse être stylée en sombre.
-    const html = document.documentElement;
-    if (next === "dark") html.classList.add("admin-dark");
-    else html.classList.remove("admin-dark");
-  }
-
   function handleChange(next: AdminTheme) {
     if (next === theme || isPending) return;
+    const previous = theme;
     setTheme(next);
-    applyClass(next);
+    applyAdminThemeWithTransition(next);
     startTransition(async () => {
       const res = await setAdminTheme(next);
       if (!res.success) {
-        setTheme(theme);
-        applyClass(theme);
+        setTheme(previous);
+        applyAdminThemeWithTransition(previous);
         toast.error("Erreur", res.error || "Impossible d'enregistrer le thème.");
         return;
       }

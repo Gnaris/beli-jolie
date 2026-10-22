@@ -1001,24 +1001,37 @@ html:not(.admin-dark)::-webkit-scrollbar-corner { background: transparent; }
    qui fait le travail en GPU → zéro freeze.
    On ne met PLUS de transition CSS globale sur `*` : ça causait un gros
    recalcul à chaque bascule (visible sur les grosses pages). */
+/* Balayage diagonal : le nouveau thème est révélé par un triangle qui
+   grossit depuis le coin haut-gauche vers le coin bas-droit. L'ancien
+   snapshot reste intact dessous — la nouvelle couche l'écrase comme
+   une vague. Durée volontairement un chouïa plus longue qu'un fade
+   pour qu'on voie bien le mouvement, mais sans ralentir l'usage. */
 ::view-transition-old(admin-theme),
 ::view-transition-new(admin-theme) {
-  animation-duration: 280ms;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  animation-duration: 650ms;
+  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  animation-fill-mode: forwards;
+  mix-blend-mode: normal;
 }
 ::view-transition-old(admin-theme) {
-  animation-name: adminThemeFadeOut;
+  animation-name: adminThemeWaveHold;
 }
 ::view-transition-new(admin-theme) {
-  animation-name: adminThemeFadeIn;
+  animation-name: adminThemeWaveDiagonal;
 }
-@keyframes adminThemeFadeOut {
-  from { opacity: 1; }
-  to   { opacity: 0; }
+@keyframes adminThemeWaveHold {
+  from, to { opacity: 1; }
 }
-@keyframes adminThemeFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+@keyframes adminThemeWaveDiagonal {
+  from {
+    clip-path: polygon(0% 0%, 0% 0%, 0% 0%);
+  }
+  to {
+    /* 220% sur chaque axe : triangle qui déborde largement du viewport
+       pour garantir une couverture complète même sur écrans très larges
+       ou très hauts (ratio diagonal variable). */
+    clip-path: polygon(0% 0%, 220% 0%, 0% 220%);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(admin-theme),
@@ -1619,27 +1632,26 @@ html.admin-dark .text-pink-100 { color: #fce7f3 !important; }
 html.admin-dark .text-sky-100\/85 { color: rgba(224,242,254,0.85) !important; }
 html.admin-dark .text-violet-100\/85 { color: rgba(237,233,254,0.85) !important; }
 
-/* ─── FAB widgets (bas à droite) — reset thème clair ───────────────────
-   La cliente veut que le FAB étoile + le mini-menu (Marketplaces / Chat /
-   Traduction / etc.) gardent leur apparence claire d'origine en mode
-   sombre admin (2026-08-13). On force les couleurs à leurs valeurs
-   d'origine à l'intérieur de `.admin-fab-preserve`. */
+/* ─── FAB widgets (bas à droite) — version dark cohérente ──────────────
+   En dark mode, les pastilles blanches (labels mini-boutons, FAB ouvert,
+   badges) basculent sur une palette sombre cohérente avec l'admin — plus
+   de blanc flashant qui jurait avec le fond. Les gradients colorés des
+   mini-boutons (violet, sky, amber…) gardent leur punch. */
 html.admin-dark .admin-fab-preserve .bg-white,
-html.admin-dark .admin-fab-preserve.bg-white { background-color: #ffffff !important; }
+html.admin-dark .admin-fab-preserve.bg-white { background-color: #27272a !important; }
 html.admin-dark .admin-fab-preserve .text-white { color: #ffffff !important; }
-html.admin-dark .admin-fab-preserve .text-slate-900 { color: #0f172a !important; }
-html.admin-dark .admin-fab-preserve .text-slate-200 { color: #e2e8f0 !important; }
-html.admin-dark .admin-fab-preserve .ring-slate-200 { --tw-ring-color: #e2e8f0 !important; }
-html.admin-dark .admin-fab-preserve .ring-white { --tw-ring-color: #ffffff !important; }
+html.admin-dark .admin-fab-preserve .text-slate-900 { color: #f4f4f5 !important; }
+html.admin-dark .admin-fab-preserve .text-slate-200 { color: #a1a1aa !important; }
+html.admin-dark .admin-fab-preserve .ring-slate-200 { --tw-ring-color: #3f3f46 !important; }
+html.admin-dark .admin-fab-preserve .ring-white { --tw-ring-color: #27272a !important; }
 html.admin-dark .admin-fab-preserve .bg-slate-800 { background-color: #1e293b !important; }
 html.admin-dark .admin-fab-preserve .bg-slate-900 { background-color: #0f172a !important; }
 html.admin-dark .admin-fab-preserve .bg-slate-900\/10 { background-color: rgba(15,23,42,0.1) !important; }
-/* FAB étoile principal : en dark mode, le gradient d'origine (slate-800 →
-   slate-900 → black) se fond dans le fond de page très sombre. On remonte
-   d'un cran vers un gris moyen pour que le bouton reste bien visible. */
-html.admin-dark .admin-fab-preserve .from-slate-800 { --tw-gradient-from: #64748b !important; }
-html.admin-dark .admin-fab-preserve .via-slate-900 { --tw-gradient-via: #475569 !important; }
-html.admin-dark .admin-fab-preserve .to-black { --tw-gradient-to: #334155 !important; }
+/* Gradient du FAB en dark mode : tonalité sombre uniforme, cohérente
+   avec le fond zinc-950 du reste de l'admin. */
+html.admin-dark .admin-fab-preserve .from-slate-800 { --tw-gradient-from: #27272a !important; }
+html.admin-dark .admin-fab-preserve .via-slate-900 { --tw-gradient-via: #18181b !important; }
+html.admin-dark .admin-fab-preserve .to-black { --tw-gradient-to: #09090b !important; }
 /* Bordure blanche autour des mini-pastilles colorées : la cliente veut
    la retirer en dark mode (bruit visuel sur fond très sombre). Le FAB
    principal garde sa ring-white. */
@@ -1653,6 +1665,23 @@ html.admin-dark .admin-fab-preserve .text-emerald-600 { color: #059669 !importan
 html.admin-dark .admin-fab-preserve .text-emerald-700 { color: #047857 !important; }
 html.admin-dark .admin-fab-preserve .text-cyan-600 { color: #0891b2 !important; }
 html.admin-dark .admin-fab-preserve .text-rose-600 { color: #e11d48 !important; }
+
+/* ─── Sous-nav admin (pill actif) — fond + texte scopés par mode ──────
+   On ne peut PAS utiliser `bg-zinc-900 text-white` : en dark mode les
+   deux s'inversent (fond #ececee, texte #e4e4e7) → texte clair sur
+   fond clair = illisible. On définit une classe dédiée qui pose ses
+   deux couleurs explicitement selon le mode, sans dépendre d'un
+   override générique Tailwind. */
+.admin-subnav-active-pill {
+  background-color: #18181B !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15) !important;
+}
+html.admin-dark .admin-subnav-active-pill {
+  background-color: #ececee !important;
+  color: #18181B !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+}
 
 /* ─── Headers aurora des tiroirs (DrawerShell) — version nuit ─────────
    Les dégradés d'origine (500 → 700) sont trop lumineux sur un fond
@@ -2847,6 +2876,18 @@ html.admin-dark .settings-tabs__tab--active,
     animation-duration: 1ms;
     animation-delay: 0ms;
   }
+}
+
+/* ─── Nav mobile admin : fond du tiroir + overlay en mode sombre.
+   Le tiroir utilise un fond clair arbitraire `bg-[#F1F1F3]` et le
+   backdrop `bg-zinc-900/40` qui apparaît trop clair en dark. On force
+   une hiérarchie page (#141417) < tiroir (#1c1c20) < cartes (#26262d). */
+html.admin-dark [data-admin-mobile-drawer] {
+  background-color: #1c1c20 !important;
+  border-color: #3f3f47 !important;
+}
+html.admin-dark [data-admin-mobile-backdrop] {
+  background-color: rgba(0, 0, 0, 0.6) !important;
 }
 
 /* trigger */

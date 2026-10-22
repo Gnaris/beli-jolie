@@ -15,6 +15,7 @@
 import React, { useEffect, useState } from "react";
 import AdminDesktopShell from "./AdminDesktopShell";
 import AdminMobileNav from "./AdminMobileNav";
+import AdminMobileSubnav from "./AdminMobileSubnav";
 import AdminPageHeader from "./AdminPageHeader";
 import AdminPageTransition from "./AdminPageTransition";
 import { useLiveAdminWarnings } from "./LiveAdminWarningsProvider";
@@ -38,6 +39,9 @@ export default function AdminShellsLive({
 }: Props) {
   const counts = useLiveAdminWarnings();
   const [isScrolled, setIsScrolled] = useState(false);
+  // Expand sidebar au survol : affiche les labels à côté des icônes et
+  // décale le contenu principal pour laisser la place.
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
 
   // Détection scroll pour poser un fond blanc + ombre sur le header
   // quand on dépasse le top. Seuil 8px (évite de clignoter au moindre
@@ -76,13 +80,11 @@ export default function AdminShellsLive({
       hint: "Ouvrez le sous-menu « Produits » : la pastille indique où cliquer.",
     };
 
-    // Pastille sur chaque sous-entrée concernée du menu « Produits ». Les hrefs
-    // doivent matcher PRODUCT_SUBNAV dans AdminDesktopShell / AdminMobileNav.
+    // Pastille sur chaque sous-entrée du menu « Produits ». Les hrefs doivent
+    // matcher ATTRIBUT_TABS (components/admin/attributs/AttributsTabs.tsx),
+    // source unique de vérité pour la sous-nav produits/attributs.
     // On n'écrit PAS sur /admin/produits ici : la clé est déjà prise par le
-    // parent (sum). La sous-entrée « Tous les produits » partage ce href et
-    // affichera donc la même pastille — acceptable (même destination).
-    // Hrefs synchronisés avec PRODUCT_SUBNAV (AdminMobileNav) : la fusion
-    // 2026-10-21 route tous les attributs vers /admin/produits/attributs.
+    // parent (sum) sur l'item « Produits » de la sidebar et du drawer mobile.
     const subEntries: [string, number, string][] = [
       ["/admin/produits/attributs?onglet=categories",   counts.untranslatedCategoriesCount + counts.untranslatedSubCategoriesCount, "catégorie"],
       ["/admin/produits/attributs?onglet=couleurs",     counts.unusedColorsCount,                                                   "couleur"],
@@ -122,6 +124,8 @@ export default function AdminShellsLive({
       pendingUsersCount={counts.pendingUsersCount}
       openClaimsCount={counts.openClaimsCount}
       pendingReviewsCount={counts.pendingReviewsCount}
+      sidebarExpanded={sidebarExpanded}
+      onSidebarExpandedChange={setSidebarExpanded}
     >
       <AdminMobileNav
         userName={userName}
@@ -129,6 +133,10 @@ export default function AdminShellsLive({
         warnings={mobileWarnings}
         shopName={shopName}
       />
+
+      {/* Sous-nav mobile : pastilles sticky sous la top-bar, visible
+          uniquement sur les pages avec onglets (produits/marketing). */}
+      <AdminMobileSubnav />
 
       {/* Header de page : sticky top-3, suit le scroll. Fond blanc +
           ombre discrète apparaissent dès qu'on scrolle sous le header
@@ -141,10 +149,16 @@ export default function AdminShellsLive({
         <AdminPageHeader shopName={shopName} userName={userName} initials={initials} />
       </div>
 
-      {/* Contenu principal : décalé à droite de la sidebar.
-          `lg:pl-[88px]` au lieu de `lg:ml-[88px]` sur le wrapper car la
-          sidebar est fixed et commence SOUS le header. */}
-      <main className="flex-1 p-4 md:p-6 lg:pt-6 lg:pr-6 lg:pb-6 lg:pl-[92px]">
+      {/* Contenu principal : décalé à droite de la sidebar. La sidebar
+          est fixed, donc on compense via padding-left (pas de ml). Le
+          padding transitionne entre 92px (sidebar collapsed) et 260px
+          (sidebar expand sur hover) pour que le contenu rétrécisse en
+          douceur quand les labels apparaissent. */}
+      <main
+        className={`flex-1 p-4 md:p-6 lg:pt-6 lg:pr-6 lg:pb-6 lg:transition-[padding-left] lg:duration-300 lg:ease-out ${
+          sidebarExpanded ? "lg:pl-[260px]" : "lg:pl-[92px]"
+        }`}
+      >
         <AdminPageTransition>
           <div className="lg:bg-white lg:border lg:border-zinc-200/80 lg:rounded-2xl lg:shadow-sm lg:p-8 lg:min-h-[calc(100vh-180px)]">
             {children}

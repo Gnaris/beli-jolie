@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getDashboardOverview, countryFlagEmoji } from "@/lib/dashboard-overview";
+import { getDashboardOverview } from "@/lib/dashboard-overview";
 import { parsePeriod } from "@/lib/dashboard-period";
 import DashboardKpiCard from "@/components/admin/dashboard/DashboardKpiCard";
 import DashboardRevenueChart from "@/components/admin/dashboard/DashboardRevenueChart";
 import DashboardCategoryDonut from "@/components/admin/dashboard/DashboardCategoryDonut";
-import DashboardStatusDonut from "@/components/admin/dashboard/DashboardStatusDonut";
 import DashboardPeriodPicker from "@/components/admin/dashboard/DashboardPeriodPicker";
 
 export const metadata: Metadata = { title: "Tableau de bord — Admin" };
@@ -20,25 +19,23 @@ function fmtInt(n: number): string {
 function fmtPct(n: number, digits = 1): string {
   return `${(n * 100).toFixed(digits).replace(".", ",")} %`;
 }
-function fmtRelative(d: Date): string {
+function fmtInactivity(d: Date): string {
   const diff = Date.now() - d.getTime();
   const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "à l'instant";
-  if (mins < 60) return `il y a ${mins} min`;
+  if (mins < 60) return `${mins} min`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `il y a ${hrs} h`;
+  if (hrs < 24) return `${hrs} h`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `il y a ${days} j`;
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  if (days < 30) return `${days} j`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} mois`;
+  const years = Math.floor(days / 365);
+  return `${years} an${years > 1 ? "s" : ""}`;
 }
-function orderStatusChip(status: string) {
-  switch (status) {
-    case "SHIPPED":   return { label: "Expédiée",       cls: "bg-emerald-100 text-emerald-700" };
-    case "VALIDATED": return { label: "Validée",        cls: "bg-sky-100 text-sky-700" };
-    case "PENDING":   return { label: "En préparation", cls: "bg-amber-100 text-amber-700" };
-    case "CANCELLED": return { label: "Annulée",        cls: "bg-rose-100 text-rose-700" };
-    default:          return { label: status,            cls: "bg-zinc-100 text-zinc-700" };
-  }
+function waHref(phone: string): string | null {
+  const digits = phone.replace(/[^\d]/g, "");
+  if (digits.length < 6) return null;
+  return `https://wa.me/${digits}`;
 }
 
 export default async function AdminDashboardPage({
@@ -62,9 +59,6 @@ export default async function AdminDashboardPage({
             <h1 className="font-heading text-[22px] md:text-[26px] font-bold tracking-tight text-text-primary">
               Tableau de bord
             </h1>
-            <p className="text-[12px] text-text-muted mt-1">
-              Voici un aperçu de votre activité e-commerce.
-            </p>
           </div>
           <DashboardPeriodPicker current={data.period} periodLabel={data.periodLabel} />
         </header>
@@ -105,106 +99,97 @@ export default async function AdminDashboardPage({
           </article>
         </section>
 
-        {/* ─── Top produits · Ventes catégories · Statut ──────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-[1.25fr_1.25fr_.95fr] gap-3">
-          {/* Top produits */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Top 5 des produits les plus vendus</h2>
-              <Link href="/admin/produits" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
-            </div>
-            <div className="overflow-x-auto px-3 pb-3">
-              {data.topProducts.length === 0 ? (
-                <p className="text-[11px] text-text-muted p-4">Pas encore de ventes.</p>
-              ) : (
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-left text-zinc-500 text-[9.5px] uppercase tracking-wider">
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 w-6">#</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100">Produit</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Ventes</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">CA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.topProducts.map((p, i) => (
-                      <tr key={p.reference} className="border-b border-zinc-50 last:border-0">
-                        <td className="py-2.5 px-2 text-zinc-500 font-medium">{i + 1}</td>
-                        <td className="py-2.5 px-2">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-md bg-zinc-100 grid place-items-center overflow-hidden shrink-0">
-                              {p.imagePath ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={p.imagePath} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-xs text-zinc-400">◇</span>
-                              )}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-semibold text-text-primary truncate max-w-[180px]">{p.name}</div>
-                              <div className="text-[9.5px] text-zinc-400 truncate">{p.reference}</div>
-                            </div>
+        {/* ─── Top produits · Ventes par catégorie (2 colonnes) ──── */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
+          <div className="flex items-center justify-between gap-3 p-5 pb-3">
+            <h2 className="text-[15px] font-semibold text-text-primary">Top 100 des produits les plus vendus</h2>
+            <Link href="/admin/produits" className="text-[11px] text-[#246bfe] hover:underline">Voir tout →</Link>
+          </div>
+          <div className="overflow-x-auto px-4 pb-4">
+            {data.topProducts.length === 0 ? (
+              <p className="text-[12px] text-text-muted p-4">Pas encore de ventes.</p>
+            ) : (
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-zinc-500 text-[10.5px] uppercase tracking-wider">
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 w-10">#</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100">Produit</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">Ventes</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">CA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.topProducts.map((p, i) => (
+                    <tr key={p.reference} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/40 transition-colors">
+                      <td className="py-3 px-3 text-zinc-500 font-semibold tabular-nums">{i + 1}</td>
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-lg bg-zinc-100 grid place-items-center overflow-hidden shrink-0">
+                            {p.imagePath ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={p.imagePath} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-sm text-zinc-400">◇</span>
+                            )}
                           </div>
-                        </td>
-                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtInt(p.sales)}</td>
-                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtMoney(p.revenue)} €</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </article>
-
-          {/* Ventes par catégorie */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Ventes par catégorie</h2>
-              <Link href="/admin/categories" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
-            </div>
-            <div className="overflow-x-auto px-3 pb-3">
-              {data.categoryBreakdown.length === 0 ? (
-                <p className="text-[11px] text-text-muted p-4">Aucune donnée.</p>
-              ) : (
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-left text-zinc-500 text-[9.5px] uppercase tracking-wider">
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100">Catégorie</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">Ventes</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">CA</th>
-                      <th className="py-2 px-2 font-semibold border-b border-zinc-100 text-right">%</th>
+                          <div className="min-w-0">
+                            <div className="font-semibold text-text-primary truncate">{p.name}</div>
+                            <div className="text-[11px] text-zinc-400 truncate">{p.reference}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-right text-zinc-700 tabular-nums font-medium">{fmtInt(p.sales)}</td>
+                      <td className="py-3 px-3 text-right text-zinc-700 tabular-nums font-medium">{fmtMoney(p.revenue)} €</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {data.categoryBreakdown.map((c) => (
-                      <tr key={c.name} className="border-b border-zinc-50 last:border-0">
-                        <td className="py-2.5 px-2">
-                          <span className="inline-flex items-center gap-2 text-text-primary font-medium">
-                            <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                            {c.name}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtInt(c.sales)}</td>
-                        <td className="py-2.5 px-2 text-right text-zinc-700 tabular-nums">{fmtMoney(c.revenue)} €</td>
-                        <td className="py-2.5 px-2 text-right text-zinc-500 tabular-nums">{fmtPct(c.share)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </article>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </article>
 
-          {/* Statut commandes */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Statut des commandes</h2>
-            </div>
-            <DashboardStatusDonut slices={data.orderStatus} total={data.orderStatusTotal} />
-          </article>
+        {/* ─── Ventes par catégorie ────────────────────────────── */}
+        <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
+          <div className="flex items-center justify-between gap-3 p-5 pb-3">
+            <h2 className="text-[15px] font-semibold text-text-primary">Ventes par catégorie</h2>
+            <Link href="/admin/categories" className="text-[11px] text-[#246bfe] hover:underline">Voir tout →</Link>
+          </div>
+          <div className="overflow-x-auto px-4 pb-4">
+            {data.categoryBreakdown.length === 0 ? (
+              <p className="text-[12px] text-text-muted p-4">Aucune donnée.</p>
+            ) : (
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-zinc-500 text-[10.5px] uppercase tracking-wider">
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100">Catégorie</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">Ventes</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">CA</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right w-20">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.categoryBreakdown.map((c) => (
+                    <tr key={c.name} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/40 transition-colors">
+                      <td className="py-3 px-3">
+                        <span className="inline-flex items-center gap-2.5 text-text-primary font-medium">
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
+                          {c.name}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right text-zinc-700 tabular-nums font-medium">{fmtInt(c.sales)}</td>
+                      <td className="py-3 px-3 text-right text-zinc-700 tabular-nums font-medium">{fmtMoney(c.revenue)} €</td>
+                      <td className="py-3 px-3 text-right text-zinc-500 tabular-nums">{fmtPct(c.share)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </article>
         </section>
 
-        {/* ─── Stock faible · Activité · Marketing ────────────── */}
+        {/* ─── Stock faible · Clients inactifs · Marketing ─────── */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
           {/* Stock faible */}
           <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
@@ -263,32 +248,69 @@ export default async function AdminDashboardPage({
             </div>
           </article>
 
-          {/* Activité récente */}
+          {/* Clients inactifs — à relancer */}
           <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
             <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Activité récente</h2>
+              <h2 className="text-[13px] font-semibold text-text-primary">Clients à relancer — inactifs</h2>
+              <Link href="/admin/clients" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
             </div>
-            <div className="px-4 pb-4 space-y-3">
-              {data.activity.length === 0 ? (
-                <p className="text-[11px] text-text-muted">Pas d&apos;activité récente.</p>
-              ) : data.activity.map((e, i) => {
-                const icon =
-                  e.kind === "order_new" ? "🛒"
-                  : e.kind === "order_shipped" ? "🚚"
-                  : e.kind === "user_new" ? "👤"
-                  : "📦";
-                return (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <span className="w-7 h-7 rounded-lg bg-blue-50 text-[#246bfe] grid place-items-center text-[13px] shrink-0">{icon}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-semibold text-text-primary truncate">{e.title}</div>
-                      <div className="text-[10px] text-text-muted">
-                        {e.detail} · {fmtRelative(e.at)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="px-3 pb-3">
+              {data.inactiveClients.length === 0 ? (
+                <p className="text-[11px] text-text-muted p-4">Aucun client inactif détecté.</p>
+              ) : (
+                <ul className="divide-y divide-zinc-50">
+                  {data.inactiveClients.map((c) => {
+                    const refDate = c.lastActiveAt ?? c.signedUpAt;
+                    const inactivityLabel = c.lastActiveAt
+                      ? `Inactif depuis ${fmtInactivity(refDate)}`
+                      : `Jamais connecté · inscrit il y a ${fmtInactivity(c.signedUpAt)}`;
+                    const wa = waHref(c.phone);
+                    return (
+                      <li key={c.id} className="flex items-center gap-3 py-2.5">
+                        <Link
+                          href={`/admin/clients/${c.id}`}
+                          className="flex items-center gap-2.5 min-w-0 flex-1 hover:opacity-80 transition-opacity"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-800 grid place-items-center text-[10px] font-bold shrink-0">
+                            {c.initials}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-semibold text-text-primary truncate">{c.name}</div>
+                            <div className="text-[9.5px] text-text-muted truncate">{inactivityLabel}</div>
+                          </div>
+                        </Link>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {wa && c.hasWhatsapp !== false ? (
+                            <a
+                              href={wa}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`WhatsApp · ${c.phone}`}
+                              className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center hover:bg-emerald-200 transition-colors"
+                              aria-label={`Contacter ${c.name} sur WhatsApp`}
+                            >
+                              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="currentColor" aria-hidden="true">
+                                <path d="M20.52 3.48A11.9 11.9 0 0 0 12.05 0C5.5 0 .2 5.3.2 11.84a11.74 11.74 0 0 0 1.6 5.93L0 24l6.37-1.67a11.86 11.86 0 0 0 5.68 1.45h.01c6.54 0 11.84-5.3 11.84-11.84a11.76 11.76 0 0 0-3.38-8.46zM12.06 21.8h-.01a9.88 9.88 0 0 1-5.03-1.38l-.36-.21-3.78.99 1.01-3.69-.23-.38a9.84 9.84 0 0 1-1.5-5.25c0-5.44 4.42-9.86 9.87-9.86 2.63 0 5.11 1.03 6.97 2.89a9.8 9.8 0 0 1 2.89 6.98c0 5.44-4.42 9.86-9.86 9.86zm5.4-7.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15s-.77.96-.94 1.16c-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.74-1.64-2.04-.17-.3-.02-.46.13-.6.13-.14.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.5h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.01-1.04 2.47 0 1.46 1.07 2.87 1.21 3.07.15.2 2.1 3.2 5.08 4.49.71.31 1.26.5 1.69.63.71.23 1.36.2 1.87.12.57-.08 1.75-.72 2-1.41.25-.7.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35z"/>
+                              </svg>
+                            </a>
+                          ) : null}
+                          <a
+                            href={`mailto:${c.email}`}
+                            title={`E-mail · ${c.email}`}
+                            className="w-7 h-7 rounded-full bg-sky-100 text-sky-700 grid place-items-center hover:bg-sky-200 transition-colors"
+                            aria-label={`Envoyer un e-mail à ${c.name}`}
+                          >
+                            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <rect x="3" y="5" width="18" height="14" rx="2" />
+                              <path d="m3 7 9 6 9-6" />
+                            </svg>
+                          </a>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </article>
 
@@ -325,110 +347,6 @@ export default async function AdminDashboardPage({
                 ))}
               </div>
               <p className="text-[9.5px] text-text-muted mt-2">Visites par jour · 7 derniers jours</p>
-            </div>
-          </article>
-        </section>
-
-        {/* ─── Commandes · Clients · Géographie ───────────────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Commandes récentes */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Commandes récentes</h2>
-              <Link href="/admin/commandes" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
-            </div>
-            <div className="px-4 pb-3">
-              {data.recentOrders.length === 0 ? (
-                <p className="text-[11px] text-text-muted py-4">Aucune commande.</p>
-              ) : data.recentOrders.map((o) => {
-                const chip = orderStatusChip(o.status);
-                return (
-                  <Link
-                    key={o.orderNumber}
-                    href={`/admin/commandes/${o.orderNumber}`}
-                    className="grid grid-cols-[1fr_auto] items-center gap-3 py-2.5 border-b border-zinc-50 last:border-0 hover:bg-zinc-50/60 rounded-md -mx-2 px-2 transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[10.5px] font-semibold text-text-primary">#{o.orderNumber}</div>
-                      <div className="text-[9.5px] text-text-muted">{fmtRelative(o.createdAt)}</div>
-                    </div>
-                    <div className="text-right flex flex-col items-end gap-1">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${chip.cls}`}>
-                        {chip.label}
-                      </span>
-                      <span className="text-[10.5px] font-semibold text-text-primary tabular-nums">
-                        {fmtMoney(o.totalTTC)} €
-                      </span>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </article>
-
-          {/* Clients récents */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Clients récents</h2>
-              <Link href="/admin/clients" className="text-[10px] text-[#246bfe] hover:underline">Voir tout →</Link>
-            </div>
-            <div className="px-4 pb-3">
-              {data.recentCustomers.length === 0 ? (
-                <p className="text-[11px] text-text-muted py-4">Aucun client.</p>
-              ) : data.recentCustomers.map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/admin/clients/${c.id}`}
-                  className="flex items-center gap-3 py-2.5 border-b border-zinc-50 last:border-0 hover:bg-zinc-50/60 rounded-md -mx-2 px-2 transition-colors"
-                >
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-800 grid place-items-center text-[10px] font-bold shrink-0">
-                    {c.initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10.5px] font-semibold text-text-primary truncate">{c.name}</div>
-                    <div className="text-[9.5px] text-text-muted truncate">{c.email}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10.5px] font-semibold text-text-primary tabular-nums">
-                      {c.spend > 0 ? `${fmtMoney(c.spend)} €` : "—"}
-                    </div>
-                    <div className="text-[9px] text-text-muted">{fmtRelative(c.signedUpAt)}</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </article>
-
-          {/* Répartition géographique */}
-          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
-            <div className="flex items-center justify-between gap-3 p-4 pb-2">
-              <h2 className="text-[13px] font-semibold text-text-primary">Répartition géographique</h2>
-            </div>
-            <div className="px-4 pb-4">
-              <div
-                aria-hidden
-                className="relative h-[110px] rounded-xl mb-3 grid place-items-center text-[32px] overflow-hidden"
-                style={{ background: "linear-gradient(135deg,#edf5ff,#dfeeff)", color: "#4d86e7" }}
-              >
-                <span
-                  className="absolute border border-[#bcd5fb] rounded-full"
-                  style={{ width: 180, height: 90, transform: "rotate(-20deg)" }}
-                />
-                <span
-                  className="absolute border border-[#bcd5fb] rounded-full"
-                  style={{ width: 230, height: 65, transform: "rotate(25deg)" }}
-                />
-                <span className="relative">🌐</span>
-              </div>
-              {data.topCountries.length === 0 ? (
-                <p className="text-[11px] text-text-muted">Pas encore de ventes.</p>
-              ) : data.topCountries.map((c) => (
-                <div key={c.code} className="flex items-center gap-2.5 py-1.5 text-[11px]">
-                  <span className="text-[14px] leading-none">{countryFlagEmoji(c.code) || "🏳️"}</span>
-                  <span className="text-text-primary">{c.name}</span>
-                  <span className="ml-auto font-semibold text-text-primary tabular-nums">{fmtPct(c.share)}</span>
-                </div>
-              ))}
             </div>
           </article>
         </section>
