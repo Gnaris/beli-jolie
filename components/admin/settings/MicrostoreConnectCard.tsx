@@ -29,9 +29,16 @@ function daysUntil(iso: string): number {
 
 /**
  * Génère un bookmarklet à glisser dans les favoris du navigateur. Cliqué
- * depuis un onglet `web.mc.app` connecté, il lit le token stocké dans le
- * `localStorage` de Microstore et redirige vers BJ avec le token en fragment
- * d'URL. L'auto-import déclenché par `MicrostoreConnectCard` prend le relais.
+ * depuis un onglet `web.mc.app` connecté, il lit la clé de session Microstore
+ * et redirige vers BJ avec le token en fragment d'URL. L'auto-import déclenché
+ * par `MicrostoreConnectCard` prend le relais.
+ *
+ * Emplacements de la clé (dans l'ordre de priorité) :
+ *   1. Cookie `DUOKE_KEY` (versions récentes de web.mc.app).
+ *   2. `localStorage.admin_token` (ancienne version, conservé en fallback).
+ * Le `admin_mask_token` (JWT utilisé pour afficher la date d'expiration côté
+ * BJ) reste dans localStorage côté Microstore ; absent = BJ affichera juste
+ * « Session active » sans date.
  *
  * Cas d'usage principal (voie 2 dans l'onglet de connexion) : éviter de perdre
  * la session `web.mc.app` en cours en scannant un nouveau QR (les deux
@@ -41,7 +48,8 @@ export function buildMicrostoreBookmarklet(originForRedirect: string): string {
   const target = `${originForRedirect}/admin/parametres?tab=marketplaces`;
   const script =
     `(function(){` +
-    `var t=localStorage.getItem("admin_token");` +
+    `var c=document.cookie.match(/DUOKE_KEY=([^;]+)/);` +
+    `var t=c?decodeURIComponent(c[1]):localStorage.getItem("admin_token");` +
     `if(!t){alert("Pas connecte a Microstore ici. Ouvrez web.mc.app et connectez-vous d abord, puis recliquez.");return;}` +
     `var m=localStorage.getItem("admin_mask_token")||"";` +
     `location.href=` +
@@ -307,8 +315,9 @@ export default function MicrostoreConnectCard({
  *   - Voie 1 (défaut) : Scanner un QR. Simple mais **kicke la session
  *     web.mc.app** en cours (Microstore n'a qu'un seul slot compagnon).
  *   - Voie 2 : Bookmarklet. Idéal si la cliente a déjà `web.mc.app` ouvert et
- *     ne veut PAS être déconnectée. Le bookmarklet lit son token depuis
- *     `localStorage` de `web.mc.app` et le renvoie à BJ. Les deux sessions
+ *     ne veut PAS être déconnectée. Le bookmarklet lit son token depuis le
+ *     cookie `DUOKE_KEY` de `web.mc.app` (fallback `localStorage.admin_token`
+ *     pour l'ancienne version) et le renvoie à BJ. Les deux sessions
  *     partagent alors le même token → coexistence propre.
  */
 function MicrostoreConnectTabs({
@@ -360,8 +369,12 @@ function MicrostoreConnectTabs({
  * presse-papiers de la cliente les deux tokens séparés par `|`, puis affiche
  * un message pour lui dire de coller dans BJ. Contourne CSP (une console
  * DevTools n'est pas soumise à la CSP de la page).
+ *
+ * Même logique de lecture que `buildMicrostoreBookmarklet` : cookie
+ * `DUOKE_KEY` d'abord, fallback `localStorage.admin_token` pour l'ancienne
+ * version de web.mc.app.
  */
-const CONSOLE_SNIPPET = `(async()=>{const t=localStorage.getItem("admin_token");const m=localStorage.getItem("admin_mask_token")||"";if(!t){console.log("%cPas de session Microstore ici — connecte-toi d'abord à web.mc.app.","color:#dc2626;font-weight:bold");return;}await navigator.clipboard.writeText(t+"|"+m);console.log("%cCopié ! Retourne dans BJ et colle dans le champ « Coller le token ».","color:#059669;font-weight:bold");})();`;
+const CONSOLE_SNIPPET = `(async()=>{const c=document.cookie.match(/DUOKE_KEY=([^;]+)/);const t=c?decodeURIComponent(c[1]):localStorage.getItem("admin_token");const m=localStorage.getItem("admin_mask_token")||"";if(!t){console.log("%cPas de session Microstore ici — connecte-toi d'abord à web.mc.app.","color:#dc2626;font-weight:bold");return;}await navigator.clipboard.writeText(t+"|"+m);console.log("%cCopié ! Retourne dans BJ et colle dans le champ « Coller le token ».","color:#059669;font-weight:bold");})();`;
 
 function MicrostoreWebImport() {
   const toast = useToast();
