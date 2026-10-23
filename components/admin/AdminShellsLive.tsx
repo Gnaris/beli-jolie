@@ -141,9 +141,13 @@ export default function AdminShellsLive({
 
       {/* Header de page : sticky top-3, suit le scroll. Fond blanc +
           ombre discrète apparaissent dès qu'on scrolle sous le header
-          pour qu'il se démarque du contenu qui défile. */}
+          pour qu'il se démarque du contenu qui défile. z-50 (et non z-30) :
+          le menu « outils rapides » du launcher ouvre un dropdown en absolute
+          sous le header ; comme la position: sticky crée un contexte
+          d'empilement, un z-30 piège le dropdown sous la barre d'action bulk
+          (md:z-40). Monté à 50 pour que le dropdown passe au-dessus. */}
       <div
-        className={`hidden lg:block lg:sticky lg:top-0 lg:z-30 lg:px-3 lg:pt-3 lg:transition-all lg:duration-200 ${
+        className={`hidden lg:block lg:sticky lg:top-0 lg:z-50 lg:px-3 lg:pt-3 lg:transition-all lg:duration-200 ${
           isScrolled ? "lg:pb-3 lg:bg-white/80 lg:backdrop-blur-md lg:shadow-[0_8px_18px_-10px_rgba(9,9,11,0.18)]" : ""
         }`}
       >
