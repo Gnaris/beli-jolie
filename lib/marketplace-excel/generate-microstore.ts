@@ -31,6 +31,7 @@ import {
   pickTranslation,
   variantUnitPriceWithMarkup,
 } from "./format-helpers";
+import { buildEffectiveColorName, isSizelessName } from "@/lib/microstore-products";
 
 const MICROSTORE_HEADERS = [
   "Référence",
@@ -55,23 +56,32 @@ const MICROSTORE_HEADERS = [
 type Row = (string | number)[];
 
 interface ColorBucket {
+  /** Nom final affiché côté Microstore : `{color}-{size}` ou `{color}` si TU. */
   colorName: string;
-  /** Variante "représentative" pour cette couleur (prix, poids, stock). */
+  /** Stock propre au couple (color, size) de ce bucket. */
+  stock: number;
+  /** Variante "représentative" pour cette couleur (prix, poids). */
   variant: ExportVariant;
 }
 
 /**
- * For each unique color of a product (UNIT variants only — les PACK sont
- * exclus de l'export Microstore), find the variant that represents it
- * (the first UNIT variant containing this color name).
+ * Un bucket = 1 SKU Microstore. Microstore ne gère pas les tailles nativement :
+ * on injecte la taille dans le nom de couleur (`Argent-52`, `Marron-XL`). Les
+ * tailles « sans valeur » (TU, Taille Unique, vide) restent sans suffixe. Les
+ * PACK sont exclus (Microstore ne vend qu'à l'unité).
  */
 export function bucketByColor(p: ExportProduct): ColorBucket[] {
   const buckets = new Map<string, ColorBucket>();
   for (const v of p.variants) {
     if (v.saleType !== "UNIT") continue;
     for (const colorName of v.colorNames) {
-      if (!buckets.has(colorName)) {
-        buckets.set(colorName, { colorName, variant: v });
+      const sizes = v.sizes.length > 0 ? v.sizes : [{ name: "" } as (typeof v.sizes)[number]];
+      for (const s of sizes) {
+        const sizeName = isSizelessName(s.name) ? null : s.name;
+        const effective = buildEffectiveColorName(colorName, sizeName);
+        if (!buckets.has(effective)) {
+          buckets.set(effective, { colorName: effective, stock: v.stock, variant: v });
+        }
       }
     }
   }
@@ -109,8 +119,8 @@ export function productToMicrostoreRows(
       year, // 7. Année
       p.seasonName || "Toutes saisons", // 8. Saison
       1, // 9. Colisage (fixe)
-      b.colorName, // 10. Couleur
-      v.stock, // 11. Stock
+      b.colorName, // 10. Couleur (déjà suffixée de la taille si pertinent)
+      b.stock, // 11. Stock (propre à ce couple color×size)
       0, // 12. Nbr pièces hors unité colisage
       poidsGrammes, // 13. Poids (en gramme)
       prix, // 14. Prix

@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   MICROSTORE_API_HEADERS,
   bucketProductByColor,
+  buildEffectiveColorName,
   buildMicrostoreDimensionsSuffix,
+  isSizelessName,
   productToMicrostoreApiRows,
   microstoreImportProducts,
   shouldDisableOnMicrostore,
@@ -131,8 +133,38 @@ describe("MICROSTORE_API_HEADERS", () => {
   });
 });
 
+describe("isSizelessName / buildEffectiveColorName", () => {
+  it("considère TU, Taille Unique, vide et null comme sizeless", () => {
+    expect(isSizelessName("TU")).toBe(true);
+    expect(isSizelessName("tu")).toBe(true);
+    expect(isSizelessName("Taille Unique")).toBe(true);
+    expect(isSizelessName("taille unique")).toBe(true);
+    expect(isSizelessName("Taille unique")).toBe(true);
+    expect(isSizelessName("")).toBe(true);
+    expect(isSizelessName(null)).toBe(true);
+    expect(isSizelessName(undefined)).toBe(true);
+  });
+
+  it("ne considère PAS 52, XL, S comme sizeless", () => {
+    expect(isSizelessName("52")).toBe(false);
+    expect(isSizelessName("XL")).toBe(false);
+    expect(isSizelessName("S")).toBe(false);
+  });
+
+  it("construit le nom suffixé pour taille réelle", () => {
+    expect(buildEffectiveColorName("Argent", "52")).toBe("Argent-52");
+    expect(buildEffectiveColorName("Marron", "XL")).toBe("Marron-XL");
+  });
+
+  it("renvoie la couleur seule pour taille sizeless", () => {
+    expect(buildEffectiveColorName("Argent", null)).toBe("Argent");
+    expect(buildEffectiveColorName("Argent", "TU")).toBe("Argent");
+    expect(buildEffectiveColorName("Argent", "Taille Unique")).toBe("Argent");
+  });
+});
+
 describe("bucketProductByColor", () => {
-  it("produit une entrée par couleur unique en UNIT", () => {
+  it("produit une entrée par couleur unique en UNIT quand toutes sont en TU", () => {
     const product = makeProduct({
       variants: [
         makeVariant({ variantId: "v1", colorNames: ["Vert"] }),
@@ -140,10 +172,51 @@ describe("bucketProductByColor", () => {
         makeVariant({ variantId: "v3", colorNames: ["Vert"] }), // doublon
       ],
     });
-    expect(bucketProductByColor(product).map((b) => b.colorName)).toEqual([
+    expect(bucketProductByColor(product).map((b) => b.effectiveColorName)).toEqual([
       "Vert",
       "Rose",
     ]);
+  });
+
+  it("suffixe le nom de couleur avec la taille réelle (ex H24 : Argent/Doré × 52..56)", () => {
+    const makeSized = (id: string, color: string, size: string, stock: number) =>
+      makeVariant({
+        variantId: id,
+        colorNames: [color],
+        sizes: [{ name: size, quantity: 1 }],
+        stock,
+      });
+    const product = makeProduct({
+      variants: [
+        makeSized("v1", "Argent", "52", 0),
+        makeSized("v2", "Argent", "53", 1000),
+        makeSized("v3", "Argent", "54", 999),
+        makeSized("v4", "Doré", "52", 998),
+        makeSized("v5", "Doré", "53", 1000),
+      ],
+    });
+    const buckets = bucketProductByColor(product);
+    expect(
+      buckets.map((b) => ({ name: b.effectiveColorName, stock: b.stock })),
+    ).toEqual([
+      { name: "Argent-52", stock: 0 },
+      { name: "Argent-53", stock: 1000 },
+      { name: "Argent-54", stock: 999 },
+      { name: "Doré-52", stock: 998 },
+      { name: "Doré-53", stock: 1000 },
+    ]);
+  });
+
+  it("expose baseColorName séparé de effectiveColorName (pour le mapping BDD)", () => {
+    const product = makeProduct({
+      variants: [
+        makeVariant({ variantId: "v1", colorNames: ["Argent"], sizes: [{ name: "52", quantity: 1 }] }),
+      ],
+    });
+    const [b] = bucketProductByColor(product);
+    expect(b!.baseColorName).toBe("Argent");
+    expect(b!.sizeName).toBe("52");
+    expect(b!.effectiveColorName).toBe("Argent-52");
   });
 
   it("exclut les variantes PACK — Microstore n'accepte que l'unité", () => {

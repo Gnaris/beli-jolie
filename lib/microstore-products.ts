@@ -58,8 +58,25 @@ import { resolveMicrostoreCategoryChoice } from "@/lib/microstore-subcategory";
 
 // ─── Types partagés ──────────────────────────────────────────────────────
 
+/**
+ * Un bucket = 1 SKU Microstore. Microstore ne gère pas les tailles nativement :
+ * on injecte la taille dans le nom de couleur (« Argent-52 », « Marron-XL »)
+ * pour qu'une bague en 5 tailles ait bien 5 SKU côté vitrine H5. Les tailles
+ * sans info utile (TU, Taille Unique, vide) sont conservées sans suffixe.
+ *
+ * - `baseColorName`  : nom BJ pur (« Argent ») — sert à retrouver le mapping
+ *                      BDD `Color.microstoreColorId`.
+ * - `sizeName`       : nom de la taille BJ (« 52 »), ou `null` si sizeless.
+ * - `effectiveColorName` : étiquette finale envoyée à Microstore
+ *                           (`${base}-${size}` ou `base` si sizeless).
+ * - `stock`          : stock propre à ce couple (color, size) — vient de la
+ *                      ProductColor dont la variante est issue.
+ */
 interface ColorBucket {
-  colorName: string;
+  baseColorName: string;
+  sizeName: string | null;
+  effectiveColorName: string;
+  stock: number;
   variant: ExportVariant;
 }
 
@@ -84,16 +101,52 @@ export function shouldDisableOnMicrostore(
 }
 
 /**
- * Regroupe les variantes UNIT du produit par couleur unique. Une couleur = un SKU
- * poussé côté Microstore. Les PACK sont ignorés.
+ * Taille « sans valeur ajoutée » qu'on NE suffixe PAS au nom de couleur côté
+ * Microstore. Accepte TU, Taille Unique (avec ou sans accents / majuscule),
+ * vide, ou null. Toute autre valeur (numéros 50..60, lettres XS..XL, etc.)
+ * mérite d'être exposée comme SKU distinct sur la vitrine.
+ */
+export function isSizelessName(sizeName: string | null | undefined): boolean {
+  if (!sizeName) return true;
+  const n = sizeName.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return n === "" || n === "tu" || n === "taille unique";
+}
+
+/**
+ * Nom de couleur final envoyé à Microstore. Format : `{color}-{size}` sauf
+ * si la taille est TU/Taille Unique (dans ce cas on garde juste la couleur).
+ */
+export function buildEffectiveColorName(baseColor: string, sizeName: string | null): string {
+  return isSizelessName(sizeName) ? baseColor : `${baseColor}-${sizeName}`;
+}
+
+/**
+ * Regroupe les variantes UNIT du produit par (couleur, taille) unique. Chaque
+ * (couleur, taille) = un SKU côté Microstore avec un nom de couleur virtuel
+ * `{couleur}-{taille}` (ou juste `{couleur}` si taille unique).
+ *
+ * Les PACK sont ignorés : Microstore ne vend qu'à l'unité.
  */
 export function bucketProductByColor(p: ExportProduct): ColorBucket[] {
   const buckets = new Map<string, ColorBucket>();
   for (const v of p.variants) {
     if (v.saleType !== "UNIT") continue;
     for (const colorName of v.colorNames) {
-      if (!buckets.has(colorName)) {
-        buckets.set(colorName, { colorName, variant: v });
+      // 1 ProductColor UNIT = 1 taille (règle BJ). On itère quand même
+      // defensively, et on retombe sur sizeless si rien n'est renseigné.
+      const sizes = v.sizes.length > 0 ? v.sizes : [{ name: "" } as (typeof v.sizes)[number]];
+      for (const s of sizes) {
+        const sizeName = isSizelessName(s.name) ? null : s.name;
+        const effectiveColorName = buildEffectiveColorName(colorName, sizeName);
+        if (!buckets.has(effectiveColorName)) {
+          buckets.set(effectiveColorName, {
+            baseColorName: colorName,
+            sizeName,
+            effectiveColorName,
+            stock: v.stock,
+            variant: v,
+          });
+        }
       }
     }
   }
@@ -440,24 +493,32 @@ export async function microstorePushOneNative(
       ? Math.max(0, 1 - product.discountPercent / 100)
       : 1;
 
-  // Build SKU inputs (BJ side) — la couleur DOIT être mappée en BDD.
+  // Build SKU inputs (BJ side) — la **couleur de base** DOIT être mappée en BDD.
+  // Pour les variantes avec taille (ex. « Argent-52 »), on ne touche PAS au mapping
+  // BDD de la couleur de base : la variante virtuelle « Argent-52 » est cherchée
+  // dans la bibliothèque Microstore par son nom et créée si absente.
   const bjSkus: MicrostoreSkuInput[] = [];
   for (let i = 0; i < buckets.length; i++) {
     const b = buckets[i];
-    const preferredColorId = mappings.colorIdByName.get(normalize(b.colorName));
-    if (preferredColorId == null) {
+    const baseMappedId = mappings.colorIdByName.get(normalize(b.baseColorName));
+    if (baseMappedId == null) {
       // Sécurité : assertMicrostoreMappings a déjà couvert ce cas mais garde
       // ce garde-fou au cas où le snapshot et les buckets divergent.
       throw new MicrostoreMappingMissingError([
-        `Couleur « ${b.colorName} »`,
+        `Couleur « ${b.baseColorName} »`,
       ]);
     }
-    const colorId = await ensureColorId(cache, b.colorName, preferredColorId);
+    // Sizeless (TU) : on réutilise strictement l'ID BDD mappé.
+    // Suffixé (Argent-52) : on cherche la couleur Microstore par nom, création
+    // auto si absente — l'ID BDD ne nous sert ici qu'à valider que la base est
+    // bien correspondance.
+    const preferredColorId = b.sizeName === null ? baseMappedId : null;
+    const colorId = await ensureColorId(cache, b.effectiveColorName, preferredColorId);
     bjSkus.push({
       color_id: colorId,
-      color_name: b.colorName,
+      color_name: b.effectiveColorName,
       color_alias: "",
-      stock: b.variant.stock,
+      stock: b.stock,
       price: unifiedPrice,
       orderBy: i + 1,
       saleFactor,
@@ -552,27 +613,43 @@ export async function microstorePushOneNative(
     }
   }
 
-  // Post-push : re-fetch pour récupérer les SKU IDs et les persister sur ProductColor
+  // Post-push : re-fetch pour récupérer les SKU IDs et les persister sur ProductColor.
+  // Chaque bucket (color, size) correspond à **une** ligne ProductColor BJ : on
+  // la retrouve par (color.name, variantSizes[0].size.name) pour poser le
+  // microstoreVariantId exact — pas un `updateMany` qui écraserait toutes les
+  // tailles d'une même couleur avec le dernier SKU vu.
   const refreshed = await microstoreGetGoods(finalMsId);
   if (refreshed) {
     const msSkuByColorId = new Map<string, number>();
     for (const s of refreshed.sku) msSkuByColorId.set(String(s.color_id), Number(s.id));
 
-    // Mappe chaque bucket BJ → color_id Microstore → SKU id → persist microstoreVariantId
+    const unitRows = await prisma.productColor.findMany({
+      where: { productId: product.id, saleType: "UNIT" },
+      select: {
+        id: true,
+        color: { select: { name: true } },
+        variantSizes: { select: { size: { select: { name: true } } } },
+      },
+    });
+    const rowByEffective = new Map<string, string>();
+    for (const row of unitRows) {
+      if (!row.color?.name) continue;
+      const rawSize = row.variantSizes[0]?.size.name ?? null;
+      const sizeName = isSizelessName(rawSize) ? null : rawSize;
+      const key = normalize(buildEffectiveColorName(row.color.name, sizeName));
+      if (!rowByEffective.has(key)) rowByEffective.set(key, row.id);
+    }
+
     for (const b of buckets) {
-      const colorNameKey = normalize(b.colorName);
-      const msColorId = cache.colorsByName.get(colorNameKey);
+      const msColorId = cache.colorsByName.get(normalize(b.effectiveColorName));
       if (!msColorId) continue;
       const msSkuId = msSkuByColorId.get(String(msColorId));
       if (!msSkuId) continue;
 
-      // Cherche la ProductColor BJ correspondante (par nom de couleur)
-      await prisma.productColor.updateMany({
-        where: {
-          productId: product.id,
-          saleType: "UNIT",
-          color: { name: b.colorName },
-        },
+      const pcId = rowByEffective.get(normalize(b.effectiveColorName));
+      if (!pcId) continue;
+      await prisma.productColor.update({
+        where: { id: pcId },
         data: { microstoreVariantId: msSkuId },
       });
     }
@@ -812,9 +889,9 @@ export function productToMicrostoreApiRows(
       year,
       p.seasonName || "Toutes saisons",
       1,
-      b.colorName,
-      v.stock,
-      v.stock,
+      b.effectiveColorName,
+      b.stock,
+      b.stock,
       poidsGrammes,
       prix,
       pays,
