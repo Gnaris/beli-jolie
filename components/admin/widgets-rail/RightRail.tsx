@@ -195,7 +195,7 @@ export function RightRail() {
           aria-label="Fermer le menu de raccourcis"
           data-testid="rail-backdrop"
           onClick={() => setMenuOpen(false)}
-          className="fixed inset-0 z-[8998] bg-black/30 backdrop-blur-[2px] cursor-default"
+          className="fixed inset-0 z-[9003] bg-black/30 backdrop-blur-[2px] cursor-default"
         />
       )}
 
@@ -207,7 +207,7 @@ export function RightRail() {
           il tombait sur le bouton Envoyer du chat (et sur les CTA bas d'autres
           tiroirs). Le tiroir a sa propre flèche retour dans le header. */}
       <div
-        className={`admin-fab-preserve admin-fab-pwa-offset fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[8999] flex flex-col items-end gap-2 md:gap-3 ${
+        className={`admin-fab-preserve admin-fab-pwa-offset fixed bottom-3 right-3 md:bottom-6 md:right-6 z-[9004] flex flex-col items-end gap-2 md:gap-3 ${
           somethingOpen ? "max-lg:hidden" : ""
         }`}
       >

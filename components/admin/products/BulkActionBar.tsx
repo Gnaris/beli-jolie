@@ -399,11 +399,12 @@ export default function BulkActionBar({
     <div
       aria-hidden={!someSelected || actionsOpen}
       // Mobile : barre fixée en bas de l'écran (fixed bottom-3) — plus confortable
-      // au pouce que le haut. Desktop : sticky top-4 comme avant. z-40 la garde
-      // au-dessus du tableau mais sous les modales (z-50) et le widget flottant (z-9001).
-      // Quand l'overlay Actions est ouvert sur mobile, on masque totalement la barre
-      // (hidden md:grid) : ça évite toute guerre de z-index avec l'overlay et rend
-      // l'écran plus lisible (l'overlay a déjà son propre header avec compteur + croix).
+      // au pouce que le haut. Desktop : sticky top-4 comme avant. z-[9002] sur mobile
+      // la garde au-dessus du tableau mais SOUS le widget flottant d'outils rapides
+      // (FAB z-[9004], backdrop/drawer z-[9003]) — demande cliente 2026-10-23 : le
+      // menu d'outils rapide bas-droite doit rester accessible même quand la barre
+      // bulk est affichée. Overlay Actions ouvert sur mobile : on masque totalement
+      // la barre (hidden md:grid) pour éviter toute guerre de z-index.
       className={`fixed left-3 right-3 bottom-[max(12px,env(safe-area-inset-bottom))] md:sticky md:top-4 md:bottom-auto md:left-auto md:right-auto z-[9002] md:z-40 ${actionsOpen ? "hidden md:grid" : "grid"} transition-all duration-300 ease-out ${
         someSelected
           ? "grid-rows-[1fr] opacity-100 mb-3"

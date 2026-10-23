@@ -158,7 +158,7 @@ export function DrawerShell({
 
   return (
     <div
-      className={`fixed z-[9000] transition-all duration-300 ease-out
+      className={`fixed z-[9003] transition-all duration-300 ease-out
         /* Desktop + tablette ≥ md : panneau flottant ancré au-dessus du FAB */
         ${wideClasses}
         ${visible ? "md:translate-y-0 md:opacity-100" : "md:translate-y-4 md:opacity-0"}

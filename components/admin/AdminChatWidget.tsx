@@ -579,7 +579,7 @@ export default function AdminChatWidget() {
     <>
       {/* ── Chat panel ── */}
       {isOpen && (
-        <div className="admin-drawer-frame fixed z-[9000] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
+        <div className="admin-drawer-frame fixed z-[9003] bg-bg-primary shadow-2xl flex flex-col overflow-hidden animate-blur-in
           /* Desktop + tablette ≥ md : mode fullscreen aligné sur DrawerShell —
              tous les tiroirs du widget flottant partagent la même dimension
              depuis 2026-08-14 (demande cliente). Sur ≥ lg on garde la sidebar
