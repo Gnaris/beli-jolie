@@ -291,6 +291,9 @@
     "bestsellers": "Best Sellers",
     "bestsellersEyebrow": "Les plus vendus",
     "bestsellersMore": "Voir tous les best sellers",
+    "trends": "Les tendances du moment",
+    "trendsEyebrow": "Tendances",
+    "trendsMore": "Voir toutes les tendances",
     "reviewsEyebrow": "Ils nous font confiance",
     "reviewsTitle": "L'avis de nos revendeurs",
     "faqEyebrow": "Vos questions, nos réponses",
@@ -549,7 +552,13 @@
     "available_plural": "{count} collections disponibles",
     "empty": "Aucune collection disponible pour l'instant.",
     "products": "{count} produit",
-    "products_plural": "{count} produits"
+    "products_plural": "{count} produits",
+    "systemBestsellerName": "Best-sellers",
+    "systemBestsellerSubtitle": "Nos pièces les plus vendues",
+    "systemTrendingName": "Tendance",
+    "systemTrendingSubtitle": "Ce qui plaît en ce moment",
+    "systemNewName": "Nouveautés",
+    "systemNewSubtitle": "Les dernières arrivées"
   },
   "categoriesPage": {
     "title": "Catégories",
@@ -604,6 +613,7 @@
     "filterMin": "Min",
     "filterMax": "Max",
     "filterBestseller": "Meilleures ventes",
+    "filterTrending": "Tendance",
     "filterNew": "Nouveautés",
     "filterPromo": "En promo",
     "filterOrdered": "Déjà commandé",

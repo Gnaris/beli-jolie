@@ -93,11 +93,17 @@ describe("useAutoTranslateOnBlur", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("ne traduit pas quand la locale cible est déjà remplie", async () => {
+  it("ne traduit pas quand toutes les locales cibles sont déjà remplies", async () => {
     const fetchMock = mockFetchOnce({ translations: { en: "Should not overwrite" } });
 
     const { result } = renderHook(() =>
-      useHookWithState({ fr: "Bague", en: "Ring déjà saisi" }),
+      useHookWithState({
+        fr: "Bague",
+        en: "Ring déjà saisi",
+        de: "Ring (DE) déjà",
+        it: "Anello già",
+        es: "Anillo ya",
+      }),
     );
     await act(async () => {
       await result.current.handleFrBlur();
@@ -189,6 +195,25 @@ describe("useAutoTranslateOnBlur", () => {
 
     expect(result.current.names.en).toBeUndefined();
     expect(result.current.isTranslating("en")).toBe(false);
+  });
+
+  it("remplit par défaut toutes les locales non-FR (en + de + it + es)", async () => {
+    const fetchMock = mockFetchOnce({
+      translations: { en: "Ring", de: "Ring (DE)", it: "Anello", es: "Anillo" },
+    });
+
+    const { result } = renderHook(() => useHookWithState({ fr: "Bague" }));
+    await act(async () => {
+      await result.current.handleFrBlur();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(result.current.names.en).toBe("Ring");
+      expect(result.current.names.de).toBe("Ring (DE)");
+      expect(result.current.names.it).toBe("Anello");
+      expect(result.current.names.es).toBe("Anillo");
+    });
   });
 
   it("n'écrase pas EN si l'utilisateur a saisi manuellement pendant le fetch", async () => {

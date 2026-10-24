@@ -70,7 +70,7 @@ interface PageProps {
     q?: string; cat?: string; subcat?: string;
     collection?: string; color?: string; tag?: string;
     composition?: string;
-    bestseller?: string; new?: string;
+    bestseller?: string; trending?: string; new?: string;
     promo?: string; ordered?: string; notOrdered?: string;
     hideOos?: string;
     minPrice?: string; maxPrice?: string;
@@ -116,7 +116,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     q = "", cat = "", subcat = "",
     collection = "", color: colorParam = "", tag: tagId = "",
     composition: compositionId = "",
-    bestseller, new: isNewParam,
+    bestseller, trending: trendingParam, new: isNewParam,
     promo: promoParam, ordered: orderedParam, notOrdered: notOrderedParam,
     hideOos: hideOosParam,
     minPrice: minPriceParam, maxPrice: maxPriceParam,
@@ -125,6 +125,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
 
   const colorIds    = colorParam ? colorParam.split(",").filter(Boolean) : [];
   const bestseller_ = bestseller === "1";
+  const trending_   = trendingParam === "1";
   const isNew_      = isNewParam === "1";
   const promo_      = promoParam === "1";
   const ordered_    = orderedParam === "1";
@@ -145,7 +146,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const onlyCatFilter =
     !!cat &&
     !q && !subcat && !collection && colorIds.length === 0 && !tagId && !compositionId &&
-    !bestseller_ && !isNew_ && !promo_ && !ordered_ && !notOrdered_ && !hideOos_ &&
+    !bestseller_ && !trending_ && !isNew_ && !promo_ && !ordered_ && !notOrdered_ && !hideOos_ &&
     minPrice === null && maxPrice === null && !exactRef;
   if (onlyCatFilter && effectiveSlug !== "issyma") {
     const target = await prisma.category.findFirst({
@@ -155,7 +156,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
     if (target?.slug) permanentRedirect(`/${locale}/categories/${target.slug}`);
   }
 
-  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
+  const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || trending_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
   // ─── Fetch filter options + site config (cached — revalidate every hour) ───
   // Note : l'ancien reglage global "show_out_of_stock_products" a ete retire —
@@ -274,6 +275,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       ...(tagId          && { tags: { some: { tagId } } }),
       ...(compositionId  && { compositions: { some: { compositionId } } }),
       ...(bestseller_ && { isBestSeller: true }),
+      ...(trending_   && { isTrending: true }),
       ...(isNew_      && {
         OR: [
           { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },

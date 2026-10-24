@@ -208,6 +208,7 @@ export interface ProductInput {
   bundleParentIds?: string[];
   tagNames: string[];
   isBestSeller: boolean;
+  isTrending?: boolean;
   status: "OFFLINE" | "ONLINE" | "ARCHIVED";
   dimensionLength: number | null;
   dimensionWidth: number | null;
@@ -622,6 +623,11 @@ export async function createProduct(input: ProductInput): Promise<{ id: string }
       note:                  input.note?.trim() ? input.note.trim() : null,
       categoryId:    input.categoryId,
       isBestSeller:  input.isBestSeller,
+      // bestSellerSince / trendingSince : horodatage du passage à true à la
+      // création. null si la case n'est pas cochée.
+      bestSellerSince: input.isBestSeller ? new Date() : null,
+      isTrending:    input.isTrending ?? false,
+      trendingSince: (input.isTrending ?? false) ? new Date() : null,
       status:        input.status,
       isIncomplete:  input.isIncomplete ?? false,
       primaryColorId: resolvedPrimaryColorId,
@@ -898,6 +904,7 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
       reference: true,
       status: true,
       isBestSeller: true,
+      isTrending: true,
       name: true,
       description: true,
       note: true,
@@ -1136,6 +1143,25 @@ export async function updateProduct(id: string, input: ProductInput): Promise<{ 
         note:                  input.note === undefined ? undefined : (input.note?.trim() ? input.note.trim() : null),
         categoryId:    input.categoryId,
         isBestSeller:  input.isBestSeller,
+        // Rafraîchir la date à chaque passage OFF→ON pour que le produit
+        // remonte dans le carousel « Best-sellers » / « Tendances » de la
+        // home (retirer + remettre = date du jour). Si état inchangé ou
+        // passage ON→OFF, on remet à null.
+        bestSellerSince:
+          input.isBestSeller && !oldProduct?.isBestSeller
+            ? new Date()
+            : input.isBestSeller
+              ? undefined
+              : null,
+        ...(input.isTrending !== undefined && {
+          isTrending: input.isTrending,
+          trendingSince:
+            input.isTrending && !oldProduct?.isTrending
+              ? new Date()
+              : input.isTrending
+                ? undefined
+                : null,
+        }),
         status:        input.status,
         isIncomplete:  input.isIncomplete ?? false,
         subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
@@ -1926,7 +1952,13 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
   // sans ça, l'étoile bascule uniquement en local et n'est jamais renvoyée
   // à PFS (seul PFS expose une notion d'étoile via STAR/REMOVE_STAR pour
   // l'instant, mais on prépare le terrain pour les autres si l'API évolue).
-  const flagsData: Prisma.ProductUpdateInput = { isBestSeller };
+  // `bestSellerSince` : à chaque passage OFF→ON, on repose la date du jour.
+  // Retirer puis remettre l'étoile = date rafraîchie = produit remonte en haut
+  // du carousel « Best-sellers » (tri par bestSellerSince desc).
+  const flagsData: Prisma.ProductUpdateInput = {
+    isBestSeller,
+    bestSellerSince: isBestSeller ? new Date() : null,
+  };
   if (product.pfsProductId) flagsData.pfsSyncRequired = true;
 
   await prisma.product.update({
@@ -1936,6 +1968,42 @@ export async function toggleBestSeller(productId: string, isBestSeller: boolean)
 
   revalidateTag("products", "default");
   emitProductEvent({ type: "BESTSELLER_CHANGED", productId });
+
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Toggle Tendance (lightweight, no full save).
+// Carousel « Les tendances du moment » affiché uniquement sur la home
+// Beli & Jolie, au-dessus du carousel « Les nouveautés ». Même pattern que
+// best-seller : passage OFF→ON repose `trendingSince` au jour courant pour
+// qu'un retrait suivi d'une remise fasse remonter le produit en tête.
+// ─────────────────────────────────────────────
+
+export async function toggleTrending(
+  productId: string,
+  isTrending: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  await requireAdmin();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { isTrending: true },
+  });
+  if (!product) return { success: false, error: "Produit introuvable." };
+  if (product.isTrending === isTrending) return { success: true };
+
+  await prisma.product.update({
+    where: { id: productId },
+    data: {
+      isTrending,
+      trendingSince: isTrending ? new Date() : null,
+    },
+  });
+
+  revalidatePath("/admin/produits");
+  revalidatePath(`/admin/produits/${productId}/modifier`);
+  revalidateTag("products", "default");
 
   return { success: true };
 }
@@ -2482,6 +2550,12 @@ export interface BulkProductAttributesInput {
   seasonId?: string | null;
   isBestSeller?: boolean;
   /**
+   * Marqueur « Tendance du moment » — affiché dans le carousel dédié de la
+   * home Beli & Jolie. Pose `trendingSince=now()` lors du passage OFF→ON pour
+   * que « retirer puis remettre » fasse remonter le produit en tête.
+   */
+  isTrending?: boolean;
+  /**
    * Marqueur « Important » admin (étoile jaune de la ligne). Aucun effet sur
    * les marketplaces ni sur la boutique publique — sert uniquement au
    * filtrage / tri interne admin. Pas de flag `*SyncRequired` posé.
@@ -2508,6 +2582,7 @@ export async function bulkUpdateProductAttributes(
     input.countryIsoCode !== undefined ||
     input.seasonId !== undefined ||
     input.isBestSeller !== undefined ||
+    input.isTrending !== undefined ||
     input.important !== undefined ||
     input.compositions !== undefined;
   if (!hasAny) throw new Error("Aucune modification demandée.");
@@ -2584,12 +2659,17 @@ export async function bulkUpdateProductAttributes(
   }
 
   // Charger les produits existants (avec IDs marketplaces pour poser les flags syncRequired).
+  // On lit aussi `isBestSeller` / `isTrending` pour détecter les passages OFF→ON
+  // et rafraîchir `bestSellerSince` / `trendingSince` par produit (impossible
+  // via `updateMany` global : chaque produit peut avoir un état initial différent).
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
     select: {
       id: true,
       reference: true,
       categoryId: true,
+      isBestSeller: true,
+      isTrending: true,
       pfsProductId: true,
       ankorsProductId: true,
       efashionReferenceBase: true,
@@ -2611,6 +2691,7 @@ export async function bulkUpdateProductAttributes(
   if (input.countryIsoCode !== undefined) scalarData.countryIsoCode = input.countryIsoCode;
   if (input.seasonId !== undefined) scalarData.seasonId = input.seasonId;
   if (input.isBestSeller !== undefined) scalarData.isBestSeller = input.isBestSeller;
+  if (input.isTrending !== undefined) scalarData.isTrending = input.isTrending;
   // « Important » n'impacte ni marketplaces ni boutique publique : pas de flag
   // syncRequired à poser, on met juste à jour la colonne.
   if (input.important !== undefined) scalarData.important = input.important;
@@ -2653,10 +2734,24 @@ export async function bulkUpdateProductAttributes(
           input.countryIsoCode === undefined &&
           input.seasonId === undefined &&
           input.isBestSeller === undefined &&
+          input.isTrending === undefined &&
+          input.compositions === undefined;
+        // « Tendance » (comme « Important ») ne touche à aucune marketplace : si
+        // c'est le seul champ modifié, on skippe les drapeaux syncRequired.
+        const onlyTrendingChange =
+          input.isTrending !== undefined &&
+          input.categoryId === undefined &&
+          input.subCategoryIds === undefined &&
+          input.microstoreSubCategoryId === undefined &&
+          input.hsCodeId === undefined &&
+          input.countryIsoCode === undefined &&
+          input.seasonId === undefined &&
+          input.isBestSeller === undefined &&
+          input.important === undefined &&
           input.compositions === undefined;
 
         const syncFlags: Record<string, boolean> = {};
-        if (!onlyImportantChange) {
+        if (!onlyImportantChange && !onlyTrendingChange) {
           if (p.pfsProductId) syncFlags.pfsSyncRequired = true;
           if (p.ankorsProductId) syncFlags.ankorsSyncRequired = true;
           if (p.efashionReferenceBase) syncFlags.efashionSyncRequired = true;
@@ -2665,11 +2760,24 @@ export async function bulkUpdateProductAttributes(
           if (p.microstoreProductId != null) syncFlags.microstoreSyncRequired = true;
         }
 
+        // Rafraîchir les dates best-seller / tendance par produit — on
+        // compare l'état initial à la valeur demandée pour détecter les
+        // passages OFF→ON (dans ce cas on repose la date du jour) et ON→OFF
+        // (on efface la date). État inchangé = on ne touche pas.
+        const dateFlags: Record<string, Date | null> = {};
+        if (input.isBestSeller !== undefined && input.isBestSeller !== p.isBestSeller) {
+          dateFlags.bestSellerSince = input.isBestSeller ? new Date() : null;
+        }
+        if (input.isTrending !== undefined && input.isTrending !== p.isTrending) {
+          dateFlags.trendingSince = input.isTrending ? new Date() : null;
+        }
+
         await tx.product.update({
           where: { id: p.id },
           data: {
             ...scalarData,
             ...syncFlags,
+            ...dateFlags,
             ...(input.subCategoryIds !== undefined && {
               subCategories: { set: input.subCategoryIds.map((id) => ({ id })) },
             }),

@@ -189,6 +189,7 @@ interface ProductFormProps {
     bundleParents?: { id: string; name: string; reference: string; category: string; image: string | null; maxPrice?: number }[];
     tagNames: string[];
     isBestSeller: boolean;
+    isTrending?: boolean;
     dimLength: string;
     dimWidth: string;
     dimHeight: string;
@@ -670,6 +671,7 @@ export default function ProductForm({
   const [bundleChildIds, setBundleChildIds] = useState<string[]>(initialData?.bundleChildIds ?? []);
   const [tagNames,          setTagNames]          = useState<string[]>(initialData?.tagNames ?? []);
   const [isBestSeller,      setIsBestSeller]      = useState(initialData?.isBestSeller ?? false);
+  const [isTrending,        setIsTrending]        = useState(initialData?.isTrending ?? false);
   const [activeSection,     setActiveSection]     = useState<ProductFormSectionKey>("general");
   const [discountPercent,   setDiscountPercent]   = useState(initialData?.discountPercent ?? "");
   const [sizeDetailsTu, setSizeDetailsTu] = useState(initialData?.sizeDetailsTu ?? "");
@@ -780,7 +782,7 @@ export default function ProductForm({
   }, []);
 
   // ── Sync header badges via context ────────────────────────────────────
-  const { updateHeader, registerStatusToggle, registerBestSellerToggle } = useProductFormHeader();
+  const { updateHeader, registerStatusToggle, registerBestSellerToggle, registerTrendingToggle } = useProductFormHeader();
   const headerStockState = useMemo((): "ok" | "partial_out" | "all_out" => {
     const withStock = variants.filter(v => v.stock !== "" && v.stock !== undefined);
     const outOfStock = withStock.filter(v => parseInt(v.stock) === 0);
@@ -828,6 +830,16 @@ export default function ProductForm({
       toggle: () => setIsBestSeller((v) => !v),
     });
   }, [registerBestSellerToggle]);
+
+  // ── Sync Tendance au header (bouton à côté de Best-seller) ─────────
+  useEffect(() => {
+    updateHeader({ isTrending });
+  }, [isTrending, updateHeader]);
+  useEffect(() => {
+    registerTrendingToggle({
+      toggle: () => setIsTrending((v) => !v),
+    });
+  }, [registerTrendingToggle]);
 
   // ── Sync KPIs au header (prix, stock, marketplaces, complétude) ────
   const headerKpi = useMemo(() => {
@@ -994,10 +1006,10 @@ export default function ProductForm({
       })),
     })),
     colorImages: colorImages.map((ci) => ({ groupKey: ci.groupKey, uploadedPaths: ci.uploadedPaths, orders: ci.orders })),
-    compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent,
+    compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, isTrending, discountPercent,
     dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus,
     countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId,
-  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
+  }), [reference, name, description, categoryId, subCategoryIds, variants, colorImages, compositions, similarProductIds, bundleChildIds, tagNames, isBestSeller, isTrending, discountPercent, dimLength, dimWidth, dimHeight, dimDiameter, dimCircumference, hsCodeId, productStatus, countryIsoCode, seasonId, sizeDetailsTu, primaryColorId, microstoreSubCategoryId]);
 
   // Mirror de buildSnapshot SANS les 4 champs locaux qui ne sont jamais poussés
   // aux marketplaces (mots-clés, sous-catégories, produits similaires, contenu
@@ -1970,6 +1982,7 @@ export default function ProductForm({
       bundleChildIds,
       tagNames,
       isBestSeller,
+      isTrending,
       status: "OFFLINE" as const,
       isIncomplete: true,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,
@@ -2233,6 +2246,7 @@ export default function ProductForm({
       bundleChildIds,
       tagNames,
       isBestSeller,
+      isTrending,
       status: finalStatus,
       isIncomplete,
       dimensionLength:        dimLength        ? parseFloat(dimLength)        : null,

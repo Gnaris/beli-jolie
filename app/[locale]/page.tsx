@@ -318,7 +318,22 @@ export default async function HomePage() {
     colors: PUBLIC_SELLABLE_COLORS_CLAUSE,
   };
 
-  const [newProductsRaw, bestSellerProductsRaw] = await Promise.all([
+  // Tendances : on charge seulement sur Beli & Jolie (le layout Issyma n'affiche
+  // pas ce carousel). Évite une requête inutile côté Issyma.
+  const trendingPromise =
+    layoutChoice === "issyma"
+      ? Promise.resolve([] as unknown as Record<string, unknown>[])
+      : prisma.product.findMany({
+          // Tri par `trendingSince` desc : retirer puis remettre la tendance
+          // repose la date du jour → produit en tête du carousel. Nulls en
+          // dernier pour les anciens produits restés tendance sans date.
+          where:   { ...commonProductWhere, isTrending: true },
+          orderBy: [{ trendingSince: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+          take:    HOME_PRODUCTS_LIMIT,
+          select:  PRODUCT_SELECT,
+        });
+
+  const [newProductsRaw, bestSellerProductsRaw, trendingProductsRaw] = await Promise.all([
     prisma.product.findMany({
       where:   commonProductWhere,
       orderBy: { createdAt: "desc" },
@@ -326,20 +341,22 @@ export default async function HomePage() {
       select:  PRODUCT_SELECT,
     }),
     prisma.product.findMany({
-      // « Les plus récents ajoutés en best-seller » — tri par date de bascule
-      // en best-seller si dispo, sinon par createdAt (choix cliente).
+      // « Les plus récemment ajoutés en best-seller » — tri par date de bascule
+      // en best-seller (nulls en dernier pour fallback sur createdAt).
       where:   { ...commonProductWhere, isBestSeller: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ bestSellerSince: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
       take:    HOME_PRODUCTS_LIMIT,
       select:  PRODUCT_SELECT,
     }),
+    trendingPromise,
   ]);
 
   const newProducts = serializeProducts(newProductsRaw as Array<Record<string, unknown>>);
   const bestSellerProducts = serializeProducts(bestSellerProductsRaw as Array<Record<string, unknown>>);
+  const trendingProducts = serializeProducts(trendingProductsRaw as Array<Record<string, unknown>>);
 
   // Images de tous les produits chargés en une seule requête
-  const allIds = [...new Set([...newProducts, ...bestSellerProducts].map(p => p.id))];
+  const allIds = [...new Set([...newProducts, ...bestSellerProducts, ...trendingProducts].map(p => p.id))];
   const imgRows = allIds.length > 0
     ? await prisma.productColorImage.findMany({ where: { productId: { in: allIds } }, orderBy: { order: "asc" } })
     : [];
@@ -351,13 +368,14 @@ export default async function HomePage() {
   }
 
   // Enrichit chaque produit avec le meilleur % promo AUTO applicable (override
-  // du discountPercent manuel). Une seule passe sur les 2 listes.
-  const enrichedFlat = await enrichProductsWithBestPromoPercent([...newProducts, ...bestSellerProducts]);
+  // du discountPercent manuel). Une seule passe sur les 3 listes.
+  const enrichedFlat = await enrichProductsWithBestPromoPercent([...newProducts, ...bestSellerProducts, ...trendingProducts]);
   const enrichedById = new Map(enrichedFlat.map((p) => [p.id, p]));
   const applyEnrichment = (list: PrismaProduct[]) => list.map((p) => enrichedById.get(p.id) ?? p);
 
   const newCards = toCarousel(applyEnrichment(newProducts), imageMap);
   const bestSellerCards = toCarousel(applyEnrichment(bestSellerProducts), imageMap);
+  const trendingCards = toCarousel(applyEnrichment(trendingProducts), imageMap);
 
   // ── Pré-traduction des noms catalog pour la locale courante ────────────────
   // Le layout Issyma est un Server Component qui inline le rendu (pas de hook
@@ -367,13 +385,14 @@ export default async function HomePage() {
   // valeurs traduites sont posées dans `displayName` / `displayCategory` etc.
   // Locale par défaut (fr) → aucune requête, aucun coût.
   const currentLocaleForTranslate = await getLocale();
-  const productNamesForTranslate = [...newCards, ...bestSellerCards].map((p) => p.name);
+  const productNamesForTranslate = [...newCards, ...bestSellerCards, ...trendingCards].map((p) => p.name);
   const categoryNamesForTranslate = [
     ...categories.map((c) => c.name),
     ...newCards.map((p) => p.category),
     ...bestSellerCards.map((p) => p.category),
+    ...trendingCards.map((p) => p.category),
   ];
-  const subCategoryNamesForTranslate = [...newCards, ...bestSellerCards]
+  const subCategoryNamesForTranslate = [...newCards, ...bestSellerCards, ...trendingCards]
     .map((p) => p.subCategory)
     .filter((s): s is string => Boolean(s));
   const collectionNamesForTranslate = collections.map((c) => c.name);
@@ -402,6 +421,7 @@ export default async function HomePage() {
   });
   const translatedNewCards = newCards.map(translateCard);
   const translatedBestSellerCards = bestSellerCards.map(translateCard);
+  const translatedTrendingCards = trendingCards.map(translateCard);
 
   // ── Image de couverture catégorie ──────────────────────────────────────────
   // Sur BJ, la section catégories affiche la photo d'un produit tiré au sort
@@ -464,6 +484,7 @@ export default async function HomePage() {
     favoriteIds,
     newCards: translatedNewCards,
     bestSellerCards: translatedBestSellerCards,
+    trendingCards: translatedTrendingCards,
     categories: categoriesWithCover,
     collections: translatedCollections,
     reviews,

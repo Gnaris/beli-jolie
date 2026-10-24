@@ -87,6 +87,12 @@ interface Props {
    */
   onSetBestSeller: (isBestSeller: boolean) => void;
   /**
+   * Bascule le drapeau « Tendance du moment » sur toute la sélection. Pose
+   * `trendingSince=now()` à chaque passage OFF→ON (côté serveur) pour que
+   * retirer + remettre fasse remonter le produit dans le carousel home.
+   */
+  onSetTrending: (isTrending: boolean) => void;
+  /**
    * Bascule le marqueur « Important » (étoile jaune admin) sur toute la
    * sélection. Aucun effet marketplaces ni boutique publique — usage admin
    * uniquement pour filtrage / tri.
@@ -235,6 +241,7 @@ export default function BulkActionBar({
   onSyncAll,
   onPublishDrafts,
   onSetBestSeller,
+  onSetTrending,
   onSetImportant,
   onOpenTagsModal,
   onOpenCollectionModal,
@@ -249,6 +256,8 @@ export default function BulkActionBar({
   // Sous-menu best-seller : true = on affiche les 2 choix (Marquer / Retirer)
   // dans le menu Plus. Se remet à false à chaque ouverture du menu.
   const [bestSellerSubOpen, setBestSellerSubOpen] = useState(false);
+  // Sous-menu Tendance : même principe (Marquer / Retirer la tendance).
+  const [trendingSubOpen, setTrendingSubOpen] = useState(false);
   // Sous-menu Important : même principe (Marquer / Retirer l'étoile admin).
   const [importantSubOpen, setImportantSubOpen] = useState(false);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -280,6 +289,7 @@ export default function BulkActionBar({
       setPlusOpen(false);
       setActionsOpen(false);
       setBestSellerSubOpen(false);
+      setTrendingSubOpen(false);
       setImportantSubOpen(false);
     }
   }, [someSelected]);
@@ -288,6 +298,7 @@ export default function BulkActionBar({
   useEffect(() => {
     if (!plusOpen && !actionsOpen) {
       setBestSellerSubOpen(false);
+      setTrendingSubOpen(false);
       setImportantSubOpen(false);
     }
   }, [plusOpen, actionsOpen]);
@@ -707,6 +718,51 @@ export default function BulkActionBar({
                     />
                   )}
 
+                  {/* Tendance : carousel « Les tendances du moment » (home
+                      Beli & Jolie uniquement). Aucun impact marketplaces. */}
+                  {trendingSubOpen ? (
+                    <div className="bg-rose-50/40 border-y border-rose-100">
+                      <button
+                        type="button"
+                        onClick={() => setTrendingSubOpen(false)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-rose-800 hover:bg-rose-50 font-medium"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Retour
+                      </button>
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A3 3 0 0112.12 15.12z" clipRule="evenodd" /></svg>}
+                        iconClass="bg-rose-100 text-rose-700"
+                        title="Marquer tendance"
+                        hint="Ajoute au carousel « Tendances »"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetTrending(true);
+                        }}
+                      />
+                      <MenuItem
+                        icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 20 20" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95z" /></svg>}
+                        iconClass="bg-slate-100 text-slate-600"
+                        title="Retirer tendance"
+                        hint="Retire du carousel « Tendances »"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          onSetTrending(false);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <MenuItem
+                      icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A3 3 0 0112.12 15.12z" clipRule="evenodd" /></svg>}
+                      iconClass="bg-rose-50 text-rose-700"
+                      title="Tendance"
+                      hint="Carousel « Tendances du moment »"
+                      onClick={() => setTrendingSubOpen(true)}
+                    />
+                  )}
+
                   {/* Important : étoile jaune admin — filtrage/tri interne
                       uniquement. Aucun impact marketplaces ni boutique. */}
                   {importantSubOpen ? (
@@ -996,6 +1052,38 @@ export default function BulkActionBar({
               title="Best-seller"
               hint="Marquer ou retirer l'étoile"
               onClick={() => setBestSellerSubOpen(true)}
+            />
+          )}
+
+          {/* Tendance — sous-menu à 2 choix (Marquer / Retirer) */}
+          {trendingSubOpen ? (
+            <div className="bg-rose-50/40 border-y border-rose-100">
+              <button type="button" onClick={() => setTrendingSubOpen(false)} className="w-full flex items-center gap-2 px-4 py-2 text-[11px] text-rose-800 hover:bg-rose-50 font-medium">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                Retour
+              </button>
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A3 3 0 0112.12 15.12z" clipRule="evenodd" /></svg>}
+                iconClass="bg-rose-100 text-rose-700"
+                title="Marquer tendance"
+                hint="Ajoute au carousel « Tendances »"
+                onClick={() => { setActionsOpen(false); onSetTrending(true); }}
+              />
+              <MenuItem
+                icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 20 20" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95z" /></svg>}
+                iconClass="bg-slate-100 text-slate-600"
+                title="Retirer tendance"
+                hint="Retire du carousel « Tendances »"
+                onClick={() => { setActionsOpen(false); onSetTrending(false); }}
+              />
+            </div>
+          ) : (
+            <MenuItem
+              icon={<svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A3 3 0 0112.12 15.12z" clipRule="evenodd" /></svg>}
+              iconClass="bg-rose-50 text-rose-700"
+              title="Tendance"
+              hint="Carousel « Tendances du moment »"
+              onClick={() => setTrendingSubOpen(true)}
             />
           )}
 

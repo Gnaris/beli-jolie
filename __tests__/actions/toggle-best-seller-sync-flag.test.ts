@@ -89,10 +89,11 @@ describe("toggleBestSeller (bug 5)", () => {
     const result = await toggleBestSeller("prod-1", true);
 
     expect(result.success).toBe(true);
-    expect(mockProductUpdate).toHaveBeenCalledWith({
-      where: { id: "prod-1" },
-      data: { isBestSeller: true, pfsSyncRequired: true },
-    });
+    const call = mockProductUpdate.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "prod-1" });
+    expect(call.data.isBestSeller).toBe(true);
+    expect(call.data.pfsSyncRequired).toBe(true);
+    expect(call.data.bestSellerSince).toBeInstanceOf(Date);
   });
 
   it("ne pose PAS pfsSyncRequired si le produit n'est pas publié sur PFS", async () => {
@@ -107,10 +108,11 @@ describe("toggleBestSeller (bug 5)", () => {
     const result = await toggleBestSeller("prod-2", true);
 
     expect(result.success).toBe(true);
-    expect(mockProductUpdate).toHaveBeenCalledWith({
-      where: { id: "prod-2" },
-      data: { isBestSeller: true },
-    });
+    const call = mockProductUpdate.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "prod-2" });
+    expect(call.data.isBestSeller).toBe(true);
+    expect(call.data.pfsSyncRequired).toBeUndefined();
+    expect(call.data.bestSellerSince).toBeInstanceOf(Date);
   });
 
   it("no-op si l'étoile est déjà dans l'état demandé (pas d'update)", async () => {

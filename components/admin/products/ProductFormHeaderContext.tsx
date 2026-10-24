@@ -18,6 +18,7 @@ export interface ProductFormHeaderState {
   isIncomplete: boolean;
   stockState: StockState;
   isBestSeller: boolean;
+  isTrending: boolean;
   kpi: ProductFormKpi;
 }
 
@@ -35,6 +36,11 @@ export interface BestSellerToggleCallbacks {
   toggle: () => void;
 }
 
+/** Callback exposed by ProductForm to let the header toggle Tendance */
+export interface TrendingToggleCallbacks {
+  toggle: () => void;
+}
+
 type HeaderUpdater = Partial<ProductFormHeaderState> | ((prev: ProductFormHeaderState) => ProductFormHeaderState);
 
 interface ContextValue extends ProductFormHeaderState {
@@ -43,6 +49,8 @@ interface ContextValue extends ProductFormHeaderState {
   registerStatusToggle: (cb: StatusToggleCallbacks) => void;
   bestSellerToggle: BestSellerToggleCallbacks | null;
   registerBestSellerToggle: (cb: BestSellerToggleCallbacks) => void;
+  trendingToggle: TrendingToggleCallbacks | null;
+  registerTrendingToggle: (cb: TrendingToggleCallbacks) => void;
 }
 
 const defaultKpi: ProductFormKpi = {
@@ -60,12 +68,15 @@ const ProductFormHeaderContext = createContext<ContextValue>({
   isIncomplete: false,
   stockState: "ok",
   isBestSeller: false,
+  isTrending: false,
   kpi: defaultKpi,
   updateHeader: () => {},
   statusToggle: null,
   registerStatusToggle: () => {},
   bestSellerToggle: null,
   registerBestSellerToggle: () => {},
+  trendingToggle: null,
+  registerTrendingToggle: () => {},
 });
 
 export function ProductFormHeaderProvider({
@@ -78,6 +89,7 @@ export function ProductFormHeaderProvider({
   const [state, setState] = useState<ProductFormHeaderState>(initial);
   const [statusToggle, setStatusToggle] = useState<StatusToggleCallbacks | null>(null);
   const [bestSellerToggle, setBestSellerToggle] = useState<BestSellerToggleCallbacks | null>(null);
+  const [trendingToggle, setTrendingToggle] = useState<TrendingToggleCallbacks | null>(null);
   const updateHeader = useCallback((s: HeaderUpdater) => {
     setState((prev) => typeof s === "function" ? s(prev) : { ...prev, ...s });
   }, []);
@@ -86,6 +98,9 @@ export function ProductFormHeaderProvider({
   }, []);
   const registerBestSellerToggle = useCallback((cb: BestSellerToggleCallbacks) => {
     setBestSellerToggle(cb);
+  }, []);
+  const registerTrendingToggle = useCallback((cb: TrendingToggleCallbacks) => {
+    setTrendingToggle(cb);
   }, []);
   return (
     <ProductFormHeaderContext.Provider
@@ -96,6 +111,8 @@ export function ProductFormHeaderProvider({
         registerStatusToggle,
         bestSellerToggle,
         registerBestSellerToggle,
+        trendingToggle,
+        registerTrendingToggle,
       }}
     >
       {children}

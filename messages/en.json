@@ -290,6 +290,9 @@
     "bestsellers": "Best Sellers",
     "bestsellersEyebrow": "Our top picks",
     "bestsellersMore": "See all best sellers",
+    "trends": "Trending now",
+    "trendsEyebrow": "Trending",
+    "trendsMore": "See all trends",
     "reviewsEyebrow": "Trusted by retailers",
     "reviewsTitle": "What our resellers say",
     "faqEyebrow": "Your questions, our answers",
@@ -549,7 +552,13 @@
     "available_plural": "{count} collections available",
     "empty": "No collections available at the moment.",
     "products": "{count} product",
-    "products_plural": "{count} products"
+    "products_plural": "{count} products",
+    "systemBestsellerName": "Best Sellers",
+    "systemBestsellerSubtitle": "Our top-selling pieces",
+    "systemTrendingName": "Trending",
+    "systemTrendingSubtitle": "What's loved right now",
+    "systemNewName": "New Arrivals",
+    "systemNewSubtitle": "The latest additions"
   },
   "categoriesPage": {
     "title": "Categories",
@@ -604,6 +613,7 @@
     "filterMin": "Min",
     "filterMax": "Max",
     "filterBestseller": "Best sellers",
+    "filterTrending": "Trending",
     "filterNew": "New arrivals",
     "filterPromo": "On sale",
     "filterOrdered": "Previously ordered",

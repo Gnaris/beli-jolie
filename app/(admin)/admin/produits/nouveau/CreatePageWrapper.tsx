@@ -3,6 +3,7 @@
 import { ProductFormHeaderProvider } from "@/components/admin/products/ProductFormHeaderContext";
 import { StatusToggle } from "@/components/admin/products/ProductEditWrapper";
 import { BestSellerToggle } from "@/components/admin/products/BestSellerToggle";
+import { TrendingToggle } from "@/components/admin/products/TrendingToggle";
 import { KpiRow } from "@/components/admin/products/KpiRow";
 
 export function CreatePageWrapper({ children }: { children: React.ReactNode }) {
@@ -13,6 +14,7 @@ export function CreatePageWrapper({ children }: { children: React.ReactNode }) {
         isIncomplete: true,
         stockState: "ok",
         isBestSeller: false,
+        isTrending: false,
         kpi: {
           avgPrice: null,
           minPrice: null,
@@ -36,6 +38,7 @@ export function CreatePageChrome() {
       <KpiRow />
       <div className="flex items-center justify-end gap-3 flex-wrap mt-4 pt-4 border-t border-border">
         <BestSellerToggle />
+        <TrendingToggle />
         <StatusToggle mode="create" />
       </div>
     </>

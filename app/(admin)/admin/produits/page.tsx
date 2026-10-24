@@ -568,6 +568,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     missingFields,
     locked:          p.locked,
     important:       p.important,
+    isBestSeller:    p.isBestSeller,
+    isTrending:      p.isTrending,
     categoryName:    p.category.name,
     subCategoryName: p.subCategories[0]?.name ?? null,
     subCategoryNames: p.subCategories.map((s) => s.name),

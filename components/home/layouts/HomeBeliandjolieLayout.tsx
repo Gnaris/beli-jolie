@@ -20,6 +20,7 @@ export default async function HomeBeliandjolieLayout({
   favoriteIds,
   newCards,
   bestSellerCards,
+  trendingCards,
   categories,
   collections,
   reviews,
@@ -38,6 +39,9 @@ export default async function HomeBeliandjolieLayout({
   // en palette blanche (fond bleu marine des avis + du CTA final).
   const sections: { id: string; label: string; tone?: "light" | "dark" }[] = [
     { id: "home-hero", label: t("heroInfo.eyebrow") },
+    ...(trendingCards.length > 0
+      ? [{ id: "home-tendances", label: t("trends") }]
+      : []),
     ...(newCards.length > 0
       ? [{ id: "home-nouveautes", label: t("newProducts") }]
       : []),
@@ -85,6 +89,25 @@ export default async function HomeBeliandjolieLayout({
             heroImages={heroImages}
           />
         </div>
+
+        {/* 1b. Tendances du moment — placé juste au-dessus des Nouveautés
+             (demande cliente 2026-10-24, carousel exclusif Beli & Jolie).
+             Trié par `trendingSince` desc : retirer puis remettre la tendance
+             sur un produit le fait remonter en tête. */}
+        {trendingCards.length > 0 && (
+          <div id="home-tendances" className="scroll-mt-20">
+            <ProductCarousel
+              title={t("trends")}
+              eyebrow={t("trendsEyebrow")}
+              products={trendingCards}
+              viewMoreHref="/produits?trending=1"
+              viewMoreLabel={t("trendsMore")}
+              variant="white"
+              clientDiscount={clientDiscount}
+              favoriteIds={favoriteIds}
+            />
+          </div>
+        )}
 
         {/* 2. Nouveautés — 8 max + CTA « Voir toutes les nouveautés → » */}
         {newCards.length > 0 && (

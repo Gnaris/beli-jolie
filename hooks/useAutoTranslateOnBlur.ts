@@ -2,11 +2,16 @@
 
 import { useCallback, useState } from "react";
 import { useAutoTranslateEnabled, useDeeplEnabled } from "@/components/admin/DeeplConfigContext";
+import { NON_DEFAULT_LOCALES } from "@/i18n/locales";
 
 interface UseAutoTranslateOnBlurArgs {
   names: Record<string, string>;
   setNames: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  /** Locales à remplir automatiquement (par défaut ["en"]). */
+  /**
+   * Locales à remplir automatiquement. Par défaut toutes les langues non-FR
+   * (en + de + it + es) — l'API PFS les renvoie en un seul appel, donc étendre
+   * à toutes les langues ne coûte pas plus cher qu'une seule.
+   */
   targetLocales?: string[];
   /** Coupe le hook (ex: type="country" dont le nom est un libellé pays canonique). */
   disabled?: boolean;
@@ -26,7 +31,7 @@ interface UseAutoTranslateOnBlurArgs {
 export function useAutoTranslateOnBlur({
   names,
   setNames,
-  targetLocales = ["en"],
+  targetLocales = NON_DEFAULT_LOCALES,
   disabled = false,
 }: UseAutoTranslateOnBlurArgs) {
   const autoTranslateEnabled = useAutoTranslateEnabled();

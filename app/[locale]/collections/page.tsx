@@ -60,20 +60,61 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
 
   // Fallback FR : si aucune CollectionTranslation pour la locale demandée,
   // on affiche le nom source (français).
-  const translatedCollections = collections.map((c) => ({
+  const customCollections = collections.map((c) => ({
     id: c.id,
     slug: c.slug,
     name: c.translations[0]?.name ?? c.name,
     image: c.image,
-    productCount: c._count.products,
   }));
+
+  // Cartes "système" virtuelles : pas des Collection en BDD, mais des raccourcis
+  // vers /produits filtré. L'ordre et les gradients sont figés ici.
+  const systemCards = [
+    {
+      key: "bestseller",
+      href: "/produits?bestseller=1",
+      name: t("systemBestsellerName"),
+      subtitle: t("systemBestsellerSubtitle"),
+      gradient: "from-amber-400 via-orange-400 to-rose-400",
+      icon: (
+        <svg className="w-14 h-14 text-white drop-shadow-md" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6L12 2z" />
+        </svg>
+      ),
+    },
+    {
+      key: "trending",
+      href: "/produits?trending=1",
+      name: t("systemTrendingName"),
+      subtitle: t("systemTrendingSubtitle"),
+      gradient: "from-fuchsia-400 via-pink-400 to-rose-400",
+      icon: (
+        <svg className="w-14 h-14 text-white drop-shadow-md" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 17l6-6 4 4 8-8" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M14 7h7v7" />
+        </svg>
+      ),
+    },
+    {
+      key: "new",
+      href: "/produits?new=1",
+      name: t("systemNewName"),
+      subtitle: t("systemNewSubtitle"),
+      gradient: "from-emerald-400 via-teal-400 to-sky-400",
+      icon: (
+        <svg className="w-14 h-14 text-white drop-shadow-md" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18M3 12h18" />
+        </svg>
+      ),
+    },
+  ] as const;
 
   // Dispatch tenant : Issyma reçoit son propre layout bordeaux. BJ reste
   // inchangé (grille actuelle).
   const effectiveSlug = await getEffectiveTenantSlug();
   if (effectiveSlug === "issyma") {
     return (
-      <CollectionsIssymaLayout shopName={shopName} collections={translatedCollections} />
+      <CollectionsIssymaLayout shopName={shopName} collections={customCollections.map((c) => ({ ...c, productCount: 0 }))} />
     );
   }
 
@@ -92,27 +133,55 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
               {t("intro", { shopName })}
             </p>
             <p className="mt-3 text-xs text-text-muted font-body">
-              {translatedCollections.length <= 1
-                ? t("available", { count: translatedCollections.length })
-                : t("available_plural", { count: translatedCollections.length })}
+              {customCollections.length <= 1
+                ? t("available", { count: customCollections.length })
+                : t("available_plural", { count: customCollections.length })}
             </p>
           </div>
         </div>
 
         <main className="container-site py-8 relative overflow-hidden">
-          {translatedCollections.length === 0 ? (
-            <div className="text-center py-20 text-text-muted font-body">
-              {t("empty")}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {translatedCollections.map((col) => (
+          {/* Grille 1 : raccourcis système (Best-sellers, Tendance, Nouveautés) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {systemCards.map((card) => (
+              <Link
+                key={card.key}
+                href={card.href}
+                className="group card overflow-hidden transition-all duration-300 hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:-translate-y-1 hover:border-accent/30"
+              >
+                <div className={`aspect-[16/9] bg-gradient-to-br ${card.gradient} overflow-hidden relative flex items-center justify-center`}>
+                  <div className="transition-transform duration-300 group-hover:scale-110">
+                    {card.icon}
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-heading font-semibold text-text-primary text-base group-hover:text-accent transition-colors">
+                      {card.name}
+                    </h2>
+                    <p className="text-xs text-text-muted font-body mt-0.5">
+                      {card.subtitle}
+                    </p>
+                  </div>
+                  <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* Grille 2 : collections personnalisées (image seule, pas de nom ni compteur) */}
+          {customCollections.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-20">
+              {customCollections.map((col) => (
                 <Link
                   key={col.id}
                   href={`/collections/${col.slug ?? col.id}`}
+                  aria-label={col.name}
                   className="group card overflow-hidden transition-all duration-300 hover:shadow-[0_12px_32px_rgba(0,0,0,0.12)] hover:-translate-y-1 hover:border-accent/30"
                 >
-                  {/* Image */}
                   <div className="aspect-[16/9] bg-gradient-to-br from-bg-tertiary to-bg-secondary overflow-hidden relative">
                     {col.image ? (
                       <Image
@@ -131,23 +200,6 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
                         </svg>
                       </div>
                     )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <h2 className="font-heading font-semibold text-text-primary text-base group-hover:text-accent transition-colors">
-                        {col.name}
-                      </h2>
-                      <p className="text-xs text-text-muted font-body mt-0.5">
-                        {col.productCount <= 1
-                          ? t("products", { count: col.productCount })
-                          : t("products_plural", { count: col.productCount })}
-                      </p>
-                    </div>
-                    <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
                   </div>
                 </Link>
               ))}

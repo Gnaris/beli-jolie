@@ -35,6 +35,9 @@ export interface HomeLayoutProps {
   favoriteIds: string[];
   newCards: CarouselProduct[];
   bestSellerCards: CarouselProduct[];
+  /** Carousel « Les tendances du moment » — affiché uniquement sur BJ, au-dessus
+   *  des Nouveautés. Vide sur Issyma. */
+  trendingCards: CarouselProduct[];
   categories: HomeCategoryItem[];
   collections: HomeCollectionItem[];
   reviews: HomeReview[];

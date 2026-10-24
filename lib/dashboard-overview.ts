@@ -194,9 +194,18 @@ export async function getDashboardOverview(
       orderBy: { _sum: { quantity: "desc" } },
       take: 100,
     }),
-    // Stock faible — ProductColor avec stock < 10, non désactivée
+    // Stock faible — ProductColor avec stock < 10, non désactivée.
+    // Filtre défensif `product: { is: {} }` : force un INNER JOIN pour exclure
+    // les variantes orphelines (dont le productId ne résout pas vers un Product
+    // visible dans le tenant courant). Sans ce filtre, Prisma 5 plante avec
+    // « Field product is required to return data, got null instead » dès
+    // qu'une variante traîne (cas rencontré après migration / cross-tenant).
     prisma.productColor.findMany({
-      where: { disabled: false, stock: { gt: 0, lt: 10 } },
+      where: {
+        disabled: false,
+        stock: { gt: 0, lt: 10 },
+        product: { is: {} },
+      },
       orderBy: { stock: "asc" },
       take: 5,
       select: {

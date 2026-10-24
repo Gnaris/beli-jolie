@@ -1482,6 +1482,15 @@ model Product {
   microstoreOrderItems        MicrostoreOrderItem[]
   adminCardPurchases          AdminClientCardProductPurchase[]
   isBestSeller                Boolean                          @default(false)
+  // Horodatage de la dernière mise en avant « Best-seller » (passage OFF→ON).
+  // Permet de trier la section Best-sellers de la home par mise en avant la plus
+  // récente : retirer puis remettre l'étoile = date mise à jour = produit remonte.
+  bestSellerSince             DateTime?
+  // Marqueur « Tendance du moment ». Même logique que `isBestSeller` mais pour
+  // le carousel « Les tendances du moment » affiché UNIQUEMENT sur la home
+  // Beli & Jolie, juste au-dessus du carousel « Les nouveautés ».
+  isTrending                  Boolean                          @default(false)
+  trendingSince               DateTime?
   status                      ProductStatus                    @default(OFFLINE)
   isIncomplete                Boolean                          @default(false) // Produit incomplet (manque prix, poids, images, etc.)
   // Verrou manuel : quand true, le bouton « Rafraîchir » est désactivé pour ce
@@ -1672,6 +1681,9 @@ model Product {
   @@index([status, lastRefreshedAt]) // "new" filter including refreshed products
   @@index([categoryId, status]) // category filter
   @@index([isBestSeller, status]) // bestseller filter
+  @@index([isTrending, status]) // trending filter (home carousel)
+  @@index([bestSellerSince]) // tri par mise en avant best-seller
+  @@index([trendingSince]) // tri par mise en avant tendance
   @@index([important, createdAt]) // « Important » filter + sort
   @@index([status, name]) // search by name
   @@index([createdAt]) // general date sorting

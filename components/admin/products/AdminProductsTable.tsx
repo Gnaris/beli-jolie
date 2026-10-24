@@ -37,6 +37,8 @@ import {
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
+import { ProductBestSellerToggle } from "@/components/admin/products/ProductBestSellerToggle";
+import { ProductTrendingToggle } from "@/components/admin/products/ProductTrendingToggle";
 import { useMarketplaceRefreshQueue } from "@/components/admin/products/MarketplaceRefreshContext";
 import { useMarketplaceLinkJobs } from "@/components/admin/products/MarketplaceLinkContext";
 import { useMicrostoreBulkPush } from "@/components/admin/products/MicrostoreBulkPushContext";
@@ -1211,6 +1213,10 @@ export interface AdminProduct {
   locked: boolean;
   /** Marqueur « Important » (favori admin partagé) — étoile visible sur la ligne. */
   important: boolean;
+  /** Best-seller : étoile dorée visible sur la ligne, carousel home. */
+  isBestSeller: boolean;
+  /** Tendance : flamme rose visible sur la ligne, carousel home BJ uniquement. */
+  isTrending: boolean;
   categoryName: string;
   subCategoryName: string | null;
   /** Nom de chaque sous-catégorie attribuée au produit, dans l'ordre alpha.
@@ -3744,6 +3750,8 @@ function ProductRow({
                 <span className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                   <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
                   <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
+                  <ProductBestSellerToggle productId={product.id} initialBestSeller={product.isBestSeller} variant="icon" />
+                  <ProductTrendingToggle productId={product.id} initialTrending={product.isTrending} variant="icon" />
                 </span>
               </div>
               {/* Couleurs attribuées au produit — une pastille par couleur
@@ -6618,6 +6626,54 @@ export default function AdminProductsTable({
     });
   }, [selectedIds, confirm, toast, startTransition]);
 
+  // ─── Tendance en masse ──────────────────────────────────────────────────
+  // Même pattern que best-seller mais sans drapeau syncRequired : « Tendance »
+  // est 100 % local (carousel home Beli & Jolie). Le serveur repose
+  // `trendingSince=now()` à chaque passage OFF→ON pour que « retirer puis
+  // remettre » fasse remonter le produit en tête du carousel.
+  const handleBulkSetTrending = useCallback(async (isTrending: boolean) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const plural = ids.length > 1 ? "s" : "";
+    const action = isTrending ? "marquer" : "retirer";
+    const ok = await confirm({
+      type: "info",
+      title: `${isTrending ? "Marquer" : "Retirer"} ${ids.length} produit${plural} comme tendance${plural} ?`,
+      message: isTrending
+        ? "Les produits apparaîtront dans le carousel « Tendances du moment » sur la page d'accueil."
+        : "Les produits seront retirés du carousel « Tendances du moment ».",
+      confirmLabel: `Oui, ${action}`,
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+
+    setBulkActionLabel(
+      `${isTrending ? "Marquage" : "Retrait"} tendance de ${ids.length} produit${plural}…`,
+    );
+    startTransition(async () => {
+      try {
+        const r = await bulkUpdateProductAttributes(ids, { isTrending });
+        if (r.updated > 0 && r.errors.length === 0) {
+          toast.success(
+            `${r.updated} produit${r.updated > 1 ? "s" : ""} modifié${r.updated > 1 ? "s" : ""}`,
+            isTrending ? "Ajouté au carousel « Tendances »." : "Retiré du carousel « Tendances ».",
+          );
+        } else if (r.errors.length > 0) {
+          toast.error(
+            `${r.errors.length} produit${r.errors.length > 1 ? "s" : ""} en erreur`,
+            r.errors.slice(0, 3).map((e) => e.reference).join(", "),
+          );
+        } else {
+          toast.info("Aucun changement", "Les produits étaient déjà dans cet état.");
+        }
+      } catch (e) {
+        toast.error("Modification impossible", e instanceof Error ? e.message : "Erreur inconnue.");
+      } finally {
+        setBulkActionLabel(null);
+      }
+    });
+  }, [selectedIds, confirm, toast, startTransition]);
+
   // ─── « Important » en masse ─────────────────────────────────────────────
   // Étoile jaune admin (filtrage/tri interne). Aucun impact marketplaces ni
   // boutique publique : le serveur skippe les drapeaux syncRequired quand
@@ -6860,6 +6916,7 @@ export default function AdminProductsTable({
         onSyncAll={() => handleBulkSync([...selectedIds])}
         onPublishDrafts={() => setBulkPublishDraftsOpen(true)}
         onSetBestSeller={handleBulkSetBestSeller}
+        onSetTrending={handleBulkSetTrending}
         onSetImportant={handleBulkSetImportant}
         onOpenTagsModal={() => setBulkTagsOpen(true)}
         onOpenCollectionModal={() => setBulkCollectionOpen(true)}

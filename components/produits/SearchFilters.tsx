@@ -283,6 +283,7 @@ export default function SearchFilters({
   const tagId      = searchParams.get("tag")        ?? "";
   const compositionId = searchParams.get("composition") ?? "";
   const bestseller = searchParams.get("bestseller") === "1";
+  const trending   = searchParams.get("trending")   === "1";
   const isNew      = searchParams.get("new")        === "1";
   const promo      = searchParams.get("promo")      === "1";
   const ordered    = searchParams.get("ordered")    === "1";
@@ -292,7 +293,7 @@ export default function SearchFilters({
   const maxPrice   = searchParams.get("maxPrice")   ?? "";
   const exactRef   = searchParams.get("exactRef")   === "1";
 
-  const hasAny = q || cat || subcat || collection || selectedColorIds.length > 0 || tagId || compositionId || bestseller || isNew || promo || ordered || notOrdered || hideOos || minPrice || maxPrice || exactRef;
+  const hasAny = q || cat || subcat || collection || selectedColorIds.length > 0 || tagId || compositionId || bestseller || trending || isNew || promo || ordered || notOrdered || hideOos || minPrice || maxPrice || exactRef;
 
   const update = useCallback(
     (key: string, value: string) => {
@@ -476,6 +477,9 @@ export default function SearchFilters({
         <div className="flex flex-wrap gap-2">
           <ToggleChip active={bestseller} onClick={() => toggleBool("bestseller", bestseller)}>
             {t("filterBestseller")}
+          </ToggleChip>
+          <ToggleChip active={trending} onClick={() => toggleBool("trending", trending)}>
+            {t("filterTrending")}
           </ToggleChip>
           <ToggleChip active={isNew} onClick={() => toggleBool("new", isNew)}>
             {t("filterNew")}

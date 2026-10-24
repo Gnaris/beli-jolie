@@ -10,6 +10,7 @@ export function DraftPageWrapper({ children }: { children: React.ReactNode }) {
         isIncomplete: true,
         stockState: "ok",
         isBestSeller: false,
+        isTrending: false,
         kpi: {
           avgPrice: null,
           minPrice: null,

@@ -6,6 +6,7 @@ import ProductForm from "@/components/admin/products/ProductForm";
 import type { VariantState, ColorImageState } from "@/components/admin/products/ColorVariantManager";
 import { ProductEditWrapper, StatusToggle } from "@/components/admin/products/ProductEditWrapper";
 import { BestSellerToggle } from "@/components/admin/products/BestSellerToggle";
+import { TrendingToggle } from "@/components/admin/products/TrendingToggle";
 import { HeaderInlineBadges } from "@/components/admin/products/HeaderInlineBadges";
 import { ProductReferenceBadge } from "@/components/admin/products/ProductReferenceBadge";
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
@@ -371,6 +372,7 @@ export default async function ModifierProduitPage({
     isIncomplete: initialIsIncomplete,
     stockState: initialStockState,
     isBestSeller: product.isBestSeller,
+    isTrending: product.isTrending,
     kpi: {
       avgPrice: null,
       minPrice: null,
@@ -413,6 +415,7 @@ export default async function ModifierProduitPage({
             <div className="flex items-center gap-2 flex-wrap">
               <StatusToggle mode="create" />
               <BestSellerToggle />
+              <TrendingToggle />
             </div>
           </div>
         </div>
@@ -474,6 +477,7 @@ export default async function ModifierProduitPage({
             })),
             tagNames:          product.tags.map((t) => t.tag.name),
             isBestSeller:      product.isBestSeller,
+            isTrending:        product.isTrending,
             status:            product.status,
             translations:      existingTranslations,
             dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
@@ -533,6 +537,7 @@ export default async function ModifierProduitPage({
               <div className="flex items-center gap-2 flex-wrap">
                 <StatusToggle mode="edit" />
                 <BestSellerToggle />
+                <TrendingToggle />
               </div>
               <div className="grid grid-cols-5 gap-1.5 w-full md:flex md:w-auto md:items-center md:gap-1.5">
                 <Link
@@ -693,6 +698,7 @@ export default async function ModifierProduitPage({
           })),
           tagNames:          product.tags.map((t) => t.tag.name),
           isBestSeller:      product.isBestSeller,
+          isTrending:        product.isTrending,
           status:            product.status,
           translations:      existingTranslations,
           dimLength:        product.dimensionLength != null ? String(product.dimensionLength) : "",
