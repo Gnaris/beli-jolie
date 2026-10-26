@@ -312,10 +312,12 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
         </div>
 
         {/* Row unique : Logo — Nav — Actions (une seule ligne comme la maquette).
-             Layout fluide + décalage 15% à gauche sur desktop (choix cliente
-             2026-09-28) : le contenu ne colle plus au bord mais démarre au
-             1/6 gauche du viewport, avec l'espace vide qui reste à droite. */}
-        <div className="w-full h-16 px-4 lg:pl-[15%] lg:pr-8 flex items-center gap-8 lg:gap-14">
+             Layout fluide + décalage à gauche progressif sur desktop. Le choix
+             « 15% à gauche » (2026-09-28) ne tient que sur très grand écran :
+             entre 1024 et 1536 px, les icônes profil/favoris/panier passaient
+             hors de l'écran. On garde donc l'esthétique sur `2xl`+ mais on
+             réduit le padding sur lg/xl pour que toutes les icônes rentrent. */}
+        <div className="w-full h-16 px-4 lg:pl-8 xl:pl-16 2xl:pl-[15%] lg:pr-8 flex items-center gap-6 lg:gap-8 2xl:gap-14">
 
           {/* Mobile hamburger — LEFT on mobile */}
           <button
@@ -363,13 +365,13 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
             ))}
           </nav>
 
-          {/* Right actions — sur desktop, TOUT le contenu du header est
-              aligné à gauche (choix cliente 2026-09-28) : logo → nav → langue
-              → icônes s'enchaînent tous côté gauche, l'espace vide se retrouve
-              à droite. Sur mobile on garde ml-auto pour que les icônes du
-              panier / favoris restent accessibles à droite du hamburger.
-              lg:mr-3 sur la langue = petit trou visuel entre langue et icônes. */}
-          <div className="flex items-center gap-3 ml-auto lg:ml-0 text-white/85">
+          {/* Right actions — épinglées à droite sur toutes les largeurs.
+              Historique : avant 2026-10-26, `lg:ml-0` repoussait les actions à
+              gauche sur desktop (ex-maquette « tout aligné à gauche »), ce qui
+              faisait sortir les icônes profil/favoris/panier hors écran sur
+              les 14-15 pouces (≈1500 px). Depuis, on garde `ml-auto` partout :
+              les icônes restent toujours accessibles à droite du bandeau. */}
+          <div className="flex items-center gap-3 ml-auto text-white/85">
 
             {/* Sélecteur de langue — extrait du dropdown profil */}
             <div className="hidden lg:block shrink-0 lg:mr-3">
