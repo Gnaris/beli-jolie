@@ -4939,7 +4939,7 @@ export default function AdminProductsTable({
   // sur chaque produit concerné pendant toute la durée du fire-and-forget.
   const { runBulkPush: runMicrostoreBulkPush } = useMicrostoreBulkPush();
   const { refresh: refreshEfashionBatch } = useEfashionShootingBatch();
-  const { nudgeWidget: nudgeRailWidget } = useRightRail();
+  const { open: openRailWidget, nudgeWidget: nudgeRailWidget } = useRightRail();
   const toast = useToast();
   const [bulkMessage, setBulkMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -6372,8 +6372,24 @@ export default function AdminProductsTable({
         ),
       );
     }
-    if (inputs.length > 0) enqueuePfs(inputs);
-  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast]);
+    if (inputs.length === 0) {
+      // Aucune marketplace cochée OU toutes les cases pointaient vers des
+      // produits non liés — on prévient explicitement sinon la modale ferme
+      // sans retour visuel et la cliente croit que rien n'a été envoyé.
+      toast.info("Rien à synchroniser", "Aucune marketplace n'a été cochée.");
+      return;
+    }
+    enqueuePfs(inputs);
+    // Ouvre le widget mkt (rond sky bas-droite) pour que la cliente voie
+    // immédiatement la file d'envoi se remplir. Sans ça, le click « Synchroniser »
+    // referme juste la modale et aucun badge ne s'affiche tant qu'on ne clique
+    // pas sur le rond — d'où l'impression « rien ne se passe ».
+    openRailWidget("marketplaces");
+    toast.info(
+      "Synchronisation lancée",
+      `${inputs.length} envoi${inputs.length > 1 ? "s" : ""} ajouté${inputs.length > 1 ? "s" : ""} à la file marketplace.`,
+    );
+  }, [allProducts, hasPfsConfig, showAnkorstore, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, askMarketplaceOptions, enqueuePfs, toast, openRailWidget, nudgeRailWidget]);
 
   // ─── Nouveaux handlers pour BulkActionBar ─────────────────────────────
   // Ces handlers alimentent le panneau « Marketplaces » qui liste, pour chaque
