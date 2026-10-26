@@ -818,4 +818,107 @@ describe("expandConditionals", () => {
     });
     expect(out).toBe("beforeafter");
   });
+
+  it("{{#if}} imbriqués : chaque {{/if}} ferme bien son propre bloc", () => {
+    // Reproduit le modèle « retour en stock » : un {{#if favoritesMoreCount}}
+    // interne est niché dans {{#if favoritesCount}}. Avant le fix, le regex
+    // non-greedy fermait le bloc externe sur le {{/if}} du bloc interne, ce
+    // qui laissait un {{/if}} orphelin visible dans le mail et supprimait le
+    // bouton situé entre les deux {{/if}}.
+    const html = [
+      "AVANT",
+      "{{#if favoritesCount}}",
+      "FAV-HEADER",
+      "{{#if favoritesMoreCount}}",
+      "FAV-MORE",
+      "{{/if}}",
+      "FAV-BUTTON",
+      "{{/if}}",
+      "APRES",
+    ].join("\n");
+
+    const outTruthyFalsy = expandConditionals(html, {
+      favoritesCount: "2",
+      favoritesMoreCount: "0",
+    });
+    expect(outTruthyFalsy).toContain("FAV-HEADER");
+    expect(outTruthyFalsy).toContain("FAV-BUTTON");
+    expect(outTruthyFalsy).not.toContain("FAV-MORE");
+    expect(outTruthyFalsy).not.toContain("{{/if}}");
+    expect(outTruthyFalsy).not.toContain("{{#if");
+
+    const outBothTruthy = expandConditionals(html, {
+      favoritesCount: "2",
+      favoritesMoreCount: "3",
+    });
+    expect(outBothTruthy).toContain("FAV-HEADER");
+    expect(outBothTruthy).toContain("FAV-MORE");
+    expect(outBothTruthy).toContain("FAV-BUTTON");
+    expect(outBothTruthy).not.toContain("{{");
+
+    const outOuterFalsy = expandConditionals(html, {
+      favoritesCount: "0",
+      favoritesMoreCount: "3",
+    });
+    expect(outOuterFalsy).not.toContain("FAV-HEADER");
+    expect(outOuterFalsy).not.toContain("FAV-MORE");
+    expect(outOuterFalsy).not.toContain("FAV-BUTTON");
+    expect(outOuterFalsy).not.toContain("{{");
+  });
+
+  it("deux sections avec {{#if}} imbriqués ne débordent pas l'une sur l'autre", () => {
+    // Scénario qui, avant le fix, laissait un {{/if}} en clair et supprimait
+    // le bouton favoris : la section favoris est affichée (donc son externe
+    // s'ouvre) mais la section commandés ne l'est pas.
+    const html = [
+      "{{#if favoritesCount}}",
+      "FAV-HEADER",
+      "{{#if favoritesMoreCount}}FAV-MORE{{/if}}",
+      "FAV-BUTTON",
+      "{{/if}}",
+      "SEP",
+      "{{#if orderedCount}}",
+      "ORD-HEADER",
+      "{{#if orderedMoreCount}}ORD-MORE{{/if}}",
+      "ORD-BUTTON",
+      "{{/if}}",
+    ].join("\n");
+
+    const out = expandConditionals(html, {
+      favoritesCount: "2",
+      favoritesMoreCount: "0",
+      orderedCount: "0",
+      orderedMoreCount: "0",
+    });
+    expect(out).toContain("FAV-HEADER");
+    expect(out).toContain("FAV-BUTTON");
+    expect(out).toContain("SEP");
+    expect(out).not.toContain("FAV-MORE");
+    expect(out).not.toContain("ORD-HEADER");
+    expect(out).not.toContain("ORD-BUTTON");
+    expect(out).not.toContain("{{/if}}");
+    expect(out).not.toContain("{{#if");
+  });
+
+  it("{{#if}} imbriqué avec {{else}} ne mélange pas les branches", () => {
+    const html =
+      "{{#if a}}A-IN{{#if b}}B-TRUE{{else}}B-FALSE{{/if}}A-END{{else}}A-ELSE{{/if}}";
+
+    const outAtrue = expandConditionals(html, { a: "1", b: "0" });
+    expect(outAtrue).toBe("A-INB-FALSEA-END");
+
+    const outAfalse = expandConditionals(html, { a: "0", b: "1" });
+    expect(outAfalse).toBe("A-ELSE");
+  });
+
+  it("{{/if}} orphelin sans ouverture : reste en clair plutôt que de planter", () => {
+    const out = expandConditionals("avant{{/if}}après", {});
+    expect(out).toBe("avant{{/if}}après");
+  });
+
+  it("{{#if}} sans {{/if}} : laisse l'ouverture visible sans boucler", () => {
+    const out = expandConditionals("avant{{#if x}}contenu", { x: "1" });
+    expect(out).toContain("{{#if x}}");
+    expect(out).toContain("contenu");
+  });
 });

@@ -442,11 +442,33 @@ function isTokenTruthy(value: string | undefined | null): boolean {
   return true;
 }
 
-// Match `{{#if TOKEN}}…{{/if}}` ou `{{#if TOKEN}}…{{else}}…{{/if}}`. Le token
-// suit la convention des merge vars (`{token}`) : lettres + chiffres + `_`.
-// Non-greedy + flag `s` (dotall émulé via `[\s\S]`) pour supporter plusieurs
-// conditions imbriquées à plat dans le même HTML. Casse tolérée via `i`.
-const IF_REGEX = /\{\{\s*#if\s+([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)(?:\{\{\s*else\s*\}\}([\s\S]*?))?\{\{\s*\/if\s*\}\}/gi;
+// Repère chaque jeton Handlebars pertinent (`{{#if TOKEN}}`, `{{else}}`,
+// `{{/if}}`) sans le consommer avec son contenu. Le parsing réel se fait avec
+// un compteur de profondeur dans `expandConditionals` — un regex non-greedy
+// seul faisait fermer un `{{#if}}` externe sur le `{{/if}}` d'un bloc
+// imbriqué (incident 2026-10-26 : `{{/if}}` affiché en clair + boutons
+// supprimés silencieusement dans le mail « retour en stock »).
+const IF_TAG_REGEX = /\{\{\s*(#if\s+[a-zA-Z][a-zA-Z0-9_]*|else|\/if)\s*\}\}/gi;
+const IF_OPEN_TOKEN_REGEX = /^#if\s+([a-zA-Z][a-zA-Z0-9_]*)/i;
+
+interface IfTagHit {
+  index: number;
+  length: number;
+  tag: string;
+}
+
+/** Scan toutes les balises `{{#if…}}`, `{{else}}`, `{{/if}}` dans l'ordre. */
+function scanIfTags(html: string): IfTagHit[] {
+  const hits: IfTagHit[] = [];
+  for (const m of html.matchAll(IF_TAG_REGEX)) {
+    hits.push({
+      index: m.index ?? 0,
+      length: m[0].length,
+      tag: m[1],
+    });
+  }
+  return hits;
+}
 
 /**
  * Développe toutes les conditions `{{#if token}}…{{/if}}` /
@@ -454,28 +476,86 @@ const IF_REGEX = /\{\{\s*#if\s+([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}([\s\S]*?)(?:\{\{\s
  * vraie ou fausse selon la valeur du token dans `context`. Règles de
  * véracité : voir `isTokenTruthy`.
  *
- * Appliqué sur plusieurs passes tant que le HTML change — permet de gérer
- * les conditions imbriquées (un `{{#if}}` à l'intérieur d'un `{{#each}}`
- * déjà développé, ou deux `{{#if}}` dont la sortie en fait émerger un
- * troisième). Garde-fou à 10 passes pour éviter une boucle infinie si une
- * substitution génère de nouvelles conditions.
+ * Le parsing suit la profondeur : chaque `{{#if}}` incrémente un compteur,
+ * chaque `{{/if}}` le décrémente. Un bloc n'est fermé qu'au retour à 0, ce
+ * qui permet d'imbriquer autant de `{{#if}}` que nécessaire. La branche
+ * choisie est elle-même développée récursivement pour résoudre les
+ * conditions internes.
  */
 export function expandConditionals(
   html: string,
   context: MailMergeContext,
 ): string {
   if (!html || !html.includes("{{")) return html;
-  let current = html;
-  for (let i = 0; i < 10; i++) {
-    const next = current.replace(IF_REGEX, (match, token: string, truthyBranch: string, falsyBranch?: string) => {
-      const truthy = isTokenTruthy(context[token]);
-      if (truthy) return truthyBranch;
-      return falsyBranch ?? "";
-    });
-    if (next === current) return next;
-    current = next;
+
+  const tags = scanIfTags(html);
+  if (tags.length === 0) return html;
+
+  let out = "";
+  let cursor = 0;
+  let i = 0;
+  while (i < tags.length) {
+    const openHit = tags[i];
+    const openTokenMatch = IF_OPEN_TOKEN_REGEX.exec(openHit.tag);
+    if (!openTokenMatch) {
+      // `{{else}}` ou `{{/if}}` orphelin : on le laisse en clair pour que
+      // l'auteur du modèle le repère et on passe au jeton suivant.
+      out += html.slice(cursor, openHit.index + openHit.length);
+      cursor = openHit.index + openHit.length;
+      i++;
+      continue;
+    }
+
+    // Trouve le `{{/if}}` du même niveau + un éventuel `{{else}}` racine.
+    let depth = 1;
+    let elseAt = -1;
+    let closeAt = -1;
+    let j = i + 1;
+    for (; j < tags.length; j++) {
+      const t = tags[j];
+      if (/^#if\b/i.test(t.tag)) {
+        depth++;
+      } else if (/^else$/i.test(t.tag)) {
+        if (depth === 1 && elseAt === -1) elseAt = j;
+      } else {
+        depth--;
+        if (depth === 0) {
+          closeAt = j;
+          break;
+        }
+      }
+    }
+
+    if (closeAt === -1) {
+      // Bloc mal formé (pas de `{{/if}}`) : on garde l'ouverture visible et
+      // on avance pour ne pas boucler.
+      out += html.slice(cursor, openHit.index + openHit.length);
+      cursor = openHit.index + openHit.length;
+      i++;
+      continue;
+    }
+
+    const token = openTokenMatch[1];
+    const bodyStart = openHit.index + openHit.length;
+    const closeHit = tags[closeAt];
+    const truthyEnd =
+      elseAt !== -1 ? tags[elseAt].index : closeHit.index;
+    const falsyStart =
+      elseAt !== -1 ? tags[elseAt].index + tags[elseAt].length : -1;
+
+    const truthyBranch = html.slice(bodyStart, truthyEnd);
+    const falsyBranch =
+      falsyStart !== -1 ? html.slice(falsyStart, closeHit.index) : "";
+
+    out += html.slice(cursor, openHit.index);
+    const chosen = isTokenTruthy(context[token]) ? truthyBranch : falsyBranch;
+    out += expandConditionals(chosen, context);
+    cursor = closeHit.index + closeHit.length;
+    i = closeAt + 1;
   }
-  return current;
+  out += html.slice(cursor);
+
+  return out;
 }
 
 /**

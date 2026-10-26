@@ -171,13 +171,15 @@ export default async function ModifierProduitPage({
   const productFaqDefaults = parseProductFaqDefaults(productFaqDefaultsRow?.value);
   const faqOverrides = parseProductFaqOverrides((product as { faqOverrides?: unknown } | null)?.faqOverrides);
 
-  // Session BOSS Microstore expirée (ou pas encore renouvelée) — dans ce cas la
-  // carte Microstore doit afficher « expiré » (cas exceptionnel, badge rouge).
+  // Session BOSS Microstore expirée — carte Microstore en rouge « expiré ».
+  // `bossExpiresAtIso === null` = date d'expiration inconnue (ex. import via
+  // cookie DUOKE_KEY sans mask_token), PAS session expirée : on s'aligne sur
+  // `getMicrostoreAlertLevel` et sur le preflight serveur qui ne considèrent
+  // la session expirée que si une date est présente ET dans le passé.
   const microstoreSessionExpired = hasMicrostoreConfig
-    ? await getMicrostoreSessionExpirations().then(({ bossExpiresAtIso }) =>
-        bossExpiresAtIso === null
-          ? true
-          : getMicrostoreAlertLevel("boss", bossExpiresAtIso) === "expired",
+    ? await getMicrostoreSessionExpirations().then(
+        ({ bossExpiresAtIso }) =>
+          getMicrostoreAlertLevel("boss", bossExpiresAtIso) === "expired",
       )
     : false;
   const brandedBadgeEnabled = brandedBadgeRow?.value === "true";

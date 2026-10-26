@@ -216,6 +216,15 @@ const POLL_IDLE_MS = 10_000;
 // nombreux). Au-delà, la source de vérité redevient la prop RSC.
 const CLIENT_SUCCESS_WINDOW_MS = 5 * 60 * 1000;
 
+// Taille maxi d'un lot envoyé à POST /api/admin/marketplace-queue. Les
+// requêtes `keepalive: true` (voir enqueue) sont capées à 64 kB côté
+// navigateur ; au-delà, le fetch est rejeté silencieusement et aucun job
+// n'est créé (bug « Tout synchroniser » sur 200 produits — 2026-10-26).
+// 50 items × ~500 o ≈ 25 kB laisse une marge confortable. Les lots > 50
+// sont découpés et envoyés séquentiellement — chaque lot déclenche son
+// propre update optimiste des items et le prochain `pollOnce()` finalise.
+const ENQUEUE_BATCH_SIZE = 50;
+
 // Renvoie l'outcome typé du marketplace ciblé — null si non défini.
 function outcomeForMarketplace(
   item: MarketplaceRefreshItem,
@@ -378,59 +387,81 @@ export function MarketplaceRefreshProvider({ children }: { children: React.React
           return next;
         });
       }
+      // Découpe en lots de 50 : la limite 64 kB de `keepalive: true` (voir
+      // ENQUEUE_BATCH_SIZE) tuait silencieusement les gros bulk sync (ex :
+      // Barre d'action > Marketplace > Tout synchroniser sur 200+ produits).
+      const batches: MarketplaceRefreshEnqueueInput[][] = [];
+      for (let i = 0; i < inputs.length; i += ENQUEUE_BATCH_SIZE) {
+        batches.push(inputs.slice(i, i + ENQUEUE_BATCH_SIZE));
+      }
       void (async () => {
+        let totalAccepted = 0;
+        let totalSkipped = 0;
+        const skippedByMp: Record<string, number> = {};
         try {
-          // `keepalive: true` : garantit que le navigateur finalise la
-          // requête même si la page unmount (ex : save « Enregistrer et
-          // quitter » qui déclenche un `router.push` juste après
-          // `enqueuePublish`). Sans ce flag, le fetch était avorté → aucun
-          // job marketplace créé → les badges `syncRequired=true` posés par
-          // `updateProduct` restaient orange sur toutes les marketplaces, ce
-          // qui faisait croire à un push non voulu. Limite : payload < 64 kB
-          // (largement suffisant ici — jamais plus de ~6 items × ~400 o).
-          const res = await fetch("/api/admin/marketplace-queue", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items: inputs, intervalMs }),
-            keepalive: true,
-          });
-          if (res.ok) {
-            const data = (await res.json()) as {
-              items: MarketplaceRefreshItem[];
-              skipped?: number;
-              skippedByMarketplace?: Record<string, number>;
-            };
-            // Update optimiste à partir de la réponse immédiate, puis re-poll
-            if (Array.isArray(data.items) && data.items.length > 0) {
-              setItems((prev) => {
-                const existingIds = new Set(prev.map((i) => i.id));
-                const fresh = data.items.filter((i) => !existingIds.has(i.id));
-                return [...prev, ...fresh];
+          for (const batch of batches) {
+            try {
+              // `keepalive: true` : garantit que le navigateur finalise la
+              // requête même si la page unmount (ex : save « Enregistrer et
+              // quitter » qui déclenche un `router.push` juste après
+              // `enqueuePublish`). Sans ce flag, le fetch était avorté → aucun
+              // job marketplace créé → les badges `syncRequired=true` posés par
+              // `updateProduct` restaient orange sur toutes les marketplaces, ce
+              // qui faisait croire à un push non voulu. Chaque lot reste sous
+              // 64 kB grâce au découpage ENQUEUE_BATCH_SIZE.
+              const res = await fetch("/api/admin/marketplace-queue", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ items: batch, intervalMs }),
+                keepalive: true,
               });
-            }
-            // Feedback quand des items ont été sautés parce que le marketplace
-            // est désactivé pour ce produit dans la fiche produit.
-            if (typeof data.skipped === "number" && data.skipped > 0) {
-              const parts: string[] = [];
-              const by = data.skippedByMarketplace ?? {};
-              if (by.pfs) parts.push(`${by.pfs} PFS`);
-              if (by.ankorstore) parts.push(`${by.ankorstore} Ankorstore`);
-              if (by.efashion) parts.push(`${by.efashion} eFashion`);
-              if (by.faire) parts.push(`${by.faire} Faire`);
-              const detail = parts.join(" · ");
-              const accepted = data.items?.length ?? 0;
-              toast.warning(
-                accepted > 0
-                  ? `${accepted} envoi(s) lancé(s), ${data.skipped} sauté(s)`
-                  : `${data.skipped} envoi(s) sauté(s)`,
-                detail
-                  ? `Marketplace désactivée pour ces produits : ${detail}. Réactivez depuis la fiche produit.`
-                  : "Marketplace désactivée pour ces produits.",
-              );
+              if (!res.ok) continue;
+              const data = (await res.json()) as {
+                items: MarketplaceRefreshItem[];
+                skipped?: number;
+                skippedByMarketplace?: Record<string, number>;
+              };
+              // Update optimiste à partir de la réponse immédiate — les cartes
+              // du widget apparaissent par vagues au fur et à mesure des lots.
+              if (Array.isArray(data.items) && data.items.length > 0) {
+                totalAccepted += data.items.length;
+                setItems((prev) => {
+                  const existingIds = new Set(prev.map((i) => i.id));
+                  const fresh = data.items.filter((i) => !existingIds.has(i.id));
+                  return [...prev, ...fresh];
+                });
+              }
+              if (typeof data.skipped === "number" && data.skipped > 0) {
+                totalSkipped += data.skipped;
+                const by = data.skippedByMarketplace ?? {};
+                for (const [k, v] of Object.entries(by)) {
+                  if (typeof v === "number" && v > 0) {
+                    skippedByMp[k] = (skippedByMp[k] ?? 0) + v;
+                  }
+                }
+              }
+            } catch {
+              // ignoré — le prochain poll réconciliera ce qui a été écrit
             }
           }
-        } catch {
-          // ignoré — le prochain poll réconciliera
+          // Un seul toast de synthèse à la fin de tous les lots pour éviter
+          // d'empiler N toasts quand on envoie beaucoup de produits.
+          if (totalSkipped > 0) {
+            const parts: string[] = [];
+            if (skippedByMp.pfs) parts.push(`${skippedByMp.pfs} PFS`);
+            if (skippedByMp.ankorstore) parts.push(`${skippedByMp.ankorstore} Ankorstore`);
+            if (skippedByMp.efashion) parts.push(`${skippedByMp.efashion} eFashion`);
+            if (skippedByMp.faire) parts.push(`${skippedByMp.faire} Faire`);
+            const detail = parts.join(" · ");
+            toast.warning(
+              totalAccepted > 0
+                ? `${totalAccepted} envoi(s) lancé(s), ${totalSkipped} sauté(s)`
+                : `${totalSkipped} envoi(s) sauté(s)`,
+              detail
+                ? `Marketplace désactivée pour ces produits : ${detail}. Réactivez depuis la fiche produit.`
+                : "Marketplace désactivée pour ces produits.",
+            );
+          }
         } finally {
           void pollOnce();
         }

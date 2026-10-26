@@ -750,8 +750,31 @@ export async function faireUpdateProduct(
       sku,
       currentQuantity: nextSnapshot.variants[sku].availableQuantity,
     }));
-    const inv = await faireUpdateInventory(updates);
+    let inv = await faireUpdateInventory(updates);
+    // Même backoff que le flow nominal : Faire met parfois quelques secondes à
+    // reconnaître les SKU dans son index by-skus après un PATCH produit
+    // antérieur. On retente 3 s puis 5 s avant de surfacer l'erreur.
+    const invOnlyBackoffs = [3000, 5000];
+    for (const wait of invOnlyBackoffs) {
+      if (inv.success) break;
+      if (!inv.unknownSku) break;
+      logger.warn("[Faire Update] Inventory-only 404 — retry après propagation", {
+        productId,
+        waitMs: wait,
+        unknownSku: inv.unknownSku,
+      });
+      await new Promise((r) => setTimeout(r, wait));
+      inv = await faireUpdateInventory(updates);
+    }
     if (!inv.success) {
+      if (inv.unknownSku) {
+        return {
+          success: false,
+          error:
+            `Faire ne reconnaît pas le code de variante « ${inv.unknownSku} ». ` +
+            `Merci de délier puis relier ce produit à Faire depuis la modale.`,
+        };
+      }
       return {
         success: false,
         error: `PATCH inventory échoué (${inv.failedCount}/${updates.length} SKU).`,
@@ -1439,26 +1462,38 @@ export async function faireUpdateProduct(
     }));
     // Pour les variantes fraîchement créées par le PATCH consolidé, Faire
     // peut renvoyer 404 sur /product-inventory/by-skus le temps que son
-    // index SKU se propage. On laisse ~3s, et on retente une fois si le
-    // premier appel a échoué — généralement suffisant.
+    // index SKU se propage. On laisse ~3s avant le premier appel pour les
+    // nouvelles variantes.
     if (hasNewVariants) {
       await new Promise((r) => setTimeout(r, 3000));
     }
     let inv = await faireUpdateInventory(updates);
-    if (!inv.success && hasNewVariants) {
-      logger.warn("[Faire Update] Inventory échec après création — retry dans 3s", {
+    // Backoff supplémentaire quand Faire signale un SKU inconnu : même sur un
+    // update sans création (resync d'un produit déjà lié, bump de date, etc.),
+    // l'index by-skus peut mettre quelques secondes à se rafraîchir après le
+    // PATCH consolidé. Avant de surfacer « délier/relier » à l'admin — qui
+    // n'est utile que pour un vrai désalignement de SKU — on laisse Faire
+    // rattraper son retard : 3 s puis 5 s (≈ 8 s de fenêtre totale).
+    const invBackoffs = [3000, 5000];
+    for (const wait of invBackoffs) {
+      if (inv.success) break;
+      if (!inv.unknownSku && !hasNewVariants) break;
+      logger.warn("[Faire Update] Inventory 404 — retry après propagation", {
         productId,
-        failedCount: inv.failedCount,
+        waitMs: wait,
+        unknownSku: inv.unknownSku ?? null,
+        hasNewVariants,
       });
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, wait));
       inv = await faireUpdateInventory(updates);
     }
-    // Signal « SKU inconnu chez Faire » : les endpoints batch by-skus matchent
-    // uniquement les SKU que Faire connaît (pas via l'ID de variante). Après
-    // une liaison manuelle, les variantes Faire portent souvent l'ancien SKU
-    // brand → tout le batch est rejeté 404. On stoppe le flow et on demande
-    // à l'admin de délier/relier (le rename SKU dans linkFaireProductManually
-    // évite ça à l'avenir).
+    // Signal « SKU inconnu chez Faire » après retries : les endpoints batch
+    // by-skus matchent uniquement les SKU que Faire connaît (pas via l'ID de
+    // variante). Après une liaison manuelle, les variantes Faire portent
+    // parfois l'ancien SKU brand → tout le batch est rejeté 404. Si le
+    // problème persiste après ~8 s de backoff, c'est très probablement un
+    // vrai désalignement — on stoppe le flow et on demande à l'admin de
+    // délier/relier.
     if (!inv.success && inv.unknownSku) {
       return {
         success: false,
@@ -1506,10 +1541,24 @@ export async function faireUpdateProduct(
         retailCents: next.retailPriceCents,
       });
     }
-    const pricesRes = await faireUpdatePrices(priceUpdates);
+    let pricesRes = await faireUpdatePrices(priceUpdates);
+    // Même filet que pour l'inventory : l'index by-skus met parfois quelques
+    // secondes à voir les SKU après le PATCH consolidé. On retente avec le
+    // même backoff progressif avant de surfacer « délier/relier ».
+    const pricesBackoffs = [3000, 5000];
+    for (const wait of pricesBackoffs) {
+      if (pricesRes.success) break;
+      if (!pricesRes.unknownSku && !hasNewVariants) break;
+      logger.warn("[Faire Update] Prices 404 — retry après propagation", {
+        productId,
+        waitMs: wait,
+        unknownSku: pricesRes.unknownSku ?? null,
+        hasNewVariants,
+      });
+      await new Promise((r) => setTimeout(r, wait));
+      pricesRes = await faireUpdatePrices(priceUpdates);
+    }
     if (!pricesRes.success) {
-      // Même filet que pour l'inventory : un SKU inconnu côté Faire rejette
-      // tout le batch en bloc. On surface un message clair à l'admin.
       if (pricesRes.unknownSku) {
         return {
           success: false,
