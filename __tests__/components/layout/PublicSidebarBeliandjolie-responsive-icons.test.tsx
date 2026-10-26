@@ -1,13 +1,18 @@
 /**
- * Garde-fou : en lg (≥1024 px) et jusqu'à 2xl (1536 px), le header BJ doit
- * garder les icônes profil / favoris / panier accessibles. Avant 2026-10-26,
- * `lg:pl-[15%]` + `lg:ml-0` sur les actions faisait sortir ces icônes hors
- * écran sur les 14-15 pouces (≈1500 px), rendant le panier introuvable pour
- * les clientes connectées.
+ * Garde-fou : sur toute la plage desktop (≥1024 px, portables et 24"),
+ * les icônes profil / favoris / panier doivent rester visibles pour une
+ * cliente connectée.
+ *
+ * Historique : le choix 2026-09-28 (décalage « 15 % à gauche » + gaps 56 px +
+ * 6 icônes à droite) faisait sortir le panier hors écran sur 1024-1700 px
+ * (incident remonté par Marie-Alice). Correctif 2026-10-26 : padding plat
+ * (`lg:pl-8`), nav resserrée (`gap-6 xl:gap-8 min-w-0`), actions épinglées
+ * à droite + `shrink-0 gap-2`.
  *
  * On vérifie ici que :
- *  - la ligne logo/nav/actions utilise bien le padding progressif (lg → xl → 2xl)
- *  - le conteneur d'actions reste épinglé à droite (`ml-auto`, sans `lg:ml-0`)
+ *  - la ligne logo/nav/actions NE réintroduit PAS `lg:pl-[15%]` ni `lg:gap-14`
+ *  - le conteneur d'actions reste épinglé à droite (`ml-auto`) ET `shrink-0`
+ *  - la nav est marquée `min-w-0` pour céder au lieu d'écraser les actions
  *  - l'icône panier (lien vers /panier) est bien rendue pour une CLIENT connectée.
  */
 import React from "react";
@@ -79,10 +84,8 @@ describe("PublicSidebarBeliandjolie — responsive icons (desktop 1024-1535 px)"
     expect(cartLinks.length).toBeGreaterThan(0);
   });
 
-  it("utilise un padding gauche progressif (lg:pl-8 xl:pl-16 2xl:pl-[15%])", () => {
+  it("n'utilise plus `lg:pl-[15%]` ni `lg:gap-14` sur la ligne principale", () => {
     const { container } = render(<PublicSidebarBeliandjolie shopName="Beli & Jolie" />);
-    const headerRow = container.querySelector("header > div.h-16, header > div.flex");
-    // On cible la ligne principale par ses tokens exacts
     const row = Array.from(container.querySelectorAll("header div")).find((el) => {
       const cls = (el as HTMLElement).className ?? "";
       return cls.includes("h-16") && cls.includes("flex") && cls.includes("items-center");
@@ -90,21 +93,33 @@ describe("PublicSidebarBeliandjolie — responsive icons (desktop 1024-1535 px)"
     expect(row).toBeTruthy();
     const cls = row!.className;
     expect(cls).toContain("lg:pl-8");
-    expect(cls).toContain("xl:pl-16");
-    expect(cls).toContain("2xl:pl-[15%]");
-    // Garde-fou : ne doit JAMAIS avoir un pl 15% dès `lg` (régression 2026-09-28)
+    expect(cls).toContain("lg:pr-8");
+    // Régression 2026-09-28 : padding/gap massifs qui faisaient sortir le
+    // panier hors écran. Ils ne doivent JAMAIS revenir.
     expect(cls).not.toMatch(/\blg:pl-\[15%\]/);
-    expect(headerRow).toBeTruthy();
+    expect(cls).not.toMatch(/\b2xl:pl-\[15%\]/);
+    expect(cls).not.toMatch(/\blg:gap-14/);
+    expect(cls).not.toMatch(/\b2xl:gap-14/);
   });
 
-  it("épingle les actions à droite (`ml-auto` sans `lg:ml-0`)", () => {
+  it("épingle les actions à droite (`ml-auto` + `shrink-0`, sans `lg:ml-0`)", () => {
     const { container } = render(<PublicSidebarBeliandjolie shopName="Beli & Jolie" />);
-    // Le conteneur d'actions contient le lien panier
     const cartLink = container.querySelector('a[href="/panier"]');
     const actionsRow = cartLink?.parentElement as HTMLElement | null;
     expect(actionsRow).toBeTruthy();
     const cls = actionsRow!.className;
     expect(cls).toContain("ml-auto");
+    expect(cls).toContain("shrink-0");
     expect(cls).not.toMatch(/\blg:ml-0/);
+  });
+
+  it("laisse la nav céder (min-w-0) au lieu d'écraser les icônes", () => {
+    const { container } = render(<PublicSidebarBeliandjolie shopName="Beli & Jolie" />);
+    const nav = container.querySelector("header nav");
+    expect(nav).toBeTruthy();
+    const cls = (nav as HTMLElement).className;
+    expect(cls).toContain("min-w-0");
+    // La régression du gap-10 (trop large pour 7 liens) ne doit pas revenir
+    expect(cls).not.toMatch(/\bgap-10\b/);
   });
 });

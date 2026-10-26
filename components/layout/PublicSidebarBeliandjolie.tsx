@@ -311,13 +311,14 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
           </div>
         </div>
 
-        {/* Row unique : Logo — Nav — Actions (une seule ligne comme la maquette).
-             Layout fluide + décalage à gauche progressif sur desktop. Le choix
-             « 15% à gauche » (2026-09-28) ne tient que sur très grand écran :
-             entre 1024 et 1536 px, les icônes profil/favoris/panier passaient
-             hors de l'écran. On garde donc l'esthétique sur `2xl`+ mais on
-             réduit le padding sur lg/xl pour que toutes les icônes rentrent. */}
-        <div className="w-full h-16 px-4 lg:pl-8 xl:pl-16 2xl:pl-[15%] lg:pr-8 flex items-center gap-6 lg:gap-8 2xl:gap-14">
+        {/* Row unique : Logo — Nav — Actions.
+             Choix 2026-10-26 : on abandonne le décalage « 15 % à gauche »
+             (posé le 2026-09-28). Combiné aux 7 liens de nav + 6 icônes à
+             droite, ce padding faisait sortir le panier hors écran sur toute
+             la plage 1024-1700 px (portables, 24", écrans standards). On tient
+             à padding plat + gaps resserrés, et on protège le bloc actions
+             avec `shrink-0` pour que le panier reste toujours visible. */}
+        <div className="w-full h-16 px-4 lg:pl-8 lg:pr-8 flex items-center gap-4 lg:gap-6">
 
           {/* Mobile hamburger — LEFT on mobile */}
           <button
@@ -347,8 +348,12 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
             </span>
           </Link>
 
-          {/* Navigation links — INLINE avec le logo (desktop only) */}
-          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-10">
+          {/* Navigation links — INLINE avec le logo (desktop only).
+              Gap resserré (2026-10-26) pour laisser rentrer les 6 icônes à
+              droite sur 1500-1700 px, et `min-w-0` pour que le nav cède
+              gracieusement si on manque de place plutôt que d'écraser les
+              icônes (qui ont `shrink-0`). */}
+          <nav ref={navContainerRef} className="hidden lg:flex items-center gap-6 xl:gap-8 min-w-0">
             {allLinks.map((link) => (
               <Link
                 key={link.href}
@@ -365,13 +370,13 @@ export default function PublicSidebarBeliandjolie({ shopName }: PublicSidebarPro
             ))}
           </nav>
 
-          {/* Right actions — épinglées à droite sur toutes les largeurs.
-              Historique : avant 2026-10-26, `lg:ml-0` repoussait les actions à
-              gauche sur desktop (ex-maquette « tout aligné à gauche »), ce qui
-              faisait sortir les icônes profil/favoris/panier hors écran sur
-              les 14-15 pouces (≈1500 px). Depuis, on garde `ml-auto` partout :
-              les icônes restent toujours accessibles à droite du bandeau. */}
-          <div className="flex items-center gap-3 ml-auto text-white/85">
+          {/* Right actions — épinglées à droite + `shrink-0` + gap-2 serré
+              sur desktop (2026-10-26). Historiquement, `lg:ml-0` + `gap-3`
+              + 15 % de padding gauche faisait sortir les icônes profil /
+              favoris / panier hors écran dès qu'on tombait sous 1700 px.
+              Désormais le bloc actions ne rétrécit jamais : si on manque de
+              place, c'est la nav qui cède (via `min-w-0`), pas le panier. */}
+          <div className="flex items-center gap-2 ml-auto shrink-0 text-white/85">
 
             {/* Sélecteur de langue — extrait du dropdown profil */}
             <div className="hidden lg:block shrink-0 lg:mr-3">
