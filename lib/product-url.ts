@@ -89,3 +89,16 @@ export function parseProductHandle(handle: string): ParsedProductHandle {
 
   return { reference: tail, legacyCuid: null, referenceCandidates: candidates };
 }
+
+/**
+ * Titre SEO d'une fiche produit : nom (traduit) + référence. Beaucoup de
+ * fiches partagent le même nom (« Bague ajustable en acier inoxydable ») —
+ * sans la référence, Google voit des centaines de titres identiques et classe
+ * les pages en doublons.
+ */
+export function buildProductSeoTitle(name: string, reference: string): string {
+  const n = name.trim();
+  const ref = reference.trim();
+  if (!ref || n.toLowerCase().includes(ref.toLowerCase())) return n;
+  return `${n} – ${ref}`;
+}

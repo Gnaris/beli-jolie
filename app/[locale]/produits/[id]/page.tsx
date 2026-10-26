@@ -6,7 +6,8 @@ import type { Metadata } from "next";
 import { getLocale, getTranslations } from "next-intl/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getProductTranslation } from "@/lib/translate";
+import { getProductTranslation, type Locale } from "@/lib/translate";
+import { VALID_LOCALES } from "@/i18n/locales";
 import { getCachedSiteConfig, getCachedShopName } from "@/lib/cached-data";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { getImageSrc } from "@/lib/image-utils";
@@ -28,7 +29,7 @@ import {
 import { loadActivePromotions } from "@/lib/promotions";
 import { resolveBestPercentForProductBadge } from "@/lib/promotion-engine";
 import { getProductPrimaryColorId } from "@/lib/product-primary-color";
-import { buildProductHandle, parseProductHandle } from "@/lib/product-url";
+import { buildProductHandle, buildProductSeoTitle, parseProductHandle } from "@/lib/product-url";
 
 interface PageProps {
   params: Promise<{ id: string; locale: string }>;
@@ -148,6 +149,16 @@ const getProduct = cache(async (handle: string, locale: string) => {
   return [...matches].sort((a, b) => b.reference.length - a.reference.length)[0]!;
 });
 
+// Traduction nom + description mémoïsée sur la requête : generateMetadata et
+// la page l'appellent tous les deux — sans `cache()` on ferait 2 lookups (et
+// 2 créations concurrentes de ProductTranslation si elle n'existe pas encore).
+const getTranslatedProductText = cache(
+  async (productId: string, locale: string, name: string, description: string) => {
+    const loc = ((VALID_LOCALES as readonly string[]).includes(locale) ? locale : "fr") as Locale;
+    return getProductTranslation(productId, loc, { name, description });
+  },
+);
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   await getCurrentTenantId(); // bind ALS avant Prisma / caches
   const { id: handle, locale } = await params;
@@ -163,13 +174,26 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   });
 
   const canonicalHandle = buildProductHandle(product.name, product.reference);
-  const [shopName, siteUrl, alternates] = await Promise.all([
+  // Ancien slug (produit renommé, ancien slug traduit, cuid legacy) → 301.
+  // Fait ICI et pas seulement dans la page : pour les robots (Googlebot),
+  // Next résout generateMetadata AVANT d'envoyer la réponse → vraie 308.
+  // Dans la page (rendue en streaming à cause de loading.tsx), la redirection
+  // partait en HTTP 200 + redirection côté navigateur, que Google signale
+  // comme « Page avec redirection » sans jamais consolider correctement.
+  if (handle !== canonicalHandle) {
+    permanentRedirect(`/${locale}/produits/${canonicalHandle}`);
+  }
+  const [shopName, siteUrl, alternates, translated] = await Promise.all([
     getCachedShopName(),
     getSiteUrl(),
     buildAlternates(`/produits/${canonicalHandle}`, locale),
+    getTranslatedProductText(product.id, locale, product.name, product.description),
   ]);
-  const title = product.name;
-  const description = product.description.slice(0, 160).replace(/\n/g, " ");
+  // Titre + description dans la langue de la page : avant, /en, /de, /it et
+  // /es affichaient le titre et la description FR → Google les voyait comme
+  // des copies de la page FR (« Page en double sans URL canonique »).
+  const title = buildProductSeoTitle(translated.name, product.reference);
+  const description = translated.description.slice(0, 160).replace(/\n/g, " ");
   const imageUrl = firstImage ? getImageSrc(firstImage.path, "large") : null;
 
   // OFFLINE / SYNCING : page servie mais Google ne doit pas l'indexer
@@ -461,10 +485,12 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     });
     return { groupKey: gk, images: unique };
   });
-  const translated = await getProductTranslation(product.id, locale as "fr" | "en", {
-    name: product.name,
-    description: product.description,
-  });
+  const translated = await getTranslatedProductText(
+    product.id,
+    routeLocale,
+    product.name,
+    product.description,
+  );
   const tProducts = await getTranslations("products");
 
   // Catégorie : si une traduction existe pour la locale courante, on l'utilise (fil d'Ariane + JSON-LD)

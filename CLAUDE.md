@@ -178,7 +178,7 @@ Tout l'arrondi monétaire passe par `roundCent` (`lib/money.ts`) — **au centim
 NextAuth v4, Credentials + JWT 30d. New users `PENDING`. Token : `id`, `role`, `status`, `company`.
 
 ### i18n
-next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. Auto-traduction fire-and-forget limitée à EN. Toggle `auto_translate_enabled`. Hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/.well-known/*` (indispensable Apple Pay Stripe en `text/plain`). Liens admin → public : hardcoder `/fr/…`. Sitemap : 7× URL + `alternates.languages`. Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
+next-intl 4.x, préfixe (`/fr/…`, `/en/…`). Locales **fr (défaut) + en**. Auto-traduction fire-and-forget limitée à EN. Toggle `auto_translate_enabled`. Hors i18n : `/admin/*`, `/api/*`, `/maintenance`, `/sitemap.xml` (301 → `/sitemap_index.xml`), `/sitemap_index.xml`, `/sitemap/*`, `/robots.txt`, `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/.well-known/*` (indispensable Apple Pay Stripe en `text/plain`). Liens admin → public : hardcoder `/fr/…`. Sitemap : **index `/sitemap_index.xml` → 1 sitemap par langue** (`/sitemap/{locale}.xml` via `generateSitemaps` dans `app/sitemap.ts`) + `alternates.languages`. Jamais revenir à un sitemap unique (limite Google 50 000 URLs / 50 Mo dépassée en oct. 2026). Publish : `country_of_manufacture` priorité `isoCode → pfsCountryRef → "CN"`.
 
 ### Styling
 **Tailwind v4** — theme dans `app/globals.css @theme {}`, pas de config JS. **Pas de dark mode public**. **Mode sombre admin uniquement**. Flat design + ombres subtiles. Détails : `docs/styling.md`.
@@ -300,6 +300,8 @@ Prod sert 2 boutiques depuis 1 Next/PM2/DB : **beliandjolie.com** (`beliandjolie
 
 ### SEO
 - `lib/seo.ts` : `buildAlternates(path)`, `buildOrganizationSchema()`, `buildWebsiteSchema()`.
+- **Domaine canonique** : `www.X` → 301 vers `X` dans `middleware.ts` (`canonicalHostRedirect`, GET/HEAD hors `/api`). Sitemap/robots retirent `www.`.
+- **Fiche produit** : `generateMetadata` fait la 308 vers le slug canonique (vraie redirection HTTP pour Googlebot ; dans la page elle part en streaming = HTTP 200). Titre/description **traduits** (`getProductTranslation`, mémoïsé via `cache()`) + titre = nom + référence (`buildProductSeoTitle`).
 - Organization JSON-LD **uniquement** `app/layout.tsx`. WebSite sur home. Product + BreadcrumbList sur fiche.
 - Clés SEO : `site_logo_url`, `social_*_url`. Favicon dynamique via `app/icon.tsx` + `apple-icon.tsx` (`ImageResponse`).
 

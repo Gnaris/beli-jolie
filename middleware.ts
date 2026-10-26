@@ -175,6 +175,22 @@ export function redirectLegacyClaimsUrl(pathname: string): string | null {
 }
 
 /**
+ * Domaine canonique : si `host` est `www.X` et que `X` est mappé à la même
+ * boutique, retourne `X` (cible du 301). Sinon `null` (pas de redirection).
+ * Exporté pour test unitaire.
+ */
+export function canonicalHostRedirect(
+  host: string,
+  wwwTenant: { id: string } | { unknown: true },
+  bareTenant: { id: string } | { unknown: true },
+): string | null {
+  if (!host.startsWith("www.")) return null;
+  if ("unknown" in wwwTenant || "unknown" in bareTenant) return null;
+  if (wwwTenant.id !== bareTenant.id) return null;
+  return host.slice(4);
+}
+
+/**
  * Liste des chemins qui ignorent l'auto-maintenance.
  *
  * Le webhook Ankorstore (et tout `/api/webhooks/*`), et le webhook Stripe
@@ -245,6 +261,39 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
+  // Redirect 301 : ancien sitemap unique → index des sitemaps par langue.
+  // (Le sitemap unique dépassait la limite Google de 50 000 URLs.)
+  if (pathname === "/sitemap.xml") {
+    return NextResponse.redirect(new URL("/sitemap_index.xml", request.url), 301);
+  }
+
+  const host = (request.headers.get("host") || "").toLowerCase();
+
+  // ── 0.a bis Domaine canonique : www.<domaine> → <domaine> (301) ────────────
+  // Sans ça, tout le site existe en double (www et sans www), chaque version
+  // se déclarant canonique → « Page en double » dans la Search Console.
+  // Prudence : uniquement GET/HEAD (un webhook POST ne suit pas les 301), hors
+  // /api et /_next, et seulement si le domaine sans www pointe vers la MÊME
+  // boutique (sinon on laisse passer).
+  if (
+    host.startsWith("www.") &&
+    process.env.NODE_ENV !== "development" &&
+    (request.method === "GET" || request.method === "HEAD") &&
+    !pathname.startsWith("/api") &&
+    !pathname.startsWith("/_next")
+  ) {
+    const bareHost = host.slice(4);
+    const [wwwTenant, bareTenant] = await Promise.all([
+      resolveTenantForHost(host, request.url),
+      resolveTenantForHost(bareHost, request.url),
+    ]);
+    const target = canonicalHostRedirect(host, wwwTenant, bareTenant);
+    if (target) {
+      const url = new URL(pathname + request.nextUrl.search, `https://${target}`);
+      return NextResponse.redirect(url, 301);
+    }
+  }
+
   // ── 0.b Résolution multi-tenant (host → boutique) ──────────────────────────
   // Le middleware pose x-tenant-id / x-tenant-slug / x-tenant-name sur la
   // request rewrite ; server components, server actions et API routes lisent
@@ -252,7 +301,6 @@ export async function middleware(request: NextRequest) {
   //
   // On saute la résolution pour l'endpoint interne `/api/tenant-by-host` (sinon
   // boucle infinie) et pour les assets Next.
-  const host = (request.headers.get("host") || "").toLowerCase();
   // Sitemap et robots.txt DOIVENT être scopés par tenant — chaque boutique
   // a son propre sitemap. On garde la résolution active pour eux.
   const skipTenantResolution =
@@ -304,6 +352,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api") ||
     pathname === "/maintenance" ||
     pathname === "/sitemap.xml" ||
+    pathname === "/sitemap_index.xml" ||
+    pathname.startsWith("/sitemap/") ||
     pathname === "/robots.txt" ||
     pathname === "/manifest.webmanifest" ||
     pathname === "/icon" ||
