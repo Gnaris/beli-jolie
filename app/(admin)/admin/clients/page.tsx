@@ -1204,6 +1204,7 @@ function RegisteredPane({
                             userEmail={c.email}
                             phone={c.phone || null}
                             isPending={isPending}
+                            userStatus={c.status}
                             acceptsNewsletter={c.acceptsNewsletter}
                             hasWhatsapp={c.hasWhatsapp}
                           />

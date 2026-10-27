@@ -10,6 +10,7 @@ import OrderStatusFilterMobile from "@/components/admin/orders/OrderStatusFilter
 import MarketplacesOrdersView from "@/components/admin/orders/marketplace/MarketplacesOrdersView";
 import { getMarketplaceSyncMeta } from "@/app/actions/admin/marketplace-orders";
 import LiveAdminRefresh from "@/components/admin/LiveAdminRefresh";
+import { computeReviewMailStatus } from "@/lib/order-review-mail-status";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -111,6 +112,8 @@ export default async function AdminCommandesPage({
         paymentMode:   true,
         paymentStatus: true,
         createdAt:     true,
+        shippedAt:                true,
+        reviewRequestEmailSentAt: true,
         _count: { select: { items: true } },
       },
     }),
@@ -345,13 +348,14 @@ export default async function AdminCommandesPage({
           </div>
 
           {/* Entête colonnes desktop */}
-          <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(170px,1.4fr)_minmax(160px,1.5fr)_80px] gap-3 px-6 py-3 bg-bg-secondary border-y border-border">
+          <div className="hidden lg:grid lg:grid-cols-[minmax(170px,1.6fr)_minmax(190px,1.8fr)_120px_120px_minmax(160px,1.3fr)_minmax(150px,1.3fr)_130px_70px] gap-3 px-6 py-3 bg-bg-secondary border-y border-border">
             <ColHeader>N° Commande</ColHeader>
             <ColHeader>Client</ColHeader>
             <ColHeader className="text-right">Montant TTC</ColHeader>
             <ColHeader>Statut</ColHeader>
             <ColHeader>Mode de paiement</ColHeader>
             <ColHeader>Transporteur</ColHeader>
+            <ColHeader>Mail Avis</ColHeader>
             <ColHeader className="text-right">Voir</ColHeader>
           </div>
 
@@ -369,6 +373,11 @@ export default async function AdminCommandesPage({
               const isPaid = order.paymentStatus === "paid";
               const paymentBadgeClass = isPaid ? "badge badge-success" : "badge badge-warning";
               const paymentStatusLabel = isPaid ? "Payé" : "Non payé";
+              const reviewMail = computeReviewMailStatus({
+                status: order.status,
+                shippedAt: order.shippedAt,
+                reviewRequestEmailSentAt: order.reviewRequestEmailSentAt,
+              });
 
               return (
                 <Link
@@ -431,10 +440,23 @@ export default async function AdminCommandesPage({
                         )}
                       </div>
                     )}
+
+                    {/* Ligne 5 : mail avis (si pertinent) */}
+                    {reviewMail.kind !== "none" && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-border flex items-center gap-2 text-xs text-text-secondary min-w-0">
+                        <svg className="w-3.5 h-3.5 shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        <span className="truncate">Mail avis</span>
+                        <span className="ml-auto">
+                          <ReviewMailCell status={reviewMail} />
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* ── Desktop (≥lg) ── */}
-                  <div className="hidden lg:grid lg:grid-cols-[minmax(180px,1.8fr)_minmax(200px,2fr)_130px_130px_minmax(170px,1.4fr)_minmax(160px,1.5fr)_80px] gap-3 px-6 py-4 items-center">
+                  <div className="hidden lg:grid lg:grid-cols-[minmax(170px,1.6fr)_minmax(190px,1.8fr)_120px_120px_minmax(160px,1.3fr)_minmax(150px,1.3fr)_130px_70px] gap-3 px-6 py-4 items-center">
                     <div className="min-w-0">
                       <p className={`font-mono font-bold text-sm text-text-primary ${isCancelled ? "line-through decoration-zinc-400" : ""}`}>
                         {order.orderNumber}
@@ -481,6 +503,10 @@ export default async function AdminCommandesPage({
                           {order.eeTrackingId}
                         </p>
                       )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <ReviewMailCell status={reviewMail} />
                     </div>
 
                     <div className="flex justify-end">
@@ -712,6 +738,48 @@ function EmptyState() {
         ))}
       </div>
     </section>
+  );
+}
+
+function ReviewMailCell({
+  status,
+}: {
+  status: ReturnType<typeof computeReviewMailStatus>;
+}) {
+  if (status.kind === "none") {
+    return <span className="text-xs text-text-muted">—</span>;
+  }
+  if (status.kind === "sent") {
+    const date = status.sentAt.toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "short",
+    });
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" d="M5 13l4 4L19 7" />
+        </svg>
+        Envoyé le {date}
+      </span>
+    );
+  }
+  if (status.kind === "imminent") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+        Envoi imminent
+      </span>
+    );
+  }
+  // scheduled
+  const d = status.daysRemaining;
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
+      <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      Dans {d} jour{d > 1 ? "s" : ""}
+    </span>
   );
 }
 

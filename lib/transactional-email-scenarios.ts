@@ -35,6 +35,7 @@ export type TransactionalScenarioKey =
   | "ORDER_VALIDATED"
   | "ORDER_BANK_TRANSFER_CONFIRMED"
   | "ORDER_SHIPPED"
+  | "ORDER_FOLLOWUP_REVIEW"
   | "ORDER_CANCELLED"
   | "ORDER_MODIFIED"
   // ── CLIENT — paiement ──
@@ -412,6 +413,26 @@ export const TRANSACTIONAL_SCENARIOS: TransactionalScenarioMeta[] = [
       { token: "itemsHtml", label: "Tableau des articles", example: "<tr>…</tr>" },
       { token: "totalsHtml", label: "Récap totaux", example: "<table>…</table>" },
       { token: "orderUrl", label: "Lien vers la commande", example: "https://exemple.com/commandes/…" },
+      ...SHOP_VARIABLES,
+    ],
+  },
+  {
+    key: "ORDER_FOLLOWUP_REVIEW",
+    audience: "CLIENT",
+    group: "commande",
+    label: "Suivi 10 j après expédition",
+    description:
+      "Envoyé automatiquement 10 jours après que la commande a été marquée comme expédiée. Mail de relance libre : prendre des nouvelles, demander un avis sur le site ou sur Google, inviter à repasser commande, etc. Envoyé une seule fois par commande.",
+    aiTone:
+      "Mail chaleureux et personnel, surtout pas commercial agressif. On a confiance que le colis est bien arrivé — on prend des nouvelles, on invite le client à partager son ressenti (avis en ligne) et on reste disponible en cas de pépin. Rester bref, invitant, jamais insistant.",
+    variables: [
+      { token: "firstName", label: "Prénom du client", example: "Marie" },
+      { token: "clientCompany", label: "Nom de la société", example: "Boutique Marie" },
+      { token: "orderNumber", label: "Numéro de commande", example: "BJ-2026-00123", required: true },
+      { token: "orderUrl", label: "Lien vers la commande", example: "https://exemple.com/fr/commandes/…" },
+      { token: "reviewUrl", label: "Lien pour déposer un avis sur le site", example: "https://exemple.com/fr/espace-pro" },
+      { token: "catalogUrl", label: "Lien vers le catalogue", example: "https://exemple.com/fr/produits" },
+      { token: "supportUrl", label: "Lien contact / service client", example: "https://exemple.com/fr/contact" },
       ...SHOP_VARIABLES,
     ],
   },

@@ -462,6 +462,40 @@ export const TRANSACTIONAL_DEFAULTS: Record<TransactionalScenarioKey, Transactio
 </div>`,
   },
 
+  ORDER_FOLLOWUP_REVIEW: {
+    subject: "{shopName} — Votre commande {orderNumber} vous plaît-elle ?",
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+  <div style="background:#0F766E;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <div style="font-size:36px;margin-bottom:8px;">💌</div>
+    <h2 style="margin:0;font-size:20px;">On prend de vos nouvelles</h2>
+    <p style="margin:8px 0 0;opacity:0.85;font-size:13px;">Commande N° {orderNumber}</p>
+  </div>
+  <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+    <p style="font-size:15px;line-height:1.6;">Bonjour {firstName},</p>
+    <p style="font-size:15px;line-height:1.6;">
+      Votre commande <strong>{orderNumber}</strong> vous a été livrée il y a quelques jours. Nous espérons qu'elle est bien arrivée et qu'elle vous plaît !
+    </p>
+    <p style="font-size:15px;line-height:1.6;">
+      Si vous avez une minute, votre retour nous aiderait énormément — que ce soit pour nous dire du bien, nous signaler un pépin, ou simplement partager votre ressenti.
+    </p>
+    <div style="text-align:center;margin:28px 0;">
+      <a href="{reviewUrl}" style="background:#0F766E;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+        Déposer un avis →
+      </a>
+    </div>
+    <p style="font-size:14px;line-height:1.6;color:#4B5563;">
+      Un souci avec votre commande ? Répondez simplement à ce mail ou écrivez-nous à <a href="mailto:{shopEmail}" style="color:#0F766E;">{shopEmail}</a> — nous sommes là pour vous.
+    </p>
+    <p style="font-size:14px;line-height:1.6;color:#4B5563;">
+      À très vite sur <a href="{catalogUrl}" style="color:#0F766E;">{shopName}</a>.
+    </p>
+  </div>
+  <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+    {shopName} — Mail de suivi automatique après livraison.
+  </p>
+</div>`,
+  },
+
   ORDER_CANCELLED: {
     subject: "{shopName} — Commande {orderNumber} annulée",
     html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">

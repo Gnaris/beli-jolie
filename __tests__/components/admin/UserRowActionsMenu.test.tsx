@@ -30,6 +30,18 @@ vi.mock("next/navigation", async () => {
   };
 });
 
+// Contextes de confirmation / toast + server action utilisés par l'item
+// « Désactiver le client ». On isole le test au rendu du menu.
+vi.mock("@/components/ui/ConfirmDialog", () => ({
+  useConfirm: () => ({ confirm: vi.fn(async () => true) }),
+}));
+vi.mock("@/components/ui/Toast", () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+}));
+vi.mock("@/app/actions/admin/updateUserStatus", () => ({
+  updateUserStatus: vi.fn(async () => ({ success: true })),
+}));
+
 import UserRowActionsMenu from "@/components/admin/users/UserRowActionsMenu";
 
 const baseProps = {
@@ -38,6 +50,7 @@ const baseProps = {
   userEmail: "alice@example.com",
   phone: "+33612345678",
   isPending: false,
+  userStatus: "APPROVED" as const,
   acceptsNewsletter: true,
   hasWhatsapp: true as boolean | null,
 };
@@ -136,5 +149,23 @@ describe("UserRowActionsMenu — menu Actions sur /admin/clients", () => {
     fireEvent.click(screen.getByRole("button", { name: /actions du client/i }));
     const link = screen.getByText("Créer une commande").closest("a");
     expect(link?.getAttribute("href")).toBe("/admin/clients/u-123/nouvelle-commande");
+  });
+
+  it("affiche « Désactiver le client » uniquement sur un compte APPROVED", () => {
+    render(<UserRowActionsMenu {...baseProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /actions du client/i }));
+    expect(screen.getByText("Désactiver le client")).toBeInTheDocument();
+  });
+
+  it("masque « Désactiver le client » sur un compte PENDING", () => {
+    render(<UserRowActionsMenu {...baseProps} userStatus="PENDING" isPending />);
+    fireEvent.click(screen.getByRole("button", { name: /actions du client/i }));
+    expect(screen.queryByText("Désactiver le client")).toBeNull();
+  });
+
+  it("masque « Désactiver le client » sur un compte DEACTIVATED", () => {
+    render(<UserRowActionsMenu {...baseProps} userStatus="DEACTIVATED" />);
+    fireEvent.click(screen.getByRole("button", { name: /actions du client/i }));
+    expect(screen.queryByText("Désactiver le client")).toBeNull();
   });
 });

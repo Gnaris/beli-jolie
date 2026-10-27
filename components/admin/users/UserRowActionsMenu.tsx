@@ -11,7 +11,7 @@
  *   Contacter  : WhatsApp / Mail
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -23,6 +23,10 @@ import {
   isLikelyFrenchLandline,
 } from "./PhoneContactIcons";
 import { buildWhatsAppUrl } from "@/lib/whatsapp-message";
+import { updateUserStatus } from "@/app/actions/admin/updateUserStatus";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
+import type { UserStatus } from "@prisma/client";
 
 interface Props {
   userId: string;
@@ -30,6 +34,7 @@ interface Props {
   userEmail: string;
   phone: string | null;
   isPending: boolean;
+  userStatus: UserStatus;
   acceptsNewsletter: boolean;
   hasWhatsapp: boolean | null;
 }
@@ -40,6 +45,7 @@ export default function UserRowActionsMenu({
   userEmail,
   phone,
   isPending,
+  userStatus,
   acceptsNewsletter,
   hasWhatsapp,
 }: Props) {
@@ -50,6 +56,31 @@ export default function UserRowActionsMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const router = useRouter();
+  const { confirm } = useConfirm();
+  const toast = useToast();
+  const [, startDeactivate] = useTransition();
+
+  async function askAndDeactivate() {
+    setOpen(false);
+    const ok = await confirm({
+      type: "warning",
+      title: "Désactiver ce client ?",
+      message:
+        "Son compte reste utilisable (connexion, navigation) mais il ne verra plus les tarifs ni les boutons d'achat tant que vous ne l'aurez pas réactivé. Un email de désactivation lui sera envoyé.",
+      confirmLabel: "Désactiver",
+      cancelLabel: "Annuler",
+    });
+    if (ok !== true) return;
+    startDeactivate(async () => {
+      const result = await updateUserStatus(userId, "DEACTIVATED");
+      if (!result.success) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Client désactivé");
+      router.refresh();
+    });
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -118,10 +149,14 @@ export default function UserRowActionsMenu({
     "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-text-muted opacity-50 cursor-not-allowed border-none bg-transparent text-left";
   const itemDangerClass =
     "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-red-600 hover:bg-red-50 transition-colors border-none bg-transparent cursor-pointer text-left";
+  const itemWarningClass =
+    "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13px] font-body font-medium text-amber-700 hover:bg-amber-50 transition-colors border-none bg-transparent cursor-pointer text-left";
   const iconWrap =
     "w-[22px] h-[22px] inline-flex items-center justify-center rounded-md bg-bg-tertiary text-text-secondary shrink-0";
   const iconWrapDanger =
     "w-[22px] h-[22px] inline-flex items-center justify-center rounded-md bg-red-50 text-red-600 shrink-0";
+  const iconWrapWarning =
+    "w-[22px] h-[22px] inline-flex items-center justify-center rounded-md bg-amber-50 text-amber-700 shrink-0";
   const groupLabel =
     "block text-[10px] font-bold uppercase tracking-[0.14em] text-text-muted px-2.5 pt-2 pb-1";
   const sepCls = "h-px bg-border my-1 mx-1.5";
@@ -244,6 +279,22 @@ export default function UserRowActionsMenu({
                 <span className={iconWrap}><IconMail /></span>
                 Envoyer un mail
               </span>
+            )}
+
+            {userStatus === "APPROVED" && (
+              <>
+                <div className={sepCls} />
+                <span className={groupLabel}>État du compte</span>
+                <button
+                  type="button"
+                  onClick={askAndDeactivate}
+                  className={itemWarningClass}
+                  role="menuitem"
+                >
+                  <span className={iconWrapWarning}><IconBan /></span>
+                  Désactiver le client
+                </button>
+              </>
             )}
 
             <div className={sepCls} />
@@ -379,6 +430,15 @@ function IconTrash() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+function IconBan() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <line x1="5.636" y1="5.636" x2="18.364" y2="18.364" />
     </svg>
   );
 }

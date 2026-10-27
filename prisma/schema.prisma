@@ -2615,6 +2615,14 @@ model Order {
   // Trace de la dernière notification client de modification (rupture / ajustement / ajout)
   clientNotifiedAt DateTime?
 
+  // Date de passage au statut SHIPPED (posée dans updateOrderStatus).
+  // Sert au chronomètre « Mail Avis » : 10 j après cette date, un mail de
+  // suivi est envoyé automatiquement au client. Si la commande repasse de
+  // SHIPPED à PENDING, on remet ces deux champs à null pour relancer un
+  // compteur propre au prochain passage SHIPPED.
+  shippedAt                 DateTime?
+  reviewRequestEmailSentAt  DateTime?
+
   // Sous-total HT payé initialement (immuable, sert au contrôle de dépassement lors
   // des modifications post-commande). Null pour les commandes créées avant l'ajout du champ.
   paidSubtotalHT Decimal? @db.Decimal(12, 2)
@@ -2661,6 +2669,7 @@ model Order {
   @@index([userId]) // standalone customer lookup
   @@index([status, createdAt]) // admin filtered + paginated listing
   @@index([isAdminDraft]) // listing des drafts admin en attente de finalisation
+  @@index([tenantId, status, shippedAt]) // scheduler mail de suivi 10j après expédition
 }
 
 // Ligne de commande (snapshot produit au moment de la commande)

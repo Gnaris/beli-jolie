@@ -6,6 +6,7 @@ import WhatsappView from "@/components/admin/marketing/views/WhatsappView";
 import PanierAbandonneView from "@/components/admin/marketing/views/PanierAbandonneView";
 import InactiviteView from "@/components/admin/marketing/views/InactiviteView";
 import RetourStockView from "@/components/admin/marketing/views/RetourStockView";
+import SuiviCommandeView from "@/components/admin/marketing/views/SuiviCommandeView";
 import SystemeView from "@/components/admin/marketing/views/SystemeView";
 
 export const metadata: Metadata = { title: "Marketing — Admin" };
@@ -18,6 +19,7 @@ const VALID_TABS: MarketingTab[] = [
   "panier-abandonne",
   "inactivite",
   "retour-en-stock",
+  "suivi-commande",
   "systeme",
 ];
 
@@ -67,6 +69,7 @@ export default async function MarketingPage({
     case "panier-abandonne": view = <PanierAbandonneView />;                   break;
     case "inactivite":       view = <InactiviteView />;                        break;
     case "retour-en-stock":  view = <RetourStockView />;                       break;
+    case "suivi-commande":   view = <SuiviCommandeView />;                     break;
     case "systeme":          view = <SystemeView />;                           break;
   }
 

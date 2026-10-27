@@ -78,6 +78,11 @@ export const EMAIL_SCENARIOS = {
     label: "Commande expédiée",
     category: "commande",
   },
+  ORDER_FOLLOWUP_REVIEW: {
+    key: "ORDER_FOLLOWUP_REVIEW",
+    label: "Suivi 10 j après expédition",
+    category: "commande",
+  },
   ORDER_CANCELLED: {
     key: "ORDER_CANCELLED",
     label: "Commande annulée",

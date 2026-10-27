@@ -9,6 +9,7 @@ export type MarketingTab =
   | "panier-abandonne"
   | "inactivite"
   | "retour-en-stock"
+  | "suivi-commande"
   | "systeme";
 
 export const MARKETING_TABS: { id: MarketingTab; label: string; href: string }[] = [
@@ -18,6 +19,7 @@ export const MARKETING_TABS: { id: MarketingTab; label: string; href: string }[]
   { id: "panier-abandonne", label: "Panier abandonné",  href: "/admin/marketing?onglet=panier-abandonne" },
   { id: "inactivite",       label: "Inactivité",        href: "/admin/marketing?onglet=inactivite" },
   { id: "retour-en-stock",  label: "Retour en stock",   href: "/admin/marketing?onglet=retour-en-stock" },
+  { id: "suivi-commande",   label: "Suivi commande",    href: "/admin/marketing?onglet=suivi-commande" },
   { id: "systeme",          label: "Mails système",     href: "/admin/marketing?onglet=systeme" },
 ];
 
@@ -29,6 +31,7 @@ export function resolveMarketingTab(pathname: string, onglet: string | null): Ma
   if (pathname.startsWith("/admin/marketing/mails/panier-abandonne")) return "panier-abandonne";
   if (pathname.startsWith("/admin/marketing/mails/inactivite"))       return "inactivite";
   if (pathname.startsWith("/admin/marketing/mails/retour-en-stock"))  return "retour-en-stock";
+  if (pathname.startsWith("/admin/marketing/mails/suivi-commande"))   return "suivi-commande";
   if (pathname.startsWith("/admin/marketing/mails/systeme"))          return "systeme";
   if (pathname.startsWith("/admin/marketing/mails"))                  return "modeles";
   if (pathname.startsWith("/admin/marketing/whatsapp"))               return "whatsapp";

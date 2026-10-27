@@ -26,6 +26,13 @@ interface Props {
   overrides: ScenarioOverrideState[];
 }
 
+// Scénarios qui ont leur PROPRE onglet dédié dans la page Marketing — on ne
+// les affiche PAS dans la grille « Mails système » pour éviter la double
+// personnalisation. Édition exclusivement depuis l'onglet dédié.
+const SCENARIOS_WITH_DEDICATED_PAGE: TransactionalScenarioKey[] = [
+  "ORDER_FOLLOWUP_REVIEW",
+];
+
 const GROUP_STYLES: Record<
   TransactionalScenarioGroup,
   { gradientFrom: string; gradientTo: string; chip: string; icon: string }
@@ -90,14 +97,19 @@ export default function TransactionalEmailsGrid({ overrides }: Props) {
       .normalize("NFD")
       .replace(/[̀-ͯ]/g, "");
 
+  const visibleScenarios = useMemo(
+    () => TRANSACTIONAL_SCENARIOS.filter((s) => !SCENARIOS_WITH_DEDICATED_PAGE.includes(s.key)),
+    [],
+  );
+
   const filteredScenarios = useMemo(() => {
     const q = normalize(query.trim());
-    if (!q) return TRANSACTIONAL_SCENARIOS;
-    return TRANSACTIONAL_SCENARIOS.filter((s) => {
+    if (!q) return visibleScenarios;
+    return visibleScenarios.filter((s) => {
       const hay = normalize(`${s.label} ${s.description} ${s.group}`);
       return hay.includes(q);
     });
-  }, [query]);
+  }, [query, visibleScenarios]);
 
   // Regroupe les scénarios filtrés : CLIENT en haut, ADMIN en bas.
   const sections = useMemo(() => {

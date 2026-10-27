@@ -52,9 +52,24 @@ export async function updateOrderStatus(orderId: string, status: string) {
   // Ajustements = il existe des OrderItemModification ou des items compensation.
   const hasAdjustments = previous.itemModifications.length > 0 || previous.items.length > 0;
 
+  // Horodatage SHIPPED pour le chronomètre « Mail Avis » (10 j après expédition).
+  // Si la commande REPASSE en PENDING depuis SHIPPED, on efface shippedAt
+  // ET reviewRequestEmailSentAt pour qu'un nouveau cycle démarre proprement
+  // au prochain passage SHIPPED (évite d'envoyer deux fois le mail de suivi).
+  const shippedAtPatch: {
+    shippedAt?: Date | null;
+    reviewRequestEmailSentAt?: Date | null;
+  } = {};
+  if (status === "SHIPPED" && previous.status !== "SHIPPED") {
+    shippedAtPatch.shippedAt = new Date();
+  } else if (status === "PENDING" && previous.status === "SHIPPED") {
+    shippedAtPatch.shippedAt = null;
+    shippedAtPatch.reviewRequestEmailSentAt = null;
+  }
+
   await prisma.order.update({
     where: { id: orderId },
-    data: { status: status as never },
+    data: { status: status as never, ...shippedAtPatch },
   });
 
   if (status === "CANCELLED" && previous && previous.status !== "CANCELLED") {

@@ -342,6 +342,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Scheduler du mail « Suivi 10 j après expédition » (demande d'avis / relance).
+  // Tick 1h. Pour chaque tenant actif, cherche les Order SHIPPED dont le
+  // shippedAt remonte à ≥ 10 jours et pour lesquelles reviewRequestEmailSentAt
+  // est encore null → envoi du mail, marquage idempotent.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startOrderFollowupScheduler } = await import("@/lib/order-followup-scheduler");
+        startOrderFollowupScheduler();
+      } catch (err) {
+        logger.error("[OrderFollowup] Démarrage du scheduler échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Sessions Baileys WhatsApp **par tenant** (vérification « a WhatsApp oui/non »).
   // On scanne `private/whatsapp-session/{slug}/` et pour chaque sous-dossier
   // contenant un `creds.json`, on remonte la session dans son ALS tenant.
