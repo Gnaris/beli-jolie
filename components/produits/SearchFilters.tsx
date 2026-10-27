@@ -5,6 +5,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useCallback, useRef, useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
+import { formatTagName } from "@/lib/tag-display";
 
 interface SubCategory { id: string; name: string }
 interface Category    { id: string; name: string; subCategories: SubCategory[] }
@@ -327,7 +328,7 @@ export default function SearchFilters({
     : categories.flatMap((c) => c.subCategories.map((sc) => ({ id: sc.id, label: sc.name, prefix: c.name })));
 
   const collectionOptions  = collections.map((c) => ({ id: c.id, label: c.name }));
-  const tagOptions         = tags.map((t) => ({ id: t.id, label: `#${t.name}` }));
+  const tagOptions         = tags.map((t) => ({ id: t.id, label: `#${formatTagName(t.name)}` }));
   const compositionOptions = compositions.map((c) => ({ id: c.id, label: c.name }));
 
   const filterContent = (

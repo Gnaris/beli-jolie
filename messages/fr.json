@@ -32,9 +32,11 @@
     "verifiedBadge": "Vérifié",
     "unverifiedBadge": "Non vérifié",
     "revokedBadge": "Révoqué",
+    "deactivatedBadge": "Désactivé",
     "verifiedTooltip": "Votre compte pro est validé.",
     "unverifiedTooltip": "Votre compte est en cours de validation par notre équipe.",
-    "revokedTooltip": "Votre compte a été désactivé. Contactez-nous pour toute question."
+    "revokedTooltip": "Votre compte a été désactivé. Contactez-nous pour toute question.",
+    "deactivatedTooltip": "Votre compte a été mis en pause pour inactivité. Contactez-nous pour le réactiver."
   },
   "auth": {
     "login": {

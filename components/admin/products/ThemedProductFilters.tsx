@@ -7,6 +7,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import MultiSelect from "@/components/ui/MultiSelect";
 import { useFilterPending } from "./FilterPendingContext";
 import { clampPerPage, MAX_PER_PAGE, MIN_PER_PAGE } from "@/lib/pagination";
+import { formatTagName } from "@/lib/tag-display";
 
 interface CategoryOption { id: string; name: string; subCategories?: { id: string; name: string }[] }
 interface TagOption { id: string; name: string }
@@ -223,10 +224,16 @@ export default function ThemedProductFilters({
     return () => document.removeEventListener("keydown", onKey);
   }, [openTheme]);
 
-  // Verrouille le scroll de la page derrière le modal (plein écran mobile /
-  // centré avec voile noir sur ≥ md — dans les deux cas la page ne défile plus).
+  // Verrouille le scroll de la page UNIQUEMENT quand on est en modal plein
+  // écran (mobile < md). Sur desktop le panneau est devenu un dropdown
+  // ancré sous le bouton : il ne couvre pas la page, inutile de bloquer
+  // le scroll (et le lock empêcherait de faire défiler les résultats
+  // derrière).
   useEffect(() => {
     if (!openTheme) return;
+    if (typeof window === "undefined") return;
+    const isDesktop = window.matchMedia("(min-width: 768px)").matches;
+    if (isDesktop) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
@@ -415,7 +422,7 @@ export default function ThemedProductFilters({
               onChange={writeMulti("tag")}
               options={[
                 { value: "__none__", label: "Sans mot-clé" },
-                ...tags.map((t) => ({ value: t.id, label: t.name })),
+                ...tags.map((t) => ({ value: t.id, label: formatTagName(t.name) })),
               ]}
               placeholder="Tous les mots-clés"
               size="md"
@@ -516,9 +523,9 @@ export default function ThemedProductFilters({
           <div className="flex flex-col gap-2.5">
             <BoolBtn urlKey="important" label="⭐ Importants seulement" />
             <BoolBtn urlKey="bestSeller" label="Best-sellers uniquement" />
+            <BoolBtn urlKey="trending" label="Tendance uniquement" />
             <BoolBtn urlKey="syncRequired" label="Synchro nécessaire" />
             <BoolBtn urlKey="missingImages" label="Variantes sans image" />
-            <BoolBtn urlKey="locked" label="Verrouillés" />
           </div>
         </div>
       );
@@ -606,7 +613,7 @@ export default function ThemedProductFilters({
     } else if (theme === "price") {
       ["minPrice", "maxPrice", "stockBelow"].forEach((k) => has(k) && n++);
     } else if (theme === "status") {
-      ["important", "bestSeller", "syncRequired", "missingImages", "locked"].forEach((k) => {
+      ["important", "bestSeller", "trending", "syncRequired", "missingImages"].forEach((k) => {
         if (searchParams.get(k) === "1") n++;
       });
       // `refresh` est un enum ("never" | "recent" | "refreshed") — toute
@@ -640,7 +647,7 @@ export default function ThemedProductFilters({
   const CLEAR_KEYS: Record<ThemeKey, string[]> = {
     catalogue:    ["cat", "subCat", "tag", "composition", "hsCodeId"],
     price:        ["minPrice", "maxPrice", "stockBelow"],
-    status:       ["important", "bestSeller", "syncRequired", "missingImages", "locked", "refresh", "translationStatus"],
+    status:       ["important", "bestSeller", "trending", "syncRequired", "missingImages", "refresh", "translationStatus"],
     marketplaces: ["pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "microstoreLink", "pfsVerify",
                    "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt"],
     sort:         ["sort"],
@@ -1041,21 +1048,17 @@ export default function ThemedProductFilters({
               {isOpen && (
                 <div
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="fixed inset-0 z-[9500] flex md:items-center md:justify-center md:p-4"
+                  className="fixed inset-0 z-[9500] flex md:static md:z-auto md:block md:inset-auto"
                   role="dialog"
                   aria-modal="true"
                   aria-label={`Filtre ${t.label}`}
                 >
-                  {/* Voile noir — visible ≥ md (mobile prend tout l'écran) */}
-                  <button
-                    type="button"
-                    aria-label="Fermer"
-                    tabIndex={-1}
-                    onClick={() => setOpenTheme(null)}
-                    className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
-                  />
-                  {/* Modal : plein écran mobile / centré desktop */}
-                  <div className="relative w-full h-full flex flex-col bg-bg-primary md:w-[min(92vw,460px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:shadow-[0_24px_60px_rgba(0,0,0,0.25)] md:overflow-hidden">
+                  {/* Panel : plein écran mobile / dropdown ancré sous le bouton sur desktop.
+                      z-index desktop (md:z-[45]) : au-dessus de la barre d'actions bulk
+                      (md:z-40) mais SOUS le header sticky de l'admin (lg:z-50), pour que
+                      le header continue de recouvrir le dropdown quand on scrolle vers
+                      le bas plutôt que l'inverse. */}
+                  <div className="relative w-full h-full flex flex-col bg-bg-primary md:absolute md:top-full md:left-0 md:mt-2 md:w-[min(92vw,460px)] md:h-auto md:max-h-[70vh] md:rounded-2xl md:border md:border-border md:shadow-[0_24px_60px_rgba(0,0,0,0.18)] md:overflow-hidden md:z-[45]">
                     {/* Header — flèche retour mobile, croix desktop */}
                     <div className="shrink-0 border-b border-border md:border-border-light bg-bg-primary px-4 pb-3 md:px-5 md:pt-5 pt-[max(env(safe-area-inset-top),16px)]">
                       <div className="flex items-center gap-3 md:items-start">

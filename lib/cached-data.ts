@@ -137,7 +137,10 @@ export const getCachedCollections = tenantScopedCacheWithTid(
   "filter-collections",
   async (tid) =>
     prisma.collection.findMany({
-      where: tid === "global" ? undefined : { tenantId: tid },
+      where: {
+        visible: true,
+        ...(tid === "global" ? {} : { tenantId: tid }),
+      },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -269,6 +272,7 @@ export const getCachedPublicCollections = tenantScopedCacheWithTid(
   async (tid) =>
     prisma.collection.findMany({
       where: {
+        visible: true,
         ...(tid === "global" ? {} : { tenantId: tid }),
         products: {
           some: {

@@ -22,6 +22,7 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "tag",
   "composition",
   "bestSeller",
+  "trending",
   "refresh",
   "status",
   "minPrice",
@@ -37,7 +38,6 @@ export const ADMIN_PRODUCTS_FILTER_KEYS = [
   "orderchampLink",
   "syncRequired",
   "hsCodeId",
-  "locked",
   "page",
   "perPage",
 ] as const;

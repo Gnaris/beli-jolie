@@ -37,6 +37,10 @@ const CollectionSchema = z.object({
   imageBanner: z.string().optional(),
 });
 
+const CollectionUpdateSchema = CollectionSchema.extend({
+  visible: z.boolean().optional(),
+});
+
 /**
  * Purge les 3 tailles (grand + `-md` + `-thumb`) d'une image de couverture qui
  * a été remplacée ou supprimée. Best-effort : les erreurs sont loggées mais
@@ -95,12 +99,16 @@ export async function createCollection(formData: FormData) {
   }
 
   const slug = await ensureUniqueCollectionSlug(parsed.data.name, null);
+  // Toute nouvelle collection démarre masquée du site. La cliente l'active
+  // ensuite via le switch « Visible sur le site » dans l'éditeur, une fois
+  // qu'elle a ajouté ses produits et vérifié son image.
   const collection = await prisma.collection.create({
     data: {
       name:        parsed.data.name,
       slug,
       image:       parsed.data.image || null,
       imageBanner: parsed.data.imageBanner || null,
+      visible:     false,
     },
   });
 
@@ -166,13 +174,22 @@ export async function updateCollection(id: string, formData: FormData) {
   const rawName = formData.get("name");
   const rawImage = formData.get("image");
   const rawBanner = formData.get("imageBanner");
+  const rawVisible = formData.get("visible");
+  // Checkbox / switch : présence du champ (= "true"/"on") → true ; absence → undefined
+  // (= ne touche pas à la valeur en base). "false" explicite → masquer.
+  let visibleInput: boolean | undefined = undefined;
+  if (typeof rawVisible === "string") {
+    if (rawVisible === "true" || rawVisible === "on") visibleInput = true;
+    else if (rawVisible === "false") visibleInput = false;
+  }
   const raw = {
     name: typeof rawName === "string" ? rawName : "",
     image: typeof rawImage === "string" && rawImage.length > 0 ? rawImage : undefined,
     imageBanner: typeof rawBanner === "string" && rawBanner.length > 0 ? rawBanner : undefined,
+    visible: visibleInput,
   };
 
-  const parsed = CollectionSchema.safeParse(raw);
+  const parsed = CollectionUpdateSchema.safeParse(raw);
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message };
   }
@@ -233,6 +250,7 @@ export async function updateCollection(id: string, formData: FormData) {
         slug:        nextSlug,
         image:       newImagePath,
         imageBanner: newBannerPath,
+        ...(parsed.data.visible !== undefined ? { visible: parsed.data.visible } : {}),
       },
     });
   } catch (err) {
@@ -279,6 +297,52 @@ export async function updateCollection(id: string, formData: FormData) {
   revalidatePath("/collections");
   revalidatePath(`/collections/${id}`);
   return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// Mettre à jour l'ordre d'affichage d'une collection
+// ─────────────────────────────────────────────
+// Petit numéro saisi sur chaque carte de /admin/collections. Les collections
+// sont triées par `displayOrder` croissant sur /collections ; les ex æquo (ou
+// non renseignées = 0) retombent sur la date de création desc.
+export async function setCollectionDisplayOrder(id: string, order: number) {
+  await requireAdmin();
+
+  if (!Number.isFinite(order) || order < 0 || order > 9999) {
+    return { success: false as const, error: "Numéro invalide (0 à 9999)." };
+  }
+  const normalized = Math.trunc(order);
+
+  await prisma.collection.update({
+    where: { id },
+    data: { displayOrder: normalized },
+  });
+
+  revalidatePath("/admin/collections");
+  revalidateTag("collections", "default");
+  revalidatePath("/collections");
+  return { success: true as const };
+}
+
+// ─────────────────────────────────────────────
+// Toggler la visibilité d'une collection
+// ─────────────────────────────────────────────
+// Appelée depuis la liste `/admin/collections` (switch sur chaque carte) et
+// depuis le header de l'éditeur. Toute nouvelle collection démarre à `false`.
+export async function setCollectionVisibility(id: string, visible: boolean) {
+  await requireAdmin();
+
+  await prisma.collection.update({
+    where: { id },
+    data: { visible },
+  });
+
+  revalidatePath("/admin/collections");
+  revalidatePath(`/admin/collections/${id}/modifier`);
+  revalidateTag("collections", "default");
+  revalidatePath("/collections");
+  revalidatePath(`/collections/${id}`);
+  return { success: true as const };
 }
 
 // ─────────────────────────────────────────────

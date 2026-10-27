@@ -308,6 +308,23 @@ if (!g[GUARD]) {
     })();
   }, 5_000);
 
+  // Worker de révocation auto des clients inactifs (bascule APPROVED → PENDING).
+  // Tick 1h : les délais sont en jours. Kill switch SiteConfig
+  // `inactive_revoke_enabled` + 2 délais `inactive_revoke_warning_days` /
+  // `inactive_revoke_grace_days` filtrés côté worker. Multi-tenant.
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { startInactiveClientRevokeWorker } = await import("@/lib/inactive-client-revoke-worker");
+        startInactiveClientRevokeWorker();
+      } catch (err) {
+        logger.error("[Inactive Revoke] Démarrage du worker échoué", {
+          error: err as Error,
+        });
+      }
+    })();
+  }, 5_000);
+
   // Worker de notification « retour en stock » (pilote RestockNotificationJob).
   // Tick 2 min : le compteur de référence est en heures, précision inutile.
   // Scan des jobs échus par tenant (kill switch SiteConfig

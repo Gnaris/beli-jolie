@@ -29,6 +29,8 @@ import HomeFaqConfig from "@/components/admin/settings/HomeFaqConfig";
 import RegistrationRulesConfig from "@/components/admin/settings/RegistrationRulesConfig";
 import { getRegistrationRules } from "@/app/actions/admin/registration-rules";
 import { DEFAULT_RULES as DEFAULT_REGISTRATION_RULES } from "@/lib/registration-rules";
+import InactiveRevokeConfig from "@/components/admin/settings/InactiveRevokeConfig";
+import { getInactiveRevokeSettings } from "@/app/actions/admin/inactive-client-revoke";
 import ProductFaqDefaultsConfig from "@/components/admin/settings/ProductFaqDefaultsConfig";
 import { parseProductFaqDefaults, PRODUCT_FAQ_DEFAULTS_KEY } from "@/lib/product-faq";
 import SettingsTabs from "@/components/admin/settings/SettingsTabs";
@@ -353,7 +355,15 @@ async function buildHorairesTile(): Promise<DashboardTile> {
    TUILE 3bis — Inscription : règles d'auto-approbation par zone
    ═══════════════════════════════════════════════════════════════════════════ */
 async function buildInscriptionTile(): Promise<DashboardTile> {
-  const rules = await getRegistrationRules().catch(() => DEFAULT_REGISTRATION_RULES);
+  const [rules, revoke] = await Promise.all([
+    getRegistrationRules().catch(() => DEFAULT_REGISTRATION_RULES),
+    getInactiveRevokeSettings().catch(() => ({
+      enabled: false,
+      warningDays: null,
+      graceDays: null,
+      probationDays: null,
+    })),
+  ]);
 
   // Résumé global : si au moins un cas est en « approve », on marque OK ;
   // si au moins un est en « reject », on alerte. Sinon validation manuelle.
@@ -375,23 +385,40 @@ async function buildInscriptionTile(): Promise<DashboardTile> {
       ? { tone: "warn", label: "Refus auto actif" }
       : { tone: "off", label: "Validation manuelle" };
 
-  const summary = hasApprove
-    ? "Au moins un cas de figure déclenche l'approbation automatique"
-    : "Tous les comptes attendent votre validation manuelle";
+  const summaryBits: string[] = [
+    hasApprove
+      ? "Au moins un cas déclenche l'approbation automatique"
+      : "Tous les comptes attendent votre validation manuelle",
+  ];
+  if (revoke.enabled && revoke.warningDays !== null && revoke.graceDays !== null) {
+    summaryBits.push(
+      `Révocation auto après ${revoke.warningDays}+${revoke.graceDays} j sans commande`,
+    );
+  }
 
   return {
     key: "inscription",
     status,
-    summary,
+    summary: summaryBits.join(" · "),
     content: (
-      <SettingCard
-        icon={Ico.userCheck}
-        title="Règles d'inscription"
-        description="Comment traiter chaque nouvelle demande de compte selon le pays du client et son numéro d'entreprise"
-        accent="dark"
-      >
-        <RegistrationRulesConfig initialRules={rules} />
-      </SettingCard>
+      <CardsStack>
+        <SettingCard
+          icon={Ico.userCheck}
+          title="Règles d'inscription"
+          description="Comment traiter chaque nouvelle demande de compte selon le pays du client et son numéro d'entreprise"
+          accent="dark"
+        >
+          <RegistrationRulesConfig initialRules={rules} />
+        </SettingCard>
+        <SettingCard
+          icon={Ico.userCheck}
+          title="Révocation automatique des clients inactifs"
+          description="Désactive automatiquement un compte validé qui n'a passé aucune commande depuis trop longtemps. Un mail d'avertissement part en amont."
+          accent="dark"
+        >
+          <InactiveRevokeConfig initial={revoke} />
+        </SettingCard>
+      </CardsStack>
     ),
   };
 }

@@ -5,7 +5,7 @@ import { signOut, useSession } from "next-auth/react";
 
 interface AccountStatusWatcherProps {
   /** Statut courant côté serveur (au moment du rendu de la page) */
-  initialStatus: "PENDING" | "APPROVED" | "REJECTED";
+  initialStatus: "PENDING" | "APPROVED" | "REJECTED" | "DEACTIVATED";
   /** Intervalle de polling en millisecondes (défaut 8s) */
   intervalMs?: number;
 }

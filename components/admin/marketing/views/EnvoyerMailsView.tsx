@@ -26,10 +26,15 @@ import {
   loadRestockJobsFor,
   type RestockJobInfo,
 } from "@/app/actions/admin/restock";
+import {
+  loadInactiveRevokeInfoFor,
+  type InactiveRevokeNextEvent,
+} from "@/app/actions/admin/inactive-client-revoke";
 import AbandonedCartCountdown from "@/components/admin/users/AbandonedCartCountdown";
 import AbandonedCartLastSent from "@/components/admin/users/AbandonedCartLastSent";
 import AbandonedCartResetButton from "@/components/admin/users/AbandonedCartResetButton";
 import InactiveClientCountdown from "@/components/admin/users/InactiveClientCountdown";
+import InactiveRevokeCountdown from "@/components/admin/users/InactiveRevokeCountdown";
 import InactiveClientLastSent from "@/components/admin/users/InactiveClientLastSent";
 import InactiveClientResetButton from "@/components/admin/users/InactiveClientResetButton";
 import RestockCountdown from "@/components/admin/users/RestockCountdown";
@@ -329,6 +334,15 @@ export default async function EnvoyerMailsView({ searchParams }: EnvoyerMailsVie
       ? await loadRestockJobsFor(registeredData.clients.map((c) => c.id))
       : new Map();
 
+  // Prochain évènement de désactivation auto (badge rouge dans la colonne
+  // Inactivité). Visible seulement si le tenant a activé la feature. On
+  // affiche en priorité pour un APPROVED : probation → désactivation (grâce
+  // en cours) → avertissement (cycle normal).
+  const revokeInfoData: Map<string, InactiveRevokeNextEvent> =
+    currentTab === "inscrits"
+      ? await loadInactiveRevokeInfoFor(registeredData.clients.map((c) => c.id))
+      : new Map();
+
   // Vue Mails « Fiches » : dernier mail envoyé par fiche (indexé par ficheId).
   const lastMailByFicheId: Record<string, string | null> =
     currentTab === "fiches" && cardsData
@@ -393,6 +407,7 @@ export default async function EnvoyerMailsView({ searchParams }: EnvoyerMailsVie
             abandonedJobs={abandonedJobsData}
             inactiveJobs={inactiveJobsData}
             restockJobs={restockJobsData}
+            revokeInfo={revokeInfoData}
           />
           {view === "mails" && <NewsletterBulkBar templates={newsletterTemplates} />}
         </MailSelectionProvider>
@@ -688,6 +703,7 @@ function MailsView({
   abandonedJobs,
   inactiveJobs,
   restockJobs,
+  revokeInfo,
 }: {
   clients: RegisteredClient[];
   totalFiltered: number;
@@ -696,6 +712,7 @@ function MailsView({
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
   inactiveJobs: Map<string, InactiveClientJobInfo>;
   restockJobs: Map<string, RestockJobInfo>;
+  revokeInfo: Map<string, InactiveRevokeNextEvent>;
 }) {
   const MAIL_COLUMNS: { key: MailScenario; label: string; short: string }[] = [
     { key: "ABANDONED_CART", label: "Panier abandonné", short: "Panier" },
@@ -759,6 +776,7 @@ function MailsView({
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
                       const inactiveJob = col.key === "INACTIVE_CLIENT" ? inactiveJobs.get(c.id) : null;
                       const restockJob = col.key === "RESTOCK" ? restockJobs.get(c.id) : null;
+                      const revokeEvent = col.key === "INACTIVE_CLIENT" ? revokeInfo.get(c.id) : undefined;
                       return (
                         <td key={col.key} className="px-5 py-3.5 whitespace-nowrap">
                           {abandonedJob ? (
@@ -787,9 +805,18 @@ function MailsView({
                                 />
                               </div>
                             </div>
-                          ) : inactiveJob ? (
+                          ) : (inactiveJob || revokeEvent) ? (
                             <div className="space-y-1">
-                              {inactiveJob.nextStageAt &&
+                              {revokeEvent && (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-50 border border-red-200 text-red-800">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                                  <InactiveRevokeCountdown
+                                    type={revokeEvent.type}
+                                    nextAtIso={revokeEvent.nextAt.toISOString()}
+                                  />
+                                </div>
+                              )}
+                              {inactiveJob?.nextStageAt &&
                                 inactiveJob.nextStageIndex !== null && (
                                   <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-50 border border-violet-200 text-violet-800">
                                     <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
@@ -799,19 +826,21 @@ function MailsView({
                                     />
                                   </div>
                                 )}
-                              <div className="flex items-center gap-2">
-                                {inactiveJob.lastSent && (
-                                  <InactiveClientLastSent
-                                    stageIndex={inactiveJob.lastSent.stageIndex}
-                                    atIso={inactiveJob.lastSent.at.toISOString()}
-                                    stillExists={inactiveJob.lastSent.stillExists}
+                              {inactiveJob && (
+                                <div className="flex items-center gap-2">
+                                  {inactiveJob.lastSent && (
+                                    <InactiveClientLastSent
+                                      stageIndex={inactiveJob.lastSent.stageIndex}
+                                      atIso={inactiveJob.lastSent.at.toISOString()}
+                                      stillExists={inactiveJob.lastSent.stillExists}
+                                    />
+                                  )}
+                                  <InactiveClientResetButton
+                                    userId={c.id}
+                                    userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                   />
-                                )}
-                                <InactiveClientResetButton
-                                  userId={c.id}
-                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
-                                />
-                              </div>
+                                </div>
+                              )}
                             </div>
                           ) : restockJob ? (
                             <div className="space-y-1">
@@ -883,11 +912,16 @@ function MailsView({
                     {MAIL_COLUMNS.map((col) => {
                       const abandonedJob = col.key === "ABANDONED_CART" ? abandonedJobs.get(c.id) : null;
                       const inactiveJob = col.key === "INACTIVE_CLIENT" ? inactiveJobs.get(c.id) : null;
+                      const revokeEvent = col.key === "INACTIVE_CLIENT" ? revokeInfo.get(c.id) : undefined;
+                      // Priorité du ton : rouge (révocation imminente) > violet
+                      // (relance newsletter) > ambre (panier abandonné) > neutre.
                       const tone = abandonedJob
                         ? { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-800" }
-                        : inactiveJob
-                          ? { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-800" }
-                          : null;
+                        : revokeEvent
+                          ? { bg: "bg-red-50", border: "border-red-200", text: "text-red-800" }
+                          : inactiveJob
+                            ? { bg: "bg-violet-50", border: "border-violet-200", text: "text-violet-800" }
+                            : null;
                       return (
                         <div
                           key={col.key}
@@ -919,28 +953,36 @@ function MailsView({
                                 />
                               </div>
                             </div>
-                          ) : inactiveJob ? (
-                            <div className="mt-1.5 space-y-1">
-                              {inactiveJob.nextStageAt &&
+                          ) : (inactiveJob || revokeEvent) ? (
+                            <div className="mt-1.5 space-y-1.5">
+                              {revokeEvent && (
+                                <InactiveRevokeCountdown
+                                  type={revokeEvent.type}
+                                  nextAtIso={revokeEvent.nextAt.toISOString()}
+                                />
+                              )}
+                              {inactiveJob?.nextStageAt &&
                                 inactiveJob.nextStageIndex !== null && (
                                   <InactiveClientCountdown
                                     stageIndex={inactiveJob.nextStageIndex}
                                     nextAtIso={inactiveJob.nextStageAt.toISOString()}
                                   />
                                 )}
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {inactiveJob.lastSent && (
-                                  <InactiveClientLastSent
-                                    stageIndex={inactiveJob.lastSent.stageIndex}
-                                    atIso={inactiveJob.lastSent.at.toISOString()}
-                                    stillExists={inactiveJob.lastSent.stillExists}
+                              {inactiveJob && (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {inactiveJob.lastSent && (
+                                    <InactiveClientLastSent
+                                      stageIndex={inactiveJob.lastSent.stageIndex}
+                                      atIso={inactiveJob.lastSent.at.toISOString()}
+                                      stillExists={inactiveJob.lastSent.stillExists}
+                                    />
+                                  )}
+                                  <InactiveClientResetButton
+                                    userId={c.id}
+                                    userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
                                   />
-                                )}
-                                <InactiveClientResetButton
-                                  userId={c.id}
-                                  userLabel={`${c.firstName} ${c.lastName}`.trim() || c.company || c.email}
-                                />
-                              </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <p className="text-[13px] font-body text-text-muted/60 mt-0.5">—</p>
@@ -992,6 +1034,7 @@ function RegisteredPane({
   abandonedJobs,
   inactiveJobs,
   restockJobs,
+  revokeInfo,
 }: {
   clients: RegisteredClient[];
   stats: Map<string, ClientOrderStats>;
@@ -1008,6 +1051,7 @@ function RegisteredPane({
   abandonedJobs: Map<string, AbandonedCartJobInfo>;
   inactiveJobs: Map<string, InactiveClientJobInfo>;
   restockJobs: Map<string, RestockJobInfo>;
+  revokeInfo: Map<string, InactiveRevokeNextEvent>;
 }) {
   const ordersColumnActive = sort === "orders" || sort === "spent";
 
@@ -1099,6 +1143,7 @@ function RegisteredPane({
           abandonedJobs={abandonedJobs}
           inactiveJobs={inactiveJobs}
           restockJobs={restockJobs}
+          revokeInfo={revokeInfo}
         />
       ) : (
         <>

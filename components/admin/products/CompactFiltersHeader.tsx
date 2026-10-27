@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import { useFilterPending } from "./FilterPendingContext";
+import { formatTagName } from "@/lib/tag-display";
 
 interface CategoryOption { id: string; name: string; subCategories?: { id: string; name: string }[] }
 interface TagOption { id: string; name: string }
@@ -59,7 +60,7 @@ export default function CompactFiltersHeader({
     }
     return out;
   }, [categories]);
-  const tagLabels = useMemo(() => Object.fromEntries(tags.map((t) => [t.id, t.name])), [tags]);
+  const tagLabels = useMemo(() => Object.fromEntries(tags.map((t) => [t.id, formatTagName(t.name)])), [tags]);
   const compositionLabels = useMemo(() => Object.fromEntries(compositions.map((c) => [c.id, c.name])), [compositions]);
   const hsLabels = useMemo(() => Object.fromEntries(hsCodes.map((h) => [h.id, `${h.code} · ${h.label}`])), [hsCodes]);
 
@@ -163,6 +164,8 @@ export default function CompactFiltersHeader({
     }
     const bestSeller = p.get("bestSeller") ?? "";
     if (bestSeller === "1") out.push({ key: "best", label: "Best-sellers", remove: ["bestSeller"] });
+    const trending = p.get("trending") ?? "";
+    if (trending === "1") out.push({ key: "trending", label: "Tendance", remove: ["trending"] });
     const refresh = p.get("refresh") ?? "";
     const refreshLabel: Record<string, string> = {
       never: "Jamais rafraîchi",
@@ -182,8 +185,6 @@ export default function CompactFiltersHeader({
     if (sortLabel[sortVal]) {
       out.push({ key: "sort", label: sortLabel[sortVal], remove: ["sort"] });
     }
-    const locked = p.get("locked") ?? "";
-    if (locked === "1") out.push({ key: "locked", label: "Verrouillé", remove: ["locked"] });
     const syncRequired = p.get("syncRequired") ?? "";
     if (syncRequired === "1") out.push({ key: "sync", label: "Synchro nécessaire", remove: ["syncRequired"] });
     const missingImages = p.get("missingImages") ?? "";

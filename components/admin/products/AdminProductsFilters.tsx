@@ -9,6 +9,7 @@ import {
   loadFiltersToRestore,
   saveFilters as saveMemorizedFilters,
 } from "@/lib/admin-products-filter-memory";
+import { formatTagName } from "@/lib/tag-display";
 
 const PRESET_PER_PAGE = [20, 30, 50, 100];
 
@@ -78,7 +79,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   const urlSyncRequired = searchParams.get("syncRequired") ?? "";
   const urlPfsVerify = searchParams.get("pfsVerify") ?? "";
   const urlHsCodeId  = searchParams.get("hsCodeId")   ?? "";
-  const urlLocked    = searchParams.get("locked")     ?? "";
+  const urlTrending  = searchParams.get("trending")   ?? "";
   const urlPfsExportedAt        = searchParams.get("pfsExportedAt")        ?? "";
   const urlEfashionExportedAt   = searchParams.get("efashionExportedAt")   ?? "";
   const urlMicrostoreExportedAt = searchParams.get("microstoreExportedAt") ?? "";
@@ -152,7 +153,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
   }, [searchParams, router]);
 
   const localQ = localTerms.join(",");
-  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlPfsVerify || urlHsCodeId || urlLocked || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
+  const hasFilters = !!(urlQ || urlExactRef || urlCat || urlSubCat || urlTag || urlComposition || urlBestSeller || urlTrending || urlRefresh || urlStatus || urlMinPrice || urlMaxPrice || urlDateFrom || urlDateTo || urlStockBelow || urlMissingImages || urlPfsLink || urlAnkorsLink || urlEfashionLink || urlFaireLink || urlSyncRequired || urlPfsVerify || urlHsCodeId || urlPfsExportedAt || urlEfashionExportedAt || urlMicrostoreExportedAt || urlAnkorstoreExportedAt || urlFaireExportedAt);
   const hasLocalChanges = localQ !== urlQ || draft.trim().length > 0 || localMinPrice !== urlMinPrice || localMaxPrice !== urlMaxPrice || localDateFrom !== urlDateFrom || localDateTo !== urlDateTo || localStockBelow !== urlStockBelow;
 
   const [filtersOpenInternal, setFiltersOpen] = useState(hasFilters);
@@ -549,7 +550,7 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   onChange={(v) => navigate({ tag: v || null })}
                   options={[
                     { value: "", label: "Tous" },
-                    ...tags.map((t) => ({ value: t.id, label: t.name })),
+                    ...tags.map((t) => ({ value: t.id, label: formatTagName(t.name) })),
                   ]}
                   size="sm"
                   searchable
@@ -614,13 +615,13 @@ export default function AdminProductsFilters({ totalCount, categories, tags = []
                   searchable
                 />
               </FilterField>
-              <FilterField label="Verrouillage" active={!!urlLocked}>
+              <FilterField label="Tendance" active={!!urlTrending}>
                 <CustomSelect
-                  value={urlLocked}
-                  onChange={(v) => navigate({ locked: v || null })}
+                  value={urlTrending}
+                  onChange={(v) => navigate({ trending: v || null })}
                   options={[
                     { value: "", label: "Tous" },
-                    { value: "1", label: "Verrouillés uniquement" },
+                    { value: "1", label: "Tendance uniquement" },
                   ]}
                   size="sm"
                   searchable

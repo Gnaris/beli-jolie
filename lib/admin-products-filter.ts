@@ -49,6 +49,12 @@ export interface AdminProductsFilterParams {
   composition?: string;
   bestSeller?: string; // "1" | ""
   /**
+   * Filtre « Tendance uniquement » : ne retient que les produits avec
+   * `isTrending = true` (flamme rose dans la liste admin + carousel home BJ).
+   * "1" = filtre actif.
+   */
+  trending?: string; // "1" | ""
+  /**
    * Filtre « Importants seulement » (favoris admin). "1" = filtre actif.
    * Le marqueur `Product.important` est partagé entre tous les comptes admin.
    */
@@ -145,13 +151,6 @@ export interface AdminProductsFilterParams {
    *   - autre        = id du code SH (égalité stricte sur Product.hsCodeId)
    */
   hsCodeId?: string;
-  /**
-   * Filtre « Verrouillé » : ne retient que les produits avec le verrou manuel
-   * activé (Product.locked = true).
-   *   - "1" = filtre actif
-   *   - "" (ou absent) = pas de filtre
-   */
-  locked?: string;
   /**
    * Filtre « Résultat de vérification PFS » — cf. `lib/pfs-verify.ts` et la
    * pastille dans la colonne Produit. Ne s'applique qu'aux produits liés à PFS
@@ -374,6 +373,10 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
     where.isBestSeller = true;
   }
 
+  if (params.trending === "1") {
+    where.isTrending = true;
+  }
+
   if (params.important === "1") {
     where.important = true;
   }
@@ -554,10 +557,6 @@ export function buildAdminProductsWhere(params: AdminProductsFilterParams): Pris
       ...((where.AND as Prisma.ProductWhereInput[] | undefined) ?? []),
       ...exportClauses,
     ];
-  }
-
-  if (params.locked === "1") {
-    where.locked = true;
   }
 
   // Filtre statut de vérification PFS. Toujours restreint aux produits liés

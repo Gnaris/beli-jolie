@@ -35,7 +35,6 @@ import {
   type MarketplaceCandidates,
 } from "@/lib/marketplace-propagation";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { ProductBestSellerToggle } from "@/components/admin/products/ProductBestSellerToggle";
 import { ProductTrendingToggle } from "@/components/admin/products/ProductTrendingToggle";
@@ -338,6 +337,38 @@ function DisabledMarketplaceBadge({
         </span>
       </span>
     </Tooltip>
+  );
+}
+
+// Petit libellé affiché SOUS un badge marketplace : prix de vente final
+// (minPrice BJ majoré selon les réglages Paramètres > Marketplaces) + l'écart
+// en pourcentage par rapport au prix BJ, pour que la cliente voie en un
+// coup d'œil ce que paie l'acheteur sur chaque plateforme.
+// Prix et pourcentage sont empilés verticalement en très petite police pour
+// rester discrets sous le badge.
+//   - 0 % → on affiche juste le prix (pas de ligne %)
+//   - > 0 % → `+X%` (texte emerald, hausse)
+//   - < 0 % → `-X%` (texte rose, baisse)
+// `price`/`basePrice` null → on n'affiche rien (ex. brouillon sans prix).
+function MarketplacePriceLine({
+  price,
+  basePrice,
+}: {
+  price: number | null | undefined;
+  basePrice: number | null | undefined;
+}) {
+  if (price == null || basePrice == null || basePrice <= 0) return null;
+  const diff = Math.round(((price / basePrice) - 1) * 100);
+  const sign = diff > 0 ? "+" : "";
+  const toneClass = diff > 0 ? "text-emerald-700" : diff < 0 ? "text-rose-700" : "text-text-muted";
+  return (
+    <span
+      className="mt-0.5 inline-flex flex-col items-center text-[8.5px] font-body text-text-muted leading-tight tabular-nums whitespace-nowrap"
+      title={`Prix de vente marketplace calculé depuis ${basePrice.toFixed(2)}€ (prix boutique)`}
+    >
+      <span className="font-medium">{price.toFixed(2)}€</span>
+      {diff !== 0 && <span className={toneClass}>{sign}{diff}%</span>}
+    </span>
   );
 }
 
@@ -1205,12 +1236,24 @@ export interface AdminProduct {
   /** Remise fiche produit (Product.discountPercent) — 0..100. Sert à afficher
    *  le prix barré + prix rouge sur la ligne admin quand le produit est remisé. */
   discountPercent: number | null;
+  /** Prix de vente par marketplace, calculé côté serveur depuis le minPrice
+   *  BJ (plus petit unitPrice toutes couleurs confondues) + les majorations
+   *  définies dans Paramètres > Marketplaces. Pour Ankor/Faire/Orderchamp on
+   *  renvoie le prix de GROS (ce que paie l'acheteur pro, pas le MSRP). Null
+   *  si le produit n'a pas de prix (brouillon sans unitPrice renseigné). */
+  marketplacePrices: {
+    basePrice: number;
+    pfs: number;
+    efashion: number;
+    microstore: number;
+    ankorstore: number;
+    faire: number;
+    orderchamp: number;
+  } | null;
   /** Champs manquants dérivés côté serveur (catégorie, description trop courte,
    *  compo, pays, saison, prix, poids, stock, tailles). Rendus en badges ambre
    *  sous le badge de statut. [] pour ARCHIVED. */
   missingFields: MissingField[];
-  /** Verrou manuel : si true, désactive le bouton « Rafraîchir ». */
-  locked: boolean;
   /** Marqueur « Important » (favori admin partagé) — étoile visible sur la ligne. */
   important: boolean;
   /** Best-seller : étoile dorée visible sur la ligne, carousel home. */
@@ -3749,7 +3792,6 @@ function ProductRow({
                 )}
                 <span className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                   <ProductImportantToggle productId={product.id} initialImportant={product.important} variant="icon" />
-                  <ProductLockToggle productId={product.id} initialLocked={product.locked} variant="icon" />
                   <ProductBestSellerToggle productId={product.id} initialBestSeller={product.isBestSeller} variant="icon" />
                   <ProductTrendingToggle productId={product.id} initialTrending={product.isTrending} variant="icon" />
                 </span>
@@ -3853,7 +3895,12 @@ function ProductRow({
                 {hasMicrostoreConfig && (
                   <MpDot
                     label="MC"
-                    active={!!product.microstoreLastPushedAt}
+                    // On passe par microstoreBadgeState.online plutôt que
+                    // product.microstoreLastPushedAt pour profiter du sticky
+                    // green (justPublishedOk + fenêtre clientRecent) et éviter
+                    // le flash rouge entre la fin du push et le router.refresh
+                    // qui rapatrie la nouvelle date côté serveur.
+                    active={microstoreBadgeState.online}
                     syncRequired={product.microstoreSyncRequired && !pendingMicrostoreEnqueue}
                     disabled={!product.microstoreEnabled}
                     busy={isMicrostorePublishing}
@@ -3905,100 +3952,140 @@ function ProductRow({
               </span>
             </div>
           ) : (
-            <div className="flex flex-row gap-1 items-center flex-nowrap">
-              <MarketplaceBadge
-                published={pfsBadgeState.online}
-                publishing={isPfsPublishing}
-                syncRequired={pfsBadgeState.syncRequired && !pendingPfsEnqueue}
-                lastExportedAt={product.pfsLastExportedAt}
-                onActionClick={
-                  pfsOperational && !pfsBadgeState.online && !isPfsPublishing
-                    ? () => setActionModalPfs(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncPfs}
-                onCancelSyncRequired={() => handleCancelSyncRequired("pfs", "Paris Fashion Shop")}
-                disabledForProduct={pfsDisabledOverall}
-              />
-              {showEfashion ? (
-                <EfashionBadge
-                  linked={efashionBadgeState.online}
-                  publishing={isEfashionPublishing}
-                  syncRequired={efashionBadgeState.syncRequired && !pendingEfashionEnqueue}
-                  lastExportedAt={product.efashionLastExportedAt}
+            <div className="flex flex-row gap-1 items-start flex-nowrap">
+              <span className="inline-flex flex-col items-center gap-0.5">
+                <MarketplaceBadge
+                  published={pfsBadgeState.online}
+                  publishing={isPfsPublishing}
+                  syncRequired={pfsBadgeState.syncRequired && !pendingPfsEnqueue}
+                  lastExportedAt={product.pfsLastExportedAt}
                   onActionClick={
-                    efashionOperational && !efashionBadgeState.online && !isEfashionPublishing
-                      ? () => setActionModalEf(true)
+                    pfsOperational && !pfsBadgeState.online && !isPfsPublishing
+                      ? () => setActionModalPfs(true)
                       : undefined
                   }
-                  onSyncClick={handleSyncEfashion}
-                  onCancelSyncRequired={() => handleCancelSyncRequired("efashion", "eFashion Paris")}
-                  disabledForProduct={efashionDisabledOverall}
-                  shootingPending={efashionShootingPending}
-                  onShootingClick={() => openRailWidget("shooting")}
+                  onSyncClick={handleSyncPfs}
+                  onCancelSyncRequired={() => handleCancelSyncRequired("pfs", "Paris Fashion Shop")}
+                  disabledForProduct={pfsDisabledOverall}
                 />
-              ) : (
-                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
-                  EF
-                </span>
-              )}
-              <AnkorstoreBadge
-                published={ankorstoreBadgeState.online}
-                publishing={isAnkorstorePublishing}
-                syncRequired={ankorstoreBadgeState.syncRequired && !pendingAnkorstoreEnqueue}
-                lastExportedAt={product.ankorstoreLastExportedAt}
-                onActionClick={
-                  ankorstoreOperational && !ankorstoreBadgeState.online && !isAnkorstorePublishing
-                    ? () => setActionModalAk(true)
-                    : undefined
-                }
-                onSyncClick={handleSyncAnkorstore}
-                onCancelSyncRequired={() => handleCancelSyncRequired("ankorstore", "Ankorstore")}
-                disabledForProduct={ankorsDisabledOverall}
-              />
-              {showFaire ? (
-                <FaireBadge
-                  published={faireBadgeState.online}
-                  publishing={isFairePublishing}
-                  syncRequired={faireBadgeState.syncRequired && !pendingFaireEnqueue}
-                  lastExportedAt={product.faireLastExportedAt}
+                <MarketplacePriceLine
+                  price={product.marketplacePrices?.pfs}
+                  basePrice={product.marketplacePrices?.basePrice}
+                />
+              </span>
+              <span className="inline-flex flex-col items-center gap-0.5">
+                {showEfashion ? (
+                  <EfashionBadge
+                    linked={efashionBadgeState.online}
+                    publishing={isEfashionPublishing}
+                    syncRequired={efashionBadgeState.syncRequired && !pendingEfashionEnqueue}
+                    lastExportedAt={product.efashionLastExportedAt}
+                    onActionClick={
+                      efashionOperational && !efashionBadgeState.online && !isEfashionPublishing
+                        ? () => setActionModalEf(true)
+                        : undefined
+                    }
+                    onSyncClick={handleSyncEfashion}
+                    onCancelSyncRequired={() => handleCancelSyncRequired("efashion", "eFashion Paris")}
+                    disabledForProduct={efashionDisabledOverall}
+                    shootingPending={efashionShootingPending}
+                    onShootingClick={() => openRailWidget("shooting")}
+                  />
+                ) : (
+                  <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
+                    EF
+                  </span>
+                )}
+                {showEfashion && (
+                  <MarketplacePriceLine
+                    price={product.marketplacePrices?.efashion}
+                    basePrice={product.marketplacePrices?.basePrice}
+                  />
+                )}
+              </span>
+              <span className="inline-flex flex-col items-center gap-0.5">
+                <AnkorstoreBadge
+                  published={ankorstoreBadgeState.online}
+                  publishing={isAnkorstorePublishing}
+                  syncRequired={ankorstoreBadgeState.syncRequired && !pendingAnkorstoreEnqueue}
+                  lastExportedAt={product.ankorstoreLastExportedAt}
                   onActionClick={
-                    faireOperational && !faireBadgeState.online && !isFairePublishing
-                      ? () => setActionModalFaire(true)
+                    ankorstoreOperational && !ankorstoreBadgeState.online && !isAnkorstorePublishing
+                      ? () => setActionModalAk(true)
                       : undefined
                   }
-                  onSyncClick={handleSyncFaire}
-                  onCancelSyncRequired={() => handleCancelSyncRequired("faire", "Faire")}
-                  disabledForProduct={faireDisabledOverall}
+                  onSyncClick={handleSyncAnkorstore}
+                  onCancelSyncRequired={() => handleCancelSyncRequired("ankorstore", "Ankorstore")}
+                  disabledForProduct={ankorsDisabledOverall}
                 />
-              ) : (
-                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
-                  Faire
-                </span>
-              )}
-              {showOrderchamp ? (
-                <OrderchampBadge
-                  published={orderchampBadgeState.online}
-                  publishing={isOrderchampPublishing}
-                  syncRequired={orderchampBadgeState.syncRequired && !pendingOrderchampEnqueue}
-                  lastExportedAt={product.orderchampLastExportedAt}
-                  onActionClick={
-                    orderchampOperational && !orderchampBadgeState.online && !isOrderchampPublishing
-                      ? () => setActionModalOrderchamp(true)
-                      : undefined
-                  }
-                  onSyncClick={handleSyncOrderchamp}
-                  onCancelSyncRequired={() => handleCancelSyncRequired("orderchamp", "Orderchamp")}
-                  disabledForProduct={orderchampDisabledOverall}
+                <MarketplacePriceLine
+                  price={product.marketplacePrices?.ankorstore}
+                  basePrice={product.marketplacePrices?.basePrice}
                 />
-              ) : (
-                <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
-                  OC
-                </span>
-              )}
+              </span>
+              <span className="inline-flex flex-col items-center gap-0.5">
+                {showFaire ? (
+                  <FaireBadge
+                    published={faireBadgeState.online}
+                    publishing={isFairePublishing}
+                    syncRequired={faireBadgeState.syncRequired && !pendingFaireEnqueue}
+                    lastExportedAt={product.faireLastExportedAt}
+                    onActionClick={
+                      faireOperational && !faireBadgeState.online && !isFairePublishing
+                        ? () => setActionModalFaire(true)
+                        : undefined
+                    }
+                    onSyncClick={handleSyncFaire}
+                    onCancelSyncRequired={() => handleCancelSyncRequired("faire", "Faire")}
+                    disabledForProduct={faireDisabledOverall}
+                  />
+                ) : (
+                  <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11px] font-semibold bg-bg-secondary text-text-muted border border-border">
+                    Faire
+                  </span>
+                )}
+                {showFaire && (
+                  <MarketplacePriceLine
+                    price={product.marketplacePrices?.faire}
+                    basePrice={product.marketplacePrices?.basePrice}
+                  />
+                )}
+              </span>
+              <span className="inline-flex flex-col items-center gap-0.5">
+                {showOrderchamp ? (
+                  <OrderchampBadge
+                    published={orderchampBadgeState.online}
+                    publishing={isOrderchampPublishing}
+                    syncRequired={orderchampBadgeState.syncRequired && !pendingOrderchampEnqueue}
+                    lastExportedAt={product.orderchampLastExportedAt}
+                    onActionClick={
+                      orderchampOperational && !orderchampBadgeState.online && !isOrderchampPublishing
+                        ? () => setActionModalOrderchamp(true)
+                        : undefined
+                    }
+                    onSyncClick={handleSyncOrderchamp}
+                    onCancelSyncRequired={() => handleCancelSyncRequired("orderchamp", "Orderchamp")}
+                    disabledForProduct={orderchampDisabledOverall}
+                  />
+                ) : (
+                  <span className="inline-flex items-center justify-center w-[62px] h-[36px] rounded-md text-[11.5px] font-semibold bg-bg-secondary text-text-muted border border-border">
+                    OC
+                  </span>
+                )}
+                {showOrderchamp && (
+                  <MarketplacePriceLine
+                    price={product.marketplacePrices?.orderchamp}
+                    basePrice={product.marketplacePrices?.basePrice}
+                  />
+                )}
+              </span>
+              <span className="inline-flex flex-col items-center gap-0.5">
               <MicrostoreBadge
                 configured={hasMicrostoreConfig}
-                published={!!product.microstoreLastPushedAt}
+                // Idem MpDot : microstoreBadgeState.online porte le sticky
+                // green après une sync réussie et évite le passage éclair
+                // par le rouge « non publié » quand le router.refresh traîne.
+                published={microstoreBadgeState.online}
                 publishing={isMicrostorePublishing}
                 syncRequired={effectiveMicrostoreSyncRequired && !pendingMicrostoreEnqueue}
                 onSyncClick={isMicrostorePublishing || !microstoreEnabled ? undefined : handleSyncMicrostore}
@@ -4011,6 +4098,11 @@ function ProductRow({
                 disabledForProduct={!product.microstoreEnabled}
                 disabledGlobally={!microstoreEnabled}
               />
+              <MarketplacePriceLine
+                price={product.marketplacePrices?.microstore}
+                basePrice={product.marketplacePrices?.basePrice}
+              />
+              </span>
             </div>
           )}
         </td>
@@ -4201,7 +4293,6 @@ function ProductRow({
                       status: product.status,
                       isIncomplete: product.isIncomplete,
                       wasImported: !!product.pfsProductId,
-                      locked: product.locked,
                       orderchampProductId: product.orderchampProductId,
                     });
                   } finally {
@@ -6836,7 +6927,6 @@ export default function AdminProductsTable({
         status: p.status,
         isIncomplete: p.isIncomplete,
         wasImported: !!p.pfsProductId,
-        locked: p.locked,
         orderchampProductId: p.orderchampProductId,
       }));
     await refreshBulk(selectedProductsPayload);
@@ -6895,7 +6985,6 @@ export default function AdminProductsTable({
           name: p.name,
           status: p.status,
           isIncomplete: p.isIncomplete,
-          locked: p.locked,
           firstImage: p.firstImage,
           pfsProductId: p.pfsProductId,
           ankorsProductId: p.ankorsProductId,

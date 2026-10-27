@@ -85,7 +85,7 @@ export interface CollectionLinkOption {
 export async function listCollectionsForLink(): Promise<CollectionLinkOption[]> {
   const { tenant } = await requireAdmin();
   const rows = await prisma.collection.findMany({
-    where: { tenantId: tenant.id, slug: { not: null } },
+    where: { tenantId: tenant.id, slug: { not: null }, visible: true },
     orderBy: { name: "asc" },
     select: { id: true, name: true, slug: true },
   });

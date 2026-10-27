@@ -995,48 +995,13 @@ html:not(.admin-dark)::-webkit-scrollbar-corner { background: transparent; }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* Transition du thème admin via l'API View Transitions.
-   `startViewTransition` (voir AdminSidebarThemeToggle) prend un snapshot
-   avant/après du DOM et crossfade entre les deux — c'est le navigateur
-   qui fait le travail en GPU → zéro freeze.
-   On ne met PLUS de transition CSS globale sur `*` : ça causait un gros
-   recalcul à chaque bascule (visible sur les grosses pages). */
-/* Balayage diagonal : le nouveau thème est révélé par un triangle qui
-   grossit depuis le coin haut-gauche vers le coin bas-droit. L'ancien
-   snapshot reste intact dessous — la nouvelle couche l'écrase comme
-   une vague. Durée volontairement un chouïa plus longue qu'un fade
-   pour qu'on voie bien le mouvement, mais sans ralentir l'usage. */
-::view-transition-old(admin-theme),
-::view-transition-new(admin-theme) {
-  animation-duration: 650ms;
-  animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
-  animation-fill-mode: forwards;
-  mix-blend-mode: normal;
-}
-::view-transition-old(admin-theme) {
-  animation-name: adminThemeWaveHold;
-}
-::view-transition-new(admin-theme) {
-  animation-name: adminThemeWaveDiagonal;
-}
-@keyframes adminThemeWaveHold {
-  from, to { opacity: 1; }
-}
-@keyframes adminThemeWaveDiagonal {
-  from {
-    clip-path: polygon(0% 0%, 0% 0%, 0% 0%);
-  }
-  to {
-    /* 220% sur chaque axe : triangle qui déborde largement du viewport
-       pour garantir une couverture complète même sur écrans très larges
-       ou très hauts (ratio diagonal variable). */
-    clip-path: polygon(0% 0%, 220% 0%, 0% 220%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(admin-theme),
-  ::view-transition-new(admin-theme) { animation: none !important; }
-}
+/* La bascule dark/light admin est pilotée par un overlay DOM uni plein
+   écran (cf. lib/admin-theme-transition.ts) et non plus par l'API View
+   Transitions : le snapshot bitmap du viewport ramait dès que la page
+   était chargée (dashboard, grille produits avec auroras/blur/shadows).
+   Avec un simple rectangle fade, le poids du contenu n'intervient plus.
+   `prefers-reduced-motion` est géré directement côté JS en court-
+   circuitant l'overlay. */
 
 @keyframes pfsAppear {
   0% { opacity: 0; transform: scale(0.92) translateY(12px); }

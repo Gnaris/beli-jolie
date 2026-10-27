@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Session } from "next-auth";
 import { getVerifiedBadgeState } from "@/lib/verified-badge-state";
 
-function makeSession(role: "CLIENT" | "ADMIN", status: "PENDING" | "APPROVED" | "REJECTED"): Session {
+function makeSession(role: "CLIENT" | "ADMIN", status: "PENDING" | "APPROVED" | "REJECTED" | "DEACTIVATED"): Session {
   return {
     user: {
       id: "u1",
@@ -40,10 +40,17 @@ describe("getVerifiedBadgeState", () => {
     });
   });
 
-  it("affiche 'Révoqué' pour un client REJECTED (compte désactivé)", () => {
+  it("affiche 'Révoqué' pour un client REJECTED (inscription refusée)", () => {
     expect(getVerifiedBadgeState(makeSession("CLIENT", "REJECTED"))).toEqual({
       show: true,
       variant: "revoked",
+    });
+  });
+
+  it("affiche 'Désactivé' pour un client DEACTIVATED (compte en pause pour inactivité)", () => {
+    expect(getVerifiedBadgeState(makeSession("CLIENT", "DEACTIVATED"))).toEqual({
+      show: true,
+      variant: "deactivated",
     });
   });
 });

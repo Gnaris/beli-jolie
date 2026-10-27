@@ -278,6 +278,7 @@ export default async function HomePage() {
   // le nombre affiché divergeait entre home (frais) et /inscription (caché).
   const [allCollections, productCount, allCategories] = await Promise.all([
     prisma.collection.findMany({
+      where: { visible: true },
       orderBy: { createdAt: "desc" },
       select:  { id: true, slug: true, name: true, image: true, _count: { select: { products: { where: { product: { status: "ONLINE" } } } } } },
     }),

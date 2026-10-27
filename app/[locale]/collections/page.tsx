@@ -36,7 +36,8 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
     getCurrentTenantSlug(),
   ]);
   const collections = await prisma.collection.findMany({
-    orderBy: { createdAt: "desc" },
+    where: { visible: true },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
     include: {
       translations: {
         where: { locale },
@@ -172,7 +173,7 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
             ))}
           </div>
 
-          {/* Grille 2 : collections personnalisées (image seule, pas de nom ni compteur) */}
+          {/* Grille 2 : collections personnalisées */}
           {customCollections.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-20">
               {customCollections.map((col) => (
@@ -200,6 +201,15 @@ export default async function CollectionsPage({ params }: { params: Promise<{ lo
                         </svg>
                       </div>
                     )}
+                  </div>
+
+                  <div className="px-4 py-3 flex items-center justify-between">
+                    <h2 className="font-heading font-semibold text-text-primary text-base group-hover:text-accent transition-colors">
+                      {col.name}
+                    </h2>
+                    <svg className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
                   </div>
                 </Link>
               ))}

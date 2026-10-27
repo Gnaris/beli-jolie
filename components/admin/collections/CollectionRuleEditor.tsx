@@ -11,6 +11,7 @@ import {
   previewRuleMatchCount,
   reincludeProductInCollection,
 } from "@/app/actions/admin/collections";
+import { formatTagName } from "@/lib/tag-display";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -309,7 +310,7 @@ export default function CollectionRuleEditor({
       <MultiPicker
         label="Mots-clés"
         helper="Le produit doit avoir au moins un de ces mots-clés."
-        options={tags}
+        options={tags.map((t) => ({ id: t.id, name: formatTagName(t.name) }))}
         selected={state.tagIds}
         placeholder="Ajouter un mot-clé…"
         onAdd={(id) => update("tagIds", [...state.tagIds, id])}

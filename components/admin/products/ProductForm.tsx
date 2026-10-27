@@ -46,6 +46,7 @@ import {
 import { computeProductMarketplaceAvailability } from "@/lib/product-marketplace-availability";
 import { resolvePrimaryColorId } from "@/lib/product-primary-color";
 import { shouldProposeMicrostoreOnFormSave } from "@/lib/microstore-propagation-eligibility";
+import { formatTagName } from "@/lib/tag-display";
 
 const DESCRIPTION_MIN_CHARS = 30;
 import type { MarketplaceId } from "@/lib/product-events";
@@ -385,9 +386,9 @@ function TagsDropdown({
             <span key={name}
               className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-bg-dark text-text-inverse font-body"
             >
-              {name}
+              {formatTagName(name)}
               <button type="button" onClick={() => removeTag(name)}
-                className="ml-0.5 p-0.5 min-w-[20px] min-h-[20px] flex items-center justify-center hover:text-red-300 transition-colors" aria-label={`Retirer ${name}`}
+                className="ml-0.5 p-0.5 min-w-[20px] min-h-[20px] flex items-center justify-center hover:text-red-300 transition-colors" aria-label={`Retirer ${formatTagName(name)}`}
               >×</button>
             </span>
           ))}
@@ -530,7 +531,7 @@ function TagsDropdown({
                             selected ? "font-semibold text-text-primary" : "text-text-secondary"
                           }`}
                         >
-                          {t.name}
+                          {formatTagName(t.name)}
                         </span>
                       </div>
                       {selected && (

@@ -36,6 +36,21 @@ export const EMAIL_SCENARIOS = {
     label: "Compte désactivé",
     category: "compte",
   },
+  ACCOUNT_INACTIVITY_WARNING: {
+    key: "ACCOUNT_INACTIVITY_WARNING",
+    label: "Avertissement avant désactivation (inactivité)",
+    category: "compte",
+  },
+  ACCOUNT_INACTIVITY_REVOKED: {
+    key: "ACCOUNT_INACTIVITY_REVOKED",
+    label: "Compte désactivé pour inactivité",
+    category: "compte",
+  },
+  ACCOUNT_REACTIVATED_PROBATION: {
+    key: "ACCOUNT_REACTIVATED_PROBATION",
+    label: "Compte réactivé (avec probation)",
+    category: "compte",
+  },
   EMAIL_CHANGE_CONFIRM: {
     key: "EMAIL_CHANGE_CONFIRM",
     label: "Confirmation nouvel email",

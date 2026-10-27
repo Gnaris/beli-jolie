@@ -3,12 +3,14 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import DeleteCollectionButton from "@/components/admin/collections/DeleteCollectionButton";
 import CollectionsTranslateAll from "@/components/admin/collections/CollectionsTranslateAll";
+import CollectionVisibilityToggle from "@/components/admin/collections/CollectionVisibilityToggle";
+import CollectionOrderInput from "@/components/admin/collections/CollectionOrderInput";
 
 export const metadata: Metadata = { title: "Collections — Admin" };
 
 export default async function AdminCollectionsPage() {
   const collections = await prisma.collection.findMany({
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
     include: {
       _count: { select: { products: true } },
       translations: true,
@@ -81,6 +83,10 @@ export default async function AdminCollectionsPage() {
             >
               {/* Image */}
               <div className="relative aspect-[4/3] overflow-hidden bg-bg-secondary">
+                {/* Voile grisé si collection masquée (sauf au survol pour laisser voir) */}
+                {!col.visible && (
+                  <div className="absolute inset-0 z-[1] bg-white/60 pointer-events-none transition-opacity group-hover:opacity-30" />
+                )}
                 {col.image ? (
                   <>
                     <img
@@ -123,8 +129,14 @@ export default async function AdminCollectionsPage() {
                   </span>
                 </div>
 
-                {/* Bouton supprimer */}
-                <div className="flex items-center justify-end">
+                {/* Ordre d'affichage + toggle visibilité + bouton supprimer */}
+                <div className="flex items-center justify-between gap-2">
+                  <CollectionOrderInput id={col.id} initialOrder={col.displayOrder} />
+                  <CollectionVisibilityToggle
+                    id={col.id}
+                    name={col.name}
+                    initialVisible={col.visible}
+                  />
                   <DeleteCollectionButton id={col.id} name={col.name} />
                 </div>
               </div>

@@ -1141,10 +1141,12 @@ function RegisteredPane({
                           <span className={`badge ${
                             c.status === "APPROVED" ? "badge-success" :
                             c.status === "PENDING" ? "badge-warning" :
+                            c.status === "DEACTIVATED" ? "badge-neutral" :
                             "badge-error"
                           }`}>
                             {c.status === "APPROVED" ? "Approuvé" :
                              c.status === "PENDING" ? "En attente" :
+                             c.status === "DEACTIVATED" ? "Désactivé" :
                              "Rejeté"}
                           </span>
                         </td>
@@ -1272,10 +1274,12 @@ function RegisteredPane({
                         <span className={`badge ${
                           c.status === "APPROVED" ? "badge-success" :
                           c.status === "PENDING" ? "badge-warning" :
+                          c.status === "DEACTIVATED" ? "badge-neutral" :
                           "badge-error"
                         } shrink-0`}>
                           {c.status === "APPROVED" ? "Approuvé" :
                            c.status === "PENDING" ? "En attente" :
+                           c.status === "DEACTIVATED" ? "Désactivé" :
                            "Rejeté"}
                         </span>
                       </div>

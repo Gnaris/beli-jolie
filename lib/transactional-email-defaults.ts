@@ -152,6 +152,116 @@ export const TRANSACTIONAL_DEFAULTS: Record<TransactionalScenarioKey, Transactio
 </div>`,
   },
 
+  ACCOUNT_INACTIVITY_WARNING: {
+    subject: "Vous nous manquez, {firstName} — votre accès pro {shopName}",
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+  <div style="background:#F59E0B;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <div style="font-size:36px;margin-bottom:8px;">👋</div>
+    <h2 style="margin:0;font-size:20px;">Vous nous manquez</h2>
+  </div>
+  <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+    <p style="font-size:15px;line-height:1.6;">
+      Bonjour <strong>{firstName}</strong>,
+    </p>
+    <p style="font-size:15px;line-height:1.6;">
+      Cela fait maintenant <strong>{daysInactive} jours</strong> que nous n'avons pas eu le plaisir de préparer une commande pour vous sur {shopName}.
+    </p>
+    <div style="background:#FEF3C7;border-left:4px solid #F59E0B;padding:14px 18px;margin:20px 0;border-radius:4px;">
+      <p style="margin:0;color:#78350F;font-size:14px;line-height:1.5;">
+        Si vous ne passez pas de commande dans les <strong>{graceDays} prochains jours</strong>, votre compte professionnel sera automatiquement mis en pause. Vous pourrez toujours vous connecter, mais les tarifs pro ne seront plus visibles tant qu'un administrateur ne vous aura pas réactivé.
+      </p>
+    </div>
+    <p style="font-size:15px;line-height:1.6;">
+      C'est le bon moment pour venir redécouvrir nos nouveautés — nous serions ravis de vous retrouver.
+    </p>
+    <div style="text-align:center;margin-top:24px;">
+      <a href="{catalogUrl}" style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+        Voir le catalogue →
+      </a>
+    </div>
+  </div>
+  <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+    {shopName} — Email automatique, ne pas répondre.
+  </p>
+</div>`,
+  },
+
+  ACCOUNT_REACTIVATED_PROBATION: {
+    subject: "Votre compte est réactivé — {shopName}",
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+  <div style="background:#16A34A;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <div style="font-size:36px;margin-bottom:8px;">🎉</div>
+    <h2 style="margin:0;font-size:20px;">Votre compte est réactivé</h2>
+  </div>
+  <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+    <p style="font-size:15px;line-height:1.6;">
+      Bonjour <strong>{firstName}</strong>,
+    </p>
+    <p style="font-size:15px;line-height:1.6;">
+      Bonne nouvelle : votre compte professionnel sur {shopName} vient d'être
+      réactivé. Vous retrouvez l'accès complet au catalogue, aux tarifs pro et
+      à la commande.
+    </p>
+    <div style="background:#FEF3C7;border-left:4px solid #F59E0B;padding:14px 18px;margin:20px 0;border-radius:4px;">
+      <p style="margin:0;color:#78350F;font-size:14px;line-height:1.5;">
+        <strong>Petit rappel :</strong> pour garder votre compte actif, pensez
+        à passer une commande dans les <strong>{probationDays} prochains
+        jours</strong>. Sans commande d'ici là, votre compte sera à nouveau
+        mis en pause automatiquement.
+      </p>
+    </div>
+    <div style="text-align:center;margin-top:24px;">
+      <a href="{catalogUrl}" style="background:#16A34A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+        Voir le catalogue →
+      </a>
+    </div>
+    <p style="margin-top:24px;font-size:13px;color:#6B6B6B;text-align:center;">À très vite sur {shopName}.</p>
+  </div>
+  <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+    {shopName} — Email automatique, ne pas répondre.
+  </p>
+</div>`,
+  },
+
+  ACCOUNT_INACTIVITY_REVOKED: {
+    subject: "Votre compte a été mis en pause — {shopName}",
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1A1A1A;">
+  <div style="background:#64748B;color:#fff;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+    <div style="font-size:36px;margin-bottom:8px;">⏸️</div>
+    <h2 style="margin:0;font-size:20px;">Votre compte a été mis en pause</h2>
+  </div>
+  <div style="background:#FFFFFF;padding:24px;border:1px solid #E5E5E5;border-top:none;">
+    <p style="font-size:15px;line-height:1.6;">
+      Bonjour <strong>{firstName}</strong>,
+    </p>
+    <p style="font-size:15px;line-height:1.6;">
+      Après <strong>{daysInactive} jours</strong> sans commande, votre compte professionnel sur {shopName} a été mis en pause.
+    </p>
+    <div style="background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:16px 18px;margin:20px 0;">
+      <p style="margin:0 0 8px;color:#1E293B;font-size:14px;line-height:1.6;">
+        <strong>Ce que cela change :</strong>
+      </p>
+      <ul style="margin:0;padding-left:20px;color:#334155;font-size:14px;line-height:1.7;">
+        <li>Vous pouvez toujours vous connecter et parcourir le site</li>
+        <li>Les tarifs pro et le bouton de commande ne sont plus visibles</li>
+        <li>Pour réactiver votre compte, il suffit de nous contacter — un administrateur le rouvrira rapidement</li>
+      </ul>
+    </div>
+    <p style="font-size:15px;line-height:1.6;">
+      Si vous souhaitez retrouver votre accès complet, contactez notre service client via le chat en ligne ou par email à <a href="mailto:{shopEmail}" style="color:#1A1A1A;">{shopEmail}</a>.
+    </p>
+    <div style="text-align:center;margin-top:24px;">
+      <a href="{supportUrl}" style="background:#1A1A1A;color:#ffffff;padding:12px 28px;text-decoration:none;font-weight:bold;display:inline-block;border-radius:8px;">
+        Contacter le service client →
+      </a>
+    </div>
+  </div>
+  <p style="color:#9CA3AF;font-size:11px;padding:12px 24px;text-align:center;">
+    {shopName} — Email automatique, ne pas répondre.
+  </p>
+</div>`,
+  },
+
   // ─────────────────────────────────────────────
   // CLIENT — commandes
   // Les 5 statuts partagent la même ossature (header coloré + items + totaux)

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { formatTagName } from "@/lib/tag-display";
 
 export interface BulkTagsOption {
   id: string;
@@ -155,7 +156,7 @@ export default function BulkTagsModal({
                         : "bg-bg-primary text-text-primary border-border hover:border-bg-dark/40"
                     }`}
                   >
-                    {t.name}
+                    {formatTagName(t.name)}
                   </button>
                 );
               })}

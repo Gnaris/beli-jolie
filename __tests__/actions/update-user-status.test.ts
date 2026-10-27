@@ -101,6 +101,50 @@ describe("updateUserStatus — emails de validation/refus (P1-02)", () => {
     expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
   });
 
+  it("envoie l'email de désactivation + pose deactivatedForInactivityAt sur APPROVED → DEACTIVATED (désactivation manuelle)", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      ...baseClient,
+      status: "APPROVED",
+    });
+
+    const result = await updateUserStatus("user-1", "DEACTIVATED");
+
+    expect(result).toEqual({ success: true });
+    expect(mockNotifications.notifyClientAccountRevoked).toHaveBeenCalledWith({
+      email: "client@test.fr",
+      firstName: "Marie",
+    });
+    expect(mockNotifications.notifyClientAccountRejected).not.toHaveBeenCalled();
+    expect(mockNotifications.notifyClientAccountApproved).not.toHaveBeenCalled();
+    // Vérifie que l'update pose bien deactivatedForInactivityAt + clear probationUntil.
+    expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(updateArgs.data.status).toBe("DEACTIVATED");
+    expect(updateArgs.data.deactivatedForInactivityAt).toBeInstanceOf(Date);
+    expect(updateArgs.data.probationUntil).toBeNull();
+  });
+
+  it("clear les champs d'inactivité quand on remet un client DEACTIVATED en APPROVED (sécurité pour futurs appels directs)", async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      ...baseClient,
+      status: "DEACTIVATED",
+    });
+
+    const result = await updateUserStatus("user-1", "APPROVED");
+
+    expect(result).toEqual({ success: true });
+    expect(mockPrisma.user.update).toHaveBeenCalledTimes(1);
+    const updateArgs = mockPrisma.user.update.mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(updateArgs.data.status).toBe("APPROVED");
+    expect(updateArgs.data.deactivatedForInactivityAt).toBeNull();
+    expect(updateArgs.data.inactivityWarningAt).toBeNull();
+    expect(updateArgs.data.probationUntil).toBeNull();
+  });
+
   it("n'envoie aucun email si le statut ne change pas", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({
       ...baseClient,

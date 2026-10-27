@@ -12,7 +12,6 @@ import { ProductReferenceBadge } from "@/components/admin/products/ProductRefere
 import type { ProductFormHeaderState, StockState } from "@/components/admin/products/ProductFormHeaderContext";
 import { DraftPageWrapper } from "./DraftPageWrapper";
 import { ProductEditRefreshButton } from "@/components/admin/products/ProductEditRefreshButton";
-import { ProductLockToggle } from "@/components/admin/products/ProductLockToggle";
 import { ProductImportantToggle } from "@/components/admin/products/ProductImportantToggle";
 import { MarketplaceStatusButtons } from "@/components/admin/products/MarketplaceStatusButtons";
 import ProductStatsModal from "@/components/admin/products/ProductStatsModal";
@@ -568,7 +567,6 @@ export default async function ModifierProduitPage({
                   status={product.status}
                   isIncomplete={product.isIncomplete}
                   wasImported={wasImported}
-                  locked={product.locked}
                   hasPfsConfig={hasPfsConfig}
                   hasAnkorstoreConfig={hasAnkorstoreConfig}
                   ankorstoreEnabled={ankorstoreEnabled}
@@ -583,11 +581,6 @@ export default async function ModifierProduitPage({
                 <ProductImportantToggle
                   productId={product.id}
                   initialImportant={product.important}
-                  variant="button"
-                />
-                <ProductLockToggle
-                  productId={product.id}
-                  initialLocked={product.locked}
                   variant="button"
                 />
               </div>

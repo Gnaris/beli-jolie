@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/Toast";
 import ColorSwatch from "@/components/ui/ColorSwatch";
 import { buildProductHandle } from "@/lib/product-url";
 import { translateSizeName } from "@/lib/size-i18n";
+import { formatTagName } from "@/lib/tag-display";
 
 interface VariantData {
   id: string;
@@ -506,7 +507,7 @@ export default function ProductDetail({
                   href={`/produits?tag=${tag.id}`}
                   className="text-xs px-3 py-1 rounded-full bg-bg-secondary text-text-secondary border border-border font-body hover:bg-bg-tertiary transition-colors"
                 >
-                  {tc(tag.name)}
+                  {formatTagName(tc(tag.name))}
                 </Link>
               ))}
             </div>

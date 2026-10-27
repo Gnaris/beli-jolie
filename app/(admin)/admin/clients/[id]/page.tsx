@@ -32,9 +32,10 @@ import type { UserStatus } from "@prisma/client";
 export const dynamic = "force-dynamic";
 
 const STATUS_CONFIG: Record<UserStatus, { label: string; className: string }> = {
-  PENDING:  { label: "En attente",  className: "badge badge-warning" },
-  APPROVED: { label: "Approuvé",    className: "badge badge-success" },
-  REJECTED: { label: "Rejeté",      className: "badge badge-error" },
+  PENDING:     { label: "En attente", className: "badge badge-warning" },
+  APPROVED:    { label: "Approuvé",   className: "badge badge-success" },
+  REJECTED:    { label: "Rejeté",     className: "badge badge-error" },
+  DEACTIVATED: { label: "Désactivé",  className: "badge badge-neutral" },
 };
 
 const DISCOUNT_MODE_LABEL: Record<string, string> = {

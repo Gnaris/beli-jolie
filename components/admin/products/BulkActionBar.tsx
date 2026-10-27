@@ -17,7 +17,6 @@ export interface BulkBarProduct {
   name: string;
   status: "ONLINE" | "OFFLINE" | "ARCHIVED" | "SYNCING";
   isIncomplete: boolean;
-  locked: boolean;
   firstImage: string | null;
   pfsProductId: string | null;
   ankorsProductId: string | null;

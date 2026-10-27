@@ -6,6 +6,7 @@ import { deleteTag, updateTagDirect } from "@/app/actions/admin/products";
 import QuickCreateModal from "@/components/admin/products/QuickCreateModal";
 import TranslateAllButton from "@/components/admin/TranslateAllButton";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { formatTagName } from "@/lib/tag-display";
 
 interface TagItem {
   id: string;
@@ -56,7 +57,7 @@ export default function TagsManager({ initialTags }: { initialTags: TagItem[] })
     const ok = await confirm({
       type: "danger",
       title: "Supprimer ce mot-clé ?",
-      message: `Le mot-clé « ${tag.name} » sera définitivement supprimé.`,
+      message: `Le mot-clé « ${formatTagName(tag.name)} » sera définitivement supprimé.`,
       confirmLabel: "Supprimer",
     });
     if (!ok) return;
@@ -290,9 +291,9 @@ function TagCard({
       <div className="pt-4 flex items-center justify-between gap-2">
         <span
           className={`font-semibold text-[15px] truncate font-body ${orphan ? "text-text-secondary" : "text-text-primary"}`}
-          title={tag.name}
+          title={formatTagName(tag.name)}
         >
-          {tag.name}
+          {formatTagName(tag.name)}
         </span>
         {translated ? (
           <span
@@ -339,7 +340,7 @@ function TagCard({
             onClick={onEdit}
             className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-secondary transition-colors"
             title="Modifier"
-            aria-label={`Modifier le mot-clé ${tag.name}`}
+            aria-label={`Modifier le mot-clé ${formatTagName(tag.name)}`}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -355,7 +356,7 @@ function TagCard({
             onClick={onDelete}
             disabled={deleting || tag.productCount > 0}
             title={tag.productCount > 0 ? "Impossible — utilisé par des produits" : "Supprimer"}
-            aria-label={`Supprimer le mot-clé ${tag.name}`}
+            aria-label={`Supprimer le mot-clé ${formatTagName(tag.name)}`}
             className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-text-muted hover:text-[#DC2626] hover:bg-[#FEF2F2] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

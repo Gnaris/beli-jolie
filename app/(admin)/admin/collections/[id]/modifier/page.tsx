@@ -87,6 +87,7 @@ export default async function EditCollectionPage({ params }: Props) {
         name: collection.name,
         image: collection.image,
         imageBanner: collection.imageBanner,
+        visible: collection.visible,
         translations: translationsMap,
         products: collection.products.map((cp) => ({
           productId: cp.productId,

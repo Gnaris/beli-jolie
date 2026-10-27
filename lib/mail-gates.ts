@@ -39,7 +39,7 @@ export interface MailGateInput {
   /** Case newsletter acceptée par le client (case unique RGPD) */
   acceptsNewsletter: boolean;
   /** Statut du compte : seuls les APPROVED reçoivent des mails marketing */
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "DEACTIVATED";
   cart: {
     itemCount: number;
     updatedAt: Date | null;

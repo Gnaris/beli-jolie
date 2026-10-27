@@ -71,6 +71,41 @@ export default async function AdminDashboardPage({
           <DashboardKpiCard kpi={data.kpis.uniqueClients} />
         </section>
 
+        {/* ─── Visiteurs aujourd'hui (connectés · anonymes) ────── */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in p-4 flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-700 grid place-items-center shrink-0 ring-1 ring-emerald-200">
+              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-text-muted uppercase tracking-wider">Visiteurs connectés · aujourd&apos;hui</div>
+              <div className="text-[22px] font-bold text-text-primary tabular-nums leading-tight mt-0.5">
+                {fmtInt(data.todayVisits.authenticated)}
+              </div>
+            </div>
+          </article>
+
+          <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in p-4 flex items-center gap-4">
+            <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-700 grid place-items-center shrink-0 ring-1 ring-sky-200">
+              <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M6 21a6 6 0 0 1 12 0" />
+                <path d="M9 8h.01" />
+                <path d="M15 8h.01" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-text-muted uppercase tracking-wider">Visiteurs anonymes · aujourd&apos;hui</div>
+              <div className="text-[22px] font-bold text-text-primary tabular-nums leading-tight mt-0.5">
+                {fmtInt(data.todayVisits.anonymous)}
+              </div>
+            </div>
+          </article>
+        </section>
+
         {/* ─── Évolution + Répartition ventes ──────────────────── */}
         <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(260px,1fr)] gap-3">
           <article className="bg-white border border-zinc-200/70 rounded-xl shadow-sm dashboard-card-in">
@@ -106,17 +141,17 @@ export default async function AdminDashboardPage({
             <h2 className="text-[15px] font-semibold text-text-primary">Top 100 des produits les plus vendus</h2>
             <Link href="/admin/produits" className="text-[11px] text-[#246bfe] hover:underline">Voir tout →</Link>
           </div>
-          <div className="overflow-x-auto px-4 pb-4">
+          <div className="px-4 pb-4">
             {data.topProducts.length === 0 ? (
               <p className="text-[12px] text-text-muted p-4">Pas encore de ventes.</p>
             ) : (
-              <table className="w-full text-[13px]">
+              <table className="w-full text-[13px] table-fixed">
                 <thead>
                   <tr className="text-left text-zinc-500 text-[10.5px] uppercase tracking-wider">
                     <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 w-10">#</th>
                     <th className="py-2.5 px-3 font-semibold border-b border-zinc-100">Produit</th>
-                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">Ventes</th>
-                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right">CA</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right w-20">Ventes</th>
+                    <th className="py-2.5 px-3 font-semibold border-b border-zinc-100 text-right w-24">CA</th>
                   </tr>
                 </thead>
                 <tbody>

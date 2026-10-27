@@ -105,7 +105,7 @@ export default async function sitemap(props: { id: Promise<string> }): Promise<M
   // ── Collections ──────────────────────────────────────────────────────────
   // URL slugifiée depuis 2026-09-13. Les collections sans slug sont exclues.
   const collections = await prisma.collection.findMany({
-    where: { slug: { not: null } },
+    where: { slug: { not: null }, visible: true },
     select: { slug: true, updatedAt: true },
   });
   const collectionPages = collections.map((c) =>

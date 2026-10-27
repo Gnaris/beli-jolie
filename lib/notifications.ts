@@ -888,6 +888,154 @@ export async function notifyClientAccountRevoked(params: {
   }
 }
 
+/**
+ * Mail d'avertissement avant révocation automatique pour inactivité.
+ * Envoyé une fois quand le client dépasse le délai `warningDays` sans
+ * commande ; prévient qu'il lui reste `graceDays` jours pour revenir
+ * commander avant la bascule effective en PENDING. Fire-and-forget.
+ */
+export async function notifyClientInactivityWarning(params: {
+  email: string;
+  firstName: string;
+  daysInactive: number;
+  graceDays: number;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const baseUrl = await getCurrentTenantBaseUrl();
+
+    const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_INACTIVITY_WARNING",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        daysInactive: String(params.daysInactive),
+        graceDays: String(params.graceDays),
+        catalogUrl: `${baseUrl}/fr/produits`,
+        shopName: escapeHtml(shopName),
+      },
+    });
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: rendered.subject,
+      html: rendered.html,
+      tracking: {
+        scenarioKey: "ACCOUNT_INACTIVITY_WARNING",
+        userId,
+        metadata: {
+          daysInactive: params.daysInactive,
+          graceDays: params.graceDays,
+        },
+      },
+    });
+    logger.info("[account-inactivity-warning] Email envoyé", {
+      to: params.email,
+      daysInactive: params.daysInactive,
+    });
+  } catch (err) {
+    logger.error("[account-inactivity-warning] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Mail de bascule effective APPROVED → PENDING pour inactivité. Envoyé une
+ * fois quand `graceDays` jours se sont écoulés depuis `notifyClientInactivityWarning`
+ * sans nouvelle commande. Fire-and-forget.
+ */
+export async function notifyClientInactivityRevoked(params: {
+  email: string;
+  firstName: string;
+  daysInactive: number;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const companyInfo = await getCachedCompanyInfo();
+    const baseUrl = await getCurrentTenantBaseUrl();
+    const shopEmail = companyInfo?.email?.trim() || "";
+
+    const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_INACTIVITY_REVOKED",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        daysInactive: String(params.daysInactive),
+        supportUrl: `${baseUrl}/fr/contact`,
+        shopEmail: escapeHtml(shopEmail),
+        shopName: escapeHtml(shopName),
+      },
+    });
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: rendered.subject,
+      html: rendered.html,
+      tracking: {
+        scenarioKey: "ACCOUNT_INACTIVITY_REVOKED",
+        userId,
+        metadata: { daysInactive: params.daysInactive },
+      },
+    });
+    logger.info("[account-inactivity-revoked] Email envoyé", {
+      to: params.email,
+      daysInactive: params.daysInactive,
+    });
+  } catch (err) {
+    logger.error("[account-inactivity-revoked] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Mail envoyé quand l'admin réactive un compte précédemment DEACTIVATED.
+ * Prévient le client que son accès est rouvert avec une période de probation
+ * de X jours : s'il ne commande pas d'ici là, le compte sera à nouveau
+ * désactivé automatiquement. Fire-and-forget.
+ */
+export async function notifyClientAccountReactivated(params: {
+  email: string;
+  firstName: string;
+  probationDays: number;
+}): Promise<void> {
+  try {
+    const shopName = await getCachedShopName();
+    const baseUrl = await getCurrentTenantBaseUrl();
+
+    const userId = await resolveUserIdByEmail(params.email);
+    const rendered = await renderTransactionalEmail({
+      scenarioKey: "ACCOUNT_REACTIVATED_PROBATION",
+      vars: {
+        firstName: escapeHtml(params.firstName),
+        probationDays: String(params.probationDays),
+        catalogUrl: `${baseUrl}/fr/produits`,
+        shopName: escapeHtml(shopName),
+      },
+    });
+    await sendMail({
+      fromName: shopName,
+      to: params.email,
+      subject: rendered.subject,
+      html: rendered.html,
+      tracking: {
+        scenarioKey: "ACCOUNT_REACTIVATED_PROBATION",
+        userId,
+        metadata: { probationDays: params.probationDays },
+      },
+    });
+    logger.info("[account-reactivated] Email envoyé", {
+      to: params.email,
+      probationDays: params.probationDays,
+    });
+  } catch (err) {
+    logger.error("[account-reactivated] Erreur envoi email", {
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // ─────────────────────────────────────────────
 // Notification client — modification d'articles de commande (P2-08)
 // ─────────────────────────────────────────────

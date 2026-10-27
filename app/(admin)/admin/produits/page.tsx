@@ -37,6 +37,8 @@ import {
   resolveCollectionLabel,
 } from "@/lib/efashion-labels";
 import { getFaireTaxonomy, findFaireTaxonomyById } from "@/lib/faire-taxonomy";
+import { loadMarketplaceMarkupConfigs, applyMarketplaceMarkup } from "@/lib/marketplace-pricing";
+import { loadOrderchampPricingConfig } from "@/lib/orderchamp-pricing";
 
 // Attribute managers
 import CategoriesManager from "@/components/admin/categories/SubCategoryList";
@@ -188,7 +190,7 @@ function countActiveFilters(p: Record<string, string | undefined>): number {
   const keys = [
     "q", "exactRef", "cat", "subCat", "tag", "composition", "hsCodeId",
     "minPrice", "maxPrice", "dateFrom", "dateTo", "updatedFrom", "updatedTo", "stockBelow",
-    "bestSeller", "important", "createdRecent", "updatedRecent", "refresh", "sort", "locked", "syncRequired", "missingImages", "translationStatus", "pfsVerify",
+    "bestSeller", "trending", "important", "createdRecent", "updatedRecent", "refresh", "sort", "syncRequired", "missingImages", "translationStatus", "pfsVerify",
     "pfsLink", "ankorsLink", "efashionLink", "faireLink", "orderchampLink", "microstoreLink",
     "pfsExportedAt", "ankorstoreExportedAt", "efashionExportedAt", "faireExportedAt", "orderchampExportedAt", "microstoreExportedAt",
   ];
@@ -212,6 +214,7 @@ interface PageProps {
     tag?: string;
     composition?: string;
     bestSeller?: string;
+    trending?: string;
     important?: string;
     createdRecent?: string;
     updatedRecent?: string;
@@ -234,7 +237,6 @@ interface PageProps {
     microstoreLink?: string;
     syncRequired?: string;
     hsCodeId?: string;
-    locked?: string;
     pfsExportedAt?: string;
     efashionExportedAt?: string;
     microstoreExportedAt?: string;
@@ -319,6 +321,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tag = "",
     composition = "",
     bestSeller = "",
+    trending = "",
     important = "",
     createdRecent = "",
     updatedRecent = "",
@@ -341,7 +344,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreLink = "",
     syncRequired = "",
     hsCodeId = "",
-    locked = "",
     pfsExportedAt = "",
     efashionExportedAt = "",
     microstoreExportedAt = "",
@@ -379,6 +381,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     tag,
     composition,
     bestSeller,
+    trending,
     important,
     createdRecent,
     updatedRecent,
@@ -399,7 +402,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     microstoreLink,
     syncRequired,
     hsCodeId,
-    locked,
     pfsExportedAt,
     efashionExportedAt,
     microstoreExportedAt,
@@ -435,6 +437,8 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     hasMicrostoreConfig,
     microstoreEnabled,
     allSizes,
+    marketplaceMarkups,
+    orderchampMarkup,
   ] = await Promise.all([
     prisma.product.findMany({
       where,
@@ -498,6 +502,10 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     // Tailles en cache (60s TTL) — utilisées pour résoudre les noms des
     // variantSizes sans passer par une jointure SQL sur la table Size.
     getCachedSizes(),
+    // Majorations marketplace configurées dans Paramètres — appliquées au
+    // minPrice pour afficher sous chaque badge le prix réel de vente.
+    loadMarketplaceMarkupConfigs(),
+    loadOrderchampPricingConfig(),
   ]);
 
   const sizeNameById = new Map<string, string>(allSizes.map((s) => [s.id, s.name]));
@@ -558,6 +566,25 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         packLines:    c.packLines,
       })),
     });
+    // Prix de vente marketplace par marketplace — base = plus petit prix
+    // unitaire des couleurs du produit, majoré selon les réglages
+    // Paramètres > Marketplaces. Pour Ankor/Faire/OC on affiche le prix
+    // de GROS (ce que paie l'acheteur pro, pas le prix public conseillé).
+    const unitPricesForMarkup = p.colors.map((c) => Number(c.unitPrice));
+    const baseMinPrice = unitPricesForMarkup.length > 0
+      ? Math.min(...unitPricesForMarkup)
+      : null;
+    const marketplacePrices = baseMinPrice != null && baseMinPrice > 0
+      ? {
+          basePrice:  baseMinPrice,
+          pfs:        applyMarketplaceMarkup(baseMinPrice, marketplaceMarkups.pfs),
+          efashion:   applyMarketplaceMarkup(baseMinPrice, marketplaceMarkups.efashion),
+          microstore: applyMarketplaceMarkup(baseMinPrice, marketplaceMarkups.microstore),
+          ankorstore: applyMarketplaceMarkup(baseMinPrice, marketplaceMarkups.ankorstoreWholesale),
+          faire:      applyMarketplaceMarkup(baseMinPrice, marketplaceMarkups.faireWholesale),
+          orderchamp: applyMarketplaceMarkup(baseMinPrice, orderchampMarkup.wholesale),
+        }
+      : null;
     return {
     id:              p.id,
     reference:       p.reference,
@@ -566,7 +593,6 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     isIncomplete:    p.isIncomplete,
     colorsMissingImageCount,
     missingFields,
-    locked:          p.locked,
     important:       p.important,
     isBestSeller:    p.isBestSeller,
     isTrending:      p.isTrending,
@@ -610,6 +636,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
     ankorstoreLastExportedAt: p.ankorstoreLastExportedAt ? p.ankorstoreLastExportedAt.toISOString() : null,
     faireLastExportedAt:      p.faireLastExportedAt      ? p.faireLastExportedAt.toISOString()      : null,
     orderchampLastExportedAt: p.orderchampLastExportedAt ? p.orderchampLastExportedAt.toISOString() : null,
+    marketplacePrices,
     discountPercent: p.discountPercent != null ? Number(p.discountPercent) : null,
     colors:          p.colors.map((c) => ({
       id:                c.id,

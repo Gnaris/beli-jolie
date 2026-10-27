@@ -26,8 +26,10 @@ interface PageProps {
  * la version slug (préserve le SEO acquis + backlinks).
  */
 async function resolveCollectionHandle(handle: string) {
+  // Collections masquées : 404 sur la page détail (parité avec /collections
+  // qui ne les liste pas). `visible: true` filtre les deux lookups.
   const bySlug = await prisma.collection.findFirst({
-    where: { slug: handle },
+    where: { slug: handle, visible: true },
     select: { id: true, slug: true },
   });
   if (bySlug) return { kind: "slug" as const, id: bySlug.id, slug: bySlug.slug };
@@ -36,7 +38,7 @@ async function resolveCollectionHandle(handle: string) {
   // colle, pour éviter un findFirst inutile sur des slugs random.
   if (/^c[a-z0-9]{20,}$/i.test(handle)) {
     const byId = await prisma.collection.findFirst({
-      where: { id: handle },
+      where: { id: handle, visible: true },
       select: { id: true, slug: true },
     });
     if (byId?.slug) return { kind: "legacyId" as const, id: byId.id, slug: byId.slug };

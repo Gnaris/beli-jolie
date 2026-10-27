@@ -20,9 +20,10 @@ enum Role {
 }
 
 enum UserStatus {
-  PENDING
-  APPROVED
-  REJECTED
+  PENDING // Nouveau compte, en attente de validation admin
+  APPROVED // Client validé — voit les prix, peut commander
+  REJECTED // Inscription refusée manuellement par l'admin
+  DEACTIVATED // Compte désactivé auto pour inactivité (aucune commande depuis trop longtemps). Peut toujours se connecter mais prix cachés. Réactivation manuelle par admin avec probation.
 }
 
 enum ClientDiscountType {
@@ -128,6 +129,18 @@ model User {
   // Sert à décider si un mail « nouvelle réponse » doit partir tout de suite,
   // être différé de 5 min, ou skippé (client déjà en train de lire).
   activeConversationId          String?
+  // Désactivation automatique pour inactivité (status DEACTIVATED).
+  //  - inactivityWarningAt    : date du mail d'avertissement envoyé.
+  //  - deactivatedForInactivityAt : date de bascule APPROVED → DEACTIVATED.
+  //  - probationUntil         : si l'admin a réactivé un compte désactivé,
+  //    date limite avant une nouvelle désactivation (si pas de commande d'ici
+  //    là). null = aucune probation en cours. Posé à la réactivation, remis
+  //    à null quand le client passe une commande avant l'échéance.
+  // Tous ces champs sont remis à null quand le client commande (le worker
+  // s'en charge au prochain tick) ou quand l'admin valide manuellement.
+  inactivityWarningAt           DateTime?
+  deactivatedForInactivityAt    DateTime?
+  probationUntil                DateTime?
   createdAt                     DateTime            @default(now())
   updatedAt                     DateTime            @updatedAt
 
@@ -2793,6 +2806,17 @@ model Collection {
   // reste nullable pour les collections héritées (fallback sur `image`).
   image        String? // Chemin relatif depuis /public
   imageBanner  String? // Bannière hero de la page détail
+  // Visibilité publique. Default BDD = true pour que les collections existantes
+  // restent affichées après la migration (ajout 2026-10-27). Mais à la création
+  // via `createCollection`, on force explicitement `visible: false` pour que la
+  // cliente ait le temps de peupler/configurer la collection avant qu'elle
+  // n'apparaisse sur /collections.
+  visible      Boolean                 @default(true)
+  // Numéro d'ordre d'affichage sur /collections (plus petit = en premier).
+  // Default 0 : les collections sans numéro restent regroupées en tête, triées
+  // par date de création desc en tie-breaker. La cliente saisit le numéro
+  // directement dans la carte de /admin/collections.
+  displayOrder Int                     @default(0)
   products     CollectionProduct[]
   translations CollectionTranslation[]
   promotions   PromotionCollection[]
@@ -2807,6 +2831,7 @@ model Collection {
 
   @@unique([tenantId, slug])
   @@index([tenantId])
+  @@index([tenantId, displayOrder])
 }
 
 // Marqueur origine d'un produit dans une collection.

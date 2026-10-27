@@ -94,7 +94,7 @@ describe("startQueued — isolation par tenant", () => {
     // Par défaut : le claim (updateMany QUEUED → IN_PROGRESS) réussit
     mockJobUpdateMany.mockResolvedValue({ count: 1 });
     // Produit dispo pour éviter les crashes dans processJob (fire-and-forget)
-    mockProductFindUnique.mockResolvedValue({ locked: false });
+    mockProductFindUnique.mockResolvedValue({});
   });
 
   it("filtre les queries count/findMany par tenantId", async () => {

@@ -18,7 +18,6 @@ function mkProduct(id: string): BulkBarProduct {
     name: `Produit ${id}`,
     status: "ONLINE",
     isIncomplete: false,
-    locked: false,
     firstImage: null,
     pfsProductId: null,
     ankorsProductId: null,

@@ -18,7 +18,6 @@ function mkProduct(id: string, status: BulkBarProduct["status"] = "ONLINE"): Bul
     name: `Produit ${id}`,
     status,
     isIncomplete: status === "OFFLINE",
-    locked: false,
     firstImage: null,
     pfsProductId: null,
     ankorsProductId: null,

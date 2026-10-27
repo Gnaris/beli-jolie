@@ -105,7 +105,15 @@ async function dispatchAdminEvent(event: AdminEvent): Promise<void> {
     // Statut porté par l'event (posé juste après la création) ; fallback sur
     // la lecture BDD si l'émetteur n'a pas rempli le champ — par ex. test ou
     // ancien callsite non migré.
-    const resolvedStatus = event.clientStatus ?? user.status ?? "PENDING";
+    const rawStatus = event.clientStatus ?? user.status ?? "PENDING";
+    // Les notifications push d'inscription ne connaissent que PENDING / APPROVED
+    // / REJECTED. Un statut DEACTIVATED ne devrait jamais arriver ici (le hook
+    // est émis à la création du compte, pas à la désactivation), mais on fallback
+    // sur PENDING par sécurité.
+    const resolvedStatus =
+      rawStatus === "APPROVED" || rawStatus === "REJECTED"
+        ? rawStatus
+        : "PENDING";
     const values = {
       customer: user.company
         || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()

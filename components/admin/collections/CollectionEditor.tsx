@@ -18,6 +18,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { pinCollectionProduct, unpinCollectionProduct } from "@/app/actions/admin/collections";
 import CollectionRuleEditor from "@/components/admin/collections/CollectionRuleEditor";
 import CollectionImageField from "@/components/admin/collections/CollectionImageField";
+import CollectionVisibilityToggle from "@/components/admin/collections/CollectionVisibilityToggle";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ interface CollectionData {
   name: string;
   image: string | null;
   imageBanner: string | null;
+  visible: boolean;
   translations: Record<string, string>;
   products: CollectionProductRow[];
 }
@@ -398,6 +400,14 @@ export default function CollectionEditor({ collection, categories, filterOptions
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Toggle visibilité */}
+            <CollectionVisibilityToggle
+              id={collection.id}
+              name={collection.name}
+              initialVisible={collection.visible}
+              variant="editor"
+            />
+
             {/* View on site */}
             <a
               href={`/collections/${collection.slug ?? collection.id}`}

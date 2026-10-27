@@ -426,28 +426,7 @@ async function processJob(jobId: string): Promise<void> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function processJobBody(job: any): Promise<void> {
-  // Garde-fou verrou : un produit verrouillé entre l'enqueue et le traitement
-  // ne doit pas être rafraîchi. Couvre les 4 marketplaces (PFS / Ankor /
-  // eFashion / Faire) en un seul point — défense en profondeur du guard UI.
   const jobId = job.id;
-  if (job.mode === "REFRESH") {
-    const lockState = await prisma.product.findUnique({
-      where: { id: job.productId },
-      select: { locked: true },
-    });
-    if (lockState?.locked) {
-      await prisma.marketplaceRefreshJob.update({
-        where: { id: jobId },
-        data: {
-          status: "FAILED",
-          errorMessage: "Produit verrouillé : rafraîchissement bloqué.",
-          completedAt: new Date(),
-        },
-      });
-      await revalidateProductPaths(job.productId);
-      return;
-    }
-  }
 
   try {
     const payload = job.payload as unknown as QueueJobPayload;

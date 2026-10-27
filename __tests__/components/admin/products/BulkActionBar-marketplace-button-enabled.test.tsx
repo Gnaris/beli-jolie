@@ -18,7 +18,6 @@ function mkProduct(overrides: Partial<BulkBarProduct>): BulkBarProduct {
     name: overrides.name ?? "Produit",
     status: overrides.status ?? "ONLINE",
     isIncomplete: overrides.isIncomplete ?? false,
-    locked: overrides.locked ?? false,
     firstImage: overrides.firstImage ?? null,
     pfsProductId: overrides.pfsProductId ?? null,
     ankorsProductId: overrides.ankorsProductId ?? null,

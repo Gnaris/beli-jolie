@@ -76,7 +76,6 @@ beforeEach(() => {
     name: "T",
     status: "ONLINE",
     isIncomplete: false,
-    locked: false,
     pfsProductId: "PFS-1",
   });
 });

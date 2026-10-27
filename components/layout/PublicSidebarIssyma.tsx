@@ -197,16 +197,21 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
   const badgeVariant = verifiedBadge.show ? verifiedBadge.variant : null;
   const isVerified = badgeVariant === "verified";
   const isRevoked = badgeVariant === "revoked";
+  const isDeactivated = badgeVariant === "deactivated";
   const badgeLabel = isVerified
     ? t("verifiedBadge")
     : isRevoked
       ? t("revokedBadge")
-      : t("unverifiedBadge");
+      : isDeactivated
+        ? t("deactivatedBadge")
+        : t("unverifiedBadge");
   const badgeTooltip = isVerified
     ? t("verifiedTooltip")
     : isRevoked
       ? t("revokedTooltip")
-      : t("unverifiedTooltip");
+      : isDeactivated
+        ? t("deactivatedTooltip")
+        : t("unverifiedTooltip");
 
   useEffect(() => {
     if (!showClientUI) return;
@@ -400,7 +405,9 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
                       ? "bg-sky-50 border-sky-200 text-sky-700"
                       : isRevoked
                         ? "bg-red-50 border-red-200 text-red-700"
-                        : "bg-white border-neutral-300 text-neutral-500"
+                        : isDeactivated
+                          ? "bg-amber-50 border-amber-200 text-amber-700"
+                          : "bg-white border-neutral-300 text-neutral-500"
                   }`}
                 >
                   {isVerified ? (
@@ -411,6 +418,11 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
                     <svg className="w-3.5 h-3.5 text-red-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                       <circle cx="12" cy="12" r="9" />
                       <path strokeLinecap="round" d="M8 12h8" />
+                    </svg>
+                  ) : isDeactivated ? (
+                    <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <path strokeLinecap="round" d="M10 9v6M14 9v6" />
                     </svg>
                   ) : (
                     <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
@@ -803,7 +815,9 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
                             ? "bg-sky-50 border-sky-200 text-sky-700"
                             : isRevoked
                               ? "bg-red-50 border-red-200 text-red-700"
-                              : "bg-bg-primary border-border text-text-muted"
+                              : isDeactivated
+                                ? "bg-amber-50 border-amber-200 text-amber-700"
+                                : "bg-bg-primary border-border text-text-muted"
                         }`}
                       >
                         {isVerified ? (
@@ -814,6 +828,11 @@ export default function PublicSidebarIssyma({ shopName, tenantSlug }: PublicSide
                           <svg className="w-3 h-3 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                             <circle cx="12" cy="12" r="9" />
                             <path strokeLinecap="round" d="M8 12h8" />
+                          </svg>
+                        ) : isDeactivated ? (
+                          <svg className="w-3 h-3 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <path strokeLinecap="round" d="M10 9v6M14 9v6" />
                           </svg>
                         ) : (
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">

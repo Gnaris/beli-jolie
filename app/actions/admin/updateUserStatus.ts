@@ -64,9 +64,29 @@ export async function updateUserStatus(
       };
     }
 
+    // Préparation des champs annexes selon la transition.
+    //  - APPROVED → DEACTIVATED (désactivation manuelle par l'admin) : on
+    //    pose deactivatedForInactivityAt pour tracer la date et clear
+    //    probationUntil si elle traînait.
+    //  - * → APPROVED : on clear les 3 champs d'inactivité pour que le
+    //    worker reparte propre (pas de résidu de l'ancien cycle).
+    const extraData: {
+      deactivatedForInactivityAt?: Date | null;
+      inactivityWarningAt?: Date | null;
+      probationUntil?: Date | null;
+    } = {};
+    if (status === "DEACTIVATED" && user.status === "APPROVED") {
+      extraData.deactivatedForInactivityAt = new Date();
+      extraData.probationUntil = null;
+    } else if (status === "APPROVED") {
+      extraData.deactivatedForInactivityAt = null;
+      extraData.inactivityWarningAt = null;
+      extraData.probationUntil = null;
+    }
+
     await prisma.user.update({
       where: { id: userId },
-      data: { status },
+      data: { status, ...extraData },
     });
 
     // Notifier le client par email si le statut change vraiment
@@ -96,11 +116,13 @@ export async function updateUserStatus(
           );
         }
       } else if (status === "REJECTED") {
-        // On distingue :
-        //  - PENDING → REJECTED : première demande d'inscription refusée
-        //    → mail « votre demande d'inscription »
-        //  - APPROVED → REJECTED : révocation d'un compte déjà validé
-        //    → mail « votre compte a été désactivé »
+        // PENDING → REJECTED : refus d'inscription (mail « votre demande »).
+        // L'ancienne transition APPROVED → REJECTED (« révocation ») n'est
+        // plus proposée par l'UI depuis 2026-10-27 — la désactivation
+        // manuelle d'un compte déjà approuvé passe par DEACTIVATED. Si un
+        // appelant force quand même REJECTED depuis APPROVED (API directe),
+        // on envoie quand même le mail de révocation historique pour
+        // ne pas être silencieux.
         if (user.status === "APPROVED") {
           notifyClientAccountRevoked({
             email: user.email,
@@ -120,6 +142,18 @@ export async function updateUserStatus(
             }),
           );
         }
+      } else if (status === "DEACTIVATED" && user.status === "APPROVED") {
+        // Désactivation manuelle par l'admin — mail « compte désactivé »
+        // générique (le même modèle que l'ancienne révocation : factuel,
+        // sans mention de durée d'inactivité).
+        notifyClientAccountRevoked({
+          email: user.email,
+          firstName: user.firstName,
+        }).catch((err) =>
+          logger.error("[updateUserStatus] Email désactivation échoué", {
+            error: err,
+          }),
+        );
       }
     }
 

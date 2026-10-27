@@ -26,6 +26,9 @@ export type TransactionalScenarioKey =
   | "ACCOUNT_APPROVED"
   | "ACCOUNT_REJECTED"
   | "ACCOUNT_REVOKED"
+  | "ACCOUNT_INACTIVITY_WARNING"
+  | "ACCOUNT_INACTIVITY_REVOKED"
+  | "ACCOUNT_REACTIVATED_PROBATION"
   // ── CLIENT — commandes ──
   | "ORDER_CREATED"
   | "ORDER_BANK_TRANSFER_PENDING"
@@ -262,6 +265,56 @@ export const TRANSACTIONAL_SCENARIOS: TransactionalScenarioMeta[] = [
       { token: "firstName", label: "Prénom du client", example: "Marie", required: true },
       { token: "reasonBlock", label: "Bloc motif (vide si absent)", example: "<div>Motif : ...</div>" },
       { token: "contactBlock", label: "Bloc contact (vide si absent)", example: "<p>Pour toute question...</p>" },
+      ...SHOP_VARIABLES,
+    ],
+  },
+  {
+    key: "ACCOUNT_INACTIVITY_WARNING",
+    audience: "CLIENT",
+    group: "compte",
+    label: "Avertissement avant désactivation (inactivité)",
+    description:
+      "Envoyé automatiquement à un client validé qui n'a pas passé commande depuis la durée configurée. Avertit que son compte sera désactivé si rien ne se passe dans les prochains jours.",
+    aiTone:
+      "Mail chaleureux, bienveillant. Ton de retrouvailles — surtout pas culpabilisant. Rappeler qu'on apprécie le client, mentionner la durée d'inactivité, inviter à revenir commander avant la date limite pour conserver l'accès complet (prix pro, catalogue).",
+    variables: [
+      { token: "firstName", label: "Prénom du client", example: "Marie", required: true },
+      { token: "daysInactive", label: "Jours sans commande", example: "365", required: true },
+      { token: "graceDays", label: "Jours restants avant désactivation", example: "15", required: true },
+      { token: "catalogUrl", label: "Lien vers le catalogue", example: "https://exemple.com/produits" },
+      ...SHOP_VARIABLES,
+    ],
+  },
+  {
+    key: "ACCOUNT_INACTIVITY_REVOKED",
+    audience: "CLIENT",
+    group: "compte",
+    label: "Compte désactivé pour inactivité",
+    description:
+      "Envoyé automatiquement quand le délai de grâce suivant l'avertissement est écoulé sans nouvelle commande. Le compte passe en « Désactivé » : le client peut toujours se connecter, mais ne voit plus les prix et ne peut plus commander. Il doit contacter le service client pour être réactivé.",
+    aiTone:
+      "Mail factuel et respectueux. Expliquer clairement : le compte a été désactivé par mesure de propreté administrative, le client peut toujours se connecter et parcourir le site mais ne verra plus les tarifs. L'inviter à contacter le service client (lien chat / email) pour une réactivation rapide. Ne pas culpabiliser.",
+    variables: [
+      { token: "firstName", label: "Prénom du client", example: "Marie", required: true },
+      { token: "daysInactive", label: "Jours sans commande", example: "380", required: true },
+      { token: "supportUrl", label: "Lien vers le service client (chat / contact)", example: "https://exemple.com/contact" },
+      { token: "shopEmail", label: "Email boutique (pour contact)", example: "contact@beliandjolie.com" },
+      ...SHOP_VARIABLES,
+    ],
+  },
+  {
+    key: "ACCOUNT_REACTIVATED_PROBATION",
+    audience: "CLIENT",
+    group: "compte",
+    label: "Compte réactivé (avec probation)",
+    description:
+      "Envoyé quand un administrateur réactive un compte précédemment désactivé pour inactivité. Prévient le client que son accès est rouvert mais qu'il a X jours pour passer une commande, sinon le compte sera re-désactivé automatiquement.",
+    aiTone:
+      "Mail chaleureux de bienvenue retour. Rassurer : accès complet retrouvé, prix de nouveau visibles. Mais être explicite sur la période de probation : X jours pour passer une commande, sinon le compte sera à nouveau désactivé automatiquement. Pas de ton menaçant — plutôt une invitation à redécouvrir la boutique.",
+    variables: [
+      { token: "firstName", label: "Prénom du client", example: "Marie", required: true },
+      { token: "probationDays", label: "Jours de probation", example: "30", required: true },
+      { token: "catalogUrl", label: "Lien vers le catalogue", example: "https://exemple.com/produits" },
       ...SHOP_VARIABLES,
     ],
   },
