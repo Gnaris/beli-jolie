@@ -3,8 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentTenant } from "@/lib/tenant";
 import { countryName } from "@/lib/countries";
 
-const API_KEY = "kebab";
-const ALLOWED_TENANT_SLUG = "beliandjolie";
+// Une clé par tenant — la fuite d'une clé n'expose pas les autres. Nouveaux
+// tenants : ajouter l'entrée ici (le slug doit matcher Tenant.slug en base).
+const TENANT_API_KEYS: Record<string, string> = {
+  beliandjolie: "kebab1",
+  issyma: "kebab2",
+};
+const ALLOWED_TENANT_SLUGS = Object.keys(TENANT_API_KEYS);
 const PUBLIC_ORIGIN = "https://beliandjolie.com";
 const PER_PAGE = 50;
 const MAX_PER_PAGE = 200;
@@ -38,13 +43,16 @@ const STATUS_FILTER_MAP: Record<
 const UNAUTHORIZED = NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 const NOT_FOUND = NextResponse.json({ error: "Not found" }, { status: 404 });
 
-function checkAuth(request: NextRequest): boolean {
-  return (request.headers.get("x-api-key") ?? "") === API_KEY;
+async function resolveAllowedTenantSlug(): Promise<string | null> {
+  const tenant = await getCurrentTenant();
+  if (!tenant) return null;
+  return ALLOWED_TENANT_SLUGS.includes(tenant.slug) ? tenant.slug : null;
 }
 
-async function checkTenant(): Promise<boolean> {
-  const tenant = await getCurrentTenant();
-  return tenant?.slug === ALLOWED_TENANT_SLUG;
+function checkAuth(request: NextRequest, tenantSlug: string): boolean {
+  const expected = TENANT_API_KEYS[tenantSlug];
+  if (!expected) return false;
+  return (request.headers.get("x-api-key") ?? "") === expected;
 }
 
 // Toutes les images sont servies sur beliandjolie.com peu importe d'où on
@@ -56,8 +64,8 @@ function absoluteUrl(path: string | null | undefined): string | null {
 }
 
 const productInclude = {
-  category: { select: { name: true } },
-  subCategories: { select: { name: true } },
+  category: { select: { name: true, sageArticleCode: true } },
+  subCategories: { select: { name: true, sageArticleCode: true } },
   compositions: {
     include: { composition: { select: { name: true } } },
   },
@@ -142,6 +150,16 @@ function shapeProduct(p: any) {
     });
   }
 
+  // Code article Sage résolu côté serveur selon la cascade :
+  // 1ère sous-catégorie du produit qui a un code → sinon code de la catégorie.
+  // L'extension consomme ce champ tel quel — plus aucune règle regex à écrire.
+  let sageArticleCode: string | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const s of (p.subCategories ?? []) as any[]) {
+    if (s?.sageArticleCode) { sageArticleCode = s.sageArticleCode; break; }
+  }
+  if (!sageArticleCode) sageArticleCode = p.category?.sageArticleCode ?? null;
+
   return {
     reference: p.reference,
     status: toStatusFr(p.status, p.isIncomplete ?? false),
@@ -150,6 +168,7 @@ function shapeProduct(p: any) {
     category: p.category?.name ?? null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     subCategories: (p.subCategories ?? []).map((s: any) => s.name),
+    sageArticleCode,
     manufacturingCountry: countryName(p.countryIsoCode) || null,
     dimensions,
     composition,
@@ -158,8 +177,9 @@ function shapeProduct(p: any) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!(await checkTenant())) return NOT_FOUND;
-  if (!checkAuth(request)) return UNAUTHORIZED;
+  const tenantSlug = await resolveAllowedTenantSlug();
+  if (!tenantSlug) return NOT_FOUND;
+  if (!checkAuth(request, tenantSlug)) return UNAUTHORIZED;
 
   // Recherche par référence via header : renvoie 1 seul produit (ou 404).
   const refFromHeader = request.headers.get("x-product-reference")?.trim() ?? "";
