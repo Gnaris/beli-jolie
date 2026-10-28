@@ -1176,6 +1176,10 @@ model Category {
   // Mapping Microstore : ID catégorie côté MC Gérant. Rempli manuellement via
   // CustomSelect dans CategoryEditorModal. Priorité sur matching par nom au push.
   microstoreCategoryId       Int?
+  // Code article Sage utilisé pour la facturation (extension Chrome →
+  // SageBridge). L'extension cherche d'abord un code sur les SubCategory du
+  // produit, puis retombe ici. Vide = demander à l'utilisateur dans le picker.
+  sageArticleCode            String?
   // Image ronde affichée sur la home + page /categories publique. Path public
   // servi par nginx (ex : `/uploads/{tenant}/categories/{id}/*.webp`). Null
   // → monogramme (première lettre majuscule) affiché en fallback.
@@ -1242,6 +1246,10 @@ model SubCategory {
   // sous-catégorie puisse être choisie comme étiquette Microstore d'un produit
   // (sinon le badge "M" reste grisé côté ProductForm et le push est refusé).
   microstoreCategoryId       Int?
+  // Code article Sage pour la facturation. Prioritaire sur Category.sageArticleCode :
+  // ex. SubCategory "Jonc" porte ART0016, sa Category parente "Bracelet" porte
+  // ART0002, le produit est facturé en ART0016.
+  sageArticleCode            String?
   createdAt                  DateTime                 @default(now())
 
   // Multi-tenant : lib scopée par tenant depuis 2026-07-12
