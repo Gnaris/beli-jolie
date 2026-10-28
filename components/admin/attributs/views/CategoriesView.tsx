@@ -100,6 +100,7 @@ export default async function CategoriesView() {
       microstoreLabels.categories,
       c.microstoreCategoryId,
     ),
+    sageArticleCode: (c as { sageArticleCode?: string | null }).sageArticleCode ?? null,
     productCount: c._count.products,
     createdAt: c.createdAt,
     subCategories: c.subCategories.map((s) => {
@@ -117,6 +118,7 @@ export default async function CategoriesView() {
           microstoreLabels.categories,
           subMsId,
         ),
+        sageArticleCode: (s as { sageArticleCode?: string | null }).sageArticleCode ?? null,
       };
     }),
     pfsLabel: buildPfsLabel(c.pfsGender, c.pfsFamilyName, c.pfsCategoryName),

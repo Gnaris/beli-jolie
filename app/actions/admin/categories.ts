@@ -394,6 +394,47 @@ export async function updateSubCategoryMicrostoreMapping(
   return { success: true as const, affectedProducts };
 }
 
+/**
+ * Code article Sage utilisé par l'extension « Regroupement facture » quand elle
+ * demande à SageBridge de créer une facture. Chaîne libre (ex. "ART0003") — le
+ * format dépend du dossier Sage du tenant, aucune validation côté serveur.
+ * Vide = aucun code → l'extension demandera à l'utilisateur dans le picker.
+ */
+export async function updateCategorySageArticleCode(
+  id: string,
+  sageArticleCode: string | null,
+) {
+  await requireAdmin();
+  const value = sageArticleCode?.trim() || null;
+  await prisma.category.update({
+    where: { id },
+    data: { sageArticleCode: value },
+  });
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  return { success: true as const };
+}
+
+/**
+ * Code article Sage d'une sous-catégorie. Prioritaire sur le code de la
+ * catégorie parente (ex. SubCategory "Jonc" → ART0016 l'emporte sur Category
+ * "Bracelet" → ART0002).
+ */
+export async function updateSubCategorySageArticleCode(
+  id: string,
+  sageArticleCode: string | null,
+) {
+  await requireAdmin();
+  const value = sageArticleCode?.trim() || null;
+  await prisma.subCategory.update({
+    where: { id },
+    data: { sageArticleCode: value } as never,
+  });
+  revalidatePath("/admin/categories");
+  revalidateTag("categories", "default");
+  return { success: true as const };
+}
+
 // ─────────────────────────────────────────────
 // Sous-catégories
 // ─────────────────────────────────────────────

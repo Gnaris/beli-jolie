@@ -16,6 +16,8 @@ type Sub = {
   orderchampCategoryPath?: string | null;
   orderchampLabel?: string | null;
   microstoreCategoryId?: number | null;
+  microstoreLabel?: string | null;
+  sageArticleCode?: string | null;
 };
 export type CategoryDetailData = {
   id: string;
@@ -31,9 +33,10 @@ export type CategoryDetailData = {
   faireLabel: string | null;
   orderchampLabel: string | null;
   microstoreLabel: string | null;
+  sageLabel: string | null;
 };
 
-type Marketplace = "pfs" | "efashion" | "faire" | "orderchamp" | "microstore";
+type Marketplace = "pfs" | "efashion" | "faire" | "orderchamp" | "microstore" | "sage";
 
 type Props = {
   category: CategoryDetailData;
@@ -46,6 +49,7 @@ type Props = {
   onSubDelete: (sub: Sub) => void;
   onSubOrderchamp: (sub: Sub) => void;
   onSubMicrostore: (sub: Sub) => void;
+  onSubSage: (sub: Sub) => void;
   onEditMapping: (mp: Marketplace) => void;
   onImageChange: (nextImage: string | null) => void;
   onEditSeo: () => void;
@@ -57,6 +61,7 @@ const MARKETPLACES: { key: Marketplace; label: string; initial: string; gradient
   { key: "faire",      label: "Faire",      initial: "F", gradient: "from-[#f59e0b] to-[#fbbf24]" },
   { key: "orderchamp", label: "Orderchamp", initial: "O", gradient: "from-[#F97316] to-[#FDBA74]" },
   { key: "microstore", label: "Microstore", initial: "M", gradient: "from-[#0891b2] to-[#22d3ee]" },
+  { key: "sage",       label: "Sage",       initial: "S", gradient: "from-[#10b981] to-[#059669]" },
 ];
 
 export default function CategoryDetail({
@@ -70,6 +75,7 @@ export default function CategoryDetail({
   onSubDelete,
   onSubOrderchamp,
   onSubMicrostore,
+  onSubSage,
   onEditMapping,
   onImageChange,
   onEditSeo,
@@ -128,6 +134,7 @@ export default function CategoryDetail({
     faire: category.faireLabel,
     orderchamp: category.orderchampLabel,
     microstore: category.microstoreLabel,
+    sage: category.sageLabel,
   };
 
   return (
@@ -307,6 +314,7 @@ export default function CategoryDetail({
                 onDelete={onSubDelete}
                 onOrderchamp={onSubOrderchamp}
                 onMicrostore={onSubMicrostore}
+                onSage={onSubSage}
               />
             </div>
           </section>

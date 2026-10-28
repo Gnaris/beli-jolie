@@ -8,6 +8,7 @@ type Sub = {
   orderchampLabel?: string | null;
   microstoreCategoryId?: number | null;
   microstoreLabel?: string | null;
+  sageArticleCode?: string | null;
 };
 
 type Props = {
@@ -17,15 +18,17 @@ type Props = {
   onDelete: (sub: Sub) => void;
   onOrderchamp?: (sub: Sub) => void;
   onMicrostore?: (sub: Sub) => void;
+  onSage?: (sub: Sub) => void;
 };
 
-export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrderchamp, onMicrostore }: Props) {
+export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrderchamp, onMicrostore, onSage }: Props) {
   return (
     <div className="flex flex-wrap gap-2">
       {subs.map((s) => {
         const translated = !!(s.translations.fr && s.translations.fr.trim() && s.translations.en && s.translations.en.trim());
         const ocMapped = !!s.orderchampCategoryPath;
         const msMapped = s.microstoreCategoryId != null;
+        const sageMapped = !!s.sageArticleCode;
         return (
           <div
             key={s.id}
@@ -75,6 +78,25 @@ export default function SubCategoryChips({ subs, onAdd, onEdit, onDelete, onOrde
                 }`}
               >
                 M
+              </button>
+            )}
+            {onSage && (
+              <button
+                type="button"
+                onClick={() => onSage(s)}
+                title={
+                  sageMapped
+                    ? `Sage : ${s.sageArticleCode}`
+                    : "Sage : code article de facturation (prioritaire sur celui de la catégorie parente)"
+                }
+                aria-label={sageMapped ? "Modifier le code article Sage" : "Ajouter un code article Sage"}
+                className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[9px] font-bold shrink-0 transition-colors ${
+                  sageMapped
+                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                    : "bg-bg-primary border border-dashed border-border text-text-muted hover:text-emerald-600 hover:border-emerald-300"
+                }`}
+              >
+                S
               </button>
             )}
             <button

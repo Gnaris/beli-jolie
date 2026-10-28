@@ -14,6 +14,7 @@ import PfsCategoryMappingModal from "@/components/admin/shared/mapping-modals/Pf
 import EfashionMappingModal from "@/components/admin/shared/mapping-modals/EfashionMappingModal";
 import FaireCategoryMappingModal from "@/components/admin/shared/mapping-modals/FaireCategoryMappingModal";
 import MicrostoreMappingModal from "@/components/admin/shared/mapping-modals/MicrostoreMappingModal";
+import SageArticleCodeMappingModal from "@/components/admin/shared/mapping-modals/SageArticleCodeMappingModal";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -22,8 +23,10 @@ import {
   reorderCategories,
   updateCategoryDirect,
   updateCategoryMicrostoreMapping,
+  updateCategorySageArticleCode,
   updateSubCategoryDirect,
   updateSubCategoryMicrostoreMapping,
+  updateSubCategorySageArticleCode,
 } from "@/app/actions/admin/categories";
 import type { OrderchampCategoryLeaf } from "@/lib/orderchamp-taxonomy-shared";
 
@@ -36,6 +39,8 @@ type Sub = {
   microstoreCategoryId?: number | null;
   /** Nom Microstore résolu (ex "Bracelet") ou marqueur orphelin. */
   microstoreLabel?: string | null;
+  /** Code article Sage pour la facturation (ex "ART0016"). */
+  sageArticleCode?: string | null;
 };
 
 export type CategoryRow = {
@@ -53,6 +58,7 @@ export type CategoryRow = {
   faireTaxonomyId: string | null;
   orderchampCategoryPath: string | null;
   microstoreCategoryId: number | null;
+  sageArticleCode: string | null;
   productCount: number;
   createdAt: Date;
   subCategories: Sub[];
@@ -104,11 +110,13 @@ export default function CategoriesMasterDetail({
   // Mini-modals de mapping marketplace (1 par marketplace). Chacun est ouvert
   // par la carte correspondante dans <MarketplaceMappingCards>.
   const [mappingModal, setMappingModal] = useState<
-    "pfs" | "efashion" | "faire" | "microstore" | null
+    "pfs" | "efashion" | "faire" | "microstore" | "sage" | null
   >(null);
   // Sous-catégorie ciblée par la modale Microstore (badge « M » sur les chips).
   // null tant que l'utilisatrice n'a pas cliqué le badge.
   const [microstoreSubTarget, setMicrostoreSubTarget] = useState<Sub | null>(null);
+  // Sous-catégorie ciblée par la modale Sage (badge « S » sur les chips).
+  const [sageSubTarget, setSageSubTarget] = useState<Sub | null>(null);
   // Drawer d'édition SEO (page publique /categories/[slug]) — ouvert par la
   // carte "Page publique — SEO" du panneau détail.
   const [seoDrawerOpen, setSeoDrawerOpen] = useState(false);
@@ -252,6 +260,7 @@ export default function CategoriesMasterDetail({
         faireLabel: selectedCat.faireLabel,
         orderchampLabel: selectedCat.orderchampLabel,
         microstoreLabel: selectedCat.microstoreLabel,
+        sageLabel: selectedCat.sageArticleCode,
       }
     : null;
 
@@ -319,6 +328,7 @@ export default function CategoriesMasterDetail({
               onSubDelete={handleSubDelete}
               onSubOrderchamp={(s) => selectedCat && openOrderchampMappingForSub(s, selectedCat)}
               onSubMicrostore={(s) => setMicrostoreSubTarget(s)}
+              onSubSage={(s) => setSageSubTarget(s)}
               onEditMapping={(mp) => {
                 if (!selectedCat) return;
                 if (mp === "orderchamp") {
@@ -375,6 +385,7 @@ export default function CategoriesMasterDetail({
               orderchampCategoryPath: null,
               microstoreCategoryId: null,
               microstoreLabel: null,
+              sageArticleCode: null,
               productCount: 0,
               createdAt: new Date(),
               subCategories: (created.subCategories ?? []).map((s) => ({
@@ -383,6 +394,7 @@ export default function CategoriesMasterDetail({
                 translations: { fr: s.name },
                 microstoreCategoryId: null,
                 microstoreLabel: null,
+                sageArticleCode: null,
               })),
               pfsLabel: null,
               efashionLabel: null,
@@ -436,6 +448,7 @@ export default function CategoriesMasterDetail({
                               translations: { fr: sub.name },
                               microstoreCategoryId: null,
                               microstoreLabel: null,
+                              sageArticleCode: null,
                             },
                           ],
                     }
@@ -527,6 +540,13 @@ export default function CategoriesMasterDetail({
             currentValue={selectedCat.microstoreCategoryId}
             onSave={(next) => updateCategoryMicrostoreMapping(selectedCat.id, next)}
           />
+          <SageArticleCodeMappingModal
+            open={mappingModal === "sage"}
+            onClose={() => setMappingModal(null)}
+            entityLabel={`Catégorie « ${selectedCat.name} »`}
+            currentValue={selectedCat.sageArticleCode}
+            onSave={(next) => updateCategorySageArticleCode(selectedCat.id, next)}
+          />
         </>
       )}
 
@@ -559,6 +579,17 @@ export default function CategoriesMasterDetail({
           kind="category"
           currentValue={microstoreSubTarget.microstoreCategoryId ?? null}
           onSave={(next) => updateSubCategoryMicrostoreMapping(microstoreSubTarget.id, next)}
+        />
+      )}
+
+      {/* Modale mapping Sage — sous-catégorie ciblée */}
+      {sageSubTarget && (
+        <SageArticleCodeMappingModal
+          open={!!sageSubTarget}
+          onClose={() => setSageSubTarget(null)}
+          entityLabel={`Sous-catégorie « ${sageSubTarget.name} »`}
+          currentValue={sageSubTarget.sageArticleCode ?? null}
+          onSave={(next) => updateSubCategorySageArticleCode(sageSubTarget.id, next)}
         />
       )}
     </>
