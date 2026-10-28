@@ -13,6 +13,7 @@ import {
   normalizePhoneDigits,
   toWhatsAppNumber,
   isLikelyFrenchLandline,
+  computeMenuPosition,
 } from "@/components/admin/users/PhoneContactIcons";
 
 describe("normalizePhoneDigits", () => {
@@ -79,5 +80,65 @@ describe("isLikelyFrenchLandline", () => {
 
   it("gère les entrées vides", () => {
     expect(isLikelyFrenchLandline("")).toBe(false);
+  });
+});
+
+describe("computeMenuPosition", () => {
+  // Menu WhatsApp = 288 px (w-72 Tailwind). On teste surtout le comportement
+  // sur viewport mobile étroit, où un ancrage « right » naïf fait déborder le
+  // menu hors écran à gauche (bug admin/commandes/[id] en format téléphone).
+  const MENU = 288;
+
+  it("mobile étroit — bouton pas tout contre le bord droit : le menu reste à l'écran", () => {
+    // iPhone SE : viewport 375 px. Bouton (28 px) à l'intérieur d'une carte,
+    // bord droit à 180 px → ancrage right-aligned donnerait left = -108 (hors écran).
+    const pos = computeMenuPosition({
+      rect: { top: 100, bottom: 128, left: 152, right: 180 },
+      viewportWidth: 375,
+      menuWidth: MENU,
+    });
+    expect(pos.left).toBeGreaterThanOrEqual(8);
+    expect(pos.left + MENU).toBeLessThanOrEqual(375 - 8);
+  });
+
+  it("bouton proche du bord droit : menu aligné à droite du trigger", () => {
+    // Desktop 1440 px, bouton à droite (rect.right = 1400) : menu reste
+    // right-aligned → left = 1400 - 288 = 1112.
+    const pos = computeMenuPosition({
+      rect: { top: 100, bottom: 128, left: 1372, right: 1400 },
+      viewportWidth: 1440,
+      menuWidth: MENU,
+    });
+    expect(pos.left).toBe(1400 - MENU);
+  });
+
+  it("top = bas du trigger + 4 px (gap visuel)", () => {
+    const pos = computeMenuPosition({
+      rect: { top: 100, bottom: 128, left: 1372, right: 1400 },
+      viewportWidth: 1440,
+      menuWidth: MENU,
+    });
+    expect(pos.top).toBe(132);
+  });
+
+  it("mobile très étroit — menu plus large que viewport : clamp sur margin de gauche", () => {
+    // Cas pathologique : viewport 320 px, menu 288 px → maxLeft = 320 - 288 - 8 = 24.
+    const pos = computeMenuPosition({
+      rect: { top: 50, bottom: 78, left: 280, right: 308 },
+      viewportWidth: 320,
+      menuWidth: MENU,
+    });
+    expect(pos.left).toBeGreaterThanOrEqual(8);
+    expect(pos.left).toBeLessThanOrEqual(24);
+  });
+
+  it("respecte une marge custom", () => {
+    const pos = computeMenuPosition({
+      rect: { top: 50, bottom: 78, left: 10, right: 38 },
+      viewportWidth: 375,
+      menuWidth: MENU,
+      margin: 16,
+    });
+    expect(pos.left).toBeGreaterThanOrEqual(16);
   });
 });

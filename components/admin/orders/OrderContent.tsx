@@ -249,6 +249,10 @@ export default function OrderContent({
   const [edits, setEdits] = useState<Record<string, { qty: number; price: number }>>({});
   const [showAdd, setShowAdd] = useState(false);
   const [giftPending, setGiftPending] = useState(false);
+  // Sélection « rupture rapide » : IDs des variantes cochées via la colonne #.
+  // Vidée après chaque bulk, et aussi quand on entre en mode édition pour
+  // éviter toute confusion avec les ajustements manuels.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [zoomImage, setZoomImage] = useState<{
     src: string;
     alt: string;
@@ -297,7 +301,61 @@ export default function OrderContent({
     });
     setEdits(init);
     setShowAdd(false);
+    setSelectedIds(new Set());
     setMode("edit");
+  }
+
+  function toggleSelected(itemId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  async function handleBulkOutOfStock() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const targets = items.filter((it) => ids.includes(it.id) && !it.isCompensation);
+    if (targets.length === 0) {
+      toast.error("Les articles ajoutés manuellement ne peuvent pas être mis en rupture ici.");
+      return;
+    }
+
+    const ok = await confirm({
+      title: "Mettre en rupture de stock",
+      message:
+        targets.length === 1
+          ? `Mettre « ${targets[0].productName} — ${targets[0].colorName} » en rupture de stock ?`
+          : `Mettre ${targets.length} variantes en rupture de stock ?`,
+      confirmLabel: "Mettre en rupture",
+      cancelLabel: "Annuler",
+    });
+    if (!ok) return;
+
+    startTransition(async () => {
+      const res = await modifyOrderItems(
+        orderId,
+        targets.map((it) => ({
+          orderItemId: it.id,
+          newQuantity: 0,
+          newUnitPrice: undefined,
+          reason: "OUT_OF_STOCK" as const,
+        })),
+      );
+      if (res.success) {
+        toast.success(
+          targets.length === 1
+            ? "Variante marquée en rupture."
+            : `${targets.length} variantes marquées en rupture.`,
+        );
+        setSelectedIds(new Set());
+      } else {
+        toast.error(res.error ?? "Erreur");
+      }
+    });
   }
 
   function exitEdit() {
@@ -568,12 +626,23 @@ export default function OrderContent({
         {!readOnly && (
           <div className="flex flex-wrap gap-2">
             {mode === "view" ? (
-              <button
-                onClick={enterEdit}
-                className="inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-slate-800"
-              >
-                <PencilIcon /> Modifier la commande
-              </button>
+              <>
+                <button
+                  onClick={enterEdit}
+                  className="inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-slate-800"
+                >
+                  <PencilIcon /> Modifier la commande
+                </button>
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={handleBulkOutOfStock}
+                    disabled={pending}
+                    className="inline-flex items-center gap-2 bg-rose-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-rose-700 disabled:opacity-40"
+                  >
+                    Mettre en rupture de stock les variants cochés ({selectedIds.size})
+                  </button>
+                )}
+              </>
             ) : (
               <>
                 <button
@@ -648,6 +717,7 @@ export default function OrderContent({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
               <tr>
+                {!readOnly && mode === "view" && <th className="text-center px-2 py-3 w-10">#</th>}
                 <th className="text-left px-4 py-3 w-16">{t("thImage")}</th>
                 <th className="text-left px-2 py-3 w-24">{t("thRef")}</th>
                 <th className="text-left px-2 py-3 w-40">{t("thColor")}</th>
@@ -679,6 +749,8 @@ export default function OrderContent({
                   colorMap={colorMap}
                   onZoomImage={setZoomImage}
                   productLinks={productLinks}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelected}
                 />
               ))}
             </tbody>
@@ -1681,6 +1753,8 @@ function ProductGroupRows({
   colorMap,
   onZoomImage,
   productLinks,
+  selectedIds,
+  onToggleSelect,
 }: {
   orderId: string;
   group: {
@@ -1700,8 +1774,12 @@ function ProductGroupRows({
   colorMap: Record<string, ColorInfo>;
   onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string; reference: string | null }) => void;
   productLinks: Record<string, string> | undefined;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
 }) {
-  const colspan = !readOnly && mode === "edit" ? 11 : 10;
+  // colspan : 10 colonnes de base + 1 colonne « # » (mode view, !readOnly)
+  // ou + 1 colonne corbeille (mode edit, !readOnly).
+  const colspan = !readOnly ? 11 : 10;
   const totalVariants = group.colorGroups.reduce((s, cg) => s + cg.items.length, 0);
   const groupQty = group.colorGroups.reduce((s, cg) => {
     for (const it of cg.items) {
@@ -1751,6 +1829,8 @@ function ProductGroupRows({
             productRef={group.ref}
             onZoomImage={onZoomImage}
             productLinks={productLinks}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={onToggleSelect}
           />
         )),
       )}
@@ -1778,6 +1858,8 @@ function VariantRow({
   productRef,
   onZoomImage,
   productLinks,
+  selected,
+  onToggleSelect,
 }: {
   orderId: string;
   item: OrderItemView;
@@ -1794,6 +1876,8 @@ function VariantRow({
   productRef: string;
   onZoomImage: (img: { src: string; alt: string; priceEuros: number | null; baseName: string; reference: string | null }) => void;
   productLinks: Record<string, string> | undefined;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
 }) {
   const t = useTranslations("orderContent");
   const translateSize = makeSizeTranslator(t);
@@ -1814,7 +1898,11 @@ function VariantRow({
   const qtyChanged = !!mod && mod.originalQuantity !== mod.newQuantity;
   const priceChanged = !!mod && mod.newUnitPrice !== null && mod.originalUnitPrice !== null;
 
-  const rowBg = item.isCompensation
+  // La sélection « rupture rapide » prime visuellement sur le zebra et sur le
+  // bandeau modif/ajout : elle doit être très visible.
+  const rowBg = selected
+    ? "bg-rose-50"
+    : item.isCompensation
     ? "bg-emerald-50/40"
     : mod
     ? "bg-amber-50/40"
@@ -1822,8 +1910,28 @@ function VariantRow({
     ? "bg-slate-50/60"
     : "";
 
+  const canSelect = !readOnly && mode === "view" && !item.isCompensation;
+
   return (
-    <tr className={`border-t border-slate-100 ${rowBg} ${isRemoved && mode === "view" ? "opacity-60" : ""}`}>
+    <tr className={`border-t border-slate-100 ${rowBg} ${selected ? "ring-2 ring-inset ring-rose-300" : ""} ${isRemoved && mode === "view" ? "opacity-60" : ""}`}>
+      {/* Case à cocher « # » (mode view, hors readOnly) */}
+      {!readOnly && mode === "view" && (
+        <td className="px-2 py-3 text-center">
+          {canSelect ? (
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(item.id)}
+              disabled={pending}
+              aria-label="Sélectionner pour mise en rupture"
+              className="w-4 h-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+            />
+          ) : (
+            <span className="text-slate-300">—</span>
+          )}
+        </td>
+      )}
+
       {/* Image cliquable = zoom */}
       <td className="px-4 py-3 pl-8">
         {item.imagePath ? (

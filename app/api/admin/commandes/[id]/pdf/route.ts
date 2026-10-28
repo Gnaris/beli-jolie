@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { generateOrderPDF } from "@/lib/pdf-order";
+import { generateOrderPDF, generatePackingSlipPDF } from "@/lib/pdf-order";
 import { logger } from "@/lib/logger";
 import { roundCent } from "@/lib/money";
 
@@ -23,6 +23,7 @@ export async function GET(
 
   const { id } = await params;
   const hidePrices = _req.nextUrl.searchParams.get("noPrices") === "1";
+  const packing    = _req.nextUrl.searchParams.get("packing")  === "1";
 
   const order = await prisma.order.findUnique({
     where: { id },
@@ -32,6 +33,43 @@ export async function GET(
   if (!order) return new NextResponse("Commande introuvable", { status: 404 });
 
   try {
+    if (packing) {
+      const clientLabel =
+        (order.clientCompany && order.clientCompany.trim())
+        || `${order.shipFirstName} ${order.shipLastName}`.trim()
+        || "Client";
+
+      const pdf = await generatePackingSlipPDF({
+        orderNumber: order.orderNumber,
+        createdAt:   order.createdAt,
+        clientLabel,
+        shipCountry: order.shipCountry,
+        items: order.items.map((item) => ({
+          productName:  item.productName,
+          productRef:   item.productRef,
+          colorName:    item.colorName,
+          categoryName: null,
+          saleType:     item.saleType,
+          packQty:      item.packQty,
+          size:         item.size,
+          sizesJson:    item.sizesJson,
+          packDetails:  item.packDetails,
+          imagePath:    item.imagePath,
+          unitPrice:    Number(item.unitPrice),
+          quantity:     item.quantity,
+          lineTotal:    Number(item.lineTotal),
+        })),
+      });
+
+      return new NextResponse(pdf as unknown as BodyInit, {
+        headers: {
+          "Content-Type":        "application/pdf",
+          "Content-Disposition": `attachment; filename="preparation-${order.orderNumber}.pdf"`,
+          "Content-Length":      String(pdf.length),
+        },
+      });
+    }
+
     const pdfBuffer = await generateOrderPDF({
       orderNumber:     order.orderNumber,
       createdAt:       order.createdAt,

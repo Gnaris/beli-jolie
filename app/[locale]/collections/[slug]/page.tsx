@@ -465,7 +465,7 @@ export default async function CollectionDetailPage({ params, searchParams }: Pag
         <section className="pt-6 lg:pt-10 pb-24">
           <div className="lg:flex lg:gap-10">
             {/* Sidebar filtres desktop — flush left (padding interne minimal) */}
-            <aside className="hidden lg:block w-60 shrink-0 pl-4 pr-4">
+            <aside className="hidden lg:block w-[300px] shrink-0 pl-12 pr-4">
               <Suspense>
                 <SearchFilters
                   categories={categories}

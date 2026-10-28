@@ -40,6 +40,40 @@ export function isLikelyFrenchLandline(raw: string): boolean {
   return false;
 }
 
+/**
+ * Calcule la position du menu WhatsApp (fixed) sous le trigger.
+ *
+ * Stratégie :
+ *   1. Préféré — aligner le bord droit du menu sur le bord droit du trigger
+ *      (ouverture vers la gauche, naturel quand l'icône est en fin de ligne).
+ *   2. Si ça fait déborder par la gauche (cas mobile : viewport étroit, trigger
+ *      pas tout contre le bord droit), re-aligner le bord gauche du menu sur
+ *      le bord gauche du trigger (ouverture vers la droite).
+ *   3. Clamp final dans [margin, viewportWidth - menuWidth - margin] pour
+ *      garantir que le menu reste visible même si le trigger est très étroit.
+ */
+export function computeMenuPosition({
+  rect,
+  viewportWidth,
+  menuWidth,
+  margin = 8,
+}: {
+  rect: { top: number; bottom: number; left: number; right: number };
+  viewportWidth: number;
+  menuWidth: number;
+  margin?: number;
+}): { top: number; left: number } {
+  let left = rect.right - menuWidth;
+  if (left < margin) left = rect.left;
+  const maxLeft = Math.max(margin, viewportWidth - menuWidth - margin);
+  left = Math.max(margin, Math.min(left, maxLeft));
+  return { top: rect.bottom + 4, left };
+}
+
+// w-72 = 18rem = 288px (Tailwind). Centralisé pour que le helper et le JSX
+// restent synchrones.
+const MENU_WIDTH_PX = 288;
+
 interface Props {
   phone: string | null | undefined;
   /** Client destinataire. null si contact hors compte (AdminClientCard sans userId). */
@@ -92,7 +126,7 @@ export default function PhoneContactIcons({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -107,10 +141,13 @@ export default function PhoneContactIcons({
     function updatePos() {
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      setMenuPos({
-        top: rect.bottom + 4,
-        right: window.innerWidth - rect.right,
-      });
+      setMenuPos(
+        computeMenuPosition({
+          rect,
+          viewportWidth: window.innerWidth,
+          menuWidth: MENU_WIDTH_PX,
+        }),
+      );
     }
     updatePos();
     window.addEventListener("resize", updatePos);
@@ -284,7 +321,7 @@ export default function PhoneContactIcons({
         <div
           ref={menuRef}
           role="menu"
-          style={{ position: "fixed", top: menuPos.top, right: menuPos.right, zIndex: 10500 }}
+          style={{ position: "fixed", top: menuPos.top, left: menuPos.left, zIndex: 10500 }}
           className="w-72 rounded-xl border border-border bg-bg-primary shadow-xl overflow-hidden"
         >
           <button

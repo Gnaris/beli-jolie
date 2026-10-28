@@ -226,4 +226,36 @@ describe("BulkActionBar — bouton « Tout synchroniser »", () => {
     expect(onMarketplacePublish).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("dialog", { name: "Actions marketplaces" })).toBeInTheDocument();
   });
+
+  // Régression : les actions « Synchroniser » / « Tout synchroniser » ouvrent
+  // une modale de confirmation (useConfirm → portal dans document.body) AU-DESSUS
+  // du panneau Marketplaces. Son mousedown ne traverse pas `barRef`. Un vieux
+  // auto-close basé sur mousedown document traitait ce clic comme « extérieur »
+  // et refermait le panneau en arrière-plan — la cliente voyait le panneau
+  // disparaître dès qu'elle validait la synchro. Désormais, seul le dropdown
+  // « Plus » (ancré, non modal) s'auto-ferme ; le panneau Marketplaces se ferme
+  // uniquement par la croix ou Échap.
+  it("reste ouvert quand un mousedown fire sur un portail au-dessus (confirm dialog)", () => {
+    render(
+      <BulkActionBar
+        {...baseProps}
+        selectedProducts={[
+          mkProduct({ id: "1", status: "ONLINE", pfsProductId: "pfs-1" }),
+        ]}
+        onSyncAll={() => {}}
+      />,
+    );
+    openMarketplacePanel();
+    // Simule l'ouverture d'une modale portaled DANS document.body, hors de
+    // la barre bulk (comme ConfirmDialog ou RefreshMarketplaceDialog).
+    const stranger = document.createElement("button");
+    stranger.textContent = "Oui, synchroniser";
+    document.body.appendChild(stranger);
+    try {
+      fireEvent.mouseDown(stranger);
+      expect(screen.getByRole("dialog", { name: "Actions marketplaces" })).toBeInTheDocument();
+    } finally {
+      stranger.remove();
+    }
+  });
 });

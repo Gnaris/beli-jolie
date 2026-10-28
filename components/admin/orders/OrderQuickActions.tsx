@@ -53,6 +53,15 @@ export default function OrderQuickActions({
           <DocIcon /> Bon sans prix
         </a>
 
+        {/* Bon de préparation — atelier */}
+        <a
+          href={`/api/admin/commandes/${orderId}/pdf?packing=1`}
+          target="_blank"
+          className="inline-flex items-center gap-2 bg-white border border-amber-200 text-amber-800 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-amber-50"
+        >
+          <PackageIcon /> Bon de préparation
+        </a>
+
         {/* Upload / Voir Facture */}
         <FileButton
           label="Facture"

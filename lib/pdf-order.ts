@@ -11,6 +11,7 @@ import sharp from "sharp";
 import { readFile, keyFromDbPath } from "@/lib/storage";
 import { prisma } from "@/lib/prisma";
 import { derivePublicContactEmail } from "@/lib/public-contact-email";
+import { countryLabel } from "@/lib/countries";
 
 // ─────────────────────────────────────────────
 // Palette — Élégante et professionnelle
@@ -56,6 +57,14 @@ export interface OrderItemPDF {
   quantity:     number;
   lineTotal:    number;
   variantSnapshot?: string | null; // JSON: full variant details snapshot for legal traceability
+}
+
+export interface PackingSlipData {
+  orderNumber: string;
+  createdAt:   Date;
+  clientLabel: string; // nom affiché en gros (société ou prénom + nom)
+  shipCountry: string;
+  items:       OrderItemPDF[];
 }
 
 export interface OrderPDFData {
@@ -698,6 +707,242 @@ export async function generateOrderPDF(data: OrderPDFData): Promise<Buffer> {
 
       // Filet bas décoratif
       doc.rect(0, PH - 3, PW, 3).fill(rgb(C.accent));
+    }
+
+    doc.end();
+  });
+}
+
+// ─────────────────────────────────────────────
+// BON DE PRÉPARATION (atelier) — compact, sans prix
+// ─────────────────────────────────────────────
+
+export interface PackingSize { name: string | null; qty: number }
+export interface PackingVariant {
+  colorName: string;
+  sizes:     PackingSize[];
+  totalQty:  number;
+  saleType:  string;
+  packQty:   number | null;
+}
+export interface PackingGroup {
+  productName: string;
+  productRef:  string;
+  imagePath:   string | null;
+  variants:    PackingVariant[];
+  totalQty:    number;
+}
+
+export function groupItemsForPacking(items: OrderItemPDF[]): PackingGroup[] {
+  const map = new Map<string, PackingGroup>();
+  const order: string[] = [];
+
+  for (const item of items) {
+    const key = item.productRef;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        productName: item.productName,
+        productRef:  item.productRef,
+        imagePath:   item.imagePath,
+        variants:    [],
+        totalQty:    0,
+      };
+      map.set(key, g);
+      order.push(key);
+    } else if (!g.imagePath && item.imagePath) {
+      g.imagePath = item.imagePath;
+    }
+
+    let sizes: PackingSize[] = [];
+    if (item.sizesJson) {
+      try {
+        const parsed: { name: string; quantity: number }[] = JSON.parse(item.sizesJson);
+        sizes = parsed
+          .filter((s) => s.quantity > 0)
+          .map((s) => ({ name: s.name, qty: s.quantity }));
+      } catch { /* ignore */ }
+    }
+    if (sizes.length === 0) {
+      sizes = [{ name: item.size ?? null, qty: item.quantity }];
+    }
+
+    g.variants.push({
+      colorName: item.colorName,
+      sizes,
+      totalQty:  sizes.reduce((n, s) => n + s.qty, 0),
+      saleType:  item.saleType,
+      packQty:   item.packQty,
+    });
+    g.totalQty += item.quantity;
+  }
+
+  return order.map((k) => map.get(k)!);
+}
+
+export function formatPackingVariant(v: PackingVariant): string {
+  return `${v.colorName} × ${v.totalQty}`;
+}
+
+export async function generatePackingSlipPDF(data: PackingSlipData): Promise<Buffer> {
+  const company = await prisma.companyInfo.findFirst({
+    select: { shopName: true, name: true },
+  });
+  const shopName = company?.shopName || company?.name || "Ma Boutique";
+
+  const groups = groupItemsForPacking(data.items);
+
+  const imageBuffers = new Map<string, Buffer>();
+  await Promise.all(
+    groups.map(async (g) => {
+      if (g.imagePath) {
+        const buf = await resolveImageBuffer(g.imagePath);
+        if (buf) imageBuffers.set(g.imagePath, buf);
+      }
+    })
+  );
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      bufferPages: true,
+    });
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const PW = 595.28;
+    const PH = 841.89;
+    const ML = 32;
+    const MR = 32;
+    const CW = PW - ML - MR;
+
+    const FOOTER_H = 24;
+    const BOTTOM_LIMIT = PH - FOOTER_H - 8;
+
+    let y = 0;
+
+    // ─── En-tête compact ─────────────────────────────────────────────
+    const HEADER_H = 70;
+    doc.rect(0, 0, PW, HEADER_H).fill(rgb(C.headerBg));
+
+    doc.font("Helvetica").fontSize(7).fillColor(rgb(C.headerSub));
+    doc.text("BON DE PRÉPARATION", ML, 10, { characterSpacing: 2.5 });
+
+    doc.font("Helvetica-Bold").fontSize(22).fillColor(rgb(C.headerText));
+    doc.text(data.clientLabel, ML, 20, { width: CW - 180 });
+
+    const fullCountryName = countryLabel(data.shipCountry, "fr") || data.shipCountry;
+    doc.font("Helvetica-Bold").fontSize(14).fillColor(rgb(C.headerSub));
+    doc.text(fullCountryName, ML, 46, { width: CW - 180, characterSpacing: 1 });
+
+    // Bloc droite : numéro + date + total pièces
+    const totalPieces = groups.reduce((n, g) => n + g.totalQty, 0);
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(rgb(C.headerText));
+    doc.text(data.orderNumber, PW - MR - 170, 14, { width: 170, align: "right" });
+    doc.font("Helvetica").fontSize(8).fillColor(rgb(C.headerSub));
+    doc.text(formatDate(data.createdAt), PW - MR - 170, 30, { width: 170, align: "right" });
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(rgb(C.headerText));
+    doc.text(
+      `${groups.length} réf. · ${totalPieces} pcs`,
+      PW - MR - 170, 46, { width: 170, align: "right" }
+    );
+
+    y = HEADER_H + 10;
+
+    // ─── Grille produits ultra-serrée ──────────────────────────────
+    const COLS = 5;
+    const GAP  = 6;
+    const cardW = (CW - GAP * (COLS - 1)) / COLS;
+    const imgH  = cardW;             // image carrée = largeur card
+    const COLOR_LINE_H = 10;
+    const CB = 7;
+    const PAD_IN_CARD = 3;
+
+    function cardHeightFor(g: PackingGroup): number {
+      const colorsH = g.variants.length * COLOR_LINE_H;
+      const totalH  = 12;
+      return imgH + PAD_IN_CARD + colorsH + 2 + totalH;
+    }
+
+    for (let i = 0; i < groups.length; i += COLS) {
+      const rowGroups = groups.slice(i, i + COLS);
+      const rowH = Math.max(...rowGroups.map(cardHeightFor));
+
+      if (y + rowH > BOTTOM_LIMIT) {
+        doc.addPage();
+        y = 24;
+      }
+
+      rowGroups.forEach((g, j) => {
+        const cx = ML + j * (cardW + GAP);
+        const cy = y;
+
+        // ---- Image ----
+        const buf = g.imagePath ? imageBuffers.get(g.imagePath) : undefined;
+        let imgOk = false;
+        if (buf) {
+          try { doc.image(buf, cx, cy, { fit: [cardW, imgH] }); imgOk = true; } catch { /* fallback */ }
+        }
+        if (!imgOk) {
+          doc.roundedRect(cx, cy, cardW, imgH, 2).fill(rgb(C.border));
+        }
+
+        // ---- Badge référence en haut à droite SUR l'image ----
+        doc.font("Helvetica-Bold").fontSize(8);
+        const refW = Math.min(doc.widthOfString(g.productRef) + 10, cardW - 4);
+        const bx = cx + cardW - refW - 2;
+        const by = cy + 2;
+        doc.save();
+        doc.fillOpacity(0.82).fillColor(rgb(C.headerBg))
+          .roundedRect(bx, by, refW, 13, 2).fill();
+        doc.restore();
+        doc.font("Helvetica-Bold").fontSize(8).fillColor(rgb(C.headerText));
+        doc.text(g.productRef, bx + 5, by + 3, {
+          width: refW - 10, lineBreak: false, ellipsis: true,
+        });
+
+        // ---- Couleurs sous l'image ----
+        let liY = cy + imgH + PAD_IN_CARD;
+        g.variants.forEach((v) => {
+          doc.roundedRect(cx + 1, liY + 1, CB, CB, 1)
+            .lineWidth(0.4).strokeColor(rgb(C.secondary)).stroke();
+          doc.font("Helvetica").fontSize(7.5).fillColor(rgb(C.secondary));
+          doc.text(formatPackingVariant(v), cx + 1 + CB + 3, liY, {
+            width: cardW - CB - 5, lineBreak: false, ellipsis: true,
+          });
+          liY += COLOR_LINE_H;
+        });
+
+        // ---- Total pièces, aligné à droite en bas de la card ----
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(rgb(C.primary));
+        doc.text(`Total × ${g.totalQty}`, cx, liY + 1, {
+          width: cardW - 1, align: "right",
+        });
+      });
+
+      y += rowH + GAP;
+    }
+
+    // ─── Pied de page ──────────────────────────────────────────────
+    const pageCount = doc.bufferedPageRange().count;
+    for (let i = 0; i < pageCount; i++) {
+      doc.switchToPage(i);
+      const footerY = PH - FOOTER_H;
+      doc.lineWidth(0.3).strokeColor(rgb(C.border))
+        .moveTo(ML, footerY).lineTo(PW - MR, footerY).stroke();
+      doc.font("Helvetica").fontSize(7).fillColor(rgb(C.footerText));
+      doc.text(
+        `${shopName} — Bon de préparation  ·  ${data.orderNumber}`,
+        ML, footerY + 7, { width: CW * 0.7 }
+      );
+      doc.font("Helvetica").fontSize(7).fillColor(rgb(C.footerText));
+      doc.text(
+        `Page ${i + 1} / ${pageCount}`,
+        ML, footerY + 7, { width: CW, align: "right" }
+      );
     }
 
     doc.end();

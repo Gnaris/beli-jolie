@@ -302,17 +302,24 @@ export default function BulkActionBar({
     }
   }, [plusOpen, actionsOpen]);
 
+  // Dropdown « Plus » (ancré au bouton + de la barre) : auto-ferme au clic
+  // hors de la barre. On n'inclut PAS la panel Marketplaces ici : c'est une
+  // vraie modale (portal, voile non cliquable par design — cf. commentaire
+  // MarketplacePanel). Elle se ferme uniquement par la croix ou Échap. Sans
+  // cette distinction, cliquer « Oui, synchroniser » dans la modale de
+  // confirmation ouverte DEPUIS la panel refermait la panel en arrière-plan
+  // (le mousedown de la confirm — autre portal, hors barRef — déclenchait
+  // le handler et traitait le clic comme « extérieur »).
   useEffect(() => {
-    if (!marketplacesOpen && !plusOpen) return;
+    if (!plusOpen) return;
     const onDocClick = (e: MouseEvent) => {
       if (barRef.current && !barRef.current.contains(e.target as Node)) {
-        setMarketplacesOpen(false);
         setPlusOpen(false);
       }
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
-  }, [marketplacesOpen, plusOpen]);
+  }, [plusOpen]);
 
   // Verrouille le scroll de la page derrière l'overlay plein écran sur mobile.
   useEffect(() => {
