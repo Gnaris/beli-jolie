@@ -266,7 +266,7 @@ function RestockProductPicker({
 
 /**
  * Sélecteur de stade pour ABANDONED_CART / INACTIVE_CLIENT + aperçu iframe.
- * Chaque stade renvoie au vrai modèle enregistré via /admin/marketing/mails.
+ * Chaque stade renvoie au vrai modèle enregistré via /admin/contact-client/mails.
  * Aucun stade pré-sélectionné : la cliente coche explicitement lequel envoyer.
  */
 function StagePicker({
@@ -296,8 +296,8 @@ function StagePicker({
 
   const editorHref =
     scenario === "ABANDONED_CART"
-      ? "/admin/marketing/mails?scenario=abandoned"
-      : "/admin/marketing/mails?scenario=inactive";
+      ? "/admin/contact-client/mails?scenario=abandoned"
+      : "/admin/contact-client/mails?scenario=inactive";
 
   if (loadingStages) {
     return (
@@ -425,7 +425,7 @@ function NewsletterPicker({
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12.5px] text-amber-800">
         Aucun modèle de newsletter enregistré.{" "}
-        <a href="/admin/marketing/mails" className="underline font-semibold">
+        <a href="/admin/contact-client/mails" className="underline font-semibold">
           Créer un modèle →
         </a>
       </div>
@@ -447,7 +447,7 @@ function NewsletterPicker({
         </div>
       )}
       <a
-        href="/admin/marketing/mails"
+        href="/admin/contact-client/mails"
         target="_blank"
         rel="noreferrer"
         className="inline-block text-[11px] text-violet-700 font-semibold hover:underline"

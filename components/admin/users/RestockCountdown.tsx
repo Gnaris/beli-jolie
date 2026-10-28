@@ -2,7 +2,7 @@
 
 /**
  * Petit compteur live « envoi prévu dans X » pour la colonne « Retour en
- * stock » de /admin/marketing. Miroir simplifié d'AbandonedCartCountdown —
+ * stock » de /admin/contact-client. Miroir simplifié d'AbandonedCartCountdown —
  * pas de stades, juste le temps restant jusqu'à `scheduledSendAt`.
  */
 

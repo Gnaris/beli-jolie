@@ -1,9 +1,9 @@
 /**
  * Allowlist des méthodes de paiement Stripe optionnelles activées par tenant.
  *
- * Les 4 méthodes optionnelles (PayPal, Billie, Bancontact, iDEAL) doivent être
- * activées côté dashboard Stripe **et** cochées ici pour apparaître dans le
- * tunnel. `card` est le socle et n'a pas de toggle.
+ * Les 5 méthodes optionnelles (PayPal, Revolut Pay, Billie, Bancontact, iDEAL)
+ * doivent être activées côté dashboard Stripe **et** cochées ici pour
+ * apparaître dans le tunnel. `card` est le socle et n'a pas de toggle.
  *
  * Chaque toggle est stocké en SiteConfig sous la clé `stripe_pmt_<name>_enabled`
  * ("1" | "0"). Défaut : décoché tant que la cliente n'a pas confirmé
@@ -17,7 +17,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentTenantId } from "@/lib/tenant";
 
 /** Méthodes Stripe optionnelles gérées par le toggle admin. */
-export const OPTIONAL_STRIPE_METHODS = ["paypal", "billie", "bancontact", "ideal"] as const;
+export const OPTIONAL_STRIPE_METHODS = [
+  "paypal",
+  "revolut_pay",
+  "billie",
+  "bancontact",
+  "ideal",
+] as const;
 export type OptionalStripeMethod = (typeof OPTIONAL_STRIPE_METHODS)[number];
 
 const CONFIG_KEY_PREFIX = "stripe_pmt_";
@@ -32,6 +38,7 @@ export type StripeMethodsEnabled = Record<OptionalStripeMethod, boolean>;
 
 const EMPTY: StripeMethodsEnabled = {
   paypal: false,
+  revolut_pay: false,
   billie: false,
   bancontact: false,
   ideal: false,

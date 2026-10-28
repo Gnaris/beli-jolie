@@ -6,6 +6,7 @@ import { useCallback, useRef, useEffect, useState, useTransition } from "react";
 import { useTranslations } from "next-intl";
 import { useSession } from "next-auth/react";
 import { formatTagName } from "@/lib/tag-display";
+import type { FilterCounts } from "@/lib/public-filter-counts";
 
 interface SubCategory { id: string; name: string }
 interface Category    { id: string; name: string; subCategories: SubCategory[] }
@@ -24,15 +25,34 @@ interface SearchFiltersProps {
   mobileMode?: boolean;
   basePath?:   string;
   showOosToggle?: boolean;
+  /**
+   * Compteurs facettés par option (nombre de produits restants si on
+   * sélectionne cette option, filtres actuels appliqués). Si absent, les
+   * options s'affichent sans compteur et sans griser — comportement
+   * historique de `/produits`.
+   */
+  counts?: FilterCounts;
 }
 
+const DISABLED_TOOLTIP = "Désactivé : aucun produit ne correspond à ce filtre dans la sélection actuelle.";
+
 // -- Custom select dropdown --------------------------------------------------
+type SelectOption = {
+  id: string;
+  label: string;
+  prefix?: string;
+  /** Si fourni : affiché « (N) » après le label (facettes). */
+  count?: number;
+  /** Griser + bloquer le click. */
+  disabled?: boolean;
+};
+
 function CustomSelect({
   value, placeholder, options, onChange,
 }: {
   value: string;
   placeholder: string;
-  options: { id: string; label: string; prefix?: string }[];
+  options: SelectOption[];
   onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -73,19 +93,33 @@ function CustomSelect({
           >
             {placeholder}
           </button>
-          {options.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => { onChange(opt.id); setOpen(false); }}
-              className={`w-full px-3 py-2 min-h-[44px] text-left text-sm font-body transition-colors hover:bg-bg-secondary ${
-                opt.id === value ? "text-text-primary font-medium bg-bg-tertiary" : "text-text-primary"
-              }`}
-            >
-              {opt.prefix && <span className="text-text-muted mr-1">{opt.prefix}</span>}
-              {opt.label}
-            </button>
-          ))}
+          {options.map((opt) => {
+            const disabled = !!opt.disabled;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                disabled={disabled}
+                title={disabled ? DISABLED_TOOLTIP : undefined}
+                onClick={() => { if (disabled) return; onChange(opt.id); setOpen(false); }}
+                className={`w-full px-3 py-2 min-h-[44px] text-left text-sm font-body transition-colors flex items-center justify-between gap-2 ${
+                  disabled
+                    ? "text-text-muted opacity-50 cursor-not-allowed"
+                    : opt.id === value
+                      ? "text-text-primary font-medium bg-bg-tertiary hover:bg-bg-secondary"
+                      : "text-text-primary hover:bg-bg-secondary"
+                }`}
+              >
+                <span className="truncate">
+                  {opt.prefix && <span className="text-text-muted mr-1">{opt.prefix}</span>}
+                  {opt.label}
+                </span>
+                {typeof opt.count === "number" && (
+                  <span className="text-xs text-text-muted shrink-0">({opt.count})</span>
+                )}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -103,26 +137,39 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // -- Toggle chip -------------------------------------------------------------
 function ToggleChip({
-  active, onClick, children,
-}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  active, onClick, children, count, disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  count?: number;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? DISABLED_TOOLTIP : undefined}
+      onClick={() => { if (!disabled) onClick(); }}
       className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[11px] tracking-[0.05em] font-body font-normal transition-all duration-200 whitespace-nowrap ${
-        active
-          ? "bg-black text-white border border-black"
-          : "bg-white border border-neutral-300 text-text-secondary hover:border-black hover:text-text-primary"
+        disabled
+          ? "bg-white border border-neutral-200 text-text-muted opacity-50 cursor-not-allowed"
+          : active
+            ? "bg-black text-white border border-black"
+            : "bg-white border border-neutral-300 text-text-secondary hover:border-black hover:text-text-primary"
       }`}
     >
       {children}
+      {typeof count === "number" && (
+        <span className={active ? "text-white/80" : "text-text-muted"}>({count})</span>
+      )}
     </button>
   );
 }
 
 // -- Color multi-select with search ------------------------------------------
 function ColorMultiSelect({
-  colors, selectedIds, onToggle, onRemove, onClear, label,
+  colors, selectedIds, onToggle, onRemove, onClear, label, counts,
 }: {
   colors: ColorItem[];
   selectedIds: string[];
@@ -130,6 +177,8 @@ function ColorMultiSelect({
   onRemove: (id: string) => void;
   onClear: () => void;
   label: string;
+  /** Nombre de produits restants si on ajoute cette couleur (facettes). */
+  counts?: Record<string, number>;
 }) {
   const t = useTranslations("products");
   const [search, setSearch] = useState("");
@@ -227,13 +276,21 @@ function ColorMultiSelect({
           ) : (
             filtered.map((c) => {
               const isSelected = selectedIds.includes(c.id);
+              const count = counts?.[c.id];
+              const disabled = counts != null && !isSelected && (count ?? 0) === 0;
               return (
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => onToggle(c.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 min-h-[44px] text-left text-xs font-body transition-colors hover:bg-bg-secondary ${
-                    isSelected ? "bg-bg-tertiary text-text-primary font-medium" : "text-text-primary"
+                  disabled={disabled}
+                  title={disabled ? DISABLED_TOOLTIP : undefined}
+                  onClick={() => { if (!disabled) onToggle(c.id); }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 min-h-[44px] text-left text-xs font-body transition-colors ${
+                    disabled
+                      ? "text-text-muted opacity-50 cursor-not-allowed"
+                      : isSelected
+                        ? "bg-bg-tertiary text-text-primary font-medium hover:bg-bg-secondary"
+                        : "text-text-primary hover:bg-bg-secondary"
                   }`}
                 >
                   {/* Checkbox */}
@@ -251,7 +308,10 @@ function ColorMultiSelect({
                     className="w-5 h-5 rounded-full border border-border shrink-0"
                     style={{ backgroundColor: c.hex ?? "#9CA3AF" }}
                   />
-                  <span className="truncate">{c.name}</span>
+                  <span className="truncate flex-1">{c.name}</span>
+                  {typeof count === "number" && (
+                    <span className="text-[10px] text-text-muted shrink-0">({count})</span>
+                  )}
                 </button>
               );
             })
@@ -264,7 +324,7 @@ function ColorMultiSelect({
 
 // -- Main component ----------------------------------------------------------
 export default function SearchFilters({
-  categories, collections, colors, tags, compositions = [], totalCount, mobileMode = false, basePath = "/produits", showOosToggle = false,
+  categories, collections, colors, tags, compositions = [], totalCount, mobileMode = false, basePath = "/produits", showOosToggle = false, counts,
 }: SearchFiltersProps) {
   const t            = useTranslations("products");
   const router       = useRouter();
@@ -322,14 +382,39 @@ export default function SearchFilters({
 
   const selectedCat = categories.find((c) => c.id === cat);
 
+  // Helper : enrichit une liste d'options avec `count` + `disabled` (count=0)
+  // uniquement si `perId` est fourni (prop `counts` sur SearchFilters).
+  const withCounts = <T extends { id: string }>(
+    opts: T[],
+    perId: Record<string, number> | undefined,
+  ): (T & { count?: number; disabled?: boolean })[] => {
+    if (!perId) return opts;
+    return opts.map((o) => {
+      const count = perId[o.id] ?? 0;
+      return { ...o, count, disabled: count === 0 };
+    });
+  };
+
+  const categoryOptions = withCounts(
+    categories.map((c) => ({ id: c.id, label: c.name })),
+    counts?.categories,
+  );
+
   // Flatten all subcategories for the dropdown
-  const subcatOptions = cat && selectedCat
+  const subcatOptionsRaw = cat && selectedCat
     ? selectedCat.subCategories.map((sc) => ({ id: sc.id, label: sc.name }))
     : categories.flatMap((c) => c.subCategories.map((sc) => ({ id: sc.id, label: sc.name, prefix: c.name })));
+  const subcatOptions = withCounts(subcatOptionsRaw, counts?.subCategories);
 
   const collectionOptions  = collections.map((c) => ({ id: c.id, label: c.name }));
-  const tagOptions         = tags.map((t) => ({ id: t.id, label: `#${formatTagName(t.name)}` }));
-  const compositionOptions = compositions.map((c) => ({ id: c.id, label: c.name }));
+  const tagOptions         = withCounts(
+    tags.map((t) => ({ id: t.id, label: `#${formatTagName(t.name)}` })),
+    counts?.tags,
+  );
+  const compositionOptions = withCounts(
+    compositions.map((c) => ({ id: c.id, label: c.name })),
+    counts?.compositions,
+  );
 
   const filterContent = (
     <div className="[&>section]:pb-6 [&>section]:mb-6 [&>section]:border-b [&>section]:border-neutral-100 [&>section:last-of-type]:border-b-0 [&>section:last-of-type]:mb-4">
@@ -367,7 +452,7 @@ export default function SearchFilters({
         <CustomSelect
           value={cat}
           placeholder={t("allCategories")}
-          options={categories.map((c) => ({ id: c.id, label: c.name }))}
+          options={categoryOptions}
           onChange={(v) => {
             const params = new URLSearchParams(searchParams.toString());
             if (v) params.set("cat", v); else params.delete("cat");
@@ -422,6 +507,7 @@ export default function SearchFilters({
             }}
             onClear={() => update("color", "")}
             label={t("filterColor")}
+            counts={counts?.colors}
           />
         </section>
       )}
@@ -476,24 +562,54 @@ export default function SearchFilters({
       <section>
         <SectionLabel>{t("filterFeatured")}</SectionLabel>
         <div className="flex flex-wrap gap-2">
-          <ToggleChip active={bestseller} onClick={() => toggleBool("bestseller", bestseller)}>
+          <ToggleChip
+            active={bestseller}
+            onClick={() => toggleBool("bestseller", bestseller)}
+            count={counts?.bestseller}
+            disabled={!!counts && !bestseller && (counts.bestseller ?? 0) === 0}
+          >
             {t("filterBestseller")}
           </ToggleChip>
-          <ToggleChip active={trending} onClick={() => toggleBool("trending", trending)}>
+          <ToggleChip
+            active={trending}
+            onClick={() => toggleBool("trending", trending)}
+            count={counts?.trending}
+            disabled={!!counts && !trending && (counts.trending ?? 0) === 0}
+          >
             {t("filterTrending")}
           </ToggleChip>
-          <ToggleChip active={isNew} onClick={() => toggleBool("new", isNew)}>
+          <ToggleChip
+            active={isNew}
+            onClick={() => toggleBool("new", isNew)}
+            count={counts?.isNew}
+            disabled={!!counts && !isNew && (counts.isNew ?? 0) === 0}
+          >
             {t("filterNew")}
           </ToggleChip>
-          <ToggleChip active={promo} onClick={() => toggleBool("promo", promo)}>
+          <ToggleChip
+            active={promo}
+            onClick={() => toggleBool("promo", promo)}
+            count={counts?.promo}
+            disabled={!!counts && !promo && (counts.promo ?? 0) === 0}
+          >
             {t("filterPromo")}
           </ToggleChip>
           {isLoggedIn && (
             <>
-              <ToggleChip active={ordered} onClick={() => toggleBool("ordered", ordered)}>
+              <ToggleChip
+                active={ordered}
+                onClick={() => toggleBool("ordered", ordered)}
+                count={counts?.ordered}
+                disabled={!!counts && !ordered && (counts.ordered ?? 0) === 0}
+              >
                 {t("filterOrdered")}
               </ToggleChip>
-              <ToggleChip active={notOrdered} onClick={() => toggleBool("notOrdered", notOrdered)}>
+              <ToggleChip
+                active={notOrdered}
+                onClick={() => toggleBool("notOrdered", notOrdered)}
+                count={counts?.notOrdered}
+                disabled={!!counts && !notOrdered && (counts.notOrdered ?? 0) === 0}
+              >
                 {t("filterNotOrdered")}
               </ToggleChip>
             </>

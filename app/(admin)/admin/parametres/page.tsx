@@ -443,6 +443,7 @@ async function buildPaiementTile(): Promise<DashboardTile> {
   const paymentModesLabel: string[] = [];
   if (status.ready) paymentModesLabel.push(status.testMode ? "Carte (TEST)" : "Carte");
   if (stripeMethods.paypal) paymentModesLabel.push("PayPal");
+  if (stripeMethods.revolut_pay) paymentModesLabel.push("Revolut Pay");
   if (stripeMethods.billie) paymentModesLabel.push("Billie");
   if (stripeMethods.bancontact) paymentModesLabel.push("Bancontact");
   if (stripeMethods.ideal) paymentModesLabel.push("iDEAL");
@@ -476,11 +477,12 @@ async function buildPaiementTile(): Promise<DashboardTile> {
         <SettingCard
           icon={Ico.card}
           title="Moyens de paiement en ligne"
-          description="Choisissez quelles méthodes proposer au checkout en plus de la carte : PayPal, Billie (B2B 30j), Bancontact (Belgique), iDEAL (Pays-Bas). Chaque méthode doit d'abord être activée dans votre dashboard Stripe."
+          description="Choisissez quelles méthodes proposer au checkout en plus de la carte : PayPal, Revolut Pay, Billie (B2B 30j), Bancontact (Belgique), iDEAL (Pays-Bas). Chaque méthode doit d'abord être activée dans votre dashboard Stripe."
           accent="dark"
           status={(() => {
             const count =
               (stripeMethods.paypal ? 1 : 0) +
+              (stripeMethods.revolut_pay ? 1 : 0) +
               (stripeMethods.billie ? 1 : 0) +
               (stripeMethods.bancontact ? 1 : 0) +
               (stripeMethods.ideal ? 1 : 0);

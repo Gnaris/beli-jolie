@@ -25,6 +25,7 @@ import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
+import { normalizeCustomerNote } from "@/lib/normalize-customer-note";
 
 // Erreur typée pour différencier les ruptures de stock des autres erreurs.
 class StockError extends Error {
@@ -152,6 +153,9 @@ export interface PlaceOrderInput {
   // min(solde réel, totalTTC). Le montant Stripe payé doit égaler
   // totalTTC - creditApplied (tolérance 1 centime).
   creditToApply?: number;
+  // Commentaire libre saisi par la cliente au checkout. Tronqué serveur à
+  // 1000 caractères — l'UI pose déjà la contrainte, c'est un filet.
+  customerNote?: string;
 }
 
 export interface PlaceOrderResult {
@@ -878,6 +882,8 @@ export async function placeOrder(
       cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
       // Consentement remplacement rupture stock (case cochée au panier)
       acceptReplacementContact: input.acceptReplacementContact ?? false,
+      // Commentaire libre laissé par la cliente au checkout.
+      customerNote: normalizeCustomerNote(input.customerNote),
       // TVA
       tvaRate,
       subtotalHT: subtotalAfterDiscount,
@@ -1292,6 +1298,7 @@ export async function finalizeOrderFromPaymentIntent(
     // ayant été validé, les CGV l'étaient nécessairement à ce moment-là.
     cgvAcceptedAt: md.cgvAcceptedAt || new Date().toISOString(),
     acceptReplacementContact: md.acceptReplacementContact === "1",
+    customerNote: md.customerNote || undefined,
     privateCarrierEmail: md.privateCarrierEmail || undefined,
     privateCarrierPhone: md.privateCarrierPhone || undefined,
     privateCarrierBordereau: md.privateCarrierBordereau || undefined,

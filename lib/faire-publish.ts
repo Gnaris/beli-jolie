@@ -77,25 +77,40 @@ interface FullVariant {
   saleType: "UNIT" | "PACK";
   packQuantity: number | null;
   colorId: string | null;
-  color: { id: string; name: string } | null;
+  color: { id: string; name: string; translations: { locale: string; name: string }[] } | null;
   faireColorNameOverride: string | null;
   variantSizes: { size: { name: string }; quantity: number }[];
   packLines: {
     colorId: string;
-    color: { id: string; name: string };
+    color: { id: string; name: string; translations: { locale: string; name: string }[] };
     position: number;
     faireColorNameOverride: string | null;
     sizes: { size: { name: string }; quantity: number }[];
   }[];
 }
 
-/** Retourne le nom envoyé à Faire : override trim si présent, sinon Color.name. */
+/**
+ * Nom envoyé à Faire pour une couleur. Priorité :
+ *   1. `override` manuel (`faireColorNameOverride`) s'il est non vide
+ *   2. Traduction anglaise de la couleur (`ColorTranslation.locale = "en"`)
+ *   3. Nom FR de la couleur
+ *
+ * Pourquoi l'anglais par défaut : la palette de pastilles affichée dans le
+ * portail acheteur Faire est générée à partir du nom texte — Faire reconnaît
+ * mal les mots français (« Noir / Bordeaux / Marine » ressortent avec des
+ * pastilles aberrantes). Envoyer les mots anglais donne les bonnes pastilles
+ * pour la majorité des acheteurs Faire (anglophones/germanophones).
+ */
 export function faireColorNameOf(
   colorName: string | undefined,
   override: string | null | undefined,
+  translations?: { locale: string; name: string }[] | undefined,
 ): string {
   const trimmed = override?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : (colorName ?? "Couleur");
+  if (trimmed && trimmed.length > 0) return trimmed;
+  const enName = translations?.find((t) => t.locale === "en")?.name?.trim();
+  if (enName && enName.length > 0) return enName;
+  return colorName ?? "Couleur";
 }
 
 interface FullProduct {
@@ -161,13 +176,25 @@ export async function loadFaireProductFull(productId: string): Promise<FullProdu
           saleType: true,
           packQuantity: true,
           colorId: true,
-          color: { select: { id: true, name: true } },
+          color: {
+            select: {
+              id: true,
+              name: true,
+              translations: { where: { locale: "en" }, select: { locale: true, name: true } },
+            },
+          },
           faireColorNameOverride: true,
           variantSizes: { select: { size: { select: { name: true } }, quantity: true } },
           packLines: {
             select: {
               colorId: true,
-              color: { select: { id: true, name: true } },
+              color: {
+            select: {
+              id: true,
+              name: true,
+              translations: { where: { locale: "en" }, select: { locale: true, name: true } },
+            },
+          },
               position: true,
               faireColorNameOverride: true,
               sizes: {
@@ -256,10 +283,10 @@ function buildImagesByColorId(
 function packColorLabel(v: FullVariant): string {
   if (v.packLines.length > 0) {
     return v.packLines
-      .map((pl) => faireColorNameOf(pl.color?.name, pl.faireColorNameOverride))
+      .map((pl) => faireColorNameOf(pl.color?.name, pl.faireColorNameOverride, pl.color?.translations))
       .join("/");
   }
-  return faireColorNameOf(v.color?.name, v.faireColorNameOverride);
+  return faireColorNameOf(v.color?.name, v.faireColorNameOverride, v.color?.translations);
 }
 
 function effectiveStock(v: FullVariant, productStatus: string): number {
@@ -505,7 +532,7 @@ export function buildFaireProductPayload(
     const sku = skuByLine.get(lineKey) ?? v.id;
     const prices = getFaireVariantPrices(v, wholesaleConfig, retailConfig);
     const stock = line.stockEffective;
-    const colorLabel = v.saleType === "PACK" ? packColorLabel(v) : faireColorNameOf(v.color?.name, v.faireColorNameOverride);
+    const colorLabel = v.saleType === "PACK" ? packColorLabel(v) : faireColorNameOf(v.color?.name, v.faireColorNameOverride, v.color?.translations);
     colorValuesSet.add(colorLabel);
     if (sizeAxis && line.sizeName) sizeValuesSet.add(line.sizeName);
 

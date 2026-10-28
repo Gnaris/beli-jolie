@@ -68,7 +68,7 @@ export async function renameNewsletterTemplateImage(
       data: { name: cleanName, path: newDbPath },
     });
 
-    revalidatePath(`/admin/marketing/mails/newsletter/${image.templateId}`);
+    revalidatePath(`/admin/contact-client/mails/newsletter/${image.templateId}`);
     return { success: true, name: cleanName, path: newDbPath };
   } catch (err) {
     logger.error("[renameNewsletterTemplateImage]", { imageId, error: err as Error });
@@ -92,7 +92,7 @@ export async function updateNewsletterTemplateImageAlt(
       where: { id: imageId },
       data: { alt: alt.slice(0, 500) },
     });
-    revalidatePath(`/admin/marketing/mails/newsletter/${image.templateId}`);
+    revalidatePath(`/admin/contact-client/mails/newsletter/${image.templateId}`);
     return { success: true };
   } catch (err) {
     logger.error("[updateNewsletterTemplateImageAlt]", { imageId, error: err as Error });
@@ -120,7 +120,7 @@ export async function deleteNewsletterTemplateImage(
     }
 
     await prisma.newsletterTemplateImage.delete({ where: { id: imageId } });
-    revalidatePath(`/admin/marketing/mails/newsletter/${image.templateId}`);
+    revalidatePath(`/admin/contact-client/mails/newsletter/${image.templateId}`);
     return { success: true };
   } catch (err) {
     logger.error("[deleteNewsletterTemplateImage]", { imageId, error: err as Error });

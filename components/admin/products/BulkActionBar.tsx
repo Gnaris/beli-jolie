@@ -1285,13 +1285,12 @@ function MarketplacePanel({
       aria-label="Actions marketplaces"
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* Voile noir — desktop only ; mobile reste plein écran blanc */}
-      <button
-        type="button"
-        aria-label="Fermer"
-        tabIndex={-1}
-        onClick={onClose}
-        className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px] cursor-default"
+      {/* Voile noir — desktop only ; mobile reste plein écran blanc.
+          Non cliquable : la fermeture passe uniquement par la croix pour éviter
+          d'interrompre une synchronisation en cours par un clic hors modale. */}
+      <div
+        aria-hidden="true"
+        className="hidden md:block absolute inset-0 bg-black/55 backdrop-blur-[2px]"
       />
       <div className="relative w-full h-full flex flex-col bg-white md:w-[min(92vw,720px)] md:h-auto md:max-h-[85vh] md:rounded-2xl md:border md:border-border-strong md:shadow-2xl md:overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 md:px-5 py-3.5 border-b border-border-light shrink-0 pt-[max(env(safe-area-inset-top),12px)] md:pt-3.5">

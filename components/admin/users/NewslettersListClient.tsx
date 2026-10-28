@@ -105,7 +105,7 @@ export default function NewslettersListClient({ templates }: Props) {
       }
       toast.success("Modèle créé", `« ${name} » a été créé.`);
       setNewName("");
-      router.push(`/admin/marketing/mails/newsletter/${res.id}`);
+      router.push(`/admin/contact-client/mails/newsletter/${res.id}`);
     });
   }
 
@@ -241,12 +241,12 @@ export default function NewslettersListClient({ templates }: Props) {
             // pointent vers l'éditeur newsletter classique.
             const cardHref =
               scenario === "ABANDONED_CART"
-                ? "/admin/marketing/mails/panier-abandonne"
+                ? "/admin/contact-client/mails/panier-abandonne"
                 : scenario === "INACTIVE_CLIENT"
-                  ? "/admin/marketing/mails/inactivite"
+                  ? "/admin/contact-client/mails/inactivite"
                   : scenario === "RESTOCK"
-                    ? "/admin/marketing/mails/retour-en-stock"
-                    : `/admin/marketing/mails/newsletter/${t.id}`;
+                    ? "/admin/contact-client/mails/retour-en-stock"
+                    : `/admin/contact-client/mails/newsletter/${t.id}`;
             return (
               <div
                 key={t.id}
@@ -297,10 +297,10 @@ export default function NewslettersListClient({ templates }: Props) {
                     <Link
                       href={
                         scenario === "ABANDONED_CART"
-                          ? "/admin/marketing/mails/panier-abandonne"
+                          ? "/admin/contact-client/mails/panier-abandonne"
                           : scenario === "INACTIVE_CLIENT"
-                            ? "/admin/marketing/mails/inactivite"
-                            : "/admin/marketing/mails/retour-en-stock"
+                            ? "/admin/contact-client/mails/inactivite"
+                            : "/admin/contact-client/mails/retour-en-stock"
                       }
                       className="px-2.5 py-1.5 rounded-md text-[11px] font-body font-semibold text-text-secondary hover:bg-bg-primary"
                       title="Ouvrir la page dédiée"
@@ -323,10 +323,51 @@ export default function NewslettersListClient({ templates }: Props) {
             );
           })}
 
+          {/* Carte « Suivi de commande » — mail d'avis / relance envoyé
+              automatiquement 10 jours après l'expédition. Pas un
+              NewsletterTemplate scénarisé mais un mail transactionnel avec
+              sa propre page de config → carte hardcodée vers l'onglet dédié. */}
+          <Link
+            href="/admin/contact-client?onglet=suivi-commande"
+            className="group bg-bg-primary rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col hover:bg-bg-secondary/40 transition-colors"
+          >
+            <div className="p-5 flex-1">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center text-xl shrink-0">
+                  📦
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider bg-teal-100 text-teal-800">
+                      Suivi commande
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-body font-bold uppercase tracking-wider bg-amber-100 text-amber-800">
+                      Auto
+                    </span>
+                  </div>
+                  <div className="font-heading font-bold text-[15px] text-text-primary truncate">
+                    Relance après expédition
+                  </div>
+                  <div className="text-[12px] text-text-muted mt-0.5 truncate">
+                    Envoi 10 jours après la livraison
+                  </div>
+                  <div className="text-[11px] text-text-muted mt-2">
+                    Demander un avis, inviter à repasser commande
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-3 py-2 bg-bg-secondary border-t border-border flex justify-end gap-1">
+              <span className="px-2.5 py-1.5 rounded-md text-[11px] font-body font-semibold text-text-secondary group-hover:text-text-primary">
+                → Voir la page dédiée
+              </span>
+            </div>
+          </Link>
+
           {/* Carte « Système » — ouvre la grille des mails transactionnels
               (OTP, mot de passe oublié, confirmations commande, etc.). */}
           <Link
-            href="/admin/marketing/mails/systeme"
+            href="/admin/contact-client?onglet=systeme"
             className="group bg-bg-primary rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col hover:bg-bg-secondary/40 transition-colors"
           >
             <div className="p-5 flex-1">
@@ -415,7 +456,7 @@ export default function NewslettersListClient({ templates }: Props) {
                 className="bg-bg-primary rounded-2xl border border-border shadow-sm overflow-hidden flex flex-col"
               >
                 <Link
-                  href={`/admin/marketing/mails/newsletter/${t.id}`}
+                  href={`/admin/contact-client/mails/newsletter/${t.id}`}
                   className="p-5 flex-1 hover:bg-bg-secondary/40 transition-colors"
                 >
                   <div className="flex items-start gap-3">

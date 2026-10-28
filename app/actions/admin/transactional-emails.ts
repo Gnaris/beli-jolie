@@ -2,7 +2,7 @@
 
 /**
  * Server actions pour l'édition des mails transactionnels système
- * (/admin/marketing/mails/systeme).
+ * (/admin/contact-client/mails/systeme).
  *
  * Chaque action :
  *  - exige `requireAdmin()` (session + tenant)

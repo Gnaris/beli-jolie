@@ -42,7 +42,7 @@ const TILES: Record<SettingsTileKey, TileMeta> = {
   societe:      { key: "societe",      title: "Société & mentions",   description: "SIRET, TVA, adresse expéditeur — factures & légal.",       group: "boutique", accent: "slate" },
   horaires:     { key: "horaires",     title: "Horaires d'ouverture", description: "Affichés sur la page contact.",                            group: "boutique", accent: "sky" },
   inscription:  { key: "inscription",  title: "Inscription",          description: "Validation auto des nouveaux comptes par zone.",          group: "boutique", accent: "slate" },
-  paiement:     { key: "paiement",     title: "Paiement",             description: "Carte, PayPal, Billie, Bancontact, iDEAL, virement.",       group: "ventes",   accent: "emerald" },
+  paiement:     { key: "paiement",     title: "Paiement",             description: "Carte, PayPal, Revolut Pay, Billie, Bancontact, iDEAL, virement.",       group: "ventes",   accent: "emerald" },
   livraison:    { key: "livraison",    title: "Mode de livraison",    description: "Fournisseur d'expédition, bordereaux, marge sur les frais de port.", group: "ventes", accent: "emerald" },
   regles:       { key: "regles",       title: "Règles de vente",      description: "Commande mini, ruptures, ordre catalogue, badge photo.",   group: "ventes",   accent: "emerald" },
   marketplaces: { key: "marketplaces", title: "Marketplaces",         description: "PFS, Ankorstore, eFashion, Faire, Microstore.",            group: "canaux",   accent: "sky",    wide: true },

@@ -461,6 +461,10 @@ export default function CartWizardClient({
   // Déclaré avant le useEffect create-intent pour que la valeur soit dans metadata PI.
   const [acceptReplacementContact, setAcceptReplacementContact] = useState(false);
 
+  // Commentaire libre laissé par la cliente (facultatif, max 1000 caractères).
+  // Déclaré ici pour pouvoir alimenter metadata PI dans le useEffect create-intent.
+  const [customerNote, setCustomerNote] = useState("");
+
   useEffect(() => {
     // On ne crée le PaymentIntent Stripe qu'à partir du moment où la cliente a
     // sélectionné « Carte bancaire ». Le virement passe par placeBankTransferOrder
@@ -520,6 +524,7 @@ export default function CartWizardClient({
           : {}),
         acceptReplacementContact,
         creditToApply,
+        customerNote: customerNote.trim() || undefined,
       }),
     })
       .then((r) => r.json())
@@ -578,6 +583,7 @@ export default function CartWizardClient({
     // Le montant d'avoir change le montant à payer → il faut un nouveau PI.
     creditToApply,
     isCoveredByCredit,
+    customerNote,
   ]);
 
   // ── CGV + placeOrder
@@ -655,6 +661,7 @@ export default function CartWizardClient({
         carrierPrice: rawCarrierPrice,
         cgvAcceptedAt: new Date().toISOString(),
         acceptReplacementContact,
+        customerNote: customerNote.trim() || undefined,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
             ? {
@@ -713,6 +720,7 @@ export default function CartWizardClient({
         carrierPrice: rawCarrierPrice,
         cgvAcceptedAt: new Date().toISOString(),
         acceptReplacementContact,
+        customerNote: customerNote.trim() || undefined,
         ...(promoApplied ? { promoCode: promoApplied.code } : {}),
         creditToApply,
         _payOnPickupMode: true,
@@ -761,6 +769,7 @@ export default function CartWizardClient({
         carrierPrice: rawCarrierPrice,
         cgvAcceptedAt: new Date().toISOString(),
         acceptReplacementContact,
+        customerNote: customerNote.trim() || undefined,
         creditToApply,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
@@ -818,6 +827,7 @@ export default function CartWizardClient({
       carrierPrice: rawCarrierPrice,
       cgvAcceptedAt: new Date().toISOString(),
       acceptReplacementContact,
+      customerNote: customerNote.trim() || undefined,
       locale: locale === "en" ? "en" : "fr",
       creditToApply,
       ...(deliveryMode === "private"
@@ -871,6 +881,7 @@ export default function CartWizardClient({
         stripePaymentIntentId: piId,
         cgvAcceptedAt:         new Date().toISOString(),
         acceptReplacementContact,
+        customerNote:          customerNote.trim() || undefined,
         creditToApply,
         ...(deliveryMode === "private"
           ? privateMode === "contact"
@@ -1221,6 +1232,8 @@ export default function CartWizardClient({
                 promoApplied={promoApplied}
                 onPromoApplied={setPromoApplied}
                 onPromoCleared={() => setPromoApplied(null)}
+                customerNote={customerNote}
+                onCustomerNoteChange={setCustomerNote}
                 totalAmountCents={amountDueCents}
                 totalTTC={totalTTC}
                 orderError={orderError}

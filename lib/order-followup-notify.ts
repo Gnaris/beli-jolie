@@ -6,7 +6,7 @@
  * commande a été marquée SHIPPED.
  *
  * Scenarioé scenarioKey : `ORDER_FOLLOWUP_REVIEW` — personnalisable depuis
- * /admin/marketing/mails/systeme.
+ * /admin/contact-client/mails/systeme.
  *
  * Fire-and-forget : toute erreur est loggée mais n'empêche pas le scheduler
  * de passer à la commande suivante. L'appelant est responsable de marquer

@@ -44,12 +44,15 @@ const roboto = Roboto({
 // (`HomeIssymaLayout`). Chargement au niveau root pour partager le cache
 // entre tous les tenants — la variable CSS `--font-cormorant` est disponible
 // mais aucun autre layout ne s'en sert.
+// Turbopack 16 plante avec « next/font/google queries have exactly one entry »
+// dès qu'on combine plusieurs weights ET plusieurs styles sur une même fonte,
+// donc on ne charge que le style normal. Si besoin d'italique un jour, le
+// déclarer dans un second import `Cormorant_Garamond({ style: "italic", … })`.
 const cormorant = Cormorant_Garamond({
   variable: "--font-cormorant",
   subsets: ["latin"],
   display: "swap",
   weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
 });
 
 /* ─────────────────────────────────────────────

@@ -22,6 +22,7 @@ import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
+import { normalizeCustomerNote } from "@/lib/normalize-customer-note";
 import { getCachedBankTransferConfig } from "@/lib/bank-transfer-config";
 import { notifyAdminNewOrder, notifyOrderStatusChange } from "@/lib/notifications";
 import { emitAdminEvent } from "@/lib/admin-events";
@@ -61,6 +62,8 @@ export interface BankTransferOrderInput {
   promoCode?: string;
   // Montant d'avoir à consommer (clampé serveur à min(solde, TTC)).
   creditToApply?: number;
+  // Commentaire libre saisi par la cliente au checkout.
+  customerNote?: string;
   /** @internal Ne PAS passer depuis le client — utilisé par
    *  placeCreditOnlyOrder pour forcer paymentMode="CREDIT" + paymentStatus="paid"
    *  + bypass du check bank transfer enabled. */
@@ -642,6 +645,7 @@ export async function placeBankTransferOrder(
           creditApplied,
           cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
           acceptReplacementContact: input.acceptReplacementContact ?? false,
+          customerNote: normalizeCustomerNote(input.customerNote),
           tvaRate,
           subtotalHT: subtotalAfterDiscount,
           subtotalBrutHT,

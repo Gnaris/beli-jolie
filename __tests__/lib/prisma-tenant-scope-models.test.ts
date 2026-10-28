@@ -73,7 +73,7 @@ describe("TENANT_SCOPED_MODELS", () => {
   });
 
   it("contient les modèles WhatsApp marketing + catalogue + newsletter (régression 2026-10-01)", () => {
-    // Fuite observée : /admin/marketing/whatsapp mélangeait les modèles de
+    // Fuite observée : /admin/contact-client/whatsapp mélangeait les modèles de
     // Beli & Jolie et Issyma dans la liste + dans le compteur « envoyés 30j ».
     // Le même oubli était présent sur CatalogView / CatalogCartAddition
     // (tracking cross-tenant) et NewsletterTemplateImage (images orphelines).

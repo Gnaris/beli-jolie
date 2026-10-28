@@ -1,7 +1,7 @@
 /**
  * Verrou payment_method_types : les 2 endpoints qui créent un PaymentIntent
- * doivent envoyer ["card","paypal","billie","bancontact","ideal"].
- * Apple/Google Pay restent affichés via `card`. Les 4 autres ouvrent un
+ * doivent envoyer ["card","paypal","revolut_pay","billie","bancontact","ideal"].
+ * Apple/Google Pay restent affichés via `card`. Les 5 autres ouvrent un
  * redirect. On exclut `automatic_payment_methods` (activerait MB Way et
  * d'autres exotiques indésirables). Le helper
  * `createPaymentIntentWithFallback` retire silencieusement toute méthode non
@@ -18,6 +18,7 @@ const mockPrisma = vi.hoisted(() => ({
     findMany: vi.fn().mockResolvedValue([]),
   },
   order: { findFirst: vi.fn(), update: vi.fn() },
+  credit: { findMany: vi.fn().mockResolvedValue([]) },
 }));
 
 const mockStripeInstance = vi.hoisted(() => ({
@@ -88,19 +89,19 @@ vi.mock("next/cache", () => ({
 }));
 
 // getEnabledStripePaymentMethods lit SiteConfig ; en test on retourne la liste
-// des 5 méthodes pour vérifier tout le pipeline (le vrai code prod filtre selon
+// des 6 méthodes pour vérifier tout le pipeline (le vrai code prod filtre selon
 // les toggles admin).
 vi.mock("@/lib/stripe-payment-methods-enabled", () => ({
-  OPTIONAL_STRIPE_METHODS: ["paypal", "billie", "bancontact", "ideal"],
+  OPTIONAL_STRIPE_METHODS: ["paypal", "revolut_pay", "billie", "bancontact", "ideal"],
   getEnabledStripePaymentMethods: vi
     .fn()
-    .mockResolvedValue(["card", "paypal", "billie", "bancontact", "ideal"]),
+    .mockResolvedValue(["card", "paypal", "revolut_pay", "billie", "bancontact", "ideal"]),
   getStripeMethodsEnabled: vi
     .fn()
-    .mockResolvedValue({ paypal: true, billie: true, bancontact: true, ideal: true }),
+    .mockResolvedValue({ paypal: true, revolut_pay: true, billie: true, bancontact: true, ideal: true }),
   getStripeMethodsEnabledFresh: vi
     .fn()
-    .mockResolvedValue({ paypal: true, billie: true, bancontact: true, ideal: true }),
+    .mockResolvedValue({ paypal: true, revolut_pay: true, billie: true, bancontact: true, ideal: true }),
   stripeMethodConfigKey: (m: string) => `stripe_pmt_${m}_enabled`,
 }));
 
@@ -169,7 +170,7 @@ beforeEach(() => {
   });
 });
 
-describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checkout)", () => {
+describe("PaymentIntent — carte + PayPal + Revolut Pay + Billie + Bancontact + iDEAL (checkout)", () => {
   it("envoie liste complète pour exclure les méthodes exotiques", async () => {
     const req = new Request("http://localhost/api/payments/create-intent", {
       method: "POST",
@@ -181,7 +182,14 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
 
     expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledOnce();
     const args = mockStripeInstance.paymentIntents.create.mock.calls[0][0];
-    expect(args.payment_method_types).toEqual(["card", "paypal", "billie", "bancontact", "ideal"]);
+    expect(args.payment_method_types).toEqual([
+      "card",
+      "paypal",
+      "revolut_pay",
+      "billie",
+      "bancontact",
+      "ideal",
+    ]);
     expect(args.automatic_payment_methods).toBeUndefined();
   });
 
@@ -207,7 +215,7 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
     expect(args.metadata.mergeIntoOrderId).toBe("");
   });
 
-  it("fallback retire billie si pas activé (garde les 4 autres)", async () => {
+  it("fallback retire billie si pas activé (garde les 5 autres)", async () => {
     mockStripeInstance.paymentIntents.create
       .mockRejectedValueOnce(
         new Error("The payment method type 'billie' is not activated for your account."),
@@ -226,6 +234,7 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
     expect(mockStripeInstance.paymentIntents.create.mock.calls[0][0].payment_method_types).toEqual([
       "card",
       "paypal",
+      "revolut_pay",
       "billie",
       "bancontact",
       "ideal",
@@ -233,6 +242,32 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
     expect(mockStripeInstance.paymentIntents.create.mock.calls[1][0].payment_method_types).toEqual([
       "card",
       "paypal",
+      "revolut_pay",
+      "bancontact",
+      "ideal",
+    ]);
+  });
+
+  it("fallback retire revolut_pay si pas activé (garde les 5 autres)", async () => {
+    mockStripeInstance.paymentIntents.create
+      .mockRejectedValueOnce(
+        new Error("The payment method type 'revolut_pay' is not activated for your account."),
+      )
+      .mockResolvedValueOnce({ id: "pi_test", client_secret: "cs_test" });
+
+    const req = new Request("http://localhost/api/payments/create-intent", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(validBody),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledTimes(2);
+    expect(mockStripeInstance.paymentIntents.create.mock.calls[1][0].payment_method_types).toEqual([
+      "card",
+      "paypal",
+      "billie",
       "bancontact",
       "ideal",
     ]);
@@ -245,6 +280,9 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
       )
       .mockRejectedValueOnce(
         new Error("The payment method type 'paypal' is not activated for your account."),
+      )
+      .mockRejectedValueOnce(
+        new Error("The payment method type 'revolut_pay' is not activated for your account."),
       )
       .mockRejectedValueOnce(
         new Error("The payment method type 'bancontact' is not activated for your account."),
@@ -262,9 +300,9 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (checko
 
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledTimes(5);
+    expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledTimes(6);
     // Fin : uniquement card, socle qui reste toujours actif.
-    expect(mockStripeInstance.paymentIntents.create.mock.calls[4][0].payment_method_types).toEqual([
+    expect(mockStripeInstance.paymentIntents.create.mock.calls[5][0].payment_method_types).toEqual([
       "card",
     ]);
   });
@@ -339,7 +377,7 @@ describe("PaymentIntent — fallback adresse société en retrait boutique", () 
   });
 });
 
-describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (bascule virement→carte)", () => {
+describe("PaymentIntent — carte + PayPal + Revolut Pay + Billie + Bancontact + iDEAL (bascule virement→carte)", () => {
   beforeEach(() => {
     mockPrisma.order.findFirst.mockResolvedValue({
       id: "ord-1",
@@ -358,13 +396,20 @@ describe("PaymentIntent — carte + PayPal + Billie + Bancontact + iDEAL (bascul
     mockPrisma.order.update.mockResolvedValue({});
   });
 
-  it("createOrderCardPaymentIntent envoie payment_method_types:['card','paypal','billie']", async () => {
+  it("createOrderCardPaymentIntent envoie payment_method_types avec les 6 méthodes", async () => {
     const res = await createOrderCardPaymentIntent("ord-1");
 
     expect(res.success).toBe(true);
     expect(mockStripeInstance.paymentIntents.create).toHaveBeenCalledOnce();
     const args = mockStripeInstance.paymentIntents.create.mock.calls[0][0];
-    expect(args.payment_method_types).toEqual(["card", "paypal", "billie", "bancontact", "ideal"]);
+    expect(args.payment_method_types).toEqual([
+      "card",
+      "paypal",
+      "revolut_pay",
+      "billie",
+      "bancontact",
+      "ideal",
+    ]);
     expect(args.automatic_payment_methods).toBeUndefined();
   });
 });

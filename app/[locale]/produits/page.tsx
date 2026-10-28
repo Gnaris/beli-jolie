@@ -427,36 +427,19 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
       <PublicSidebar shopName={shopName} tenantSlug={tenantSlug ?? undefined} />
       <main className="relative z-10">
 
-      {/* Hero éditorial */}
-      <section className="bg-gradient-to-b from-[#fafaf7] to-white">
-        <div className="max-w-[1500px] mx-auto px-6 lg:px-10 pt-14 pb-12 lg:pt-24 lg:pb-20">
-          <div className="animate-fadeIn">
-            <div className="flex items-center gap-4 mb-6 lg:mb-8">
-              <span className="inline-block w-10 h-px bg-black" />
-              <span className="text-[11px] font-medium uppercase tracking-[0.32em] text-neutral-500 font-body">
-                {t("heroEyebrow")}
-              </span>
-            </div>
-            <h1 className="font-heading font-light text-4xl md:text-6xl lg:text-[84px] leading-[0.95] tracking-tight text-black max-w-4xl">
-              {t("title")}
-            </h1>
-            <p className="mt-6 lg:mt-8 text-neutral-600 max-w-lg leading-relaxed text-[15px] font-body">
-              {t("subtitle")}
-            </p>
-            {produitsSeoIntro && (
-              <div className="mt-6 max-w-2xl text-[14px] font-body text-neutral-500 leading-relaxed whitespace-pre-line">
-                {produitsSeoIntro}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Hero masqué visuellement — conservé pour Google (SEO) */}
+      <section className="sr-only">
+        <span>{t("heroEyebrow")}</span>
+        <h1>{t("title")}</h1>
+        <p>{t("subtitle")}</p>
+        {produitsSeoIntro && <div>{produitsSeoIntro}</div>}
       </section>
 
-      {/* Contenu principal */}
-      <section className="max-w-[1500px] mx-auto px-6 lg:px-10 pt-6 lg:pt-10 pb-24">
-        <div className="lg:flex lg:gap-12">
-          {/* Sidebar filtres desktop */}
-          <aside className="hidden lg:block w-60 shrink-0">
+      {/* Contenu principal — sidebar collée à gauche de l'écran */}
+      <section className="pt-6 lg:pt-10 pb-24">
+        <div className="lg:flex lg:gap-10">
+          {/* Sidebar filtres desktop — flush left (padding interne minimal) */}
+          <aside className="hidden lg:block w-60 shrink-0 pl-4 pr-4">
             <Suspense>
               <SearchFilters
                 categories={categories}
@@ -471,7 +454,7 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
           </aside>
 
           {/* Grille */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 px-6 lg:pl-0 lg:pr-10">
             {/* Barre mobile filtres */}
             <div className="lg:hidden mb-6">
               <Suspense>

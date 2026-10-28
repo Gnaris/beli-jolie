@@ -14,10 +14,13 @@ export default async function ProductGridIssyma({
   products,
   emptyLabel,
   showBadgeNew = false,
+  linkQuery,
 }: {
   products: CarouselProduct[];
   emptyLabel: string;
   showBadgeNew?: boolean;
+  /** Querystring (sans `?`) ajoutée au lien produit (ex: `via=collection:xxx`). */
+  linkQuery?: string;
 }) {
   const t = await getTranslations("home");
   const session = await getServerSession(authOptions);
@@ -44,6 +47,7 @@ export default async function ProductGridIssyma({
           canSeePrices={canSeePrices}
           pricePromptLabel={pricePromptLabel}
           pricePromptHint={pricePromptHint}
+          linkQuery={linkQuery}
         />
       ))}
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Vue Mails du tab « Mes fiches clients » sur /admin/marketing.
+ * Vue Mails du tab « Mes fiches clients » sur /admin/contact-client.
  *
  * Différences vs. AdminCardsPane (utilisé sur /admin/clients) :
  *  - Case à cocher par ligne (bulk newsletter) ; grisée si pas d'email

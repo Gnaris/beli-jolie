@@ -1601,6 +1601,7 @@ export async function faireUpdateProduct(
   // rapport au snapshot précédent pour n'envoyer un PATCH que quand nécessaire
   // (Faire limite les appels — 429 fréquent en bulk).
   const lifecycleUpdates: FaireVariantLifecycleUpdate[] = [];
+  const skuByFaireVariantId = new Map<string, string>();
   for (const [sku, next] of Object.entries(nextSnapshot.variants)) {
     if (!next.faireVariantId) continue;
     const prev = realPrevSnapshot?.variants[sku];
@@ -1614,7 +1615,9 @@ export async function faireUpdateProduct(
       faireVariantId: next.faireVariantId,
       target: lifecycleFromDisabled(nextDisabled),
     });
+    skuByFaireVariantId.set(next.faireVariantId, sku);
   }
+  let lifecycleHasFailures = false;
   if (lifecycleUpdates.length > 0) {
     const lifecycleRes = await faireSyncVariantLifecycles(lifecycleUpdates);
     if (!lifecycleRes.success) {
@@ -1623,20 +1626,42 @@ export async function faireUpdateProduct(
         failed: lifecycleRes.failedCount,
         updated: lifecycleRes.updatedCount,
       });
+      // Pour chaque PATCH refusé par Faire (ex. HTTP 400 PROHIBITED_PRODUCT /
+      // COUNTERFEIT_PRODUCT), on garde dans le snapshot l'ancien état
+      // `disabled` : sans ça, le prochain sync verrait prev === next et
+      // n'essaierait plus jamais. Résultat observé en prod sur 327B / 817 :
+      // la variante désactivée en BJ restait PUBLISHED chez Faire pour les
+      // acheteurs, qui pouvaient continuer à commander.
+      for (const err of lifecycleRes.errors) {
+        const sku = skuByFaireVariantId.get(err.faireVariantId);
+        if (!sku) continue;
+        const entry = nextSnapshot.variants[sku];
+        if (!entry) continue;
+        const prevDisabled = realPrevSnapshot?.variants[sku]?.disabled ?? false;
+        entry.disabled = prevDisabled;
+      }
+      lifecycleHasFailures = true;
     }
   }
 
-  await saveSnapshot(productId, nextSnapshot);
+  await saveSnapshot(productId, nextSnapshot, { keepSyncRequired: lifecycleHasFailures });
 
   return { success: true, diff, noop: false };
 }
 
-async function saveSnapshot(productId: string, snapshot: FaireSyncSnapshot): Promise<void> {
+async function saveSnapshot(
+  productId: string,
+  snapshot: FaireSyncSnapshot,
+  options?: { keepSyncRequired?: boolean },
+): Promise<void> {
+  const keepSyncRequired = options?.keepSyncRequired === true;
   await prisma.product.update({
     where: { id: productId },
     data: {
       faireLastSyncSnapshot: snapshot as unknown as Prisma.JsonObject,
-      faireSyncRequired: false,
+      // Si un PATCH lifecycle a été refusé par Faire, on laisse le badge
+      // orange « Synchro nécessaire » allumé pour que le prochain tour retente.
+      ...(keepSyncRequired ? {} : { faireSyncRequired: false }),
     },
   });
   try {

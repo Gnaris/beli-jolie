@@ -2,13 +2,14 @@ import { prisma } from "@/lib/prisma";
 import {
   applyMarketplaceMarkup,
   applyFaireMarkupWithClamp,
+  formatMarkupLabel,
   type MarkupType,
   type RoundingMode,
   type MarkupConfig,
 } from "@/lib/marketplace-pricing-shared";
 
 // Re-exports pour conserver la rétro-compatibilité des imports existants.
-export { applyMarketplaceMarkup, applyFaireMarkupWithClamp };
+export { applyMarketplaceMarkup, applyFaireMarkupWithClamp, formatMarkupLabel };
 export type { MarkupType, RoundingMode, MarkupConfig };
 
 export interface AllMarkupConfigs {

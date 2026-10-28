@@ -46,7 +46,7 @@ export default function InactiveClientResetButton({ userId, userLabel }: Props) 
       "Stades réinitialisés",
       res.hasStages
         ? "Le cycle repartira au Stade 1 au prochain passage du worker si le client est inactif."
-        : "Aucun stade n'est configuré pour ce tenant — configurez-les d'abord dans /admin/marketing/mails/inactivite.",
+        : "Aucun stade n'est configuré pour ce tenant — configurez-les d'abord dans /admin/contact-client/mails/inactivite.",
     );
     startTransition(() => router.refresh());
   }

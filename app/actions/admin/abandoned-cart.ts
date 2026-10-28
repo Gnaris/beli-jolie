@@ -3,7 +3,7 @@
 /**
  * CRUD des stades de relance panier abandonné + toggle global.
  *
- * Pilote la page `/admin/marketing/mails/panier-abandonne` :
+ * Pilote la page `/admin/contact-client/mails/panier-abandonne` :
  * chaque stade a son propre NewsletterTemplate (Stage 1 = template historique
  * `scenarioKey = ABANDONED_CART`, Stages 2+ = templates avec scenarioKey null
  * mais protégés par FK). La cliente édite chaque template via l'éditeur
@@ -274,8 +274,8 @@ export async function addAbandonedCartStage(): Promise<
       });
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, stageId: created.id, config };
   } catch (err) {
@@ -347,7 +347,7 @@ export async function updateAbandonedCartStageDelay(
       },
     });
 
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, config };
   } catch (err) {
@@ -402,7 +402,7 @@ export async function updateAbandonedCartStageMaxOrderCount(
       data: { maxOrderCount: normalized },
     });
 
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, config };
   } catch (err) {
@@ -495,8 +495,8 @@ export async function deleteAbandonedCartStage(
       }
     }
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, config };
   } catch (err) {
@@ -547,7 +547,7 @@ export async function setAbandonedCartAutomationEnabled(
         ...stats,
       });
     }
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     const config = await getAbandonedCartConfig();
     return { success: true, config };
   } catch (err) {
@@ -734,8 +734,8 @@ export async function resetAbandonedCartStagesForUser(
       });
     }
 
-    revalidatePath("/admin/marketing");
-    revalidatePath("/admin/marketing/mails/panier-abandonne");
+    revalidatePath("/admin/contact-client");
+    revalidatePath("/admin/contact-client/mails/panier-abandonne");
     return {
       success: true,
       cartWasEmpty,

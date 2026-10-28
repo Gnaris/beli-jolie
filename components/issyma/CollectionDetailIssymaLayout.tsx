@@ -13,11 +13,13 @@ export default async function CollectionDetailIssymaLayout({
   collectionName,
   collectionImage,
   products,
+  linkQuery,
 }: {
   shopName: string;
   collectionName: string;
   collectionImage: string | null;
   products: CarouselProduct[];
+  linkQuery?: string;
 }) {
   const t = await getTranslations("collectionDetail");
   const tHome = await getTranslations("home");
@@ -82,7 +84,7 @@ export default async function CollectionDetailIssymaLayout({
       {/* Grille produits */}
       <section style={{ background: P.paper }}>
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 py-16 lg:py-20">
-          <ProductGridIssyma products={products} emptyLabel={t("empty")} />
+          <ProductGridIssyma products={products} emptyLabel={t("empty")} linkQuery={linkQuery} />
         </div>
       </section>
     </IssymaShell>

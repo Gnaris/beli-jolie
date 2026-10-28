@@ -2,7 +2,7 @@
 
 /**
  * Bouton ↻ « Réinitialiser les stades » sur une ligne client de
- * `/admin/marketing`. Modale de confirmation obligatoire (action visible
+ * `/admin/contact-client`. Modale de confirmation obligatoire (action visible
  * côté client — envoi d'un mail si le panier n'est pas vide).
  *
  * Comportement serveur (voir `resetAbandonedCartStagesForUser`) :

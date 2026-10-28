@@ -834,3 +834,192 @@ export async function getCollectionRuleAndExclusions(collectionId: string) {
     })),
   };
 }
+
+// ─────────────────────────────────────────────
+// Statistiques fréquentation collection
+// ─────────────────────────────────────────────
+
+export interface CollectionStatsTopProduct {
+  productId: string;
+  name: string;
+  reference: string;
+  image: string | null;
+  totalQuantity: number;
+  additionsCount: number;
+}
+
+export interface CollectionStatsClientViewer {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+  email: string;
+  viewsCount: number;
+  lastViewedAt: string;
+}
+
+export interface CollectionStatsClientBuyer {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  company: string;
+  email: string;
+  totalQuantity: number;
+  additionsCount: number;
+  lastAddedAt: string;
+}
+
+export interface CollectionStats {
+  viewsAnonymousToday: number;
+  viewsAnonymousTotal: number;
+  viewsConnectedToday: number;
+  viewsConnectedTotal: number;
+  cartAdditionsToday: number;
+  cartAdditionsTotal: number;
+  topProducts: CollectionStatsTopProduct[];
+  clientViewers: CollectionStatsClientViewer[];
+  clientBuyers: CollectionStatsClientBuyer[];
+}
+
+/**
+ * Agrège les métriques d'une collection : vues (séparées anonyme/connecté,
+ * jour + total), ajouts panier (jour + total), top 10 produits ajoutés et
+ * listes des clients connectés qui ont vu ou acheté depuis la collection.
+ */
+export async function getCollectionStats(collectionId: string): Promise<CollectionStats> {
+  await requireAdmin();
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [
+    viewsAnonymousToday,
+    viewsAnonymousTotal,
+    viewsConnectedToday,
+    viewsConnectedTotal,
+    cartAdditionsToday,
+    cartAdditionsTotal,
+    topRaw,
+    viewersRaw,
+    buyersRaw,
+  ] = await Promise.all([
+    prisma.collectionView.count({ where: { collectionId, userId: null, viewedAt: { gte: startOfToday } } }),
+    prisma.collectionView.count({ where: { collectionId, userId: null } }),
+    prisma.collectionView.count({ where: { collectionId, userId: { not: null }, viewedAt: { gte: startOfToday } } }),
+    prisma.collectionView.count({ where: { collectionId, userId: { not: null } } }),
+    prisma.collectionCartAddition.count({ where: { collectionId, addedAt: { gte: startOfToday } } }),
+    prisma.collectionCartAddition.count({ where: { collectionId } }),
+    prisma.collectionCartAddition.groupBy({
+      by: ["productId"],
+      where: { collectionId },
+      _sum: { quantity: true },
+      _count: { _all: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 10,
+    }),
+    prisma.collectionView.groupBy({
+      by: ["userId"],
+      where: { collectionId, userId: { not: null } },
+      _max: { viewedAt: true },
+      _count: { _all: true },
+      orderBy: { _max: { viewedAt: "desc" } },
+      take: 20,
+    }),
+    prisma.collectionCartAddition.groupBy({
+      by: ["userId"],
+      where: { collectionId, userId: { not: null } },
+      _sum: { quantity: true },
+      _count: { _all: true },
+      _max: { addedAt: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 20,
+    }),
+  ]);
+
+  const productIds = topRaw.map((r) => r.productId);
+  const products = productIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, name: true, reference: true },
+      })
+    : [];
+
+  const colorImages = productIds.length
+    ? await prisma.productColorImage.findMany({
+        where: { productId: { in: productIds } },
+        orderBy: { order: "asc" },
+      })
+    : [];
+  const imageByProduct = new Map<string, string>();
+  for (const img of colorImages) {
+    if (!imageByProduct.has(img.productId)) imageByProduct.set(img.productId, img.path);
+  }
+
+  const byProductId = new Map(products.map((p) => [p.id, p]));
+
+  const topProducts: CollectionStatsTopProduct[] = topRaw.map((r) => {
+    const p = byProductId.get(r.productId);
+    return {
+      productId: r.productId,
+      name: p?.name ?? "(produit supprimé)",
+      reference: p?.reference ?? "",
+      image: imageByProduct.get(r.productId) ?? null,
+      totalQuantity: r._sum.quantity ?? 0,
+      additionsCount: r._count._all,
+    };
+  });
+
+  const viewerIds = viewersRaw.map((r) => r.userId!).filter(Boolean);
+  const buyerIds = buyersRaw.map((r) => r.userId!).filter(Boolean);
+  const allUserIds = Array.from(new Set([...viewerIds, ...buyerIds]));
+  const users = allUserIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: allUserIds } },
+        select: { id: true, firstName: true, lastName: true, company: true, email: true },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const clientViewers: CollectionStatsClientViewer[] = viewersRaw
+    .filter((r) => r.userId && r._max.viewedAt)
+    .map((r) => {
+      const u = userById.get(r.userId!);
+      return {
+        userId: r.userId!,
+        firstName: u?.firstName ?? "",
+        lastName: u?.lastName ?? "",
+        company: u?.company ?? "",
+        email: u?.email ?? "",
+        viewsCount: r._count._all,
+        lastViewedAt: r._max.viewedAt!.toISOString(),
+      };
+    });
+
+  const clientBuyers: CollectionStatsClientBuyer[] = buyersRaw
+    .filter((r) => r.userId && r._max.addedAt)
+    .map((r) => {
+      const u = userById.get(r.userId!);
+      return {
+        userId: r.userId!,
+        firstName: u?.firstName ?? "",
+        lastName: u?.lastName ?? "",
+        company: u?.company ?? "",
+        email: u?.email ?? "",
+        totalQuantity: r._sum.quantity ?? 0,
+        additionsCount: r._count._all,
+        lastAddedAt: r._max.addedAt!.toISOString(),
+      };
+    });
+
+  return {
+    viewsAnonymousToday,
+    viewsAnonymousTotal,
+    viewsConnectedToday,
+    viewsConnectedTotal,
+    cartAdditionsToday,
+    cartAdditionsTotal,
+    topProducts,
+    clientViewers,
+    clientBuyers,
+  };
+}

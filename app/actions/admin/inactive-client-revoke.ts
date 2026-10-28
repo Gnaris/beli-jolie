@@ -183,7 +183,7 @@ export async function updateInactiveRevokeSettings(input: {
 
 /**
  * Info d'affichage « prochain évènement de désactivation auto » pour un
- * client APPROVED. Utilisé par le tableau /admin/marketing (onglet Envoyer).
+ * client APPROVED. Utilisé par le tableau /admin/contact-client (onglet Envoyer).
  */
 export type InactiveRevokeNextEventType =
   | "warning" // prochain mail d'avertissement

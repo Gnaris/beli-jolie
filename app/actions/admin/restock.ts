@@ -30,7 +30,7 @@ import {
   RESTOCK_MAX_DELAY_SECONDS,
 } from "@/lib/restock-trigger";
 
-/** Info affichée dans la colonne « Retour en stock » de /admin/marketing. */
+/** Info affichée dans la colonne « Retour en stock » de /admin/contact-client. */
 export interface RestockJobInfo {
   /** Nombre de produits accumulés dans la file en attente d'envoi. */
   entriesCount: number;
@@ -177,8 +177,8 @@ export async function setRestockAutomationEnabled(
       enabled ? "true" : "false",
     );
 
-    revalidatePath("/admin/marketing/mails/retour-en-stock");
-    revalidatePath("/admin/marketing");
+    revalidatePath("/admin/contact-client/mails/retour-en-stock");
+    revalidatePath("/admin/contact-client");
     return { success: true };
   } catch (err) {
     logger.error("[restock] setAutomationEnabled failed", {
@@ -232,8 +232,8 @@ export async function setRestockDelaySeconds(
     });
     const rescheduled = res.count;
 
-    revalidatePath("/admin/marketing/mails/retour-en-stock");
-    revalidatePath("/admin/marketing");
+    revalidatePath("/admin/contact-client/mails/retour-en-stock");
+    revalidatePath("/admin/contact-client");
     return { success: true, rescheduledCount: rescheduled };
   } catch (err) {
     logger.error("[restock] setDelaySeconds failed", { error: err as Error });

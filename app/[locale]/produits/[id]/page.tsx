@@ -18,6 +18,7 @@ import PublicSidebar from "@/components/layout/PublicSidebar";
 import Footer from "@/components/layout/Footer";
 import ProductDetail from "@/components/produits/ProductDetail";
 import ProductViewTracker from "@/components/produits/ProductViewTracker";
+import CollectionVisitTracker from "@/components/collections/CollectionVisitTracker";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import ProductDetailIssymaLayout from "@/components/issyma/ProductDetailIssymaLayout";
 import {
@@ -33,6 +34,7 @@ import { buildProductHandle, buildProductSeoTitle, parseProductHandle } from "@/
 
 interface PageProps {
   params: Promise<{ id: string; locale: string }>;
+  searchParams: Promise<{ via?: string }>;
 }
 
 // Résolution nom traduit → fallback FR. Fonctionne aussi bien pour `color`
@@ -222,9 +224,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function ProduitDetailPage({ params }: PageProps) {
+export default async function ProduitDetailPage({ params, searchParams }: PageProps) {
   await getCurrentTenantId(); // bind ALS avant Prisma / caches
-  const { id: handle, locale: routeLocale } = await params;
+  const [{ id: handle, locale: routeLocale }, sp] = await Promise.all([params, searchParams]);
+
+  // Provenance collection : `?via=collection:<cuid>` — pose le cookie signé
+  // via le tracker client monté plus bas. On accepte uniquement les cuids
+  // (format `c...` + 20+ chars alphanum) pour éviter d'injecter n'importe
+  // quoi dans l'URL cookie.
+  const viaCollectionId = (() => {
+    const raw = sp?.via;
+    if (!raw || !raw.startsWith("collection:")) return null;
+    const id = raw.slice("collection:".length);
+    return /^c[a-z0-9]{20,}$/i.test(id) ? id : null;
+  })();
 
   // Fetch product, session, config, and locale in parallel
   const [product, session, stockVariantsConfig, locale, shopName, tenantSlug] = await Promise.all([
@@ -643,6 +656,7 @@ export default async function ProduitDetailPage({ params }: PageProps) {
     return (
       <>
         <ProductViewTracker productId={product.id} />
+      {viaCollectionId && <CollectionVisitTracker collectionId={viaCollectionId} mode="context" />}
       <ProductDetailIssymaLayout
         shopName={shopName}
         categorySlug={product.category.slug ?? ""}

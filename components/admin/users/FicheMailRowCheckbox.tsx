@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Case à cocher d'une ligne fiche dans la Vue Mails de /admin/marketing?tab=fiches.
+ * Case à cocher d'une ligne fiche dans la Vue Mails de /admin/contact-client?tab=fiches.
  * Grisée + non-cliquable si la fiche n'a pas d'email (impossible d'envoyer un mail).
  * Réutilise `MailSelectionContext` (générique sur l'ID).
  */

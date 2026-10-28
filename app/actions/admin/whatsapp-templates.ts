@@ -136,7 +136,7 @@ export async function createWhatsAppTemplate(
         select: { id: true },
       });
       revalidateTag(CACHE_TAG, "default");
-      revalidatePath("/admin/marketing/whatsapp");
+      revalidatePath("/admin/contact-client/whatsapp");
       return { success: true, id: row.id, report };
     } catch (dbErr) {
       // P2002 : violation du @@unique([tenantId, title])
@@ -186,7 +186,7 @@ export async function updateWhatsAppTemplate(
         },
       });
       revalidateTag(CACHE_TAG, "default");
-      revalidatePath("/admin/marketing/whatsapp");
+      revalidatePath("/admin/contact-client/whatsapp");
       return { success: true, report };
     } catch (dbErr) {
       if ((dbErr as { code?: string }).code === "P2002") {
@@ -212,7 +212,7 @@ export async function deleteWhatsAppTemplate(
     // onDelete: SetNull). L'historique reste consultable même après suppression.
     await prisma.whatsAppTemplate.delete({ where: { id } });
     revalidateTag(CACHE_TAG, "default");
-    revalidatePath("/admin/marketing/whatsapp");
+    revalidatePath("/admin/contact-client/whatsapp");
     return { success: true };
   } catch (e) {
     if ((e as { code?: string }).code === "P2025") {

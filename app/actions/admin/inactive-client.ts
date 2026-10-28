@@ -4,7 +4,7 @@
  * CRUD des stades de relance inactivité + toggle global.
  *
  * Miroir strict de `app/actions/admin/abandoned-cart.ts`. Pilote la page
- * `/admin/marketing/mails/inactivite`. Chaque stade a son propre
+ * `/admin/contact-client/mails/inactivite`. Chaque stade a son propre
  * NewsletterTemplate (Stage 1 = template scenarioKey = INACTIVE_CLIENT,
  * Stages 2+ = templates avec scenarioKey null, protégés via FK
  * InactiveClientStage.templateId).
@@ -253,8 +253,8 @@ export async function addInactiveClientStage(): Promise<
       });
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, stageId: created.id, config };
   } catch (err) {
@@ -308,7 +308,7 @@ export async function updateInactiveClientStageDelay(
     // Contrairement au panier abandonné, on n'a pas de nextStageAt à recaler :
     // le worker inactivité recalcule tout à chaque tick à partir de referenceAt.
 
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, config };
   } catch (err) {
@@ -360,7 +360,7 @@ export async function updateInactiveClientStageMaxOrderCount(
       data: { maxOrderCount: normalized },
     });
 
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, config };
   } catch (err) {
@@ -418,8 +418,8 @@ export async function applyInactiveClientDefaultDesigns(): Promise<
       }
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, config, updated };
   } catch (err) {
@@ -461,8 +461,8 @@ export async function deleteInactiveClientStage(
       }
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, config };
   } catch (err) {
@@ -502,7 +502,7 @@ export async function setInactiveClientAutomationEnabled(
     // Pas de « point 0 » : à l'activation, un client anciennement inactif
     // reçoit directement le stade le plus haut correspondant à son ancienneté
     // d'inactivité (fast-forward), pas un mail en cascade depuis le stade 1.
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     const config = await getInactiveClientConfig();
     return { success: true, config };
   } catch (err) {
@@ -704,8 +704,8 @@ export async function resetInactiveClientStagesForUser(
     }
     // Pas de création préventive : le worker créera le job au premier envoi.
 
-    revalidatePath("/admin/marketing");
-    revalidatePath("/admin/marketing/mails/inactivite");
+    revalidatePath("/admin/contact-client");
+    revalidatePath("/admin/contact-client/mails/inactivite");
     return { success: true, hasStages: stages.length > 0 };
   } catch (err) {
     logger.error("[resetInactiveClientStagesForUser]", { userId, error: err as Error });

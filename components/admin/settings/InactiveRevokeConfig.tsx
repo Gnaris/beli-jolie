@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useLoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { useToast } from "@/components/ui/Toast";
@@ -247,12 +248,12 @@ export default function InactiveRevokeConfig({ initial }: Props) {
 
         <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3 text-[12px] text-slate-700">
           <strong>Personnaliser les mails envoyés :</strong> rendez-vous dans{" "}
-          <a
-            href="/admin/marketing/mails/systeme"
+          <Link
+            href="/admin/contact-client?onglet=systeme"
             className="underline underline-offset-2 hover:text-slate-900"
           >
             Modèles de mails système
-          </a>{" "}
+          </Link>{" "}
           pour modifier les trois mails concernés : avertissement, mise en
           pause et réactivation.
         </div>

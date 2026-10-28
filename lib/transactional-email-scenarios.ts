@@ -1,6 +1,6 @@
 /**
  * Registre des 28 mails transactionnels éditables depuis l'admin
- * (/admin/marketing/mails/systeme).
+ * (/admin/contact-client/mails/systeme).
  *
  * Pour chaque scénario :
  *  - `key`         clé stable utilisée en BDD (TransactionalEmailOverride.scenarioKey)

@@ -150,7 +150,7 @@ export default async function UtilisateursPage({
   const geoCountries = parseGeoCountries(params.countries);
   const geoWhere = buildGeoFilterWhere(geoZone, geoCountries);
   // Page clients : uniquement la vue « Infos ». La vue « Mails » vit
-  // désormais sur /admin/marketing (page dédiée dans la sidebar). L'annotation
+  // désormais sur /admin/contact-client (page dédiée dans la sidebar). L'annotation
   // large `as ...` garde les blocs de rendu de secours pour le jour où on
   // remettra la vue mails ici — sinon TypeScript narrow à la valeur littérale
   // et refuse toute comparaison `view === "mails"` en aval.

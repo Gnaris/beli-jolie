@@ -52,6 +52,9 @@ const CreateIntentSchema = z.object({
   // Montant d'avoir que la cliente souhaite consommer (en €). Le serveur
   // clamp toujours à min(solde réel, totalTTC). Absent = 0.
   creditToApply: z.number().min(0).optional(),
+  // Commentaire libre saisi au checkout. Stocké en metadata du PaymentIntent
+  // pour pouvoir reconstruire placeOrder au retour PayPal.
+  customerNote: z.string().max(1000).optional(),
 });
 
 /**
@@ -89,6 +92,7 @@ export async function POST(req: Request) {
     mergeIntoOrderId,
     acceptReplacementContact,
     creditToApply: creditToApplyInput,
+    customerNote,
   } = parsed.data;
 
   const userId = session.user.id;
@@ -405,6 +409,10 @@ export async function POST(req: Request) {
         mergeIntoOrderId: mergeIntoOrderId ?? "",
         acceptReplacementContact: acceptReplacementContact ? "1" : "0",
         creditToApply: String(creditApplied),
+        // Stripe metadata : max 500 caractères par valeur. On tronque pour
+        // sécurité ; la cliente a déjà la contrainte 1000 côté UI mais sauvegarde
+        // directement via placeOrder (metadata = secours au retour PayPal).
+        customerNote: (customerNote ?? "").slice(0, 500),
       },
       receipt_email: user?.email ?? undefined,
       description: `${shopName} — ${user?.company ?? "Client"} (${user?.email ?? "?"}) — ${amountDueTTC.toFixed(2)} € TTC (après avoir)`,

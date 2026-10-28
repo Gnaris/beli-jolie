@@ -164,6 +164,8 @@ model User {
   productViews               ProductView[]                    @relation("ProductViewer")
   catalogViews               CatalogView[]
   catalogCartAdditions       CatalogCartAddition[]
+  collectionViews            CollectionView[]
+  collectionCartAdditions    CollectionCartAddition[]
   priceChanges               PriceHistory[]                   @relation("PriceChanger")
   adminClientCards           AdminClientCard[]                @relation("AdminCardCreator")
   adminCardPurchaseAdditions AdminClientCardProductPurchase[] @relation("AdminCardPurchaseAdder")
@@ -1487,6 +1489,7 @@ model Product {
   translations                ProductTranslation[]
   catalogs                    CatalogProduct[]
   catalogCartAdditions        CatalogCartAddition[]
+  collectionCartAdditions     CollectionCartAddition[]
   pfsOrderItems               PfsOrderItem[]
   efashionOrderItems          EfashionOrderItem[]
   ankorstoreOrderItems        AnkorstoreOrderItem[]
@@ -2607,6 +2610,10 @@ model Order {
   // Consentement remplacement en cas de rupture de stock (case cochée au panier)
   acceptReplacementContact Boolean @default(false)
 
+  // Commentaire libre laissé par la cliente au checkout (max 1000 caractères côté UI).
+  // Affiché tel quel sur la fiche commande admin + sur la fiche commande cliente.
+  customerNote String? @db.Text
+
   // Promotion & credit applied
   promoCode     String?
   promoDiscount Decimal @default(0) @db.Decimal(10, 2)
@@ -2831,6 +2838,8 @@ model Collection {
   promotions   PromotionCollection[]
   rule         CollectionRule?
   exclusions   CollectionExclusion[]
+  views        CollectionView[]
+  cartAdditions CollectionCartAddition[]
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
@@ -3057,6 +3066,51 @@ model CatalogCartAddition {
 
   @@index([catalogId, addedAt])
   @@index([catalogId, userId])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────────
+// Statistiques des collections publiques
+// ─────────────────────────────────────────────
+
+// Une ligne par visite de /collections/[slug]. Logge aussi les anonymes.
+// Pas de dédup : 3 rechargements = 3 vues (parité avec CatalogView).
+model CollectionView {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  viewedAt     DateTime   @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([collectionId, viewedAt])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+// Une ligne par ajout panier quand la visiteuse arrive via un lien marqué
+// `?via=collection:slug` depuis une page collection. Cookie signé HMAC
+// (TTL 30 min) pose le contexte à l'arrivée sur la fiche, lu à l'addToCart.
+model CollectionCartAddition {
+  id           String     @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  variantId    String? // ProductColor.id
+  quantity     Int
+  addedAt      DateTime   @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([collectionId, addedAt])
+  @@index([collectionId, productId])
   @@index([tenantId])
 }
 
@@ -3940,6 +3994,8 @@ model Tenant {
   catalogProducts            CatalogProduct[]
   catalogViews               CatalogView[]
   catalogCartAdditions       CatalogCartAddition[]
+  collectionViews            CollectionView[]
+  collectionCartAdditions    CollectionCartAddition[]
   importJobs                 ImportJob[]
   importDrafts               ImportDraft[]
   marketplaceRefreshJobs     MarketplaceRefreshJob[]
@@ -4098,7 +4154,7 @@ model EmailSend {
 // Modèles de messages WhatsApp réutilisables + journal d'envoi.
 //
 // La cliente rédige des modèles de texte (« Bienvenue », « Relance panier »,
-// etc.) dans /admin/marketing/whatsapp. Le corps du modèle peut contenir des
+// etc.) dans /admin/contact-client/whatsapp. Le corps du modèle peut contenir des
 // variables {firstName}, {company}, {shopName}, etc. — mêmes noms que le
 // merge des mails (lib/mail-merge-variables.ts).
 //
@@ -4306,7 +4362,7 @@ model TransactionalEmailOverrideLocale {
 // ligne par ligne le statut d'envoi (attente/en cours/envoyé/échoué + msg).
 //
 // Flux :
-//   1. FicheNewsletterBulkBar POST /admin/marketing → server action crée le
+//   1. FicheNewsletterBulkBar POST /admin/contact-client → server action crée le
 //      BulkMailJob PENDING avec `recipients` initialisé à l'état WAITING.
 //   2. Worker `lib/bulk-mail-worker.ts` prend le job, passe à RUNNING, envoie
 //      les mails un par un avec 300 ms de délai (anti-spam ISP), met à jour

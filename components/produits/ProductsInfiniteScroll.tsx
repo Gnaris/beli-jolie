@@ -163,7 +163,7 @@ export default function ProductsInfiniteScroll({ initialProducts, initialHasMore
 
   return (
     <>
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 auto-rows-fr gap-x-6 gap-y-14 lg:gap-y-16">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-fr gap-x-6 gap-y-14 lg:gap-y-16">
         {products.map((product) => {
           return (
           <div key={product.id} className="stagger-card h-full">

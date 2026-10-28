@@ -101,7 +101,7 @@ export async function sendNewsletterToFiches({
     // Refresh la table côté marketing (la colonne « Dernier mail » va bouger
     // à mesure que le worker avance, mais on rafraîchit une fois côté serveur
     // pour la première mise à jour).
-    revalidatePath("/admin/marketing");
+    revalidatePath("/admin/contact-client");
     revalidatePath("/admin/clients");
 
     return {

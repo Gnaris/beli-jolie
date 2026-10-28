@@ -46,6 +46,8 @@ export default function Step3PaymentContent({
   promoApplied,
   onPromoApplied,
   onPromoCleared,
+  customerNote,
+  onCustomerNoteChange,
   totalAmountCents,
   totalTTC,
   orderError,
@@ -104,6 +106,9 @@ export default function Step3PaymentContent({
     } | null,
   ) => void;
   onPromoCleared: () => void;
+  /** Commentaire libre laissé par la cliente (facultatif, max 1000 car.). */
+  customerNote: string;
+  onCustomerNoteChange: (v: string) => void;
   totalAmountCents: number;
   totalTTC: number;
   orderError: string;
@@ -351,6 +356,29 @@ export default function Step3PaymentContent({
         {promoError && (
           <p className="mt-2 text-xs text-red-600">{promoError}</p>
         )}
+      </section>
+
+      {/* Commentaire libre — optionnel, max 1000 caractères.
+          Posé juste sous le code promo pour matcher le wording de la cliente :
+          elle peut y mettre des précisions (date de retrait, livraison discrète,
+          besoin cadeau…). Visible côté admin ET côté cliente sur la fiche
+          commande. */}
+      <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+        <div className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">
+          {t("customerNoteLabel")}
+        </div>
+        <textarea
+          value={customerNote}
+          onChange={(e) => onCustomerNoteChange(e.target.value.slice(0, 1000))}
+          placeholder={t("customerNotePlaceholder")}
+          rows={3}
+          maxLength={1000}
+          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10 resize-y"
+        />
+        <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-400">
+          <span>{t("customerNoteHint")}</span>
+          <span className="tabular-nums">{customerNote.length}/1000</span>
+        </div>
       </section>
 
       {/* Utiliser mon avoir */}
@@ -869,8 +897,9 @@ function StripeCardForm({
           });
         }}
         options={{
-          // Accordion : mieux qu'onglets quand on a 4-5 méthodes visibles à la
-          // fois (carte + PayPal + Billie + Bancontact + iDEAL selon toggles).
+          // Accordion : mieux qu'onglets quand on a 5-6 méthodes visibles à la
+          // fois (carte + PayPal + Revolut Pay + Billie + Bancontact + iDEAL
+          // selon toggles).
           layout: { type: "accordion", defaultCollapsed: false, radios: true, spacedAccordionItems: true },
           // Masque Link (compte 1-clic Stripe) — Apple Pay et Google Pay
           // restent affichés (wallets natifs).

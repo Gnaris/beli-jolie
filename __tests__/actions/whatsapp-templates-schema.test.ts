@@ -7,7 +7,7 @@
  *   - Message d'erreur explicite (utilisé dans le toast serveur)
  *
  * Le CRUD complet (avec Prisma + requireAdmin) est couvert par les tests
- * end-to-end manuels sur /admin/marketing/whatsapp — pas d'intégration
+ * end-to-end manuels sur /admin/contact-client/whatsapp — pas d'intégration
  * ici pour éviter de dépendre d'une session mockée.
  */
 

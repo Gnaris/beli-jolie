@@ -312,7 +312,7 @@ export default function PhoneContactIcons({
                   // Un modèle contenant un emoji est bloqué à l'envoi :
                   // WhatsApp Desktop casse leur encodage via `?text=`. La
                   // cliente doit modifier le modèle pour retirer les emojis
-                  // avant de pouvoir l'utiliser (voir /admin/marketing/whatsapp).
+                  // avant de pouvoir l'utiliser (voir /admin/contact-client/whatsapp).
                   const hasEmoji = containsEmoji(t.title) || containsEmoji(t.body);
                   return (
                     <button
@@ -368,7 +368,7 @@ export default function PhoneContactIcons({
 
           <div className="border-t border-border" />
           <a
-            href="/admin/marketing/whatsapp"
+            href="/admin/contact-client/whatsapp"
             target="_blank"
             rel="noopener noreferrer"
             role="menuitem"

@@ -367,6 +367,21 @@ export default async function AdminCommandeDetailPage({
         </section>
       )}
 
+      {/* Commentaire libre laissé par la cliente au checkout (bloc étape 3 du panier). */}
+      {order.customerNote && order.customerNote.trim().length > 0 && (
+        <section className="bg-white border border-sky-200 rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-sky-100 bg-sky-50 flex items-center gap-2">
+            <span className="w-1 h-6 bg-sky-500 rounded-full" />
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+              Commentaire de la cliente
+            </p>
+          </div>
+          <div className="px-5 py-3 text-sm text-slate-800 whitespace-pre-wrap break-words">
+            {order.customerNote}
+          </div>
+        </section>
+      )}
+
       {/* Consentement remplacement en cas de rupture de stock (case cochée au panier) */}
       {order.acceptReplacementContact ? (
         <section className="bg-white border border-emerald-200 rounded-2xl overflow-hidden">

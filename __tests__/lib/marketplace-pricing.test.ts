@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyMarketplaceMarkup, type MarkupConfig } from "@/lib/marketplace-pricing";
+import { applyMarketplaceMarkup, formatMarkupLabel, type MarkupConfig } from "@/lib/marketplace-pricing";
 
 describe("applyMarketplaceMarkup", () => {
   // ─── No markup ────────────────────────────────────────────────────────────
@@ -74,5 +74,39 @@ describe("applyMarketplaceMarkup", () => {
     const config: MarkupConfig = { type: "percent", value: 100, rounding: "down" };
     // 5 * 2 = 10.00 → floor(100)/10 = 10
     expect(applyMarketplaceMarkup(5, config)).toBe(10);
+  });
+});
+
+// Étiquette affichée sous les badges marketplace du tableau admin.
+// La **valeur configurée** est affichée, pas la différence recalculée depuis
+// le prix arrondi — sinon un markup à 11 % apparaîtrait « +10 % » ou « +14 % »
+// selon le prix de base à cause de l'arrondi au dixième d'euro.
+describe("formatMarkupLabel", () => {
+  it("retourne null pour une majoration nulle (rien à afficher sous le badge)", () => {
+    expect(formatMarkupLabel({ type: "percent", value: 0, rounding: "none" })).toBeNull();
+    expect(formatMarkupLabel({ type: "fixed",   value: 0, rounding: "none" })).toBeNull();
+  });
+
+  it("formate la majoration percent avec le signe (ex. +11 %)", () => {
+    expect(formatMarkupLabel({ type: "percent", value: 11, rounding: "up" })).toBe("+11%");
+    expect(formatMarkupLabel({ type: "percent", value: 20, rounding: "none" })).toBe("+20%");
+  });
+
+  it("formate une majoration percent négative", () => {
+    expect(formatMarkupLabel({ type: "percent", value: -5, rounding: "none" })).toBe("-5%");
+  });
+
+  it("convertit un multiplier en pourcentage équivalent (×2,5 → +150 %)", () => {
+    expect(formatMarkupLabel({ type: "multiplier", value: 2.5, rounding: "up" })).toBe("+150%");
+    expect(formatMarkupLabel({ type: "multiplier", value: 3,   rounding: "up" })).toBe("+200%");
+  });
+
+  it("retourne null pour un multiplier ×1 (pas de hausse)", () => {
+    expect(formatMarkupLabel({ type: "multiplier", value: 1, rounding: "none" })).toBeNull();
+  });
+
+  it("formate une majoration fixed en euros (ex. +2 €)", () => {
+    expect(formatMarkupLabel({ type: "fixed", value: 2,  rounding: "none" })).toBe("+2€");
+    expect(formatMarkupLabel({ type: "fixed", value: -1, rounding: "none" })).toBe("-1€");
   });
 });

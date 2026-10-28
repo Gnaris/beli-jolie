@@ -28,6 +28,12 @@ const METHODS: MethodMeta[] = [
     activationUrl: "https://dashboard.stripe.com/settings/payment_methods",
   },
   {
+    key: "revolut_pay",
+    label: "Revolut Pay",
+    hint: "Redirect vers Revolut (ou appli mobile). ~1,4 % + 0,25 € en Europe, plus bas que la carte.",
+    activationUrl: "https://dashboard.stripe.com/settings/payment_methods",
+  },
+  {
     key: "billie",
     label: "Billie (B2B paiement à 30 jours)",
     hint: "Billie avance les fonds sous 1-2 jours ouvrés, votre cliente paie à 30j. B2B uniquement.",

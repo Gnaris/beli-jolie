@@ -25,15 +25,17 @@ export default function ProductCardIssyma({
   canSeePrices,
   pricePromptLabel,
   pricePromptHint,
+  linkQuery,
 }: {
   p: CarouselProduct;
   badge?: string;
   canSeePrices: boolean;
   pricePromptLabel: string;
   pricePromptHint: string;
+  linkQuery?: string;
 }) {
   const primary = p.colors.find((c) => c.isPrimary) ?? p.colors[0];
-  const href = `/produits/${buildProductHandle(p.name, p.reference)}`;
+  const href = `/produits/${buildProductHandle(p.name, p.reference)}${linkQuery ? `?${linkQuery}` : ""}`;
   const displayName = p.displayName ?? p.name;
   const displayCategory = p.displayCategory ?? p.category;
   const image = primary?.firstImage ?? null;

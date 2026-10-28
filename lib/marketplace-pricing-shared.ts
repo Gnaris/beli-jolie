@@ -71,6 +71,36 @@ export function applyMarketplaceMarkup(
  *   - base BJ 4,20 € · wholesale +20 % arrondi haut = 5,10 €
  *   - retail ×3 sur 5,10 € = 15,30 € (et non 4,20 × 3 = 12,60 €).
  */
+/**
+ * Produit l'étiquette lisible de la majoration à afficher sous les badges
+ * marketplaces du tableau admin produits. Elle reprend la valeur configurée
+ * dans Paramètres > Marketplaces (jamais recalculée depuis le prix arrondi),
+ * pour qu'un markup à 11 % affiche toujours « +11 % » peu importe l'arrondi.
+ *
+ * Retourne `null` si la majoration est nulle (rien à afficher sous le badge).
+ */
+export function formatMarkupLabel(config: MarkupConfig): string | null {
+  if (!Number.isFinite(config.value) || config.value === 0) return null;
+  switch (config.type) {
+    case "percent": {
+      const sign = config.value > 0 ? "+" : "";
+      return `${sign}${config.value}%`;
+    }
+    case "multiplier": {
+      // ×2,5 → +150 %
+      const pct = Math.round((config.value - 1) * 1000) / 10;
+      if (pct === 0) return null;
+      const sign = pct > 0 ? "+" : "";
+      return `${sign}${pct}%`;
+    }
+    case "fixed":
+    default: {
+      const sign = config.value > 0 ? "+" : "";
+      return `${sign}${config.value}€`;
+    }
+  }
+}
+
 export function applyFaireMarkupWithClamp(
   basePrice: number,
   wholesaleConfig: MarkupConfig,

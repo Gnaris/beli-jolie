@@ -446,7 +446,7 @@ async function loadStageForScenario(
   if (!row) {
     return {
       ok: false,
-      error: `Aucun Stade ${stageIndex} configuré pour ce scénario — vérifie tes modèles dans /admin/marketing/mails.`,
+      error: `Aucun Stade ${stageIndex} configuré pour ce scénario — vérifie tes modèles dans /admin/contact-client/mails.`,
     };
   }
   return { ok: true, stage: row };
@@ -602,7 +602,7 @@ async function renderStageForUser({
   if (!templateHtml.trim()) {
     return {
       ok: false,
-      error: `Le Stade ${stage.stageIndex} n'a pas de contenu HTML — édite-le dans /admin/marketing/mails avant l'envoi.`,
+      error: `Le Stade ${stage.stageIndex} n'a pas de contenu HTML — édite-le dans /admin/contact-client/mails avant l'envoi.`,
     };
   }
 
@@ -749,7 +749,7 @@ export async function sendManualMail(
         success: false,
         error:
           "Le modèle de ce stade ne contient plus le lien de désinscription obligatoire. " +
-          "Ouvre-le dans /admin/marketing/mails et remets la variable {unsubscribeLink} dans le pied de page.",
+          "Ouvre-le dans /admin/contact-client/mails et remets la variable {unsubscribeLink} dans le pied de page.",
       };
     }
 

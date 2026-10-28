@@ -37,7 +37,7 @@ import {
   resolveCollectionLabel,
 } from "@/lib/efashion-labels";
 import { getFaireTaxonomy, findFaireTaxonomyById } from "@/lib/faire-taxonomy";
-import { loadMarketplaceMarkupConfigs, applyMarketplaceMarkup } from "@/lib/marketplace-pricing";
+import { loadMarketplaceMarkupConfigs, applyMarketplaceMarkup, formatMarkupLabel } from "@/lib/marketplace-pricing";
 import { loadOrderchampPricingConfig } from "@/lib/orderchamp-pricing";
 
 // Attribute managers
@@ -520,6 +520,19 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
 
   const totalPages = Math.ceil(totalCount / perPage);
 
+  // Étiquettes de majoration à afficher sous chaque badge marketplace. On
+  // affiche la valeur **configurée** (ex. +11 %), pas la différence recalculée
+  // depuis le prix arrondi — l'arrondi au dixième d'euro faisait apparaître
+  // des pourcentages flottants (10 %, 11 %, 14 %) selon le prix de base.
+  const marketplaceMarkupLabels = {
+    pfs:        formatMarkupLabel(marketplaceMarkups.pfs),
+    efashion:   formatMarkupLabel(marketplaceMarkups.efashion),
+    microstore: formatMarkupLabel(marketplaceMarkups.microstore),
+    ankorstore: formatMarkupLabel(marketplaceMarkups.ankorstoreWholesale),
+    faire:      formatMarkupLabel(marketplaceMarkups.faireWholesale),
+    orderchamp: formatMarkupLabel(orderchampMarkup.wholesale),
+  };
+
   const hsCodes = hsCodeRows;
 
   // Images chargées en une seule requête, indexées par (productId, colorId).
@@ -741,6 +754,7 @@ async function ProduitsContent({ params }: { params: Record<string, string | und
         orderchampEnabled={orderchampEnabled}
         hasMicrostoreConfig={hasMicrostoreConfig}
         microstoreEnabled={microstoreEnabled}
+        marketplaceMarkupLabels={marketplaceMarkupLabels}
         bulkEditOptions={{
           categories: categories.map((c) => ({
             id: c.id,

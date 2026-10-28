@@ -5,9 +5,9 @@ interface UsersTabsProps {
   registeredCount: number;
   cardsCount: number;
   /**
-   * Chemin de base des tabs (ex. "/admin/clients" ou "/admin/marketing").
+   * Chemin de base des tabs (ex. "/admin/clients" ou "/admin/contact-client").
    * Sans ça, les tabs redirigeaient toujours vers /admin/clients — la cliente
-   * perdait le contexte quand elle naviguait depuis /admin/marketing.
+   * perdait le contexte quand elle naviguait depuis /admin/contact-client.
    */
   basePath: string;
 }

@@ -445,6 +445,20 @@ export default async function CommandeDetailPage({
         )}
       </div>
 
+      {/* Rappel du commentaire laissé par la cliente au moment du checkout. */}
+      {order.customerNote && order.customerNote.trim().length > 0 && (
+        <section className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+              {t("customerNoteTitle")}
+            </p>
+          </div>
+          <div className="px-5 py-4 text-sm text-slate-800 whitespace-pre-wrap break-words">
+            {order.customerNote}
+          </div>
+        </section>
+      )}
+
       {/* Contenu de la commande + Résumé (composant admin en mode lecture seule) */}
       <OrderContent
         orderId={order.id}

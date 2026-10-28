@@ -141,7 +141,7 @@ export default function FicheSendMailModal({ ficheId, ficheLabel, ficheEmail, on
             ) : templates.length === 0 ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[12.5px] text-amber-800">
                 Aucun modèle de newsletter enregistré.{" "}
-                <a href="/admin/marketing/mails" className="underline font-semibold" target="_blank" rel="noreferrer">
+                <a href="/admin/contact-client/mails" className="underline font-semibold" target="_blank" rel="noreferrer">
                   Créer un modèle →
                 </a>
               </div>

@@ -175,6 +175,20 @@ export function redirectLegacyClaimsUrl(pathname: string): string | null {
 }
 
 /**
+ * Ancienne route Marketing (`/admin/marketing`) → nouvelle (`/admin/contact-client`).
+ * Retourne le nouveau pathname si l'URL doit être redirigée, sinon null.
+ * Couvre les anciens bookmarks + liens contenus dans les mails de notification
+ * admin déjà envoyés. Exporté pour test unitaire.
+ */
+export function redirectLegacyMarketingUrl(pathname: string): string | null {
+  if (pathname === "/admin/marketing") return "/admin/contact-client";
+  if (pathname.startsWith("/admin/marketing/")) {
+    return "/admin/contact-client" + pathname.slice("/admin/marketing".length);
+  }
+  return null;
+}
+
+/**
  * Domaine canonique : si `host` est `www.X` et que `X` est mappé à la même
  * boutique, retourne `X` (cible du 301). Sinon `null` (pas de redirection).
  * Exporté pour test unitaire.
@@ -258,6 +272,15 @@ export async function middleware(request: NextRequest) {
   const legacyClaimsRedirect = redirectLegacyClaimsUrl(pathname);
   if (legacyClaimsRedirect) {
     const url = new URL(legacyClaimsRedirect + request.nextUrl.search, request.url);
+    return NextResponse.redirect(url, 301);
+  }
+
+  // Redirect 301 : ancienne URL /admin/marketing → /admin/contact-client
+  // Protège les anciens bookmarks + liens contenus dans les mails de notif
+  // admin déjà envoyés après le rename 2026-10-28.
+  const legacyMarketingRedirect = redirectLegacyMarketingUrl(pathname);
+  if (legacyMarketingRedirect) {
+    const url = new URL(legacyMarketingRedirect + request.nextUrl.search, request.url);
     return NextResponse.redirect(url, 301);
   }
 

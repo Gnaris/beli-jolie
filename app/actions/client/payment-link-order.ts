@@ -22,6 +22,7 @@ import { cancelAbandonedCartJob } from "@/lib/abandoned-cart-trigger";
 import { getCurrentTenantId, getCurrentTenantSlug } from "@/lib/tenant";
 import { findMissingAddressFields } from "@/lib/shipping-address-validate";
 import { copyOrderItemImageToOrderDir } from "@/lib/order-item-image-copy";
+import { normalizeCustomerNote } from "@/lib/normalize-customer-note";
 import { reinstateStockForOrder } from "@/lib/stock";
 import { getCachedShopName } from "@/lib/cached-data";
 import { getCurrentTenantBaseUrl } from "@/lib/tenant-url";
@@ -75,6 +76,8 @@ export interface PaymentLinkOrderInput {
   locale?: "fr" | "en";
   /** Avoir à consommer (clampé serveur). */
   creditToApply?: number;
+  /** Commentaire libre saisi par la cliente au checkout. */
+  customerNote?: string;
 }
 
 export interface PaymentLinkOrderResult {
@@ -647,6 +650,7 @@ export async function placePaymentLinkOrder(
           creditApplied,
           cgvAcceptedAt: input.cgvAcceptedAt ? new Date(input.cgvAcceptedAt) : null,
           acceptReplacementContact: input.acceptReplacementContact ?? false,
+          customerNote: normalizeCustomerNote(input.customerNote),
           tvaRate,
           subtotalHT: subtotalAfterDiscount,
           subtotalBrutHT,

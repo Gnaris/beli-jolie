@@ -226,7 +226,7 @@ export async function sendNewsletterToUsers({
     }
 
     revalidatePath("/admin/clients");
-    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/contact-client/mails");
 
     return {
       success: true,

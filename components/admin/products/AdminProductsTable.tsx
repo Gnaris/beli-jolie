@@ -353,21 +353,29 @@ function DisabledMarketplaceBadge({
 function MarketplacePriceLine({
   price,
   basePrice,
+  markupLabel,
 }: {
   price: number | null | undefined;
   basePrice: number | null | undefined;
+  // Étiquette telle que configurée dans Paramètres > Marketplaces (ex. « +11% »).
+  // On l'affiche **telle quelle** sous le prix pour qu'une majoration à 11 %
+  // reste « +11 % » sur tous les produits — l'arrondi au dixième d'euro sur
+  // le prix final faisait apparaître des 10 % / 14 % selon le prix de base.
+  markupLabel: string | null | undefined;
 }) {
   if (price == null || basePrice == null || basePrice <= 0) return null;
-  const diff = Math.round(((price / basePrice) - 1) * 100);
-  const sign = diff > 0 ? "+" : "";
-  const toneClass = diff > 0 ? "text-emerald-700" : diff < 0 ? "text-rose-700" : "text-text-muted";
+  const toneClass = markupLabel?.startsWith("+")
+    ? "text-emerald-700"
+    : markupLabel?.startsWith("-")
+      ? "text-rose-700"
+      : "text-text-muted";
   return (
     <span
       className="mt-0.5 inline-flex flex-col items-center text-[8.5px] font-body text-text-muted leading-tight tabular-nums whitespace-nowrap"
       title={`Prix de vente marketplace calculé depuis ${basePrice.toFixed(2)}€ (prix boutique)`}
     >
       <span className="font-medium">{price.toFixed(2)}€</span>
-      {diff !== 0 && <span className={toneClass}>{sign}{diff}%</span>}
+      {markupLabel && <span className={toneClass}>{markupLabel}</span>}
     </span>
   );
 }
@@ -1326,6 +1334,15 @@ export interface AdminProduct {
   translations: ProductTranslation[];
 }
 
+export interface MarketplaceMarkupLabels {
+  pfs:        string | null;
+  efashion:   string | null;
+  microstore: string | null;
+  ankorstore: string | null;
+  faire:      string | null;
+  orderchamp: string | null;
+}
+
 interface Props {
   products: AdminProduct[];
   totalCount: number;
@@ -1344,6 +1361,8 @@ interface Props {
   hasMicrostoreConfig: boolean;
   /** Kill switch global Microstore (SiteConfig microstore_products_management_enabled). */
   microstoreEnabled?: boolean;
+  /** Étiquettes de majoration (ex. « +11% ») affichées sous les badges mkt. */
+  marketplaceMarkupLabels: MarketplaceMarkupLabels;
   /** Listes pour la modale d'édition en masse (catégorie, code SH, etc.) */
   bulkEditOptions: BulkEditOptions;
   /** Tags disponibles pour la modale « Ajouter / retirer des tags » du menu Plus. */
@@ -2949,6 +2968,7 @@ function ProductRow({
   orderchampEnabled,
   hasMicrostoreConfig,
   microstoreEnabled = true,
+  marketplaceMarkupLabels,
   selected,
   onToggle,
   expanded,
@@ -2975,6 +2995,7 @@ function ProductRow({
   orderchampEnabled: boolean;
   hasMicrostoreConfig: boolean;
   microstoreEnabled?: boolean;
+  marketplaceMarkupLabels: MarketplaceMarkupLabels;
   selected: boolean;
   onToggle: () => void;
   expanded: boolean;
@@ -3971,6 +3992,7 @@ function ProductRow({
                 <MarketplacePriceLine
                   price={product.marketplacePrices?.pfs}
                   basePrice={product.marketplacePrices?.basePrice}
+                  markupLabel={marketplaceMarkupLabels.pfs}
                 />
               </span>
               <span className="inline-flex flex-col items-center gap-0.5">
@@ -4000,6 +4022,7 @@ function ProductRow({
                   <MarketplacePriceLine
                     price={product.marketplacePrices?.efashion}
                     basePrice={product.marketplacePrices?.basePrice}
+                    markupLabel={marketplaceMarkupLabels.efashion}
                   />
                 )}
               </span>
@@ -4021,6 +4044,7 @@ function ProductRow({
                 <MarketplacePriceLine
                   price={product.marketplacePrices?.ankorstore}
                   basePrice={product.marketplacePrices?.basePrice}
+                  markupLabel={marketplaceMarkupLabels.ankorstore}
                 />
               </span>
               <span className="inline-flex flex-col items-center gap-0.5">
@@ -4048,6 +4072,7 @@ function ProductRow({
                   <MarketplacePriceLine
                     price={product.marketplacePrices?.faire}
                     basePrice={product.marketplacePrices?.basePrice}
+                    markupLabel={marketplaceMarkupLabels.faire}
                   />
                 )}
               </span>
@@ -4076,6 +4101,7 @@ function ProductRow({
                   <MarketplacePriceLine
                     price={product.marketplacePrices?.orderchamp}
                     basePrice={product.marketplacePrices?.basePrice}
+                    markupLabel={marketplaceMarkupLabels.orderchamp}
                   />
                 )}
               </span>
@@ -4101,6 +4127,7 @@ function ProductRow({
               <MarketplacePriceLine
                 price={product.marketplacePrices?.microstore}
                 basePrice={product.marketplacePrices?.basePrice}
+                markupLabel={marketplaceMarkupLabels.microstore}
               />
               </span>
             </div>
@@ -4854,7 +4881,7 @@ function ProductRow({
 // ─── Table with synchronized top + bottom scrollbar ─────────────────────────────
 
 function TableWithTopScroll({
-  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, microstoreEnabled, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, pendingStatuses, onRowDelete, onRowSync,
+  products, startIndex, hasPfsConfig, pfsGloballyEnabled, hasAnkorstoreConfig, ankorstoreEnabled, hasEfashionConfig, efashionEnabled, hasFaireConfig, faireEnabled, hasOrderchampConfig, orderchampEnabled, hasMicrostoreConfig, microstoreEnabled, marketplaceMarkupLabels, selectedIds, allSelected, toggleSelectAll, toggleSelect, expandedIds, toggleExpand, dirtyEdits, onCommitCell, deletingIds, onRowStatus, pendingStatuses, onRowDelete, onRowSync,
 }: {
   products: AdminProduct[];
   startIndex: number;
@@ -4870,6 +4897,7 @@ function TableWithTopScroll({
   orderchampEnabled: boolean;
   hasMicrostoreConfig: boolean;
   microstoreEnabled?: boolean;
+  marketplaceMarkupLabels: MarketplaceMarkupLabels;
   selectedIds: Set<string>;
   allSelected: boolean;
   toggleSelectAll: () => void;
@@ -4930,6 +4958,7 @@ function TableWithTopScroll({
                 orderchampEnabled={orderchampEnabled}
                 hasMicrostoreConfig={hasMicrostoreConfig}
                 microstoreEnabled={microstoreEnabled}
+                marketplaceMarkupLabels={marketplaceMarkupLabels}
                 selected={selectedIds.has(product.id)}
                 onToggle={() => toggleSelect(product.id)}
                 expanded={expandedIds.has(product.id)}
@@ -4968,6 +4997,7 @@ export default function AdminProductsTable({
   orderchampEnabled,
   hasMicrostoreConfig,
   microstoreEnabled = true,
+  marketplaceMarkupLabels,
   bulkEditOptions,
   availableTags,
   availableCollections,
@@ -7069,7 +7099,7 @@ export default function AdminProductsTable({
             deletingIds={deletingIds}
           />
         ) : (
-          <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={handleQueueStatus} pendingStatuses={pendingStatuses} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
+          <TableWithTopScroll products={allProducts} startIndex={startIndex} hasPfsConfig={hasPfsConfig} pfsGloballyEnabled={pfsGloballyEnabled} hasAnkorstoreConfig={hasAnkorstoreConfig} ankorstoreEnabled={ankorstoreEnabled} hasEfashionConfig={hasEfashionConfig} efashionEnabled={efashionEnabled} hasFaireConfig={hasFaireConfig} faireEnabled={faireEnabled} hasOrderchampConfig={hasOrderchampConfig} orderchampEnabled={orderchampEnabled} hasMicrostoreConfig={hasMicrostoreConfig} microstoreEnabled={microstoreEnabled} marketplaceMarkupLabels={marketplaceMarkupLabels} selectedIds={selectedIds} allSelected={allSelected} toggleSelectAll={toggleSelectAll} toggleSelect={toggleSelect} expandedIds={expandedIds} toggleExpand={toggleExpand} dirtyEdits={dirtyEdits} onCommitCell={handleCommitCell} deletingIds={deletingIds} onRowStatus={handleQueueStatus} pendingStatuses={pendingStatuses} onRowDelete={(id) => handleBulkDelete([id])} onRowSync={(id) => handleBulkSync([id])} />
         )}
         <FilterLoadingOverlay visible={isFiltering} />
         <BulkActionOverlay label={bulkActionLabel} />

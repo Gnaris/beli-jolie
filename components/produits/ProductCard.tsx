@@ -78,6 +78,12 @@ interface ProductCardProps {
    * sans aucun renvoi à la connexion.
    */
   hidePriceHints?: boolean;
+  /**
+   * Querystring (sans `?`) ajoutée au lien produit — utilisé pour marquer
+   * la provenance (ex: `via=collection:xxx`). Transporte le contexte jusqu'à
+   * la fiche produit qui pose un cookie signé pour attribuer l'ajout panier.
+   */
+  linkQuery?: string;
 }
 
 // Prix par unité : pour UNIT c'est unitPrice direct, pour PACK on divise par packQuantity
@@ -92,7 +98,7 @@ function variantPricePerUnit(v: VariantData): number {
 export default function ProductCard({
   id, name, reference, category, subCategory, colors, tags = [], isFavorite = false,
   isBestSeller = false, isNew = false, discountPercent, hasAutoPromotion = false, clientDiscount, filteredColorIds = [], onFavoriteChange,
-  hideStatusBadges = false, showPricesOverride, hidePriceHints = false,
+  hideStatusBadges = false, showPricesOverride, hidePriceHints = false, linkQuery,
 }: ProductCardProps) {
   const { data: session } = useSession();
   const { tp, tc } = useProductTranslation();
@@ -140,7 +146,7 @@ export default function ProductCard({
 
   const displayed = hoveredColor ?? selectedColor ?? primaryColor;
   const image = displayed?.firstImage;
-  const productHref = `/produits/${buildProductHandle(name, reference)}`;
+  const productHref = `/produits/${buildProductHandle(name, reference)}${linkQuery ? `?${linkQuery}` : ""}`;
 
   const anyVariantHasDiscount = !!discountPercent && discountPercent > 0;
 

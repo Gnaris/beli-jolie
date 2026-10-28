@@ -41,11 +41,11 @@ Créer un composant `components/admin/products/ProductsSubnav.tsx` (barre d'ongl
 **Statut** : à faire.
 
 Même principe pour :
-- `/admin/marketing` (Envoyer des mails)
-- `/admin/marketing/mails` (Modèles de mail)
-- `/admin/marketing/whatsapp` (Modèles WhatsApp)
-- `/admin/marketing/mails/panier-abandonne`
-- `/admin/marketing/mails/inactivite`
+- `/admin/contact-client` (Envoyer des mails)
+- `/admin/contact-client/mails` (Modèles de mail)
+- `/admin/contact-client/whatsapp` (Modèles WhatsApp)
+- `/admin/contact-client/mails/panier-abandonne`
+- `/admin/contact-client/mails/inactivite`
 
 ### ⏳ Étape 4 — Audit mode sombre admin
 Vérifier que les bulles passent proprement en noir en mode sombre, que les bordures restent lisibles, que le hover global fonctionne.

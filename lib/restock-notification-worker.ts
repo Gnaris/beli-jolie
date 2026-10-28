@@ -42,7 +42,7 @@ import {
 
 /**
  * Tick 10 s — aligné sur `abandoned-cart-worker` et sur le `AutoRefresh` de
- * la vue /admin/marketing. La cliente peut régler le compteur à la seconde
+ * la vue /admin/contact-client. La cliente peut régler le compteur à la seconde
  * (bornes 1 s → 365 j) ; 10 s garde une bonne précision sans surcharger la BDD.
  */
 export const RESTOCK_WORKER_POLL_INTERVAL_MS = 10_000;

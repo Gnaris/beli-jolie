@@ -544,12 +544,12 @@ export async function assignTemplateToScenario(
       imagesCopied: copiedImages.length,
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath(`/admin/marketing/mails/newsletter/${targetTemplateId}`);
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath(`/admin/contact-client/mails/newsletter/${targetTemplateId}`);
     if (target.scenario === "ABANDONED_CART") {
-      revalidatePath("/admin/marketing/mails/panier-abandonne");
+      revalidatePath("/admin/contact-client/mails/panier-abandonne");
     } else if (target.scenario === "INACTIVE_CLIENT") {
-      revalidatePath("/admin/marketing/mails/inactivite");
+      revalidatePath("/admin/contact-client/mails/inactivite");
     }
     return { success: true, targetTemplateId };
   } catch (err) {
@@ -598,9 +598,9 @@ export async function resetScenarioTemplateToDefault(
           html: def.html,
         },
       });
-      revalidatePath(`/admin/marketing/mails/${existing.id}`);
+      revalidatePath(`/admin/contact-client/mails/${existing.id}`);
     }
-    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/contact-client/mails");
     return { success: true };
   } catch (err) {
     logger.error("[resetScenarioTemplateToDefault]", { scenario, error: err as Error });
@@ -667,7 +667,7 @@ export async function createNewsletterTemplate(
         html: MANUAL_HTML_DEFAULT,
       },
     });
-    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/contact-client/mails");
     return { success: true, id: row.id };
   } catch (err) {
     logger.error("[createNewsletterTemplate]", { error: err as Error });
@@ -747,8 +747,8 @@ export async function updateNewsletterTemplateHtml(
       logger.error("[updateNewsletterTemplateHtml] gc orphans", { id, error: err as Error });
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath(`/admin/marketing/mails/newsletter/${id}`);
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath(`/admin/contact-client/mails/newsletter/${id}`);
     return { success: true };
   } catch (err) {
     logger.error("[updateNewsletterTemplateHtml]", { id, error: err as Error });
@@ -820,8 +820,8 @@ export async function updateNewsletterTemplateLocale(
       },
     });
 
-    revalidatePath("/admin/marketing/mails");
-    revalidatePath(`/admin/marketing/mails/newsletter/${id}`);
+    revalidatePath("/admin/contact-client/mails");
+    revalidatePath(`/admin/contact-client/mails/newsletter/${id}`);
     return { success: true };
   } catch (err) {
     logger.error("[updateNewsletterTemplateLocale]", { id, locale, error: err as Error });
@@ -918,7 +918,7 @@ export async function deleteNewsletterTemplate(
     }
 
     await prisma.newsletterTemplate.delete({ where: { id } });
-    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/contact-client/mails");
     return { success: true };
   } catch (err) {
     logger.error("[deleteNewsletterTemplate]", { id, error: err as Error });
@@ -948,7 +948,7 @@ export async function duplicateNewsletterTemplate(
         scenarioKey: null,
       },
     });
-    revalidatePath("/admin/marketing/mails");
+    revalidatePath("/admin/contact-client/mails");
     return { success: true, id: copy.id };
   } catch (err) {
     logger.error("[duplicateNewsletterTemplate]", { id, error: err as Error });

@@ -156,6 +156,9 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   // Catalogue — tracking visites + ajouts panier
   "CatalogView",
   "CatalogCartAddition",
+  // Collection — tracking visites + ajouts panier
+  "CollectionView",
+  "CollectionCartAddition",
   // Images embarquées dans les modèles newsletter
   "NewsletterTemplateImage",
 ]);
