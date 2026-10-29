@@ -13,6 +13,7 @@ import CartWizardClient from "@/components/panier/CartWizardClient";
 import { getEffectiveTenantSlug } from "@/lib/tenant-preview";
 import CartIssymaWrapper from "@/components/issyma/CartIssymaWrapper";
 import { isStripeConfigured, getStripePublishableKey } from "@/lib/stripe";
+import { getEnabledStripePaymentMethods } from "@/lib/stripe-payment-methods-enabled";
 import { getCachedBankTransferConfig, formatIbanForDisplay } from "@/lib/bank-transfer-config";
 import { getAvailableCredit } from "@/lib/credits";
 import { loadActivePromotions } from "@/lib/promotions";
@@ -103,6 +104,7 @@ export default async function PanierPage() {
     minOrderHT,
     stripeReady,
     stripePublishableKey,
+    enabledStripeMethods,
     bankTransferConfig,
     companyInfo,
     businessHoursRow,
@@ -142,6 +144,7 @@ export default async function PanierPage() {
     getEffectiveMinOrderHT(session.user.id),
     isStripeConfigured(),
     getStripePublishableKey(),
+    getEnabledStripePaymentMethods(),
     getCachedBankTransferConfig(),
     prisma.companyInfo.findFirst({
       select: {
@@ -360,6 +363,7 @@ export default async function PanierPage() {
       minOrderHT={minOrderHT}
       stripeReady={stripeReady}
       stripePublishableKey={stripePublishableKey}
+      enabledStripeMethods={enabledStripeMethods}
       bankTransfer={{
         enabled: bankTransferConfig.enabled,
         holder: bankTransferConfig.holder,

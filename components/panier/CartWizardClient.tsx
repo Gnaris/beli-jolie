@@ -61,6 +61,9 @@ interface Props {
   minOrderHT: number;
   stripeReady: boolean;
   stripePublishableKey: string | null;
+  /** Liste des méthodes Stripe actives pour ce tenant — ex. `["card","paypal","scalapay"]`.
+   *  Alimente la légende descriptive affichée au-dessus du PaymentElement à l'étape 3. */
+  enabledStripeMethods: string[];
   /** Config virement bancaire du tenant. `enabled=false` → option cachée au checkout. */
   bankTransfer: {
     enabled: boolean;
@@ -95,6 +98,7 @@ export default function CartWizardClient({
   minOrderHT,
   stripeReady,
   stripePublishableKey,
+  enabledStripeMethods,
   bankTransfer,
   availableCredit,
   initialValidationErrors = [],
@@ -1188,6 +1192,7 @@ export default function CartWizardClient({
                 cart={cart}
                 clientSecret={clientSecret}
                 stripePublishableKey={stripePublishableKey}
+                enabledStripeMethods={enabledStripeMethods}
                 stripeLoading={stripeLoading}
                 stripeError={stripeError}
                 onPaymentSuccess={handlePaymentSuccess}

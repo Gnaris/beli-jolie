@@ -30,6 +30,7 @@ export default function Step3PaymentContent({
   cart,
   clientSecret,
   stripePublishableKey,
+  enabledStripeMethods,
   stripeLoading,
   stripeError,
   onPaymentSuccess,
@@ -72,6 +73,8 @@ export default function Step3PaymentContent({
   cart: WizardCart;
   clientSecret: string | null;
   stripePublishableKey: string | null;
+  /** Méthodes Stripe actives pour ce tenant (toujours "card" + options cochées). */
+  enabledStripeMethods: string[];
   stripeLoading: boolean;
   stripeError: string;
   onPaymentSuccess: (paymentIntentId: string) => void;
@@ -591,6 +594,13 @@ export default function Step3PaymentContent({
             </p>
           </div>
 
+          {/* Légende descriptive des méthodes de paiement disponibles — l'accordéon
+              Stripe ci-dessous est rendu dans un iframe (impossible d'injecter
+              dedans), donc on explique chaque option juste au-dessus. Chaque
+              élément correspond à une méthode cochée côté admin + activée dans
+              Stripe. */}
+          <StripeMethodsLegend methods={enabledStripeMethods} />
+
           {stripeLoading && (
             <p className="text-sm text-slate-500 text-center py-8">{t("preparingPayment")}</p>
           )}
@@ -719,6 +729,61 @@ export default function Step3PaymentContent({
           )}
         </section>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Légende descriptive des méthodes Stripe disponibles.
+   Affichée au-dessus du PaymentElement (iframe Stripe non injectable).
+   N'affiche que les méthodes effectivement activées pour ce tenant.
+   ───────────────────────────────────────────────────────────── */
+const STRIPE_METHOD_META: Record<
+  string,
+  { icon: string; titleKey: string; descKey: string }
+> = {
+  card:        { icon: "💳", titleKey: "stripeMethodCardTitle",       descKey: "stripeMethodCardDesc" },
+  paypal:      { icon: "🅿️", titleKey: "stripeMethodPaypalTitle",     descKey: "stripeMethodPaypalDesc" },
+  revolut_pay: { icon: "⚡", titleKey: "stripeMethodRevolutPayTitle", descKey: "stripeMethodRevolutPayDesc" },
+  billie:      { icon: "🧾", titleKey: "stripeMethodBillieTitle",     descKey: "stripeMethodBillieDesc" },
+  bancontact:  { icon: "🇧🇪", titleKey: "stripeMethodBancontactTitle", descKey: "stripeMethodBancontactDesc" },
+  ideal:       { icon: "🇳🇱", titleKey: "stripeMethodIdealTitle",      descKey: "stripeMethodIdealDesc" },
+  scalapay:    { icon: "🪙", titleKey: "stripeMethodScalapayTitle",   descKey: "stripeMethodScalapayDesc" },
+};
+
+function StripeMethodsLegend({ methods }: { methods: string[] }) {
+  const t = useTranslations("checkout");
+  const visible = methods.filter((m) => STRIPE_METHOD_META[m]);
+  if (visible.length === 0) return null;
+  return (
+    <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+      <div className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold mb-1">
+        {t("stripeMethodsLegendTitle")}
+      </div>
+      <p className="text-xs text-slate-500 mb-3">{t("stripeMethodsLegendHint")}</p>
+      <ul className="space-y-2.5">
+        {visible.map((m) => {
+          const meta = STRIPE_METHOD_META[m];
+          return (
+            <li key={m} className="flex items-start gap-3">
+              <span
+                aria-hidden
+                className="flex-shrink-0 w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-base shadow-sm"
+              >
+                {meta.icon}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-slate-900">
+                  {t(meta.titleKey)}
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {t(meta.descKey)}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
