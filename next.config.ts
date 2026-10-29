@@ -79,7 +79,7 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       `img-src 'self' data: blob: https://*.stripe.com https://static.parisfashionshops.com https://cdn.parisfashionshops.com https://img.ankorstore.com https://easy-express.fr https://flagcdn.com ${GOOGLE_IMG}`,
       "font-src 'self'",
-      `connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com ${GOOGLE_CONNECT}`,
+      `connect-src 'self' https://api.stripe.com https://wholesaler-api.parisfashionshops.com http://127.0.0.1:8765 ${GOOGLE_CONNECT}`,
       `frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://mail.beliandjolie.com https://www.openstreetmap.org ${GOOGLE_FRAME}`,
       "object-src 'none'",
       "base-uri 'self'",
