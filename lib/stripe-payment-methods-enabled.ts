@@ -23,6 +23,7 @@ export const OPTIONAL_STRIPE_METHODS = [
   "billie",
   "bancontact",
   "ideal",
+  "scalapay",
 ] as const;
 export type OptionalStripeMethod = (typeof OPTIONAL_STRIPE_METHODS)[number];
 
@@ -42,6 +43,7 @@ const EMPTY: StripeMethodsEnabled = {
   billie: false,
   bancontact: false,
   ideal: false,
+  scalapay: false,
 };
 
 async function fetchEnabledMethods(tenantId: string): Promise<StripeMethodsEnabled> {

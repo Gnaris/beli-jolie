@@ -51,6 +51,12 @@ const METHODS: MethodMeta[] = [
     hint: "Standard néerlandais, ~0,29 € flat. Masqué pour les acheteurs hors Pays-Bas.",
     activationUrl: "https://dashboard.stripe.com/settings/payment_methods",
   },
+  {
+    key: "scalapay",
+    label: "Scalapay (paiement en 3 fois sans frais)",
+    hint: "Votre cliente paie en 3 mensualités, vous recevez le total tout de suite. Dispo en France, Italie, Espagne, Allemagne, Pays-Bas, Belgique, Autriche, Portugal, Finlande, Irlande. Montant 5 € à ~2 000 €.",
+    activationUrl: "https://dashboard.stripe.com/settings/payment_methods",
+  },
 ];
 
 export default function OnlinePaymentMethodsForm({ initial }: Props) {
