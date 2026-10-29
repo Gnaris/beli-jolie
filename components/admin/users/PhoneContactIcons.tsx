@@ -180,11 +180,11 @@ export default function PhoneContactIcons({
 
   function openWhatsAppNow(renderedBody: string) {
     if (!waNumber) return;
-    window.open(
-      buildWhatsAppUrl(waNumber, renderedBody),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    // iOS PWA (site installé sur l'écran d'accueil) bloque `window.open` avec
+    // `_blank`. On passe par `location.href` : le universal link `wa.me/...`
+    // bascule vers l'app WhatsApp, et l'utilisateur revient dans la PWA via
+    // le switcher. Marche aussi en desktop (navigateur ouvre WhatsApp Web).
+    window.location.href = buildWhatsAppUrl(waNumber, renderedBody);
   }
 
   function handleSelectTemplate(templateId: string | null) {

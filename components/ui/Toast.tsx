@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 
 // ─────────────────────────────────────────────
@@ -191,13 +191,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => [...prev.slice(-4), { ...opts, id }]); // max 5 visible
   }, []);
 
-  const ctx: ToastContextValue = {
-    toast: addToast,
-    success: (title, message) => addToast({ type: "success", title, message }),
-    error: (title, message) => addToast({ type: "error", title, message }),
-    warning: (title, message) => addToast({ type: "warning", title, message }),
-    info: (title, message) => addToast({ type: "info", title, message }),
-  };
+  // Référence stable : sinon chaque toast émis (ou re-render du provider) recrée
+  // l'objet et invalide tous les consommateurs qui ont `toast` dans leurs deps
+  // de useEffect (voir TransactionalEmailModal → recharge du modèle en boucle).
+  const ctx = useMemo<ToastContextValue>(
+    () => ({
+      toast: addToast,
+      success: (title, message) => addToast({ type: "success", title, message }),
+      error: (title, message) => addToast({ type: "error", title, message }),
+      warning: (title, message) => addToast({ type: "warning", title, message }),
+      info: (title, message) => addToast({ type: "info", title, message }),
+    }),
+    [addToast],
+  );
 
   return (
     <ToastContext.Provider value={ctx}>

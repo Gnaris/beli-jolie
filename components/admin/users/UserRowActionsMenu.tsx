@@ -140,7 +140,10 @@ export default function UserRowActionsMenu({
 
   function openWhatsApp() {
     if (!waNumber) return;
-    window.open(buildWhatsAppUrl(waNumber, ""), "_blank", "noopener,noreferrer");
+    // iOS PWA bloque `window.open` avec `_blank` → on passe par le universal
+    // link `wa.me/...` via `location.href` : iOS bascule vers l'app WhatsApp,
+    // retour dans la PWA via le switcher. Marche aussi en desktop.
+    window.location.href = buildWhatsAppUrl(waNumber, "");
   }
 
   const itemClass =

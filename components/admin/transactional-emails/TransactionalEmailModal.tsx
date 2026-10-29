@@ -80,6 +80,15 @@ export default function TransactionalEmailModal({ scenarioKey, onClose }: Props)
   // Panneau « Guide des variables » (fermé par défaut, dépliable).
   const [varsGuideOpen, setVarsGuideOpen] = useState(false);
 
+  // `toast` est volontairement HORS des deps : il ne sert qu'à afficher une
+  // erreur de chargement et n'a aucune raison de relancer la requête — sinon
+  // chaque notification émise ailleurs dans l'app recharge le modèle et écrase
+  // la saisie en cours.
+  const toastRef = useRef(toast);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
+
   // Charge le template actif à l'ouverture + à chaque changement de locale.
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +102,7 @@ export default function TransactionalEmailModal({ scenarioKey, onClose }: Props)
         setCustomized(data.customized);
       } catch (err) {
         if (!cancelled) {
-          toast.error("Chargement impossible", err instanceof Error ? err.message : String(err));
+          toastRef.current.error("Chargement impossible", err instanceof Error ? err.message : String(err));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -102,7 +111,7 @@ export default function TransactionalEmailModal({ scenarioKey, onClose }: Props)
     return () => {
       cancelled = true;
     };
-  }, [scenarioKey, locale, toast]);
+  }, [scenarioKey, locale]);
 
   const insertToken = useCallback(
     (token: string, target: "subject" | "html" = "html") => {

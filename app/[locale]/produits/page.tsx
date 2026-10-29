@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import { getTranslations, getLocale } from "next-intl/server";
@@ -134,27 +133,6 @@ export default async function ProduitsPage({ searchParams }: PageProps) {
   const minPrice    = minPriceParam ? parseFloat(minPriceParam) : null;
   const maxPrice    = maxPriceParam ? parseFloat(maxPriceParam) : null;
   const exactRef    = exactRefParam === "1";
-
-  // Redirection SEO : ancien lien /produits?cat=X (sans autre filtre) →
-  // /categories/{slug}. Préserve le référencement Google acquis sur les
-  // anciennes URLs pendant que les liens internes migrent vers la nouvelle
-  // page catégorie. Ne redirige que si `cat` est le SEUL filtre : combiné
-  // à un color/composition/etc., on garde le filtre catalogue.
-  // Exception Issyma : la sidebar filtres cliente coche/décoche une catégorie
-  // sur /produits, la cliente veut rester sur /produits avec la grille filtrée
-  // (les fiches catégorie dédiées ne servent pas son parcours).
-  const onlyCatFilter =
-    !!cat &&
-    !q && !subcat && !collection && colorIds.length === 0 && !tagId && !compositionId &&
-    !bestseller_ && !trending_ && !isNew_ && !promo_ && !ordered_ && !notOrdered_ && !hideOos_ &&
-    minPrice === null && maxPrice === null && !exactRef;
-  if (onlyCatFilter && effectiveSlug !== "issyma") {
-    const target = await prisma.category.findFirst({
-      where: { id: cat },
-      select: { slug: true },
-    });
-    if (target?.slug) permanentRedirect(`/${locale}/categories/${target.slug}`);
-  }
 
   const hasFilters = !!(q || cat || subcat || collection || colorIds.length > 0 || tagId || compositionId || bestseller_ || trending_ || isNew_ || promo_ || ordered_ || notOrdered_ || hideOos_ || minPrice !== null || maxPrice !== null || exactRef);
 
