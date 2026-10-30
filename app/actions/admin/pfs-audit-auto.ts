@@ -24,6 +24,7 @@ import {
   KEY_AUTO_PAUSED_AT,
   KEY_AUDIT_AWAITING_PROPAGATIONS,
   MIN_AUTO_INTERVAL_SECONDS,
+  countPendingPfsAuditPropagations,
   resolveIntervalSeconds,
 } from "@/lib/pfs-audit-runner";
 import {
@@ -272,12 +273,11 @@ export async function getPfsAuditNextRunAction(): Promise<
     let awaitingActive = !!awaitingRaw;
     let awaitingCount = 0;
     if (awaitingActive) {
-      awaitingCount = await prisma.marketplaceRefreshJob.count({
-        where: {
-          tenantId: tenant.id,
-          status: { in: ["QUEUED", "IN_PROGRESS"] },
-        },
-      });
+      // Seuls les jobs portant `payload.options.pfsAudit = true` gèlent le
+      // chrono : un push manuel en vol sur « Modification » ou
+      // « Rafraîchissement » ne doit pas bloquer l'audit auto (règle
+      // 2026-10-31).
+      awaitingCount = await countPendingPfsAuditPropagations(tenant.id);
       if (awaitingCount === 0) {
         // Toutes les propagations sont finies — on relance le chrono.
         const newLastRunAt = Date.now();
@@ -409,19 +409,16 @@ export async function triggerPfsAuditIfDueAction(opts?: {
       if (parsed.status === "RUNNING") return { success: true, launched: false };
     } catch { /* état corrompu — safe : on ne lance rien */ return { success: true, launched: false }; }
     // Bloc « en attente des propagations » : on ne relance JAMAIS un audit
-    // tant que les jobs marketplace du précédent tournent encore, même en
-    // force. Sinon on spam des bugs (règle validée cliente 2026-09-08).
+    // tant que les jobs marketplace **du précédent audit** tournent encore,
+    // même en force. Sinon on spam des bugs (règle validée cliente 2026-09-08,
+    // affinée 2026-10-31 : filtre `payload.options.pfsAudit = true` pour
+    // ignorer les pushs manuels en parallèle).
     const awaitingRow = await prisma.siteConfig.findFirst({
       where: { tenantId: tenant.id, key: KEY_AUDIT_AWAITING_PROPAGATIONS },
       select: { value: true },
     });
     if (awaitingRow?.value) {
-      const remaining = await prisma.marketplaceRefreshJob.count({
-        where: {
-          tenantId: tenant.id,
-          status: { in: ["QUEUED", "IN_PROGRESS"] },
-        },
-      });
+      const remaining = await countPendingPfsAuditPropagations(tenant.id);
       if (remaining > 0) return { success: true, launched: false };
     }
     if (!opts?.force) {

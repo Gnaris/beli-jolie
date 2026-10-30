@@ -120,8 +120,34 @@ export const KEY_AUTO_PAUSED_AT = "pfs_audit_auto_paused_at";
  *  marketplace : tant que la valeur est présente, le chrono du prochain audit
  *  auto est figé (règle validée cliente 2026-09-08 : ne pas relancer un audit
  *  tant que les propagations tournent, sinon on spam des bugs).
- *  Effacé quand plus aucun `MarketplaceRefreshJob` QUEUED/IN_PROGRESS. */
+ *  Effacé quand plus aucun `MarketplaceRefreshJob` QUEUED/IN_PROGRESS/
+ *  AWAITING_CALLBACK **avec `payload.options.pfsAudit = true`** (règle 2026-10-31 :
+ *  les jobs manuels en parallèle ne gèlent pas le chrono audit). */
 export const KEY_AUDIT_AWAITING_PROPAGATIONS = "pfs_audit_awaiting_propagations";
+
+/**
+ * Compte les jobs marketplace encore en vol issus d'un audit PFS auto pour un
+ * tenant donné (ceux qui portent `payload.options.pfsAudit = true` dans leur
+ * options). Utilisé par le scheduler et le bandeau chrono pour décider si le
+ * décompte du prochain audit auto doit rester gelé ou repartir.
+ *
+ * On compte uniquement QUEUED/IN_PROGRESS/AWAITING_CALLBACK — FAILED compte
+ * comme « plus en file » parce que l'audit auto s'auto-désactive sur la 1ʳᵉ
+ * erreur ; le chrono bascule alors en « disabled », pas en gel infini.
+ */
+export async function countPendingPfsAuditPropagations(
+  tenantId: string,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ n: bigint | number }>>`
+    SELECT COUNT(*) AS n
+    FROM MarketplaceRefreshJob
+    WHERE tenantId = ${tenantId}
+      AND status IN ('QUEUED', 'IN_PROGRESS', 'AWAITING_CALLBACK')
+      AND JSON_EXTRACT(payload, '$.options.pfsAudit') = TRUE
+  `;
+  const n = rows[0]?.n ?? 0;
+  return typeof n === "bigint" ? Number(n) : n;
+}
 /** Minimum absolu 30 s : évite de saturer PFS si la cliente met tout à zéro par erreur. */
 export const MIN_AUTO_INTERVAL_SECONDS = 30;
 /** Legacy — conservé pour compat de tests / imports historiques. */

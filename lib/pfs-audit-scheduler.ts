@@ -28,6 +28,7 @@ import {
   KEY_AUTO_LAST_RUN_AT,
   KEY_AUTO_PAUSED_AT,
   KEY_AUDIT_AWAITING_PROPAGATIONS,
+  countPendingPfsAuditPropagations,
   resolveIntervalSeconds,
 } from "@/lib/pfs-audit-runner";
 import { purgeOldPfsAuditRuns } from "@/lib/pfs-audit-history";
@@ -106,16 +107,12 @@ async function tickTenant(tenantId: string): Promise<void> {
     }
   }
 
-  // Propagations post-audit encore en cours ? On ne relance pas tant que la
-  // file marketplace n'est pas vide (règle 2026-09-08 : éviter de spam des
-  // bugs pendant qu'un push est en train de finir).
+  // Propagations post-audit encore en cours ? On ne relance pas tant que
+  // l'onglet « Audit PFS » du widget marketplaces n'est pas vide (règle
+  // 2026-09-08 maj 2026-10-31 : seuls les jobs issus de l'audit auto bloquent,
+  // pas les pushs manuels en parallèle).
   if (map.get(KEY_AUDIT_AWAITING_PROPAGATIONS)) {
-    const remaining = await prisma.marketplaceRefreshJob.count({
-      where: {
-        tenantId,
-        status: { in: ["QUEUED", "IN_PROGRESS"] },
-      },
-    });
+    const remaining = await countPendingPfsAuditPropagations(tenantId);
     if (remaining > 0) return;
   }
 
