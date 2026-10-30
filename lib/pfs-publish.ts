@@ -388,9 +388,6 @@ export async function pfsPublishProduct(
     const compositionArray = product.compositions
       .filter((c) => c.composition.pfsCompositionRef)
       .map((c) => ({ id: c.composition.pfsCompositionRef!, value: String(c.percentage) }));
-    if (compositionArray.length === 0) {
-      compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
-    }
 
     const gender = product.category.pfsGender || PFS_DEFAULTS.gender;
     const family = product.category.pfsFamilyId || PFS_DEFAULTS.family;

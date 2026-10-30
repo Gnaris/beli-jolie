@@ -427,9 +427,6 @@ export async function pfsRefreshProduct(
     const compositionArray = product.compositions
       .filter((c) => c.composition.pfsCompositionRef)
       .map((c) => ({ id: c.composition.pfsCompositionRef!, value: String(c.percentage) }));
-    if (compositionArray.length === 0) {
-      compositionArray.push({ id: "ACIERINOXYDABLE", value: "100" });
-    }
 
     // ── Auto-resolve missing PFS IDs from names ──
     if (!product.category.pfsCategoryId || !product.category.pfsFamilyId) {

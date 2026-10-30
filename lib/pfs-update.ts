@@ -411,9 +411,6 @@ function buildProductFieldsSnapshot(
   const composition = product.compositions
     .filter((c) => c.composition.pfsCompositionRef)
     .map((c) => ({ id: c.composition.pfsCompositionRef!, value: Number(c.percentage) }));
-  if (composition.length === 0) {
-    composition.push({ id: "ACIERINOXYDABLE", value: 100 });
-  }
   return {
     reference: product.reference,
     nameSource: product.name,
