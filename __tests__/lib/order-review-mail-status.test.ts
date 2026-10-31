@@ -80,4 +80,36 @@ describe("computeReviewMailStatus", () => {
     );
     expect(r.kind).toBe("sent");
   });
+
+  it("renvoie 'none' pour une SHIPPED en cours de délai quand la relance est désactivée", () => {
+    const shippedAt = new Date("2026-10-24T12:00:00Z");
+    const r = computeReviewMailStatus(
+      { status: "SHIPPED", shippedAt, reviewRequestEmailSentAt: null, enabled: false },
+      NOW,
+    );
+    expect(r.kind).toBe("none");
+  });
+
+  it("renvoie 'none' pour une SHIPPED imminente quand la relance est désactivée", () => {
+    const shippedAt = new Date("2026-10-15T12:00:00Z");
+    const r = computeReviewMailStatus(
+      { status: "SHIPPED", shippedAt, reviewRequestEmailSentAt: null, enabled: false },
+      NOW,
+    );
+    expect(r.kind).toBe("none");
+  });
+
+  it("garde 'sent' si le mail a déjà été envoyé même après désactivation", () => {
+    const sentAt = new Date("2026-10-25T12:00:00Z");
+    const r = computeReviewMailStatus(
+      {
+        status: "SHIPPED",
+        shippedAt: new Date("2026-10-10T00:00:00Z"),
+        reviewRequestEmailSentAt: sentAt,
+        enabled: false,
+      },
+      NOW,
+    );
+    expect(r.kind).toBe("sent");
+  });
 });

@@ -20,10 +20,12 @@ export function computeReviewMailStatus(order: {
   status: string;
   shippedAt: Date | null;
   reviewRequestEmailSentAt: Date | null;
+  enabled?: boolean;
 }, now: Date = new Date()): OrderReviewMailStatus {
   if (order.reviewRequestEmailSentAt) {
     return { kind: "sent", sentAt: order.reviewRequestEmailSentAt };
   }
+  if (order.enabled === false) return { kind: "none" };
   if (order.status !== "SHIPPED") return { kind: "none" };
   if (!order.shippedAt) return { kind: "none" };
 

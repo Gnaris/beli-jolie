@@ -11,6 +11,7 @@ import MarketplacesOrdersView from "@/components/admin/orders/marketplace/Market
 import { getMarketplaceSyncMeta } from "@/app/actions/admin/marketplace-orders";
 import LiveAdminRefresh from "@/components/admin/LiveAdminRefresh";
 import { computeReviewMailStatus } from "@/lib/order-review-mail-status";
+import { ORDER_FOLLOWUP_REVIEW_ENABLED_KEY } from "@/lib/order-followup-config";
 
 export const metadata: Metadata = { title: "Commandes — Admin" };
 
@@ -144,6 +145,12 @@ export default async function AdminCommandesPage({
     where: { order: { status: "SHIPPED", createdAt: { gte: startOfMonth } } },
     _sum: { quantity: true },
   });
+
+  const followupToggle = await prisma.siteConfig.findFirst({
+    where: { key: ORDER_FOLLOWUP_REVIEW_ENABLED_KEY },
+    select: { value: true },
+  });
+  const reviewMailEnabled = followupToggle?.value === "true";
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count]));
   const totalAllStatuses = Object.values(countMap).reduce((a, b) => a + b, 0);
@@ -377,6 +384,7 @@ export default async function AdminCommandesPage({
                 status: order.status,
                 shippedAt: order.shippedAt,
                 reviewRequestEmailSentAt: order.reviewRequestEmailSentAt,
+                enabled: reviewMailEnabled,
               });
 
               return (
